@@ -88,8 +88,11 @@ class AbstractAssistantApp:
         
     def create_system_tray_icon(self) -> pystray.Icon:
         """Create and configure the system tray icon."""
-        # Generate a modern, clean icon
-        icon_image = self.icon_generator.create_app_icon()
+        # Generate a modern, clean icon - start with ready state (green, steady)
+        icon_image = self.icon_generator.create_app_icon(
+            color_scheme="green",  # Ready state: steady green
+            animated=False         # Ready state: no animation
+        )
         
         if self.debug:
             print("🔄 Creating custom system tray icon with direct click handler")
@@ -101,6 +104,91 @@ class AbstractAssistantApp:
             "AbstractAssistant - AI at your fingertips",
             click_handler=self.show_chat_bubble
         )
+    
+    def update_icon_status(self, status: str):
+        """Update the system tray icon based on application status.
+        
+        Args:
+            status: 'ready', 'generating', 'executing', 'thinking'
+        """
+        if not self.icon:
+            return
+            
+        try:
+            if status == "ready":
+                # Ready: steady green
+                icon_image = self.icon_generator.create_app_icon(
+                    color_scheme="green",
+                    animated=False
+                )
+                # Stop any working animation timer
+                self._stop_working_animation()
+            elif status in ["generating", "executing", "thinking"]:
+                # Working: start continuous animation with cycling colors
+                self._start_working_animation()
+                return  # Don't update icon here, let the timer handle it
+            else:
+                # Default: steady green
+                icon_image = self.icon_generator.create_app_icon(
+                    color_scheme="green",
+                    animated=False
+                )
+            
+            # Update the icon
+            self.icon.icon = icon_image
+            
+            if self.debug:
+                print(f"🎨 Updated icon status to: {status}")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error updating icon status: {e}")
+    
+    def _start_working_animation(self):
+        """Start the working animation timer for continuous icon updates."""
+        try:
+            import threading
+            import time
+            
+            # Stop any existing timer
+            self._stop_working_animation()
+            
+            # Create a timer that updates the icon every 500ms for smooth animation
+            def update_working_icon():
+                if self.icon:
+                    try:
+                        icon_image = self.icon_generator.create_app_icon(
+                            color_scheme="working",
+                            animated=True
+                        )
+                        self.icon.icon = icon_image
+                    except Exception as e:
+                        if self.debug:
+                            print(f"❌ Error updating working icon: {e}")
+            
+            # Use a simple timer approach
+            def timer_loop():
+                while hasattr(self, 'working_active') and self.working_active:
+                    update_working_icon()
+                    time.sleep(0.5)  # Update every 500ms
+            
+            self.working_active = True
+            self.working_timer = threading.Thread(target=timer_loop, daemon=True)
+            self.working_timer.start()
+            
+            if self.debug:
+                print("🎨 Started working animation")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error starting working animation: {e}")
+    
+    def _stop_working_animation(self):
+        """Stop the working animation."""
+        if hasattr(self, 'working_active'):
+            self.working_active = False
+        if self.debug:
+            print("🎨 Stopped working animation")
     
     def show_chat_bubble(self, icon=None, item=None):
         """Show the Qt chat bubble interface."""
@@ -123,6 +211,7 @@ class AbstractAssistantApp:
                     # Set up callbacks for responses and errors
                     self.bubble_manager.set_response_callback(self.handle_bubble_response)
                     self.bubble_manager.set_error_callback(self.handle_bubble_error)
+                    self.bubble_manager.set_status_callback(self.update_icon_status)
                     
                     if self.debug:
                         print("✅ Qt bubble manager created successfully")
@@ -168,6 +257,9 @@ class AbstractAssistantApp:
         """Handle AI response from bubble."""
         if self.debug:
             print(f"🔄 App: handle_bubble_response called with: {response[:100]}...")
+        
+        # Update icon back to ready state (steady green)
+        self.update_icon_status("ready")
         
         # Show toast notification with response
         self.show_toast_notification(response, "success")

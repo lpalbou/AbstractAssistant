@@ -93,6 +93,7 @@ class QtChatBubble(QWidget):
         # Callbacks
         self.response_callback = None
         self.error_callback = None
+        self.status_callback = None  # New callback for status updates
         
         # Worker thread
         self.worker = None
@@ -113,46 +114,35 @@ class QtChatBubble(QWidget):
             Qt.WindowType.Tool
         )
         
-        # Set optimal size for modern chat interface
-        self.resize(420, 280)
+        # Set optimal size for modern chat interface - wider and shorter
+        self.resize(540, 280)
         self.position_near_tray()
         
-        # Main layout with proper spacing
+        # Main layout with optimized spacing
         layout = QVBoxLayout()
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 8, 16, 16)  # Reduced top margin
+        layout.setSpacing(10)  # Tighter spacing for better density
         
-        # Header section with branding
+        # Compact header - status only (remove redundant title)
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setContentsMargins(4, 0, 4, 0)
         
-        # App title with modern typography
-        title_label = QLabel("AbstractAssistant")
-        title_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.95);
-                font-size: 14px;
-                font-weight: 600;
-                font-family: system-ui, -apple-system, sans-serif;
-                letter-spacing: -0.3px;
-            }
-        """)
-        header_layout.addWidget(title_label)
         header_layout.addStretch()
         
-        # Status indicator with modern design
-        self.status_label = QLabel("ready")
+        # Status indicator - larger and more prominent
+        self.status_label = QLabel("READY")
         self.status_label.setObjectName("status_ready")
         self.status_label.setStyleSheet("""
             QLabel {
-                background: rgba(166, 227, 161, 0.2);
-                border: 1px solid rgba(166, 227, 161, 0.3);
-                border-radius: 8px;
-                padding: 2px 8px;
-                font-size: 9px;
-                font-weight: 600;
+                background: rgba(166, 227, 161, 0.25);
+                border: 1px solid rgba(166, 227, 161, 0.4);
+                border-radius: 12px;
+                padding: 6px 16px;
+                font-size: 11px;
+                font-weight: 700;
                 text-transform: uppercase;
-                letter-spacing: 0.3px;
+                letter-spacing: 1px;
+                color: #a6e3a1;
             }
         """)
         header_layout.addWidget(self.status_label)
@@ -177,27 +167,29 @@ class QtChatBubble(QWidget):
         input_row = QHBoxLayout()
         input_row.setSpacing(8)
         
-        # Text input - takes most space
+        # Text input - larger, primary focus
         self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
-        self.input_text.setMaximumHeight(140)
-        self.input_text.setMinimumHeight(100)
+        self.input_text.setMaximumHeight(180)  # Increased from 140
+        self.input_text.setMinimumHeight(120)  # Increased from 100
         input_row.addWidget(self.input_text)
         
-        # Send button as small icon
+        # Send button - larger and more prominent
         self.send_button = QPushButton("→")
         self.send_button.clicked.connect(lambda: self.debug_send_message("button"))
-        self.send_button.setFixedSize(40, 40)
+        self.send_button.setFixedSize(50, 50)  # Increased from 40x40
         self.send_button.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #667eea,
                     stop:1 #764ba2);
                 border: none;
-                border-radius: 20px;
-                font-size: 18px;
+                border-radius: 25px;
+                font-size: 18px;  /* Reduced to prevent truncation */
                 font-weight: bold;
                 color: white;
+                text-align: center;  /* Ensure proper centering */
+                padding: 0px;  /* Remove any padding that might cause truncation */
             }
             
             QPushButton:hover {
@@ -240,34 +232,36 @@ class QtChatBubble(QWidget):
         controls_row = QHBoxLayout()
         controls_row.setSpacing(12)
         
-        # Provider dropdown - taller
+        # Provider dropdown - larger and more accessible
         self.provider_combo = QComboBox()
         self.provider_combo.currentTextChanged.connect(self.on_provider_changed)
-        self.provider_combo.setMinimumWidth(80)
-        self.provider_combo.setMinimumHeight(32)
+        self.provider_combo.setMinimumWidth(110)  # Increased from 80
+        self.provider_combo.setMinimumHeight(40)  # Increased from 32
         controls_row.addWidget(self.provider_combo)
         
-        # Model dropdown - taller  
+        # Model dropdown - larger and more accessible
         self.model_combo = QComboBox()
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
-        self.model_combo.setMinimumWidth(100)
-        self.model_combo.setMinimumHeight(32)
+        self.model_combo.setMinimumWidth(130)  # Increased from 100
+        self.model_combo.setMinimumHeight(40)  # Increased from 32
         controls_row.addWidget(self.model_combo)
         
-        # Token info - taller to match dropdowns
+        # Token info - larger to match dropdowns
         self.token_label = QLabel("0 / 128k")
         self.token_label.setObjectName("token_label")
-        self.token_label.setMinimumHeight(32)
+        self.token_label.setMinimumHeight(40)  # Match dropdown height
+        self.token_label.setMinimumWidth(90)   # Set minimum width
         self.token_label.setStyleSheet("""
             QLabel {
                 background: #2d3748;
                 border: 1px solid #4a5568;
-                border-radius: 6px;
-                padding: 8px 12px;
+                border-radius: 8px;
+                padding: 10px 14px;  /* Increased padding */
                 font-family: 'SF Mono', Monaco, monospace;
-                font-size: 10px;
-                font-weight: 500;
+                font-size: 12px;  /* Increased from 10px */
+                font-weight: 600;  /* Increased from 500 */
                 color: #ffffff;
+                text-align: center;
             }
         """)
         controls_row.addWidget(self.token_label)
@@ -360,11 +354,11 @@ class QtChatBubble(QWidget):
             QComboBox {
                 background: #2d3748;
                 border: 1px solid #4a5568;
-                border-radius: 6px;
-                padding: 4px 8px;
+                border-radius: 8px;
+                padding: 8px 12px;  /* Increased padding */
                 min-width: 80px;
-                font-size: 11px;
-                font-weight: 500;
+                font-size: 13px;  /* Increased from 11px */
+                font-weight: 600;  /* Increased from 500 */
                 color: #ffffff;
                 font-family: system-ui, -apple-system, sans-serif;
             }
@@ -398,9 +392,10 @@ class QtChatBubble(QWidget):
             }
             
             QComboBox QAbstractItemView::item {
-                height: 32px;
-                padding: 8px 12px;
+                height: 40px;  /* Increased from 32px */
+                padding: 12px 16px;  /* Increased padding */
                 border: none;
+                font-size: 13px;  /* Larger text */
             }
             
             QComboBox QAbstractItemView::item:selected {
@@ -620,6 +615,10 @@ class QtChatBubble(QWidget):
             }
         """)
         
+        # Notify main app about status change (for icon animation)
+        if self.status_callback:
+            self.status_callback("generating")
+        
         print("🔄 QtChatBubble: UI updated, creating worker thread...")
         
         # Start worker thread
@@ -731,6 +730,10 @@ class QtChatBubble(QWidget):
         """Set error callback."""
         self.error_callback = callback
     
+    def set_status_callback(self, callback):
+        """Set status callback function."""
+        self.status_callback = callback
+    
     def closeEvent(self, event):
         """Handle close event."""
         if self.worker and self.worker.isRunning():
@@ -751,6 +754,7 @@ class QtBubbleManager:
         self.bubble = None
         self.response_callback = None
         self.error_callback = None
+        self.status_callback = None
         
         if not QT_AVAILABLE:
             raise RuntimeError("No Qt library available. Install PyQt5, PySide2, or PyQt6")
@@ -775,6 +779,8 @@ class QtBubbleManager:
                 self.bubble.set_response_callback(self.response_callback)
             if self.error_callback:
                 self.bubble.set_error_callback(self.error_callback)
+            if self.status_callback:
+                self.bubble.set_status_callback(self.status_callback)
         
         self.bubble.show()
         self.bubble.raise_()
@@ -811,3 +817,9 @@ class QtBubbleManager:
         self.error_callback = callback
         if self.bubble:
             self.bubble.set_error_callback(callback)
+    
+    def set_status_callback(self, callback):
+        """Set status callback."""
+        self.status_callback = callback
+        if self.bubble:
+            self.bubble.set_status_callback(callback)

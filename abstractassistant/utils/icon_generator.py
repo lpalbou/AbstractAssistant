@@ -19,8 +19,13 @@ class IconGenerator:
         """
         self.size = size
         
-    def create_app_icon(self) -> Image.Image:
-        """Create the main application icon with a modern, AI-inspired design."""
+    def create_app_icon(self, color_scheme: str = "blue", animated: bool = False) -> Image.Image:
+        """Create the main application icon with a modern, AI-inspired design.
+        
+        Args:
+            color_scheme: Color scheme ('blue', 'green', 'purple', 'orange', 'red')
+            animated: Whether to create an animated version (adds subtle pulse effect)
+        """
         # Create base image with transparency
         img = Image.new('RGBA', (self.size, self.size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
@@ -30,39 +35,80 @@ class IconGenerator:
         radius = int(self.size * 0.35)
         
         # Create gradient background circle (neural network inspired)
-        self._draw_gradient_circle(draw, center, radius)
+        self._draw_gradient_circle(draw, center, radius, color_scheme, animated)
         
         # Add neural network nodes
-        self._draw_neural_nodes(draw, center, radius)
+        self._draw_neural_nodes(draw, center, radius, animated)
         
         # Add connecting lines
-        self._draw_neural_connections(draw, center, radius)
+        self._draw_neural_connections(draw, center, radius, animated)
         
         # Apply subtle glow effect
-        img = self._add_glow_effect(img)
+        img = self._add_glow_effect(img, color_scheme)
         
         return img
     
-    def _draw_gradient_circle(self, draw: ImageDraw.Draw, center: int, radius: int):
-        """Draw a gradient circle background."""
-        # Main circle with subtle gradient effect
+    def _draw_gradient_circle(self, draw: ImageDraw.Draw, center: int, radius: int, color_scheme: str = "blue", animated: bool = False):
+        """Draw a gradient circle background with color options."""
+        # Color schemes
+        colors = {
+            "blue": (100, 150, 255),
+            "green": (100, 255, 150),
+            "purple": (180, 100, 255),
+            "orange": (255, 150, 100),
+            "red": (255, 100, 120),
+            "cyan": (100, 255, 255),
+            "yellow": (255, 255, 100)
+        }
+        
+        # Special working mode: cycle between purple, orange, and yellow
+        if color_scheme == "working":
+            import time
+            # Cycle every 2 seconds between the three colors
+            cycle_time = time.time() % 6  # 6 seconds total cycle
+            if cycle_time < 2:
+                base_color = colors["purple"]
+            elif cycle_time < 4:
+                base_color = colors["orange"]
+            else:
+                base_color = colors["yellow"]
+        else:
+            base_color = colors.get(color_scheme, colors["blue"])
+        
+        # Animation effect - subtle pulse
+        intensity = 0.8
+        if animated:
+            import time
+            pulse = abs(math.sin(time.time() * 2)) * 0.3 + 0.7  # Pulse between 0.7 and 1.0
+            intensity *= pulse
+        
+        # Main circle with gradient effect
         for i in range(radius):
-            alpha = int(255 * (1 - i / radius) * 0.8)
-            color = (100, 150, 255, alpha)  # Blue gradient
+            alpha = int(255 * (1 - i / radius) * intensity)
+            color = (*base_color, alpha)
             draw.ellipse(
                 [center - radius + i, center - radius + i,
                  center + radius - i, center + radius - i],
                 fill=color
             )
     
-    def _draw_neural_nodes(self, draw: ImageDraw.Draw, center: int, radius: int):
+    def _draw_neural_nodes(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
         """Draw neural network-style nodes."""
+        # Animation effect for nodes
+        node_alpha = 200
+        small_node_alpha = 150
+        if animated:
+            import time
+            pulse = abs(math.sin(time.time() * 3)) * 0.4 + 0.6  # Pulse between 0.6 and 1.0
+            node_alpha = int(node_alpha * pulse)
+            small_node_alpha = int(small_node_alpha * pulse)
+        
         # Central node (larger)
         node_radius = int(radius * 0.15)
         draw.ellipse(
             [center - node_radius, center - node_radius,
              center + node_radius, center + node_radius],
-            fill=(255, 255, 255, 200)
+            fill=(255, 255, 255, node_alpha)
         )
         
         # Surrounding nodes
@@ -78,13 +124,22 @@ class IconGenerator:
             draw.ellipse(
                 [x - small_radius, y - small_radius,
                  x + small_radius, y + small_radius],
-                fill=(255, 255, 255, 150)
+                fill=(255, 255, 255, small_node_alpha)
             )
     
-    def _draw_neural_connections(self, draw: ImageDraw.Draw, center: int, radius: int):
+    def _draw_neural_connections(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
         """Draw connections between neural nodes."""
         num_nodes = 6
         outer_radius = int(radius * 0.7)
+        
+        # Animation effect for connections
+        line_alpha = 100
+        connection_alpha = 60
+        if animated:
+            import time
+            pulse = abs(math.sin(time.time() * 2.5)) * 0.5 + 0.5  # Pulse between 0.5 and 1.0
+            line_alpha = int(line_alpha * pulse)
+            connection_alpha = int(connection_alpha * pulse)
         
         # Draw lines from center to outer nodes
         for i in range(num_nodes):
@@ -94,7 +149,7 @@ class IconGenerator:
             
             draw.line(
                 [center, center, x, y],
-                fill=(255, 255, 255, 100),
+                fill=(255, 255, 255, line_alpha),
                 width=2
             )
         
@@ -110,11 +165,11 @@ class IconGenerator:
             
             draw.line(
                 [x1, y1, x2, y2],
-                fill=(255, 255, 255, 60),
+                fill=(255, 255, 255, connection_alpha),
                 width=1
             )
     
-    def _add_glow_effect(self, img: Image.Image) -> Image.Image:
+    def _add_glow_effect(self, img: Image.Image, color_scheme: str = "blue") -> Image.Image:
         """Add a subtle glow effect to the icon."""
         # Create a slightly larger version for the glow
         glow_size = self.size + 8
