@@ -17,6 +17,44 @@ from .utils.icon_generator import IconGenerator
 from .config import Config
 
 
+class ClickableIcon(pystray.Icon):
+    """Custom pystray Icon that handles direct clicks without menu."""
+    
+    def __init__(self, name, image, text=None, click_handler=None):
+        # Store our handler before calling super().__init__
+        self.click_handler = click_handler
+        self._stored_menu = None
+        print(f"🔄 ClickableIcon created with handler: {click_handler is not None}")
+        
+        # Create with no menu initially
+        super().__init__(name, image, text, menu=None)
+    
+    @property
+    def _menu(self):
+        """Override _menu property to intercept access and launch chat bubble."""
+        print(f"🔍 _menu property accessed!")
+        
+        if self.click_handler:
+            print("✅ Intercepting _menu property access, launching chat bubble!")
+            # Call handler directly in main thread (Qt requirement)
+            try:
+                self.click_handler()
+            except Exception as e:
+                print(f"❌ Click handler error: {e}")
+            
+            # Return None so no menu is displayed
+            return None
+        
+        # Fall back to stored menu
+        return self._stored_menu
+    
+    @_menu.setter
+    def _menu(self, value):
+        """Allow setting _menu during initialization."""
+        print(f"🔍 _menu property set to: {value}")
+        self._stored_menu = value
+
+
 class AbstractAssistantApp:
     """Main application class coordinating all components."""
     
@@ -53,24 +91,15 @@ class AbstractAssistantApp:
         # Generate a modern, clean icon
         icon_image = self.icon_generator.create_app_icon()
         
-        # Simple menu with just Open Chat and Quit
-        menu = pystray.Menu(
-            pystray.MenuItem("Open Chat", self.show_chat_bubble, default=True),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Sessions", pystray.Menu(
-                pystray.MenuItem("Clear Session", self.clear_session),
-                pystray.MenuItem("Save Session...", self.save_session),
-                pystray.MenuItem("Load Session...", self.load_session)
-            )),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", self.quit_application)
-        )
+        if self.debug:
+            print("🔄 Creating custom system tray icon with direct click handler")
         
-        return pystray.Icon(
+        # Use our custom ClickableIcon for direct click handling
+        return ClickableIcon(
             "AbstractAssistant",
             icon_image,
             "AbstractAssistant - AI at your fingertips",
-            menu=menu
+            click_handler=self.show_chat_bubble
         )
     
     def show_chat_bubble(self, icon=None, item=None):
