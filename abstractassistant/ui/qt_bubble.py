@@ -115,7 +115,7 @@ class QtChatBubble(QWidget):
         )
         
         # Set optimal size for modern chat interface - wider and shorter
-        self.resize(540, 280)
+        self.resize(540, 260)  # Reduced from 280 to 260
         self.position_near_tray()
         
         # Main layout with optimized spacing
@@ -221,16 +221,16 @@ class QtChatBubble(QWidget):
                 background: #374151;
                 border: 2px solid #4a5568;
                 border-radius: 16px;
-                padding: 8px;
+                padding: 4px;  /* Reduced from 8px to 4px */
             }
         """)
         controls_layout = QVBoxLayout(controls_container)
-        controls_layout.setContentsMargins(12, 8, 12, 8)
-        controls_layout.setSpacing(8)
+        controls_layout.setContentsMargins(8, 4, 8, 4)  # Reduced from (12, 8, 12, 8)
+        controls_layout.setSpacing(6)  # Reduced from 8 to 6
         
         # Compact single row for provider, model, and tokens
         controls_row = QHBoxLayout()
-        controls_row.setSpacing(12)
+        controls_row.setSpacing(8)  # Reduced from 12 to 8
         
         # Provider dropdown - larger and more accessible
         self.provider_combo = QComboBox()

@@ -9,10 +9,26 @@ import sys
 from typing import Optional
 import pyperclip
 
+# Import markdown renderer
+try:
+    from ..utils.markdown_renderer import render_markdown
+    MARKDOWN_AVAILABLE = True
+except ImportError:
+    try:
+        # Try absolute import as fallback
+        from abstractassistant.utils.markdown_renderer import render_markdown
+        MARKDOWN_AVAILABLE = True
+    except ImportError:
+        MARKDOWN_AVAILABLE = False
+        def render_markdown(text):
+            return f"<pre>{text}</pre>"
+
+print(f"🔍 Toast Window: MARKDOWN_AVAILABLE = {MARKDOWN_AVAILABLE}")
+
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-        QTextEdit, QPushButton, QLabel, QFrame, QScrollArea
+        QTextEdit, QTextBrowser, QPushButton, QLabel, QFrame, QScrollArea
     )
     from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QEasingCurve
     from PyQt5.QtGui import QFont, QPalette, QColor, QTextCursor
@@ -21,7 +37,7 @@ except ImportError:
     try:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-            QTextEdit, QPushButton, QLabel, QFrame, QScrollArea
+            QTextEdit, QTextBrowser, QPushButton, QLabel, QFrame, QScrollArea
         )
         from PySide2.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QEasingCurve
         from PySide2.QtGui import QFont, QPalette, QColor, QTextCursor
@@ -39,10 +55,10 @@ class ToastWindow(QWidget):
         self.debug = debug
         self.is_expanded = False
         
-        # Window properties - doubled height as requested
+        # Window properties - doubled height and increased width by 50%
         self.collapsed_height = 240  # Was 120, now doubled
         self.expanded_height = 800   # Was 400, now doubled
-        self.window_width = 350
+        self.window_width = 525      # Was 350, now increased by 50%
         
         self.setup_window()
         self.setup_ui()
@@ -103,18 +119,36 @@ class ToastWindow(QWidget):
         
         layout.addLayout(header_layout)
         
-        # Message content (scrollable)
-        self.content_area = QTextEdit()
+        # Message content (scrollable) with markdown rendering
+        self.content_area = QTextBrowser()
         self.content_area.setReadOnly(True)
         self.content_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.content_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.content_area.setFont(QFont("SF Pro Text", 11))
+        self.content_area.setFont(QFont("SF Pro Text", 14))  # Increased from 11 to 14
         
-        # Set the message content
-        self.content_area.setPlainText(self.message)
+        # Configure QTextBrowser for proper HTML rendering
+        self.content_area.setOpenExternalLinks(False)  # Don't open external links
+        self.content_area.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
         
-        # Make content area clickable to expand
-        self.content_area.mousePressEvent = self.toggle_expand
+        # Set the message content with markdown rendering
+        if MARKDOWN_AVAILABLE:
+            try:
+                html_content = render_markdown(self.message)
+                self.content_area.setHtml(html_content)
+                if self.debug:
+                    print(f"🎨 Markdown rendered successfully, HTML length: {len(html_content)}")
+                    print(f"🎨 HTML preview: {html_content[:200]}...")
+                    print(f"🎨 Message preview: {self.message[:100]}...")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Markdown rendering failed: {e}")
+                self.content_area.setPlainText(self.message)
+        else:
+            if self.debug:
+                print("❌ Markdown not available, using plain text")
+            self.content_area.setPlainText(self.message)
+        
+        # Content area is read-only, no click-to-expand (only close button closes)
         
         layout.addWidget(self.content_area)
         
@@ -152,12 +186,12 @@ class ToastWindow(QWidget):
                 background-color: #585b70;
             }
             
-            QTextEdit {
-                background-color: #313244;
-                border: 1px solid #45475a;
+            QTextBrowser {
+                background-color: #1a202c;
+                border: 1px solid #4a5568;
                 border-radius: 8px;
-                padding: 8px;
-                color: #cdd6f4;
+                padding: 12px;
+                color: #e2e8f0;
                 selection-background-color: #74c7ec;
             }
             
@@ -244,15 +278,7 @@ class ToastWindow(QWidget):
             if self.debug:
                 print(f"❌ Failed to copy to clipboard: {e}")
     
-    def mousePressEvent(self, event):
-        """Handle mouse press for dragging or expanding."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            # Check if click is in content area (for expanding)
-            content_rect = self.content_area.geometry()
-            if content_rect.contains(event.pos()):
-                self.toggle_expand()
-        
-        super().mousePressEvent(event)
+    # Removed mousePressEvent to prevent accidental closing
 
 
 class ToastManager:
@@ -295,6 +321,9 @@ class ToastManager:
             self.current_toast.hide_toast()
 
 
+# Global reference to keep toast windows alive and prevent garbage collection
+_active_toasts = []
+
 # Standalone function to show a toast (can be called from anywhere)
 def show_toast_notification(message: str, debug: bool = False):
     """Standalone function to show a toast notification - stays visible until manually closed."""
@@ -306,10 +335,28 @@ def show_toast_notification(message: str, debug: bool = False):
         
         # Create and show toast (no auto-hide)
         toast = ToastWindow(message, debug=debug)
+        
+        # Keep a global reference to prevent garbage collection
+        _active_toasts.append(toast)
+        
+        # Connect close event to remove from active list
+        def on_toast_closed():
+            if toast in _active_toasts:
+                _active_toasts.remove(toast)
+            if debug:
+                print(f"🍞 Toast removed from active list, {len(_active_toasts)} remaining")
+        
+        # Override the hide_toast method to call our cleanup
+        original_hide = toast.hide_toast
+        def hide_with_cleanup():
+            original_hide()
+            on_toast_closed()
+        toast.hide_toast = hide_with_cleanup
+        
         toast.show_toast()
         
         if debug:
-            print(f"🍞 Standalone toast shown: {message[:50]}...")
+            print(f"🍞 Standalone toast shown: {message[:50]}... (Active toasts: {len(_active_toasts)})")
         
         return toast
         
