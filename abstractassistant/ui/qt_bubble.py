@@ -105,7 +105,7 @@ class QtChatBubble(QWidget):
             print("✅ QtChatBubble initialized")
     
     def setup_ui(self):
-        """Set up the user interface."""
+        """Set up the modern user interface with SOTA UX practices."""
         self.setWindowTitle("AbstractAssistant")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
@@ -113,65 +113,168 @@ class QtChatBubble(QWidget):
             Qt.WindowType.Tool
         )
         
-        # Set size and position
-        self.resize(400, 300)
+        # Set optimal size for modern chat interface
+        self.resize(420, 280)
         self.position_near_tray()
         
-        # Main layout
+        # Main layout with proper spacing
         layout = QVBoxLayout()
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
         
-        # Input area
+        # Header section with branding
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # App title with modern typography
+        title_label = QLabel("AbstractAssistant")
+        title_label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.95);
+                font-size: 14px;
+                font-weight: 600;
+                font-family: system-ui, -apple-system, sans-serif;
+                letter-spacing: -0.3px;
+            }
+        """)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        
+        # Status indicator with modern design
+        self.status_label = QLabel("ready")
+        self.status_label.setObjectName("status_ready")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background: rgba(166, 227, 161, 0.2);
+                border: 1px solid rgba(166, 227, 161, 0.3);
+                border-radius: 8px;
+                padding: 2px 8px;
+                font-size: 9px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+            }
+        """)
+        header_layout.addWidget(self.status_label)
+        
+        layout.addLayout(header_layout)
+        
+        # Input section with modern card design
+        input_container = QFrame()
+        input_container.setStyleSheet("""
+            QFrame {
+                background: #374151;
+                border: 2px solid #4a5568;
+                border-radius: 18px;
+                padding: 4px;
+            }
+        """)
+        input_layout = QVBoxLayout(input_container)
+        input_layout.setContentsMargins(8, 8, 8, 8)
+        input_layout.setSpacing(8)
+        
+        # Input field with inline send button
+        input_row = QHBoxLayout()
+        input_row.setSpacing(8)
+        
+        # Text input - takes most space
         self.input_text = QTextEdit()
-        self.input_text.setPlaceholderText("Ask me anything...")
-        self.input_text.setMaximumHeight(100)
-        self.input_text.setFont(QFont("SF Pro Text", 14))
-        layout.addWidget(self.input_text)
+        self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
+        self.input_text.setMaximumHeight(140)
+        self.input_text.setMinimumHeight(100)
+        input_row.addWidget(self.input_text)
         
-        # Send button
-        self.send_button = QPushButton("Send")
-        self.send_button.setFont(QFont("SF Pro Text", 12, QFont.Weight.Bold))
+        # Send button as small icon
+        self.send_button = QPushButton("→")
         self.send_button.clicked.connect(lambda: self.debug_send_message("button"))
-        layout.addWidget(self.send_button)
+        self.send_button.setFixedSize(40, 40)
+        self.send_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #667eea,
+                    stop:1 #764ba2);
+                border: none;
+                border-radius: 20px;
+                font-size: 18px;
+                font-weight: bold;
+                color: white;
+            }
+            
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #5a6fd8,
+                    stop:1 #6a4190);
+            }
+            
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4e63c6,
+                    stop:1 #5e397e);
+            }
+            
+            QPushButton:disabled {
+                background: rgba(255, 255, 255, 0.1);
+                color: rgba(255, 255, 255, 0.4);
+            }
+        """)
+        input_row.addWidget(self.send_button)
         
-        # Controls section
-        controls_frame = QFrame()
-        controls_layout = QHBoxLayout(controls_frame)
-        controls_layout.setContentsMargins(0, 10, 0, 0)
+        input_layout.addLayout(input_row)
+        layout.addWidget(input_container)
         
-        # Provider dropdown
+        # Controls section with card design
+        controls_container = QFrame()
+        controls_container.setStyleSheet("""
+            QFrame {
+                background: #374151;
+                border: 2px solid #4a5568;
+                border-radius: 16px;
+                padding: 8px;
+            }
+        """)
+        controls_layout = QVBoxLayout(controls_container)
+        controls_layout.setContentsMargins(12, 8, 12, 8)
+        controls_layout.setSpacing(8)
+        
+        # Compact single row for provider, model, and tokens
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(12)
+        
+        # Provider dropdown - taller
         self.provider_combo = QComboBox()
         self.provider_combo.currentTextChanged.connect(self.on_provider_changed)
-        controls_layout.addWidget(QLabel("Provider:"))
-        controls_layout.addWidget(self.provider_combo)
+        self.provider_combo.setMinimumWidth(80)
+        self.provider_combo.setMinimumHeight(32)
+        controls_row.addWidget(self.provider_combo)
         
-        # Separator
-        controls_layout.addWidget(QLabel("|"))
-        
-        # Model dropdown
+        # Model dropdown - taller  
         self.model_combo = QComboBox()
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
-        controls_layout.addWidget(QLabel("Model:"))
-        controls_layout.addWidget(self.model_combo)
+        self.model_combo.setMinimumWidth(100)
+        self.model_combo.setMinimumHeight(32)
+        controls_row.addWidget(self.model_combo)
         
-        # Separator
-        controls_layout.addWidget(QLabel("|"))
+        # Token info - taller to match dropdowns
+        self.token_label = QLabel("0 / 128k")
+        self.token_label.setObjectName("token_label")
+        self.token_label.setMinimumHeight(32)
+        self.token_label.setStyleSheet("""
+            QLabel {
+                background: #2d3748;
+                border: 1px solid #4a5568;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-family: 'SF Mono', Monaco, monospace;
+                font-size: 10px;
+                font-weight: 500;
+                color: #ffffff;
+            }
+        """)
+        controls_row.addWidget(self.token_label)
+        controls_row.addStretch()
         
-        # Token info
-        self.token_label = QLabel("0 / 128k tk")
-        self.token_label.setFont(QFont("SF Mono", 10))
-        controls_layout.addWidget(self.token_label)
-        
-        # Separator
-        controls_layout.addWidget(QLabel("|"))
-        
-        # Status
-        self.status_label = QLabel("ready")
-        self.status_label.setFont(QFont("SF Pro Text", 10))
-        controls_layout.addWidget(self.status_label)
-        
-        layout.addWidget(controls_frame)
+        controls_layout.addLayout(controls_row)
+        layout.addWidget(controls_container)
         
         self.setLayout(layout)
         
@@ -182,81 +285,171 @@ class QtChatBubble(QWidget):
         self.input_text.keyPressEvent = self.handle_key_press
     
     def setup_styling(self):
-        """Set up modern styling."""
-        # Dark theme styling
+        """Set up modern dark theme styling with solid backgrounds."""
         self.setStyleSheet("""
+            /* Main Window - Modern Dark Theme */
             QWidget {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                border-radius: 12px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #2d3748,
+                    stop:0.5 #1a202c,
+                    stop:1 #171923);
+                border: 2px solid #4a5568;
+                border-radius: 20px;
+                color: #ffffff;
             }
             
+            /* Input Field - Modern Solid Design */
             QTextEdit {
-                background-color: #313244;
-                border: 2px solid #45475a;
-                border-radius: 8px;
-                padding: 10px;
-                font-size: 14px;
-                color: #cdd6f4;
+                background: #2d3748;
+                border: 2px solid #4a5568;
+                border-radius: 16px;
+                padding: 16px 20px;
+                font-size: 15px;
+                font-weight: 400;
+                color: #ffffff;
+                font-family: system-ui, -apple-system, sans-serif;
+                selection-background-color: #4299e1;
+                line-height: 1.4;
             }
             
             QTextEdit:focus {
-                border-color: #89b4fa;
+                border: 2px solid #4299e1;
+                background: #374151;
             }
             
+            QTextEdit::placeholder {
+                color: rgba(255, 255, 255, 0.6);
+            }
+            
+            /* Send Button - Premium Gradient with Hover Effects */
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #89b4fa, stop:1 #74c7ec);
-                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #667eea,
+                    stop:1 #764ba2);
                 border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
+                border-radius: 14px;
+                padding: 14px 28px;
+                font-size: 15px;
+                font-weight: 600;
+                color: white;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                letter-spacing: 0.5px;
             }
             
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #74c7ec, stop:1 #89b4fa);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #5a6fd8,
+                    stop:1 #6a4190);
+                transform: translateY(-1px);
+                box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
             }
             
             QPushButton:pressed {
-                background: #585b70;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4e63c6,
+                    stop:1 #5e397e);
+                transform: translateY(0px);
             }
             
             QPushButton:disabled {
-                background: #585b70;
-                color: #6c7086;
+                background: rgba(255, 255, 255, 0.1);
+                color: rgba(255, 255, 255, 0.4);
             }
             
+            /* Dropdown Menus - Compact Design */
             QComboBox {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 4px;
+                background: #2d3748;
+                border: 1px solid #4a5568;
+                border-radius: 6px;
                 padding: 4px 8px;
                 min-width: 80px;
+                font-size: 11px;
+                font-weight: 500;
+                color: #ffffff;
+                font-family: system-ui, -apple-system, sans-serif;
             }
             
             QComboBox:hover {
-                border-color: #74c7ec;
+                border: 1px solid #4299e1;
+                background: #374151;
             }
             
             QComboBox::drop-down {
                 border: none;
+                width: 20px;
             }
             
             QComboBox::down-arrow {
-                width: 12px;
-                height: 12px;
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid rgba(255, 255, 255, 0.7);
+                width: 0px;
+                height: 0px;
             }
             
+            QComboBox QAbstractItemView {
+                background: #1a202c;
+                border: 2px solid #4a5568;
+                border-radius: 10px;
+                selection-background-color: #4299e1;
+                color: #ffffff;
+                padding: 5px;
+            }
+            
+            QComboBox QAbstractItemView::item {
+                height: 32px;
+                padding: 8px 12px;
+                border: none;
+            }
+            
+            QComboBox QAbstractItemView::item:selected {
+                background: #4299e1;
+            }
+            
+            /* Labels - Clean Typography */
             QLabel {
-                color: #a6adc8;
-                font-size: 11px;
+                color: rgba(255, 255, 255, 0.8);
+                font-size: 12px;
+                font-weight: 500;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                letter-spacing: 0.3px;
             }
             
+            /* Status and Token Labels - Accent Colors */
+            QLabel#status_ready {
+                color: #a6e3a1;
+                font-weight: 600;
+            }
+            
+            QLabel#status_generating {
+                color: #fab387;
+                font-weight: 600;
+            }
+            
+            QLabel#status_error {
+                color: #f38ba8;
+                font-weight: 600;
+            }
+            
+            QLabel#token_label {
+                color: rgba(255, 255, 255, 0.9);
+                font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            
+            /* Frames - Invisible Containers */
             QFrame {
                 border: none;
                 background: transparent;
+            }
+            
+            /* Separator Lines */
+            QLabel#separator {
+                color: rgba(255, 255, 255, 0.3);
+                font-size: 14px;
+                font-weight: 300;
             }
         """)
     
@@ -343,7 +536,8 @@ class QtChatBubble(QWidget):
     def update_token_display(self):
         """Update token count display."""
         max_display = f"{self.max_tokens // 1000}k" if self.max_tokens >= 1000 else str(self.max_tokens)
-        self.token_label.setText(f"{self.token_count} / {max_display} tk")
+        current_display = f"{int(self.token_count)}" if self.token_count < 1000 else f"{int(self.token_count // 1000)}k"
+        self.token_label.setText(f"{current_display} / {max_display}")
     
     def handle_key_press(self, event):
         """Handle key press events in text input."""
@@ -409,9 +603,22 @@ class QtChatBubble(QWidget):
         # Clear input and update UI
         self.input_text.clear()
         self.send_button.setEnabled(False)
-        self.send_button.setText("Generating...")
+        self.send_button.setText("⏳")
         self.status_label.setText("generating")
-        self.status_label.setStyleSheet("color: #fab387;")
+        self.status_label.setObjectName("status_generating")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background: rgba(250, 179, 135, 0.2);
+                border: 1px solid rgba(250, 179, 135, 0.3);
+                border-radius: 12px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #fab387;
+            }
+        """)
         
         print("🔄 QtChatBubble: UI updated, creating worker thread...")
         
@@ -433,9 +640,22 @@ class QtChatBubble(QWidget):
         print(f"✅ QtChatBubble: on_response_ready called with response: {response[:100]}...")
         
         self.send_button.setEnabled(True)
-        self.send_button.setText("Send")
+        self.send_button.setText("→")
         self.status_label.setText("ready")
-        self.status_label.setStyleSheet("color: #a6e3a1;")
+        self.status_label.setObjectName("status_ready")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background: rgba(166, 227, 161, 0.2);
+                border: 1px solid rgba(166, 227, 161, 0.3);
+                border-radius: 12px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #a6e3a1;
+            }
+        """)
         
         # Update token count (approximate)
         self.token_count += len(response.split()) * 1.3  # Rough estimate
@@ -465,9 +685,22 @@ class QtChatBubble(QWidget):
     def on_error_occurred(self, error):
         """Handle LLM error."""
         self.send_button.setEnabled(True)
-        self.send_button.setText("Send")
+        self.send_button.setText("→")
         self.status_label.setText("error")
-        self.status_label.setStyleSheet("color: #f38ba8;")
+        self.status_label.setObjectName("status_error")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background: rgba(243, 139, 168, 0.2);
+                border: 1px solid rgba(243, 139, 168, 0.3);
+                border-radius: 12px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #f38ba8;
+            }
+        """)
         
         if self.debug:
             print(f"Error occurred: {error}")

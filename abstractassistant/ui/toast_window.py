@@ -39,9 +39,9 @@ class ToastWindow(QWidget):
         self.debug = debug
         self.is_expanded = False
         
-        # Window properties
-        self.collapsed_height = 120
-        self.expanded_height = 400
+        # Window properties - doubled height as requested
+        self.collapsed_height = 240  # Was 120, now doubled
+        self.expanded_height = 800   # Was 400, now doubled
         self.window_width = 350
         
         self.setup_window()
@@ -49,10 +49,7 @@ class ToastWindow(QWidget):
         self.setup_styling()
         self.position_window()
         
-        # Auto-hide timer
-        self.auto_hide_timer = QTimer()
-        self.auto_hide_timer.timeout.connect(self.hide_toast)
-        self.auto_hide_timer.setSingleShot(True)
+        # No auto-hide timer - toast stays visible until manually closed
         
         if self.debug:
             print(f"✅ ToastWindow created for message: {message[:50]}...")
@@ -194,18 +191,16 @@ class ToastWindow(QWidget):
         if self.debug:
             print(f"Toast positioned at ({x}, {y})")
     
-    def show_toast(self, auto_hide_seconds: int = 8):
-        """Show the toast notification."""
+    def show_toast(self, auto_hide_seconds: int = 0):
+        """Show the toast notification - stays visible until manually closed."""
         self.show()
         self.raise_()
         self.activateWindow()
         
-        # Start auto-hide timer
-        if auto_hide_seconds > 0:
-            self.auto_hide_timer.start(auto_hide_seconds * 1000)
+        # No auto-hide - toast stays visible until user closes it
         
         if self.debug:
-            print(f"🍞 Toast shown, will auto-hide in {auto_hide_seconds}s")
+            print(f"🍞 Toast shown, stays visible until manually closed")
     
     def hide_toast(self):
         """Hide the toast notification."""
@@ -226,8 +221,6 @@ class ToastWindow(QWidget):
             # Expand
             self.resize(self.window_width, self.expanded_height)
             self.is_expanded = True
-            # Stop auto-hide when expanded
-            self.auto_hide_timer.stop()
             if self.debug:
                 print("🍞 Toast expanded")
         
@@ -278,8 +271,8 @@ class ToastManager:
         if self.debug:
             print("✅ ToastManager initialized")
     
-    def show_response(self, message: str, auto_hide_seconds: int = 8):
-        """Show a response toast notification."""
+    def show_response(self, message: str, auto_hide_seconds: int = 0):
+        """Show a response toast notification - stays visible until manually closed."""
         # Close existing toast
         if self.current_toast:
             self.current_toast.hide()
@@ -287,14 +280,14 @@ class ToastManager:
         
         # Create new toast
         self.current_toast = ToastWindow(message, debug=self.debug)
-        self.current_toast.show_toast(auto_hide_seconds)
+        self.current_toast.show_toast()  # No auto-hide
         
         if self.debug:
             print(f"🍞 Response toast created and shown")
     
     def show_error(self, error_message: str):
-        """Show an error toast notification."""
-        self.show_response(f"Error: {error_message}", auto_hide_seconds=10)
+        """Show an error toast notification - stays visible until manually closed."""
+        self.show_response(f"Error: {error_message}")
     
     def hide_current_toast(self):
         """Hide the current toast if any."""
@@ -304,14 +297,14 @@ class ToastManager:
 
 # Standalone function to show a toast (can be called from anywhere)
 def show_toast_notification(message: str, debug: bool = False):
-    """Standalone function to show a toast notification."""
+    """Standalone function to show a toast notification - stays visible until manually closed."""
     try:
         # Create a minimal QApplication if none exists
         app = QApplication.instance()
         if not app:
             app = QApplication(sys.argv)
         
-        # Create and show toast
+        # Create and show toast (no auto-hide)
         toast = ToastWindow(message, debug=debug)
         toast.show_toast()
         
