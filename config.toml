@@ -1,0 +1,24 @@
+# AbstractAssistant Configuration
+
+[ui]
+theme = "dark"  # dark, light, system
+bubble_size_ratio = 0.167  # 1/6th of screen
+auto_hide_delay = 8  # seconds for toast notifications
+always_on_top = true
+
+[llm]
+default_provider = "lmstudio"
+default_model = "qwen/qwen3-next-80b"
+max_tokens = 128000
+temperature = 0.7
+
+[system_tray]
+icon_size = 64  # pixels
+show_notifications = true
+
+[shortcuts]
+show_bubble = "cmd+shift+a"  # Global hotkey to show chat bubble
+
+# API Keys should be set via environment variables:
+# OPENAI_API_KEY=your_key_here
+# ANTHROPIC_API_KEY=your_key_here
