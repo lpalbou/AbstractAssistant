@@ -115,17 +115,17 @@ class QtChatBubble(QWidget):
         )
         
         # Set optimal size for modern chat interface - wider and shorter
-        self.resize(540, 260)  # Reduced from 280 to 260
+        self.setFixedSize(540, 196)  # Increased by 40px (156 + 40 = 196)
         self.position_near_tray()
         
-        # Main layout with optimized spacing
+        # Main layout with minimal spacing
         layout = QVBoxLayout()
-        layout.setContentsMargins(16, 8, 16, 16)  # Reduced top margin
-        layout.setSpacing(10)  # Tighter spacing for better density
+        layout.setContentsMargins(8, 4, 8, 8)  # Strict minimum margins
+        layout.setSpacing(4)  # Minimal spacing
         
         # Compact header - status only (remove redundant title)
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(4, 0, 4, 0)
+        header_layout.setContentsMargins(0, 0, 0, 0)
         
         header_layout.addStretch()
         
@@ -133,18 +133,19 @@ class QtChatBubble(QWidget):
         self.status_label = QLabel("READY")
         self.status_label.setObjectName("status_ready")
         self.status_label.setStyleSheet("""
-            QLabel {
-                background: rgba(166, 227, 161, 0.25);
-                border: 1px solid rgba(166, 227, 161, 0.4);
-                border-radius: 12px;
-                padding: 6px 16px;
-                font-size: 11px;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-                color: #a6e3a1;
-            }
-        """)
+                QLabel {
+                    background: rgba(166, 227, 161, 0.15);
+                    border: 1px solid rgba(166, 227, 161, 0.3);
+                    border-radius: 12px;
+                    padding: 6px 12px;
+                    font-size: 10px;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    color: #a6e3a1;
+                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                }
+            """)
         header_layout.addWidget(self.status_label)
         
         layout.addLayout(header_layout)
@@ -160,18 +161,18 @@ class QtChatBubble(QWidget):
             }
         """)
         input_layout = QVBoxLayout(input_container)
-        input_layout.setContentsMargins(8, 8, 8, 8)
-        input_layout.setSpacing(8)
+        input_layout.setContentsMargins(4, 4, 4, 4)
+        input_layout.setSpacing(4)
         
         # Input field with inline send button
         input_row = QHBoxLayout()
-        input_row.setSpacing(8)
+        input_row.setSpacing(4)
         
         # Text input - larger, primary focus
         self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
-        self.input_text.setMaximumHeight(180)  # Increased from 140
-        self.input_text.setMinimumHeight(120)  # Increased from 100
+        self.input_text.setMaximumHeight(100)  # Increased to better use available space
+        self.input_text.setMinimumHeight(70)   # Increased to better use available space
         input_row.addWidget(self.input_text)
         
         # Send button - larger and more prominent
@@ -225,12 +226,12 @@ class QtChatBubble(QWidget):
             }
         """)
         controls_layout = QVBoxLayout(controls_container)
-        controls_layout.setContentsMargins(8, 4, 8, 4)  # Reduced from (12, 8, 12, 8)
-        controls_layout.setSpacing(6)  # Reduced from 8 to 6
+        controls_layout.setContentsMargins(4, 2, 4, 2)  # Strict minimum
+        controls_layout.setSpacing(2)  # Minimal spacing
         
         # Compact single row for provider, model, and tokens
         controls_row = QHBoxLayout()
-        controls_row.setSpacing(8)  # Reduced from 12 to 8
+        controls_row.setSpacing(4)  # Minimal spacing
         
         # Provider dropdown - larger and more accessible
         self.provider_combo = QComboBox()
@@ -252,18 +253,19 @@ class QtChatBubble(QWidget):
         self.token_label.setMinimumHeight(40)  # Match dropdown height
         self.token_label.setMinimumWidth(90)   # Set minimum width
         self.token_label.setStyleSheet("""
-            QLabel {
-                background: #2d3748;
-                border: 1px solid #4a5568;
-                border-radius: 8px;
-                padding: 10px 14px;  /* Increased padding */
-                font-family: 'SF Mono', Monaco, monospace;
-                font-size: 12px;  /* Increased from 10px */
-                font-weight: 600;  /* Increased from 500 */
-                color: #ffffff;
-                text-align: center;
-            }
-        """)
+                QLabel {
+                    background: #2d3748;
+                    border: 1px solid #4a5568;
+                    border-radius: 8px;
+                    padding: 10px 12px;
+                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: #cbd5e0;
+                    text-align: center;
+                    letter-spacing: 0.025em;
+                }
+            """)
         controls_row.addWidget(self.token_label)
         controls_row.addStretch()
         
@@ -271,6 +273,25 @@ class QtChatBubble(QWidget):
         layout.addWidget(controls_container)
         
         self.setLayout(layout)
+        
+        # Add a simple chat display area above the input
+        self.chat_display = QTextEdit()
+        self.chat_display.setReadOnly(True)
+        self.chat_display.setMaximumHeight(21)  # Reduced by half (42 / 2 = 21)
+        self.chat_display.setMinimumHeight(14)  # Reduced by half (28 / 2 = 14)
+        self.chat_display.setStyleSheet("""
+            QTextEdit {
+                background: #1a202c;
+                border: 1px solid #4a5568;
+                border-radius: 8px;
+                padding: 4px 8px;
+                font-size: 11px;
+                color: #cbd5e0;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+            }
+        """)
+        self.chat_display.hide()  # Initially hidden
+        layout.insertWidget(-2, self.chat_display)  # Insert before controls
         
         # Focus on input
         self.input_text.setFocus()
@@ -351,17 +372,18 @@ class QtChatBubble(QWidget):
             }
             
             /* Dropdown Menus - Compact Design */
-            QComboBox {
-                background: #2d3748;
-                border: 1px solid #4a5568;
-                border-radius: 8px;
-                padding: 8px 12px;  /* Increased padding */
-                min-width: 80px;
-                font-size: 13px;  /* Increased from 11px */
-                font-weight: 600;  /* Increased from 500 */
-                color: #ffffff;
-                font-family: system-ui, -apple-system, sans-serif;
-            }
+                QComboBox {
+                    background: #2d3748;
+                    border: 1px solid #4a5568;
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    min-width: 80px;
+                    font-size: 12px;
+                    font-weight: 400;  /* Changed from 500 to 400 (normal weight) */
+                    color: #e2e8f0;
+                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                    letter-spacing: 0.01em;
+                }
             
             QComboBox:hover {
                 border: 1px solid #4299e1;
@@ -382,21 +404,35 @@ class QtChatBubble(QWidget):
                 height: 0px;
             }
             
-            QComboBox QAbstractItemView {
-                background: #1a202c;
-                border: 2px solid #4a5568;
-                border-radius: 10px;
-                selection-background-color: #4299e1;
-                color: #ffffff;
-                padding: 5px;
-            }
-            
-            QComboBox QAbstractItemView::item {
-                height: 40px;  /* Increased from 32px */
-                padding: 12px 16px;  /* Increased padding */
-                border: none;
-                font-size: 13px;  /* Larger text */
-            }
+                QComboBox QAbstractItemView {
+                    background: #1a202c;
+                    border: 1px solid #4a5568;
+                    border-radius: 8px;
+                    selection-background-color: #4299e1;
+                    color: #e2e8f0;
+                    padding: 4px;
+                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                }
+                
+                QComboBox QAbstractItemView::item {
+                    height: 36px;
+                    padding: 8px 12px;
+                    border: none;
+                    font-size: 12px;
+                    font-weight: 400;  /* Changed from 500 to 400 (normal weight) */
+                    color: #e2e8f0;
+                    border-radius: 4px;
+                    margin: 2px;
+                }
+                
+                QComboBox QAbstractItemView::item:selected {
+                    background: #4299e1;
+                    color: #ffffff;
+                }
+                
+                QComboBox QAbstractItemView::item:hover {
+                    background: #374151;
+                }
             
             QComboBox QAbstractItemView::item:selected {
                 background: #4299e1;
@@ -413,25 +449,55 @@ class QtChatBubble(QWidget):
             
             /* Status and Token Labels - Accent Colors */
             QLabel#status_ready {
-                color: #a6e3a1;
+                background: rgba(166, 227, 161, 0.15);
+                border: 1px solid rgba(166, 227, 161, 0.3);
+                border-radius: 12px;
+                padding: 6px 12px;
+                font-size: 10px;
                 font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #a6e3a1;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
             }
             
             QLabel#status_generating {
-                color: #fab387;
+                background: rgba(250, 179, 135, 0.15);
+                border: 1px solid rgba(250, 179, 135, 0.3);
+                border-radius: 12px;
+                padding: 6px 12px;
+                font-size: 10px;
                 font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #fab387;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
             }
             
             QLabel#status_error {
-                color: #f38ba8;
+                background: rgba(243, 139, 168, 0.15);
+                border: 1px solid rgba(243, 139, 168, 0.3);
+                border-radius: 12px;
+                padding: 6px 12px;
+                font-size: 10px;
                 font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: #f38ba8;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
             }
             
             QLabel#token_label {
-                color: rgba(255, 255, 255, 0.9);
-                font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+                background: #2d3748;
+                border: 1px solid #4a5568;
+                border-radius: 8px;
+                padding: 10px 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
                 font-size: 11px;
                 font-weight: 500;
+                color: #cbd5e0;
+                text-align: center;
+                letter-spacing: 0.025em;
             }
             
             /* Frames - Invisible Containers */
@@ -578,6 +644,28 @@ class QtChatBubble(QWidget):
         if self.debug:
             print(f"Model changed to: {self.current_model}")
     
+    def show_user_message(self, message):
+        """Show user message in the chat display area."""
+        if hasattr(self, 'chat_display'):
+            # Show the chat display if it was hidden
+            self.chat_display.show()
+            
+            # Add user message with timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%H:%M")
+            formatted_message = f"[{timestamp}] You: {message}"
+            
+            # Append to chat display
+            self.chat_display.append(formatted_message)
+            
+            # Scroll to bottom
+            cursor = self.chat_display.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            self.chat_display.setTextCursor(cursor)
+            
+            if self.debug:
+                print(f"💬 Added user message to chat: {message[:50]}...")
+
     def debug_send_message(self, source):
         """Debug wrapper for send_message."""
         print(f"🔄 QtChatBubble: debug_send_message called from {source}")
@@ -595,8 +683,13 @@ class QtChatBubble(QWidget):
         print(f"🔄 QtChatBubble: Message: '{message}'")
         print(f"🔄 QtChatBubble: Provider: {self.current_provider}, Model: {self.current_model}")
         
-        # Clear input and update UI
+        # 1. Clear input immediately
         self.input_text.clear()
+        
+        # 2. Show message in chat (we'll add a simple display area)
+        self.show_user_message(message)
+        
+        # 3. Update UI for sending state
         self.send_button.setEnabled(False)
         self.send_button.setText("⏳")
         self.status_label.setText("generating")
@@ -621,7 +714,7 @@ class QtChatBubble(QWidget):
         
         print("🔄 QtChatBubble: UI updated, creating worker thread...")
         
-        # Start worker thread
+        # 4. Start worker thread to send request
         self.worker = LLMWorker(self.llm_manager, message, self.current_provider, self.current_model)
         self.worker.response_ready.connect(self.on_response_ready)
         self.worker.error_occurred.connect(self.on_error_occurred)

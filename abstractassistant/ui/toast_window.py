@@ -55,9 +55,9 @@ class ToastWindow(QWidget):
         self.debug = debug
         self.is_expanded = False
         
-        # Window properties - doubled height and increased width by 50%
-        self.collapsed_height = 240  # Was 120, now doubled
-        self.expanded_height = 800   # Was 400, now doubled
+        # Window properties - doubled height and increased width by 50%, plus space for reply panel
+        self.collapsed_height = 320  # Was 240, now +80 for reply panel
+        self.expanded_height = 880   # Was 800, now +80 for reply panel
         self.window_width = 525      # Was 350, now increased by 50%
         
         self.setup_window()
@@ -89,12 +89,13 @@ class ToastWindow(QWidget):
     def setup_ui(self):
         """Set up the user interface."""
         layout = QVBoxLayout()
-        layout.setContentsMargins(15, 10, 15, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 6, 8, 8)  # Reduced margins
+        layout.setSpacing(6)  # Reduced spacing
         
         # Header with title and buttons
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)  # Minimal spacing
         
         # Title
         title_label = QLabel("AI Response")
@@ -152,7 +153,96 @@ class ToastWindow(QWidget):
         
         layout.addWidget(self.content_area)
         
+        # Reply panel at the bottom
+        self.setup_reply_panel(layout)
+        
         self.setLayout(layout)
+    
+    def setup_reply_panel(self, layout):
+        """Set up the reply panel at the bottom of the toast."""
+        # Reply container
+        reply_container = QFrame()
+        reply_container.setStyleSheet("""
+            QFrame {
+                background: #374151;
+                border: 1px solid #4a5568;
+                border-radius: 8px;
+                padding: 4px;  /* Reduced padding */
+                margin-top: 4px;  /* Reduced margin */
+            }
+        """)
+        
+        reply_layout = QHBoxLayout(reply_container)
+        reply_layout.setContentsMargins(4, 4, 4, 4)  # Reduced margins
+        reply_layout.setSpacing(4)  # Reduced spacing
+        
+        # Reply input field (2 lines)
+        self.reply_input = QTextEdit()
+        self.reply_input.setPlaceholderText("Reply to this message... (Shift+Enter to send)")
+        self.reply_input.setMaximumHeight(60)  # About 2 lines
+        self.reply_input.setMinimumHeight(60)
+        self.reply_input.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.reply_input.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.reply_input.setStyleSheet("""
+            QTextEdit {
+                background: #2d3748;
+                border: 1px solid #4a5568;
+                border-radius: 6px;
+                padding: 4px;  /* Reduced padding */
+                color: #e2e8f0;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                font-size: 12px;
+                line-height: 1.4;
+            }
+            QTextEdit:focus {
+                border: 1px solid #4299e1;
+            }
+        """)
+        
+        # Handle key press for Shift+Enter
+        self.reply_input.keyPressEvent = self.handle_reply_key_press
+        
+        reply_layout.addWidget(self.reply_input)
+        
+        # Send button
+        self.reply_send_button = QPushButton("→")
+        self.reply_send_button.setFixedSize(40, 40)
+        self.reply_send_button.clicked.connect(self.send_reply)
+        self.reply_send_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #667eea,
+                    stop:1 #764ba2);
+                border: none;
+                border-radius: 20px;
+                font-size: 16px;
+                font-weight: bold;
+                color: white;
+                text-align: center;
+                padding: 0px;
+            }
+            
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #5a6fd8,
+                    stop:1 #6a4190);
+            }
+            
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4e63c6,
+                    stop:1 #5e397e);
+            }
+            
+            QPushButton:disabled {
+                background: rgba(255, 255, 255, 0.1);
+                color: rgba(255, 255, 255, 0.4);
+            }
+        """)
+        
+        reply_layout.addWidget(self.reply_send_button)
+        
+        layout.addWidget(reply_container)
     
     def setup_styling(self):
         """Apply modern dark theme styling."""
@@ -278,6 +368,95 @@ class ToastWindow(QWidget):
             if self.debug:
                 print(f"❌ Failed to copy to clipboard: {e}")
     
+    def handle_reply_key_press(self, event):
+        """Handle key press events in the reply input."""
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier or
+                event.modifiers() & Qt.KeyboardModifier.ControlModifier or
+                event.modifiers() & Qt.KeyboardModifier.MetaModifier):
+                self.send_reply()
+                return
+        # Let the default handler process other keys
+        QTextEdit.keyPressEvent(self.reply_input, event)
+    
+    def send_reply(self):
+        """Send a reply message."""
+        reply_text = self.reply_input.toPlainText().strip()
+        if not reply_text:
+            return
+        
+        if self.debug:
+            print(f"🔄 Toast: Sending reply: {reply_text[:50]}...")
+        
+        # Clear the input
+        self.reply_input.clear()
+        
+        # Disable send button temporarily
+        self.reply_send_button.setEnabled(False)
+        self.reply_send_button.setText("⏳")
+        
+        # Add the user's message to the conversation
+        self.append_message("You", reply_text, is_user=True)
+        
+        # Send the reply through the callback system
+        if hasattr(self, 'reply_callback') and self.reply_callback:
+            self.reply_callback(reply_text)
+        else:
+            # Fallback: show that no callback is set
+            self.append_message("System", "No reply handler configured.", is_user=False)
+            self.reply_send_button.setEnabled(True)
+            self.reply_send_button.setText("→")
+    
+    def append_message(self, sender: str, message: str, is_user: bool = False):
+        """Append a message to the conversation."""
+        # Create a clean separator without lines
+        separator = "\n\n"
+        
+        if is_user:
+            formatted_message = f"**{sender}:** {message}"
+        else:
+            formatted_message = message
+        
+        # Update the content
+        new_content = self.message + separator + formatted_message
+        self.message = new_content
+        
+        # Re-render the content
+        if MARKDOWN_AVAILABLE:
+            try:
+                html_content = render_markdown(self.message)
+                self.content_area.setHtml(html_content)
+                if self.debug:
+                    print(f"🎨 Toast: Updated content with new message")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Toast: Markdown rendering failed: {e}")
+                self.content_area.setPlainText(self.message)
+        else:
+            self.content_area.setPlainText(self.message)
+        
+        # Scroll to bottom to show new message
+        scrollbar = self.content_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+    
+    def set_reply_callback(self, callback):
+        """Set the callback function for handling replies."""
+        self.reply_callback = callback
+        if self.debug:
+            print("🔄 Toast: Reply callback set")
+    
+    def on_reply_response(self, response: str):
+        """Handle the response to a reply."""
+        # Re-enable send button
+        self.reply_send_button.setEnabled(True)
+        self.reply_send_button.setText("→")
+        
+        # Add the AI response to the conversation
+        self.append_message("AI", response, is_user=False)
+        
+        if self.debug:
+            print(f"✅ Toast: Added AI response: {response[:50]}...")
+    
     # Removed mousePressEvent to prevent accidental closing
 
 
@@ -352,6 +531,39 @@ def show_toast_notification(message: str, debug: bool = False):
             original_hide()
             on_toast_closed()
         toast.hide_toast = hide_with_cleanup
+        
+        # Set up reply callback to handle conversation continuation
+        def handle_reply(reply_message):
+            if debug:
+                print(f"🔄 Toast reply handler: {reply_message[:50]}...")
+            
+            # Import here to avoid circular imports
+            try:
+                from ..core.llm_manager import LLMManager
+                from ..config import Config
+                
+                # Create a simple LLM manager for the reply
+                from pathlib import Path
+                config_file = Path("config.toml")
+                if config_file.exists():
+                    config = Config.from_file(config_file)
+                else:
+                    config = Config.default()
+                llm_manager = LLMManager(config=config)
+                
+                # Generate response
+                response = llm_manager.generate_response(reply_message)
+                
+                # Send response back to toast
+                toast.on_reply_response(response)
+                
+            except Exception as e:
+                error_msg = f"Error processing reply: {str(e)}"
+                toast.on_reply_response(error_msg)
+                if debug:
+                    print(f"❌ Reply error: {e}")
+        
+        toast.set_reply_callback(handle_reply)
         
         toast.show_toast()
         

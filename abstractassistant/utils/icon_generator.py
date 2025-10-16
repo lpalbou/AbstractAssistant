@@ -50,15 +50,15 @@ class IconGenerator:
     
     def _draw_gradient_circle(self, draw: ImageDraw.Draw, center: int, radius: int, color_scheme: str = "blue", animated: bool = False):
         """Draw a gradient circle background with color options."""
-        # Color schemes
+        # Color schemes - more vibrant and visible
         colors = {
-            "blue": (100, 150, 255),
-            "green": (100, 255, 150),
-            "purple": (180, 100, 255),
-            "orange": (255, 150, 100),
-            "red": (255, 100, 120),
-            "cyan": (100, 255, 255),
-            "yellow": (255, 255, 100)
+            "blue": (64, 150, 255),      # Brighter blue
+            "green": (80, 255, 120),     # More vibrant green
+            "purple": (180, 80, 255),    # Brighter purple
+            "orange": (255, 140, 80),    # More vibrant orange
+            "red": (255, 80, 100),       # Brighter red
+            "cyan": (80, 255, 255),      # More vibrant cyan
+            "yellow": (255, 255, 80)     # Brighter yellow
         }
         
         # Special working mode: cycle between purple, orange, and yellow
@@ -75,17 +75,17 @@ class IconGenerator:
         else:
             base_color = colors.get(color_scheme, colors["blue"])
         
-        # Animation effect - subtle pulse
-        intensity = 0.8
+        # Animation effect - more visible pulse
+        intensity = 1.0  # Increased from 0.8 for better visibility
         if animated:
             import time
-            pulse = abs(math.sin(time.time() * 2)) * 0.3 + 0.7  # Pulse between 0.7 and 1.0
+            pulse = abs(math.sin(time.time() * 2)) * 0.2 + 0.9  # Pulse between 0.9 and 1.1
             intensity *= pulse
         
-        # Main circle with gradient effect
+        # Main circle with gradient effect - more opaque
         for i in range(radius):
-            alpha = int(255 * (1 - i / radius) * intensity)
-            color = (*base_color, alpha)
+            alpha = int(255 * (1 - i / radius * 0.6) * intensity)  # Less transparency
+            color = (*base_color, min(255, alpha))  # Ensure alpha doesn't exceed 255
             draw.ellipse(
                 [center - radius + i, center - radius + i,
                  center + radius - i, center + radius - i],
@@ -94,12 +94,12 @@ class IconGenerator:
     
     def _draw_neural_nodes(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
         """Draw neural network-style nodes."""
-        # Animation effect for nodes
-        node_alpha = 200
-        small_node_alpha = 150
+        # Animation effect for nodes - more visible
+        node_alpha = 255  # Increased from 200 for full opacity
+        small_node_alpha = 220  # Increased from 150 for better visibility
         if animated:
             import time
-            pulse = abs(math.sin(time.time() * 3)) * 0.4 + 0.6  # Pulse between 0.6 and 1.0
+            pulse = abs(math.sin(time.time() * 3)) * 0.2 + 0.8  # Pulse between 0.8 and 1.0
             node_alpha = int(node_alpha * pulse)
             small_node_alpha = int(small_node_alpha * pulse)
         
@@ -132,12 +132,12 @@ class IconGenerator:
         num_nodes = 6
         outer_radius = int(radius * 0.7)
         
-        # Animation effect for connections
-        line_alpha = 100
-        connection_alpha = 60
+        # Animation effect for connections - more visible
+        line_alpha = 180  # Increased from 100 for better visibility
+        connection_alpha = 120  # Increased from 60 for better visibility
         if animated:
             import time
-            pulse = abs(math.sin(time.time() * 2.5)) * 0.5 + 0.5  # Pulse between 0.5 and 1.0
+            pulse = abs(math.sin(time.time() * 2.5)) * 0.3 + 0.7  # Pulse between 0.7 and 1.0
             line_alpha = int(line_alpha * pulse)
             connection_alpha = int(connection_alpha * pulse)
         
