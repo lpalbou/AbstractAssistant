@@ -12,7 +12,18 @@ from dataclasses import dataclass
 # Import AbstractCore - CLEAN AND SIMPLE
 from abstractcore import create_llm, BasicSession
 
-print("✅ AbstractCore imported successfully")
+# Import common tools as requested
+try:
+    from abstractcore.tools.common_tools import (
+        list_files, search_files, read_file, edit_file, 
+        write_file, execute_command, web_search
+    )
+    TOOLS_AVAILABLE = True
+    print("✅ AbstractCore and common tools imported successfully")
+except ImportError as e:
+    TOOLS_AVAILABLE = False
+    print(f"⚠️  Common tools not available: {e}")
+    print("✅ AbstractCore imported successfully")
 
 
 @dataclass
@@ -96,11 +107,12 @@ class LLMManager:
             print(f"🔄 Creating LLM with provider={self.current_provider}, model={self.current_model}")
             self.llm = create_llm(
                 self.current_provider,
-                model=self.current_model
+                model=self.current_model,
+                execute_tools=True  # Enable automatic tool execution
             )
             print(f"✅ LLM created successfully")
             
-            # Create new session with the LLM - SIMPLE AND CLEAN
+            # Create new session with the LLM and tools
             self.create_new_session()
             
             # Update token limits based on model
@@ -132,17 +144,37 @@ class LLMManager:
         self.token_usage.max_context = context_limits.get(self.current_model, 8000)
     
     def create_new_session(self):
-        """Create a new session - CLEAN AND SIMPLE as per AbstractCore docs."""
-        # session = BasicSession(llm, system_prompt="You are a helpful assistant.")
+        """Create a new session with tools - CLEAN AND SIMPLE as per AbstractCore docs."""
+        if not self.llm:
+            print("❌ No LLM available - cannot create session")
+            return
+            
+        # Prepare tools list
+        tools = []
+        if TOOLS_AVAILABLE:
+            tools = [
+                list_files, search_files, read_file, edit_file,
+                write_file, execute_command, web_search
+            ]
+            print(f"🔧 Registering {len(tools)} tools with session")
+        
+        # Create session with tools (tool execution enabled at provider level)
+        # session = BasicSession(llm, system_prompt="You are a helpful assistant.", tools=[...])
         self.current_session = BasicSession(
             self.llm, 
-            system_prompt="You are AbstractAssistant, a helpful AI assistant integrated into macOS."
+            system_prompt="You are AbstractAssistant, a helpful AI assistant integrated into macOS. "
+                         "You have access to file operations, command execution, and web search tools. "
+                         "Use these tools when appropriate to help the user.",
+            tools=tools
         )
         
         # Reset token count for new session
         self.token_usage.current_session = 0
         
-        print("✅ Created new AbstractCore session")
+        if TOOLS_AVAILABLE:
+            print("✅ Created new AbstractCore session with tools")
+        else:
+            print("✅ Created new AbstractCore session (no tools available)")
     
     def clear_session(self):
         """Clear current session and create a new one."""
