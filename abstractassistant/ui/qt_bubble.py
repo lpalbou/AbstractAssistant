@@ -84,9 +84,9 @@ class QtChatBubble(QWidget):
         self.config = config
         self.debug = debug
         
-        # State
-        self.current_provider = 'lmstudio'
-        self.current_model = 'qwen/qwen3-next-80b'
+        # State - default to LMStudio with qwen/qwen3-next-80b
+        self.current_provider = 'lmstudio'  # Default to LMStudio
+        self.current_model = 'qwen/qwen3-next-80b'  # Default to qwen/qwen3-next-80b
         self.token_count = 0
         self.max_tokens = 128000
         
@@ -222,16 +222,16 @@ class QtChatBubble(QWidget):
                 background: #374151;
                 border: 2px solid #4a5568;
                 border-radius: 16px;
-                padding: 4px;  /* Reduced from 8px to 4px */
+                padding: 2px;  /* Further reduced from 4px to 2px */
             }
         """)
         controls_layout = QVBoxLayout(controls_container)
-        controls_layout.setContentsMargins(4, 2, 4, 2)  # Strict minimum
-        controls_layout.setSpacing(2)  # Minimal spacing
+        controls_layout.setContentsMargins(2, 1, 2, 1)  # Even more minimal
+        controls_layout.setSpacing(1)  # Absolute minimal spacing
         
         # Compact single row for provider, model, and tokens
         controls_row = QHBoxLayout()
-        controls_row.setSpacing(4)  # Minimal spacing
+        controls_row.setSpacing(2)  # Even more minimal spacing
         
         # Provider dropdown - larger and more accessible
         self.provider_combo = QComboBox()
@@ -257,7 +257,7 @@ class QtChatBubble(QWidget):
                     background: #2d3748;
                     border: 1px solid #4a5568;
                     border-radius: 8px;
-                    padding: 10px 12px;
+                    padding: 6px 10px;  /* Reduced from 10px 12px to 6px 10px */
                     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
                     font-size: 11px;
                     font-weight: 500;
@@ -376,7 +376,7 @@ class QtChatBubble(QWidget):
                     background: #2d3748;
                     border: 1px solid #4a5568;
                     border-radius: 8px;
-                    padding: 8px 12px;
+                    padding: 6px 10px;  /* Reduced from 8px 12px to 6px 10px */
                     min-width: 80px;
                     font-size: 12px;
                     font-weight: 400;  /* Changed from 500 to 400 (normal weight) */
@@ -530,50 +530,217 @@ class QtChatBubble(QWidget):
             print(f"Positioned bubble at ({x}, {y})")
     
     def load_providers(self):
-        """Load available providers and models."""
+        """Load available providers using AbstractCore's provider discovery system."""
         try:
-            providers = self.llm_manager.get_providers()
+            # Use AbstractCore's provider discovery system
+            from abstractcore.providers import list_available_providers
             
-            # Populate provider combo
+            # Get list of available provider names
+            available_providers = list_available_providers()
+            
+            if self.debug:
+                print(f"🔍 Provider discovery found {len(available_providers)} available providers: {available_providers}")
+            
+            # Clear and populate provider combo
             self.provider_combo.clear()
-            for key, info in providers.items():
-                self.provider_combo.addItem(info.display_name, key)
             
-            # Set current provider
+            # Provider display names mapping
+            provider_display_names = {
+                'openai': 'OpenAI',
+                'anthropic': 'Anthropic', 
+                'ollama': 'Ollama',
+                'lmstudio': 'LMStudio',
+                'mlx': 'MLX',
+                'huggingface': 'HuggingFace',
+                'mock': 'Mock'
+            }
+            
+            # Add each available provider to dropdown (excluding mock)
+            for provider_name in available_providers:
+                # Explicitly exclude mock provider
+                if provider_name == 'mock':
+                    if self.debug:
+                        print(f"    ⏭️  Skipping mock provider")
+                    continue
+                    
+                display_name = provider_display_names.get(provider_name, provider_name.title())
+                self.provider_combo.addItem(display_name, provider_name)
+                
+                if self.debug:
+                    print(f"    ✅ Added to dropdown: {display_name} ({provider_name})")
+            
+            if self.debug:
+                print(f"🔍 Total providers added to dropdown: {len(available_providers)}")
+            
+            # Set current provider - prefer lmstudio if available, otherwise use first
+            provider_found = False
+            preferred_provider = 'lmstudio'  # Prefer lmstudio as default
+            
+            # First try to find preferred provider
             for i in range(self.provider_combo.count()):
-                if self.provider_combo.itemData(i) == self.current_provider:
+                if self.provider_combo.itemData(i) == preferred_provider:
                     self.provider_combo.setCurrentIndex(i)
+                    self.current_provider = preferred_provider
+                    provider_found = True
+                    if self.debug:
+                        print(f"✅ Using preferred provider: {preferred_provider}")
                     break
+            
+            # If preferred not found, use the first available one
+            if not provider_found and self.provider_combo.count() > 0:
+                self.current_provider = self.provider_combo.itemData(0)
+                self.provider_combo.setCurrentIndex(0)
+                if self.debug:
+                    print(f"🔄 Preferred provider not found, using first available: {self.current_provider}")
+            
+            if self.debug:
+                print(f"🔍 Final selected provider: {self.current_provider}")
             
             # Load models for current provider
             self.update_models()
             
         except Exception as e:
             if self.debug:
-                print(f"Error loading providers: {e}")
+                print(f"❌ Error loading providers: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # Fallback: add current provider manually if discovery fails
+            if self.provider_combo.count() == 0:
+                self.provider_combo.addItem("LMStudio (Local)", "lmstudio")
+                self.current_provider = "lmstudio"
+                if self.debug:
+                    print("🔄 Using fallback provider list")
     
     def update_models(self):
-        """Update model dropdown based on current provider."""
+        """Update model dropdown using provider.list_available_models() method."""
         try:
-            models = self.llm_manager.get_models(self.current_provider)
+            # Create provider instance and get available models using list_available_models()
+            from abstractcore import create_llm
+            
+            if self.debug:
+                print(f"🔄 Loading models for provider '{self.current_provider}' using provider.list_available_models()")
+            
+            # Create provider instance with a minimal/default model to get the provider object
+            # We'll use the provider's list_available_models() method
+            provider_default_models = {
+                'openai': 'gpt-4o-mini',
+                'anthropic': 'claude-3-5-haiku-20241022', 
+                'ollama': 'qwen3:4b-instruct-2507-q4_K_M',
+                'lmstudio': 'qwen/qwen3-next-80b',  # Fixed: use correct model name with namespace
+                'mlx': 'mlx-community/Qwen3-4B-4bit',
+                'huggingface': 'microsoft/DialoGPT-medium'
+            }
+            
+            default_model = provider_default_models.get(self.current_provider, 'default-model')
+            
+            # Create provider instance
+            provider_llm = create_llm(self.current_provider, model=default_model)
+            
+            # Get available models using the provider's method
+            models = provider_llm.list_available_models()
+            
+            if self.debug:
+                print(f"🔄 Provider '{self.current_provider}' returned {len(models)} models")
             
             self.model_combo.clear()
             for model in models:
-                # Create display name
+                # Create display name - keep the full model name but make it readable
                 display_name = model.split('/')[-1] if '/' in model else model
+                # Limit display name length for better UI
+                if len(display_name) > 25:
+                    display_name = display_name[:22] + "..."
+                
                 self.model_combo.addItem(display_name, model)
+                
+                if self.debug and len(models) <= 10:  # Only log individual models if not too many
+                    print(f"  ✅ Added model: {display_name} ({model})")
             
-            # Set current model
+            # Set current model - prefer qwen/qwen3-next-80b if available
+            model_found = False
+            preferred_model = 'qwen/qwen3-next-80b'
+            
+            # First try to find preferred model
             for i in range(self.model_combo.count()):
-                if self.model_combo.itemData(i) == self.current_model:
+                if self.model_combo.itemData(i) == preferred_model:
                     self.model_combo.setCurrentIndex(i)
+                    self.current_model = preferred_model
+                    model_found = True
+                    if self.debug:
+                        print(f"✅ Using preferred model: {preferred_model}")
                     break
+            
+            # If preferred not found, try current model
+            if not model_found and self.current_model:
+                for i in range(self.model_combo.count()):
+                    if self.model_combo.itemData(i) == self.current_model:
+                        self.model_combo.setCurrentIndex(i)
+                        model_found = True
+                        if self.debug:
+                            print(f"✅ Using current model: {self.current_model}")
+                        break
+            
+            # If neither found, use the first available one
+            if not model_found and self.model_combo.count() > 0:
+                self.current_model = self.model_combo.itemData(0)
+                self.model_combo.setCurrentIndex(0)
+                if self.debug:
+                    print(f"🔄 Using first available model: {self.current_model}")
             
             self.update_token_limits()
             
         except Exception as e:
             if self.debug:
-                print(f"Error updating models: {e}")
+                print(f"❌ Error updating models for provider '{self.current_provider}': {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # Fallback: use the registry method if provider instantiation fails
+            try:
+                from abstractcore.providers import get_available_models_for_provider
+                models = get_available_models_for_provider(self.current_provider)
+                
+                if self.debug:
+                    print(f"🔄 Fallback: Using registry method, got {len(models)} models")
+                
+                self.model_combo.clear()
+                for model in models:
+                    display_name = model.split('/')[-1] if '/' in model else model
+                    if len(display_name) > 25:
+                        display_name = display_name[:22] + "..."
+                    self.model_combo.addItem(display_name, model)
+                
+                if self.model_combo.count() > 0:
+                    self.current_model = self.model_combo.itemData(0)
+                    self.model_combo.setCurrentIndex(0)
+                    
+            except Exception as fallback_error:
+                if self.debug:
+                    print(f"❌ Fallback also failed: {fallback_error}")
+                
+                # Final fallback: add provider-specific default models
+                self.model_combo.clear()
+                fallback_models = {
+                    'lmstudio': ['qwen/qwen3-next-80b', 'qwen/qwen3-coder-30b', 'qwen/qwen3-4b-2507'],
+                    'ollama': ['qwen3:4b-instruct', 'llama3.2:3b', 'mistral:7b'],
+                    'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
+                    'anthropic': ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022'],
+                    'mlx': ['mlx-community/Qwen3-4B-4bit', 'mlx-community/Qwen3-4B-Instruct-2507-4bit'],
+                    'huggingface': ['microsoft/DialoGPT-medium', 'microsoft/DialoGPT-large']
+                }
+                
+                provider_fallbacks = fallback_models.get(self.current_provider, ['default-model'])
+                for model in provider_fallbacks:
+                    display_name = model.split('/')[-1] if '/' in model else model
+                    if len(display_name) > 25:
+                        display_name = display_name[:22] + "..."
+                    self.model_combo.addItem(display_name, model)
+                
+                if self.model_combo.count() > 0:
+                    self.current_model = self.model_combo.itemData(0)
+                    self.model_combo.setCurrentIndex(0)
+                    if self.debug:
+                        print(f"🔄 Using final fallback model: {self.current_model}")
     
     def update_token_limits(self):
         """Update token limits based on current model."""
