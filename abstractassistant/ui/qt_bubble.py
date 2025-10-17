@@ -6,37 +6,437 @@ A simple, modern chat bubble using PyQt5/PySide2 that opens near the system tray
 
 import sys
 import threading
+import time
+import json
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Dict
+
+# Import VoiceLLM-compatible TTS manager
+try:
+    from ..core.tts_manager import VoiceManager
+    TTS_AVAILABLE = True
+except ImportError:
+    TTS_AVAILABLE = False
+    VoiceManager = None
 
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-        QTextEdit, QPushButton, QComboBox, QLabel, QFrame
+        QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
+        QFileDialog, QMessageBox, QDialog, QScrollArea
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
-    from PyQt5.QtGui import QFont, QPalette, QColor
+    from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
+    from PyQt5.QtCore import QPoint
     QT_AVAILABLE = "PyQt5"
 except ImportError:
     try:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-            QTextEdit, QPushButton, QComboBox, QLabel, QFrame
+            QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
+            QFileDialog, QMessageBox, QDialog, QScrollArea
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot
-        from PySide2.QtGui import QFont, QPalette, QColor
+        from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
+        from PySide2.QtCore import QPoint
         QT_AVAILABLE = "PySide2"
     except ImportError:
         try:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-                QTextEdit, QPushButton, QComboBox, QLabel, QFrame
+                QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
+                QFileDialog, QMessageBox, QDialog, QScrollArea
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
-            from PyQt6.QtGui import QFont, QPalette, QColor
+            from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
+            from PyQt6.QtCore import QPoint
             QT_AVAILABLE = "PyQt6"
         except ImportError:
             QT_AVAILABLE = None
+
+
+class TTSToggle(QWidget):
+    """Custom TTS toggle switch with elongated cone design."""
+    
+    toggled = pyqtSignal(bool)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(60, 24)
+        self.setToolTip("Toggle Text-to-Speech")
+        self._enabled = False
+        self._hover = False
+        
+    def is_enabled(self) -> bool:
+        """Check if TTS is enabled."""
+        return self._enabled
+    
+    def set_enabled(self, enabled: bool):
+        """Set TTS enabled state."""
+        if self._enabled != enabled:
+            self._enabled = enabled
+            self.update()
+            self.toggled.emit(enabled)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press to toggle state."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.set_enabled(not self._enabled)
+        super().mousePressEvent(event)
+    
+    def enterEvent(self, event):
+        """Handle mouse enter for hover effect."""
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """Handle mouse leave to remove hover effect."""
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+    
+    def paintEvent(self, event):
+        """Custom paint event for the toggle switch."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Colors
+        bg_color = QColor("#404040") if not self._enabled else QColor("#00aa00")
+        if self._hover:
+            bg_color = bg_color.lighter(120)
+        
+        track_color = QColor("#2a2a2a")
+        thumb_color = QColor("#ffffff")
+        
+        # Draw track (elongated rounded rectangle)
+        track_rect = self.rect().adjusted(2, 4, -2, -4)
+        painter.setPen(QPen(QColor("#555555"), 1))
+        painter.setBrush(QBrush(track_color))
+        painter.drawRoundedRect(track_rect, 8, 8)
+        
+        # Draw background fill
+        fill_rect = track_rect.adjusted(1, 1, -1, -1)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg_color))
+        painter.drawRoundedRect(fill_rect, 7, 7)
+        
+        # Draw thumb (circle)
+        thumb_radius = 6
+        if self._enabled:
+            thumb_x = self.width() - thumb_radius - 6
+        else:
+            thumb_x = thumb_radius + 4
+        
+        thumb_y = self.height() // 2
+        
+        # Thumb shadow
+        shadow_color = QColor(0, 0, 0, 50)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(shadow_color))
+        painter.drawEllipse(thumb_x - thumb_radius + 1, thumb_y - thumb_radius + 1, 
+                          thumb_radius * 2, thumb_radius * 2)
+        
+        # Thumb
+        painter.setBrush(QBrush(thumb_color))
+        painter.drawEllipse(thumb_x - thumb_radius, thumb_y - thumb_radius, 
+                          thumb_radius * 2, thumb_radius * 2)
+        
+        # Draw speaker icon on thumb
+        if self._enabled:
+            # Draw simple speaker icon
+            icon_color = QColor("#00aa00")
+            painter.setPen(QPen(icon_color, 2))
+            
+            # Speaker cone
+            cone_points = [
+                (thumb_x - 3, thumb_y - 2),
+                (thumb_x - 1, thumb_y - 3),
+                (thumb_x + 1, thumb_y - 3),
+                (thumb_x + 1, thumb_y + 3),
+                (thumb_x - 1, thumb_y + 3),
+                (thumb_x - 3, thumb_y + 2)
+            ]
+            
+            painter.drawPolyline([QPoint(x, y) for x, y in cone_points])
+            
+            # Sound waves
+            painter.setPen(QPen(icon_color, 1))
+            painter.drawArc(thumb_x + 2, thumb_y - 4, 6, 8, 0, 180 * 16)
+            painter.drawArc(thumb_x + 3, thumb_y - 2, 4, 4, 0, 180 * 16)
+
+
+class HistoryDialog(QDialog):
+    """Dialog to display message history."""
+    
+    def __init__(self, message_history: List[Dict], parent=None):
+        super().__init__(parent)
+        self.message_history = message_history
+        self.setup_ui()
+        self.setup_styling()
+    
+    def setup_ui(self):
+        """Set up iPhone Messages-style history dialog UI."""
+        self.setWindowTitle("Messages")
+        self.setModal(True)
+        self.resize(420, 600)  # iPhone-like proportions
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Header bar - iPhone style
+        header_bar = QFrame()
+        header_bar.setFixedHeight(44)  # iOS standard header height
+        header_bar.setStyleSheet("""
+            QFrame {
+                background: rgba(28, 28, 30, 0.95);
+                border: none;
+                border-bottom: 0.5px solid rgba(84, 84, 88, 0.6);
+            }
+        """)
+        
+        header_layout = QHBoxLayout(header_bar)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+        
+        # Back/Close button (iOS style)
+        close_button = QPushButton("Done")
+        close_button.setFixedHeight(32)
+        close_button.clicked.connect(self.accept)
+        close_button.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                font-size: 17px;
+                font-weight: 400;
+                color: #007AFF;
+                font-family: -apple-system, system-ui, sans-serif;
+                padding: 0px 8px;
+            }
+            QPushButton:hover {
+                color: #0051D5;
+            }
+            QPushButton:pressed {
+                color: #004CCC;
+            }
+        """)
+        header_layout.addWidget(close_button)
+        
+        header_layout.addStretch()
+        
+        # Title
+        header_label = QLabel("Messages")
+        header_label.setStyleSheet("""
+            QLabel {
+                font-size: 17px;
+                font-weight: 600;
+                color: #ffffff;
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+        """)
+        header_layout.addWidget(header_label)
+        
+        header_layout.addStretch()
+        
+        # Message count (subtle)
+        count_label = QLabel(f"{len(self.message_history)}")
+        count_label.setStyleSheet("""
+            QLabel {
+                font-size: 15px;
+                font-weight: 400;
+                color: rgba(255, 255, 255, 0.6);
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+        """)
+        header_layout.addWidget(count_label)
+        
+        layout.addWidget(header_bar)
+        
+        # Messages area - iPhone style
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # Hide scrollbar like iOS
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: #000000;
+                border: none;
+            }
+        """)
+        
+        # Content widget
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 12, 0, 12)
+        content_layout.setSpacing(2)  # Very tight spacing like iPhone Messages
+        
+        # Add messages to content
+        for i, msg in enumerate(self.message_history):
+            message_frame = self._create_message_frame(msg, i)
+            content_layout.addWidget(message_frame)
+        
+        content_layout.addStretch()
+        scroll_area.setWidget(content_widget)
+        layout.addWidget(scroll_area)
+        
+        self.setLayout(layout)
+    
+    def _create_message_frame(self, msg: Dict, index: int) -> QFrame:
+        """Create iPhone Messages-style message bubble."""
+        container = QFrame()
+        container.setStyleSheet("QFrame { background: transparent; border: none; }")
+        
+        container_layout = QHBoxLayout(container)
+        container_layout.setContentsMargins(16, 1, 16, 1)  # iPhone-style margins
+        container_layout.setSpacing(0)
+        
+        is_user = msg['type'] == 'user'
+        
+        if is_user:
+            # User messages: right-aligned, blue bubble
+            container_layout.addStretch()  # Push to right
+            
+            bubble = QFrame()
+            bubble.setStyleSheet("""
+                QFrame {
+                    background: #007AFF;
+                    border: none;
+                    border-radius: 18px;
+                    max-width: 280px;
+                }
+            """)
+            
+            bubble_layout = QVBoxLayout(bubble)
+            bubble_layout.setContentsMargins(12, 8, 12, 8)
+            bubble_layout.setSpacing(2)
+            
+        else:
+            # AI messages: left-aligned, grey bubble
+            bubble = QFrame()
+            bubble.setStyleSheet("""
+                QFrame {
+                    background: #1C1C1E;
+                    border: none;
+                    border-radius: 18px;
+                    max-width: 280px;
+                }
+            """)
+            
+            bubble_layout = QVBoxLayout(bubble)
+            bubble_layout.setContentsMargins(12, 8, 12, 8)
+            bubble_layout.setSpacing(2)
+        
+        # Message content
+        content_label = QLabel(msg['content'])
+        content_label.setWordWrap(True)
+        content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        content_label.setStyleSheet(f"""
+            QLabel {{
+                background: transparent;
+                border: none;
+                font-size: 16px;
+                font-weight: 400;
+                color: {'#ffffff' if is_user else '#ffffff'};
+                font-family: -apple-system, system-ui, sans-serif;
+                line-height: 1.3;
+                padding: 0px;
+            }}
+        """)
+        bubble_layout.addWidget(content_label)
+        
+        if is_user:
+            container_layout.addWidget(bubble)
+        else:
+            container_layout.addWidget(bubble)
+            container_layout.addStretch()  # Push to left
+        
+        # Timestamp below bubble (iPhone style)
+        timestamp_container = QFrame()
+        timestamp_container.setStyleSheet("QFrame { background: transparent; border: none; }")
+        timestamp_layout = QHBoxLayout(timestamp_container)
+        timestamp_layout.setContentsMargins(16, 0, 16, 4)
+        
+        # Format timestamp
+        dt = datetime.fromisoformat(msg['timestamp'])
+        today = datetime.now().date()
+        msg_date = dt.date()
+        
+        if msg_date == today:
+            time_str = dt.strftime("%I:%M %p").lower().lstrip('0')  # "2:34 pm"
+        elif (today - msg_date).days == 1:
+            time_str = f"Yesterday {dt.strftime('%I:%M %p').lower().lstrip('0')}"
+        else:
+            time_str = dt.strftime("%b %d, %I:%M %p").lower().replace(' 0', ' ').lstrip('0')
+        
+        timestamp_label = QLabel(time_str)
+        timestamp_label.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                border: none;
+                font-size: 13px;
+                font-weight: 400;
+                color: rgba(255, 255, 255, 0.6);
+                font-family: -apple-system, system-ui, sans-serif;
+                padding: 0px;
+            }
+        """)
+        
+        if is_user:
+            timestamp_layout.addStretch()
+            timestamp_layout.addWidget(timestamp_label)
+        else:
+            timestamp_layout.addWidget(timestamp_label)
+            timestamp_layout.addStretch()
+        
+        # Main container for bubble + timestamp
+        main_container = QFrame()
+        main_container.setStyleSheet("QFrame { background: transparent; border: none; }")
+        main_layout = QVBoxLayout(main_container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(2)
+        
+        main_layout.addWidget(container)
+        
+        # Only show timestamp for every few messages or different times (like iPhone)
+        prev_msg = self.message_history[index - 1] if index > 0 else None
+        show_timestamp = (index == 0 or 
+                         prev_msg is None or 
+                         index % 5 == 0 or  # Every 5th message
+                         abs(datetime.fromisoformat(msg['timestamp']) - 
+                             datetime.fromisoformat(prev_msg['timestamp'])).total_seconds() > 300)  # 5+ minutes apart
+        
+        if show_timestamp:
+            main_layout.addWidget(timestamp_container)
+        
+        return main_container
+    
+    def setup_styling(self):
+        """Set up iPhone Messages-style dialog styling."""
+        self.setStyleSheet("""
+            QDialog {
+                background: #000000;
+                color: #ffffff;
+                border: none;
+                border-radius: 12px;
+            }
+            QScrollArea {
+                background: #000000;
+                border: none;
+            }
+            /* Hide scrollbars completely like iOS */
+            QScrollBar:vertical {
+                width: 0px;
+                background: transparent;
+            }
+            QScrollBar::handle:vertical {
+                background: transparent;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: transparent;
+            }
+        """)
 
 
 class LLMWorker(QThread):
@@ -90,6 +490,21 @@ class QtChatBubble(QWidget):
         self.token_count = 0
         self.max_tokens = 128000
         
+        # Message history for session management
+        self.message_history: List[Dict] = []
+        
+        # TTS functionality (VoiceLLM-compatible)
+        self.voice_manager = None
+        self.tts_enabled = False
+        if TTS_AVAILABLE:
+            try:
+                self.voice_manager = VoiceManager(debug_mode=debug)
+                if self.debug:
+                    print("🔊 VoiceManager initialized")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Failed to initialize VoiceManager: {e}")
+        
         # Callbacks
         self.response_callback = None
         self.error_callback = None
@@ -123,27 +538,102 @@ class QtChatBubble(QWidget):
         layout.setContentsMargins(8, 4, 8, 8)  # Strict minimum margins
         layout.setSpacing(4)  # Minimal spacing
         
-        # Compact header - status only (remove redundant title)
+        # Header with session buttons and provider/status
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        
+        # Close button (top-left, macOS style)
+        self.close_button = QPushButton("✕")
+        self.close_button.setFixedSize(24, 24)
+        self.close_button.clicked.connect(self.close_app)
+        self.close_button.setStyleSheet("""
+            QPushButton {
+                background: #ff5f57;
+                border: none;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: bold;
+                color: #ffffff;
+                font-family: system-ui, -apple-system, sans-serif;
+            }
+            QPushButton:hover {
+                background: #ff4136;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background: #e60000;
+            }
+        """)
+        header_layout.addWidget(self.close_button)
+        
+        # Session management buttons
+        session_buttons_layout = QHBoxLayout()
+        session_buttons_layout.setSpacing(4)
+        
+        # Clear button
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.setFixedSize(50, 24)
+        self.clear_button.clicked.connect(self.clear_session)
+        session_buttons_layout.addWidget(self.clear_button)
+        
+        # Load button
+        self.load_button = QPushButton("Load")
+        self.load_button.setFixedSize(50, 24)
+        self.load_button.clicked.connect(self.load_session)
+        session_buttons_layout.addWidget(self.load_button)
+        
+        # Save button
+        self.save_button = QPushButton("Save")
+        self.save_button.setFixedSize(50, 24)
+        self.save_button.clicked.connect(self.save_session)
+        session_buttons_layout.addWidget(self.save_button)
+        
+        # History button
+        self.history_button = QPushButton("History")
+        self.history_button.setFixedSize(60, 24)
+        self.history_button.clicked.connect(self.show_history)
+        session_buttons_layout.addWidget(self.history_button)
+        
+        header_layout.addLayout(session_buttons_layout)
+        
+        # TTS toggle
+        if self.voice_manager and self.voice_manager.is_available():
+            self.tts_toggle = TTSToggle()
+            self.tts_toggle.toggled.connect(self.on_tts_toggled)
+            header_layout.addWidget(self.tts_toggle)
         
         header_layout.addStretch()
         
-        # Status indicator - larger and more prominent
+        # Provider label (instead of Agent)
+        self.provider_label = QLabel("LMStudio")
+        self.provider_label.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                color: #ffffff;
+                font-size: 12px;
+                font-weight: 500;
+                font-family: system-ui, -apple-system, sans-serif;
+                padding: 4px 8px;
+            }
+        """)
+        header_layout.addWidget(self.provider_label)
+        
+        # Status indicator
         self.status_label = QLabel("READY")
         self.status_label.setObjectName("status_ready")
         self.status_label.setStyleSheet("""
                 QLabel {
-                    background: rgba(166, 227, 161, 0.15);
-                    border: 1px solid rgba(166, 227, 161, 0.3);
-                    border-radius: 12px;
-                    padding: 6px 12px;
+                    background: #00aa00;
+                    border: 1px solid #00cc00;
+                    border-radius: 6px;
+                    padding: 4px 8px;
                     font-size: 10px;
                     font-weight: 600;
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
-                    color: #a6e3a1;
-                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                    color: #ffffff;
+                    font-family: system-ui, -apple-system, sans-serif;
                 }
             """)
         header_layout.addWidget(self.status_label)
@@ -154,9 +644,9 @@ class QtChatBubble(QWidget):
         input_container = QFrame()
         input_container.setStyleSheet("""
             QFrame {
-                background: #374151;
-                border: 2px solid #4a5568;
-                border-radius: 18px;
+                background: #1e1e1e;
+                border: 1px solid #404040;
+                border-radius: 8px;
                 padding: 4px;
             }
         """)
@@ -175,39 +665,35 @@ class QtChatBubble(QWidget):
         self.input_text.setMinimumHeight(70)   # Increased to better use available space
         input_row.addWidget(self.input_text)
         
-        # Send button - larger and more prominent
+        # Send button - primary action with special styling
         self.send_button = QPushButton("→")
         self.send_button.clicked.connect(lambda: self.debug_send_message("button"))
-        self.send_button.setFixedSize(50, 50)  # Increased from 40x40
+        self.send_button.setFixedSize(40, 40)
         self.send_button.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #667eea,
-                    stop:1 #764ba2);
-                border: none;
-                border-radius: 25px;
-                font-size: 18px;  /* Reduced to prevent truncation */
+                background: #0066cc;
+                border: 1px solid #0080ff;
+                border-radius: 20px;
+                font-size: 16px;
                 font-weight: bold;
                 color: white;
-                text-align: center;  /* Ensure proper centering */
-                padding: 0px;  /* Remove any padding that might cause truncation */
+                text-align: center;
+                padding: 0px;
             }
             
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #5a6fd8,
-                    stop:1 #6a4190);
+                background: #0080ff;
+                border: 1px solid #0099ff;
             }
             
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #4e63c6,
-                    stop:1 #5e397e);
+                background: #0052a3;
             }
             
             QPushButton:disabled {
-                background: rgba(255, 255, 255, 0.1);
-                color: rgba(255, 255, 255, 0.4);
+                background: #404040;
+                color: #666666;
+                border: 1px solid #333333;
             }
         """)
         input_row.addWidget(self.send_button)
@@ -219,10 +705,10 @@ class QtChatBubble(QWidget):
         controls_container = QFrame()
         controls_container.setStyleSheet("""
             QFrame {
-                background: #374151;
-                border: 2px solid #4a5568;
-                border-radius: 16px;
-                padding: 2px;  /* Further reduced from 4px to 2px */
+                background: #1e1e1e;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                padding: 2px;
             }
         """)
         controls_layout = QVBoxLayout(controls_container)
@@ -254,14 +740,14 @@ class QtChatBubble(QWidget):
         self.token_label.setMinimumWidth(90)   # Set minimum width
         self.token_label.setStyleSheet("""
                 QLabel {
-                    background: #2d3748;
-                    border: 1px solid #4a5568;
-                    border-radius: 8px;
-                    padding: 6px 10px;  /* Reduced from 10px 12px to 6px 10px */
-                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                    background: #1e1e1e;
+                    border: 1px solid #404040;
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    font-family: system-ui, -apple-system, sans-serif;
                     font-size: 11px;
                     font-weight: 500;
-                    color: #cbd5e0;
+                    color: #ffffff;
                     text-align: center;
                     letter-spacing: 0.025em;
                 }
@@ -300,94 +786,83 @@ class QtChatBubble(QWidget):
         self.input_text.keyPressEvent = self.handle_key_press
     
     def setup_styling(self):
-        """Set up modern dark theme styling with solid backgrounds."""
+        """Set up modern grey theme styling to match the reference UI."""
         self.setStyleSheet("""
-            /* Main Window - Modern Dark Theme */
+            /* Main Window - Modern Grey Theme */
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #2d3748,
-                    stop:0.5 #1a202c,
-                    stop:1 #171923);
-                border: 2px solid #4a5568;
-                border-radius: 20px;
+                background: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 12px;
                 color: #ffffff;
             }
             
-            /* Input Field - Modern Solid Design */
+            /* Input Field - Modern Grey Design */
             QTextEdit {
-                background: #2d3748;
-                border: 2px solid #4a5568;
-                border-radius: 16px;
-                padding: 16px 20px;
-                font-size: 15px;
+                background: #1e1e1e;
+                border: 1px solid #404040;
+                border-radius: 8px;
+                padding: 12px 16px;
+                font-size: 14px;
                 font-weight: 400;
                 color: #ffffff;
                 font-family: system-ui, -apple-system, sans-serif;
-                selection-background-color: #4299e1;
+                selection-background-color: #0066cc;
                 line-height: 1.4;
             }
             
             QTextEdit:focus {
-                border: 2px solid #4299e1;
-                background: #374151;
+                border: 1px solid #0066cc;
+                background: #252525;
             }
             
             QTextEdit::placeholder {
                 color: rgba(255, 255, 255, 0.6);
             }
             
-            /* Send Button - Premium Gradient with Hover Effects */
+            /* Buttons - Grey Theme */
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #667eea,
-                    stop:1 #764ba2);
-                border: none;
-                border-radius: 14px;
-                padding: 14px 28px;
-                font-size: 15px;
-                font-weight: 600;
-                color: white;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                letter-spacing: 0.5px;
+                background: #404040;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: 500;
+                color: #ffffff;
+                font-family: system-ui, -apple-system, sans-serif;
             }
             
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #5a6fd8,
-                    stop:1 #6a4190);
-                transform: translateY(-1px);
-                box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+                background: #505050;
+                border: 1px solid #0066cc;
             }
             
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #4e63c6,
-                    stop:1 #5e397e);
-                transform: translateY(0px);
+                background: #353535;
             }
             
             QPushButton:disabled {
-                background: rgba(255, 255, 255, 0.1);
-                color: rgba(255, 255, 255, 0.4);
+                background: #2a2a2a;
+                color: #666666;
+                border: 1px solid #333333;
             }
             
-            /* Dropdown Menus - Compact Design */
+            /* Dropdown Menus - Grey Theme */
                 QComboBox {
-                    background: #2d3748;
-                    border: 1px solid #4a5568;
-                    border-radius: 8px;
-                    padding: 6px 10px;  /* Reduced from 8px 12px to 6px 10px */
+                    background: #1e1e1e;
+                    border: 1px solid #404040;
+                    border-radius: 6px;
+                    padding: 6px 10px;
                     min-width: 80px;
                     font-size: 12px;
-                    font-weight: 400;  /* Changed from 500 to 400 (normal weight) */
-                    color: #e2e8f0;
-                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                    font-weight: 400;
+                    color: #ffffff;
+                    font-family: system-ui, -apple-system, sans-serif;
                     letter-spacing: 0.01em;
                 }
             
             QComboBox:hover {
-                border: 1px solid #4299e1;
-                background: #374151;
+                border: 1px solid #0066cc;
+                background: #252525;
             }
             
             QComboBox::drop-down {
@@ -793,6 +1268,9 @@ class QtChatBubble(QWidget):
                 self.current_provider = self.provider_combo.itemData(i)
                 break
         
+        # Update provider label
+        self.provider_label.setText(provider_name)
+        
         self.update_models()
         
         if self.debug:
@@ -818,9 +1296,17 @@ class QtChatBubble(QWidget):
             self.chat_display.show()
             
             # Add user message with timestamp
-            from datetime import datetime
             timestamp = datetime.now().strftime("%H:%M")
             formatted_message = f"[{timestamp}] You: {message}"
+            
+            # Add to message history
+            self.message_history.append({
+                'timestamp': datetime.now().isoformat(),
+                'type': 'user',
+                'content': message,
+                'provider': self.current_provider,
+                'model': self.current_model
+            })
             
             # Append to chat display
             self.chat_display.append(formatted_message)
@@ -916,29 +1402,158 @@ class QtChatBubble(QWidget):
             }
         """)
         
+        # Add AI response to message history
+        self.message_history.append({
+            'timestamp': datetime.now().isoformat(),
+            'type': 'assistant',
+            'content': response,
+            'provider': self.current_provider,
+            'model': self.current_model
+        })
+        
         # Update token count (approximate)
         self.token_count += len(response.split()) * 1.3  # Rough estimate
         self.update_token_display()
         
-        print(f"🔄 QtChatBubble: Showing toast notification...")
-        
-        # Show dedicated toast notification
-        try:
-            from .toast_window import show_toast_notification
-            toast = show_toast_notification(response, debug=self.debug)
+        # Handle TTS if enabled (VoiceLLM integration)
+        if self.tts_enabled and self.voice_manager and self.voice_manager.is_available():
+            if self.debug:
+                print("🔊 TTS enabled, speaking response...")
             
-            if self.debug:
-                print(f"🍞 Toast notification created and shown")
-        except Exception as e:
-            if self.debug:
-                print(f"❌ Failed to show toast: {e}")
-            # Fallback to console
-            print(f"✅ AI Response: {response}")
+            # Don't show toast when TTS is enabled
+            try:
+                # Clean response for voice synthesis
+                clean_response = self._clean_response_for_voice(response)
+                
+                # Speak the cleaned response using VoiceLLM-compatible interface
+                self.voice_manager.speak(clean_response)
+                
+                # Wait for speech to complete in a separate thread
+                def wait_for_speech():
+                    while self.voice_manager.is_speaking():
+                        time.sleep(0.1)
+                    if self.debug:
+                        print("🔊 TTS completed")
+                
+                speech_thread = threading.Thread(target=wait_for_speech, daemon=True)
+                speech_thread.start()
+                
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ TTS error: {e}")
+                # Fallback to toast if TTS fails
+                try:
+                    from .toast_window import show_toast_notification
+                    show_toast_notification(response, debug=self.debug)
+                except:
+                    pass
+        else:
+            # Show toast notification when TTS is disabled
+            try:
+                from .toast_window import show_toast_notification
+                toast = show_toast_notification(response, debug=self.debug)
+                
+                if self.debug:
+                    print(f"🍞 Toast notification created and shown")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Failed to show toast: {e}")
+                # Fallback to console
+                print(f"✅ AI Response: {response}")
         
         # Also call response callback if set
         if self.response_callback:
             print(f"🔄 QtChatBubble: Response callback exists, calling it...")
             self.response_callback(response)
+    
+    def on_tts_toggled(self, enabled: bool):
+        """Handle TTS toggle state change."""
+        self.tts_enabled = enabled
+        if self.debug:
+            print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
+        
+        # Stop any current speech when disabling
+        if not enabled and self.voice_manager:
+            try:
+                self.voice_manager.stop()
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error stopping TTS: {e}")
+        
+        # Update LLM session with TTS-appropriate system prompt
+        if self.llm_manager:
+            try:
+                self.llm_manager.create_new_session(tts_mode=enabled)
+                if self.debug:
+                    print(f"🔄 LLM session updated for {'TTS' if enabled else 'normal'} mode")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error updating LLM session: {e}")
+    
+    def _clean_response_for_voice(self, text: str) -> str:
+        """Clean response text for voice synthesis - remove formatting and make conversational."""
+        import re
+        
+        # Remove markdown headers
+        text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
+        
+        # Remove markdown formatting
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # Bold
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)      # Italic
+        text = re.sub(r'_([^_]+)_', r'\1', text)        # Underscore
+        
+        # Remove code blocks completely
+        text = re.sub(r'```[\s\S]*?```', '', text)
+        text = re.sub(r'`([^`]+)`', r'\1', text)
+        
+        # Remove bullet points and lists
+        text = re.sub(r'^[-*+]\s+', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)
+        
+        # Remove markdown links
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+        
+        # Replace special characters with words
+        replacements = {
+            '&': ' and ',
+            '@': ' at ',
+            '#': ' hash ',
+            '$': ' dollar ',
+            '%': ' percent ',
+            '→': ' to ',
+            '←': ' from ',
+            '+': ' plus ',
+            '/': ' or ',
+            '|': ' or ',
+        }
+        
+        for symbol, word in replacements.items():
+            text = text.replace(symbol, word)
+        
+        # Clean up whitespace and line breaks
+        text = re.sub(r'\n+', ' ', text)  # Replace line breaks with spaces
+        text = re.sub(r'\s+', ' ', text)  # Collapse multiple spaces
+        text = text.strip()
+        
+        # Truncate if too long (approximately 20 seconds of speech = ~300 characters)
+        if len(text) > 300:
+            # Find the last sentence boundary before 300 characters
+            truncated = text[:300]
+            last_period = truncated.rfind('.')
+            last_question = truncated.rfind('?')
+            last_exclamation = truncated.rfind('!')
+            
+            # Use the latest sentence ending
+            end_pos = max(last_period, last_question, last_exclamation)
+            if end_pos > 200:  # Only truncate if we have a reasonable sentence
+                text = text[:end_pos + 1]
+            else:
+                text = text[:300] + "..."
+        
+        if self.debug:
+            print(f"🔊 Cleaned text for TTS: {text[:100]}{'...' if len(text) > 100 else ''}")
+        
+        return text
     
     @pyqtSlot(str)
     def on_error_occurred(self, error):
@@ -994,11 +1609,206 @@ class QtChatBubble(QWidget):
         """Set status callback function."""
         self.status_callback = callback
     
+    def clear_session(self):
+        """Clear the current session."""
+        reply = QMessageBox.question(
+            self, 
+            "Clear Session", 
+            "Are you sure you want to clear the current session?\nThis will remove all messages and reset the token count.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            if hasattr(self, 'chat_display'):
+                self.chat_display.clear()
+                self.chat_display.hide()
+            
+            self.message_history.clear()
+            self.token_count = 0
+            self.update_token_display()
+            
+            if self.debug:
+                print("🧹 Session cleared")
+    
+    def load_session(self):
+        """Load a session from a JSON file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Session",
+            str(Path.home() / "Documents"),
+            "JSON Files (*.json);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    session_data = json.load(f)
+                
+                # Validate session data
+                if not isinstance(session_data, dict) or 'messages' not in session_data:
+                    raise ValueError("Invalid session file format")
+                
+                # Load the session
+                self.message_history = session_data['messages']
+                self.token_count = session_data.get('token_count', 0)
+                
+                # Update UI
+                self.update_token_display()
+                self._rebuild_chat_display()
+                
+                QMessageBox.information(
+                    self,
+                    "Session Loaded",
+                    f"Successfully loaded session with {len(self.message_history)} messages."
+                )
+                
+                if self.debug:
+                    print(f"📂 Loaded session from {file_path}")
+                    
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Load Error",
+                    f"Failed to load session:\n{str(e)}"
+                )
+                if self.debug:
+                    print(f"❌ Failed to load session: {e}")
+    
+    def save_session(self):
+        """Save the current session to a JSON file."""
+        if not self.message_history:
+            QMessageBox.information(
+                self,
+                "No Messages",
+                "No messages to save. Start a conversation first."
+            )
+            return
+        
+        # Generate default filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"chat_session_{timestamp}.json"
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Session",
+            str(Path.home() / "Documents" / default_filename),
+            "JSON Files (*.json);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                session_data = {
+                    'timestamp': datetime.now().isoformat(),
+                    'provider': self.current_provider,
+                    'model': self.current_model,
+                    'token_count': self.token_count,
+                    'messages': self.message_history
+                }
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(session_data, f, indent=2, ensure_ascii=False)
+                
+                QMessageBox.information(
+                    self,
+                    "Session Saved",
+                    f"Session saved successfully to:\n{file_path}"
+                )
+                
+                if self.debug:
+                    print(f"💾 Saved session to {file_path}")
+                    
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Save Error",
+                    f"Failed to save session:\n{str(e)}"
+                )
+                if self.debug:
+                    print(f"❌ Failed to save session: {e}")
+    
+    def show_history(self):
+        """Show message history in a dedicated window."""
+        if not self.message_history:
+            QMessageBox.information(
+                self,
+                "No History",
+                "No message history available. Start a conversation first."
+            )
+            return
+        
+        # Create history dialog
+        history_dialog = HistoryDialog(self.message_history, self)
+        history_dialog.exec()
+    
+    def close_app(self):
+        """Close the entire application completely."""
+        if self.debug:
+            print("🔄 Close button clicked - shutting down application")
+        
+        # Stop TTS if running
+        if hasattr(self, 'voice_manager') and self.voice_manager:
+            self.voice_manager.cleanup()
+        
+        # Close the chat bubble
+        self.hide()
+        
+        # Try to call the main app's quit method if available
+        if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
+            if self.debug:
+                print("🔄 Calling app quit callback")
+            self.app_quit_callback()
+        else:
+            # Fallback: force quit the application
+            if self.debug:
+                print("🔄 No app callback, forcing quit")
+            app = QApplication.instance()
+            if app:
+                app.quit()
+            
+            # Force exit if needed
+            import sys
+            sys.exit(0)
+    
+    def set_app_quit_callback(self, callback):
+        """Set callback to properly quit the main application."""
+        self.app_quit_callback = callback
+    
+    def _rebuild_chat_display(self):
+        """Rebuild the chat display from message history."""
+        if not hasattr(self, 'chat_display'):
+            return
+        
+        self.chat_display.clear()
+        
+        if self.message_history:
+            self.chat_display.show()
+            
+            for msg in self.message_history:
+                timestamp = datetime.fromisoformat(msg['timestamp']).strftime("%H:%M")
+                sender = "You" if msg['type'] == 'user' else "AI"
+                formatted_message = f"[{timestamp}] {sender}: {msg['content'][:100]}{'...' if len(msg['content']) > 100 else ''}"
+                self.chat_display.append(formatted_message)
+            
+            # Scroll to bottom
+            cursor = self.chat_display.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            self.chat_display.setTextCursor(cursor)
+    
     def closeEvent(self, event):
         """Handle close event."""
         if self.worker and self.worker.isRunning():
             self.worker.terminate()
             self.worker.wait()
+        
+        # Clean up voice manager
+        if self.voice_manager:
+            try:
+                self.voice_manager.cleanup()
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error cleaning up voice manager: {e}")
+        
         event.accept()
 
 
@@ -1041,6 +1851,8 @@ class QtBubbleManager:
                 self.bubble.set_error_callback(self.error_callback)
             if self.status_callback:
                 self.bubble.set_status_callback(self.status_callback)
+            if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
+                self.bubble.set_app_quit_callback(self.app_quit_callback)
         
         self.bubble.show()
         self.bubble.raise_()
@@ -1083,3 +1895,9 @@ class QtBubbleManager:
         self.status_callback = callback
         if self.bubble:
             self.bubble.set_status_callback(callback)
+    
+    def set_app_quit_callback(self, callback):
+        """Set app quit callback."""
+        self.app_quit_callback = callback
+        if self.bubble:
+            self.bubble.set_app_quit_callback(callback)

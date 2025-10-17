@@ -143,8 +143,12 @@ class LLMManager:
         
         self.token_usage.max_context = context_limits.get(self.current_model, 8000)
     
-    def create_new_session(self):
-        """Create a new session with tools - CLEAN AND SIMPLE as per AbstractCore docs."""
+    def create_new_session(self, tts_mode: bool = False):
+        """Create a new session with tools - CLEAN AND SIMPLE as per AbstractCore docs.
+        
+        Args:
+            tts_mode: If True, use concise prompts optimized for text-to-speech
+        """
         if not self.llm:
             print("❌ No LLM available - cannot create session")
             return
@@ -158,13 +162,31 @@ class LLMManager:
             ]
             print(f"🔧 Registering {len(tools)} tools with session")
         
+        # Choose system prompt based on TTS mode
+        if tts_mode:
+            system_prompt = (
+                "You are AbstractAssistant in VOICE MODE. This is a spoken conversation, not text chat. "
+                "CRITICAL RULES for voice responses:\n"
+                "- Maximum 2-3 sentences per response (20 seconds of speech max)\n"
+                "- NO markdown, bullet points, or formatting\n"
+                "- NO code blocks or technical lists\n"
+                "- Speak conversationally like you're talking to a friend\n"
+                "- If asked about complex topics, give a brief overview and ask what specific aspect they want to know\n"
+                "- Use natural speech patterns with contractions (I'm, you're, it's)\n"
+                "- End with a question to keep the conversation flowing\n"
+                "Remember: This is a DIALOGUE, not a monologue. Keep it short and interactive."
+            )
+        else:
+            system_prompt = (
+                "You are AbstractAssistant, a helpful AI assistant integrated into macOS. "
+                "You have access to file operations, command execution, and web search tools. "
+                "Use these tools when appropriate to help the user."
+            )
+        
         # Create session with tools (tool execution enabled at provider level)
-        # session = BasicSession(llm, system_prompt="You are a helpful assistant.", tools=[...])
         self.current_session = BasicSession(
             self.llm, 
-            system_prompt="You are AbstractAssistant, a helpful AI assistant integrated into macOS. "
-                         "You have access to file operations, command execution, and web search tools. "
-                         "Use these tools when appropriate to help the user.",
+            system_prompt=system_prompt,
             tools=tools
         )
         
@@ -172,9 +194,9 @@ class LLMManager:
         self.token_usage.current_session = 0
         
         if TOOLS_AVAILABLE:
-            print("✅ Created new AbstractCore session with tools")
+            print(f"✅ Created new AbstractCore session with tools ({'TTS mode' if tts_mode else 'normal mode'})")
         else:
-            print("✅ Created new AbstractCore session (no tools available)")
+            print(f"✅ Created new AbstractCore session (no tools available, {'TTS mode' if tts_mode else 'normal mode'})")
     
     def clear_session(self):
         """Clear current session and create a new one."""

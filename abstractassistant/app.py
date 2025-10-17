@@ -212,6 +212,7 @@ class AbstractAssistantApp:
                     self.bubble_manager.set_response_callback(self.handle_bubble_response)
                     self.bubble_manager.set_error_callback(self.handle_bubble_error)
                     self.bubble_manager.set_status_callback(self.update_icon_status)
+                    self.bubble_manager.set_app_quit_callback(self.quit_application)
                     
                     if self.debug:
                         print("✅ Qt bubble manager created successfully")

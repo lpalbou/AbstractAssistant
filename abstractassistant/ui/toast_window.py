@@ -99,7 +99,16 @@ class ToastWindow(QWidget):
         
         # Title
         title_label = QLabel("AI Response")
-        title_label.setFont(QFont("SF Pro Text", 12, QFont.Weight.Bold))
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: 500;
+                color: #ffffff;
+                background: transparent;
+                border: none;
+                font-family: system-ui, -apple-system, sans-serif;
+            }
+        """)
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
@@ -125,7 +134,7 @@ class ToastWindow(QWidget):
         self.content_area.setReadOnly(True)
         self.content_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.content_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.content_area.setFont(QFont("SF Pro Text", 14))  # Increased from 11 to 14
+        # Font styling handled by CSS stylesheet
         
         # Configure QTextBrowser for proper HTML rendering
         self.content_area.setOpenExternalLinks(False)  # Don't open external links
@@ -160,16 +169,13 @@ class ToastWindow(QWidget):
     # Reply panel functionality removed - use main chat bubble for new messages
     
     def setup_styling(self):
-        """Apply modern dark theme styling to match chat bubble design."""
+        """Apply modern grey theme styling to match chat bubble design."""
         self.setStyleSheet("""
-            /* Main Window - Modern Dark Theme matching chat bubble */
+            /* Main Window - Modern Grey Theme matching chat bubble */
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #2d3748,
-                    stop:0.5 #1a202c,
-                    stop:1 #171923);
-                border: 2px solid #4a5568;
-                border-radius: 20px;
+                background: #2a2a2a;
+                border: 1px solid #404040;
+                border-radius: 12px;
                 color: #ffffff;
             }
             
@@ -178,75 +184,69 @@ class ToastWindow(QWidget):
                 color: #ffffff;
                 background: transparent;
                 border: none;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                font-family: system-ui, -apple-system, sans-serif;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 500;
             }
             
-            /* Buttons - Premium Gradient matching chat bubble */
+            /* Buttons - Grey Theme matching chat bubble */
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #667eea,
-                    stop:1 #764ba2);
-                border: none;
-                border-radius: 14px;
-                padding: 8px 16px;
-                font-size: 12px;
-                font-weight: 600;
-                color: white;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
-                letter-spacing: 0.5px;
+                background: #404040;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 11px;
+                font-weight: 500;
+                color: #ffffff;
+                font-family: system-ui, -apple-system, sans-serif;
             }
             
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #5a6fd8,
-                    stop:1 #6a4190);
+                background: #505050;
+                border: 1px solid #0066cc;
             }
             
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #4e63c6,
-                    stop:1 #5e397e);
+                background: #353535;
             }
             
-            /* Content Area - matching chat bubble input styling */
+            /* Content Area - matching chat bubble grey styling */
             QTextBrowser {
-                background: #2d3748;
-                border: 2px solid #4a5568;
-                border-radius: 16px;
+                background: #1e1e1e;
+                border: 1px solid #404040;
+                border-radius: 8px;
                 padding: 16px 20px;
                 font-size: 14px;
                 font-weight: 400;
                 color: #ffffff;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
-                selection-background-color: #4299e1;
+                font-family: system-ui, -apple-system, sans-serif;
+                selection-background-color: #0066cc;
                 line-height: 1.4;
             }
             
             QTextBrowser:focus {
-                border: 2px solid #4299e1;
-                background: #374151;
+                border: 1px solid #0066cc;
+                background: #252525;
             }
             
             /* QTextEdit styling removed - no longer needed */
             
-            /* Scrollbar - Modern Design */
+            /* Scrollbar - Grey Theme */
             QScrollBar:vertical {
-                background: rgba(255, 255, 255, 0.1);
+                background: #404040;
                 width: 8px;
                 border-radius: 4px;
                 margin: 0px;
             }
             
             QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.3);
+                background: #606060;
                 border-radius: 4px;
                 min-height: 20px;
             }
             
             QScrollBar::handle:vertical:hover {
-                background: rgba(255, 255, 255, 0.5);
+                background: #0066cc;
             }
             
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
