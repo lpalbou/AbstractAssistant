@@ -71,8 +71,8 @@ except ImportError:
             QT_AVAILABLE = None
 
 
-class TTSToggle(QWidget):
-    """Custom TTS toggle switch with elongated cone design and click detection."""
+class TTSToggle(QPushButton):
+    """TTS toggle button with speaker icon and single/double click detection."""
 
     toggled = pyqtSignal(bool)
     single_clicked = pyqtSignal()    # New signal for single click (pause/resume)
@@ -80,18 +80,20 @@ class TTSToggle(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(33, 24)  # Reduced width by 1.8x (60/1.8 ≈ 33)
+        self.setFixedSize(40, 24)  # Slightly wider for button
         self.setToolTip("Single click: Pause/Resume TTS, Double click: Stop and open chat")
         self._enabled = False
-        self._hover = False
         self._tts_state = 'idle'  # 'idle', 'speaking', 'paused'
+        self.setCheckable(True)
 
-        # Click detection
+        # Click detection for single/double click
         self._click_count = 0
         self._click_timer = QTimer()
         self._click_timer.setSingleShot(True)
         self._click_timer.timeout.connect(self._handle_single_click)
         self._double_click_interval = 300  # ms
+
+        self._update_appearance()
         
     def is_enabled(self) -> bool:
         """Check if TTS is enabled."""
@@ -101,7 +103,8 @@ class TTSToggle(QWidget):
         """Set TTS enabled state."""
         if self._enabled != enabled:
             self._enabled = enabled
-            self.update()
+            self.setChecked(enabled)
+            self._update_appearance()
             self.toggled.emit(enabled)
 
     def set_tts_state(self, state: str):
@@ -112,7 +115,7 @@ class TTSToggle(QWidget):
         """
         if self._tts_state != state:
             self._tts_state = state
-            self.update()
+            self._update_appearance()
 
     def get_tts_state(self) -> str:
         """Get current TTS state."""
@@ -148,95 +151,45 @@ class TTSToggle(QWidget):
     def _handle_double_click(self):
         """Handle double click - stop TTS and open chat."""
         self.double_clicked.emit()
-    
-    def enterEvent(self, event):
-        """Handle mouse enter for hover effect."""
-        self._hover = True
-        self.update()
-        super().enterEvent(event)
-    
-    def leaveEvent(self, event):
-        """Handle mouse leave to remove hover effect."""
-        self._hover = False
-        self.update()
-        super().leaveEvent(event)
-    
-    def paintEvent(self, event):
-        """Custom paint event for the toggle switch."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Colors based on TTS state
+    def _update_appearance(self):
+        """Update button appearance based on TTS state."""
+        # Set icon text based on state
         if not self._enabled:
-            bg_color = QColor("#404040")  # Grey when disabled
+            icon = "🔇"  # Muted speaker when disabled
+            bg_color = "rgba(255, 255, 255, 0.06)"
+            text_color = "rgba(255, 255, 255, 0.7)"
         elif self._tts_state == 'speaking':
-            bg_color = QColor("#00aa00")  # Green when speaking
+            icon = "🔊"  # Loud speaker when speaking
+            bg_color = "rgba(0, 170, 0, 0.8)"  # Green
+            text_color = "#ffffff"
         elif self._tts_state == 'paused':
-            bg_color = QColor("#ff8800")  # Orange when paused
+            icon = "⏸️"  # Pause when paused
+            bg_color = "rgba(255, 136, 0, 0.8)"  # Orange
+            text_color = "#ffffff"
         else:
-            bg_color = QColor("#0066cc")  # Blue when idle but enabled
+            icon = "🔉"  # Medium speaker when idle but enabled
+            bg_color = "rgba(0, 102, 204, 0.8)"  # Blue
+            text_color = "#ffffff"
 
-        if self._hover:
-            bg_color = bg_color.lighter(120)
-
-        track_color = QColor("#2a2a2a")
-        thumb_color = QColor("#ffffff")
-        
-        # Draw track (elongated rounded rectangle)
-        track_rect = self.rect().adjusted(2, 4, -2, -4)
-        painter.setPen(QPen(QColor("#555555"), 1))
-        painter.setBrush(QBrush(track_color))
-        painter.drawRoundedRect(track_rect, 8, 8)
-        
-        # Draw background fill
-        fill_rect = track_rect.adjusted(1, 1, -1, -1)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg_color))
-        painter.drawRoundedRect(fill_rect, 7, 7)
-        
-        # Draw thumb (circle)
-        thumb_radius = 6
-        if self._enabled:
-            thumb_x = self.width() - thumb_radius - 6
-        else:
-            thumb_x = thumb_radius + 4
-        
-        thumb_y = self.height() // 2
-        
-        # Thumb shadow
-        shadow_color = QColor(0, 0, 0, 50)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(shadow_color))
-        painter.drawEllipse(thumb_x - thumb_radius + 1, thumb_y - thumb_radius + 1, 
-                          thumb_radius * 2, thumb_radius * 2)
-        
-        # Thumb
-        painter.setBrush(QBrush(thumb_color))
-        painter.drawEllipse(thumb_x - thumb_radius, thumb_y - thumb_radius, 
-                          thumb_radius * 2, thumb_radius * 2)
-        
-        # Draw speaker icon on thumb
-        if self._enabled:
-            # Draw simple speaker icon
-            icon_color = QColor("#00aa00")
-            painter.setPen(QPen(icon_color, 2))
-            
-            # Speaker cone
-            cone_points = [
-                (thumb_x - 3, thumb_y - 2),
-                (thumb_x - 1, thumb_y - 3),
-                (thumb_x + 1, thumb_y - 3),
-                (thumb_x + 1, thumb_y + 3),
-                (thumb_x - 1, thumb_y + 3),
-                (thumb_x - 3, thumb_y + 2)
-            ]
-            
-            painter.drawPolyline([QPoint(x, y) for x, y in cone_points])
-            
-            # Sound waves
-            painter.setPen(QPen(icon_color, 1))
-            painter.drawArc(thumb_x + 2, thumb_y - 4, 6, 8, 0, 180 * 16)
-            painter.drawArc(thumb_x + 3, thumb_y - 2, 4, 4, 0, 180 * 16)
+        self.setText(icon)
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: {bg_color};
+                border: none;
+                border-radius: 12px;
+                font-size: 12px;
+                color: {text_color};
+                font-family: -apple-system, system-ui, sans-serif;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: {bg_color.replace('0.8', '1.0') if '0.8' in bg_color else bg_color};
+            }}
+            QPushButton:pressed {{
+                background: {bg_color.replace('0.8', '0.6') if '0.8' in bg_color else bg_color};
+            }}
+        """)
 
 
 class FullVoiceToggle(QPushButton):
@@ -2009,30 +1962,50 @@ class QtChatBubble(QWidget):
         """Close the entire application completely."""
         if self.debug:
             print("🔄 Close button clicked - shutting down application")
-        
+
         # Stop TTS if running
         if hasattr(self, 'voice_manager') and self.voice_manager:
             self.voice_manager.cleanup()
-        
+
         # Close the chat bubble
         self.hide()
-        
-        # Try to call the main app's quit method if available
+
+        # Close history dialog if open
+        if hasattr(self, 'history_dialog') and self.history_dialog:
+            self.history_dialog.hide()
+
+        # ALWAYS try to call the app quit callback first
         if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
             if self.debug:
                 print("🔄 Calling app quit callback")
-            self.app_quit_callback()
-        else:
-            # Fallback: force quit the application
-            if self.debug:
-                print("🔄 No app callback, forcing quit")
-            app = QApplication.instance()
-            if app:
-                app.quit()
-            
-            # Force exit if needed
-            import sys
+            try:
+                self.app_quit_callback()
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ App callback failed: {e}")
+
+        # ALWAYS force quit as well to ensure the app terminates
+        if self.debug:
+            print("🔄 Force quitting application")
+
+        # Get the QApplication instance
+        app = QApplication.instance()
+        if app:
+            # Try graceful quit first
+            app.quit()
+            # Process any pending events
+            app.processEvents()
+
+        # Force exit if the app is still running
+        import sys
+        import os
+        if self.debug:
+            print("🔄 Force exit with sys.exit and os._exit")
+        try:
             sys.exit(0)
+        except:
+            # Ultimate fallback - force process termination
+            os._exit(0)
     
     def set_app_quit_callback(self, callback):
         """Set callback to properly quit the main application."""
