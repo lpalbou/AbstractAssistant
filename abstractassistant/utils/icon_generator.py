@@ -53,44 +53,89 @@ class IconGenerator:
         # Color schemes - more vibrant and visible
         colors = {
             "blue": (64, 150, 255),      # Brighter blue
-            "green": (80, 255, 120),     # More vibrant green
+            "green": (40, 180, 60),      # Much deeper, more visible green
             "purple": (180, 80, 255),    # Brighter purple
             "orange": (255, 140, 80),    # More vibrant orange
-            "red": (255, 80, 100),       # Brighter red
+            "red": (255, 60, 80),        # Brighter red for working
             "cyan": (80, 255, 255),      # More vibrant cyan
             "yellow": (255, 255, 80)     # Brighter yellow
         }
         
-        # Special working mode: cycle between purple, orange, and yellow
+        # Special working mode: dynamic heartbeat with red/purple cycling
         if color_scheme == "working":
             import time
-            # Cycle every 2 seconds between the three colors
-            cycle_time = time.time() % 6  # 6 seconds total cycle
-            if cycle_time < 2:
-                base_color = colors["purple"]
-            elif cycle_time < 4:
-                base_color = colors["orange"]
+            # Fast heartbeat pattern with red/purple cycling
+            cycle_time = time.time() % 2  # 2 seconds total cycle (faster)
+            heartbeat_phase = (time.time() * 8) % 1  # Very fast heartbeat
+            
+            # Color cycling between red and purple
+            if cycle_time < 1:
+                base_color = colors["red"]      # Strong red
             else:
-                base_color = colors["yellow"]
+                base_color = colors["purple"]   # Strong purple
+            
+            # Much more dramatic heartbeat intensity
+            if heartbeat_phase < 0.1:  # First beat - very strong
+                intensity = 2.5
+            elif heartbeat_phase < 0.15:  # Quick fade
+                intensity = 0.3
+            elif heartbeat_phase < 0.25:  # Second beat - strongest
+                intensity = 3.0
+            elif heartbeat_phase < 0.35:  # Quick fade
+                intensity = 0.3
+            else:  # Long rest period - very dim
+                intensity = 0.2
+                
+        elif color_scheme == "green":
+            # Ready state: much more visible heartbeat
+            base_color = colors["green"]
+            if animated:
+                import time
+                # More noticeable pulse every 1.5 seconds
+                pulse_cycle = (time.time() * 0.67) % 1  # Faster, 1.5-second cycle
+                if pulse_cycle < 0.2:  # Strong beat
+                    intensity = 2.0  # Much brighter
+                elif pulse_cycle < 0.4:  # Fade down
+                    intensity = 1.2
+                else:  # Rest period - much dimmer
+                    intensity = 0.4  # Much darker for contrast
+            else:
+                intensity = 1.0
         else:
             base_color = colors.get(color_scheme, colors["blue"])
+            intensity = 1.0
+            if animated:
+                import time
+                pulse = abs(math.sin(time.time() * 2)) * 0.2 + 0.9
+                intensity *= pulse
         
-        # Animation effect - more visible pulse
-        intensity = 1.0  # Increased from 0.8 for better visibility
-        if animated:
-            import time
-            pulse = abs(math.sin(time.time() * 2)) * 0.2 + 0.9  # Pulse between 0.9 and 1.1
-            intensity *= pulse
-        
-        # Main circle with gradient effect - more opaque
+        # Enhanced gradient effect - much more visible from center to edge
         for i in range(radius):
-            alpha = int(255 * (1 - i / radius * 0.6) * intensity)  # Less transparency
-            color = (*base_color, min(255, alpha))  # Ensure alpha doesn't exceed 255
+            # Create stronger gradient with more dramatic falloff
+            gradient_factor = (1 - (i / radius) ** 0.5)  # Square root for more dramatic gradient
+            alpha = int(255 * gradient_factor * intensity)
+            
+            # Ensure alpha is within bounds
+            alpha = max(0, min(255, alpha))
+            
+            # Create more vibrant color with better gradient
+            color = (*base_color, alpha)
             draw.ellipse(
                 [center - radius + i, center - radius + i,
                  center + radius - i, center + radius - i],
                 fill=color
             )
+        
+        # Add bright center core for more dramatic effect
+        core_radius = max(1, radius // 4)
+        core_alpha = int(255 * intensity * 1.2)  # Extra bright center
+        core_alpha = max(0, min(255, core_alpha))
+        core_color = (*base_color, core_alpha)
+        draw.ellipse(
+            [center - core_radius, center - core_radius,
+             center + core_radius, center + core_radius],
+            fill=core_color
+        )
     
     def _draw_neural_nodes(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
         """Draw neural network-style nodes."""

@@ -115,8 +115,8 @@ class LLMManager:
             # Create new session with the LLM and tools
             self.create_new_session()
             
-            # Update token limits based on model
-            self._update_token_limits()
+            # Use AbstractCore's built-in token detection
+            self._update_token_limits_from_abstractcore()
             
         except Exception as e:
             print(f"❌ Error initializing LLM: {e}")
@@ -124,24 +124,17 @@ class LLMManager:
             traceback.print_exc()
             # Keep previous LLM if initialization fails
     
-    def _update_token_limits(self):
-        """Update token limits based on current model."""
-        # Default context windows (approximate)
-        context_limits = {
-            "qwen/qwen3-next-80b": 128000,
-            "qwen/qwen3-next-32b": 128000,
-            "qwen/qwen3-next-14b": 128000,
-            "gpt-4o": 128000,
-            "gpt-4o-mini": 128000,
-            "gpt-3.5-turbo": 16000,
-            "claude-3-5-sonnet-20241022": 200000,
-            "claude-3-haiku-20240307": 200000,
-            "qwen3:4b-instruct": 32000,
-            "llama3.2:3b": 8000,
-            "mistral:7b": 8000
-        }
-        
-        self.token_usage.max_context = context_limits.get(self.current_model, 8000)
+    def _update_token_limits_from_abstractcore(self):
+        """Update token limits using AbstractCore's built-in detection."""
+        if self.llm:
+            # AbstractCore automatically detects and configures token limits
+            self.token_usage.max_context = self.llm.max_tokens
+            self.token_usage.input_tokens = 0
+            self.token_usage.output_tokens = 0
+            
+            if self.debug:
+                # Show AbstractCore's token configuration
+                print(f"📊 {self.llm.get_token_configuration_summary()}")
     
     def create_new_session(self, tts_mode: bool = False):
         """Create a new session with tools - CLEAN AND SIMPLE as per AbstractCore docs.
@@ -165,22 +158,18 @@ class LLMManager:
         # Choose system prompt based on TTS mode
         if tts_mode:
             system_prompt = (
-                "You are AbstractAssistant in VOICE MODE. This is a spoken conversation, not text chat. "
-                "CRITICAL RULES for voice responses:\n"
-                "- Maximum 2-3 sentences per response (20 seconds of speech max)\n"
-                "- NO markdown, bullet points, or formatting\n"
-                "- NO code blocks or technical lists\n"
-                "- Speak conversationally like you're talking to a friend\n"
-                "- If asked about complex topics, give a brief overview and ask what specific aspect they want to know\n"
-                "- Use natural speech patterns with contractions (I'm, you're, it's)\n"
-                "- End with a question to keep the conversation flowing\n"
-                "Remember: This is a DIALOGUE, not a monologue. Keep it short and interactive."
+                """
+                You are a Helpful Voice Assistant. By design, your answers must be short and more conversational, unless specifically asked to detail something.
+                You only speak, so never use any text formatting or markdown. Write for a speaker.
+                """
             )
         else:
             system_prompt = (
-                "You are AbstractAssistant, a helpful AI assistant integrated into macOS. "
-                "You have access to file operations, command execution, and web search tools. "
-                "Use these tools when appropriate to help the user."
+                """
+                You are a helpful AI assistant who has access to tools to help the user.
+                Always be a critical and creative thinker who leverage constructive skepticism to progress and evolve its reasoning and answers.
+                Always answer in nicely formatted markdown.
+                """
             )
         
         # Create session with tools (tool execution enabled at provider level)

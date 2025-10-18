@@ -92,39 +92,67 @@ class ToastWindow(QWidget):
         layout.setContentsMargins(8, 6, 8, 8)  # Reduced margins
         layout.setSpacing(6)  # Reduced spacing
         
-        # Header with title and buttons
+        # Header with title and buttons - Cursor style
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)  # Minimal spacing
+        header_layout.setContentsMargins(12, 8, 12, 8)
+        header_layout.setSpacing(8)
         
-        # Title
+        # Title (clean, minimal)
         title_label = QLabel("AI Response")
         title_label.setStyleSheet("""
             QLabel {
-                font-size: 14px;
+                font-size: 12px;
                 font-weight: 500;
-                color: #ffffff;
+                color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: system-ui, -apple-system, sans-serif;
+                font-family: -apple-system, system-ui, sans-serif;
             }
         """)
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
         
-        # Copy button
+        # Copy button (Cursor style)
         self.copy_button = QPushButton("📋")
-        self.copy_button.setFixedSize(30, 30)
+        self.copy_button.setFixedSize(24, 24)
         self.copy_button.setToolTip("Copy to clipboard")
         self.copy_button.clicked.connect(self.copy_to_clipboard)
+        self.copy_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 12px;
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.7);
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.15);
+                color: rgba(255, 255, 255, 0.9);
+            }
+        """)
         header_layout.addWidget(self.copy_button)
         
-        # Close button
+        # Close button (Cursor style)
         self.close_button = QPushButton("✕")
-        self.close_button.setFixedSize(30, 30)
+        self.close_button.setFixedSize(24, 24)
         self.close_button.setToolTip("Close")
         self.close_button.clicked.connect(self.hide_toast)
+        self.close_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 12px;
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.7);
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.15);
+                color: rgba(255, 255, 255, 0.9);
+            }
+        """)
         header_layout.addWidget(self.close_button)
         
         layout.addLayout(header_layout)
@@ -169,89 +197,78 @@ class ToastWindow(QWidget):
     # Reply panel functionality removed - use main chat bubble for new messages
     
     def setup_styling(self):
-        """Apply modern grey theme styling to match chat bubble design."""
+        """Apply Cursor-style clean theme to match the chat bubble."""
         self.setStyleSheet("""
-            /* Main Window - Modern Grey Theme matching chat bubble */
+            /* Main Window - Cursor Style */
             QWidget {
-                background: #2a2a2a;
-                border: 1px solid #404040;
+                background: #1e1e1e;
+                border: none;
                 border-radius: 12px;
                 color: #ffffff;
             }
             
-            /* Labels - Clean Typography matching chat bubble */
+            /* Labels - Clean Typography */
             QLabel {
-                color: #ffffff;
+                color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: system-ui, -apple-system, sans-serif;
-                font-size: 12px;
+                font-family: -apple-system, system-ui, sans-serif;
+                font-size: 11px;
                 font-weight: 500;
             }
             
-            /* Buttons - Grey Theme matching chat bubble */
+            /* Buttons - Cursor Style */
             QPushButton {
-                background: #404040;
-                border: 1px solid #555555;
-                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 11px;
                 padding: 6px 12px;
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 500;
-                color: #ffffff;
-                font-family: system-ui, -apple-system, sans-serif;
+                color: rgba(255, 255, 255, 0.8);
+                font-family: -apple-system, system-ui, sans-serif;
             }
             
             QPushButton:hover {
-                background: #505050;
-                border: 1px solid #0066cc;
+                background: rgba(255, 255, 255, 0.15);
+                color: rgba(255, 255, 255, 1.0);
             }
             
             QPushButton:pressed {
-                background: #353535;
+                background: rgba(255, 255, 255, 0.06);
             }
             
-            /* Content Area - matching chat bubble grey styling */
+            /* Content Area - Cursor Style */
             QTextBrowser {
-                background: #1e1e1e;
-                border: 1px solid #404040;
+                background: rgba(255, 255, 255, 0.03);
+                border: none;
                 border-radius: 8px;
                 padding: 16px 20px;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: 400;
-                color: #ffffff;
-                font-family: system-ui, -apple-system, sans-serif;
-                selection-background-color: #0066cc;
-                line-height: 1.4;
+                color: rgba(255, 255, 255, 0.95);
+                font-family: -apple-system, system-ui, sans-serif;
+                selection-background-color: rgba(34, 197, 94, 0.3);
+                line-height: 1.5;
             }
             
             QTextBrowser:focus {
-                border: 1px solid #0066cc;
-                background: #252525;
+                background: rgba(255, 255, 255, 0.05);
             }
             
-            /* QTextEdit styling removed - no longer needed */
-            
-            /* Scrollbar - Grey Theme */
+            /* Scrollbar - Hidden like iOS */
             QScrollBar:vertical {
-                background: #404040;
-                width: 8px;
-                border-radius: 4px;
-                margin: 0px;
+                width: 0px;
+                background: transparent;
             }
             
             QScrollBar::handle:vertical {
-                background: #606060;
-                border-radius: 4px;
-                min-height: 20px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background: #0066cc;
+                background: transparent;
             }
             
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 border: none;
-                background: none;
+                background: transparent;
             }
             
             /* Frames - Invisible Containers */

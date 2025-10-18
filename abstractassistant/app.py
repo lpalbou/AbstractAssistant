@@ -116,13 +116,9 @@ class AbstractAssistantApp:
             
         try:
             if status == "ready":
-                # Ready: steady green
-                icon_image = self.icon_generator.create_app_icon(
-                    color_scheme="green",
-                    animated=False
-                )
-                # Stop any working animation timer
+                # Ready: gentle heartbeat green
                 self._stop_working_animation()
+                self._start_ready_animation()
             elif status in ["generating", "executing", "thinking"]:
                 # Working: start continuous animation with cycling colors
                 self._start_working_animation()
@@ -153,7 +149,7 @@ class AbstractAssistantApp:
             # Stop any existing timer
             self._stop_working_animation()
             
-            # Create a timer that updates the icon every 500ms for smooth animation
+            # Create a heartbeat-like animation with dynamic timing
             def update_working_icon():
                 if self.icon:
                     try:
@@ -166,14 +162,19 @@ class AbstractAssistantApp:
                         if self.debug:
                             print(f"❌ Error updating working icon: {e}")
             
-            # Use a simple timer approach
-            def timer_loop():
+            # Heartbeat-like timer with dynamic intervals
+            def heartbeat_timer_loop():
                 while hasattr(self, 'working_active') and self.working_active:
+                    # Fast heartbeat pattern: beat-beat-pause
                     update_working_icon()
-                    time.sleep(0.5)  # Update every 500ms
+                    time.sleep(0.1)  # First beat
+                    update_working_icon()
+                    time.sleep(0.1)  # Second beat
+                    update_working_icon()
+                    time.sleep(0.8)  # Longer pause between heartbeats
             
             self.working_active = True
-            self.working_timer = threading.Thread(target=timer_loop, daemon=True)
+            self.working_timer = threading.Thread(target=heartbeat_timer_loop, daemon=True)
             self.working_timer.start()
             
             if self.debug:
@@ -183,10 +184,57 @@ class AbstractAssistantApp:
             if self.debug:
                 print(f"❌ Error starting working animation: {e}")
     
+    def _start_ready_animation(self):
+        """Start the gentle ready state heartbeat animation."""
+        try:
+            import threading
+            import time
+            
+            # Stop any existing animations
+            self._stop_working_animation()
+            self._stop_ready_animation()
+            
+            def update_ready_icon():
+                if self.icon:
+                    try:
+                        icon_image = self.icon_generator.create_app_icon(
+                            color_scheme="green",
+                            animated=True
+                        )
+                        self.icon.icon = icon_image
+                    except Exception as e:
+                        if self.debug:
+                            print(f"❌ Error updating ready icon: {e}")
+            
+            # Gentle heartbeat timer - slower, more subtle
+            def ready_timer_loop():
+                while hasattr(self, 'ready_active') and self.ready_active:
+                    update_ready_icon()
+                    time.sleep(0.1)  # Update every 100ms for smooth animation
+            
+            self.ready_active = True
+            self.ready_timer = threading.Thread(target=ready_timer_loop, daemon=True)
+            self.ready_timer.start()
+            
+            if self.debug:
+                print("🎨 Started ready heartbeat animation")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error starting ready animation: {e}")
+    
+    def _stop_ready_animation(self):
+        """Stop the ready animation."""
+        if hasattr(self, 'ready_active'):
+            self.ready_active = False
+        if self.debug:
+            print("🎨 Stopped ready animation")
+    
     def _stop_working_animation(self):
         """Stop the working animation."""
         if hasattr(self, 'working_active'):
             self.working_active = False
+        self._stop_ready_animation()  # Also stop ready animation
         if self.debug:
             print("🎨 Stopped working animation")
     
@@ -195,6 +243,25 @@ class AbstractAssistantApp:
         try:
             if self.debug:
                 print("🔄 show_chat_bubble called")
+            
+            # Check if TTS is currently speaking and stop it
+            if self.bubble_manager and hasattr(self.bubble_manager, 'bubble') and self.bubble_manager.bubble:
+                bubble = self.bubble_manager.bubble
+                if (hasattr(bubble, 'voice_manager') and bubble.voice_manager and 
+                    bubble.voice_manager.is_speaking()):
+                    if self.debug:
+                        print("🔊 TTS is speaking, stopping voice...")
+                    bubble.voice_manager.stop()
+                    
+                    # Always show bubble after stopping TTS
+                    if not self.bubble_visible:
+                        if self.debug:
+                            print("🔄 Showing bubble after stopping TTS...")
+                        self.bubble_manager.show()
+                        self.bubble_visible = True
+                        if self.debug:
+                            print("💬 Qt chat bubble opened after TTS stop")
+                    return
             
             # Create bubble manager if not exists
             if self.bubble_manager is None:

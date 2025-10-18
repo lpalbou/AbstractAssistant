@@ -63,7 +63,7 @@ class TTSToggle(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(60, 24)
+        self.setFixedSize(33, 24)  # Reduced width by 1.8x (60/1.8 ≈ 33)
         self.setToolTip("Toggle Text-to-Speech")
         self._enabled = False
         self._hover = False
@@ -538,66 +538,61 @@ class QtChatBubble(QWidget):
         layout.setContentsMargins(8, 4, 8, 8)  # Strict minimum margins
         layout.setSpacing(4)  # Minimal spacing
         
-        # Header with session buttons and provider/status
+        # Simple header like Cursor
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setContentsMargins(12, 8, 12, 8)
         header_layout.setSpacing(8)
         
-        # Close button (top-left, macOS style)
+        # Close button (minimal)
         self.close_button = QPushButton("✕")
-        self.close_button.setFixedSize(24, 24)
+        self.close_button.setFixedSize(18, 18)
         self.close_button.clicked.connect(self.close_app)
         self.close_button.setStyleSheet("""
             QPushButton {
-                background: #ff5f57;
+                background: rgba(255, 255, 255, 0.1);
                 border: none;
-                border-radius: 12px;
-                font-size: 12px;
-                font-weight: bold;
-                color: #ffffff;
-                font-family: system-ui, -apple-system, sans-serif;
+                border-radius: 9px;
+                font-size: 10px;
+                color: rgba(255, 255, 255, 0.6);
+                font-family: -apple-system, system-ui, sans-serif;
             }
             QPushButton:hover {
-                background: #ff4136;
-                color: #ffffff;
-            }
-            QPushButton:pressed {
-                background: #e60000;
+                background: rgba(255, 255, 255, 0.2);
+                color: rgba(255, 255, 255, 0.9);
             }
         """)
         header_layout.addWidget(self.close_button)
         
-        # Session management buttons
-        session_buttons_layout = QHBoxLayout()
-        session_buttons_layout.setSpacing(4)
+        # Session buttons (minimal, rounded)
+        session_buttons = [
+            ("Clear", self.clear_session),
+            ("Load", self.load_session), 
+            ("Save", self.save_session),
+            ("History", self.show_history)
+        ]
         
-        # Clear button
-        self.clear_button = QPushButton("Clear")
-        self.clear_button.setFixedSize(50, 24)
-        self.clear_button.clicked.connect(self.clear_session)
-        session_buttons_layout.addWidget(self.clear_button)
+        for text, handler in session_buttons:
+            btn = QPushButton(text)
+            btn.setFixedHeight(22)
+            btn.clicked.connect(handler)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.06);
+                    border: none;
+                    border-radius: 11px;
+                    font-size: 10px;
+                    color: rgba(255, 255, 255, 0.7);
+                    font-family: -apple-system, system-ui, sans-serif;
+                    padding: 0 10px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                    color: rgba(255, 255, 255, 0.9);
+                }
+            """)
+            header_layout.addWidget(btn)
         
-        # Load button
-        self.load_button = QPushButton("Load")
-        self.load_button.setFixedSize(50, 24)
-        self.load_button.clicked.connect(self.load_session)
-        session_buttons_layout.addWidget(self.load_button)
-        
-        # Save button
-        self.save_button = QPushButton("Save")
-        self.save_button.setFixedSize(50, 24)
-        self.save_button.clicked.connect(self.save_session)
-        session_buttons_layout.addWidget(self.save_button)
-        
-        # History button
-        self.history_button = QPushButton("History")
-        self.history_button.setFixedSize(60, 24)
-        self.history_button.clicked.connect(self.show_history)
-        session_buttons_layout.addWidget(self.history_button)
-        
-        header_layout.addLayout(session_buttons_layout)
-        
-        # TTS toggle
+        # TTS toggle (if available)
         if self.voice_manager and self.voice_manager.is_available():
             self.tts_toggle = TTSToggle()
             self.tts_toggle.toggled.connect(self.on_tts_toggled)
@@ -605,37 +600,35 @@ class QtChatBubble(QWidget):
         
         header_layout.addStretch()
         
-        # Provider label (instead of Agent)
+        # Provider name (clean)
         self.provider_label = QLabel("LMStudio")
         self.provider_label.setStyleSheet("""
             QLabel {
                 background: transparent;
-                color: #ffffff;
-                font-size: 12px;
+                color: rgba(255, 255, 255, 0.8);
+                font-size: 11px;
                 font-weight: 500;
-                font-family: system-ui, -apple-system, sans-serif;
-                padding: 4px 8px;
+                font-family: -apple-system, system-ui, sans-serif;
+                padding: 2px 6px;
             }
         """)
         header_layout.addWidget(self.provider_label)
         
-        # Status indicator
+        # Status (Cursor-style)
         self.status_label = QLabel("READY")
-        self.status_label.setObjectName("status_ready")
+        self.status_label.setFixedSize(50, 22)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("""
-                QLabel {
-                    background: #00aa00;
-                    border: 1px solid #00cc00;
-                    border-radius: 6px;
-                    padding: 4px 8px;
-                    font-size: 10px;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                    color: #ffffff;
-                    font-family: system-ui, -apple-system, sans-serif;
-                }
-            """)
+            QLabel {
+                background: #22c55e;
+                border: none;
+                border-radius: 11px;
+                font-size: 9px;
+                font-weight: 600;
+                color: #ffffff;
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+        """)
         header_layout.addWidget(self.status_label)
         
         layout.addLayout(header_layout)
@@ -701,62 +694,91 @@ class QtChatBubble(QWidget):
         input_layout.addLayout(input_row)
         layout.addWidget(input_container)
         
-        # Controls section with card design
-        controls_container = QFrame()
-        controls_container.setStyleSheet("""
-            QFrame {
-                background: #1e1e1e;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                padding: 2px;
-            }
-        """)
-        controls_layout = QVBoxLayout(controls_container)
-        controls_layout.setContentsMargins(2, 1, 2, 1)  # Even more minimal
-        controls_layout.setSpacing(1)  # Absolute minimal spacing
+        # Bottom controls - Cursor style (minimal, clean)
+        controls_layout = QHBoxLayout()
+        controls_layout.setContentsMargins(12, 6, 12, 8)
+        controls_layout.setSpacing(8)
         
-        # Compact single row for provider, model, and tokens
-        controls_row = QHBoxLayout()
-        controls_row.setSpacing(2)  # Even more minimal spacing
-        
-        # Provider dropdown - larger and more accessible
+        # Provider dropdown (rounded, clean)
         self.provider_combo = QComboBox()
         self.provider_combo.currentTextChanged.connect(self.on_provider_changed)
-        self.provider_combo.setMinimumWidth(110)  # Increased from 80
-        self.provider_combo.setMinimumHeight(40)  # Increased from 32
-        controls_row.addWidget(self.provider_combo)
+        self.provider_combo.setFixedHeight(28)
+        self.provider_combo.setMinimumWidth(100)
+        self.provider_combo.setStyleSheet("""
+            QComboBox {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 14px;
+                padding: 0 12px;
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.9);
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+            QComboBox:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border: none;
+                width: 0px;
+            }
+        """)
+        controls_layout.addWidget(self.provider_combo)
         
-        # Model dropdown - larger and more accessible
+        # Model dropdown (rounded, clean)
         self.model_combo = QComboBox()
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
-        self.model_combo.setMinimumWidth(130)  # Increased from 100
-        self.model_combo.setMinimumHeight(40)  # Increased from 32
-        controls_row.addWidget(self.model_combo)
+        self.model_combo.setFixedHeight(28)
+        self.model_combo.setMinimumWidth(140)
+        self.model_combo.setStyleSheet("""
+            QComboBox {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 14px;
+                padding: 0 12px;
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.9);
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+            QComboBox:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border: none;
+                width: 0px;
+            }
+        """)
+        controls_layout.addWidget(self.model_combo)
         
-        # Token info - larger to match dropdowns
+        controls_layout.addStretch()
+        
+        # Token counter (minimal)
         self.token_label = QLabel("0 / 128k")
-        self.token_label.setObjectName("token_label")
-        self.token_label.setMinimumHeight(40)  # Match dropdown height
-        self.token_label.setMinimumWidth(90)   # Set minimum width
+        self.token_label.setFixedHeight(28)
+        self.token_label.setMinimumWidth(60)
+        self.token_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.token_label.setStyleSheet("""
-                QLabel {
-                    background: #1e1e1e;
-                    border: 1px solid #404040;
-                    border-radius: 6px;
-                    padding: 6px 10px;
-                    font-family: system-ui, -apple-system, sans-serif;
-                    font-size: 11px;
-                    font-weight: 500;
-                    color: #ffffff;
-                    text-align: center;
-                    letter-spacing: 0.025em;
-                }
-            """)
-        controls_row.addWidget(self.token_label)
-        controls_row.addStretch()
+            QLabel {
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 14px;
+                font-size: 10px;
+                color: rgba(255, 255, 255, 0.6);
+                font-family: -apple-system, system-ui, sans-serif;
+            }
+        """)
+        controls_layout.addWidget(self.token_label)
         
-        controls_layout.addLayout(controls_row)
-        layout.addWidget(controls_container)
+        layout.addLayout(controls_layout)
         
         self.setLayout(layout)
         
@@ -786,12 +808,12 @@ class QtChatBubble(QWidget):
         self.input_text.keyPressEvent = self.handle_key_press
     
     def setup_styling(self):
-        """Set up modern grey theme styling to match the reference UI."""
+        """Set up Cursor-style clean theme."""
         self.setStyleSheet("""
-            /* Main Window - Modern Grey Theme */
+            /* Main Window - Cursor Style */
             QWidget {
-                background: #2a2a2a;
-                border: 1px solid #404040;
+                background: #1e1e1e;
+                border: none;
                 border-radius: 12px;
                 color: #ffffff;
             }
@@ -1218,22 +1240,17 @@ class QtChatBubble(QWidget):
                         print(f"🔄 Using final fallback model: {self.current_model}")
     
     def update_token_limits(self):
-        """Update token limits based on current model."""
-        token_limits = {
-            'qwen/qwen3-next-80b': 128000,
-            'qwen/qwen3-next-32b': 128000,
-            'qwen/qwen3-next-14b': 128000,
-            'gpt-4o': 128000,
-            'gpt-4o-mini': 128000,
-            'gpt-3.5-turbo': 16000,
-            'claude-3-5-sonnet-20241022': 200000,
-            'claude-3-haiku-20240307': 200000,
-            'qwen3:4b-instruct': 32000,
-            'llama3.2:3b': 8000,
-            'mistral:7b': 8000
-        }
-        
-        self.max_tokens = token_limits.get(self.current_model, 128000)
+        """Update token limits using AbstractCore's built-in detection."""
+        # Get token limits from LLMManager (which uses AbstractCore's detection)
+        if self.llm_manager and self.llm_manager.llm:
+            self.max_tokens = self.llm_manager.llm.max_tokens
+            
+            if self.debug:
+                print(f"📊 Token limits from AbstractCore: {self.max_tokens}")
+        else:
+            # Fallback if LLM not initialized
+            self.max_tokens = 128000
+            
         self.update_token_display()
     
     def update_token_display(self):
@@ -1535,20 +1552,7 @@ class QtChatBubble(QWidget):
         text = re.sub(r'\s+', ' ', text)  # Collapse multiple spaces
         text = text.strip()
         
-        # Truncate if too long (approximately 20 seconds of speech = ~300 characters)
-        if len(text) > 300:
-            # Find the last sentence boundary before 300 characters
-            truncated = text[:300]
-            last_period = truncated.rfind('.')
-            last_question = truncated.rfind('?')
-            last_exclamation = truncated.rfind('!')
-            
-            # Use the latest sentence ending
-            end_pos = max(last_period, last_question, last_exclamation)
-            if end_pos > 200:  # Only truncate if we have a reasonable sentence
-                text = text[:end_pos + 1]
-            else:
-                text = text[:300] + "..."
+        # NO TRUNCATION - let the LLM decide response length based on system prompt
         
         if self.debug:
             print(f"🔊 Cleaned text for TTS: {text[:100]}{'...' if len(text) > 100 else ''}")
