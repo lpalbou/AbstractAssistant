@@ -24,7 +24,7 @@ try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-        QFileDialog, QMessageBox, QDialog, QScrollArea
+        QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -35,7 +35,7 @@ except ImportError:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-            QFileDialog, QMessageBox, QDialog, QScrollArea
+            QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -46,7 +46,7 @@ except ImportError:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-                QFileDialog, QMessageBox, QDialog, QScrollArea
+                QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -180,7 +180,7 @@ class HistoryDialog(QDialog):
         """Set up iPhone Messages-style history dialog UI."""
         self.setWindowTitle("Messages")
         self.setModal(True)
-        self.resize(420, 600)  # iPhone-like proportions
+        self.resize(512, 600)  # Decreased by 10% (680 * 0.9 = 612)
         
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -302,8 +302,9 @@ class HistoryDialog(QDialog):
                 QFrame {
                     background: #007AFF;
                     border: none;
-                    border-radius: 18px;
-                    max-width: 280px;
+                    border-radius: 8px;
+                    min-width: 300px;
+                    max-width: 532px;
                 }
             """)
             
@@ -312,14 +313,15 @@ class HistoryDialog(QDialog):
             bubble_layout.setSpacing(2)
             
         else:
-            # AI messages: left-aligned, grey bubble
+            # AI messages: left-aligned, grey bubble (much wider for fewer lines)
             bubble = QFrame()
             bubble.setStyleSheet("""
                 QFrame {
                     background: #1C1C1E;
                     border: none;
-                    border-radius: 18px;
-                    max-width: 280px;
+                    border-radius: 8px;
+                    min-width: 450px;
+                    max-width: 550px;
                 }
             """)
             
@@ -328,22 +330,65 @@ class HistoryDialog(QDialog):
             bubble_layout.setSpacing(2)
         
         # Message content
-        content_label = QLabel(msg['content'])
-        content_label.setWordWrap(True)
-        content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        content_label.setStyleSheet(f"""
-            QLabel {{
-                background: transparent;
-                border: none;
-                font-size: 16px;
-                font-weight: 400;
-                color: {'#ffffff' if is_user else '#ffffff'};
-                font-family: -apple-system, system-ui, sans-serif;
-                line-height: 1.3;
-                padding: 0px;
-            }}
-        """)
-        bubble_layout.addWidget(content_label)
+        if is_user:
+            # User messages: simple text label
+            content_widget = QLabel(msg['content'])
+            content_widget.setWordWrap(True)
+            content_widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            content_widget.setStyleSheet("""
+                QLabel {
+                    background: transparent;
+                    border: none;
+                    font-size: 16px;
+                    font-weight: 400;
+                    color: #ffffff;
+                    font-family: -apple-system, system-ui, sans-serif;
+                    line-height: 1.3;
+                    padding: 0px;
+                }
+            """)
+        else:
+            # AI messages: markdown-enabled text browser
+            content_widget = QTextBrowser()
+            content_widget.setMarkdown(msg['content'])
+            content_widget.setOpenExternalLinks(False)
+            content_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            content_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            content_widget.setFrameStyle(QFrame.Shape.NoFrame)
+            content_widget.setStyleSheet("""
+                QTextBrowser {
+                    background: transparent;
+                    border: none;
+                    font-size: 16px;
+                    font-weight: 400;
+                    color: #ffffff;
+                    font-family: -apple-system, system-ui, sans-serif;
+                    line-height: 1.3;
+                    padding: 0px;
+                }
+                QTextBrowser h1, QTextBrowser h2, QTextBrowser h3 {
+                    color: #ffffff;
+                    font-weight: 600;
+                }
+                QTextBrowser code {
+                    background: rgba(255, 255, 255, 0.1);
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+                }
+                QTextBrowser pre {
+                    background: rgba(255, 255, 255, 0.05);
+                    padding: 8px;
+                    border-radius: 6px;
+                    border-left: 3px solid #007AFF;
+                }
+            """)
+            
+            # Auto-resize to content
+            content_widget.document().setTextWidth(content_widget.width())
+            content_widget.setFixedHeight(int(content_widget.document().size().height()))
+        
+        bubble_layout.addWidget(content_widget)
         
         if is_user:
             container_layout.addWidget(bubble)
@@ -455,21 +500,16 @@ class LLMWorker(QThread):
     def run(self):
         """Run LLM processing in background."""
         try:
-            print(f"🔄 LLMWorker: Processing message: {self.message[:50]}...")
-            print(f"🔄 LLMWorker: Provider: {self.provider}, Model: {self.model}")
-            
             # Use LLMManager session for context persistence
-            print("🔄 LLMWorker: Using LLMManager session for context...")
             response = self.llm_manager.generate_response(self.message, self.provider, self.model)
             
             # Response is already a string from LLMManager
             response_text = str(response)
             
-            print(f"✅ LLMWorker: Got response: {response_text[:100]}...")
             self.response_ready.emit(response_text)
             
         except Exception as e:
-            print(f"❌ LLMWorker: Error occurred: {e}")
+            print(f"❌ LLM Error: {e}")
             import traceback
             traceback.print_exc()
             self.error_occurred.emit(str(e))
@@ -549,16 +589,17 @@ class QtChatBubble(QWidget):
         self.close_button.clicked.connect(self.close_app)
         self.close_button.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 255, 255, 0.1);
+                background: rgba(255, 255, 255, 0.15);
                 border: none;
                 border-radius: 9px;
-                font-size: 10px;
-                color: rgba(255, 255, 255, 0.6);
+                font-size: 11px;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.9);
                 font-family: -apple-system, system-ui, sans-serif;
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.2);
-                color: rgba(255, 255, 255, 0.9);
+                background: rgba(255, 60, 60, 0.8);
+                color: #ffffff;
             }
         """)
         header_layout.addWidget(self.close_button)
@@ -600,30 +641,16 @@ class QtChatBubble(QWidget):
         
         header_layout.addStretch()
         
-        # Provider name (clean)
-        self.provider_label = QLabel("LMStudio")
-        self.provider_label.setStyleSheet("""
-            QLabel {
-                background: transparent;
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 11px;
-                font-weight: 500;
-                font-family: -apple-system, system-ui, sans-serif;
-                padding: 2px 6px;
-            }
-        """)
-        header_layout.addWidget(self.provider_label)
-        
-        # Status (Cursor-style)
+        # Status (Cursor-style, enlarged to show full text)
         self.status_label = QLabel("READY")
-        self.status_label.setFixedSize(50, 22)
+        self.status_label.setFixedSize(80, 24)  # Increased from 50x22 to 80x24
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("""
             QLabel {
                 background: #22c55e;
                 border: none;
-                border-radius: 11px;
-                font-size: 9px;
+                border-radius: 12px;
+                font-size: 10px;
                 font-weight: 600;
                 color: #ffffff;
                 font-family: -apple-system, system-ui, sans-serif;
@@ -660,7 +687,7 @@ class QtChatBubble(QWidget):
         
         # Send button - primary action with special styling
         self.send_button = QPushButton("→")
-        self.send_button.clicked.connect(lambda: self.debug_send_message("button"))
+        self.send_button.clicked.connect(self.send_message)
         self.send_button.setFixedSize(40, 40)
         self.send_button.setStyleSheet("""
             QPushButton {
@@ -778,28 +805,12 @@ class QtChatBubble(QWidget):
         """)
         controls_layout.addWidget(self.token_label)
         
+        # Add a simple chat display area between header and input
+        # No chat display in main bubble - messages only appear in History dialog
+        
         layout.addLayout(controls_layout)
         
         self.setLayout(layout)
-        
-        # Add a simple chat display area above the input
-        self.chat_display = QTextEdit()
-        self.chat_display.setReadOnly(True)
-        self.chat_display.setMaximumHeight(21)  # Reduced by half (42 / 2 = 21)
-        self.chat_display.setMinimumHeight(14)  # Reduced by half (28 / 2 = 14)
-        self.chat_display.setStyleSheet("""
-            QTextEdit {
-                background: #1a202c;
-                border: 1px solid #4a5568;
-                border-radius: 8px;
-                padding: 4px 8px;
-                font-size: 11px;
-                color: #cbd5e0;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
-            }
-        """)
-        self.chat_display.hide()  # Initially hidden
-        layout.insertWidget(-2, self.chat_display)  # Insert before controls
         
         # Focus on input
         self.input_text.setFocus()
@@ -1115,30 +1126,22 @@ class QtChatBubble(QWidget):
             # Create provider instance and get available models using list_available_models()
             from abstractcore import create_llm
             
-            if self.debug:
-                print(f"🔄 Loading models for provider '{self.current_provider}' using provider.list_available_models()")
-            
             # Create provider instance with a minimal/default model to get the provider object
-            # We'll use the provider's list_available_models() method
             provider_default_models = {
                 'openai': 'gpt-4o-mini',
                 'anthropic': 'claude-3-5-haiku-20241022', 
                 'ollama': 'qwen3:4b-instruct-2507-q4_K_M',
-                'lmstudio': 'qwen/qwen3-next-80b',  # Fixed: use correct model name with namespace
+                'lmstudio': 'qwen/qwen3-next-80b',
                 'mlx': 'mlx-community/Qwen3-4B-4bit',
                 'huggingface': 'microsoft/DialoGPT-medium'
             }
             
             default_model = provider_default_models.get(self.current_provider, 'default-model')
-            
-            # Create provider instance
             provider_llm = create_llm(self.current_provider, model=default_model)
-            
-            # Get available models using the provider's method
             models = provider_llm.list_available_models()
             
             if self.debug:
-                print(f"🔄 Provider '{self.current_provider}' returned {len(models)} models")
+                print(f"📋 Loaded {len(models)} models for {self.current_provider}")
             
             self.model_combo.clear()
             for model in models:
@@ -1149,9 +1152,6 @@ class QtChatBubble(QWidget):
                     display_name = display_name[:22] + "..."
                 
                 self.model_combo.addItem(display_name, model)
-                
-                if self.debug and len(models) <= 10:  # Only log individual models if not too many
-                    print(f"  ✅ Added model: {display_name} ({model})")
             
             # Set current model - prefer qwen/qwen3-next-80b if available
             model_found = False
@@ -1181,16 +1181,11 @@ class QtChatBubble(QWidget):
             if not model_found and self.model_combo.count() > 0:
                 self.current_model = self.model_combo.itemData(0)
                 self.model_combo.setCurrentIndex(0)
-                if self.debug:
-                    print(f"🔄 Using first available model: {self.current_model}")
-            
             self.update_token_limits()
             
         except Exception as e:
             if self.debug:
-                print(f"❌ Error updating models for provider '{self.current_provider}': {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"❌ Error loading models for '{self.current_provider}': {e}")
             
             # Fallback: use the registry method if provider instantiation fails
             try:
@@ -1198,7 +1193,7 @@ class QtChatBubble(QWidget):
                 models = get_available_models_for_provider(self.current_provider)
                 
                 if self.debug:
-                    print(f"🔄 Fallback: Using registry method, got {len(models)} models")
+                    print(f"📋 Fallback: Loaded {len(models)} models from registry")
                 
                 self.model_combo.clear()
                 for model in models:
@@ -1261,7 +1256,7 @@ class QtChatBubble(QWidget):
     
     def handle_key_press(self, event):
         """Handle key press events in text input."""
-        print(f"🔄 Key pressed: {event.key()}, modifiers: {event.modifiers()}")
+#        print(f"🔄 Key pressed: {event.key()}, modifiers: {event.modifiers()}")
         
         # Check for Enter/Return key
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
@@ -1269,8 +1264,7 @@ class QtChatBubble(QWidget):
             if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier or 
                 event.modifiers() & Qt.KeyboardModifier.ControlModifier or 
                 event.modifiers() & Qt.KeyboardModifier.MetaModifier):
-                print("🔄 Shift/Ctrl/Cmd+Enter detected, calling send_message")
-                self.debug_send_message("keyboard")
+                self.send_message()
                 return
             # Plain Enter should add a new line (default behavior)
         
@@ -1284,9 +1278,6 @@ class QtChatBubble(QWidget):
             if self.provider_combo.itemText(i) == provider_name:
                 self.current_provider = self.provider_combo.itemData(i)
                 break
-        
-        # Update provider label
-        self.provider_label.setText(provider_name)
         
         self.update_models()
         
@@ -1306,58 +1297,27 @@ class QtChatBubble(QWidget):
         if self.debug:
             print(f"Model changed to: {self.current_model}")
     
-    def show_user_message(self, message):
-        """Show user message in the chat display area."""
-        if hasattr(self, 'chat_display'):
-            # Show the chat display if it was hidden
-            self.chat_display.show()
-            
-            # Add user message with timestamp
-            timestamp = datetime.now().strftime("%H:%M")
-            formatted_message = f"[{timestamp}] You: {message}"
-            
-            # Add to message history
-            self.message_history.append({
-                'timestamp': datetime.now().isoformat(),
-                'type': 'user',
-                'content': message,
-                'provider': self.current_provider,
-                'model': self.current_model
-            })
-            
-            # Append to chat display
-            self.chat_display.append(formatted_message)
-            
-            # Scroll to bottom
-            cursor = self.chat_display.textCursor()
-            cursor.movePosition(cursor.MoveOperation.End)
-            self.chat_display.setTextCursor(cursor)
-            
-            if self.debug:
-                print(f"💬 Added user message to chat: {message[:50]}...")
 
-    def debug_send_message(self, source):
-        """Debug wrapper for send_message."""
-        print(f"🔄 QtChatBubble: debug_send_message called from {source}")
-        self.send_message()
-    
     def send_message(self):
         """Send message to LLM."""
-        print("🔄 QtChatBubble: send_message called")
-        
         message = self.input_text.toPlainText().strip()
         if not message:
-            print("❌ QtChatBubble: Empty message, returning")
             return
         
-        print(f"🔄 QtChatBubble: Message: '{message}'")
-        print(f"🔄 QtChatBubble: Provider: {self.current_provider}, Model: {self.current_model}")
+        if self.debug:
+            print(f"💬 Sending message: '{message[:50]}...' to {self.current_provider}/{self.current_model}")
         
         # 1. Clear input immediately
         self.input_text.clear()
         
-        # 2. Show message in chat (we'll add a simple display area)
-        self.show_user_message(message)
+        # 2. Add message to history only (not to chat display)
+        self.message_history.append({
+            'timestamp': datetime.now().isoformat(),
+            'type': 'user',
+            'content': message,
+            'provider': self.current_provider,
+            'model': self.current_model
+        })
         
         # 3. Update UI for sending state
         self.send_button.setEnabled(False)
@@ -1778,26 +1738,6 @@ class QtChatBubble(QWidget):
         """Set callback to properly quit the main application."""
         self.app_quit_callback = callback
     
-    def _rebuild_chat_display(self):
-        """Rebuild the chat display from message history."""
-        if not hasattr(self, 'chat_display'):
-            return
-        
-        self.chat_display.clear()
-        
-        if self.message_history:
-            self.chat_display.show()
-            
-            for msg in self.message_history:
-                timestamp = datetime.fromisoformat(msg['timestamp']).strftime("%H:%M")
-                sender = "You" if msg['type'] == 'user' else "AI"
-                formatted_message = f"[{timestamp}] {sender}: {msg['content'][:100]}{'...' if len(msg['content']) > 100 else ''}"
-                self.chat_display.append(formatted_message)
-            
-            # Scroll to bottom
-            cursor = self.chat_display.textCursor()
-            cursor.movePosition(cursor.MoveOperation.End)
-            self.chat_display.setTextCursor(cursor)
     
     def closeEvent(self, event):
         """Handle close event."""

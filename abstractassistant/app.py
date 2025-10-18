@@ -76,7 +76,7 @@ class AbstractAssistantApp:
         # Initialize components
         self.icon: Optional[pystray.Icon] = None
         self.bubble_manager: Optional[QtBubbleManager] = None
-        self.llm_manager: LLMManager = LLMManager(config=self.config)
+        self.llm_manager: LLMManager = LLMManager(config=self.config, debug=self.debug)
         self.icon_generator: IconGenerator = IconGenerator(size=self.config.system_tray.icon_size)
         
         # Application state

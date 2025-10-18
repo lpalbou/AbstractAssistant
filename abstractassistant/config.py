@@ -30,8 +30,8 @@ class UIConfig:
 @dataclass
 class LLMConfig:
     """LLM configuration settings."""
-    default_provider: str = "openai"
-    default_model: str = "gpt-4o-mini"
+    default_provider: str = "lmstudio"
+    default_model: str = "qwen/qwen3-next-80b"
     max_tokens: int = 32000
     temperature: float = 0.7
 
@@ -78,8 +78,8 @@ class Config:
                 always_on_top=ui_data.get("always_on_top", True),
             ),
             llm=LLMConfig(
-                default_provider=llm_data.get("default_provider", "openai"),
-                default_model=llm_data.get("default_model", "gpt-4o-mini"),
+                default_provider=llm_data.get("default_provider", "lmstudio"),
+                default_model=llm_data.get("default_model", "qwen/qwen3-next-80b"),
                 max_tokens=llm_data.get("max_tokens", 32000),
                 temperature=llm_data.get("temperature", 0.7),
             ),
@@ -151,8 +151,8 @@ class Config:
             errors.append(f"Invalid auto_hide_delay: {self.ui.auto_hide_delay}")
         
         # Validate LLM settings
-        if self.llm.default_provider not in ["openai", "anthropic", "ollama"]:
-            errors.append(f"Invalid provider: {self.llm.default_provider}")
+        # Provider validation is handled by AbstractCore's provider discovery system
+        # No need to hardcode valid providers here
         
         if not 0.0 <= self.llm.temperature <= 2.0:
             errors.append(f"Invalid temperature: {self.llm.temperature}")
