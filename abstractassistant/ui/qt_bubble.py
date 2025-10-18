@@ -180,7 +180,7 @@ class HistoryDialog(QDialog):
         """Set up iPhone Messages-style history dialog UI."""
         self.setWindowTitle("Messages")
         self.setModal(True)
-        self.resize(512, 600)  # Decreased by 10% (680 * 0.9 = 612)
+        self.resize(542, 600)  # Decreased by 10% (680 * 0.9 = 612)
         
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
