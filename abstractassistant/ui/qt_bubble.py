@@ -35,11 +35,11 @@ except ImportError:
 
 try:
     from PyQt5.QtWidgets import (
-        QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
+        QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-        QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser
+        QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser, QSizePolicy
     )
-    from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
+    from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
     from PyQt5.QtCore import QPoint
     QT_AVAILABLE = "PyQt5"
@@ -48,7 +48,7 @@ except ImportError:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-            QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser
+            QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser, QSizePolicy
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -59,7 +59,7 @@ except ImportError:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-                QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser
+                QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser, QSizePolicy
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -237,6 +237,113 @@ class TTSToggle(QWidget):
             painter.drawArc(thumb_x + 3, thumb_y - 2, 4, 4, 0, 180 * 16)
 
 
+class FullVoiceToggle(QWidget):
+    """Custom Full Voice Mode toggle switch (STT + TTS) with microphone icon."""
+
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(33, 24)  # Same size as TTS toggle
+        self.setToolTip("Full Voice Mode: Continuous listening with speech-to-text and text-to-speech")
+        self._enabled = False
+        self._hover = False
+        self._listening_state = 'idle'  # 'idle', 'listening', 'processing'
+
+    def is_enabled(self) -> bool:
+        """Check if Full Voice Mode is enabled."""
+        return self._enabled
+
+    def set_enabled(self, enabled: bool):
+        """Set Full Voice Mode enabled state."""
+        if self._enabled != enabled:
+            self._enabled = enabled
+            self.update()
+            self.toggled.emit(enabled)
+
+    def set_listening_state(self, state: str):
+        """Set listening state for visual feedback.
+
+        Args:
+            state: One of 'idle', 'listening', 'processing'
+        """
+        if self._listening_state != state:
+            self._listening_state = state
+            self.update()
+
+    def get_listening_state(self) -> str:
+        """Get current listening state."""
+        return self._listening_state
+
+    def mousePressEvent(self, event):
+        """Handle mouse press to toggle Full Voice Mode."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.set_enabled(not self._enabled)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        """Handle mouse enter for hover effect."""
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """Handle mouse leave to remove hover effect."""
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        """Custom paint event for the Full Voice Mode toggle switch."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Colors based on state
+        if not self._enabled:
+            bg_color = QColor("#404040")  # Grey when disabled
+        elif self._listening_state == 'listening':
+            bg_color = QColor("#ff6b35")  # Orange when actively listening
+        elif self._listening_state == 'processing':
+            bg_color = QColor("#ffa500")  # Yellow when processing
+        else:
+            bg_color = QColor("#007acc")  # Blue when enabled but idle
+
+        # Hover effect
+        if self._hover:
+            bg_color = bg_color.lighter(120)
+
+        # Draw background
+        rect = self.rect().adjusted(2, 2, -2, -2)
+        painter.fillRect(rect, bg_color)
+        painter.setPen(QPen(bg_color.darker(140), 1))
+        painter.drawRoundedRect(rect, 10, 10)
+
+        # Draw microphone icon
+        icon_color = QColor("#ffffff") if self._enabled else QColor("#999999")
+        painter.setPen(QPen(icon_color, 2))
+
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+
+        # Microphone body (rounded rectangle)
+        mic_rect = QRect(center_x - 3, center_y - 6, 6, 8)
+        painter.drawRoundedRect(mic_rect, 2, 2)
+
+        # Microphone stand
+        painter.drawLine(center_x, center_y + 2, center_x, center_y + 6)
+
+        # Microphone base
+        painter.drawLine(center_x - 3, center_y + 6, center_x + 3, center_y + 6)
+
+        # Sound waves (when enabled)
+        if self._enabled:
+            painter.setPen(QPen(icon_color, 1))
+            # Left arc
+            painter.drawArc(center_x - 8, center_y - 4, 4, 8, 0, 180 * 16)
+            # Right arc
+            painter.drawArc(center_x + 4, center_y - 4, 4, 8, 180 * 16, 180 * 16)
+
+
 class HistoryDialog(QDialog):
     """Dialog to display message history."""
     
@@ -361,7 +468,9 @@ class HistoryDialog(QDialog):
         container_layout.setContentsMargins(16, 1, 16, 1)  # iPhone-style margins
         container_layout.setSpacing(0)
         
-        is_user = msg['type'] == 'user'
+        # Handle both message formats: 'type' (regular) and 'role' (voice)
+        message_type = msg.get('type', msg.get('role', 'unknown'))
+        is_user = message_type == 'user'
         
         if is_user:
             # User messages: right-aligned, blue bubble
@@ -405,6 +514,9 @@ class HistoryDialog(QDialog):
             content_widget = QLabel(msg['content'])
             content_widget.setWordWrap(True)
             content_widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            # Ensure proper height adjustment for user messages
+            content_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+            content_widget.adjustSize()
             content_widget.setStyleSheet("""
                 QLabel {
                     background: transparent;
@@ -418,15 +530,26 @@ class HistoryDialog(QDialog):
                 }
             """)
         else:
-            # AI messages: markdown-enabled text browser
-            content_widget = QTextBrowser()
+            # AI messages: markdown-enabled text widget with proper height adjustment
+            content_widget = QTextEdit()
             content_widget.setMarkdown(msg['content'])
-            content_widget.setOpenExternalLinks(False)
+            content_widget.setReadOnly(True)
+
+            # Disable scrollbars and frame
             content_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             content_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             content_widget.setFrameStyle(QFrame.Shape.NoFrame)
+
+            # Set size policy for automatic height adjustment
+            content_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+
+            # Calculate proper height based on content
+            content_widget.document().setTextWidth(550 - 24)  # max bubble width minus padding
+            document_height = content_widget.document().size().height()
+            content_widget.setFixedHeight(int(document_height))
+
             content_widget.setStyleSheet("""
-                QTextBrowser {
+                QTextEdit {
                     background: transparent;
                     border: none;
                     font-size: 16px;
@@ -436,27 +559,23 @@ class HistoryDialog(QDialog):
                     line-height: 1.3;
                     padding: 0px;
                 }
-                QTextBrowser h1, QTextBrowser h2, QTextBrowser h3 {
+                QTextEdit h1, QTextEdit h2, QTextEdit h3 {
                     color: #ffffff;
                     font-weight: 600;
                 }
-                QTextBrowser code {
+                QTextEdit code {
                     background: rgba(255, 255, 255, 0.1);
                     padding: 2px 4px;
                     border-radius: 3px;
                     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
                 }
-                QTextBrowser pre {
+                QTextEdit pre {
                     background: rgba(255, 255, 255, 0.05);
                     padding: 8px;
                     border-radius: 6px;
                     border-left: 3px solid #007AFF;
                 }
             """)
-            
-            # Auto-resize to content
-            content_widget.document().setTextWidth(content_widget.width())
-            content_widget.setFixedHeight(int(content_widget.document().size().height()))
         
         bubble_layout.addWidget(content_widget)
         
@@ -472,8 +591,14 @@ class HistoryDialog(QDialog):
         timestamp_layout = QHBoxLayout(timestamp_container)
         timestamp_layout.setContentsMargins(16, 0, 16, 4)
         
-        # Format timestamp
-        dt = datetime.fromisoformat(msg['timestamp'])
+        # Format timestamp - handle both ISO string and unix timestamp formats
+        timestamp = msg['timestamp']
+        if isinstance(timestamp, (int, float)):
+            # Convert unix timestamp to datetime
+            dt = datetime.fromtimestamp(timestamp)
+        else:
+            # Parse ISO format string
+            dt = datetime.fromisoformat(timestamp)
         today = datetime.now().date()
         msg_date = dt.date()
         
@@ -588,11 +713,12 @@ class LLMWorker(QThread):
 class QtChatBubble(QWidget):
     """Modern Qt-based chat bubble."""
     
-    def __init__(self, llm_manager, config=None, debug=False):
+    def __init__(self, llm_manager, config=None, debug=False, listening_mode="wait"):
         super().__init__()
         self.llm_manager = llm_manager
         self.config = config
         self.debug = debug
+        self.listening_mode = listening_mode
         
         # State - default to LMStudio with qwen/qwen3-next-80b
         self.current_provider = 'lmstudio'  # Default to LMStudio
@@ -655,8 +781,8 @@ class QtChatBubble(QWidget):
             Qt.WindowType.Tool
         )
         
-        # Set optimal size for modern chat interface - wider and shorter
-        self.setFixedSize(540, 196)  # Increased by 40px (156 + 40 = 196)
+        # Set optimal size for modern chat interface - much wider to nearly touch screen edge
+        self.setFixedSize(700, 196)  # Increased width from 540 to 700 for better text display
         self.position_near_tray()
         
         # Main layout with minimal spacing
@@ -727,6 +853,11 @@ class QtChatBubble(QWidget):
             self.tts_toggle.double_clicked.connect(self.on_tts_double_click)
             header_layout.addWidget(self.tts_toggle)
 
+            # Full Voice Mode toggle (STT + TTS)
+            self.full_voice_toggle = FullVoiceToggle()
+            self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
+            header_layout.addWidget(self.full_voice_toggle)
+
             # Add prominent voice control panel when TTS is active
             self.voice_control_panel = self.create_voice_control_panel()
             header_layout.addWidget(self.voice_control_panel)
@@ -734,9 +865,9 @@ class QtChatBubble(QWidget):
         
         header_layout.addStretch()
         
-        # Status (Cursor-style, enlarged to show full text)
+        # Status (Cursor-style, enlarged to show full text including "Processing")
         self.status_label = QLabel("READY")
-        self.status_label.setFixedSize(80, 24)  # Increased from 50x22 to 80x24
+        self.status_label.setFixedSize(120, 24)  # Increased from 80x24 to 120x24 for "Processing" text
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("""
             QLabel {
@@ -754,8 +885,8 @@ class QtChatBubble(QWidget):
         layout.addLayout(header_layout)
         
         # Input section with modern card design
-        input_container = QFrame()
-        input_container.setStyleSheet("""
+        self.input_container = QFrame()
+        self.input_container.setStyleSheet("""
             QFrame {
                 background: #1e1e1e;
                 border: 1px solid #404040;
@@ -763,7 +894,7 @@ class QtChatBubble(QWidget):
                 padding: 4px;
             }
         """)
-        input_layout = QVBoxLayout(input_container)
+        input_layout = QVBoxLayout(self.input_container)
         input_layout.setContentsMargins(4, 4, 4, 4)
         input_layout.setSpacing(4)
         
@@ -812,7 +943,7 @@ class QtChatBubble(QWidget):
         input_row.addWidget(self.send_button)
         
         input_layout.addLayout(input_row)
-        layout.addWidget(input_container)
+        layout.addWidget(self.input_container)
         
         # Bottom controls - Cursor style (minimal, clean)
         controls_layout = QHBoxLayout()
@@ -1123,9 +1254,9 @@ class QtChatBubble(QWidget):
         # Get screen geometry
         screen = QApplication.primaryScreen().geometry()
         
-        # Position closer to the tray area but not at the very edge
-        # Leave more space from the right edge for better visibility
-        x = screen.width() - self.width() - 150  # More space from right edge
+        # Position very close to the right edge for maximum screen usage
+        # Leave just enough space so the bubble doesn't touch the screen edge
+        x = screen.width() - self.width() - 20  # Only 20px from right edge (was 150px)
         y = 50
         
         self.move(x, y)
@@ -1595,6 +1726,203 @@ class QtChatBubble(QWidget):
         self.raise_()
         self.activateWindow()
 
+    def on_full_voice_toggled(self, enabled: bool):
+        """Handle Full Voice Mode toggle state change."""
+        if self.debug:
+            print(f"🎙️  Full Voice Mode {'enabled' if enabled else 'disabled'}")
+
+        if enabled:
+            self.start_full_voice_mode()
+        else:
+            self.stop_full_voice_mode()
+
+    def start_full_voice_mode(self):
+        """Start Full Voice Mode - continuous listening with STT + TTS."""
+        try:
+            # Ensure voice manager is available
+            if not self.voice_manager or not self.voice_manager.is_available():
+                print("❌ Voice manager not available for Full Voice Mode")
+                self.full_voice_toggle.set_enabled(False)
+                return
+
+            if self.debug:
+                print("🚀 Starting Full Voice Mode...")
+
+            # Hide text input UI
+            self.hide_text_ui()
+
+            # Enable TTS automatically
+            if not self.tts_enabled:
+                self.tts_toggle.set_enabled(True)
+
+            # Set up voice mode based on CLI parameter
+            self.voice_manager.set_voice_mode(self.listening_mode)
+
+            # Update LLM session for voice-optimized responses
+            if self.llm_manager:
+                self.llm_manager.create_new_session(tts_mode=True)
+
+            # Start listening
+            self.voice_manager.listen(
+                on_transcription=self.handle_voice_input,
+                on_stop=self.handle_voice_stop
+            )
+
+            # Update UI state
+            self.full_voice_toggle.set_listening_state('listening')
+            self.update_status("LISTENING")
+
+            # Greet the user
+            self.voice_manager.speak("Full voice mode activated. I'm listening...")
+
+            if self.debug:
+                print("✅ Full Voice Mode started successfully")
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error starting Full Voice Mode: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Reset toggle state on error
+            self.full_voice_toggle.set_enabled(False)
+            self.show_text_ui()
+
+    def stop_full_voice_mode(self):
+        """Stop Full Voice Mode and return to normal text mode."""
+        try:
+            if self.debug:
+                print("🛑 Stopping Full Voice Mode...")
+
+            # Stop listening
+            if self.voice_manager:
+                self.voice_manager.stop_listening()
+                self.voice_manager.stop_speaking()
+
+            # Show text input UI
+            self.show_text_ui()
+
+            # Update UI state
+            self.full_voice_toggle.set_listening_state('idle')
+            self.update_status("READY")
+
+            if self.debug:
+                print("✅ Full Voice Mode stopped")
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error stopping Full Voice Mode: {e}")
+                import traceback
+                traceback.print_exc()
+
+    def handle_voice_input(self, transcribed_text: str):
+        """Handle speech-to-text input from the user."""
+        try:
+            if self.debug:
+                print(f"👤 Voice input: {transcribed_text}")
+
+            # Update UI state
+            self.full_voice_toggle.set_listening_state('processing')
+            self.update_status("PROCESSING")
+
+            # Log the message to history (but don't show in UI)
+            user_message = {
+                "role": "user",
+                "content": transcribed_text,
+                "timestamp": datetime.now().isoformat()
+            }
+            self.message_history.append(user_message)
+
+            # Generate AI response
+            response = self.llm_manager.generate_response(
+                transcribed_text,
+                self.current_provider,
+                self.current_model
+            )
+
+            # Log AI response to history
+            ai_message = {
+                "role": "assistant",
+                "content": response,
+                "timestamp": datetime.now().isoformat()
+            }
+            self.message_history.append(ai_message)
+
+            if self.debug:
+                print(f"🤖 AI response: {response[:100]}...")
+
+            # Speak the response
+            self.voice_manager.speak(response)
+
+            # Update UI state back to listening
+            self.full_voice_toggle.set_listening_state('listening')
+            self.update_status("LISTENING")
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error handling voice input: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Reset to listening state
+            self.full_voice_toggle.set_listening_state('listening')
+            self.update_status("LISTENING")
+
+    def handle_voice_stop(self):
+        """Handle when user says 'stop' to exit Full Voice Mode."""
+        if self.debug:
+            print("🛑 User said 'stop' - exiting Full Voice Mode")
+
+        # Disable Full Voice Mode
+        self.full_voice_toggle.set_enabled(False)
+
+    def hide_text_ui(self):
+        """Hide the text input interface during Full Voice Mode."""
+        # Hide the input container and other text-related UI elements
+        if hasattr(self, 'input_container'):
+            self.input_container.hide()
+
+        # Update window size to be smaller but maintain wider width
+        self.setFixedSize(700, 120)  # Smaller height without input area, wider for better visibility
+
+    def show_text_ui(self):
+        """Show the text input interface when exiting Full Voice Mode."""
+        # Show the input container and other text-related UI elements
+        if hasattr(self, 'input_container'):
+            self.input_container.show()
+
+        # Restore normal window size with wider width
+        self.setFixedSize(700, 196)
+
+    def update_status(self, status_text: str):
+        """Update the status label with the given text."""
+        if hasattr(self, 'status_label'):
+            self.status_label.setText(status_text.upper())
+
+            # Update status label style based on status
+            if status_text.lower() in ['ready', 'idle']:
+                color = "#22c55e"  # Green
+            elif status_text.lower() in ['listening']:
+                color = "#ff6b35"  # Orange
+            elif status_text.lower() in ['processing', 'generating']:
+                color = "#ffa500"  # Yellow
+            elif status_text.lower() in ['error']:
+                color = "#ff3b30"  # Red
+            else:
+                color = "#007acc"  # Blue (default)
+
+            self.status_label.setStyleSheet(f"""
+                QLabel {{
+                    background: {color};
+                    border: none;
+                    border-radius: 12px;
+                    font-size: 10px;
+                    font-weight: 600;
+                    color: #ffffff;
+                    font-family: -apple-system, system-ui, sans-serif;
+                }}
+            """)
+
     def _update_tts_toggle_state(self):
         """Update the TTS toggle visual state based on current TTS state."""
         if hasattr(self, 'tts_toggle') and self.voice_manager:
@@ -2030,10 +2358,11 @@ class QtChatBubble(QWidget):
 class QtBubbleManager:
     """Manager for Qt chat bubble."""
     
-    def __init__(self, llm_manager, config=None, debug=False):
+    def __init__(self, llm_manager, config=None, debug=False, listening_mode="wait"):
         self.llm_manager = llm_manager
         self.config = config
         self.debug = debug
+        self.listening_mode = listening_mode
         
         self.app = None
         self.bubble = None
@@ -2046,19 +2375,23 @@ class QtBubbleManager:
         
         if self.debug:
             print(f"✅ QtBubbleManager initialized with {QT_AVAILABLE}")
-    
-    def show(self):
-        """Show the chat bubble."""
+
+    def _prepare_bubble(self):
+        """Pre-initialize the bubble for instant display later."""
         if not self.app:
             # Create QApplication if it doesn't exist
             if not QApplication.instance():
                 self.app = QApplication(sys.argv)
             else:
                 self.app = QApplication.instance()
-        
+
         if not self.bubble:
-            self.bubble = QtChatBubble(self.llm_manager, self.config, self.debug)
-            
+            if self.debug:
+                print("🔄 Pre-creating QtChatBubble...")
+
+            # Create the bubble but don't show it yet
+            self.bubble = QtChatBubble(self.llm_manager, self.config, self.debug, self.listening_mode)
+
             # Set up callbacks
             if self.response_callback:
                 self.bubble.set_response_callback(self.response_callback)
@@ -2066,7 +2399,19 @@ class QtBubbleManager:
                 self.bubble.set_error_callback(self.error_callback)
             if self.status_callback:
                 self.bubble.set_status_callback(self.status_callback)
-            if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
+
+            if self.debug:
+                print("✅ QtChatBubble pre-created and ready")
+
+    def show(self):
+        """Show the chat bubble (instantly if pre-initialized)."""
+        # Ensure bubble is prepared (will be instant if already pre-initialized)
+        if not self.bubble:
+            self._prepare_bubble()
+
+        # Set app quit callback if not already set during preparation
+        if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
+            if hasattr(self.bubble, 'set_app_quit_callback'):
                 self.bubble.set_app_quit_callback(self.app_quit_callback)
         
         self.bubble.show()

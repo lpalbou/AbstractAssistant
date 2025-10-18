@@ -122,15 +122,17 @@ class EnhancedClickableIcon(pystray.Icon):
 class AbstractAssistantApp:
     """Main application class coordinating all components."""
     
-    def __init__(self, config: Optional[Config] = None, debug: bool = False):
+    def __init__(self, config: Optional[Config] = None, debug: bool = False, listening_mode: str = "wait"):
         """Initialize the AbstractAssistant application.
-        
+
         Args:
             config: Configuration object (uses default if None)
             debug: Enable debug mode
+            listening_mode: Voice listening mode (none, stop, wait, full)
         """
         self.config = config or Config.default()
         self.debug = debug
+        self.listening_mode = listening_mode
         
         # Validate configuration
         if not self.config.validate():
@@ -330,47 +332,38 @@ class AbstractAssistantApp:
                             print("💬 Qt chat bubble opened after TTS stop")
                     return
             
-            # Create bubble manager if not exists
-            if self.bubble_manager is None:
+            # Show the bubble (should be instant due to preflight initialization)
+            if self.bubble_manager:
                 if self.debug:
-                    print("🔄 Creating Qt bubble manager...")
-                
+                    print("🔄 Showing pre-initialized bubble...")
+                self.bubble_manager.show()
+            else:
+                if self.debug:
+                    print("⚠️  Bubble manager not pre-initialized, creating now...")
+                # Fallback: create bubble manager if preflight failed
                 try:
                     self.bubble_manager = QtBubbleManager(
                         llm_manager=self.llm_manager,
                         config=self.config,
-                        debug=self.debug
+                        debug=self.debug,
+                        listening_mode=self.listening_mode
                     )
-                    
-                    # Set up callbacks for responses and errors
                     self.bubble_manager.set_response_callback(self.handle_bubble_response)
                     self.bubble_manager.set_error_callback(self.handle_bubble_error)
                     self.bubble_manager.set_status_callback(self.update_icon_status)
                     self.bubble_manager.set_app_quit_callback(self.quit_application)
-                    
-                    if self.debug:
-                        print("✅ Qt bubble manager created successfully")
-                    
+                    self.bubble_manager.show()
                 except Exception as e:
                     if self.debug:
-                        print(f"❌ Failed to create Qt bubble manager: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        print(f"❌ Failed to create bubble manager: {e}")
                     print("💬 AbstractAssistant: Error creating chat bubble")
                     return
-            
-            # Show the bubble
-            if self.bubble_manager:
-                if self.debug:
-                    print("🔄 Showing Qt bubble...")
-                self.bubble_manager.show()
-                self.bubble_visible = True
-                
-                if self.debug:
-                    print("💬 Qt chat bubble opened")
-            else:
-                if self.debug:
-                    print("❌ No bubble manager available")
+
+            # Mark bubble as visible
+            self.bubble_visible = True
+
+            if self.debug:
+                print("💬 Qt chat bubble opened")
                     
         except Exception as e:
             if self.debug:
@@ -653,6 +646,48 @@ class AbstractAssistantApp:
             if self.debug:
                 print(f"❌ Error loading session: {e}")
 
+    def _preflight_initialization(self):
+        """Pre-initialize components for instant bubble display on first click."""
+        if self.debug:
+            print("🚀 Starting preflight initialization...")
+
+        try:
+            # Pre-create bubble manager (this is the main bottleneck)
+            if self.bubble_manager is None:
+                if self.debug:
+                    print("🔄 Pre-creating bubble manager...")
+
+                self.bubble_manager = QtBubbleManager(
+                    llm_manager=self.llm_manager,
+                    config=self.config,
+                    debug=self.debug,
+                    listening_mode=self.listening_mode
+                )
+
+                # Set up callbacks
+                self.bubble_manager.set_response_callback(self.handle_bubble_response)
+                self.bubble_manager.set_error_callback(self.handle_bubble_error)
+                self.bubble_manager.set_status_callback(self.update_icon_status)
+                self.bubble_manager.set_app_quit_callback(self.quit_application)
+
+                if self.debug:
+                    print("✅ Bubble manager pre-created successfully")
+
+            # Pre-initialize the bubble itself (this loads UI components, TTS/STT, etc.)
+            if self.debug:
+                print("🔄 Pre-initializing chat bubble...")
+
+            # This creates the bubble without showing it
+            self.bubble_manager._prepare_bubble()
+
+            if self.debug:
+                print("✅ Preflight initialization completed - bubble ready for instant display")
+
+        except Exception as e:
+            if self.debug:
+                print(f"⚠️  Preflight initialization failed: {e}")
+                print("   First click will still work but with delay")
+
     def quit_application(self, icon=None, item=None):
         """Quit the application gracefully."""
         self.is_running = False
@@ -691,6 +726,9 @@ class AbstractAssistantApp:
 
             # Create Qt-based system tray icon
             self.qt_icon = self._create_qt_system_tray_icon()
+
+            # Preflight initialization: Pre-load bubble manager for instant display
+            self._preflight_initialization()
 
             print("AbstractAssistant started. Check your menu bar!")
             print("Click the icon to open the chat interface.")

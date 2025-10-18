@@ -171,6 +171,78 @@ class VoiceManager:
                 if self.debug_mode:
                     print(f"❌ Error cleaning up VoiceLLM: {e}")
 
+    # STT (Speech-to-Text) Methods for Full Voice Mode
+
+    def set_voice_mode(self, mode: str):
+        """Set voice interaction mode.
+
+        Args:
+            mode: Voice mode ('full', 'wait', 'stop', 'ptt')
+        """
+        if self._voicellm_manager and hasattr(self._voicellm_manager, 'set_voice_mode'):
+            try:
+                self._voicellm_manager.set_voice_mode(mode)
+                if self.debug_mode:
+                    print(f"🔊 Voice mode set to: {mode}")
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"❌ Error setting voice mode: {e}")
+        else:
+            if self.debug_mode:
+                print(f"⚠️  Voice mode setting not available, simulating mode: {mode}")
+
+    def listen(self, on_transcription: Callable[[str], None], on_stop: Callable[[], None] = None):
+        """Start listening for speech input.
+
+        Args:
+            on_transcription: Callback function for transcribed text
+            on_stop: Callback function for stop command
+        """
+        if self._voicellm_manager and hasattr(self._voicellm_manager, 'listen'):
+            try:
+                self._voicellm_manager.listen(
+                    on_transcription=on_transcription,
+                    on_stop=on_stop
+                )
+                if self.debug_mode:
+                    print("🎤 Started listening for speech")
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"❌ Error starting listening: {e}")
+                raise
+        else:
+            if self.debug_mode:
+                print("⚠️  STT listening not available in current VoiceLLM version")
+            raise RuntimeError("STT listening not available")
+
+    def stop_listening(self):
+        """Stop listening for speech input."""
+        if self._voicellm_manager and hasattr(self._voicellm_manager, 'stop_listening'):
+            try:
+                self._voicellm_manager.stop_listening()
+                if self.debug_mode:
+                    print("🎤 Stopped listening for speech")
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"❌ Error stopping listening: {e}")
+        else:
+            if self.debug_mode:
+                print("⚠️  Stop listening not available in current VoiceLLM version")
+
+    def is_listening(self) -> bool:
+        """Check if currently listening for speech."""
+        if self._voicellm_manager and hasattr(self._voicellm_manager, 'is_listening'):
+            try:
+                return self._voicellm_manager.is_listening()
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"❌ Error checking listening state: {e}")
+                return False
+        else:
+            if self.debug_mode:
+                print("⚠️  Listening state check not available")
+            return False
+
 
 # Alias for backward compatibility
 TTSManager = VoiceManager

@@ -57,6 +57,14 @@ For more information, visit: https://github.com/yourusername/abstractassistant
         action="store_true",
         help="Enable debug mode",
     )
+
+    parser.add_argument(
+        "--listening-mode",
+        type=str,
+        choices=["none", "stop", "wait", "full"],
+        help="Voice listening mode (none: no STT, stop: continuous listen/stop on 'STOP' keyword, wait: listen when TTS idle, full: continuous listen/interrupt on any speech)",
+        default="wait",
+    )
     
     parser.add_argument(
         "--version",
@@ -113,7 +121,7 @@ def main() -> int:
             config.llm.default_model = args.model
         
         # Create and run the application
-        app = AbstractAssistantApp(config=config, debug=args.debug)
+        app = AbstractAssistantApp(config=config, debug=args.debug, listening_mode=args.listening_mode)
         
         print("🤖 Starting AbstractAssistant...")
         print("Look for the icon in your macOS menu bar!")
@@ -122,6 +130,7 @@ def main() -> int:
             print("Debug mode enabled")
             print(f"Provider: {config.llm.default_provider}")
             print(f"Model: {config.llm.default_model}")
+            print(f"Listening mode: {args.listening_mode}")
         
         app.run()
         
