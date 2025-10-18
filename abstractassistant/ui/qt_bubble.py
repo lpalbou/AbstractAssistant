@@ -239,29 +239,39 @@ class TTSToggle(QWidget):
             painter.drawArc(thumb_x + 3, thumb_y - 2, 4, 4, 0, 180 * 16)
 
 
-class FullVoiceToggle(QWidget):
-    """Custom Full Voice Mode toggle switch (STT + TTS) with microphone icon."""
+class FullVoiceToggle(QPushButton):
+    """Full Voice Mode toggle button with microphone icon."""
 
     toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(33, 24)  # Same size as TTS toggle
+        self.setFixedSize(40, 24)  # Slightly wider for button
         self.setToolTip("Full Voice Mode: Continuous listening with speech-to-text and text-to-speech")
         self._enabled = False
-        self._hover = False
         self._listening_state = 'idle'  # 'idle', 'listening', 'processing'
+        self.setCheckable(True)
+        self.clicked.connect(self._on_clicked)
+        self._update_appearance()
 
     def is_enabled(self) -> bool:
         """Check if Full Voice Mode is enabled."""
         return self._enabled
 
+    def _on_clicked(self):
+        """Handle button click."""
+        self._enabled = self.isChecked()
+        self.toggled.emit(self._enabled)
+        self._update_appearance()
+
     def set_enabled(self, enabled: bool):
         """Set Full Voice Mode enabled state."""
         if self._enabled != enabled:
             self._enabled = enabled
-            self.update()
-            self.toggled.emit(enabled)
+            self.setChecked(enabled)
+            self._update_appearance()
+            if not enabled:
+                self.toggled.emit(enabled)
 
     def set_listening_state(self, state: str):
         """Set listening state for visual feedback.
@@ -271,79 +281,50 @@ class FullVoiceToggle(QWidget):
         """
         if self._listening_state != state:
             self._listening_state = state
-            self.update()
+            self._update_appearance()
 
     def get_listening_state(self) -> str:
         """Get current listening state."""
         return self._listening_state
 
-    def mousePressEvent(self, event):
-        """Handle mouse press to toggle Full Voice Mode."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.set_enabled(not self._enabled)
-        super().mousePressEvent(event)
-
-    def enterEvent(self, event):
-        """Handle mouse enter for hover effect."""
-        self._hover = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        """Handle mouse leave to remove hover effect."""
-        self._hover = False
-        self.update()
-        super().leaveEvent(event)
-
-    def paintEvent(self, event):
-        """Custom paint event for the Full Voice Mode toggle switch."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Colors based on state
+    def _update_appearance(self):
+        """Update button appearance based on state."""
+        # Set icon text based on state
         if not self._enabled:
-            bg_color = QColor("#404040")  # Grey when disabled
+            icon = "🎤"  # Microphone when disabled
+            bg_color = "rgba(255, 255, 255, 0.06)"
+            text_color = "rgba(255, 255, 255, 0.7)"
         elif self._listening_state == 'listening':
-            bg_color = QColor("#ff6b35")  # Orange when actively listening
+            icon = "🔴"  # Red circle when actively listening
+            bg_color = "rgba(255, 107, 53, 0.8)"  # Orange
+            text_color = "#ffffff"
         elif self._listening_state == 'processing':
-            bg_color = QColor("#ffa500")  # Yellow when processing
+            icon = "⚡"  # Lightning when processing
+            bg_color = "rgba(255, 165, 0, 0.8)"  # Yellow
+            text_color = "#ffffff"
         else:
-            bg_color = QColor("#007acc")  # Blue when enabled but idle
+            icon = "🎙️"  # Studio microphone when enabled but idle
+            bg_color = "rgba(0, 122, 204, 0.8)"  # Blue
+            text_color = "#ffffff"
 
-        # Hover effect
-        if self._hover:
-            bg_color = bg_color.lighter(120)
-
-        # Draw background
-        rect = self.rect().adjusted(2, 2, -2, -2)
-        painter.fillRect(rect, bg_color)
-        painter.setPen(QPen(bg_color.darker(140), 1))
-        painter.drawRoundedRect(rect, 10, 10)
-
-        # Draw microphone icon
-        icon_color = QColor("#ffffff") if self._enabled else QColor("#999999")
-        painter.setPen(QPen(icon_color, 2))
-
-        center_x = self.width() // 2
-        center_y = self.height() // 2
-
-        # Microphone body (rounded rectangle)
-        mic_rect = QRect(center_x - 3, center_y - 6, 6, 8)
-        painter.drawRoundedRect(mic_rect, 2, 2)
-
-        # Microphone stand
-        painter.drawLine(center_x, center_y + 2, center_x, center_y + 6)
-
-        # Microphone base
-        painter.drawLine(center_x - 3, center_y + 6, center_x + 3, center_y + 6)
-
-        # Sound waves (when enabled)
-        if self._enabled:
-            painter.setPen(QPen(icon_color, 1))
-            # Left arc
-            painter.drawArc(center_x - 8, center_y - 4, 4, 8, 0, 180 * 16)
-            # Right arc
-            painter.drawArc(center_x + 4, center_y - 4, 4, 8, 180 * 16, 180 * 16)
+        self.setText(icon)
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: {bg_color};
+                border: none;
+                border-radius: 12px;
+                font-size: 12px;
+                color: {text_color};
+                font-family: -apple-system, system-ui, sans-serif;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: {bg_color.replace('0.8', '1.0') if '0.8' in bg_color else bg_color};
+            }}
+            QPushButton:pressed {{
+                background: {bg_color.replace('0.8', '0.6') if '0.8' in bg_color else bg_color};
+            }}
+        """)
 
 
 
@@ -454,7 +435,7 @@ class QtChatBubble(QWidget):
         )
         
         # Set optimal size for modern chat interface - much wider to nearly touch screen edge
-        self.setFixedSize(700, 196)  # Increased width from 540 to 700 for better text display
+        self.setFixedSize(630, 196)  # Increased width from 540 to 700 for better text display
         self.position_near_tray()
         
         # Main layout with minimal spacing
@@ -468,15 +449,15 @@ class QtChatBubble(QWidget):
         header_layout.setSpacing(8)
         
         # Close button (minimal)
-        self.close_button = QPushButton("✕")
-        self.close_button.setFixedSize(18, 18)
+        self.close_button = QPushButton("⨯")  # Better close icon - geometric multiplication symbol
+        self.close_button.setFixedSize(24, 24)  # Increased from 18x18 to 24x24 for better visibility
         self.close_button.clicked.connect(self.close_app)
         self.close_button.setStyleSheet("""
             QPushButton {
                 background: rgba(255, 255, 255, 0.15);
                 border: none;
-                border-radius: 9px;
-                font-size: 11px;
+                border-radius: 12px;
+                font-size: 14px;
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
                 font-family: -apple-system, system-ui, sans-serif;
@@ -690,15 +671,15 @@ class QtChatBubble(QWidget):
         
         # Token counter (minimal)
         self.token_label = QLabel("0 / 128k")
-        self.token_label.setFixedHeight(28)
-        self.token_label.setMinimumWidth(80)
+        self.token_label.setFixedHeight(36)  # Increased by 30% (28 * 1.3 = 36.4 ≈ 36)
+        self.token_label.setMinimumWidth(104)  # Increased by 30% (80 * 1.3 = 104)
         self.token_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.token_label.setStyleSheet("""
             QLabel {
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
                 border-radius: 14px;
-                font-size: 10px;
+                font-size: 12px;
                 color: rgba(255, 255, 255, 0.6);
                 font-family: -apple-system, system-ui, sans-serif;
             }
@@ -930,9 +911,8 @@ class QtChatBubble(QWidget):
         # Get screen geometry
         screen = QApplication.primaryScreen().geometry()
         
-        # Position very close to the right edge for maximum screen usage
-        # Leave just enough space so the bubble doesn't touch the screen edge
-        x = screen.width() - self.width() - 20  # Only 20px from right edge (was 150px)
+        # Position at the right corner with no gap
+        x = screen.width() - self.width()  # 0px from right edge - touching the corner
         y = 50
         
         self.move(x, y)
@@ -1548,7 +1528,7 @@ class QtChatBubble(QWidget):
             self.input_container.hide()
 
         # Update window size to be smaller but maintain wider width
-        self.setFixedSize(700, 120)  # Smaller height without input area, wider for better visibility
+        self.setFixedSize(630, 120)  # Reduced width by 10% to match normal size
 
     def show_text_ui(self):
         """Show the text input interface when exiting Full Voice Mode."""
@@ -1557,7 +1537,7 @@ class QtChatBubble(QWidget):
             self.input_container.show()
 
         # Restore normal window size with wider width
-        self.setFixedSize(700, 196)
+        self.setFixedSize(630, 196)
 
     def update_status(self, status_text: str):
         """Update the status label with the given text."""

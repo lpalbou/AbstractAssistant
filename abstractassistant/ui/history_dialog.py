@@ -60,7 +60,7 @@ class iPhoneMessagesDialog:
         dialog.setWindowTitle("Messages")
         dialog.setModal(False)
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(420, 650)  # Better desktop proportions, more like Messages on Mac
+        dialog.resize(504, 650)  # Increased width by 20% (420 * 1.2 = 504)
 
         # Position dialog near right edge of screen like iPhone
         iPhoneMessagesDialog._position_dialog_right(dialog)
@@ -239,7 +239,7 @@ class iPhoneMessagesDialog:
                     background: #007AFF;
                     border: none;
                     border-radius: 18px;
-                    max-width: 245px;
+                    max-width: 320px;
                 }
             """)
             content_label.setStyleSheet("""
@@ -262,7 +262,7 @@ class iPhoneMessagesDialog:
                     background: #3a3a3c;
                     border: none;
                     border-radius: 18px;
-                    max-width: 245px;
+                    max-width: 320px;
                 }
             """)
             content_label.setStyleSheet("""
