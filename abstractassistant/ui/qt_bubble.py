@@ -25,6 +25,7 @@ try:
     from .provider_manager import ProviderManager
     from .ui_styles import UIStyles
     from .tts_state_manager import TTSStateManager, TTSState
+    from .history_dialog import iPhoneMessagesDialog
     MANAGERS_AVAILABLE = True
 except ImportError:
     MANAGERS_AVAILABLE = False
@@ -32,12 +33,13 @@ except ImportError:
     UIStyles = None
     TTSStateManager = None
     TTSState = None
+    iPhoneMessagesDialog = None
 
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-        QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser, QSizePolicy
+        QFileDialog, QMessageBox
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -48,7 +50,7 @@ except ImportError:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-            QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser, QSizePolicy
+            QFileDialog, QMessageBox
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -59,7 +61,7 @@ except ImportError:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-                QFileDialog, QMessageBox, QDialog, QScrollArea, QTextBrowser, QSizePolicy
+                QFileDialog, QMessageBox
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -344,339 +346,6 @@ class FullVoiceToggle(QWidget):
             painter.drawArc(center_x + 4, center_y - 4, 4, 8, 180 * 16, 180 * 16)
 
 
-class HistoryDialog(QDialog):
-    """Dialog to display message history."""
-    
-    def __init__(self, message_history: List[Dict], parent=None):
-        super().__init__(parent)
-        self.message_history = message_history
-        self.setup_ui()
-        self.setup_styling()
-    
-    def setup_ui(self):
-        """Set up iPhone Messages-style history dialog UI."""
-        self.setWindowTitle("Chat History")
-        self.setModal(True)
-        self.resize(542, 600)  # Decreased by 10% (680 * 0.9 = 612)
-        
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        
-        # Header bar - iPhone style
-        header_bar = QFrame()
-        header_bar.setFixedHeight(44)  # iOS standard header height
-        header_bar.setStyleSheet("""
-            QFrame {
-                background: rgba(28, 28, 30, 0.95);
-                border: none;
-                border-bottom: 0.5px solid rgba(84, 84, 88, 0.6);
-            }
-        """)
-        
-        header_layout = QHBoxLayout(header_bar)
-        header_layout.setContentsMargins(16, 0, 16, 0)
-        
-        # Back/Close button (iOS style)
-        close_button = QPushButton("Done")
-        close_button.setFixedHeight(32)
-        close_button.clicked.connect(self.accept)
-        close_button.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                font-size: 17px;
-                font-weight: 400;
-                color: #007AFF;
-                font-family: -apple-system, system-ui, sans-serif;
-                padding: 0px 8px;
-            }
-            QPushButton:hover {
-                color: #0051D5;
-            }
-            QPushButton:pressed {
-                color: #004CCC;
-            }
-        """)
-        header_layout.addWidget(close_button)
-        
-        header_layout.addStretch()
-        
-        # Title
-        header_label = QLabel("Messages")
-        header_label.setStyleSheet("""
-            QLabel {
-                font-size: 17px;
-                font-weight: 600;
-                color: #ffffff;
-                font-family: -apple-system, system-ui, sans-serif;
-            }
-        """)
-        header_layout.addWidget(header_label)
-        
-        header_layout.addStretch()
-        
-        # Message count (subtle)
-        count_label = QLabel(f"{len(self.message_history)}")
-        count_label.setStyleSheet("""
-            QLabel {
-                font-size: 15px;
-                font-weight: 400;
-                color: rgba(255, 255, 255, 0.6);
-                font-family: -apple-system, system-ui, sans-serif;
-            }
-        """)
-        header_layout.addWidget(count_label)
-        
-        layout.addWidget(header_bar)
-        
-        # Messages area - iPhone style
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # Hide scrollbar like iOS
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet("""
-            QScrollArea {
-                background: #000000;
-                border: none;
-            }
-        """)
-        
-        # Content widget
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(0, 12, 0, 12)
-        content_layout.setSpacing(2)  # Very tight spacing like iPhone Messages
-        
-        # Add messages to content
-        for i, msg in enumerate(self.message_history):
-            message_frame = self._create_message_frame(msg, i)
-            content_layout.addWidget(message_frame)
-        
-        content_layout.addStretch()
-        scroll_area.setWidget(content_widget)
-        layout.addWidget(scroll_area)
-        
-        self.setLayout(layout)
-    
-    def _create_message_frame(self, msg: Dict, index: int) -> QFrame:
-        """Create iPhone Messages-style message bubble."""
-        container = QFrame()
-        container.setStyleSheet("QFrame { background: transparent; border: none; }")
-        
-        container_layout = QHBoxLayout(container)
-        container_layout.setContentsMargins(16, 1, 16, 1)  # iPhone-style margins
-        container_layout.setSpacing(0)
-        
-        # Handle both message formats: 'type' (regular) and 'role' (voice)
-        message_type = msg.get('type', msg.get('role', 'unknown'))
-        is_user = message_type == 'user'
-        
-        if is_user:
-            # User messages: right-aligned, blue bubble
-            container_layout.addStretch()  # Push to right
-            
-            bubble = QFrame()
-            bubble.setStyleSheet("""
-                QFrame {
-                    background: #007AFF;
-                    border: none;
-                    border-radius: 8px;
-                    min-width: 300px;
-                    max-width: 532px;
-                }
-            """)
-            
-            bubble_layout = QVBoxLayout(bubble)
-            bubble_layout.setContentsMargins(12, 8, 12, 8)
-            bubble_layout.setSpacing(2)
-            
-        else:
-            # AI messages: left-aligned, grey bubble (much wider for fewer lines)
-            bubble = QFrame()
-            bubble.setStyleSheet("""
-                QFrame {
-                    background: #1C1C1E;
-                    border: none;
-                    border-radius: 8px;
-                    min-width: 450px;
-                    max-width: 550px;
-                }
-            """)
-            
-            bubble_layout = QVBoxLayout(bubble)
-            bubble_layout.setContentsMargins(12, 8, 12, 8)
-            bubble_layout.setSpacing(2)
-        
-        # Message content
-        if is_user:
-            # User messages: simple text label
-            content_widget = QLabel(msg['content'])
-            content_widget.setWordWrap(True)
-            content_widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            # Ensure proper height adjustment for user messages
-            content_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-            content_widget.adjustSize()
-            content_widget.setStyleSheet("""
-                QLabel {
-                    background: transparent;
-                    border: none;
-                    font-size: 16px;
-                    font-weight: 400;
-                    color: #ffffff;
-                    font-family: -apple-system, system-ui, sans-serif;
-                    line-height: 1.3;
-                    padding: 0px;
-                }
-            """)
-        else:
-            # AI messages: markdown-enabled text widget with proper height adjustment
-            content_widget = QTextEdit()
-            content_widget.setMarkdown(msg['content'])
-            content_widget.setReadOnly(True)
-
-            # Disable scrollbars and frame
-            content_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            content_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            content_widget.setFrameStyle(QFrame.Shape.NoFrame)
-
-            # Set size policy for automatic height adjustment
-            content_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-
-            # Calculate proper height based on content
-            content_widget.document().setTextWidth(550 - 24)  # max bubble width minus padding
-            document_height = content_widget.document().size().height()
-            content_widget.setFixedHeight(int(document_height))
-
-            content_widget.setStyleSheet("""
-                QTextEdit {
-                    background: transparent;
-                    border: none;
-                    font-size: 16px;
-                    font-weight: 400;
-                    color: #ffffff;
-                    font-family: -apple-system, system-ui, sans-serif;
-                    line-height: 1.3;
-                    padding: 0px;
-                }
-                QTextEdit h1, QTextEdit h2, QTextEdit h3 {
-                    color: #ffffff;
-                    font-weight: 600;
-                }
-                QTextEdit code {
-                    background: rgba(255, 255, 255, 0.1);
-                    padding: 2px 4px;
-                    border-radius: 3px;
-                    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-                }
-                QTextEdit pre {
-                    background: rgba(255, 255, 255, 0.05);
-                    padding: 8px;
-                    border-radius: 6px;
-                    border-left: 3px solid #007AFF;
-                }
-            """)
-        
-        bubble_layout.addWidget(content_widget)
-        
-        if is_user:
-            container_layout.addWidget(bubble)
-        else:
-            container_layout.addWidget(bubble)
-            container_layout.addStretch()  # Push to left
-        
-        # Timestamp below bubble (iPhone style)
-        timestamp_container = QFrame()
-        timestamp_container.setStyleSheet("QFrame { background: transparent; border: none; }")
-        timestamp_layout = QHBoxLayout(timestamp_container)
-        timestamp_layout.setContentsMargins(16, 0, 16, 4)
-        
-        # Format timestamp - handle both ISO string and unix timestamp formats
-        timestamp = msg['timestamp']
-        if isinstance(timestamp, (int, float)):
-            # Convert unix timestamp to datetime
-            dt = datetime.fromtimestamp(timestamp)
-        else:
-            # Parse ISO format string
-            dt = datetime.fromisoformat(timestamp)
-        today = datetime.now().date()
-        msg_date = dt.date()
-        
-        if msg_date == today:
-            time_str = dt.strftime("%I:%M %p").lower().lstrip('0')  # "2:34 pm"
-        elif (today - msg_date).days == 1:
-            time_str = f"Yesterday {dt.strftime('%I:%M %p').lower().lstrip('0')}"
-        else:
-            time_str = dt.strftime("%b %d, %I:%M %p").lower().replace(' 0', ' ').lstrip('0')
-        
-        timestamp_label = QLabel(time_str)
-        timestamp_label.setStyleSheet("""
-            QLabel {
-                background: transparent;
-                border: none;
-                font-size: 13px;
-                font-weight: 400;
-                color: rgba(255, 255, 255, 0.6);
-                font-family: -apple-system, system-ui, sans-serif;
-                padding: 0px;
-            }
-        """)
-        
-        if is_user:
-            timestamp_layout.addStretch()
-            timestamp_layout.addWidget(timestamp_label)
-        else:
-            timestamp_layout.addWidget(timestamp_label)
-            timestamp_layout.addStretch()
-        
-        # Main container for bubble + timestamp
-        main_container = QFrame()
-        main_container.setStyleSheet("QFrame { background: transparent; border: none; }")
-        main_layout = QVBoxLayout(main_container)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(2)
-        
-        main_layout.addWidget(container)
-        
-        # Only show timestamp for every few messages or different times (like iPhone)
-        prev_msg = self.message_history[index - 1] if index > 0 else None
-        show_timestamp = (index == 0 or 
-                         prev_msg is None or 
-                         index % 5 == 0 or  # Every 5th message
-                         abs(datetime.fromisoformat(msg['timestamp']) - 
-                             datetime.fromisoformat(prev_msg['timestamp'])).total_seconds() > 300)  # 5+ minutes apart
-        
-        if show_timestamp:
-            main_layout.addWidget(timestamp_container)
-        
-        return main_container
-    
-    def setup_styling(self):
-        """Set up iPhone Messages-style dialog styling."""
-        self.setStyleSheet("""
-            QDialog {
-                background: #000000;
-                color: #ffffff;
-                border: none;
-                border-radius: 12px;
-            }
-            QScrollArea {
-                background: #000000;
-                border: none;
-            }
-            /* Hide scrollbars completely like iOS */
-            QScrollBar:vertical {
-                width: 0px;
-                background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: transparent;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: transparent;
-            }
-        """)
 
 
 class LLMWorker(QThread):
@@ -1591,29 +1260,18 @@ class QtChatBubble(QWidget):
                 
                 speech_thread = threading.Thread(target=wait_for_speech, daemon=True)
                 speech_thread.start()
-                
+
+                # Show chat history after TTS starts (small delay)
+                QTimer.singleShot(800, self.show_history)
+
             except Exception as e:
                 if self.debug:
                     print(f"❌ TTS error: {e}")
-                # Fallback to toast if TTS fails
-                try:
-                    from .toast_window import show_toast_notification
-                    show_toast_notification(response, debug=self.debug, voice_manager=self.voice_manager)
-                except:
-                    pass
+                # Show chat history as fallback
+                QTimer.singleShot(100, self.show_history)
         else:
-            # Show toast notification when TTS is disabled
-            try:
-                from .toast_window import show_toast_notification
-                toast = show_toast_notification(response, debug=self.debug, voice_manager=self.voice_manager)
-                
-                if self.debug:
-                    print(f"🍞 Toast notification created and shown")
-            except Exception as e:
-                if self.debug:
-                    print(f"❌ Failed to show toast: {e}")
-                # Fallback to console
-                print(f"✅ AI Response: {response}")
+            # Show chat history instead of toast when TTS is disabled
+            self.show_history()
         
         # Also call response callback if set
         if self.response_callback:
@@ -2141,19 +1799,12 @@ class QtChatBubble(QWidget):
         if self.debug:
             print(f"Error occurred: {error}")
         
-        # Show error toast notification
-        try:
-            from .toast_window import show_toast_notification
-            error_message = f"❌ Error: {error}"
-            toast = show_toast_notification(error_message, debug=self.debug, voice_manager=self.voice_manager)
-            
-            if self.debug:
-                print(f"🍞 Error toast notification shown")
-        except Exception as e:
-            if self.debug:
-                print(f"❌ Failed to show error toast: {e}")
-            # Fallback to console
+        # Show chat history instead of error toast
+        if self.debug:
             print(f"❌ AI Error: {error}")
+
+        # Show history so user can see the error context
+        QTimer.singleShot(100, self.show_history)
         
         # Call error callback
         if self.error_callback:
@@ -2299,11 +1950,21 @@ class QtChatBubble(QWidget):
                 "No message history available. Start a conversation first."
             )
             return
-        
-        # Create history dialog
-        history_dialog = HistoryDialog(self.message_history, self)
-        history_dialog.exec()
-    
+
+        # Create iPhone Messages-style history dialog using modular approach
+        if iPhoneMessagesDialog:
+            history_dialog = iPhoneMessagesDialog.create_dialog(self.message_history, self)
+            history_dialog.exec()
+        else:
+            # Fallback if the module isn't available
+            QMessageBox.information(
+                self,
+                "History Unavailable",
+                "History dialog module not available."
+            )
+
+
+
     def close_app(self):
         """Close the entire application completely."""
         if self.debug:
