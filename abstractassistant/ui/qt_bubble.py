@@ -723,7 +723,7 @@ class QtChatBubble(QWidget):
         
         # Bottom controls - Cursor style (minimal, clean)
         controls_layout = QHBoxLayout()
-        controls_layout.setContentsMargins(12, 6, 12, 8)
+        controls_layout.setContentsMargins(12, 3, 12, 4)
         controls_layout.setSpacing(8)
         
         # Provider dropdown (rounded, clean)
@@ -791,7 +791,7 @@ class QtChatBubble(QWidget):
         # Token counter (minimal)
         self.token_label = QLabel("0 / 128k")
         self.token_label.setFixedHeight(28)
-        self.token_label.setMinimumWidth(60)
+        self.token_label.setMinimumWidth(80)
         self.token_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.token_label.setStyleSheet("""
             QLabel {
