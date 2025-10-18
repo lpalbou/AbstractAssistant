@@ -81,6 +81,74 @@ class VoiceManager:
                 print(f"❌ VoiceLLM speak error: {e}")
             return False
     
+    def pause(self) -> bool:
+        """Pause current speech.
+
+        Returns:
+            True if speech was paused successfully, False otherwise
+        """
+        if self._voicellm_manager:
+            try:
+                success = self._voicellm_manager.pause_speaking()
+                if self.debug_mode:
+                    print(f"🔊 VoiceLLM speech {'paused' if success else 'pause failed'}")
+                return success
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"❌ Error pausing VoiceLLM: {e}")
+                return False
+        return False
+
+    def resume(self) -> bool:
+        """Resume paused speech.
+
+        Returns:
+            True if speech was resumed successfully, False otherwise
+        """
+        if self._voicellm_manager:
+            try:
+                success = self._voicellm_manager.resume_speaking()
+                if self.debug_mode:
+                    print(f"🔊 VoiceLLM speech {'resumed' if success else 'resume failed'}")
+                return success
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"❌ Error resuming VoiceLLM: {e}")
+                return False
+        return False
+
+    def is_paused(self) -> bool:
+        """Check if TTS is currently paused."""
+        if self._voicellm_manager:
+            try:
+                return self._voicellm_manager.is_paused()
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"❌ Error checking pause state: {e}")
+                return False
+        return False
+
+    def get_state(self) -> str:
+        """Get current TTS state.
+
+        Returns:
+            One of: 'idle', 'speaking', 'paused', 'stopped'
+        """
+        if not self._voicellm_manager:
+            return 'idle'
+
+        try:
+            if self.is_paused():
+                return 'paused'
+            elif self.is_speaking():
+                return 'speaking'
+            else:
+                return 'idle'
+        except Exception as e:
+            if self.debug_mode:
+                print(f"❌ Error getting TTS state: {e}")
+            return 'idle'
+
     def stop(self):
         """Stop current speech."""
         if self._voicellm_manager:

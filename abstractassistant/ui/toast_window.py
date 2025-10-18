@@ -48,12 +48,13 @@ except ImportError:
 
 class ToastWindow(QWidget):
     """Standalone toast notification window for AI responses."""
-    
-    def __init__(self, message: str, debug: bool = False):
+
+    def __init__(self, message: str, debug: bool = False, voice_manager=None):
         super().__init__()
         self.message = message
         self.debug = debug
         self.is_expanded = False
+        self.voice_manager = voice_manager  # Reference to voice manager for playback control
         
         # Window properties - doubled height and increased width by 50%
         self.collapsed_height = 240  # Reduced back since no reply panel
@@ -112,7 +113,54 @@ class ToastWindow(QWidget):
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
-        
+
+        # TTS playback controls (if voice manager available)
+        if self.voice_manager:
+            # Pause/Play button
+            self.pause_play_button = QPushButton("⏸")
+            self.pause_play_button.setFixedSize(24, 24)
+            self.pause_play_button.setToolTip("Pause/Resume TTS")
+            self.pause_play_button.clicked.connect(self.toggle_pause_resume)
+            self.pause_play_button.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: none;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.7);
+                    font-family: -apple-system, system-ui, sans-serif;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.15);
+                    color: rgba(255, 255, 255, 0.9);
+                }
+            """)
+            header_layout.addWidget(self.pause_play_button)
+
+            # Stop button
+            self.stop_button = QPushButton("⏹")
+            self.stop_button.setFixedSize(24, 24)
+            self.stop_button.setToolTip("Stop TTS")
+            self.stop_button.clicked.connect(self.stop_tts)
+            self.stop_button.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: none;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.7);
+                    font-family: -apple-system, system-ui, sans-serif;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.15);
+                    color: rgba(255, 255, 255, 0.9);
+                }
+            """)
+            header_layout.addWidget(self.stop_button)
+
+            # Update button states based on TTS state
+            self._update_playback_buttons()
+
         # Copy button (Cursor style)
         self.copy_button = QPushButton("📋")
         self.copy_button.setFixedSize(24, 24)
@@ -331,21 +379,123 @@ class ToastWindow(QWidget):
         """Copy message content to clipboard."""
         try:
             pyperclip.copy(self.message)
-            
+
             # Brief visual feedback
             original_text = self.copy_button.text()
             self.copy_button.setText("✓")
             QTimer.singleShot(1000, lambda: self.copy_button.setText(original_text))
-            
+
             if self.debug:
                 print("📋 Message copied to clipboard")
-                
+
         except Exception as e:
             if self.debug:
                 print(f"❌ Failed to copy to clipboard: {e}")
-    
+
+    def toggle_pause_resume(self):
+        """Toggle pause/resume TTS playback."""
+        if not self.voice_manager:
+            return
+
+        try:
+            current_state = self.voice_manager.get_state()
+
+            if current_state == 'speaking':
+                # Pause the speech - use retry logic for timing issues
+                success = self._attempt_pause_with_retry()
+                if success and self.debug:
+                    print("🔊 TTS paused via toast button")
+                elif self.debug:
+                    print("🔊 TTS pause failed via toast button - audio stream may not be ready")
+            elif current_state == 'paused':
+                # Resume the speech
+                success = self.voice_manager.resume()
+                if success and self.debug:
+                    print("🔊 TTS resumed via toast button")
+                elif self.debug:
+                    print("🔊 TTS resume failed via toast button")
+            elif current_state == 'idle':
+                # Re-speak the message if idle
+                self.voice_manager.speak(self.message)
+                if self.debug:
+                    print("🔊 TTS restarted via toast button")
+
+            # Update button states
+            self._update_playback_buttons()
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error toggling pause/resume: {e}")
+
+    def _attempt_pause_with_retry(self, max_attempts=5):
+        """Attempt to pause with retry logic for timing issues.
+
+        Args:
+            max_attempts: Maximum number of pause attempts
+
+        Returns:
+            bool: True if pause succeeded, False otherwise
+        """
+        import time
+
+        for attempt in range(max_attempts):
+            if not self.voice_manager.is_speaking():
+                # Speech ended while we were trying to pause
+                return False
+
+            success = self.voice_manager.pause()
+            if success:
+                return True
+
+            if self.debug:
+                print(f"🔊 Toast pause attempt {attempt + 1}/{max_attempts} failed, retrying...")
+
+            # Short delay before retry
+            time.sleep(0.1)
+
+        return False
+
+    def stop_tts(self):
+        """Stop TTS playback."""
+        if not self.voice_manager:
+            return
+
+        try:
+            self.voice_manager.stop()
+            self._update_playback_buttons()
+            if self.debug:
+                print("🔊 TTS stopped via toast button")
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error stopping TTS: {e}")
+
+    def _update_playback_buttons(self):
+        """Update playback button states based on current TTS state."""
+        if not self.voice_manager or not hasattr(self, 'pause_play_button'):
+            return
+
+        try:
+            current_state = self.voice_manager.get_state()
+
+            if current_state == 'speaking':
+                # Show pause button
+                self.pause_play_button.setText("⏸")
+                self.pause_play_button.setToolTip("Pause TTS")
+            elif current_state == 'paused':
+                # Show play button
+                self.pause_play_button.setText("▶")
+                self.pause_play_button.setToolTip("Resume TTS")
+            else:
+                # Show play button (idle state)
+                self.pause_play_button.setText("▶")
+                self.pause_play_button.setToolTip("Play TTS")
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error updating playback buttons: {e}")
+
     # All reply functionality removed - use main chat bubble for new messages
-    
+
     # Removed mousePressEvent to prevent accidental closing
 
 
@@ -393,16 +543,16 @@ class ToastManager:
 _active_toasts = []
 
 # Standalone function to show a toast (can be called from anywhere)
-def show_toast_notification(message: str, debug: bool = False):
+def show_toast_notification(message: str, debug: bool = False, voice_manager=None):
     """Standalone function to show a toast notification - stays visible until manually closed."""
     try:
         # Create a minimal QApplication if none exists
         app = QApplication.instance()
         if not app:
             app = QApplication(sys.argv)
-        
+
         # Create and show toast (no auto-hide)
-        toast = ToastWindow(message, debug=debug)
+        toast = ToastWindow(message, debug=debug, voice_manager=voice_manager)
         
         # Keep a global reference to prevent garbage collection
         _active_toasts.append(toast)

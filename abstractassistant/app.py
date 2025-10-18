@@ -19,21 +19,21 @@ from .config import Config
 
 class ClickableIcon(pystray.Icon):
     """Custom pystray Icon that handles direct clicks without menu."""
-    
+
     def __init__(self, name, image, text=None, click_handler=None):
         # Store our handler before calling super().__init__
         self.click_handler = click_handler
         self._stored_menu = None
         print(f"🔄 ClickableIcon created with handler: {click_handler is not None}")
-        
+
         # Create with no menu initially
         super().__init__(name, image, text, menu=None)
-    
+
     @property
     def _menu(self):
         """Override _menu property to intercept access and launch chat bubble."""
         print(f"🔍 _menu property accessed!")
-        
+
         if self.click_handler:
             print("✅ Intercepting _menu property access, launching chat bubble!")
             # Call handler directly in main thread (Qt requirement)
@@ -41,10 +41,10 @@ class ClickableIcon(pystray.Icon):
                 self.click_handler()
             except Exception as e:
                 print(f"❌ Click handler error: {e}")
-            
+
             # Return None so no menu is displayed
             return None
-        
+
         # Fall back to stored menu
         return self._stored_menu
     
@@ -237,22 +237,23 @@ class AbstractAssistantApp:
         self._stop_ready_animation()  # Also stop ready animation
         if self.debug:
             print("🎨 Stopped working animation")
+
     
     def show_chat_bubble(self, icon=None, item=None):
         """Show the Qt chat bubble interface."""
         try:
             if self.debug:
                 print("🔄 show_chat_bubble called")
-            
+
             # Check if TTS is currently speaking and stop it
             if self.bubble_manager and hasattr(self.bubble_manager, 'bubble') and self.bubble_manager.bubble:
                 bubble = self.bubble_manager.bubble
-                if (hasattr(bubble, 'voice_manager') and bubble.voice_manager and 
+                if (hasattr(bubble, 'voice_manager') and bubble.voice_manager and
                     bubble.voice_manager.is_speaking()):
                     if self.debug:
                         print("🔊 TTS is speaking, stopping voice...")
                     bubble.voice_manager.stop()
-                    
+
                     # Always show bubble after stopping TTS
                     if not self.bubble_visible:
                         if self.debug:

@@ -57,16 +57,26 @@ except ImportError:
 
 
 class TTSToggle(QWidget):
-    """Custom TTS toggle switch with elongated cone design."""
-    
+    """Custom TTS toggle switch with elongated cone design and click detection."""
+
     toggled = pyqtSignal(bool)
-    
+    single_clicked = pyqtSignal()    # New signal for single click (pause/resume)
+    double_clicked = pyqtSignal()    # New signal for double click (stop + chat)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(33, 24)  # Reduced width by 1.8x (60/1.8 ≈ 33)
-        self.setToolTip("Toggle Text-to-Speech")
+        self.setToolTip("Single click: Pause/Resume TTS, Double click: Stop and open chat")
         self._enabled = False
         self._hover = False
+        self._tts_state = 'idle'  # 'idle', 'speaking', 'paused'
+
+        # Click detection
+        self._click_count = 0
+        self._click_timer = QTimer()
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._handle_single_click)
+        self._double_click_interval = 300  # ms
         
     def is_enabled(self) -> bool:
         """Check if TTS is enabled."""
@@ -78,12 +88,51 @@ class TTSToggle(QWidget):
             self._enabled = enabled
             self.update()
             self.toggled.emit(enabled)
-    
+
+    def set_tts_state(self, state: str):
+        """Set TTS state for visual feedback.
+
+        Args:
+            state: One of 'idle', 'speaking', 'paused'
+        """
+        if self._tts_state != state:
+            self._tts_state = state
+            self.update()
+
+    def get_tts_state(self) -> str:
+        """Get current TTS state."""
+        return self._tts_state
+
     def mousePressEvent(self, event):
-        """Handle mouse press to toggle state."""
+        """Handle mouse press for single/double click detection."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.set_enabled(not self._enabled)
+            self._click_count += 1
+
+            if self._click_count == 1:
+                # Start timer for single click
+                self._click_timer.start(self._double_click_interval)
+            elif self._click_count == 2:
+                # Double click detected
+                self._click_timer.stop()
+                self._click_count = 0
+                self._handle_double_click()
+
         super().mousePressEvent(event)
+
+    def _handle_single_click(self):
+        """Handle single click - pause/resume or toggle."""
+        self._click_count = 0
+
+        if self._enabled:
+            # TTS is enabled, handle pause/resume
+            self.single_clicked.emit()
+        else:
+            # TTS is disabled, toggle it on
+            self.set_enabled(True)
+
+    def _handle_double_click(self):
+        """Handle double click - stop TTS and open chat."""
+        self.double_clicked.emit()
     
     def enterEvent(self, event):
         """Handle mouse enter for hover effect."""
@@ -101,12 +150,20 @@ class TTSToggle(QWidget):
         """Custom paint event for the toggle switch."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Colors
-        bg_color = QColor("#404040") if not self._enabled else QColor("#00aa00")
+
+        # Colors based on TTS state
+        if not self._enabled:
+            bg_color = QColor("#404040")  # Grey when disabled
+        elif self._tts_state == 'speaking':
+            bg_color = QColor("#00aa00")  # Green when speaking
+        elif self._tts_state == 'paused':
+            bg_color = QColor("#ff8800")  # Orange when paused
+        else:
+            bg_color = QColor("#0066cc")  # Blue when idle but enabled
+
         if self._hover:
             bg_color = bg_color.lighter(120)
-        
+
         track_color = QColor("#2a2a2a")
         thumb_color = QColor("#ffffff")
         
@@ -637,7 +694,14 @@ class QtChatBubble(QWidget):
         if self.voice_manager and self.voice_manager.is_available():
             self.tts_toggle = TTSToggle()
             self.tts_toggle.toggled.connect(self.on_tts_toggled)
+            self.tts_toggle.single_clicked.connect(self.on_tts_single_click)
+            self.tts_toggle.double_clicked.connect(self.on_tts_double_click)
             header_layout.addWidget(self.tts_toggle)
+
+            # Add prominent voice control panel when TTS is active
+            self.voice_control_panel = self.create_voice_control_panel()
+            header_layout.addWidget(self.voice_control_panel)
+            self.voice_control_panel.hide()  # Hidden initially
         
         header_layout.addStretch()
         
@@ -811,10 +875,13 @@ class QtChatBubble(QWidget):
         layout.addLayout(controls_layout)
         
         self.setLayout(layout)
-        
+
+        # Setup keyboard shortcuts for voice control
+        self.setup_keyboard_shortcuts()
+
         # Focus on input
         self.input_text.setFocus()
-        
+
         # Enter key handling
         self.input_text.keyPressEvent = self.handle_key_press
     
@@ -1404,11 +1471,16 @@ class QtChatBubble(QWidget):
                 
                 # Speak the cleaned response using VoiceLLM-compatible interface
                 self.voice_manager.speak(clean_response)
-                
+
+                # Update toggle state to 'speaking'
+                self._update_tts_toggle_state()
+
                 # Wait for speech to complete in a separate thread
                 def wait_for_speech():
                     while self.voice_manager.is_speaking():
                         time.sleep(0.1)
+                    # Update toggle state when speech completes
+                    self._update_tts_toggle_state()
                     if self.debug:
                         print("🔊 TTS completed")
                 
@@ -1421,14 +1493,14 @@ class QtChatBubble(QWidget):
                 # Fallback to toast if TTS fails
                 try:
                     from .toast_window import show_toast_notification
-                    show_toast_notification(response, debug=self.debug)
+                    show_toast_notification(response, debug=self.debug, voice_manager=self.voice_manager)
                 except:
                     pass
         else:
             # Show toast notification when TTS is disabled
             try:
                 from .toast_window import show_toast_notification
-                toast = show_toast_notification(response, debug=self.debug)
+                toast = show_toast_notification(response, debug=self.debug, voice_manager=self.voice_manager)
                 
                 if self.debug:
                     print(f"🍞 Toast notification created and shown")
@@ -1448,15 +1520,16 @@ class QtChatBubble(QWidget):
         self.tts_enabled = enabled
         if self.debug:
             print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
-        
+
         # Stop any current speech when disabling
         if not enabled and self.voice_manager:
             try:
                 self.voice_manager.stop()
+                self._update_tts_toggle_state()
             except Exception as e:
                 if self.debug:
                     print(f"❌ Error stopping TTS: {e}")
-        
+
         # Update LLM session with TTS-appropriate system prompt
         if self.llm_manager:
             try:
@@ -1466,6 +1539,229 @@ class QtChatBubble(QWidget):
             except Exception as e:
                 if self.debug:
                     print(f"❌ Error updating LLM session: {e}")
+
+    def on_tts_single_click(self):
+        """Handle single click on TTS toggle - pause/resume functionality."""
+        if not self.voice_manager or not self.tts_enabled:
+            return
+
+        try:
+            current_state = self.voice_manager.get_state()
+
+            if current_state == 'speaking':
+                # Pause the speech - may need multiple attempts if audio stream just started
+                success = self._attempt_pause_with_retry()
+                if success and self.debug:
+                    print("🔊 TTS paused via single click")
+                elif self.debug:
+                    print("🔊 TTS pause failed - audio stream may not be ready yet")
+            elif current_state == 'paused':
+                # Resume the speech
+                success = self.voice_manager.resume()
+                if success and self.debug:
+                    print("🔊 TTS resumed via single click")
+                elif self.debug:
+                    print("🔊 TTS resume failed")
+            else:
+                # If idle, do nothing or could show a message
+                if self.debug:
+                    print("🔊 TTS single click - no active speech to pause/resume")
+
+            # Update visual state
+            self._update_tts_toggle_state()
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error handling TTS single click: {e}")
+
+    def _attempt_pause_with_retry(self, max_attempts=5):
+        """Attempt to pause with retry logic for timing issues.
+
+        Args:
+            max_attempts: Maximum number of pause attempts
+
+        Returns:
+            bool: True if pause succeeded, False otherwise
+        """
+        import time
+
+        for attempt in range(max_attempts):
+            if not self.voice_manager.is_speaking():
+                # Speech ended while we were trying to pause
+                return False
+
+            success = self.voice_manager.pause()
+            if success:
+                return True
+
+            if self.debug:
+                print(f"🔊 Pause attempt {attempt + 1}/{max_attempts} failed, retrying...")
+
+            # Short delay before retry
+            time.sleep(0.1)
+
+        return False
+
+    def on_tts_double_click(self):
+        """Handle double click on TTS toggle - stop TTS and open chat bubble."""
+        if self.debug:
+            print("🔊 TTS double click - stopping speech and showing chat")
+
+        # Stop any current speech
+        if self.voice_manager and self.tts_enabled:
+            try:
+                self.voice_manager.stop()
+                self._update_tts_toggle_state()
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error stopping TTS on double click: {e}")
+
+        # Show the chat bubble
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _update_tts_toggle_state(self):
+        """Update the TTS toggle visual state based on current TTS state."""
+        if hasattr(self, 'tts_toggle') and self.voice_manager:
+            try:
+                current_state = self.voice_manager.get_state()
+                self.tts_toggle.set_tts_state(current_state)
+
+                # Show/hide voice control panel based on TTS state
+                if hasattr(self, 'voice_control_panel'):
+                    if current_state in ['speaking', 'paused']:
+                        self.voice_control_panel.show()
+                        self._update_voice_control_panel(current_state)
+                    else:
+                        self.voice_control_panel.hide()
+
+                if self.debug:
+                    print(f"🔊 TTS toggle state updated to: {current_state}")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error updating TTS toggle state: {e}")
+
+    def create_voice_control_panel(self):
+        """Create a prominent voice control panel that appears when TTS is active."""
+        panel = QWidget()
+        layout = QHBoxLayout()
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(4)
+
+        # Pause/Resume button
+        self.voice_pause_button = QPushButton("⏸")
+        self.voice_pause_button.setFixedSize(24, 24)
+        self.voice_pause_button.setToolTip("Pause/Resume TTS (Space)")
+        self.voice_pause_button.clicked.connect(self.on_tts_single_click)
+        self.voice_pause_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 12px;
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.9);
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+            }
+            QPushButton:pressed {
+                background: rgba(255, 255, 255, 0.05);
+            }
+        """)
+        layout.addWidget(self.voice_pause_button)
+
+        # Stop button
+        self.voice_stop_button = QPushButton("⏹")
+        self.voice_stop_button.setFixedSize(24, 24)
+        self.voice_stop_button.setToolTip("Stop TTS (Escape)")
+        self.voice_stop_button.clicked.connect(self.on_tts_double_click)
+        self.voice_stop_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 100, 100, 0.1);
+                border: 1px solid rgba(255, 100, 100, 0.3);
+                border-radius: 12px;
+                font-size: 12px;
+                color: rgba(255, 200, 200, 0.9);
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: rgba(255, 100, 100, 0.2);
+                border: 1px solid rgba(255, 100, 100, 0.4);
+            }
+            QPushButton:pressed {
+                background: rgba(255, 100, 100, 0.05);
+            }
+        """)
+        layout.addWidget(self.voice_stop_button)
+
+        # Status text
+        self.voice_status_label = QLabel("Speaking...")
+        self.voice_status_label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 0.8);
+                font-size: 10px;
+                font-weight: 500;
+                padding: 2px 4px;
+            }
+        """)
+        layout.addWidget(self.voice_status_label)
+
+        panel.setLayout(layout)
+        return panel
+
+    def _update_voice_control_panel(self, state):
+        """Update the voice control panel based on TTS state."""
+        if not hasattr(self, 'voice_control_panel'):
+            return
+
+        if state == 'speaking':
+            self.voice_pause_button.setText("⏸")
+            self.voice_pause_button.setToolTip("Pause TTS (Space)")
+            self.voice_status_label.setText("Speaking...")
+        elif state == 'paused':
+            self.voice_pause_button.setText("▶")
+            self.voice_pause_button.setToolTip("Resume TTS (Space)")
+            self.voice_status_label.setText("Paused")
+
+    def setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for voice control."""
+        try:
+            from PyQt5.QtWidgets import QShortcut
+            from PyQt5.QtGui import QKeySequence
+
+            # Space bar - Pause/Resume TTS
+            self.space_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+            self.space_shortcut.activated.connect(self.handle_space_shortcut)
+
+            # Escape - Stop TTS
+            self.escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+            self.escape_shortcut.activated.connect(self.handle_escape_shortcut)
+
+            if self.debug:
+                print("✅ Keyboard shortcuts setup: Space (pause/resume), Escape (stop)")
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error setting up keyboard shortcuts: {e}")
+
+    def handle_space_shortcut(self):
+        """Handle space bar shortcut for pause/resume."""
+        # Only handle if TTS is active and input field doesn't have focus
+        if (self.voice_manager and self.voice_manager.get_state() in ['speaking', 'paused'] and
+            not self.input_text.hasFocus()):
+            self.on_tts_single_click()
+            if self.debug:
+                print("🔊 Space shortcut triggered pause/resume")
+
+    def handle_escape_shortcut(self):
+        """Handle escape key shortcut for stop."""
+        if self.voice_manager and self.voice_manager.get_state() in ['speaking', 'paused']:
+            self.on_tts_double_click()
+            if self.debug:
+                print("🔊 Escape shortcut triggered stop")
     
     def _clean_response_for_voice(self, text: str) -> str:
         """Clean response text for voice synthesis - remove formatting and make conversational."""
@@ -1547,7 +1843,7 @@ class QtChatBubble(QWidget):
         try:
             from .toast_window import show_toast_notification
             error_message = f"❌ Error: {error}"
-            toast = show_toast_notification(error_message, debug=self.debug)
+            toast = show_toast_notification(error_message, debug=self.debug, voice_manager=self.voice_manager)
             
             if self.debug:
                 print(f"🍞 Error toast notification shown")
