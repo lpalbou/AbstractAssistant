@@ -1310,19 +1310,39 @@ class QtChatBubble(QWidget):
         if self.debug:
             print("🔊 TTS double click - stopping speech and showing chat")
 
-        # Stop any current speech
-        if self.voice_manager and self.tts_enabled:
-            try:
-                self.voice_manager.stop()
-                self._update_tts_toggle_state()
-            except Exception as e:
-                if self.debug:
-                    print(f"❌ Error stopping TTS on double click: {e}")
+        # Prevent double-free errors by checking if objects are still valid
+        try:
+            # Stop any current speech with proper error handling
+            if hasattr(self, 'voice_manager') and self.voice_manager and self.tts_enabled:
+                try:
+                    # Check if voice manager is still valid before calling methods
+                    if hasattr(self.voice_manager, 'stop'):
+                        self.voice_manager.stop()
 
-        # Show the chat bubble
-        self.show()
-        self.raise_()
-        self.activateWindow()
+                    # Safely update TTS toggle state
+                    if hasattr(self, '_update_tts_toggle_state'):
+                        self._update_tts_toggle_state()
+
+                except Exception as e:
+                    if self.debug:
+                        print(f"❌ Error stopping TTS on double click: {e}")
+
+            # Show the chat bubble with safety checks
+            if hasattr(self, 'show') and not self.isVisible():
+                self.show()
+            if hasattr(self, 'raise_'):
+                self.raise_()
+            if hasattr(self, 'activateWindow'):
+                self.activateWindow()
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Critical error in on_tts_double_click: {e}")
+            # Prevent crash - just show the bubble without TTS operations
+            try:
+                self.show()
+            except:
+                pass
 
     def on_full_voice_toggled(self, enabled: bool):
         """Handle Full Voice Mode toggle state change."""
@@ -1883,6 +1903,12 @@ class QtChatBubble(QWidget):
     
     def show_history(self):
         """Toggle message history dialog visibility."""
+        # Prevent chat history from opening when voice mode is active
+        if hasattr(self, 'full_voice_toggle') and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+            if self.debug:
+                print("🎙️ Chat history blocked - Full Voice Mode is active")
+            return
+
         if not self.message_history:
             QMessageBox.information(
                 self,
