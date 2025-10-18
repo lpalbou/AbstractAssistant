@@ -28,11 +28,16 @@ classifiers = [
 ]
 
 dependencies = [
-    "abstractcore[all]>=2.4.0",
+    "abstractcore[all]>=2.4.2",
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
-    "customtkinter>=5.2.0",
+    "PyQt5>=5.15.0",
     "markdown>=3.5.0",
+    "pygments>=2.16.0",
+    "voicellm>=0.1.9",
+    "coqui-tts>=0.27.0",
+    "openai-whisper>=20230314",
+    "PyAudio>=0.2.13",
     "pyperclip>=1.8.2",
     "plyer>=2.1.0",
     "tomli>=2.0.0; python_version<'3.11'",
@@ -51,9 +56,9 @@ dev = [
 assistant = "abstractassistant.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/abstractassistant"
-Repository = "https://github.com/yourusername/abstractassistant"
-Issues = "https://github.com/yourusername/abstractassistant/issues"
+Homepage = "https://github.com/lpalbou/abstractassistant"
+Repository = "https://github.com/lpalbou/abstractassistant"
+Issues = "https://github.com/lpalbou/abstractassistant/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
