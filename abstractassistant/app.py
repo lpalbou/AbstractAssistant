@@ -735,8 +735,8 @@ class AbstractAssistantApp:
         self.click_timer = QTimer()
         self.click_timer.setSingleShot(True)
         self.click_timer.timeout.connect(self._qt_handle_single_click)
-        self.click_count = 0
-        self.DOUBLE_CLICK_TIMEOUT = 300  # milliseconds
+        self.pending_single_click = False
+        self.DOUBLE_CLICK_TIMEOUT = 200  # milliseconds (short period to detect double click)
 
         # Connect click signal
         tray_icon.activated.connect(self._qt_on_tray_activated)
@@ -765,32 +765,68 @@ class AbstractAssistantApp:
         return tray_icon
 
     def _qt_on_tray_activated(self, reason):
-        """Handle Qt system tray activation (clicks)."""
-        from PyQt5.QtWidgets import QSystemTrayIcon
+        """Handle Qt system tray activation (clicks) with proper delay-based detection.
 
-        if reason == QSystemTrayIcon.Trigger:  # Left click
-            self.click_count += 1
+        Logic:
+        - Single click: reason == 3 only
+        - Double click: reason == 3 followed quickly by reason == 2
 
-            if self.click_count == 1:
-                # Start timer for single click
-                self.click_timer.start(self.DOUBLE_CLICK_TIMEOUT)
+        Strategy:
+        - When reason == 3: Wait 200ms to see if reason == 2 follows
+        - If no reason == 2 within 200ms: Execute single click
+        - If reason == 2 arrives within 200ms: Execute ONLY double click
+        """
+        if self.debug:
+            print(f"🖱️  Click detected - reason: {reason}")
+
+        if reason == 3:  # Single click (or first part of double click)
+            if self.pending_single_click:
+                # Already have a pending single click, ignore this one
                 if self.debug:
-                    print("🔄 Qt: First click detected, starting timer...")
+                    print("⚠️  Ignoring additional reason=3 (already pending)")
+                return
 
-            elif self.click_count == 2:
-                # Double click - stop timer and execute
+            # Mark that we have a pending single click
+            self.pending_single_click = True
+
+            # Start timer to wait for possible reason=2 (double click confirmation)
+            self.click_timer.start(self.DOUBLE_CLICK_TIMEOUT)
+
+            if self.debug:
+                print(f"🔄 Qt: reason=3 detected, waiting {self.DOUBLE_CLICK_TIMEOUT}ms for possible reason=2...")
+
+        elif reason == 2:  # Double click confirmation
+            if self.pending_single_click and self.click_timer.isActive():
+                # We have a pending single click and timer is still running
+                # This means reason=2 arrived within the timeout period
+
+                # Cancel the pending single click
                 self.click_timer.stop()
-                self.click_count = 0
+                self.pending_single_click = False
+
+                if self.debug:
+                    print("✅ Qt: reason=2 detected - cancelling single click, executing double click!")
+
+                # Execute ONLY the double click
+                self._qt_handle_double_click()
+            else:
+                # Unexpected reason=2 without pending single click
+                if self.debug:
+                    print("⚠️  Unexpected reason=2 without pending single click")
+
+                # Execute double click anyway (fallback)
                 self._qt_handle_double_click()
 
     def _qt_handle_single_click(self):
-        """Handle single click after timeout in Qt main thread."""
-        self.click_count = 0
+        """Handle single click after timeout (no reason=2 detected) in Qt main thread."""
+        # Clear the pending flag
+        self.pending_single_click = False
 
         if self.debug:
-            print("✅ Qt: Single click detected!")
+            print("✅ Qt: Single click confirmed (no reason=2 within 200ms) - executing action!")
 
         # This runs in Qt main thread, so it's safe to create Qt widgets
+        # Execute single click action (pause/resume voice or show bubble)
         self.handle_single_click()
 
     def _qt_handle_double_click(self):
