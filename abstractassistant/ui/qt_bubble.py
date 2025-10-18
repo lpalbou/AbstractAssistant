@@ -178,7 +178,7 @@ class HistoryDialog(QDialog):
     
     def setup_ui(self):
         """Set up iPhone Messages-style history dialog UI."""
-        self.setWindowTitle("Messages")
+        self.setWindowTitle("Chat History")
         self.setModal(True)
         self.resize(542, 600)  # Decreased by 10% (680 * 0.9 = 612)
         
