@@ -20,6 +20,19 @@ except ImportError:
     TTS_AVAILABLE = False
     VoiceManager = None
 
+# Import our new manager classes
+try:
+    from .provider_manager import ProviderManager
+    from .ui_styles import UIStyles
+    from .tts_state_manager import TTSStateManager, TTSState
+    MANAGERS_AVAILABLE = True
+except ImportError:
+    MANAGERS_AVAILABLE = False
+    ProviderManager = None
+    UIStyles = None
+    TTSStateManager = None
+    TTSState = None
+
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -590,12 +603,28 @@ class QtChatBubble(QWidget):
         # Message history for session management
         self.message_history: List[Dict] = []
         
+        # Initialize new manager classes
+        self.provider_manager = None
+        self.tts_state_manager = None
+        if MANAGERS_AVAILABLE:
+            try:
+                self.provider_manager = ProviderManager(debug=debug)
+                self.tts_state_manager = TTSStateManager(debug=debug)
+                if self.debug:
+                    print("✅ Manager classes initialized")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Failed to initialize manager classes: {e}")
+
         # TTS functionality (VoiceLLM-compatible)
         self.voice_manager = None
         self.tts_enabled = False
         if TTS_AVAILABLE:
             try:
                 self.voice_manager = VoiceManager(debug_mode=debug)
+                # Connect voice manager to TTS state manager
+                if self.tts_state_manager:
+                    self.tts_state_manager.set_voice_manager(self.voice_manager)
                 if self.debug:
                     print("🔊 VoiceManager initialized")
             except Exception as e:
@@ -1105,82 +1134,71 @@ class QtChatBubble(QWidget):
             print(f"Positioned bubble at ({x}, {y})")
     
     def load_providers(self):
-        """Load available providers using AbstractCore's provider discovery system."""
+        """Load available providers using ProviderManager."""
         try:
-            # Use AbstractCore's provider discovery system
-            from abstractcore.providers import list_available_providers
-            
-            # Get list of available provider names
-            available_providers = list_available_providers()
-            
-            if self.debug:
-                print(f"🔍 Provider discovery found {len(available_providers)} available providers: {available_providers}")
-            
             # Clear and populate provider combo
             self.provider_combo.clear()
-            
-            # Provider display names mapping
-            provider_display_names = {
-                'openai': 'OpenAI',
-                'anthropic': 'Anthropic', 
-                'ollama': 'Ollama',
-                'lmstudio': 'LMStudio',
-                'mlx': 'MLX',
-                'huggingface': 'HuggingFace',
-                'mock': 'Mock'
-            }
-            
-            # Add each available provider to dropdown (excluding mock)
-            for provider_name in available_providers:
-                # Explicitly exclude mock provider
-                if provider_name == 'mock':
-                    if self.debug:
-                        print(f"    ⏭️  Skipping mock provider")
-                    continue
-                    
-                display_name = provider_display_names.get(provider_name, provider_name.title())
-                self.provider_combo.addItem(display_name, provider_name)
-                
+
+            if self.provider_manager:
+                # Use new ProviderManager
+                available_providers = self.provider_manager.get_available_providers(exclude_mock=True)
+
                 if self.debug:
-                    print(f"    ✅ Added to dropdown: {display_name} ({provider_name})")
-            
-            if self.debug:
-                print(f"🔍 Total providers added to dropdown: {len(available_providers)}")
-            
-            # Set current provider - prefer lmstudio if available, otherwise use first
-            provider_found = False
-            preferred_provider = 'lmstudio'  # Prefer lmstudio as default
-            
-            # First try to find preferred provider
-            for i in range(self.provider_combo.count()):
-                if self.provider_combo.itemData(i) == preferred_provider:
-                    self.provider_combo.setCurrentIndex(i)
-                    self.current_provider = preferred_provider
-                    provider_found = True
+                    print(f"🔍 ProviderManager found {len(available_providers)} available providers")
+
+                # Add providers to dropdown
+                for display_name, provider_key in available_providers:
+                    self.provider_combo.addItem(display_name, provider_key)
                     if self.debug:
-                        print(f"✅ Using preferred provider: {preferred_provider}")
-                    break
-            
-            # If preferred not found, use the first available one
-            if not provider_found and self.provider_combo.count() > 0:
-                self.current_provider = self.provider_combo.itemData(0)
-                self.provider_combo.setCurrentIndex(0)
-                if self.debug:
-                    print(f"🔄 Preferred provider not found, using first available: {self.current_provider}")
-            
+                        print(f"    ✅ Added: {display_name} ({provider_key})")
+
+                # Set preferred provider
+                preferred = self.provider_manager.get_preferred_provider(available_providers, 'lmstudio')
+                if preferred:
+                    display_name, provider_key = preferred
+                    # Find and set the preferred provider
+                    for i in range(self.provider_combo.count()):
+                        if self.provider_combo.itemData(i) == provider_key:
+                            self.provider_combo.setCurrentIndex(i)
+                            self.current_provider = provider_key
+                            break
+                elif self.provider_combo.count() > 0:
+                    # Use first available
+                    self.current_provider = self.provider_combo.itemData(0)
+                    self.provider_combo.setCurrentIndex(0)
+
+            else:
+                # Fallback: use old discovery method
+                from abstractcore.providers import list_available_providers
+                available_providers = list_available_providers()
+
+                provider_display_names = {
+                    'openai': 'OpenAI', 'anthropic': 'Anthropic', 'ollama': 'Ollama',
+                    'lmstudio': 'LMStudio', 'mlx': 'MLX', 'huggingface': 'HuggingFace'
+                }
+
+                for provider_name in available_providers:
+                    if provider_name != 'mock':  # Exclude mock
+                        display_name = provider_display_names.get(provider_name, provider_name.title())
+                        self.provider_combo.addItem(display_name, provider_name)
+
+                self.current_provider = 'lmstudio' if 'lmstudio' in available_providers else (
+                    available_providers[0] if available_providers else 'lmstudio'
+                )
+
             if self.debug:
                 print(f"🔍 Final selected provider: {self.current_provider}")
-            
+
             # Load models for current provider
             self.update_models()
-            
+
         except Exception as e:
             if self.debug:
                 print(f"❌ Error loading providers: {e}")
                 import traceback
                 traceback.print_exc()
-            
-            # Fallback: add current provider manually if discovery fails
+
+            # Final fallback
             if self.provider_combo.count() == 0:
                 self.provider_combo.addItem("LMStudio (Local)", "lmstudio")
                 self.current_provider = "lmstudio"
@@ -1188,118 +1206,74 @@ class QtChatBubble(QWidget):
                     print("🔄 Using fallback provider list")
     
     def update_models(self):
-        """Update model dropdown using provider.list_available_models() method."""
+        """Update model dropdown using ProviderManager."""
         try:
-            # Create provider instance and get available models using list_available_models()
-            from abstractcore import create_llm
-            
-            # Create provider instance with a minimal/default model to get the provider object
-            provider_default_models = {
-                'openai': 'gpt-4o-mini',
-                'anthropic': 'claude-3-5-haiku-20241022', 
-                'ollama': 'qwen3:4b-instruct-2507-q4_K_M',
-                'lmstudio': 'qwen/qwen3-next-80b',
-                'mlx': 'mlx-community/Qwen3-4B-4bit',
-                'huggingface': 'microsoft/DialoGPT-medium'
-            }
-            
-            default_model = provider_default_models.get(self.current_provider, 'default-model')
-            provider_llm = create_llm(self.current_provider, model=default_model)
-            models = provider_llm.list_available_models()
-            
-            if self.debug:
-                print(f"📋 Loaded {len(models)} models for {self.current_provider}")
-            
             self.model_combo.clear()
-            for model in models:
-                # Create display name - keep the full model name but make it readable
-                display_name = model.split('/')[-1] if '/' in model else model
-                # Limit display name length for better UI
-                if len(display_name) > 25:
-                    display_name = display_name[:22] + "..."
-                
-                self.model_combo.addItem(display_name, model)
-            
-            # Set current model - prefer qwen/qwen3-next-80b if available
-            model_found = False
-            preferred_model = 'qwen/qwen3-next-80b'
-            
-            # First try to find preferred model
-            for i in range(self.model_combo.count()):
-                if self.model_combo.itemData(i) == preferred_model:
-                    self.model_combo.setCurrentIndex(i)
-                    self.current_model = preferred_model
-                    model_found = True
-                    if self.debug:
-                        print(f"✅ Using preferred model: {preferred_model}")
-                    break
-            
-            # If preferred not found, try current model
-            if not model_found and self.current_model:
-                for i in range(self.model_combo.count()):
-                    if self.model_combo.itemData(i) == self.current_model:
-                        self.model_combo.setCurrentIndex(i)
-                        model_found = True
-                        if self.debug:
-                            print(f"✅ Using current model: {self.current_model}")
-                        break
-            
-            # If neither found, use the first available one
-            if not model_found and self.model_combo.count() > 0:
-                self.current_model = self.model_combo.itemData(0)
-                self.model_combo.setCurrentIndex(0)
-            self.update_token_limits()
-            
-        except Exception as e:
-            if self.debug:
-                print(f"❌ Error loading models for '{self.current_provider}': {e}")
-            
-            # Fallback: use the registry method if provider instantiation fails
-            try:
+
+            if self.provider_manager:
+                # Use ProviderManager with 3-tier fallback strategy
+                models = self.provider_manager.get_models_for_provider(self.current_provider)
+
+                if self.debug:
+                    print(f"📋 ProviderManager loaded {len(models)} models for {self.current_provider}")
+
+                # Add models to dropdown with display names
+                for model in models:
+                    display_name = self.provider_manager.create_model_display_name(model, max_length=25)
+                    self.model_combo.addItem(display_name, model)
+
+                # Set preferred model
+                preferred_model = self.provider_manager.get_preferred_model(
+                    models,
+                    preferred='qwen/qwen3-next-80b',
+                    current=self.current_model
+                )
+
+                if preferred_model:
+                    # Find and set the preferred model
+                    for i in range(self.model_combo.count()):
+                        if self.model_combo.itemData(i) == preferred_model:
+                            self.model_combo.setCurrentIndex(i)
+                            self.current_model = preferred_model
+                            break
+                elif self.model_combo.count() > 0:
+                    # Use first available
+                    self.current_model = self.model_combo.itemData(0)
+                    self.model_combo.setCurrentIndex(0)
+
+            else:
+                # Fallback: use old method
                 from abstractcore.providers import get_available_models_for_provider
                 models = get_available_models_for_provider(self.current_provider)
-                
-                if self.debug:
-                    print(f"📋 Fallback: Loaded {len(models)} models from registry")
-                
-                self.model_combo.clear()
+
                 for model in models:
                     display_name = model.split('/')[-1] if '/' in model else model
                     if len(display_name) > 25:
                         display_name = display_name[:22] + "..."
                     self.model_combo.addItem(display_name, model)
-                
+
                 if self.model_combo.count() > 0:
                     self.current_model = self.model_combo.itemData(0)
                     self.model_combo.setCurrentIndex(0)
-                    
-            except Exception as fallback_error:
+
+            if self.debug:
+                print(f"✅ Final selected model: {self.current_model}")
+
+            self.update_token_limits()
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error updating models: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Final fallback: add default model
+            if self.model_combo.count() == 0:
+                self.model_combo.addItem("Default Model", "default-model")
+                self.current_model = "default-model"
+                self.model_combo.setCurrentIndex(0)
                 if self.debug:
-                    print(f"❌ Fallback also failed: {fallback_error}")
-                
-                # Final fallback: add provider-specific default models
-                self.model_combo.clear()
-                fallback_models = {
-                    'lmstudio': ['qwen/qwen3-next-80b', 'qwen/qwen3-coder-30b', 'qwen/qwen3-4b-2507'],
-                    'ollama': ['qwen3:4b-instruct', 'llama3.2:3b', 'mistral:7b'],
-                    'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
-                    'anthropic': ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022'],
-                    'mlx': ['mlx-community/Qwen3-4B-4bit', 'mlx-community/Qwen3-4B-Instruct-2507-4bit'],
-                    'huggingface': ['microsoft/DialoGPT-medium', 'microsoft/DialoGPT-large']
-                }
-                
-                provider_fallbacks = fallback_models.get(self.current_provider, ['default-model'])
-                for model in provider_fallbacks:
-                    display_name = model.split('/')[-1] if '/' in model else model
-                    if len(display_name) > 25:
-                        display_name = display_name[:22] + "..."
-                    self.model_combo.addItem(display_name, model)
-                
-                if self.model_combo.count() > 0:
-                    self.current_model = self.model_combo.itemData(0)
-                    self.model_combo.setCurrentIndex(0)
-                    if self.debug:
-                        print(f"🔄 Using final fallback model: {self.current_model}")
+                    print(f"🔄 Using final fallback model: {self.current_model}")
     
     def update_token_limits(self):
         """Update token limits using AbstractCore's built-in detection."""
@@ -1892,97 +1866,98 @@ class QtChatBubble(QWidget):
                 print("🧹 Session cleared")
     
     def load_session(self):
-        """Load a session from a JSON file."""
+        """Load a session using AbstractCore via LLMManager."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Session",
             str(Path.home() / "Documents"),
             "JSON Files (*.json);;All Files (*)"
         )
-        
+
         if file_path:
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    session_data = json.load(f)
-                
-                # Validate session data
-                if not isinstance(session_data, dict) or 'messages' not in session_data:
-                    raise ValueError("Invalid session file format")
-                
-                # Load the session
-                self.message_history = session_data['messages']
-                self.token_count = session_data.get('token_count', 0)
-                
-                # Update UI
-                self.update_token_display()
-                self._rebuild_chat_display()
-                
-                QMessageBox.information(
-                    self,
-                    "Session Loaded",
-                    f"Successfully loaded session with {len(self.message_history)} messages."
-                )
-                
-                if self.debug:
-                    print(f"📂 Loaded session from {file_path}")
-                    
+                # Use AbstractCore session loading via LLMManager
+                success = self.llm_manager.load_session(file_path)
+
+                if success:
+                    # Get session info from AbstractCore
+                    if self.llm_manager.current_session:
+                        # Estimate message count from session
+                        session_data = self.llm_manager.current_session
+                        message_count = len(getattr(session_data, 'messages', []))
+
+                        # Update token display
+                        self.update_token_display()
+
+                        # Clear our local message history (let AbstractCore handle it)
+                        self.message_history = []
+                        self._rebuild_chat_display()
+
+                        QMessageBox.information(
+                            self,
+                            "Session Loaded",
+                            f"Successfully loaded session via AbstractCore.\nMessages: {message_count}"
+                        )
+
+                        if self.debug:
+                            print(f"📂 Loaded session via AbstractCore from {file_path}")
+                    else:
+                        raise Exception("Session loaded but not available in LLMManager")
+                else:
+                    raise Exception("AbstractCore session loading failed")
+
             except Exception as e:
                 QMessageBox.critical(
                     self,
                     "Load Error",
-                    f"Failed to load session:\n{str(e)}"
+                    f"Failed to load session via AbstractCore:\n{str(e)}"
                 )
                 if self.debug:
                     print(f"❌ Failed to load session: {e}")
     
     def save_session(self):
-        """Save the current session to a JSON file."""
-        if not self.message_history:
+        """Save the current session using AbstractCore via LLMManager."""
+        if not self.llm_manager.current_session:
             QMessageBox.information(
                 self,
-                "No Messages",
-                "No messages to save. Start a conversation first."
+                "No Session",
+                "No active session to save. Start a conversation first."
             )
             return
-        
+
         # Generate default filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_filename = f"chat_session_{timestamp}.json"
-        
+        default_filename = f"abstractcore_session_{timestamp}.json"
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Session",
             str(Path.home() / "Documents" / default_filename),
             "JSON Files (*.json);;All Files (*)"
         )
-        
+
         if file_path:
             try:
-                session_data = {
-                    'timestamp': datetime.now().isoformat(),
-                    'provider': self.current_provider,
-                    'model': self.current_model,
-                    'token_count': self.token_count,
-                    'messages': self.message_history
-                }
-                
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(session_data, f, indent=2, ensure_ascii=False)
-                
-                QMessageBox.information(
-                    self,
-                    "Session Saved",
-                    f"Session saved successfully to:\n{file_path}"
-                )
-                
-                if self.debug:
-                    print(f"💾 Saved session to {file_path}")
-                    
+                # Use AbstractCore session saving via LLMManager
+                success = self.llm_manager.save_session(file_path)
+
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Session Saved",
+                        f"Session saved successfully via AbstractCore to:\n{file_path}"
+                    )
+
+                    if self.debug:
+                        print(f"💾 Saved session via AbstractCore to {file_path}")
+                else:
+                    raise Exception("AbstractCore session saving failed")
+
             except Exception as e:
                 QMessageBox.critical(
                     self,
                     "Save Error",
-                    f"Failed to save session:\n{str(e)}"
+                    f"Failed to save session via AbstractCore:\n{str(e)}"
                 )
                 if self.debug:
                     print(f"❌ Failed to save session: {e}")

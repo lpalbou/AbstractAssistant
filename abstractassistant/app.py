@@ -17,41 +17,105 @@ from .utils.icon_generator import IconGenerator
 from .config import Config
 
 
-class ClickableIcon(pystray.Icon):
-    """Custom pystray Icon that handles direct clicks without menu."""
+class EnhancedClickableIcon(pystray.Icon):
+    """Custom pystray Icon that handles single/double click differentiation."""
 
-    def __init__(self, name, image, text=None, click_handler=None):
-        # Store our handler before calling super().__init__
-        self.click_handler = click_handler
+    def __init__(self, name, image, text=None, single_click_handler=None, double_click_handler=None, debug=False):
+        # Store our handlers before calling super().__init__
+        self.single_click_handler = single_click_handler
+        self.double_click_handler = double_click_handler
+        self.debug = debug
         self._stored_menu = None
-        print(f"🔄 ClickableIcon created with handler: {click_handler is not None}")
+
+        # Click timing management
+        self.click_count = 0
+        self.click_timer = None
+        self.DOUBLE_CLICK_TIMEOUT = 300  # milliseconds
+
+        if self.debug:
+            print(f"🔄 EnhancedClickableIcon created with single_click: {single_click_handler is not None}, double_click: {double_click_handler is not None}")
 
         # Create with no menu initially
         super().__init__(name, image, text, menu=None)
 
     @property
     def _menu(self):
-        """Override _menu property to intercept access and launch chat bubble."""
-        print(f"🔍 _menu property accessed!")
+        """Override _menu property to intercept access and handle click timing."""
+        if self.debug:
+            print(f"🔍 _menu property accessed! Click count: {self.click_count}")
 
-        if self.click_handler:
-            print("✅ Intercepting _menu property access, launching chat bubble!")
-            # Call handler directly in main thread (Qt requirement)
+        self._handle_click_timing()
+        # Return None so no menu is displayed
+        return None
+
+    def _handle_click_timing(self):
+        """Handle single/double click timing logic."""
+        import threading
+
+        self.click_count += 1
+
+        if self.click_count == 1:
+            # First click - start timer for single click
+            if self.click_timer is not None:
+                self.click_timer.cancel()
+
+            self.click_timer = threading.Timer(
+                self.DOUBLE_CLICK_TIMEOUT / 1000.0,  # Convert to seconds
+                self._execute_single_click
+            )
+            self.click_timer.start()
+
+            if self.debug:
+                print("🔄 First click detected, starting timer...")
+
+        elif self.click_count == 2:
+            # Second click - cancel timer and execute double click
+            if self.click_timer is not None:
+                self.click_timer.cancel()
+                self.click_timer = None
+
+            self.click_count = 0  # Reset immediately
+            self._execute_double_click()
+
+            if self.debug:
+                print("🔄 Double click detected!")
+
+    def _execute_single_click(self):
+        """Execute single click handler after timeout."""
+        self.click_count = 0  # Reset click count
+        self.click_timer = None
+
+        if self.debug:
+            print("✅ Single click detected on system tray icon!")
+
+        if self.single_click_handler:
             try:
-                self.click_handler()
+                self.single_click_handler()
             except Exception as e:
-                print(f"❌ Click handler error: {e}")
+                print(f"❌ Single click handler error: {e}")
+                if self.debug:
+                    import traceback
+                    traceback.print_exc()
 
-            # Return None so no menu is displayed
-            return None
+    def _execute_double_click(self):
+        """Execute double click handler immediately."""
+        if self.debug:
+            print("✅ Double click detected on system tray icon!")
 
-        # Fall back to stored menu
-        return self._stored_menu
-    
+        if self.double_click_handler:
+            try:
+                self.double_click_handler()
+            except Exception as e:
+                print(f"❌ Double click handler error: {e}")
+                if self.debug:
+                    import traceback
+                    traceback.print_exc()
+
     @_menu.setter
     def _menu(self, value):
         """Allow setting _menu during initialization."""
-        print(f"🔍 _menu property set to: {value}")
+        if self.debug:
+            print(f"🔍 _menu property set to: {value}")
         self._stored_menu = value
 
 
@@ -93,16 +157,18 @@ class AbstractAssistantApp:
             color_scheme="green",  # Ready state: steady green
             animated=False         # Ready state: no animation
         )
-        
+
         if self.debug:
-            print("🔄 Creating custom system tray icon with direct click handler")
-        
-        # Use our custom ClickableIcon for direct click handling
-        return ClickableIcon(
+            print("🔄 Creating enhanced system tray icon with single/double click detection")
+
+        # Use our enhanced ClickableIcon for single/double click handling
+        return EnhancedClickableIcon(
             "AbstractAssistant",
             icon_image,
             "AbstractAssistant - AI at your fingertips",
-            click_handler=self.show_chat_bubble
+            single_click_handler=self.handle_single_click,
+            double_click_handler=self.handle_double_click,
+            debug=self.debug
         )
     
     def update_icon_status(self, status: str):
@@ -312,7 +378,102 @@ class AbstractAssistantApp:
                 import traceback
                 traceback.print_exc()
             print("💬 AbstractAssistant: Error opening chat bubble")
-    
+
+    def handle_single_click(self):
+        """Handle single click on system tray icon.
+
+        Behavior:
+        - If voice is speaking → pause voice (stay hidden)
+        - If voice is paused → resume voice (stay hidden)
+        - If voice is idle → show chat bubble
+        """
+        try:
+            if self.debug:
+                print("🔄 Single click handler called")
+
+            # Check if we have voice manager available
+            if (self.bubble_manager and
+                hasattr(self.bubble_manager, 'bubble') and
+                self.bubble_manager.bubble and
+                hasattr(self.bubble_manager.bubble, 'voice_manager') and
+                self.bubble_manager.bubble.voice_manager):
+
+                voice_manager = self.bubble_manager.bubble.voice_manager
+                voice_state = voice_manager.get_state()
+
+                if self.debug:
+                    print(f"🔊 Voice state: {voice_state}")
+
+                if voice_state == 'speaking':
+                    # Pause voice, don't show bubble
+                    success = voice_manager.pause()
+                    if self.debug:
+                        print(f"⏸ Voice pause: {'success' if success else 'failed'}")
+                    return
+
+                elif voice_state == 'paused':
+                    # Resume voice, don't show bubble
+                    success = voice_manager.resume()
+                    if self.debug:
+                        print(f"▶ Voice resume: {'success' if success else 'failed'}")
+                    return
+
+            # Voice is idle or not available - show chat bubble
+            if self.debug:
+                print("💬 Voice idle or unavailable, showing chat bubble")
+            self.show_chat_bubble()
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error in handle_single_click: {e}")
+                import traceback
+                traceback.print_exc()
+            # Fallback - just show chat bubble
+            self.show_chat_bubble()
+
+    def handle_double_click(self):
+        """Handle double click on system tray icon.
+
+        Behavior:
+        - If voice is speaking/paused → stop voice + show chat bubble
+        - If voice is idle → show chat bubble
+        """
+        try:
+            if self.debug:
+                print("🔄 Double click handler called")
+
+            # Check if we have voice manager available
+            if (self.bubble_manager and
+                hasattr(self.bubble_manager, 'bubble') and
+                self.bubble_manager.bubble and
+                hasattr(self.bubble_manager.bubble, 'voice_manager') and
+                self.bubble_manager.bubble.voice_manager):
+
+                voice_manager = self.bubble_manager.bubble.voice_manager
+                voice_state = voice_manager.get_state()
+
+                if self.debug:
+                    print(f"🔊 Voice state: {voice_state}")
+
+                if voice_state in ['speaking', 'paused']:
+                    # Stop voice
+                    voice_manager.stop()
+                    if self.debug:
+                        print("⏹ Voice stopped")
+
+            # Always show chat bubble on double click
+            if self.debug:
+                print("💬 Showing chat bubble after double click")
+            self.show_chat_bubble()
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error in handle_double_click: {e}")
+                import traceback
+                traceback.print_exc()
+            # Fallback - just show chat bubble
+            self.show_chat_bubble()
+
     def hide_chat_bubble(self):
         """Hide the chat bubble interface."""
         self.bubble_visible = False
@@ -507,14 +668,143 @@ class AbstractAssistantApp:
                     print(f"Error destroying bubble manager: {e}")
     
     def run(self):
-        """Start the application."""
+        """Start the application using Qt event loop for proper threading."""
         self.is_running = True
-        
-        # Create and run system tray icon
-        self.icon = self.create_system_tray_icon()
-        
-        print("AbstractAssistant started. Check your menu bar!")
-        print("Click the icon to open the chat interface.")
-        
-        # Run the icon (this blocks until quit)
-        self.icon.run()
+
+        try:
+            # Import Qt here to avoid conflicts
+            from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
+            from PyQt5.QtCore import QTimer
+            from PyQt5.QtGui import QIcon
+            import sys
+
+            # Create Qt application in main thread
+            if not QApplication.instance():
+                self.qt_app = QApplication(sys.argv)
+            else:
+                self.qt_app = QApplication.instance()
+
+            # Check if system tray is available
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                print("❌ System tray is not available on this system")
+                return
+
+            # Create Qt-based system tray icon
+            self.qt_icon = self._create_qt_system_tray_icon()
+
+            print("AbstractAssistant started. Check your menu bar!")
+            print("Click the icon to open the chat interface.")
+
+            # Run Qt event loop (this blocks until quit)
+            self.qt_app.exec_()
+
+        except ImportError:
+            print("❌ PyQt5 not available. Falling back to pystray...")
+            # Fallback to original pystray implementation
+            self.icon = self.create_system_tray_icon()
+            self.icon.run()
+
+    def _create_qt_system_tray_icon(self):
+        """Create Qt-based system tray icon with proper click detection."""
+        from PyQt5.QtWidgets import QSystemTrayIcon, QMenu, QAction
+        from PyQt5.QtCore import QTimer
+        from PyQt5.QtGui import QIcon, QPixmap
+        from PIL import Image
+        import io
+
+        # Generate icon using our icon generator
+        icon_image = self.icon_generator.create_app_icon(
+            color_scheme="green",  # Ready state: steady green
+            animated=False         # Ready state: no animation
+        )
+
+        # Convert PIL image to QPixmap
+        img_buffer = io.BytesIO()
+        icon_image.save(img_buffer, format='PNG')
+        img_buffer.seek(0)
+
+        pixmap = QPixmap()
+        pixmap.loadFromData(img_buffer.getvalue())
+        qt_icon = QIcon(pixmap)
+
+        # Create system tray icon
+        tray_icon = QSystemTrayIcon(qt_icon)
+        tray_icon.setToolTip("AbstractAssistant - AI at your fingertips")
+
+        # Click detection variables
+        self.click_timer = QTimer()
+        self.click_timer.setSingleShot(True)
+        self.click_timer.timeout.connect(self._qt_handle_single_click)
+        self.click_count = 0
+        self.DOUBLE_CLICK_TIMEOUT = 300  # milliseconds
+
+        # Connect click signal
+        tray_icon.activated.connect(self._qt_on_tray_activated)
+
+        # Create context menu (right-click)
+        context_menu = QMenu()
+
+        show_action = QAction("Show Chat", None)
+        show_action.triggered.connect(self.show_chat_bubble)
+        context_menu.addAction(show_action)
+
+        context_menu.addSeparator()
+
+        quit_action = QAction("Quit", None)
+        quit_action.triggered.connect(self._qt_quit_application)
+        context_menu.addAction(quit_action)
+
+        tray_icon.setContextMenu(context_menu)
+
+        # Show the tray icon
+        tray_icon.show()
+
+        if self.debug:
+            print("✅ Qt-based system tray icon created successfully")
+
+        return tray_icon
+
+    def _qt_on_tray_activated(self, reason):
+        """Handle Qt system tray activation (clicks)."""
+        from PyQt5.QtWidgets import QSystemTrayIcon
+
+        if reason == QSystemTrayIcon.Trigger:  # Left click
+            self.click_count += 1
+
+            if self.click_count == 1:
+                # Start timer for single click
+                self.click_timer.start(self.DOUBLE_CLICK_TIMEOUT)
+                if self.debug:
+                    print("🔄 Qt: First click detected, starting timer...")
+
+            elif self.click_count == 2:
+                # Double click - stop timer and execute
+                self.click_timer.stop()
+                self.click_count = 0
+                self._qt_handle_double_click()
+
+    def _qt_handle_single_click(self):
+        """Handle single click after timeout in Qt main thread."""
+        self.click_count = 0
+
+        if self.debug:
+            print("✅ Qt: Single click detected!")
+
+        # This runs in Qt main thread, so it's safe to create Qt widgets
+        self.handle_single_click()
+
+    def _qt_handle_double_click(self):
+        """Handle double click immediately in Qt main thread."""
+        if self.debug:
+            print("✅ Qt: Double click detected!")
+
+        # This runs in Qt main thread, so it's safe to create Qt widgets
+        self.handle_double_click()
+
+    def _qt_quit_application(self):
+        """Quit the Qt application."""
+        if self.debug:
+            print("🔄 Qt: Quit requested")
+
+        if hasattr(self, 'qt_app') and self.qt_app:
+            self.qt_app.quit()
