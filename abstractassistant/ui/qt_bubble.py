@@ -397,6 +397,9 @@ class QtChatBubble(QWidget):
         
         # Message history for session management
         self.message_history: List[Dict] = []
+
+        # History dialog instance for toggle behavior
+        self.history_dialog = None
         
         # Initialize new manager classes
         self.provider_manager = None
@@ -497,6 +500,10 @@ class QtChatBubble(QWidget):
             btn = QPushButton(text)
             btn.setFixedHeight(22)
             btn.clicked.connect(handler)
+
+            # Store reference to history button for toggle appearance
+            if text == "History":
+                self.history_button = btn
             btn.setStyleSheet("""
                 QPushButton {
                     background: rgba(255, 255, 255, 0.06);
@@ -1942,7 +1949,7 @@ class QtChatBubble(QWidget):
                     print(f"❌ Failed to save session: {e}")
     
     def show_history(self):
-        """Show message history in a dedicated window."""
+        """Toggle message history dialog visibility."""
         if not self.message_history:
             QMessageBox.information(
                 self,
@@ -1951,10 +1958,27 @@ class QtChatBubble(QWidget):
             )
             return
 
-        # Create iPhone Messages-style history dialog using modular approach
+        # Toggle behavior: create dialog if doesn't exist, toggle visibility if it does
         if iPhoneMessagesDialog:
-            history_dialog = iPhoneMessagesDialog.create_dialog(self.message_history, self)
-            history_dialog.exec()
+            if self.history_dialog is None:
+                # Create dialog first time
+                self.history_dialog = iPhoneMessagesDialog.create_dialog(self.message_history, self)
+                # Set callback to update button when dialog is hidden via Back button
+                self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
+                self.history_dialog.show()
+                self._update_history_button_appearance(True)
+            else:
+                # Toggle visibility
+                if self.history_dialog.isVisible():
+                    self.history_dialog.hide()
+                    self._update_history_button_appearance(False)
+                else:
+                    # Update dialog with latest messages before showing
+                    self.history_dialog = iPhoneMessagesDialog.create_dialog(self.message_history, self)
+                    # Set callback to update button when dialog is hidden via Back button
+                    self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
+                    self.history_dialog.show()
+                    self._update_history_button_appearance(True)
         else:
             # Fallback if the module isn't available
             QMessageBox.information(
@@ -1963,7 +1987,43 @@ class QtChatBubble(QWidget):
                 "History dialog module not available."
             )
 
-
+    def _update_history_button_appearance(self, is_active: bool):
+        """Update history button appearance to show toggle state."""
+        if hasattr(self, 'history_button'):
+            if is_active:
+                # Active state - highlighted
+                self.history_button.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(0, 122, 255, 0.8);
+                        border: none;
+                        border-radius: 11px;
+                        font-size: 10px;
+                        color: #ffffff;
+                        font-family: -apple-system, system-ui, sans-serif;
+                        padding: 0 10px;
+                        font-weight: 600;
+                    }
+                    QPushButton:hover {
+                        background: rgba(0, 122, 255, 1.0);
+                    }
+                """)
+            else:
+                # Inactive state - normal
+                self.history_button.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(255, 255, 255, 0.06);
+                        border: none;
+                        border-radius: 11px;
+                        font-size: 10px;
+                        color: rgba(255, 255, 255, 0.7);
+                        font-family: -apple-system, system-ui, sans-serif;
+                        padding: 0 10px;
+                    }
+                    QPushButton:hover {
+                        background: rgba(255, 255, 255, 0.1);
+                        color: rgba(255, 255, 255, 0.9);
+                    }
+                """)
 
     def close_app(self):
         """Close the entire application completely."""

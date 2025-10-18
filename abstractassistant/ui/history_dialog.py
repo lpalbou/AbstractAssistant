@@ -25,16 +25,45 @@ except ImportError:
         from PySide2.QtGui import QFont
 
 
+class SafeDialog(QDialog):
+    """Dialog that only hides instead of closing to prevent app termination."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.hide_callback = None
+
+    def set_hide_callback(self, callback):
+        """Set callback to call when dialog is hidden."""
+        self.hide_callback = callback
+
+    def closeEvent(self, event):
+        """Override close event to hide instead of close."""
+        event.ignore()
+        self.hide()
+        if self.hide_callback:
+            self.hide_callback()
+
+    def reject(self):
+        """Override reject to hide instead of close."""
+        self.hide()
+        if self.hide_callback:
+            self.hide_callback()
+
+
 class iPhoneMessagesDialog:
     """Create authentic iPhone Messages-style chat history dialog."""
 
     @staticmethod
     def create_dialog(message_history: List[Dict], parent=None) -> QDialog:
         """Create AUTHENTIC iPhone Messages dialog - EXACTLY like the real app."""
-        dialog = QDialog(parent)
+        dialog = SafeDialog(parent)
         dialog.setWindowTitle("Messages")
-        dialog.setModal(True)
+        dialog.setModal(False)
+        dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         dialog.resize(420, 650)  # Better desktop proportions, more like Messages on Mac
+
+        # Position dialog near right edge of screen like iPhone
+        iPhoneMessagesDialog._position_dialog_right(dialog)
 
         # Main layout - zero margins like iPhone
         main_layout = QVBoxLayout(dialog)
@@ -71,6 +100,30 @@ class iPhoneMessagesDialog:
         return dialog
 
     @staticmethod
+    def _position_dialog_right(dialog):
+        """Position dialog near the right edge of the screen."""
+        try:
+            from PyQt6.QtWidgets import QApplication
+        except ImportError:
+            try:
+                from PyQt5.QtWidgets import QApplication
+            except ImportError:
+                from PySide2.QtWidgets import QApplication
+
+        # Get screen geometry
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+
+        # Position dialog very close to top-right corner
+        dialog_width = dialog.width()
+        dialog_height = dialog.height()
+
+        x = screen_geometry.width() - dialog_width - 10  # Only 10px from right edge
+        y = screen_geometry.y() + 5  # Only 5px below the system tray/navbar
+
+        dialog.move(x, y)
+
+    @staticmethod
     def _create_authentic_navbar(dialog: QDialog) -> QFrame:
         """Create AUTHENTIC iPhone Messages navigation bar."""
         navbar = QFrame()
@@ -86,9 +139,9 @@ class iPhoneMessagesDialog:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Status bar space
+        # Minimal status bar space
         status_spacer = QFrame()
-        status_spacer.setFixedHeight(50)
+        status_spacer.setFixedHeight(0)
         layout.addWidget(status_spacer)
 
         # Navigation bar proper
@@ -99,7 +152,7 @@ class iPhoneMessagesDialog:
 
         # Back button
         back_btn = QPushButton("‹ Back")
-        back_btn.clicked.connect(dialog.close)
+        back_btn.clicked.connect(dialog.reject)
         back_btn.setStyleSheet("""
             QPushButton {
                 color: #007AFF;
