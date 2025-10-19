@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.1.1"
+version = "0.2.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -34,7 +34,7 @@ dependencies = [
     "PyQt5>=5.15.0",
     "markdown>=3.5.0",
     "pygments>=2.16.0",
-    "abstractvoice>=0.1.1",
+    "abstractvoice>=0.5.0",
     "pyperclip>=1.8.2",
     "plyer>=2.1.0",
     "tomli>=2.0.0; python_version<'3.11'",
