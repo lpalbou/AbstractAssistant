@@ -217,7 +217,7 @@ def main():
     print("=" * 70)
     print("This demo shows all the implemented features working together:")
     print("• Enhanced system tray single/double click detection")
-    print("• Voice control integration with VoiceLLM")
+    print("• Voice control integration with AbstractVoice")
     print("• Provider/model management via ProviderManager")
     print("• AbstractCore session management")
     print("• Centralized TTS state management")

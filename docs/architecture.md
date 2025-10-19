@@ -2,7 +2,7 @@
 
 ## Overview
 
-AbstractAssistant is a modern macOS system tray application that provides instant access to Large Language Models through a sleek Qt-based interface. Built with Python, it leverages AbstractCore for universal LLM provider support and VoiceLLM for conversational AI capabilities.
+AbstractAssistant is a modern macOS system tray application that provides instant access to Large Language Models through a sleek Qt-based interface. Built with Python, it leverages AbstractCore for universal LLM provider support and AbstractVoice for conversational AI capabilities.
 
 ## Core Design Philosophy
 
@@ -26,7 +26,7 @@ abstractassistant/
 │   ├── config.py              # Configuration management
 │   ├── core/                  # Business logic
 │   │   ├── llm_manager.py     # LLM provider management via AbstractCore
-│   │   └── tts_manager.py     # VoiceLLM integration for TTS
+│   │   └── tts_manager.py     # AbstractVoice integration for TTS
 │   ├── ui/                    # User interface components
 │   │   ├── qt_bubble.py       # Main Qt chat interface
 │   │   ├── toast_window.py    # Notification system
@@ -83,7 +83,7 @@ abstractassistant/
 
 ### 3. Voice Integration (`core/tts_manager.py`)
 
-**VoiceManager**: VoiceLLM-compatible TTS interface
+**VoiceManager**: AbstractVoice-compatible TTS interface
 - **High-Quality Speech**: VITS model with espeak-ng for best quality
 - **Speed Control**: Adjustable speech rate with pitch preservation
 - **Model Fallbacks**: Automatic fallback to compatible models
@@ -147,7 +147,7 @@ abstractassistant/
 1. **TTS Toggle**: User enables voice mode
 2. **Prompt Adaptation**: LLM system prompt modified for conversational responses
 3. **Response Processing**: AI response cleaned for speech synthesis
-4. **Speech Generation**: VoiceLLM converts text to speech
+4. **Speech Generation**: AbstractVoice converts text to speech
 5. **Audio Playback**: Response spoken through system audio
 
 ## Key Design Decisions
@@ -164,7 +164,7 @@ abstractassistant/
 - **Robust Error Handling**: Built-in fallbacks and error recovery
 - **Session Management**: Persistent conversation context
 
-### VoiceLLM for TTS
+### AbstractVoice for TTS
 - **High Quality**: VITS model provides natural-sounding speech
 - **Cross-Platform**: Works on macOS, Linux, and Windows
 - **Configurable**: Multiple TTS models and speed controls
@@ -227,7 +227,7 @@ abstractassistant/
 - **Pillow**: Image processing for icon generation
 
 ### Optional Libraries
-- **voicellm**: High-quality Text-to-Speech (graceful fallback if unavailable)
+- **abstractvoice**: High-quality Text-to-Speech (graceful fallback if unavailable)
 - **coqui-tts**: TTS engine backend
 - **openai-whisper**: Speech recognition (future feature)
 - **PyAudio**: Audio input/output

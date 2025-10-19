@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for proper timing with VoiceLLM pause/resume functionality.
+Test script for proper timing with AbstractVoice pause/resume functionality.
 """
 
 import sys
@@ -18,7 +18,7 @@ except ImportError as e:
 
 
 def test_proper_timing():
-    """Test VoiceManager with proper timing as per VoiceLLM docs."""
+    """Test VoiceManager with proper timing as per AbstractVoice docs."""
     print("🧪 Testing VoiceManager with proper timing...")
 
     try:
@@ -33,7 +33,7 @@ def test_proper_timing():
         success = vm.speak(long_message)
         assert success, "Speech should start successfully"
 
-        # Wait for speech to properly start (as per VoiceLLM docs)
+        # Wait for speech to properly start (as per AbstractVoice docs)
         print("⏳ Waiting 1.5 seconds for speech to start...")
         time.sleep(1.5)
 
@@ -162,7 +162,7 @@ def test_state_transitions():
 
 def main():
     """Run timing tests."""
-    print("🧪 Starting VoiceLLM Timing Tests...")
+    print("🧪 Starting AbstractVoice Timing Tests...")
 
     tests = [
         test_proper_timing,
@@ -187,7 +187,7 @@ def main():
         print("  • Need to wait ~1.5 seconds after speak() before pause() works")
         print("  • Pause/resume operations work reliably with proper timing")
         print("  • State transitions work correctly: idle → speaking → paused → speaking → idle")
-        print("  • VoiceLLM provides immediate response (~20ms) once audio stream is active")
+        print("  • AbstractVoice provides immediate response (~20ms) once audio stream is active")
         return True
     else:
         print("❌ Some timing tests failed!")

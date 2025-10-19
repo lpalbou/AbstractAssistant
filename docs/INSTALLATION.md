@@ -89,8 +89,8 @@ assistant --debug
 For Text-to-Speech capabilities:
 
 ```bash
-# Install VoiceLLM and dependencies
-pip install voicellm>=0.1.9
+# Install AbstractVoice and dependencies
+pip install abstractvoice>=0.1.9
 
 # For best voice quality, install espeak-ng
 brew install espeak-ng
@@ -196,10 +196,10 @@ pip install --user abstractassistant
 pip install PyQt5
 ```
 
-#### "VoiceLLM not available"
+#### "AbstractVoice not available"
 ```bash
 # Install voice dependencies
-pip install voicellm coqui-tts openai-whisper PyAudio
+pip install abstractvoice coqui-tts openai-whisper PyAudio
 
 # On macOS, you might need
 brew install portaudio

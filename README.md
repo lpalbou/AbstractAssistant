@@ -6,7 +6,7 @@ A sleek macOS system tray application providing instant access to Large Language
 
 - **🎯 System Tray Integration**: Quick access from macOS menu bar - always at your fingertips
 - **💬 Modern Qt Interface**: Clean, iPhone Messages-style chat bubble with dark theme
-- **🔊 Voice Support**: Text-to-Speech integration with VoiceLLM for conversational AI
+- **🔊 Voice Support**: Text-to-Speech integration with AbstractVoice for conversational AI
 - **🔄 Multi-Provider Support**: Seamlessly switch between LMStudio, OpenAI, Anthropic, Ollama, and more via AbstractCore
 - **📊 Real-time Status**: Live token counting, provider/model selection, and animated status indicators
 - **💾 Session Management**: Save, load, and view conversation history with markdown rendering
@@ -76,7 +76,7 @@ The main interface is a sleek Qt-based chat bubble that appears when you click t
 ### Voice Features
 
 - **TTS Toggle**: Click the speaker icon to enable/disable Text-to-Speech
-- **Voice Mode**: When enabled, AI responses are spoken aloud using VoiceLLM
+- **Voice Mode**: When enabled, AI responses are spoken aloud using AbstractVoice
 - **Smart Prompting**: In voice mode, the AI uses shorter, conversational responses
 
 ### System Tray
@@ -125,7 +125,7 @@ AbstractAssistant follows a clean, modular design:
 - **System Tray**: Native macOS integration with `pystray`
 - **Qt Interface**: Modern chat bubble using PyQt5/PySide2/PyQt6
 - **LLM Manager**: Universal provider support via AbstractCore
-- **Voice Integration**: Text-to-Speech with VoiceLLM
+- **Voice Integration**: Text-to-Speech with AbstractVoice
 - **Session Management**: Persistent conversation history
 - **Icon Generator**: Dynamic, animated system tray icons
 
@@ -219,7 +219,7 @@ MIT License - see LICENSE file for details.
 This project is built on top of excellent open-source libraries:
 
 - **[AbstractCore](https://www.abstractcore.ai/)**: Universal LLM interface library - the foundation that makes multi-provider support seamless
-- **[VoiceLLM](https://github.com/lpalbou/voicellm)**: High-quality Text-to-Speech integration
+- **[AbstractVoice](https://github.com/lpalbou/abstractvoice)**: High-quality Text-to-Speech integration
 - **[PyQt5/PySide2/PyQt6](https://www.qt.io/)**: Cross-platform GUI framework for the modern interface
 - **[pystray](https://github.com/moses-palmer/pystray)**: Cross-platform system tray support
 - **[Pillow](https://python-pillow.org/)**: Image processing for dynamic icon generation

@@ -118,7 +118,7 @@ class FixedVoiceTestWindow(QWidget):
             return
 
         # Start the speech
-        long_text = "This is a comprehensive test message that demonstrates the new VoiceLLM pause and resume functionality. The speech will continue for several seconds, giving us ample time to test all the pause and resume controls. You can pause me at any time and resume from the exact position where I was paused."
+        long_text = "This is a comprehensive test message that demonstrates the new AbstractVoice pause and resume functionality. The speech will continue for several seconds, giving us ample time to test all the pause and resume controls. You can pause me at any time and resume from the exact position where I was paused."
 
         success = self.voice_manager.speak(long_text)
         if not success:

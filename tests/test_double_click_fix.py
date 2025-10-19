@@ -144,7 +144,7 @@ def test_voice_integration():
         vm = VoiceManager(debug_mode=True)
 
         if not vm.is_available():
-            print("⚠️  VoiceLLM not available for voice integration test")
+            print("⚠️  AbstractVoice not available for voice integration test")
             return True
 
         print("✅ VoiceManager available")

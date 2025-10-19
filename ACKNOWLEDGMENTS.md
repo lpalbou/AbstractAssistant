@@ -18,10 +18,10 @@ AbstractCore provides the universal interface that makes it possible to seamless
 
 ## Voice and Audio
 
-### [VoiceLLM](https://github.com/lpalbou/voicellm)
+### [AbstractVoice](https://github.com/lpalbou/abstractvoice)
 **High-quality Text-to-Speech integration**
 
-VoiceLLM provides the conversational AI capabilities that make AbstractAssistant truly interactive. The VITS model integration delivers natural-sounding speech synthesis.
+AbstractVoice provides the conversational AI capabilities that make AbstractAssistant truly interactive. The VITS model integration delivers natural-sounding speech synthesis.
 
 - **What it provides**: TTS engine, voice activity detection, speech-to-text capabilities
 - **Features used**: Text-to-speech with speed control, model fallbacks, threading support
@@ -30,7 +30,7 @@ VoiceLLM provides the conversational AI capabilities that make AbstractAssistant
 ### [Coqui TTS](https://github.com/coqui-ai/TTS)
 **Advanced Text-to-Speech engine**
 
-The underlying TTS engine that powers VoiceLLM's high-quality speech synthesis.
+The underlying TTS engine that powers AbstractVoice's high-quality speech synthesis.
 
 - **What it provides**: Neural text-to-speech models, voice cloning, multilingual support
 - **License**: MPL 2.0 License
@@ -38,7 +38,7 @@ The underlying TTS engine that powers VoiceLLM's high-quality speech synthesis.
 ### [OpenAI Whisper](https://github.com/openai/whisper)
 **Robust automatic speech recognition**
 
-Used by VoiceLLM for potential future speech-to-text features.
+Used by AbstractVoice for potential future speech-to-text features.
 
 - **What it provides**: Multilingual speech recognition, robust audio processing
 - **License**: MIT License

@@ -138,10 +138,10 @@ def test_voice_integration_with_correct_clicks():
         vm = VoiceManager(debug_mode=True)
 
         if not vm.is_available():
-            print("⚠️  VoiceLLM not available - skipping voice integration test")
+            print("⚠️  AbstractVoice not available - skipping voice integration test")
             return True
 
-        print("✅ VoiceLLM available")
+        print("✅ AbstractVoice available")
 
         # Test the voice scenarios that the click handlers will handle
         print("\n📋 Testing Voice Control Scenarios:")

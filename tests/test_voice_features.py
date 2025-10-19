@@ -154,7 +154,7 @@ class VoiceTestWindow(QWidget):
             print("❌ VoiceManager not available")
             return
 
-        test_message = "This is a test message for the new VoiceLLM pause and resume functionality. You can pause me anytime and resume from the exact position."
+        test_message = "This is a test message for the new AbstractVoice pause and resume functionality. You can pause me anytime and resume from the exact position."
         success = self.voice_manager.speak(test_message)
         print(f"🔊 Speak test: {'Success' if success else 'Failed'}")
 

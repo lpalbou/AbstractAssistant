@@ -9,40 +9,40 @@ import time
 # Add the abstractassistant module to the path
 sys.path.insert(0, '/Users/albou/projects/abstractassistant')
 
-def test_direct_voicellm():
-    """Test VoiceLLM directly to see if it works."""
-    print("🧪 Testing VoiceLLM directly...")
+def test_direct_abstractvoice():
+    """Test AbstractVoice directly to see if it works."""
+    print("🧪 Testing AbstractVoice directly...")
 
     try:
-        from voicellm import VoiceManager as VoiceLLMManager
+        from abstractvoice import VoiceManager as AbstractVoiceManager
 
-        vm = VoiceLLMManager(debug_mode=True)
-        print("✅ VoiceLLM VoiceManager initialized directly")
+        vm = AbstractVoiceManager(debug_mode=True)
+        print("✅ AbstractVoice VoiceManager initialized directly")
 
         # Test speech
-        vm.speak("Testing VoiceLLM directly for pause and resume functionality.")
+        vm.speak("Testing AbstractVoice directly for pause and resume functionality.")
         time.sleep(1.5)  # Wait for speech to start
 
         if vm.is_speaking():
             print("🔊 Speech is active, testing pause...")
             success = vm.pause_speaking()
-            print(f"⏸ Direct VoiceLLM pause: {'Success' if success else 'Failed'}")
+            print(f"⏸ Direct AbstractVoice pause: {'Success' if success else 'Failed'}")
 
             if success:
                 time.sleep(1)
                 print("🔊 Testing resume...")
                 success = vm.resume_speaking()
-                print(f"▶ Direct VoiceLLM resume: {'Success' if success else 'Failed'}")
+                print(f"▶ Direct AbstractVoice resume: {'Success' if success else 'Failed'}")
 
                 time.sleep(1)
                 vm.stop_speaking()
-                print("⏹ Direct VoiceLLM stopped")
+                print("⏹ Direct AbstractVoice stopped")
 
         vm.cleanup()
         return True
 
     except Exception as e:
-        print(f"❌ Direct VoiceLLM test failed: {e}")
+        print(f"❌ Direct AbstractVoice test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -58,11 +58,11 @@ def test_wrapped_voicemanager():
         vm = VoiceManager(debug_mode=True)
         print("✅ AbstractAssistant VoiceManager initialized")
 
-        # Check internal VoiceLLM manager
-        print(f"📝 Internal _voicellm_manager type: {type(vm._voicellm_manager)}")
-        print(f"📝 Has pause_speaking method: {hasattr(vm._voicellm_manager, 'pause_speaking') if vm._voicellm_manager else 'No manager'}")
-        print(f"📝 Has resume_speaking method: {hasattr(vm._voicellm_manager, 'resume_speaking') if vm._voicellm_manager else 'No manager'}")
-        print(f"📝 Has is_paused method: {hasattr(vm._voicellm_manager, 'is_paused') if vm._voicellm_manager else 'No manager'}")
+        # Check internal AbstractVoice manager
+        print(f"📝 Internal _abstractvoice_manager type: {type(vm._abstractvoice_manager)}")
+        print(f"📝 Has pause_speaking method: {hasattr(vm._abstractvoice_manager, 'pause_speaking') if vm._abstractvoice_manager else 'No manager'}")
+        print(f"📝 Has resume_speaking method: {hasattr(vm._abstractvoice_manager, 'resume_speaking') if vm._abstractvoice_manager else 'No manager'}")
+        print(f"📝 Has is_paused method: {hasattr(vm._abstractvoice_manager, 'is_paused') if vm._abstractvoice_manager else 'No manager'}")
 
         # Test speech
         success = vm.speak("Testing AbstractAssistant VoiceManager wrapper for pause and resume.")
@@ -110,16 +110,16 @@ def test_wrapped_voicemanager():
 
 
 def test_method_comparison():
-    """Compare methods between direct VoiceLLM and wrapper."""
+    """Compare methods between direct AbstractVoice and wrapper."""
     print("\n🧪 Comparing methods...")
 
     try:
-        from voicellm import VoiceManager as VoiceLLMManager
+        from abstractvoice import VoiceManager as AbstractVoiceManager
         from abstractassistant.core.tts_manager import VoiceManager
 
-        # Direct VoiceLLM
-        direct_vm = VoiceLLMManager(debug_mode=True)
-        print("📝 Direct VoiceLLM methods:")
+        # Direct AbstractVoice
+        direct_vm = AbstractVoiceManager(debug_mode=True)
+        print("📝 Direct AbstractVoice methods:")
         methods = [attr for attr in dir(direct_vm) if not attr.startswith('_')]
         for method in sorted(methods):
             if 'speak' in method.lower() or 'pause' in method.lower() or 'resume' in method.lower():
@@ -134,9 +134,9 @@ def test_method_comparison():
                 print(f"  - {method}")
 
         # Test if methods exist on internal manager
-        internal = wrapped_vm._voicellm_manager
+        internal = wrapped_vm._abstractvoice_manager
         if internal:
-            print("📝 Internal VoiceLLM manager methods:")
+            print("📝 Internal AbstractVoice manager methods:")
             methods = [attr for attr in dir(internal) if not attr.startswith('_')]
             for method in sorted(methods):
                 if 'speak' in method.lower() or 'pause' in method.lower() or 'resume' in method.lower():
@@ -157,7 +157,7 @@ def main():
     print("🐛 Starting VoiceManager Debug Session...")
 
     tests = [
-        test_direct_voicellm,
+        test_direct_abstractvoice,
         test_wrapped_voicemanager,
         test_method_comparison
     ]

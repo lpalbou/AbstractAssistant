@@ -222,7 +222,7 @@ class TTSStateManager:
         return False
 
     def _attempt_pause_with_retry(self, max_attempts: int = 5, delay: float = 0.1) -> bool:
-        """Attempt to pause with retry logic for VoiceLLM initialization.
+        """Attempt to pause with retry logic for AbstractVoice initialization.
 
         Args:
             max_attempts: Maximum number of retry attempts

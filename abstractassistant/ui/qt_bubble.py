@@ -12,28 +12,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 
-# Import VoiceLLM-compatible TTS manager
-try:
-    from ..core.tts_manager import VoiceManager
-    TTS_AVAILABLE = True
-except ImportError:
-    TTS_AVAILABLE = False
-    VoiceManager = None
+# Import AbstractVoice-compatible TTS manager (required dependency)
+from ..core.tts_manager import VoiceManager
 
-# Import our new manager classes
-try:
-    from .provider_manager import ProviderManager
-    from .ui_styles import UIStyles
-    from .tts_state_manager import TTSStateManager, TTSState
-    from .history_dialog import iPhoneMessagesDialog
-    MANAGERS_AVAILABLE = True
-except ImportError:
-    MANAGERS_AVAILABLE = False
-    ProviderManager = None
-    UIStyles = None
-    TTSStateManager = None
-    TTSState = None
-    iPhoneMessagesDialog = None
+# Import our new manager classes (required dependencies)
+from .provider_manager import ProviderManager
+from .ui_styles import UIStyles
+from .tts_state_manager import TTSStateManager, TTSState
+from .history_dialog import iPhoneMessagesDialog
 
 try:
     from PyQt5.QtWidgets import (
@@ -302,7 +288,7 @@ class QtChatBubble(QWidget):
                 if self.debug:
                     print(f"❌ Failed to initialize manager classes: {e}")
 
-        # TTS functionality (VoiceLLM-compatible)
+        # TTS functionality (AbstractVoice-compatible)
         self.voice_manager = None
         self.tts_enabled = False
         if TTS_AVAILABLE:
@@ -1114,7 +1100,7 @@ class QtChatBubble(QWidget):
         # Update token count from AbstractCore
         self._update_token_count_from_session()
         
-        # Handle TTS if enabled (VoiceLLM integration)
+        # Handle TTS if enabled (AbstractVoice integration)
         if self.tts_enabled and self.voice_manager and self.voice_manager.is_available():
             if self.debug:
                 print("🔊 TTS enabled, speaking response...")
@@ -1124,7 +1110,7 @@ class QtChatBubble(QWidget):
                 # Clean response for voice synthesis
                 clean_response = self._clean_response_for_voice(response)
                 
-                # Speak the cleaned response using VoiceLLM-compatible interface
+                # Speak the cleaned response using AbstractVoice-compatible interface
                 self.voice_manager.speak(clean_response)
 
                 # Update toggle state to 'speaking'

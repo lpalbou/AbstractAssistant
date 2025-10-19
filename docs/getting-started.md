@@ -80,7 +80,7 @@ Enable Text-to-Speech for conversational AI:
 1. **Click the TTS Toggle** (🔊 icon)
 2. **Voice Responses**: AI responses will be spoken aloud
 3. **Optimized Prompts**: AI uses shorter, conversational responses
-4. **High Quality**: Uses VoiceLLM with VITS model for natural speech
+4. **High Quality**: Uses AbstractVoice with VITS model for natural speech
 
 #### Voice Controls
 - **Toggle On/Off**: Click the speaker icon
@@ -244,7 +244,7 @@ export ABSTRACTASSISTANT_SESSION_DIR="~/Documents/AI_Sessions"
 - Check token limits
 
 #### Voice Not Working
-- Ensure VoiceLLM is installed: `pip install voicellm`
+- Ensure AbstractVoice is installed: `pip install abstractvoice`
 - Install espeak-ng for best quality: `brew install espeak-ng`
 - Check system audio settings
 - Try toggling TTS off and on

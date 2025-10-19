@@ -64,7 +64,7 @@ def demo_full_voice_mode():
 
             # Test 2: Voice Manager Integration
             if bubble.voice_manager and bubble.voice_manager.is_available():
-                print("\n   🔊 VoiceLLM Integration:")
+                print("\n   🔊 AbstractVoice Integration:")
                 print("      ✅ TTS available (pause/resume/stop)")
                 print("      ✅ STT available (speech-to-text)")
                 print("      ✅ Voice modes supported (stop mode for interruption)")
@@ -103,7 +103,7 @@ def demo_full_voice_mode():
         print("=" * 60)
         print("✅ Enhanced System Tray: Single/double click detection (200ms)")
         print("✅ Full Voice Mode Toggle: Microphone icon with visual states")
-        print("✅ STT Integration: VoiceLLM speech-to-text with 'stop' mode")
+        print("✅ STT Integration: AbstractVoice speech-to-text with 'stop' mode")
         print("✅ TTS Integration: Voice responses with immediate controls")
         print("✅ UI Management: Hide text during voice, show status updates")
         print("✅ Message Logging: All conversations saved to history")
@@ -137,8 +137,8 @@ def demo_full_voice_mode():
         return False
 
 def demo_voice_capabilities():
-    """Demonstrate VoiceLLM capabilities."""
-    print("\n🎤 VOICELLM CAPABILITIES DEMO")
+    """Demonstrate AbstractVoice capabilities."""
+    print("\n🎤 ABSTRACTVOICE CAPABILITIES DEMO")
     print("=" * 40)
 
     try:
@@ -147,10 +147,10 @@ def demo_voice_capabilities():
         vm = VoiceManager(debug_mode=True)
 
         if not vm.is_available():
-            print("⚠️  VoiceLLM not available for capabilities demo")
+            print("⚠️  AbstractVoice not available for capabilities demo")
             return True
 
-        print("✅ VoiceLLM Available")
+        print("✅ AbstractVoice Available")
         print("\n📋 Available Capabilities:")
         print("   🔊 Text-to-Speech (TTS):")
         print("      • High-quality VITS model")
@@ -185,12 +185,12 @@ def demo_voice_capabilities():
         time.sleep(2)
 
         vm.cleanup()
-        print("✅ VoiceLLM capabilities demo completed")
+        print("✅ AbstractVoice capabilities demo completed")
 
         return True
 
     except Exception as e:
-        print(f"❌ VoiceLLM demo failed: {e}")
+        print(f"❌ AbstractVoice demo failed: {e}")
         return False
 
 if __name__ == "__main__":

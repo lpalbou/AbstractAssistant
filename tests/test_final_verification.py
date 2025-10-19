@@ -108,7 +108,7 @@ def test_complete_functionality():
             vm.stop()
             print(f"   ✅ Voice controls tested - Pause result: {pause_result}")
         else:
-            print("   ⚠️  VoiceLLM not available for full voice test")
+            print("   ⚠️  AbstractVoice not available for full voice test")
 
         vm.cleanup()
         results.append(("Voice Control", True))
@@ -201,7 +201,7 @@ def test_complete_functionality():
         print("   • ✅ Voice control: single=pause/resume, double=stop+show")
         print("   • ✅ No security issues or privilege requests")
         print("   • ✅ Proper Qt threading (main thread)")
-        print("   • ✅ VoiceLLM integration (~20ms response)")
+        print("   • ✅ AbstractVoice integration (~20ms response)")
         print("   • ✅ AbstractCore session management")
         print("   • ✅ Centralized provider/model discovery")
         print("   • ✅ Clean, maintainable code architecture")

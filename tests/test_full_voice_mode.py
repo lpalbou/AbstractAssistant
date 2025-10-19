@@ -4,7 +4,7 @@ Test the new Full Voice Mode (STT + TTS) implementation in AbstractAssistant.
 
 This test verifies:
 1. Full Voice Mode toggle button appears and functions
-2. VoiceLLM STT integration with stop mode
+2. AbstractVoice STT integration with stop mode
 3. Continuous listening and voice response loop
 4. UI hiding during full voice mode
 5. Message logging without UI display

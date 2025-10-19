@@ -129,9 +129,9 @@ toast = show_toast_notification(
 
 ## Timing Considerations
 
-### VoiceLLM Timing Requirements
+### AbstractVoice Timing Requirements
 
-Based on testing and VoiceLLM documentation:
+Based on testing and AbstractVoice documentation:
 
 1. **Audio Stream Startup**: ~1-1.5 seconds needed for audio stream to fully initialize
 2. **Pause/Resume Response**: ~20ms once stream is active
@@ -196,7 +196,7 @@ if vm.is_speaking():
 
 1. **Pause Not Working**:
    - **SOLUTION**: The implementation now includes retry logic with 5 attempts over 0.5 seconds
-   - **Root Cause**: VoiceLLM audio stream needs time to initialize before pause/resume work
+   - **Root Cause**: AbstractVoice audio stream needs time to initialize before pause/resume work
    - **Fix Applied**: `_attempt_pause_with_retry()` method handles timing gracefully
 
 2. **Visual State Not Updating**:
@@ -213,7 +213,7 @@ if vm.is_speaking():
 
 ### Critical Timing Fix
 
-**Issue Identified**: VoiceLLM's audio stream requires initialization time before pause/resume operations work reliably.
+**Issue Identified**: AbstractVoice's audio stream requires initialization time before pause/resume operations work reliably.
 
 **Solution Implemented**: Retry logic in both TTSToggle and Toast controls:
 
@@ -265,7 +265,7 @@ vm = VoiceManager(debug_mode=True)
 
 ## Conclusion
 
-The voice mode implementation successfully integrates VoiceLLM's new pause/resume functionality with AbstractAssistant's existing UI components. The solution provides:
+The voice mode implementation successfully integrates AbstractVoice's new pause/resume functionality with AbstractAssistant's existing UI components. The solution provides:
 
 - ✅ **Immediate Response**: ~20ms pause/resume once audio is active
 - ✅ **Intuitive UX**: Single click pause/resume, double click stop+chat

@@ -1,84 +1,68 @@
 """
-VoiceLLM Text-to-Speech Manager for AbstractAssistant.
+AbstractVoice Text-to-Speech Manager for AbstractAssistant.
 
-This module provides TTS functionality using VoiceLLM exclusively.
+This module provides TTS functionality using AbstractVoice exclusively.
 """
 
 import threading
 import time
 from typing import Optional, Callable
 
-# Import VoiceLLM
-try:
-    from voicellm import VoiceManager as VoiceLLMManager
-    VOICELLM_AVAILABLE = True
-except ImportError as e:
-    VOICELLM_AVAILABLE = False
-    VoiceLLMManager = None
-    print(f"❌ VoiceLLM not available: {e}")
+# Import AbstractVoice (required dependency)
+from abstractvoice import VoiceManager as AbstractVoiceManager
 
 
 class VoiceManager:
-    """VoiceLLM-only TTS manager."""
+    """AbstractVoice-only TTS manager."""
     
     def __init__(self, debug_mode: bool = False):
-        """Initialize the voice manager using VoiceLLM.
-        
+        """Initialize the voice manager using AbstractVoice.
+
         Args:
-            debug_mode: Enable debug logging (VoiceLLM-compatible parameter name)
+            debug_mode: Enable debug logging (AbstractVoice-compatible parameter name)
         """
         self.debug_mode = debug_mode
-        self._voicellm_manager = None
-        
-        if not VOICELLM_AVAILABLE:
-            raise RuntimeError("VoiceLLM is not available. Please install VoiceLLM and its dependencies.")
-        
+        self._abstractvoice_manager = None
+
         try:
-            self._voicellm_manager = VoiceLLMManager(debug_mode=debug_mode)
+            self._abstractvoice_manager = AbstractVoiceManager(debug_mode=debug_mode)
             if self.debug_mode:
-                print("🔊 VoiceLLM initialized successfully")
+                print("🔊 AbstractVoice initialized successfully")
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ VoiceLLM initialization failed: {e}")
-            raise RuntimeError(f"Failed to initialize VoiceLLM: {e}")
+                print(f"❌ AbstractVoice initialization failed: {e}")
+            raise RuntimeError(f"Failed to initialize AbstractVoice: {e}")
     
     def is_available(self) -> bool:
         """Check if TTS is available."""
-        return self._voicellm_manager is not None
+        return True  # AbstractVoice is a required dependency, always available after construction
     
     def is_speaking(self) -> bool:
         """Check if TTS is currently speaking."""
-        if self._voicellm_manager:
-            return self._voicellm_manager.is_speaking()
-        return False
+        return self._abstractvoice_manager.is_speaking()
     
     def speak(self, text: str, speed: float = 1.0, callback: Optional[Callable] = None) -> bool:
-        """Speak the given text using VoiceLLM.
-        
+        """Speak the given text using AbstractVoice.
+
         Args:
             text: Text to speak
-            speed: Speech speed multiplier (VoiceLLM-compatible)
+            speed: Speech speed multiplier (AbstractVoice-compatible)
             callback: Optional callback to call when speech is complete
-            
+
         Returns:
             True if speech started successfully, False otherwise
         """
-        if not self.is_available():
-            if self.debug_mode:
-                print("❌ VoiceLLM not available")
-            return False
-        
         if not text.strip():
             if self.debug_mode:
                 print("❌ Empty text provided to TTS")
             return False
-        
+
         try:
-            self._voicellm_manager.speak(text, speed=speed, callback=callback)
+            self._abstractvoice_manager.speak(text, speed=speed, callback=callback)
             return True
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ VoiceLLM speak error: {e}")
+                print(f"❌ AbstractVoice speak error: {e}")
             return False
     
     def pause(self) -> bool:
@@ -87,17 +71,15 @@ class VoiceManager:
         Returns:
             True if speech was paused successfully, False otherwise
         """
-        if self._voicellm_manager:
-            try:
-                success = self._voicellm_manager.pause_speaking()
-                if self.debug_mode:
-                    print(f"🔊 VoiceLLM speech {'paused' if success else 'pause failed'}")
-                return success
-            except Exception as e:
-                if self.debug_mode:
-                    print(f"❌ Error pausing VoiceLLM: {e}")
-                return False
-        return False
+        try:
+            success = self._abstractvoice_manager.pause_speaking()
+            if self.debug_mode:
+                print(f"🔊 AbstractVoice speech {'paused' if success else 'pause failed'}")
+            return success
+        except Exception as e:
+            if self.debug_mode:
+                print(f"❌ Error pausing AbstractVoice: {e}")
+            return False
 
     def resume(self) -> bool:
         """Resume paused speech.
@@ -105,28 +87,24 @@ class VoiceManager:
         Returns:
             True if speech was resumed successfully, False otherwise
         """
-        if self._voicellm_manager:
-            try:
-                success = self._voicellm_manager.resume_speaking()
-                if self.debug_mode:
-                    print(f"🔊 VoiceLLM speech {'resumed' if success else 'resume failed'}")
-                return success
-            except Exception as e:
-                if self.debug_mode:
-                    print(f"❌ Error resuming VoiceLLM: {e}")
-                return False
-        return False
+        try:
+            success = self._abstractvoice_manager.resume_speaking()
+            if self.debug_mode:
+                print(f"🔊 AbstractVoice speech {'resumed' if success else 'resume failed'}")
+            return success
+        except Exception as e:
+            if self.debug_mode:
+                print(f"❌ Error resuming AbstractVoice: {e}")
+            return False
 
     def is_paused(self) -> bool:
         """Check if TTS is currently paused."""
-        if self._voicellm_manager:
-            try:
-                return self._voicellm_manager.is_paused()
-            except Exception as e:
-                if self.debug_mode:
-                    print(f"❌ Error checking pause state: {e}")
-                return False
-        return False
+        try:
+            return self._abstractvoice_manager.is_paused()
+        except Exception as e:
+            if self.debug_mode:
+                print(f"❌ Error checking pause state: {e}")
+            return False
 
     def get_state(self) -> str:
         """Get current TTS state.
@@ -134,9 +112,6 @@ class VoiceManager:
         Returns:
             One of: 'idle', 'speaking', 'paused', 'stopped'
         """
-        if not self._voicellm_manager:
-            return 'idle'
-
         try:
             if self.is_paused():
                 return 'paused'
@@ -151,25 +126,23 @@ class VoiceManager:
 
     def stop(self):
         """Stop current speech."""
-        if self._voicellm_manager:
-            try:
-                self._voicellm_manager.stop_speaking()
-                if self.debug_mode:
-                    print("🔊 VoiceLLM speech stopped")
-            except Exception as e:
-                if self.debug_mode:
-                    print(f"❌ Error stopping VoiceLLM: {e}")
-    
+        try:
+            self._abstractvoice_manager.stop_speaking()
+            if self.debug_mode:
+                print("🔊 AbstractVoice speech stopped")
+        except Exception as e:
+            if self.debug_mode:
+                print(f"❌ Error stopping AbstractVoice: {e}")
+
     def cleanup(self):
         """Clean up TTS resources."""
-        if self._voicellm_manager:
-            try:
-                self._voicellm_manager.cleanup()
-                if self.debug_mode:
-                    print("🔊 VoiceLLM cleaned up")
-            except Exception as e:
-                if self.debug_mode:
-                    print(f"❌ Error cleaning up VoiceLLM: {e}")
+        try:
+            self._abstractvoice_manager.cleanup()
+            if self.debug_mode:
+                print("🔊 AbstractVoice cleaned up")
+        except Exception as e:
+            if self.debug_mode:
+                print(f"❌ Error cleaning up AbstractVoice: {e}")
 
     # STT (Speech-to-Text) Methods for Full Voice Mode
 
@@ -179,9 +152,9 @@ class VoiceManager:
         Args:
             mode: Voice mode ('full', 'wait', 'stop', 'ptt')
         """
-        if self._voicellm_manager and hasattr(self._voicellm_manager, 'set_voice_mode'):
+        if hasattr(self._abstractvoice_manager, 'set_voice_mode'):
             try:
-                self._voicellm_manager.set_voice_mode(mode)
+                self._abstractvoice_manager.set_voice_mode(mode)
                 if self.debug_mode:
                     print(f"🔊 Voice mode set to: {mode}")
             except Exception as e:
@@ -198,9 +171,9 @@ class VoiceManager:
             on_transcription: Callback function for transcribed text
             on_stop: Callback function for stop command
         """
-        if self._voicellm_manager and hasattr(self._voicellm_manager, 'listen'):
+        if hasattr(self._abstractvoice_manager, 'listen'):
             try:
-                self._voicellm_manager.listen(
+                self._abstractvoice_manager.listen(
                     on_transcription=on_transcription,
                     on_stop=on_stop
                 )
@@ -212,14 +185,14 @@ class VoiceManager:
                 raise
         else:
             if self.debug_mode:
-                print("⚠️  STT listening not available in current VoiceLLM version")
+                print("⚠️  STT listening not available in current AbstractVoice version")
             raise RuntimeError("STT listening not available")
 
     def stop_listening(self):
         """Stop listening for speech input."""
-        if self._voicellm_manager and hasattr(self._voicellm_manager, 'stop_listening'):
+        if hasattr(self._abstractvoice_manager, 'stop_listening'):
             try:
-                self._voicellm_manager.stop_listening()
+                self._abstractvoice_manager.stop_listening()
                 if self.debug_mode:
                     print("🎤 Stopped listening for speech")
             except Exception as e:
@@ -227,13 +200,13 @@ class VoiceManager:
                     print(f"❌ Error stopping listening: {e}")
         else:
             if self.debug_mode:
-                print("⚠️  Stop listening not available in current VoiceLLM version")
+                print("⚠️  Stop listening not available in current AbstractVoice version")
 
     def is_listening(self) -> bool:
         """Check if currently listening for speech."""
-        if self._voicellm_manager and hasattr(self._voicellm_manager, 'is_listening'):
+        if hasattr(self._abstractvoice_manager, 'is_listening'):
             try:
-                return self._voicellm_manager.is_listening()
+                return self._abstractvoice_manager.is_listening()
             except Exception as e:
                 if self.debug_mode:
                     print(f"❌ Error checking listening state: {e}")

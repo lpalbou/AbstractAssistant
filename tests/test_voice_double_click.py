@@ -124,7 +124,7 @@ def test_click_timing_logic():
         return False
 
 def test_with_real_voice():
-    """Test with real VoiceLLM integration."""
+    """Test with real AbstractVoice integration."""
     print("\n🎙️  Testing with Real Voice")
     print("=" * 40)
 
@@ -134,10 +134,10 @@ def test_with_real_voice():
         vm = VoiceManager(debug_mode=True)
 
         if not vm.is_available():
-            print("⚠️  VoiceLLM not available - skipping real voice test")
+            print("⚠️  AbstractVoice not available - skipping real voice test")
             return True
 
-        print("✅ VoiceLLM available for testing")
+        print("✅ AbstractVoice available for testing")
 
         # Test speaking and stopping
         print("\n🔊 Testing voice stop functionality...")
