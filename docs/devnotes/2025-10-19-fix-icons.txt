@@ -1153,7 +1153,7 @@ issues
   cleaner, more maintainable codebase structure.
 
 > it still looks NOTHING alike the iphone message UI/UX. the AI answer are on a WHITE background, do you know of ANY iphone showing a WHITE background ? your font style 
-is uggly BOLD, do you know ANY iphone style using BOLD message ? you are not even showing the time of message sent and answered. STOP FUCKING AROUND, DO YOUR JOB 
+is uggly BOLD, do you know ANY iphone style using BOLD message ? you are not even showing the time of message sent and answered. STOP MESSING AROUND, DO YOUR JOB 
 CORRECTLY. 
 
 ⏺ You're absolutely right. I completely messed up the iPhone Messages design. Let me fix this properly:
