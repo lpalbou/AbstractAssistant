@@ -21,6 +21,10 @@ from .ui_styles import UIStyles
 from .tts_state_manager import TTSStateManager, TTSState
 from .history_dialog import iPhoneMessagesDialog
 
+# Since these are required dependencies, set availability to True
+TTS_AVAILABLE = True
+MANAGERS_AVAILABLE = True
+
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout,

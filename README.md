@@ -1,5 +1,7 @@
 # AbstractAssistant 🤖
 
+Philosophy : *your AI assistant, always here and available in one click*
+
 A sleek macOS system tray application providing instant access to Large Language Models with a modern Qt-based interface. Built with Python and powered by [AbstractCore](https://github.com/lpalbou/abstractcore) and [AbstractVoice](https://github.com/lpalbou/abstractvoice).
 
 ## 📦 Installation & Links
