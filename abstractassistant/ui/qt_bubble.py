@@ -83,7 +83,6 @@ class TTSToggle(QPushButton):
         self.setFixedSize(40, 24)  # Slightly wider for button
         self.setToolTip("Single click: Pause/Resume TTS, Double click: Stop and open chat")
         self._enabled = False
-        self._tts_state = 'idle'  # 'idle', 'speaking', 'paused'
         self.setCheckable(True)
 
         # Click detection for single/double click
@@ -100,26 +99,12 @@ class TTSToggle(QPushButton):
         return self._enabled
     
     def set_enabled(self, enabled: bool):
-        """Set TTS enabled state."""
+        """Set TTS enabled state - USER CONTROL ONLY."""
         if self._enabled != enabled:
             self._enabled = enabled
             self.setChecked(enabled)
             self._update_appearance()
             self.toggled.emit(enabled)
-
-    def set_tts_state(self, state: str):
-        """Set TTS state for visual feedback.
-
-        Args:
-            state: One of 'idle', 'speaking', 'paused'
-        """
-        if self._tts_state != state:
-            self._tts_state = state
-            self._update_appearance()
-
-    def get_tts_state(self) -> str:
-        """Get current TTS state."""
-        return self._tts_state
 
     def mousePressEvent(self, event):
         """Handle mouse press for single/double click detection."""
@@ -138,39 +123,29 @@ class TTSToggle(QPushButton):
         super().mousePressEvent(event)
 
     def _handle_single_click(self):
-        """Handle single click - pause/resume or toggle."""
+        """Handle single click - toggle TTS on/off."""
         self._click_count = 0
-
-        if self._enabled:
-            # TTS is enabled, handle pause/resume
-            self.single_clicked.emit()
-        else:
-            # TTS is disabled, toggle it on
-            self.set_enabled(True)
+        # Simple toggle: if enabled, disable it; if disabled, enable it
+        new_state = not self._enabled
+        self.set_enabled(new_state)
 
     def _handle_double_click(self):
         """Handle double click - stop TTS and open chat."""
         self.double_clicked.emit()
 
     def _update_appearance(self):
-        """Update button appearance based on TTS state."""
-        # Set icon text based on state
-        if not self._enabled:
+        """Update button appearance based on user's toggle state ONLY."""
+        # SIMPLE USER CONTROL - only shows enabled/disabled state
+        if self._enabled:
+            # User has enabled TTS
+            icon = "🔉"  # Speaker icon when enabled
+            bg_color = "rgba(0, 102, 204, 0.8)"  # Blue
+            text_color = "#ffffff"
+        else:
+            # User has disabled TTS
             icon = "🔇"  # Muted speaker when disabled
             bg_color = "rgba(255, 255, 255, 0.06)"
             text_color = "rgba(255, 255, 255, 0.7)"
-        elif self._tts_state == 'speaking':
-            icon = "🔊"  # Loud speaker when speaking
-            bg_color = "rgba(0, 170, 0, 0.8)"  # Green
-            text_color = "#ffffff"
-        elif self._tts_state == 'paused':
-            icon = "⏸️"  # Pause when paused
-            bg_color = "rgba(255, 136, 0, 0.8)"  # Orange
-            text_color = "#ffffff"
-        else:
-            icon = "🔉"  # Medium speaker when idle but enabled
-            bg_color = "rgba(0, 102, 204, 0.8)"  # Blue
-            text_color = "#ffffff"
 
         self.setText(icon)
         self.setStyleSheet(f"""
@@ -184,10 +159,10 @@ class TTSToggle(QPushButton):
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background: {bg_color.replace('0.8', '1.0') if '0.8' in bg_color else bg_color};
+                background: rgba(0, 122, 255, 0.8);
             }}
             QPushButton:pressed {{
-                background: {bg_color.replace('0.8', '0.6') if '0.8' in bg_color else bg_color};
+                background: rgba(0, 122, 255, 0.6);
             }}
         """)
 
@@ -202,7 +177,6 @@ class FullVoiceToggle(QPushButton):
         self.setFixedSize(40, 24)  # Slightly wider for button
         self.setToolTip("Full Voice Mode: Continuous listening with speech-to-text and text-to-speech")
         self._enabled = False
-        self._listening_state = 'idle'  # 'idle', 'listening', 'processing'
         self.setCheckable(True)
         self.clicked.connect(self._on_clicked)
         self._update_appearance()
@@ -223,42 +197,22 @@ class FullVoiceToggle(QPushButton):
             self._enabled = enabled
             self.setChecked(enabled)
             self._update_appearance()
-            if not enabled:
-                self.toggled.emit(enabled)
+            self.toggled.emit(enabled)
 
-    def set_listening_state(self, state: str):
-        """Set listening state for visual feedback.
-
-        Args:
-            state: One of 'idle', 'listening', 'processing'
-        """
-        if self._listening_state != state:
-            self._listening_state = state
-            self._update_appearance()
-
-    def get_listening_state(self) -> str:
-        """Get current listening state."""
-        return self._listening_state
 
     def _update_appearance(self):
-        """Update button appearance based on state."""
-        # Set icon text based on state
-        if not self._enabled:
-            icon = "🎤"  # Microphone when disabled
-            bg_color = "rgba(255, 255, 255, 0.06)"
-            text_color = "rgba(255, 255, 255, 0.7)"
-        elif self._listening_state == 'listening':
-            icon = "🔴"  # Red circle when actively listening
-            bg_color = "rgba(255, 107, 53, 0.8)"  # Orange
-            text_color = "#ffffff"
-        elif self._listening_state == 'processing':
-            icon = "⚡"  # Lightning when processing
-            bg_color = "rgba(255, 165, 0, 0.8)"  # Yellow
-            text_color = "#ffffff"
-        else:
-            icon = "🎙️"  # Studio microphone when enabled but idle
+        """Update button appearance based on user's toggle state ONLY."""
+        # SIMPLE USER CONTROL - only shows enabled/disabled state
+        if self._enabled:
+            # User has enabled Full Voice Mode
+            icon = "🎙️"  # Microphone when enabled
             bg_color = "rgba(0, 122, 204, 0.8)"  # Blue
             text_color = "#ffffff"
+        else:
+            # User has disabled Full Voice Mode
+            icon = "🎤"  # Muted microphone when disabled
+            bg_color = "rgba(255, 255, 255, 0.06)"
+            text_color = "rgba(255, 255, 255, 0.7)"
 
         self.setText(icon)
         self.setStyleSheet(f"""
@@ -1091,14 +1045,8 @@ class QtChatBubble(QWidget):
         # 1. Clear input immediately
         self.input_text.clear()
         
-        # 2. Add message to history only (not to chat display)
-        self.message_history.append({
-            'timestamp': datetime.now().isoformat(),
-            'type': 'user',
-            'content': message,
-            'provider': self.current_provider,
-            'model': self.current_model
-        })
+        # 2. Don't manually add to history - let AbstractCore handle it via session.generate()
+        # The LLMManager will automatically add the message when generate_response is called
         
         # 3. Update UI for sending state
         self.send_button.setEnabled(False)
@@ -1160,18 +1108,11 @@ class QtChatBubble(QWidget):
             }
         """)
         
-        # Add AI response to message history
-        self.message_history.append({
-            'timestamp': datetime.now().isoformat(),
-            'type': 'assistant',
-            'content': response,
-            'provider': self.current_provider,
-            'model': self.current_model
-        })
-        
-        # Update token count (approximate)
-        self.token_count += len(response.split()) * 1.3  # Rough estimate
-        self.update_token_display()
+        # Get updated message history from AbstractCore session
+        self._update_message_history_from_session()
+
+        # Update token count from AbstractCore
+        self._update_token_count_from_session()
         
         # Handle TTS if enabled (VoiceLLM integration)
         if self.tts_enabled and self.voice_manager and self.voice_manager.is_available():
@@ -1201,17 +1142,17 @@ class QtChatBubble(QWidget):
                 speech_thread = threading.Thread(target=wait_for_speech, daemon=True)
                 speech_thread.start()
 
-                # Show chat history after TTS starts (small delay)
-                QTimer.singleShot(800, self.show_history)
+                # Show chat history after TTS starts (small delay) - only if voice mode is OFF
+                QTimer.singleShot(800, self._show_history_if_voice_mode_off)
 
             except Exception as e:
                 if self.debug:
                     print(f"❌ TTS error: {e}")
-                # Show chat history as fallback
-                QTimer.singleShot(100, self.show_history)
+                # Show chat history as fallback - only if voice mode is OFF
+                QTimer.singleShot(100, self._show_history_if_voice_mode_off)
         else:
-            # Show chat history instead of toast when TTS is disabled
-            self.show_history()
+            # Show chat history instead of toast when TTS is disabled - only if voice mode is OFF
+            self._show_history_if_voice_mode_off()
         
         # Also call response callback if set
         if self.response_callback:
@@ -1386,8 +1327,7 @@ class QtChatBubble(QWidget):
                 on_stop=self.handle_voice_stop
             )
 
-            # Update UI state
-            self.full_voice_toggle.set_listening_state('listening')
+            # No longer updating voice toggle appearance - it's a simple user control
             self.update_status("LISTENING")
 
             # Greet the user
@@ -1420,8 +1360,7 @@ class QtChatBubble(QWidget):
             # Show text input UI
             self.show_text_ui()
 
-            # Update UI state
-            self.full_voice_toggle.set_listening_state('idle')
+            # No longer updating voice toggle appearance - it's a simple user control
             self.update_status("READY")
 
             if self.debug:
@@ -1439,32 +1378,18 @@ class QtChatBubble(QWidget):
             if self.debug:
                 print(f"👤 Voice input: {transcribed_text}")
 
-            # Update UI state
-            self.full_voice_toggle.set_listening_state('processing')
+            # No longer updating voice toggle appearance - it's a simple user control
             self.update_status("PROCESSING")
 
-            # Log the message to history (but don't show in UI)
-            user_message = {
-                "role": "user",
-                "content": transcribed_text,
-                "timestamp": datetime.now().isoformat()
-            }
-            self.message_history.append(user_message)
-
-            # Generate AI response
+            # Generate AI response (AbstractCore will handle message logging automatically)
             response = self.llm_manager.generate_response(
                 transcribed_text,
                 self.current_provider,
                 self.current_model
             )
 
-            # Log AI response to history
-            ai_message = {
-                "role": "assistant",
-                "content": response,
-                "timestamp": datetime.now().isoformat()
-            }
-            self.message_history.append(ai_message)
+            # Update message history from AbstractCore session
+            self._update_message_history_from_session()
 
             if self.debug:
                 print(f"🤖 AI response: {response[:100]}...")
@@ -1472,8 +1397,7 @@ class QtChatBubble(QWidget):
             # Speak the response
             self.voice_manager.speak(response)
 
-            # Update UI state back to listening
-            self.full_voice_toggle.set_listening_state('listening')
+            # No longer updating voice toggle appearance - it's a simple user control
             self.update_status("LISTENING")
 
         except Exception as e:
@@ -1482,8 +1406,7 @@ class QtChatBubble(QWidget):
                 import traceback
                 traceback.print_exc()
 
-            # Reset to listening state
-            self.full_voice_toggle.set_listening_state('listening')
+            # No longer updating voice toggle appearance - it's a simple user control
             self.update_status("LISTENING")
 
     def handle_voice_stop(self):
@@ -1546,7 +1469,7 @@ class QtChatBubble(QWidget):
         if hasattr(self, 'tts_toggle') and self.voice_manager:
             try:
                 current_state = self.voice_manager.get_state()
-                self.tts_toggle.set_tts_state(current_state)
+                # No longer updating tts_toggle appearance - it's a simple user control
 
                 # Show/hide voice control panel based on TTS state
                 if hasattr(self, 'voice_control_panel'):
@@ -1763,8 +1686,8 @@ class QtChatBubble(QWidget):
         if self.debug:
             print(f"❌ AI Error: {error}")
 
-        # Show history so user can see the error context
-        QTimer.singleShot(100, self.show_history)
+        # Show history so user can see the error context - only if voice mode is OFF
+        QTimer.singleShot(100, self._show_history_if_voice_mode_off)
         
         # Call error callback
         if self.error_callback:
@@ -1796,11 +1719,17 @@ class QtChatBubble(QWidget):
             if hasattr(self, 'chat_display'):
                 self.chat_display.clear()
                 self.chat_display.hide()
-            
+
+            # Clear AbstractCore session and create a new one
+            if self.llm_manager:
+                self.llm_manager.create_new_session()
+                if self.debug:
+                    print("🧹 AbstractCore session cleared and recreated")
+
             self.message_history.clear()
             self.token_count = 0
             self.update_token_display()
-            
+
             if self.debug:
                 print("🧹 Session cleared")
     
@@ -1828,8 +1757,8 @@ class QtChatBubble(QWidget):
                         # Update token display
                         self.update_token_display()
 
-                        # Clear our local message history (let AbstractCore handle it)
-                        self.message_history = []
+                        # Update our local message history from AbstractCore
+                        self._update_message_history_from_session()
                         self._rebuild_chat_display()
 
                         QMessageBox.information(
@@ -1901,12 +1830,87 @@ class QtChatBubble(QWidget):
                 if self.debug:
                     print(f"❌ Failed to save session: {e}")
     
+    def _is_voice_mode_active(self):
+        """Centralized source of truth: Check if ANY voice mode is active."""
+        # Check Full Voice Mode (listening/speaking conversations)
+        if hasattr(self, 'full_voice_toggle') and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+            return True
+
+        # Check if TTS is currently speaking
+        if hasattr(self, 'voice_manager') and self.voice_manager:
+            try:
+                if self.voice_manager.is_speaking():
+                    return True
+            except:
+                pass
+
+        return False
+
+    def _should_show_chat_history(self):
+        """Centralized source of truth: Should chat history be visible?"""
+        # chat_history_visible = is_voice_mode_off
+        return not self._is_voice_mode_active()
+
+    def _update_message_history_from_session(self):
+        """Update local message history from AbstractCore session."""
+        if self.llm_manager and self.llm_manager.current_session:
+            try:
+                # Get messages from AbstractCore session
+                session_messages = getattr(self.llm_manager.current_session, 'messages', [])
+
+                # Convert AbstractCore messages to our format
+                self.message_history = []
+                for msg in session_messages:
+                    # Skip system messages
+                    if hasattr(msg, 'role') and msg.role == 'system':
+                        continue
+
+                    message = {
+                        'timestamp': datetime.now().isoformat(),  # AbstractCore doesn't store timestamps
+                        'type': getattr(msg, 'role', 'unknown'),
+                        'content': getattr(msg, 'content', str(msg)),
+                        'provider': self.current_provider,
+                        'model': self.current_model
+                    }
+                    self.message_history.append(message)
+
+                if self.debug:
+                    print(f"📚 Updated message history from AbstractCore: {len(self.message_history)} messages")
+
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error updating message history from session: {e}")
+
+    def _update_token_count_from_session(self):
+        """Update token count from AbstractCore session."""
+        try:
+            if self.llm_manager and self.llm_manager.current_session:
+                token_estimate = self.llm_manager.current_session.get_token_estimate()
+                self.token_count = token_estimate
+                self.update_token_display()
+
+                if self.debug:
+                    print(f"📊 Updated token count from AbstractCore: {self.token_count}")
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error updating token count from session: {e}")
+
+    def _show_history_if_voice_mode_off(self):
+        """Show chat history only if voice mode is OFF."""
+        if not self._should_show_chat_history():
+            if self.debug:
+                print("🎙️ Chat history blocked - Voice mode is active")
+            return
+
+        # Voice mode is off, show history
+        self.show_history()
+
     def show_history(self):
         """Toggle message history dialog visibility."""
-        # Prevent chat history from opening when voice mode is active
-        if hasattr(self, 'full_voice_toggle') and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+        # Use centralized logic to check if chat history should be shown
+        if not self._should_show_chat_history():
             if self.debug:
-                print("🎙️ Chat history blocked - Full Voice Mode is active")
+                print("🎙️ Chat history blocked - Voice mode is active")
             return
 
         if not self.message_history:
