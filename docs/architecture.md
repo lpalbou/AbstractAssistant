@@ -1,8 +1,14 @@
-# AbstractAssistant Architecture
+# 🏗️ Architecture Guide
+
+Technical documentation for AbstractAssistant's design, components, and development information.
+
+**📚 Other Documentation**: [🏠 README](../README.md) | [📖 Installation](installation.md) | [🎯 Getting Started](getting-started.md)
+
+---
 
 ## Overview
 
-AbstractAssistant is a modern macOS system tray application that provides instant access to Large Language Models through a sleek Qt-based interface. Built with Python, it leverages AbstractCore for universal LLM provider support and AbstractVoice for conversational AI capabilities.
+AbstractAssistant is a modern macOS system tray application that provides instant access to Large Language Models through a sleek Qt-based interface. Built with Python, it leverages [AbstractCore](https://github.com/lpalbou/abstractcore) for universal LLM provider support and [AbstractVoice](https://github.com/lpalbou/abstractvoice) for conversational AI capabilities.
 
 ## Core Design Philosophy
 
@@ -28,24 +34,20 @@ abstractassistant/
 │   │   ├── llm_manager.py     # LLM provider management via AbstractCore
 │   │   └── tts_manager.py     # AbstractVoice integration for TTS
 │   ├── ui/                    # User interface components
-│   │   ├── qt_bubble.py       # Main Qt chat interface
+│   │   ├── qt_bubble.py       # Main Qt chat interface (primary UI)
 │   │   ├── toast_window.py    # Notification system
-│   │   ├── bubble_window.py   # Alternative webview interface
-│   │   └── chat_bubble.py     # Legacy interface
-│   ├── utils/                 # Utilities
-│   │   ├── icon_generator.py  # Dynamic system tray icon creation
-│   │   └── markdown_renderer.py # Markdown processing
-│   └── web_server.py          # Web server for alternative interface
-├── web/                       # Web interface assets (alternative UI)
-│   ├── index.html            # Full web interface
-│   ├── bubble.html           # Bubble-specific interface
-│   ├── styles.css            # Web styling
-│   ├── bubble.css            # Bubble-specific styling
-│   ├── app.js               # Web application logic
-│   └── bubble.js            # Bubble-specific logic
+│   │   ├── history_dialog.py  # iPhone Messages-style chat history
+│   │   ├── provider_manager.py # Provider/model selection logic
+│   │   ├── tts_state_manager.py # TTS state coordination
+│   │   └── ui_styles.py       # Centralized UI styling
+│   └── utils/                 # Utilities
+│       ├── icon_generator.py  # Dynamic system tray icon creation
+│       └── markdown_renderer.py # Markdown processing
 ├── docs/                     # Documentation
-│   └── ARCHITECTURE.md       # This file
-└── tests/                    # Test files
+│   ├── installation.md       # Installation guide
+│   ├── getting-started.md    # User guide
+│   └── architecture.md       # This file
+└── tests/                    # Test files and demos
     └── *.py                  # Various test modules
 ```
 
@@ -67,28 +69,44 @@ abstractassistant/
 
 ### 2. LLM Management (`core/llm_manager.py`)
 
-**LLMManager**: Handles all AI model interactions via AbstractCore
+**LLMManager**: Handles all AI model interactions via [AbstractCore](https://github.com/lpalbou/abstractcore)
+
+**Core Capabilities**:
 - **Provider Discovery**: Automatically detects available LLM providers
 - **Model Management**: Dynamically loads models for each provider
 - **Session Handling**: Manages conversation context and history
 - **Token Tracking**: Real-time token usage monitoring
 - **Error Handling**: Robust fallbacks for network and API issues
 
-**Supported Providers** (via AbstractCore):
-- LMStudio (local models)
-- OpenAI (GPT-4, GPT-3.5, etc.)
-- Anthropic (Claude models)
-- Ollama (local models)
-- And many more through AbstractCore's extensible architecture
+**Supported Providers** (via [AbstractCore](https://github.com/lpalbou/abstractcore)):
+- **LMStudio**: Local models with full privacy
+- **Ollama**: Local open-source models (Qwen, Llama, Mistral)
+- **OpenAI**: GPT-4o, GPT-4, GPT-3.5-turbo, and latest models
+- **Anthropic**: Claude 3.5 Sonnet, Haiku, and other Claude models
+- **MLX**: Apple Silicon optimized models
+- **HuggingFace**: Open-source models via Transformers
+
+**🔗 Learn More**: [AbstractCore Repository](https://github.com/lpalbou/abstractcore)
 
 ### 3. Voice Integration (`core/tts_manager.py`)
 
-**VoiceManager**: AbstractVoice-compatible TTS interface
-- **High-Quality Speech**: VITS model with espeak-ng for best quality
+**VoiceManager**: High-quality text-to-speech via [AbstractVoice](https://github.com/lpalbou/abstractvoice)
+
+**Voice Capabilities**:
+- **Natural Speech**: Advanced voice synthesis with VITS models
+- **Real-Time Processing**: Optimized for conversational AI responses
 - **Speed Control**: Adjustable speech rate with pitch preservation
-- **Model Fallbacks**: Automatic fallback to compatible models
-- **Threading**: Non-blocking speech synthesis
+- **Simple Integration**: One-click enable/disable in the UI
 - **Error Recovery**: Graceful handling of TTS failures
+- **Cross-Platform**: Works across different audio systems
+
+**Features**:
+- **🗣️ High-Quality Output**: Natural-sounding voice synthesis
+- **⚡ Fast Processing**: Real-time speech generation
+- **🎛️ User Controls**: Simple on/off toggle in the interface
+- **🔧 Auto-Setup**: No configuration required
+
+**🔗 Learn More**: [AbstractVoice Repository](https://github.com/lpalbou/abstractvoice)
 
 ### 4. Qt User Interface (`ui/qt_bubble.py`)
 
@@ -265,3 +283,35 @@ abstractassistant/
 - **Provider Testing**: Various LLM providers and models
 
 This architecture provides a solid foundation for a reliable, extensible, and user-friendly AI assistant application that integrates seamlessly with the macOS desktop environment.
+
+---
+
+## 🔗 Related Projects
+
+AbstractAssistant is part of the **AbstractX Ecosystem**:
+
+- **🧠 [AbstractCore](https://github.com/lpalbou/abstractcore)**: Universal LLM provider interface
+- **🗣️ [AbstractVoice](https://github.com/lpalbou/abstractvoice)**: High-quality text-to-speech engine
+
+## 🚀 Development
+
+### Contributing
+- **📋 Repository**: [AbstractAssistant on GitHub](https://github.com/lpalbou/abstractassistant)
+- **🐛 Issues**: [Report bugs and request features](https://github.com/lpalbou/abstractassistant/issues)
+- **🔧 Development**: See the repository for development setup instructions
+
+### Building from Source
+```bash
+# Clone the repository
+git clone https://github.com/lpalbou/abstractassistant.git
+cd abstractassistant
+
+# Install in development mode
+pip install -e .
+```
+
+## 📚 Documentation Navigation
+
+- **🏠 [Main README](../README.md)**: Project overview and quick start
+- **📖 [Installation Guide](installation.md)**: Complete setup instructions
+- **🎯 [Getting Started Guide](getting-started.md)**: User guide and features

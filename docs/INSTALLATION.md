@@ -1,10 +1,14 @@
-# Installation Guide
+# 📖 Installation Guide
 
-This guide covers different ways to install and set up AbstractAssistant on your macOS system.
+Complete setup instructions for AbstractAssistant on macOS, including prerequisites, voice features, and troubleshooting.
 
-## Quick Install (Recommended)
+**📚 Other Documentation**: [🏠 README](../README.md) | [🎯 Getting Started](getting-started.md) | [🏗️ Architecture](architecture.md)
 
-### From PyPI
+---
+
+## 🚀 Quick Installation
+
+### Method 1: PyPI (Recommended)
 
 ```bash
 # Install the latest stable version
@@ -14,7 +18,9 @@ pip install abstractassistant
 assistant
 ```
 
-### From Source (Latest Features)
+**📦 PyPI Package**: [https://pypi.org/project/abstractassistant/](https://pypi.org/project/abstractassistant/)
+
+### Method 2: From Source
 
 ```bash
 # Clone the repository
@@ -27,6 +33,8 @@ pip install -e .
 # Launch
 assistant
 ```
+
+**📋 GitHub Repository**: [https://github.com/lpalbou/abstractassistant](https://github.com/lpalbou/abstractassistant)
 
 ## Detailed Installation
 
@@ -82,19 +90,38 @@ assistant --version
 assistant --debug
 ```
 
-## Optional Dependencies
+## 🎙️ Voice Features Setup
 
-### Voice Features (Recommended)
+AbstractAssistant includes **high-quality text-to-speech** powered by [AbstractVoice](https://github.com/lpalbou/abstractvoice).
 
-For Text-to-Speech capabilities:
+### Automatic Installation
+
+Voice features are automatically installed with AbstractAssistant:
 
 ```bash
-# Install AbstractVoice and dependencies
-pip install abstractvoice>=0.1.9
-
-# For best voice quality, install espeak-ng
-brew install espeak-ng
+# AbstractVoice is included as a required dependency
+pip install abstractassistant  # Includes AbstractVoice
 ```
+
+### Voice Quality Enhancement (Optional)
+
+For the best voice quality, install additional audio libraries:
+
+```bash
+# Enhanced audio processing (macOS)
+brew install espeak-ng portaudio
+
+# Alternative: Install via pip
+pip install PyAudio sounddevice
+```
+
+### Voice Features Include:
+- **🗣️ Natural Speech**: High-quality voice synthesis
+- **⚡ Fast Processing**: Optimized for real-time responses
+- **🎛️ Simple Controls**: One-click enable/disable in the UI
+- **🔧 No Configuration**: Works out of the box
+
+**📋 AbstractVoice Repository**: [https://github.com/lpalbou/abstractvoice](https://github.com/lpalbou/abstractvoice)
 
 ### Qt Framework
 
@@ -113,22 +140,62 @@ pip install PyQt6
 
 *Note: At least one Qt framework is required for the GUI.*
 
-## Configuration
+## 🤖 Models & Providers Setup
 
-### API Keys
+AbstractAssistant supports multiple AI providers via [AbstractCore](https://github.com/lpalbou/abstractcore). Choose your preferred setup:
 
-Set up your API keys for different providers:
+### Option 1: Local Models (Recommended for Privacy)
+
+#### LMStudio (Easiest)
+1. **Download**: [LMStudio](https://lmstudio.ai/)
+2. **Install a Model**: Download models like Qwen, Llama, or Mistral
+3. **Start Server**: Click "Start Server" in LMStudio
+4. **Use in Assistant**: Select "LMStudio" provider in AbstractAssistant
+
+#### Ollama (Command Line)
+```bash
+# Install Ollama
+brew install ollama
+
+# Start Ollama service
+ollama serve
+
+# Download a model
+ollama pull qwen2.5:latest
+ollama pull llama3.2:latest
+```
+
+### Option 2: Cloud API Providers
+
+#### API Keys Setup
+Set up API keys for cloud providers:
 
 ```bash
-# OpenAI
+# OpenAI (GPT-4, GPT-3.5)
 export OPENAI_API_KEY="your_openai_key_here"
 
-# Anthropic
+# Anthropic (Claude)
 export ANTHROPIC_API_KEY="your_anthropic_key_here"
 
-# Add to your shell profile for persistence
+# Make permanent
 echo 'export OPENAI_API_KEY="your_key"' >> ~/.zshrc
+echo 'export ANTHROPIC_API_KEY="your_key"' >> ~/.zshrc
 ```
+
+### Provider Comparison
+
+| Provider | Cost | Privacy | Setup Difficulty | Performance |
+|----------|------|---------|------------------|-------------|
+| **LMStudio** | Free | 🔒 Full | ⭐ Easy | ⭐⭐⭐ Good |
+| **Ollama** | Free | 🔒 Full | ⭐⭐ Medium | ⭐⭐⭐ Good |
+| **OpenAI** | Paid | ⚠️ API | ⭐ Easy | ⭐⭐⭐⭐ Excellent |
+| **Anthropic** | Paid | ⚠️ API | ⭐ Easy | ⭐⭐⭐⭐ Excellent |
+| **MLX** | Free | 🔒 Full | ⭐⭐⭐ Advanced | ⭐⭐⭐⭐ Excellent* |
+| **HuggingFace** | Free | 🔒 Full | ⭐⭐⭐ Advanced | ⭐⭐⭐ Good |
+
+*MLX: Optimized for Apple Silicon (M1/M2/M3/M4)
+
+**📋 AbstractCore Repository**: [https://github.com/lpalbou/abstractcore](https://github.com/lpalbou/abstractcore)
 
 ### Configuration File
 
@@ -155,27 +222,6 @@ icon_size = 64
 EOF
 ```
 
-## Local LLM Setup
-
-### LMStudio (Recommended)
-
-1. Download and install [LMStudio](https://lmstudio.ai/)
-2. Download a model (e.g., Qwen3-Next-80B)
-3. Start the local server
-4. AbstractAssistant will automatically detect it
-
-### Ollama
-
-```bash
-# Install Ollama
-brew install ollama
-
-# Start Ollama service
-ollama serve
-
-# Pull a model
-ollama pull qwen2.5:latest
-```
 
 ## Troubleshooting
 
@@ -196,14 +242,22 @@ pip install --user abstractassistant
 pip install PyQt5
 ```
 
-#### "AbstractVoice not available"
+#### Voice Features Not Working
 ```bash
-# Install voice dependencies
-pip install abstractvoice coqui-tts openai-whisper PyAudio
+# AbstractVoice should be automatically installed
+# If voice features aren't working, try:
 
-# On macOS, you might need
-brew install portaudio
+# Reinstall with voice dependencies
+pip install --upgrade abstractassistant abstractvoice
+
+# Install additional audio libraries (macOS)
+brew install portaudio espeak-ng
+
+# Alternative audio libraries
+pip install PyAudio sounddevice
 ```
+
+**🔗 AbstractVoice Issues**: See [AbstractVoice repository](https://github.com/lpalbou/abstractvoice) for voice-specific troubleshooting.
 
 #### System Tray Icon Not Appearing
 - Check macOS System Preferences > Security & Privacy
@@ -323,4 +377,16 @@ rm ~/Library/LaunchAgents/com.abstractassistant.plist
 
 ---
 
-For more help, see the [main README](../README.md) or open an issue on [GitHub](https://github.com/lpalbou/abstractassistant/issues).
+## 🎯 Next Steps
+
+**Installation Complete!** Here's what to do next:
+
+1. **📖 Learn the Interface**: Read the [🎯 Getting Started Guide](getting-started.md)
+2. **🏠 Back to README**: Return to the [🏠 Main README](../README.md)
+3. **🏗️ Technical Details**: Check the [🏗️ Architecture Guide](architecture.md)
+
+## 🆘 Need Help?
+
+- **🐛 Issues**: [GitHub Issues](https://github.com/lpalbou/abstractassistant/issues)
+- **📋 Main Repository**: [AbstractAssistant on GitHub](https://github.com/lpalbou/abstractassistant)
+- **🔗 Related Projects**: [AbstractCore](https://github.com/lpalbou/abstractcore) | [AbstractVoice](https://github.com/lpalbou/abstractvoice)

@@ -1,21 +1,30 @@
-# Usage Guide
+# 🎯 Getting Started Guide
 
-This guide covers how to use AbstractAssistant effectively for your daily AI interactions.
+Complete user guide for AbstractAssistant - learn how to use all features effectively for your daily AI interactions.
 
-## Getting Started
+**📚 Other Documentation**: [🏠 README](../README.md) | [📖 Installation](installation.md) | [🏗️ Architecture](architecture.md)
 
-### First Launch
+---
 
-1. **Start the Application**:
-   ```bash
-   assistant
-   ```
+## 🚀 First Launch
 
-2. **Find the Icon**: Look for the AbstractAssistant icon in your macOS menu bar (top-right)
+### 1. Start the Application
+```bash
+assistant
+```
 
-3. **Click to Open**: Click the icon to open the chat bubble
+**💡 Tip**: Make sure you've completed the [📖 Installation Guide](installation.md) first!
 
-4. **Start Chatting**: Type your message and press Shift+Enter or click the send button
+### 2. Find the System Tray Icon
+Look for the AbstractAssistant icon in your **macOS menu bar** (top-right corner, near the clock).
+
+### 3. Open the Chat Interface
+**Click the icon** to open the modern chat bubble interface.
+
+### 4. Start Your First Conversation
+- **Type your message** in the text area
+- **Send**: Press `Shift+Enter` or click the blue send button (→)
+- **Wait for response**: The AI will process and respond to your query
 
 ## Main Interface
 
@@ -49,14 +58,34 @@ The icon in your menu bar provides visual feedback:
 
 ## Core Features
 
-### Provider and Model Selection
+## 🤖 Provider and Model Selection
 
-AbstractAssistant supports multiple AI providers through AbstractCore:
+AbstractAssistant supports multiple AI providers through [AbstractCore](https://github.com/lpalbou/abstractcore):
 
-#### LMStudio (Local Models)
-- **Setup**: Install LMStudio, download models, start local server
-- **Benefits**: Privacy, no API costs, works offline
-- **Models**: Qwen3-Next-80B, Llama models, and more
+### Local Providers (Privacy-First)
+
+#### LMStudio (Recommended for Beginners)
+- **Setup**: Install [LMStudio](https://lmstudio.ai/), download models, start server
+- **Benefits**: 🔒 Full privacy, no API costs, works offline
+- **Models**: Qwen, Llama, Mistral, and many more
+- **How to**: See the [📖 Installation Guide](installation.md#models--providers-setup)
+
+#### Ollama (Command Line)
+- **Setup**: `brew install ollama`, then `ollama pull qwen2.5:latest`
+- **Benefits**: 🔒 Full privacy, powerful local models
+- **Models**: Qwen, Llama, Mistral, and more
+
+#### MLX (Apple Silicon Optimized)
+- **Setup**: Advanced setup for Apple Silicon Macs
+- **Benefits**: 🔒 Full privacy, optimized for M1/M2/M3/M4 chips
+- **Models**: MLX-optimized versions of popular models
+
+#### HuggingFace (Open Source)
+- **Setup**: Advanced setup with Transformers library
+- **Benefits**: 🔒 Full privacy, vast model selection
+- **Models**: Thousands of open-source models
+
+### Cloud Providers (API Required)
 
 #### OpenAI
 - **Setup**: Set `OPENAI_API_KEY` environment variable
@@ -68,24 +97,28 @@ AbstractAssistant supports multiple AI providers through AbstractCore:
 - **Models**: Claude 3.5 Sonnet, Claude 3 Opus, and more
 - **Benefits**: Excellent reasoning, long context
 
-#### Ollama
-- **Setup**: Install Ollama, pull models
-- **Models**: Qwen2.5, Llama 3, Mistral, and more
-- **Benefits**: Local, open-source models
+## 🎙️ Voice Features
 
-### Voice Mode
+AbstractAssistant includes high-quality text-to-speech powered by [AbstractVoice](https://github.com/lpalbou/abstractvoice):
 
-Enable Text-to-Speech for conversational AI:
+### Enabling Voice Mode
+1. **Click the TTS Toggle** (🔊 icon) in the chat interface
+2. **Voice Responses**: AI responses will be spoken aloud automatically
+3. **Optimized Responses**: AI uses shorter, more conversational responses
+4. **Natural Speech**: High-quality voice synthesis with VITS models
 
-1. **Click the TTS Toggle** (🔊 icon)
-2. **Voice Responses**: AI responses will be spoken aloud
-3. **Optimized Prompts**: AI uses shorter, conversational responses
-4. **High Quality**: Uses AbstractVoice with VITS model for natural speech
+### Voice Controls
+- **🔊 Toggle On/Off**: Click the speaker icon to enable/disable voice
+- **⏹️ Stop Speaking**: Click the system tray icon while AI is speaking
+- **🎛️ Simple Setup**: No configuration required - works out of the box
 
-#### Voice Controls
-- **Toggle On/Off**: Click the speaker icon
-- **Stop Speaking**: Click the system tray icon while speaking
-- **Speed Control**: Configurable in settings (future feature)
+### Voice Features
+- **🗣️ Natural Speech**: Advanced voice synthesis technology
+- **⚡ Real-Time**: Optimized for conversational AI responses
+- **🎯 Smart Prompting**: AI adapts responses for voice interaction
+- **🔧 Zero Config**: Automatically installed and configured
+
+**🔗 Learn More**: [AbstractVoice Repository](https://github.com/lpalbou/abstractvoice)
 
 ### Session Management
 
@@ -320,4 +353,24 @@ alias ai-local="assistant --provider lmstudio"
 
 ---
 
-For more advanced configuration and development information, see the [Architecture Guide](ARCHITECTURE.md).
+## 🎯 Next Steps
+
+**Ready to use AbstractAssistant like a pro!** Here's what to explore next:
+
+### Advanced Usage
+- **⚙️ Configuration**: Customize settings and create shortcuts
+- **🤖 Try Different Models**: Experiment with various AI providers
+- **🎙️ Voice Mode**: Enable voice responses for natural conversations
+- **📚 Session Management**: Save important conversations for later
+
+### Need Help?
+- **🆘 Troubleshooting**: Check the [📖 Installation Guide](installation.md) for common issues
+- **🏗️ Technical Details**: See the [🏗️ Architecture Guide](architecture.md) for development info
+- **🏠 Overview**: Return to the [🏠 Main README](../README.md)
+
+## 🔗 Resources
+
+- **📋 GitHub Repository**: [AbstractAssistant](https://github.com/lpalbou/abstractassistant)
+- **🐍 PyPI Package**: [AbstractAssistant on PyPI](https://pypi.org/project/abstractassistant/)
+- **🧠 AbstractCore**: [Universal LLM Interface](https://github.com/lpalbou/abstractcore)
+- **🗣️ AbstractVoice**: [Text-to-Speech Engine](https://github.com/lpalbou/abstractvoice)
