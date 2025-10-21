@@ -6,6 +6,13 @@ This module provides an authentic iPhone Messages UI for displaying chat history
 import re
 from datetime import datetime
 from typing import Dict, List
+import markdown
+from markdown.extensions.fenced_code import FencedCodeExtension
+from markdown.extensions.tables import TableExtension
+from markdown.extensions.nl2br import Nl2BrExtension
+from pygments import highlight
+from pygments.lexers import get_lexer_by_name, TextLexer
+from pygments.formatters import HtmlFormatter
 
 try:
     from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
@@ -412,34 +419,50 @@ class iPhoneMessagesDialog:
 
     @staticmethod
     def _process_full_markdown(text: str) -> str:
-        """Process markdown formatting for iPhone Messages display with MINIMAL spacing."""
-        # Convert **bold** to <strong>bold</strong>
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+        """Process markdown using proper markdown library with syntax highlighting."""
+        # Configure markdown with extensions
+        md = markdown.Markdown(
+            extensions=[
+                FencedCodeExtension(),
+                TableExtension(),
+                'nl2br',  # Convert newlines to <br>
+            ],
+            extension_configs={
+                'fenced_code': {
+                    'lang_prefix': 'language-',
+                }
+            }
+        )
 
-        # Convert *italic* to <em>italic</em>
-        text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', text)
+        # Convert markdown to HTML
+        html = md.convert(text)
 
-        # Convert `code` to inline code
-        text = re.sub(r'`([^`]+)`', r'<code style="background: rgba(0,0,0,0.15); padding: 1px 3px; border-radius: 3px; font-family: monospace; font-size: 13px;">\1</code>', text)
+        # Apply custom styling to the generated HTML
+        # Style code blocks
+        html = html.replace('<pre>', '<pre style="margin: 6px 0; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px; overflow-x: auto;">')
+        html = html.replace('<code>', '<code style="font-family: \'SF Mono\', \'Menlo\', \'Monaco\', \'Courier New\', monospace; font-size: 12px; line-height: 1.4; color: #e8e8e8;">')
 
-        # Convert headers with MINIMAL spacing - almost no gaps
-        text = re.sub(r'^#### (.*$)', r'<div style="margin: 3px 0 1px 0; font-weight: 600; font-size: 14px;">\1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*$)', r'<div style="margin: 4px 0 1px 0; font-weight: 600; font-size: 15px;">\1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*$)', r'<div style="margin: 5px 0 2px 0; font-weight: 600; font-size: 16px;">\1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.*$)', r'<div style="margin: 6px 0 2px 0; font-weight: 600; font-size: 17px;">\1</div>', text, flags=re.MULTILINE)
+        # Style tables
+        html = html.replace('<table>', '<table style="margin: 6px 0; border-collapse: collapse; width: 100%; font-size: 12px;">')
+        html = html.replace('<thead>', '<thead style="background: rgba(0,0,0,0.2);">')
+        html = html.replace('<th>', '<th style="padding: 4px 8px; text-align: left; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.2);">')
+        html = html.replace('<td>', '<td style="padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">')
 
-        # Convert bullet points with minimal spacing
-        text = re.sub(r'^[•\-\*] (.*)$', r'<div style="margin: 0; padding-left: 12px; line-height: 1.25;">• \1</div>', text, flags=re.MULTILINE)
+        # Style headers with minimal spacing
+        html = html.replace('<h1>', '<h1 style="margin: 6px 0 2px 0; font-weight: 600; font-size: 17px;">')
+        html = html.replace('<h2>', '<h2 style="margin: 5px 0 2px 0; font-weight: 600; font-size: 16px;">')
+        html = html.replace('<h3>', '<h3 style="margin: 4px 0 1px 0; font-weight: 600; font-size: 15px;">')
+        html = html.replace('<h4>', '<h4 style="margin: 3px 0 1px 0; font-weight: 600; font-size: 14px;">')
 
-        # Handle line breaks - be very conservative with spacing
-        # First, convert double line breaks to a paragraph separator
-        text = text.replace('\n\n', '|||PARA|||')
-        # Single line breaks become just spaces (inline continuation)
-        text = text.replace('\n', ' ')
-        # Paragraph separators become single line break
-        text = text.replace('|||PARA|||', '<br>')
+        # Style lists with minimal spacing
+        html = html.replace('<ul>', '<ul style="margin: 4px 0; padding-left: 20px;">')
+        html = html.replace('<ol>', '<ol style="margin: 4px 0; padding-left: 20px;">')
+        html = html.replace('<li>', '<li style="margin: 1px 0; line-height: 1.3;">')
 
-        return text
+        # Style paragraphs with minimal spacing
+        html = html.replace('<p>', '<p style="margin: 2px 0; line-height: 1.3;">')
+
+        return html
 
     @staticmethod
     def _get_authentic_iphone_styles() -> str:

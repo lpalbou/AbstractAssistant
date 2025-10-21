@@ -4,6 +4,7 @@ Pillow>=10.0.0
 PyQt5>=5.15.0
 markdown>=3.5.0
 pygments>=2.16.0
+pymdown-extensions>=10.0
 abstractvoice>=0.1.1
 pyperclip>=1.8.2
 plyer>=2.1.0
