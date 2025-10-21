@@ -2,9 +2,12 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+py-modules = ["setup_macos_app"]
+
 [project]
 name = "abstractassistant"
-version = "0.2.5"
+version = "0.2.6"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -52,6 +55,7 @@ dev = [
 
 [project.scripts]
 assistant = "abstractassistant.cli:main"
+create-app-bundle = "abstractassistant.create_app_bundle:main"
 
 [project.urls]
 Homepage = "https://github.com/lpalbou/abstractassistant"
