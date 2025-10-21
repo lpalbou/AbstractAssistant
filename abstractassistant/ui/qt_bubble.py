@@ -442,7 +442,7 @@ class QtChatBubble(QWidget):
         self.input_container = QFrame()
         self.input_container.setStyleSheet("""
             QFrame {
-                background: #1e1e1e;
+                background: #2a2a2a;
                 border: 1px solid #404040;
                 border-radius: 8px;
                 padding: 4px;
@@ -501,8 +501,8 @@ class QtChatBubble(QWidget):
         
         # Bottom controls - Cursor style (minimal, clean)
         controls_layout = QHBoxLayout()
-        controls_layout.setContentsMargins(12, 3, 12, 4)
-        controls_layout.setSpacing(8)
+        controls_layout.setContentsMargins(8, 2, 8, 2)
+        controls_layout.setSpacing(4)
         
         # Provider dropdown (rounded, clean)
         self.provider_combo = QComboBox()
@@ -514,7 +514,7 @@ class QtChatBubble(QWidget):
                 background: rgba(255, 255, 255, 0.08);
                 border: none;
                 border-radius: 14px;
-                padding: 0 12px;
+                padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
                 font-family: -apple-system, system-ui, sans-serif;
@@ -544,7 +544,7 @@ class QtChatBubble(QWidget):
                 background: rgba(255, 255, 255, 0.08);
                 border: none;
                 border-radius: 14px;
-                padding: 0 12px;
+                padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
                 font-family: -apple-system, system-ui, sans-serif;
@@ -568,7 +568,7 @@ class QtChatBubble(QWidget):
         
         # Token counter (minimal)
         self.token_label = QLabel("0 / 128k")
-        self.token_label.setFixedHeight(36)  # Increased by 30% (28 * 1.3 = 36.4 ≈ 36)
+        self.token_label.setFixedHeight(28)  # Match provider and model dropdown height
         self.token_label.setMinimumWidth(104)  # Increased by 30% (80 * 1.3 = 104)
         self.token_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.token_label.setStyleSheet("""
@@ -612,7 +612,7 @@ class QtChatBubble(QWidget):
             
             /* Input Field - Modern Grey Design */
             QTextEdit {
-                background: #1e1e1e;
+                background: #2a2a2a;
                 border: 1px solid #404040;
                 border-radius: 8px;
                 padding: 12px 16px;
@@ -626,7 +626,7 @@ class QtChatBubble(QWidget):
             
             QTextEdit:focus {
                 border: 1px solid #0066cc;
-                background: #252525;
+                background: #333333;
             }
             
             QTextEdit::placeholder {

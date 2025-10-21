@@ -10,18 +10,18 @@ from typing import Dict, List
 try:
     from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
                                  QWidget, QLabel, QFrame, QPushButton)
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import Qt, QTimer
     from PyQt6.QtGui import QFont
 except ImportError:
     try:
         from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
                                      QWidget, QLabel, QFrame, QPushButton)
-        from PyQt5.QtCore import Qt
+        from PyQt5.QtCore import Qt, QTimer
         from PyQt5.QtGui import QFont
     except ImportError:
         from PySide2.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
                                        QWidget, QLabel, QFrame, QPushButton)
-        from PySide2.QtCore import Qt
+        from PySide2.QtCore import Qt, QTimer
         from PySide2.QtGui import QFont
 
 
@@ -96,6 +96,9 @@ class iPhoneMessagesDialog:
 
         # Apply authentic iPhone styling
         dialog.setStyleSheet(iPhoneMessagesDialog._get_authentic_iphone_styles())
+
+        # Auto-scroll to bottom to show the latest messages
+        QTimer.singleShot(100, lambda: scroll_area.verticalScrollBar().setValue(scroll_area.verticalScrollBar().maximum()))
 
         return dialog
 
