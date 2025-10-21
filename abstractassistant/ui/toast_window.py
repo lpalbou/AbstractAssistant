@@ -107,7 +107,7 @@ class ToastWindow(QWidget):
                 color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
         """)
         header_layout.addWidget(title_label)
@@ -128,7 +128,7 @@ class ToastWindow(QWidget):
                     border-radius: 12px;
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 }
                 QPushButton:hover {
                     background: rgba(255, 255, 255, 0.15);
@@ -149,7 +149,7 @@ class ToastWindow(QWidget):
                     border-radius: 12px;
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 }
                 QPushButton:hover {
                     background: rgba(255, 255, 255, 0.15);
@@ -173,7 +173,7 @@ class ToastWindow(QWidget):
                 border-radius: 12px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.7);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.15);
@@ -194,7 +194,7 @@ class ToastWindow(QWidget):
                 border-radius: 12px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.7);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.15);
@@ -260,7 +260,7 @@ class ToastWindow(QWidget):
                 color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 font-size: 11px;
                 font-weight: 500;
             }
@@ -274,7 +274,7 @@ class ToastWindow(QWidget):
                 font-size: 10px;
                 font-weight: 500;
                 color: rgba(255, 255, 255, 0.8);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
             
             QPushButton:hover {
@@ -295,7 +295,7 @@ class ToastWindow(QWidget):
                 font-size: 13px;
                 font-weight: 400;
                 color: rgba(255, 255, 255, 0.95);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 selection-background-color: rgba(34, 197, 94, 0.3);
                 line-height: 1.5;
             }
@@ -506,11 +506,10 @@ class ToastManager:
         self.debug = debug
         self.current_toast: Optional[ToastWindow] = None
         
-        # Ensure QApplication exists
-        if not QApplication.instance():
-            self.app = QApplication(sys.argv)
-        else:
-            self.app = QApplication.instance()
+        # Always use existing QApplication instance (never create a new one)
+        self.app = QApplication.instance()
+        if not self.app:
+            raise RuntimeError("No QApplication instance found. This should be created by the main app first.")
         
         if self.debug:
             print("✅ ToastManager initialized")
@@ -546,10 +545,10 @@ _active_toasts = []
 def show_toast_notification(message: str, debug: bool = False, voice_manager=None):
     """Standalone function to show a toast notification - stays visible until manually closed."""
     try:
-        # Create a minimal QApplication if none exists
+        # Always use existing QApplication instance (never create a new one)
         app = QApplication.instance()
         if not app:
-            app = QApplication(sys.argv)
+            raise RuntimeError("No QApplication instance found. This should be created by the main app first.")
 
         # Create and show toast (no auto-hide)
         toast = ToastWindow(message, debug=debug, voice_manager=voice_manager)

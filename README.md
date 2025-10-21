@@ -27,24 +27,22 @@ A sleek macOS system tray application providing instant access to Large Language
 
 #### 🍎 macOS Users (Recommended)
 ```bash
-# Enhanced installation with Dock integration
-python3 install.py
-```
-
-This will:
-- Install AbstractAssistant from PyPI
-- Create a macOS app bundle in `/Applications`
-- Add AbstractAssistant to your Dock for easy access
-
-**Alternative**: After installation, create the app bundle manually:
-```bash
+# Install AbstractAssistant
 pip install abstractassistant
+
+# Create native macOS app bundle
 create-app-bundle
 ```
 
+This will:
+- Install AbstractAssistant from PyPI with all dependencies
+- Create a native macOS app bundle in `/Applications`
+- Add AbstractAssistant to your Dock with a beautiful neural network icon
+- Enable launch from Spotlight, Finder, and Dock
+
 #### 🔧 Standard Installation
 ```bash
-# Install from PyPI
+# Install from PyPI (terminal access only)
 pip install abstractassistant
 ```
 

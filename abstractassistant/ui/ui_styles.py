@@ -276,7 +276,7 @@ class UIStyles:
                 padding: 8px;
                 background: {COLORS['surface']};
                 font-size: 13px;
-                font-family: 'SF Pro Text', "Helvetica Neue", BlinkMacSystemFont, sans-serif;
+                font-family: 'Helvetica Neue', "Helvetica", Arial, sans-serif;
             }}
             QTextEdit:focus {{
                 border-color: {COLORS['primary']};
@@ -291,7 +291,7 @@ class UIStyles:
                 padding: 12px 16px;
                 background: {COLORS['surface']};
                 font-size: 14px;
-                font-family: 'SF Pro Text', "Helvetica Neue", BlinkMacSystemFont, sans-serif;
+                font-family: 'Helvetica Neue', "Helvetica", Arial, sans-serif;
                 max-height: 120px;
                 min-height: 40px;
             }}

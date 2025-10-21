@@ -2,8 +2,8 @@
 """
 macOS App Bundle Generator for AbstractAssistant.
 
-This module creates a macOS .app bundle during installation,
-allowing users to launch AbstractAssistant from the Dock.
+Creates a native macOS .app bundle with Dock integration and system tray support.
+Usage: create-app-bundle (after pip install abstractassistant)
 """
 
 import os
@@ -11,7 +11,6 @@ import sys
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 try:
     from PIL import Image
@@ -143,9 +142,9 @@ class MacOSAppBundleGenerator:
     <key>CFBundleDisplayName</key>
     <string>AbstractAssistant</string>
     <key>CFBundleVersion</key>
-    <string>0.2.5</string>
+    <string>0.2.8</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.2.5</string>
+    <string>0.2.8</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>
@@ -185,16 +184,71 @@ class MacOSAppBundleGenerator:
 # AbstractAssistant macOS App Launcher
 # This script launches the AbstractAssistant application
 
-# Find the Python executable and package
-PYTHON_EXEC="$(which python3)"
-if [ -z "$PYTHON_EXEC" ]; then
-    PYTHON_EXEC="$(which python)"
+# Set up environment paths for GUI launch (common locations)
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+
+# Add user-specific Python paths if they exist
+if [ -d "$HOME/.pyenv/shims" ]; then
+    export PATH="$HOME/.pyenv/shims:$PATH"
 fi
 
+if [ -d "$HOME/.local/bin" ]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
+if [ -d "/opt/anaconda3/bin" ]; then
+    export PATH="/opt/anaconda3/bin:$PATH"
+fi
+
+if [ -d "$HOME/anaconda3/bin" ]; then
+    export PATH="$HOME/anaconda3/bin:$PATH"
+fi
+
+# Function to find Python with abstractassistant installed
+find_python_with_abstractassistant() {
+    # Try specific paths first (more reliable than PATH-based search)
+    for python_path in \\
+        "$HOME/.pyenv/versions/*/bin/python3" \\
+        "$HOME/.pyenv/shims/python3" \\
+        "/usr/local/bin/python3" \\
+        "/opt/homebrew/bin/python3" \\
+        "/usr/bin/python3" \\
+        "/opt/anaconda3/bin/python" \\
+        "$HOME/anaconda3/bin/python" \\
+        "/usr/local/anaconda3/bin/python"; do
+        
+        # Expand glob patterns
+        for py in $python_path; do
+            if [ -x "$py" ] && "$py" -c "import abstractassistant" 2>/dev/null; then
+                echo "$py"
+                return 0
+            fi
+        done
+    done
+    
+    # Fallback to PATH-based search
+    for python_cmd in python3 python python3.12 python3.11 python3.10 python3.9; do
+        if command -v "$python_cmd" >/dev/null 2>&1; then
+            if "$python_cmd" -c "import abstractassistant" 2>/dev/null; then
+                echo "$python_cmd"
+                return 0
+            fi
+        fi
+    done
+    
+    return 1
+}
+
+# Find Python with AbstractAssistant
+PYTHON_EXEC=$(find_python_with_abstractassistant)
+
 if [ -z "$PYTHON_EXEC" ]; then
-    echo "Error: Python not found in PATH"
+    osascript -e 'display dialog "AbstractAssistant not found in any Python installation.\\n\\nPlease install it with:\\npip install abstractassistant\\n\\nOr run the create-app-bundle command after installation." with title "AbstractAssistant" buttons {"OK"} default button "OK" with icon caution'
     exit 1
 fi
+
+# Change to a neutral directory to avoid importing development versions
+cd /tmp
 
 # Launch the assistant
 exec "$PYTHON_EXEC" -m abstractassistant.cli "$@"'''

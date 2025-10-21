@@ -103,7 +103,7 @@ class MarkdownRenderer:
         """Get base CSS styles for markdown content."""
         return """
         .markdown-content {
-            font-family: "SF Pro Text", "Helvetica Neue", BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             font-size: 14px;  /* Base font size */
             line-height: 1.6;
             color: #e2e8f0;

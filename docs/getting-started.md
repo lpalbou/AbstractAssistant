@@ -27,6 +27,13 @@ assistant
 ### 2. Find the System Tray Icon
 Look for the AbstractAssistant icon in your **macOS menu bar** (top-right corner, near the clock).
 
+**🎨 Dynamic Icon States**:
+- **🟢 Gentle Green Heartbeat**: Ready and waiting for your input
+- **🔴 Fast Red Heartbeat**: Thinking, generating, or processing your request  
+- **🔵 Gentle Blue Heartbeat**: Speaking (when voice mode is active)
+
+The icon provides visual feedback about what AbstractAssistant is doing at any moment!
+
 ### 3. Open the Chat Interface
 **Click the icon** to open the modern chat bubble interface.
 

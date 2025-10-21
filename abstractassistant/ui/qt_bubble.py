@@ -31,7 +31,7 @@ try:
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
         QFileDialog, QMessageBox
     )
-    from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect
+    from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
     from PyQt5.QtCore import QPoint
     QT_AVAILABLE = "PyQt5"
@@ -42,7 +42,7 @@ except ImportError:
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
             QFileDialog, QMessageBox
         )
-        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot
+        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
         from PySide2.QtCore import QPoint
         QT_AVAILABLE = "PySide2"
@@ -145,7 +145,7 @@ class TTSToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -212,7 +212,7 @@ class FullVoiceToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -331,6 +331,24 @@ class QtChatBubble(QWidget):
         if self.debug:
             print("✅ QtChatBubble initialized")
     
+    def set_response_callback(self, callback):
+        """Set response callback."""
+        self.response_callback = callback
+    
+    def set_error_callback(self, callback):
+        """Set error callback."""
+        self.error_callback = callback
+    
+    def set_status_callback(self, callback):
+        """Set status callback."""
+        self.status_callback = callback
+        if self.debug:
+            print("✅ Status callback set in QtChatBubble")
+    
+    def set_app_quit_callback(self, callback):
+        """Set app quit callback."""
+        self.app_quit_callback = callback
+    
     def setup_ui(self):
         """Set up the modern user interface with SOTA UX practices."""
         self.setWindowTitle("AbstractAssistant")
@@ -366,7 +384,7 @@ class QtChatBubble(QWidget):
                 font-size: 14px;
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
             QPushButton:hover {
                 background: rgba(255, 60, 60, 0.8);
@@ -398,7 +416,7 @@ class QtChatBubble(QWidget):
                     border-radius: 11px;
                     font-size: 10px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                     padding: 0 10px;
                 }
                 QPushButton:hover {
@@ -440,7 +458,7 @@ class QtChatBubble(QWidget):
                 font-size: 10px;
                 font-weight: 600;
                 color: #ffffff;
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
         """)
         header_layout.addWidget(self.status_label)
@@ -570,7 +588,7 @@ class QtChatBubble(QWidget):
                 padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
             QComboBox:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -600,7 +618,7 @@ class QtChatBubble(QWidget):
                 padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
             QComboBox:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -631,7 +649,7 @@ class QtChatBubble(QWidget):
                 border-radius: 14px;
                 font-size: 12px;
                 color: rgba(255, 255, 255, 0.6);
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
         """)
         controls_layout.addWidget(self.token_label)
@@ -672,7 +690,7 @@ class QtChatBubble(QWidget):
                 font-size: 14px;
                 font-weight: 400;
                 color: #ffffff;
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 selection-background-color: #0066cc;
                 line-height: 1.4;
             }
@@ -695,7 +713,7 @@ class QtChatBubble(QWidget):
                 font-size: 11px;
                 font-weight: 500;
                 color: #ffffff;
-                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
             
             QPushButton:hover {
@@ -723,7 +741,7 @@ class QtChatBubble(QWidget):
                     font-size: 12px;
                     font-weight: 400;
                     color: #ffffff;
-                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                     letter-spacing: 0.01em;
                 }
             
@@ -753,7 +771,7 @@ class QtChatBubble(QWidget):
                     selection-background-color: #4299e1;
                     color: #e2e8f0;
                     padding: 4px;
-                    font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
                 }
                 
                 QComboBox QAbstractItemView::item {
@@ -785,7 +803,7 @@ class QtChatBubble(QWidget):
                 color: rgba(255, 255, 255, 0.8);
                 font-size: 12px;
                 font-weight: 500;
-                font-family: "SF Pro Text", "Helvetica Neue", 'Segoe UI', Roboto, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", 'Segoe UI', Arial, sans-serif;
                 letter-spacing: 0.3px;
             }
             
@@ -800,7 +818,7 @@ class QtChatBubble(QWidget):
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 color: #a6e3a1;
-                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
             }
             
             QLabel#status_generating {
@@ -813,7 +831,7 @@ class QtChatBubble(QWidget):
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 color: #fab387;
-                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
             }
             
             QLabel#status_error {
@@ -826,7 +844,7 @@ class QtChatBubble(QWidget):
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 color: #f38ba8;
-                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
             }
             
             QLabel#token_label {
@@ -834,7 +852,7 @@ class QtChatBubble(QWidget):
                 border: 1px solid #4a5568;
                 border-radius: 8px;
                 padding: 10px 12px;
-                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
                 font-size: 11px;
                 font-weight: 500;
                 color: #cbd5e0;
@@ -1271,6 +1289,10 @@ class QtChatBubble(QWidget):
             }
         """)
         
+        # Notify main app about status change (for icon animation)
+        if self.status_callback:
+            self.status_callback("ready")
+        
         # Get updated message history from AbstractCore session
         self._update_message_history_from_session()
 
@@ -1287,6 +1309,10 @@ class QtChatBubble(QWidget):
                 # Clean response for voice synthesis
                 clean_response = self._clean_response_for_voice(response)
                 
+                # Notify main app about speaking status (for icon animation)
+                if self.status_callback:
+                    self.status_callback("speaking")
+                
                 # Speak the cleaned response using AbstractVoice-compatible interface
                 self.voice_manager.speak(clean_response)
 
@@ -1295,12 +1321,44 @@ class QtChatBubble(QWidget):
 
                 # Wait for speech to complete in a separate thread
                 def wait_for_speech():
-                    while self.voice_manager.is_speaking():
-                        time.sleep(0.1)
-                    # Update toggle state when speech completes
-                    self._update_tts_toggle_state()
                     if self.debug:
-                        print("🔊 TTS completed")
+                        print("🔊 Starting TTS completion monitoring...")
+                    
+                    while self.voice_manager.is_speaking():
+                        if self.debug:
+                            print("🔊 TTS still speaking...")
+                        time.sleep(0.1)
+                    
+                    if self.debug:
+                        print("🔊 TTS finished speaking, updating status...")
+                    
+                    # Update toggle state when speech completes (this is safe from any thread)
+                    self._update_tts_toggle_state()
+                    
+                    # Use QMetaObject.invokeMethod to call callbacks on the main thread
+                    def call_callbacks_on_main_thread():
+                        # Call response callback now that TTS is done
+                        if self.response_callback:
+                            print(f"🔄 QtChatBubble: TTS completed, calling response callback...")
+                            self.response_callback(response)
+                        
+                        # Notify main app that speaking is done (back to ready)
+                        if self.status_callback:
+                            print(f"🔊 QtChatBubble: Calling status callback with 'ready' on main thread")
+                            self.status_callback("ready")
+                        
+                        if self.debug:
+                            print("🔊 TTS completed - all callbacks finished")
+                    
+                    # Schedule the callback execution on the main thread
+                    QMetaObject.invokeMethod(self, "_execute_tts_completion_callbacks", Qt.QueuedConnection)
+                
+                # Store the callback function so it can be called from the main thread
+                self._tts_completion_callback = lambda: (
+                    self.response_callback(response) if self.response_callback else None,
+                    self.status_callback("ready") if self.status_callback else None,
+                    print("🔊 QtChatBubble: TTS completed - all callbacks finished on main thread") if self.debug else None
+                )
                 
                 speech_thread = threading.Thread(target=wait_for_speech, daemon=True)
                 speech_thread.start()
@@ -1317,10 +1375,12 @@ class QtChatBubble(QWidget):
             # Show chat history instead of toast when TTS is disabled - only if voice mode is OFF
             self._show_history_if_voice_mode_off()
         
-        # Also call response callback if set
-        if self.response_callback:
+        # Call response callback if set (but NOT when TTS is active - wait for TTS to complete)
+        if self.response_callback and not (self.tts_enabled and self.voice_manager and self.voice_manager.is_available()):
             print(f"🔄 QtChatBubble: Response callback exists, calling it...")
             self.response_callback(response)
+        elif self.response_callback and self.tts_enabled:
+            print(f"🔊 QtChatBubble: Response callback delayed - waiting for TTS to complete")
     
     def on_tts_toggled(self, enabled: bool):
         """Handle TTS toggle state change."""
@@ -1623,7 +1683,7 @@ class QtChatBubble(QWidget):
                     font-size: 10px;
                     font-weight: 600;
                     color: #ffffff;
-                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 }}
             """)
 
@@ -2125,7 +2185,7 @@ class QtChatBubble(QWidget):
                         border-radius: 11px;
                         font-size: 10px;
                         color: #ffffff;
-                        font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                         padding: 0 10px;
                         font-weight: 600;
                     }
@@ -2142,7 +2202,7 @@ class QtChatBubble(QWidget):
                         border-radius: 11px;
                         font-size: 10px;
                         color: rgba(255, 255, 255, 0.7);
-                        font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                         padding: 0 10px;
                     }
                     QPushButton:hover {
@@ -2204,6 +2264,21 @@ class QtChatBubble(QWidget):
         """Set callback to properly quit the main application."""
         self.app_quit_callback = callback
     
+    @pyqtSlot()
+    def _execute_tts_completion_callbacks(self):
+        """Execute TTS completion callbacks on the main thread."""
+        if hasattr(self, '_tts_completion_callback') and self._tts_completion_callback:
+            print("🔊 QtChatBubble: Executing TTS completion callbacks on main thread...")
+            
+            # Execute the stored callback
+            try:
+                self._tts_completion_callback()
+            except Exception as e:
+                print(f"❌ Error executing TTS completion callback: {e}")
+            finally:
+                # Clear the callback
+                self._tts_completion_callback = None
+    
     
     def closeEvent(self, event):
         """Handle close event."""
@@ -2246,11 +2321,10 @@ class QtBubbleManager:
     def _prepare_bubble(self):
         """Pre-initialize the bubble for instant display later."""
         if not self.app:
-            # Create QApplication if it doesn't exist
-            if not QApplication.instance():
-                self.app = QApplication(sys.argv)
-            else:
-                self.app = QApplication.instance()
+            # Always use existing QApplication instance (never create a new one)
+            self.app = QApplication.instance()
+            if not self.app:
+                raise RuntimeError("No QApplication instance found. This should be created by the main app first.")
 
         if not self.bubble:
             if self.debug:

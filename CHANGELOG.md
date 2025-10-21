@@ -2,6 +2,47 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.2.8] - 2025-10-21
+
+### Added
+- **macOS App Bundle**: Native macOS application bundle (`.app`) with Dock integration and system tray support
+- **Automated App Creation**: `create-app-bundle` command to generate macOS app bundle post-installation
+- **Streamlined Installation**: `install.py` script for one-command macOS setup with app bundle creation
+- **Neural Network Icon**: Beautiful AI-inspired icon automatically generated and converted to `.icns` format
+
+### Improved
+- **Cross-Environment Compatibility**: Robust Python environment detection supporting pyenv, anaconda, homebrew, and system Python
+- **Portable Launch Script**: Smart Python discovery that works across different users and system configurations
+- **Error Handling**: User-friendly dialog boxes for installation and launch issues
+- **Documentation**: Updated installation guides for macOS App Bundle workflow
+
+### Fixed
+- **Python Environment Detection**: Resolved issues with finding correct Python installation in GUI launch context
+- **Development vs Production**: Launch script now correctly uses installed package instead of development version
+- **PATH Resolution**: Fixed Python executable discovery when launched from Dock vs terminal
+
+### Technical
+- Added `MacOSAppBundleGenerator` class for programmatic app bundle creation
+- Enhanced `setup_macos_app.py` with comprehensive Python environment detection
+- Updated `pyproject.toml` to include app bundle creation tools as console scripts
+- Improved launch script with fallback mechanisms for different Python installations
+- Added proper `Info.plist` configuration for macOS app bundle standards
+
+### Installation
+```bash
+# Simple one-command installation for macOS users
+python install.py
+
+# Or manual installation
+pip install abstractassistant
+create-app-bundle
+```
+
+### Usage
+- Launch from **Applications folder** or **Dock**
+- Look for neural network icon in **menu bar** (system tray)
+- All existing CLI options remain available
+
 ## [0.2.5] - 2025-10-21
 
 ### Added

@@ -240,7 +240,7 @@ class iPhoneMessagesDialog:
                 background: transparent;
                 border: none;
                 text-align: left;
-                font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
         """)
         nav_layout.addWidget(back_btn)
@@ -254,7 +254,7 @@ class iPhoneMessagesDialog:
                 color: #ffffff;
                 font-size: 17px;
                 font-weight: 600;
-                font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
         """)
         nav_layout.addWidget(title)
@@ -328,7 +328,7 @@ class iPhoneMessagesDialog:
                     font-size: 14px;
                     font-weight: 400;
                     line-height: 18px;
-                    font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 }
             """)
             # Right align
@@ -351,7 +351,7 @@ class iPhoneMessagesDialog:
                     font-size: 14px;
                     font-weight: 400;
                     line-height: 18px;
-                    font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 }
             """)
             # Left align
@@ -394,7 +394,7 @@ class iPhoneMessagesDialog:
                 font-size: 13px;
                 font-weight: 400;
                 color: rgba(255, 255, 255, 0.6);
-                font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 padding: 0px;
             }
         """)

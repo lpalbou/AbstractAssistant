@@ -149,16 +149,27 @@ class AbstractAssistantApp:
         self.is_running: bool = False
         self.bubble_visible: bool = False
         
+        # Icon animation state
+        self.base_icon: Optional[Image.Image] = None
+        self.animation_timer: Optional[threading.Timer] = None
+        self.current_status: str = "ready"
+        
         if self.debug:
             print(f"AbstractAssistant initialized with config: {self.config.to_dict()}")
         
     def create_system_tray_icon(self) -> pystray.Icon:
         """Create and configure the system tray icon."""
-        # Generate a modern, clean icon - start with ready state (green, steady)
-        icon_image = self.icon_generator.create_app_icon(
-            color_scheme="green",  # Ready state: steady green
-            animated=False         # Ready state: no animation
-        )
+        # Try to use the app bundle icon first, fallback to generated icon
+        self.base_icon = self._load_app_bundle_icon()
+        if not self.base_icon:
+            # Generate a modern, clean icon - start with ready state (green, steady)
+            self.base_icon = self.icon_generator.create_app_icon(
+                color_scheme="green",  # Ready state: steady green
+                animated=False         # Ready state: no animation
+            )
+
+        # Apply initial heartbeat effect
+        icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, "ready")
 
         if self.debug:
             print("🔄 Creating enhanced system tray icon with single/double click detection")
@@ -173,138 +184,185 @@ class AbstractAssistantApp:
             debug=self.debug
         )
     
+    def _load_app_bundle_icon(self) -> Optional[Image.Image]:
+        """Load the icon from the app bundle if available."""
+        try:
+            from pathlib import Path
+            # Try to find the app bundle icon
+            app_bundle_icon = Path("/Applications/AbstractAssistant.app/Contents/Resources/icon.png")
+            
+            if self.debug:
+                print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
+                print(f"   Exists: {app_bundle_icon.exists()}")
+            
+            if app_bundle_icon.exists():
+                base_icon = Image.open(app_bundle_icon)
+                
+                if self.debug:
+                    print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
+                
+                # Resize to system tray size if needed
+                target_size = (self.config.system_tray.icon_size, self.config.system_tray.icon_size)
+                if base_icon.size != target_size:
+                    if self.debug:
+                        print(f"🔄 Resizing from {base_icon.size} to {target_size}")
+                    base_icon = base_icon.resize(target_size, Image.Resampling.LANCZOS)
+                
+                return base_icon
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Could not load app bundle icon: {e}")
+        return None
+    
     def update_icon_status(self, status: str):
         """Update the system tray icon based on application status.
         
         Args:
-            status: 'ready', 'generating', 'executing', 'thinking'
+            status: 'ready', 'generating', 'executing', 'thinking', 'speaking'
         """
-        if not self.icon:
+        if self.debug:
+            print(f"🔄 update_icon_status called with: {status}")
+            print(f"   Previous status: {self.current_status}")
+        
+        if not self.icon and not (hasattr(self, 'qt_tray_icon') and self.qt_tray_icon):
+            if self.debug:
+                print("⚠️  No icon available for status update")
             return
-            
+        
+        if not self.base_icon:
+            if self.debug:
+                print("⚠️  No base icon available for status update")
+            return
+        
         try:
-            if status == "ready":
-                # Ready: gentle heartbeat green
-                self._stop_working_animation()
-                self._start_ready_animation()
-            elif status in ["generating", "executing", "thinking"]:
-                # Working: start continuous animation with cycling colors
-                self._start_working_animation()
-                return  # Don't update icon here, let the timer handle it
-            else:
-                # Default: steady green
-                icon_image = self.icon_generator.create_app_icon(
-                    color_scheme="green",
-                    animated=False
-                )
+            # Stop any existing animation timer
+            self._stop_animation_timer()
             
-            # Update the icon
-            self.icon.icon = icon_image
+            # Map status to animation type
+            animation_status = status
+            if status in ["thinking", "generating", "executing"]:
+                animation_status = "thinking"  # All working states use thinking animation
+            elif status == "speaking":
+                animation_status = "speaking"
+            else:
+                animation_status = "ready"  # Default to ready
+            
+            # Update current status AFTER determining animation type
+            self.current_status = animation_status
+            
+            # Start appropriate animation
+            self._start_heartbeat_animation(animation_status)
             
             if self.debug:
-                print(f"🎨 Updated icon status to: {status}")
+                print(f"🎨 Updated icon status: {status} -> animation: {animation_status}")
                 
         except Exception as e:
             if self.debug:
                 print(f"❌ Error updating icon status: {e}")
     
-    def _start_working_animation(self):
-        """Start the working animation timer for continuous icon updates."""
+    def _start_heartbeat_animation(self, status: str):
+        """Start smooth heartbeat animation for the given status."""
+        if self.debug:
+            print(f"🎬 Starting smooth heartbeat animation for: {status}")
+            print(f"   pystray icon available: {self.icon is not None}")
+            print(f"   Qt icon available: {hasattr(self, 'qt_tray_icon') and self.qt_tray_icon is not None}")
+            print(f"   Base icon available: {self.base_icon is not None}")
+        
+        # Stop any existing animation
+        self._stop_animation_timer()
+        
+        # Use Qt timer if we're in Qt mode, otherwise use threading timer
+        if hasattr(self, 'qt_tray_icon') and self.qt_tray_icon is not None:
+            self._start_qt_animation(status)
+        else:
+            self._start_threading_animation(status)
+    
+    def _start_qt_animation(self, status: str):
+        """Start Qt-based animation using QTimer."""
         try:
-            import threading
-            import time
+            from PyQt5.QtCore import QTimer
             
-            # Stop any existing timer
-            self._stop_working_animation()
+            def update_icon():
+                try:
+                    if self.base_icon and self.current_status == status and hasattr(self, 'qt_tray_icon'):
+                        # Apply smooth heartbeat effect
+                        icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status)
+                        self._update_qt_icon(icon_image)
+                    elif self.debug:
+                        print(f"⚠️  Qt animation stopped - status_match:{self.current_status == status}")
+                        if hasattr(self, 'qt_animation_timer'):
+                            self.qt_animation_timer.stop()
+                except Exception as e:
+                    if self.debug:
+                        print(f"❌ Error in Qt animation: {e}")
             
-            # Create a heartbeat-like animation with dynamic timing
-            def update_working_icon():
-                if self.icon:
-                    try:
-                        icon_image = self.icon_generator.create_app_icon(
-                            color_scheme="working",
-                            animated=True
-                        )
-                        self.icon.icon = icon_image
-                    except Exception as e:
-                        if self.debug:
-                            print(f"❌ Error updating working icon: {e}")
-            
-            # Heartbeat-like timer with dynamic intervals
-            def heartbeat_timer_loop():
-                while hasattr(self, 'working_active') and self.working_active:
-                    # Fast heartbeat pattern: beat-beat-pause
-                    update_working_icon()
-                    time.sleep(0.1)  # First beat
-                    update_working_icon()
-                    time.sleep(0.1)  # Second beat
-                    update_working_icon()
-                    time.sleep(0.8)  # Longer pause between heartbeats
-            
-            self.working_active = True
-            self.working_timer = threading.Thread(target=heartbeat_timer_loop, daemon=True)
-            self.working_timer.start()
+            # Create Qt timer for smooth animation
+            self.qt_animation_timer = QTimer()
+            self.qt_animation_timer.timeout.connect(update_icon)
+            self.qt_animation_timer.start(50)  # 20 FPS (50ms intervals)
             
             if self.debug:
-                print("🎨 Started working animation")
+                print("✅ Qt animation timer started")
                 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error starting working animation: {e}")
+                print(f"❌ Error starting Qt animation: {e}")
     
-    def _start_ready_animation(self):
-        """Start the gentle ready state heartbeat animation."""
+    def _start_threading_animation(self, status: str):
+        """Start threading-based animation using threading.Timer."""
+        def update_icon():
+            try:
+                if self.icon and self.base_icon and self.current_status == status:
+                    # Apply smooth heartbeat effect
+                    icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status)
+                    self.icon.icon = icon_image
+                    
+                    # Schedule next update at 20 FPS for smooth animation
+                    self.animation_timer = threading.Timer(0.05, update_icon)
+                    self.animation_timer.start()
+                elif self.debug:
+                    print(f"⚠️  Threading animation stopped - status_match:{self.current_status == status}")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error in threading animation: {e}")
+        
+        # Start the threading animation
+        update_icon()
+    
+    def _update_qt_icon(self, icon_image):
+        """Update Qt system tray icon with new image."""
         try:
-            import threading
-            import time
+            from PyQt5.QtGui import QIcon, QPixmap
+            import io
             
-            # Stop any existing animations
-            self._stop_working_animation()
-            self._stop_ready_animation()
+            # Convert PIL image to QPixmap
+            img_buffer = io.BytesIO()
+            icon_image.save(img_buffer, format='PNG')
+            img_buffer.seek(0)
             
-            def update_ready_icon():
-                if self.icon:
-                    try:
-                        icon_image = self.icon_generator.create_app_icon(
-                            color_scheme="green",
-                            animated=True
-                        )
-                        self.icon.icon = icon_image
-                    except Exception as e:
-                        if self.debug:
-                            print(f"❌ Error updating ready icon: {e}")
+            pixmap = QPixmap()
+            pixmap.loadFromData(img_buffer.getvalue())
+            qt_icon = QIcon(pixmap)
             
-            # Gentle heartbeat timer - slower, more subtle
-            def ready_timer_loop():
-                while hasattr(self, 'ready_active') and self.ready_active:
-                    update_ready_icon()
-                    time.sleep(0.1)  # Update every 100ms for smooth animation
+            # Update the Qt tray icon
+            self.qt_tray_icon.setIcon(qt_icon)
             
-            self.ready_active = True
-            self.ready_timer = threading.Thread(target=ready_timer_loop, daemon=True)
-            self.ready_timer.start()
-            
-            if self.debug:
-                print("🎨 Started ready heartbeat animation")
-                
         except Exception as e:
             if self.debug:
-                print(f"❌ Error starting ready animation: {e}")
+                print(f"❌ Error updating Qt icon: {e}")
     
-    def _stop_ready_animation(self):
-        """Stop the ready animation."""
-        if hasattr(self, 'ready_active'):
-            self.ready_active = False
-        if self.debug:
-            print("🎨 Stopped ready animation")
+    def _stop_animation_timer(self):
+        """Stop the current animation timer (both Qt and threading)."""
+        # Stop Qt timer if it exists
+        if hasattr(self, 'qt_animation_timer') and self.qt_animation_timer:
+            self.qt_animation_timer.stop()
+            self.qt_animation_timer = None
+        
+        # Stop threading timer if it exists
+        if hasattr(self, 'animation_timer') and self.animation_timer:
+            self.animation_timer.cancel()
+            self.animation_timer = None
     
-    def _stop_working_animation(self):
-        """Stop the working animation."""
-        if hasattr(self, 'working_active'):
-            self.working_active = False
-        self._stop_ready_animation()  # Also stop ready animation
-        if self.debug:
-            print("🎨 Stopped working animation")
 
     
     def show_chat_bubble(self, icon=None, item=None):
@@ -667,7 +725,7 @@ class AbstractAssistantApp:
                 # Set up callbacks
                 self.bubble_manager.set_response_callback(self.handle_bubble_response)
                 self.bubble_manager.set_error_callback(self.handle_bubble_error)
-                self.bubble_manager.set_status_callback(self.update_icon_status)
+                # Note: Status callback will be set after preflight initialization to avoid TTS init interference
                 self.bubble_manager.set_app_quit_callback(self.quit_application)
 
                 if self.debug:
@@ -680,6 +738,12 @@ class AbstractAssistantApp:
             # This creates the bubble without showing it
             self.bubble_manager._prepare_bubble()
 
+            # Now set the status callback after TTS initialization is complete
+            if self.bubble_manager:
+                self.bubble_manager.set_status_callback(self.update_icon_status)
+                if self.debug:
+                    print("✅ Status callback set after TTS initialization")
+
             if self.debug:
                 print("✅ Preflight initialization completed - bubble ready for instant display")
 
@@ -687,10 +751,21 @@ class AbstractAssistantApp:
             if self.debug:
                 print(f"⚠️  Preflight initialization failed: {e}")
                 print("   First click will still work but with delay")
+            
+            # Still set status callback even if preflight failed
+            if self.bubble_manager:
+                self.bubble_manager.set_status_callback(self.update_icon_status)
 
     def quit_application(self, icon=None, item=None):
         """Quit the application gracefully."""
+        if self.debug:
+            print("🔄 Quitting AbstractAssistant...")
+        
         self.is_running = False
+        
+        # Stop animation timer
+        self._stop_animation_timer()
+        
         if self.icon:
             self.icon.stop()
         
@@ -701,6 +776,9 @@ class AbstractAssistantApp:
             except Exception as e:
                 if self.debug:
                     print(f"Error destroying bubble manager: {e}")
+        
+        if self.debug:
+            print("✅ AbstractAssistant quit successfully")
     
     def run(self):
         """Start the application using Qt event loop for proper threading."""
@@ -743,18 +821,24 @@ class AbstractAssistantApp:
             self.icon.run()
 
     def _create_qt_system_tray_icon(self):
-        """Create Qt-based system tray icon with proper click detection."""
+        """Create Qt-based system tray icon with smooth animations."""
         from PyQt5.QtWidgets import QSystemTrayIcon, QMenu, QAction
         from PyQt5.QtCore import QTimer
         from PyQt5.QtGui import QIcon, QPixmap
         from PIL import Image
         import io
 
-        # Generate icon using our icon generator
-        icon_image = self.icon_generator.create_app_icon(
-            color_scheme="green",  # Ready state: steady green
-            animated=False         # Ready state: no animation
-        )
+        # Load base icon (same as pystray version)
+        self.base_icon = self._load_app_bundle_icon()
+        if not self.base_icon:
+            # Generate a base icon if app bundle icon not available
+            self.base_icon = self.icon_generator.create_app_icon(
+                color_scheme="green",  # Ready state: steady green
+                animated=False         # Ready state: no animation
+            )
+
+        # Apply initial smooth heartbeat effect
+        icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, "ready")
 
         # Convert PIL image to QPixmap
         img_buffer = io.BytesIO()
@@ -794,11 +878,20 @@ class AbstractAssistantApp:
 
         tray_icon.setContextMenu(context_menu)
 
+        # Store reference for animations
+        self.qt_tray_icon = tray_icon
+        
         # Show the tray icon
         tray_icon.show()
 
+        # Start initial animation
         if self.debug:
-            print("✅ Qt-based system tray icon created successfully")
+            print(f"🎨 Starting initial animation with status: ready")
+            print(f"   Current status in app: {self.current_status}")
+        self._start_heartbeat_animation("ready")
+
+        if self.debug:
+            print("✅ Qt-based system tray icon created with smooth animations")
 
         return tray_icon
 

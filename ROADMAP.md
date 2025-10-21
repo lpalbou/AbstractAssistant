@@ -16,3 +16,8 @@
 
 - **Media & Repository Integration**
   - Add support for media file handling and enable indexing/searching of entire code repositories for context-aware responses.
+
+  - Need to haandle multiple sessions
+    - crucial : freedom to switch from discussion to discussion
+
+- fix session

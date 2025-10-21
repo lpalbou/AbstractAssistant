@@ -11,31 +11,33 @@ Complete setup instructions for AbstractAssistant on macOS, including prerequisi
 ### Method 1: macOS App Bundle (Recommended for macOS)
 
 ```bash
-# Enhanced installation with Dock integration
-python3 install.py
+# Install AbstractAssistant
+pip install abstractassistant
+
+# Create native macOS app bundle
+create-app-bundle
 ```
 
-This automatically:
-- Installs AbstractAssistant from PyPI
-- Creates a macOS app bundle in `/Applications`
-- Makes AbstractAssistant available in your Dock
+This process:
+- Installs AbstractAssistant from PyPI with all dependencies
+- Creates a native macOS app bundle in `/Applications`
+- Generates a beautiful neural network icon automatically
+- Makes AbstractAssistant available in your Dock and Spotlight
 
 **🎯 Launch Options**:
 - **Dock**: Click the AbstractAssistant icon
 - **Spotlight**: Search for "AbstractAssistant"
 - **Finder**: Open `/Applications/AbstractAssistant.app`
+- **Menu Bar**: Look for the neural network icon in your system tray
 
-### Method 2: PyPI (Standard)
+### Method 2: Terminal Only
 
 ```bash
 # Install the latest stable version
 pip install abstractassistant
 
-# Launch immediately
+# Launch from terminal
 assistant
-
-# Optional: Create macOS app bundle after installation
-create-app-bundle
 ```
 
 **📦 PyPI Package**: [https://pypi.org/project/abstractassistant/](https://pypi.org/project/abstractassistant/)

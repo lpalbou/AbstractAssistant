@@ -49,7 +49,7 @@ class IconGenerator:
         return img
     
     def _draw_gradient_circle(self, draw: ImageDraw.Draw, center: int, radius: int, color_scheme: str = "blue", animated: bool = False):
-        """Draw a gradient circle background with color options."""
+        
         # Color schemes - more vibrant and visible
         colors = {
             "blue": (64, 150, 255),      # Brighter blue
@@ -87,172 +87,300 @@ class IconGenerator:
                 intensity = 0.2
                 
         elif color_scheme == "green":
-            # Ready state: much more visible heartbeat
             base_color = colors["green"]
             if animated:
                 import time
-                # More noticeable pulse every 1.5 seconds
-                pulse_cycle = (time.time() * 0.67) % 1  # Faster, 1.5-second cycle
-                if pulse_cycle < 0.2:  # Strong beat
-                    intensity = 2.0  # Much brighter
-                elif pulse_cycle < 0.4:  # Fade down
-                    intensity = 1.2
-                else:  # Rest period - much dimmer
-                    intensity = 0.4  # Much darker for contrast
+                # Gentle breathing for ready state
+                intensity = 0.8 + 0.4 * math.sin(time.time() * 0.5)  # Slower breathing
             else:
                 intensity = 1.0
         else:
             base_color = colors.get(color_scheme, colors["blue"])
             intensity = 1.0
-            if animated:
-                import time
-                pulse = abs(math.sin(time.time() * 2)) * 0.2 + 0.9
-                intensity *= pulse
         
-        # Enhanced gradient effect - much more visible from center to edge
-        for i in range(radius):
-            # Create stronger gradient with more dramatic falloff
-            gradient_factor = (1 - (i / radius) ** 0.5)  # Square root for more dramatic gradient
-            alpha = int(255 * gradient_factor * intensity)
-            
-            # Ensure alpha is within bounds
-            alpha = max(0, min(255, alpha))
-            
-            # Create more vibrant color with better gradient
-            color = (*base_color, alpha)
-            draw.ellipse(
-                [center - radius + i, center - radius + i,
-                 center + radius - i, center + radius - i],
-                fill=color
-            )
+        # Apply intensity to color
+        final_color = tuple(int(c * intensity) for c in base_color)
         
-        # Add bright center core for more dramatic effect
-        core_radius = max(1, radius // 4)
-        core_alpha = int(255 * intensity * 1.2)  # Extra bright center
-        core_alpha = max(0, min(255, core_alpha))
-        core_color = (*base_color, core_alpha)
-        draw.ellipse(
-            [center - core_radius, center - core_radius,
-             center + core_radius, center + core_radius],
-            fill=core_color
-        )
+        # Draw main circle with gradient effect
+        for i in range(radius, 0, -2):
+            alpha = int(255 * (i / radius) * 0.8)
+            circle_color = final_color + (alpha,)
+            draw.ellipse([center-i, center-i, center+i, center+i], fill=circle_color)
     
     def _draw_neural_nodes(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
-        """Draw neural network-style nodes."""
-        # Animation effect for nodes - more visible
-        node_alpha = 255  # Increased from 200 for full opacity
-        small_node_alpha = 220  # Increased from 150 for better visibility
-        if animated:
-            import time
-            pulse = abs(math.sin(time.time() * 3)) * 0.2 + 0.8  # Pulse between 0.8 and 1.0
-            node_alpha = int(node_alpha * pulse)
-            small_node_alpha = int(small_node_alpha * pulse)
+        """Draw neural network nodes around the circle."""
+        node_positions = [
+            (center + radius * 0.6, center - radius * 0.3),
+            (center + radius * 0.3, center + radius * 0.6),
+            (center - radius * 0.4, center + radius * 0.4),
+            (center - radius * 0.6, center - radius * 0.2),
+            (center - radius * 0.1, center - radius * 0.7)
+        ]
         
-        # Central node (larger)
-        node_radius = int(radius * 0.15)
-        draw.ellipse(
-            [center - node_radius, center - node_radius,
-             center + node_radius, center + node_radius],
-            fill=(255, 255, 255, node_alpha)
-        )
-        
-        # Surrounding nodes
-        num_nodes = 6
-        outer_radius = int(radius * 0.7)
-        
-        for i in range(num_nodes):
-            angle = (2 * math.pi * i) / num_nodes
-            x = center + int(outer_radius * math.cos(angle))
-            y = center + int(outer_radius * math.sin(angle))
+        for i, (x, y) in enumerate(node_positions):
+            node_radius = 3 + (i % 2)  # Varying sizes
+            if animated:
+                import time
+                # Subtle pulsing
+                pulse = 1 + 0.3 * math.sin(time.time() * 2 + i)
+                node_radius *= pulse
             
-            small_radius = int(radius * 0.08)
-            draw.ellipse(
-                [x - small_radius, y - small_radius,
-                 x + small_radius, y + small_radius],
-                fill=(255, 255, 255, small_node_alpha)
-            )
+            draw.ellipse([x-node_radius, y-node_radius, x+node_radius, y+node_radius], 
+                        fill=(255, 255, 255, 180))
     
     def _draw_neural_connections(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
-        """Draw connections between neural nodes."""
-        num_nodes = 6
-        outer_radius = int(radius * 0.7)
+        """Draw connecting lines between nodes."""
+        connections = [
+            ((center + radius * 0.6, center - radius * 0.3), (center + radius * 0.3, center + radius * 0.6)),
+            ((center + radius * 0.3, center + radius * 0.6), (center - radius * 0.4, center + radius * 0.4)),
+            ((center - radius * 0.4, center + radius * 0.4), (center - radius * 0.6, center - radius * 0.2)),
+            ((center - radius * 0.1, center - radius * 0.7), (center + radius * 0.6, center - radius * 0.3))
+        ]
         
-        # Animation effect for connections - more visible
-        line_alpha = 180  # Increased from 100 for better visibility
-        connection_alpha = 120  # Increased from 60 for better visibility
-        if animated:
-            import time
-            pulse = abs(math.sin(time.time() * 2.5)) * 0.3 + 0.7  # Pulse between 0.7 and 1.0
-            line_alpha = int(line_alpha * pulse)
-            connection_alpha = int(connection_alpha * pulse)
-        
-        # Draw lines from center to outer nodes
-        for i in range(num_nodes):
-            angle = (2 * math.pi * i) / num_nodes
-            x = center + int(outer_radius * math.cos(angle))
-            y = center + int(outer_radius * math.sin(angle))
-            
-            draw.line(
-                [center, center, x, y],
-                fill=(255, 255, 255, line_alpha),
-                width=2
-            )
-        
-        # Draw some connections between outer nodes
-        for i in range(0, num_nodes, 2):
-            angle1 = (2 * math.pi * i) / num_nodes
-            angle2 = (2 * math.pi * ((i + 2) % num_nodes)) / num_nodes
-            
-            x1 = center + int(outer_radius * math.cos(angle1))
-            y1 = center + int(outer_radius * math.sin(angle1))
-            x2 = center + int(outer_radius * math.cos(angle2))
-            y2 = center + int(outer_radius * math.sin(angle2))
-            
-            draw.line(
-                [x1, y1, x2, y2],
-                fill=(255, 255, 255, connection_alpha),
-                width=1
-            )
+        for (x1, y1), (x2, y2) in connections:
+            draw.line([(x1, y1), (x2, y2)], fill=(255, 255, 255, 120), width=2)
     
-    def _add_glow_effect(self, img: Image.Image, color_scheme: str = "blue") -> Image.Image:
-        """Add a subtle glow effect to the icon."""
-        # Create a slightly larger version for the glow
-        glow_size = self.size + 8
-        glow_img = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
+    def _add_glow_effect(self, img: Image.Image, color_scheme: str) -> Image.Image:
+        """Add a subtle glow effect around the icon."""
+        # Create glow layer
+        glow = img.filter(ImageFilter.GaussianBlur(radius=3))
         
-        # Paste the original image in the center
-        offset = 4
-        glow_img.paste(img, (offset, offset), img)
-        
-        # Apply blur for glow effect
-        glow_img = glow_img.filter(ImageFilter.GaussianBlur(radius=2))
-        
-        # Crop back to original size
-        return glow_img.crop((offset, offset, offset + self.size, offset + self.size))
+        # Composite original on top of glow
+        result = Image.alpha_composite(glow, img)
+        return result
     
     def create_status_icon(self, status: str) -> Image.Image:
-        """Create a status indicator icon.
+        """Create a simple status indicator icon.
         
         Args:
-            status: Status string ('ready', 'generating', 'executing')
-            
-        Returns:
-            Small status icon image
+            status: Status type ('ready', 'working', 'error', 'warning')
         """
-        size = 16
+        size = self.size
         img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         
+        # Status colors
         colors = {
-            'ready': (0, 255, 0, 200),      # Green
-            'generating': (255, 165, 0, 200),  # Orange
-            'executing': (255, 0, 0, 200),     # Red
-            'error': (255, 0, 0, 200)          # Red
+            'ready': (52, 199, 89),      # Green
+            'working': (255, 149, 0),    # Orange
+            'error': (255, 59, 48),      # Red
+            'warning': (255, 204, 0),    # Yellow
+            'thinking': (175, 82, 222),  # Purple
+            'speaking': (0, 122, 255)    # Blue
         }
         
-        color = colors.get(status, (128, 128, 128, 200))  # Gray default
+        color = colors.get(status, colors['ready'])
         
         # Draw status circle
         draw.ellipse([2, 2, size-2, size-2], fill=color)
         
         return img
+    
+    def apply_heartbeat_effect(self, base_icon: Image.Image, status: str = "ready") -> Image.Image:
+        """Apply DRAMATIC animated effect with solid colors and rotating elements.
+        
+        Args:
+            base_icon: Base icon image to apply effect to
+            status: Status for animation type ('ready', 'thinking', 'speaking')
+            
+        Returns:
+            Icon with dramatic animated effect applied
+        """
+        import time
+        import math
+        from PIL import ImageFilter, ImageEnhance, ImageDraw
+        
+        # Debug: Print status occasionally (only in debug mode)
+        if hasattr(self, 'debug') and self.debug:
+            if hasattr(self, '_last_debug_time'):
+                if time.time() - self._last_debug_time > 3:  # Every 3 seconds
+                    print(f"🎨 Icon animation status: {status}")
+                    self._last_debug_time = time.time()
+            else:
+                print(f"🎨 Icon animation status: {status}")
+                self._last_debug_time = time.time()
+        
+        # Always print status changes for debugging
+        if not hasattr(self, '_last_status') or self._last_status != status:
+            print(f"🔄 Icon status changed: {getattr(self, '_last_status', 'none')} → {status}")
+            self._last_status = status
+        
+        # SOLID background colors for maximum visibility
+        solid_colors = {
+            'ready': (0, 255, 80),        # Bright green
+            'thinking': (255, 60, 100),   # Bright red
+            'speaking': (60, 150, 255),   # Bright blue
+            'generating': (255, 160, 0)   # Bright orange
+        }
+        
+        # Create a new dramatic icon instead of modifying the base
+        size = base_icon.size[0]
+        center = size // 2
+        
+        # Create new image with transparent background
+        result = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(result)
+        
+        # Get current time for animation
+        current_time = time.time()
+        
+        # Get base color for this status
+        base_color = solid_colors.get(status, solid_colors['ready'])
+        
+        # Status-specific animation patterns with rotation
+        print(f"🎯 Animation logic: status='{status}', base_color={base_color}")
+        
+        if status == 'thinking':
+            print("🔴 THINKING: Drawing rotating red bars")
+            # Fast rotating bars with red color - CLOCKWISE rotation
+            rotation_speed = 4.0  # 4 rotations per second
+            angle = -(current_time * rotation_speed * 360) % 360  # Negative for clockwise
+            
+            # Double-heartbeat intensity
+            heartbeat = (current_time * 3.0) % 1  # 3Hz heartbeat
+            if heartbeat < 0.1:
+                intensity = 1.0
+            elif heartbeat < 0.2:
+                intensity = 0.3
+            elif heartbeat < 0.3:
+                intensity = 1.2
+            else:
+                intensity = 0.2
+            
+            # Draw rotating bars
+            self._draw_rotating_bars(draw, center, size, angle, base_color, intensity)
+            
+        elif status == 'speaking':
+            print("🔵 SPEAKING: Drawing vibrating blue bars")
+            print(f"🔵 SPEAKING: Using color {base_color} (should be blue)")
+            
+            # Create voice frequency-like vibration pattern
+            freq1 = 8.0  # High frequency vibration
+            freq2 = 3.0  # Medium frequency modulation
+            freq3 = 1.5  # Low frequency envelope
+            
+            # Complex vibration pattern mimicking voice
+            vibration = (math.sin(current_time * freq1 * 2 * math.pi) * 0.3 +
+                        math.sin(current_time * freq2 * 2 * math.pi) * 0.4 +
+                        math.sin(current_time * freq3 * 2 * math.pi) * 0.3)
+            intensity = 0.7 + vibration * 0.3
+            
+            # Draw vibrating voice bars (vertical bars that vibrate)
+            self._draw_voice_bars(draw, center, size, base_color, intensity, current_time)
+            
+        elif status == 'ready':
+            print("🟢 READY: Drawing breathing green circle")
+            # Slow breathing circle with green color
+            breath = 0.5 + 0.5 * math.sin(current_time * 0.6 * math.pi)  # 0.3Hz breathing
+            intensity = 0.4 + breath * 0.3
+            
+            # Draw breathing circle (no rotation)
+            self._draw_breathing_circle(draw, center, size, base_color, intensity)
+            
+        else:
+            print(f"❓ UNKNOWN STATUS: '{status}' - using default circle")
+            # Default: static circle
+            self._draw_breathing_circle(draw, center, size, base_color, 0.5)
+        
+        return result
+    
+    def _draw_rotating_bars(self, draw, center, size, angle, color, intensity):
+        """Draw rotating bars for thinking status."""
+        # Adjust color intensity
+        r, g, b = color
+        r = int(min(255, r * intensity))
+        g = int(min(255, g * intensity))
+        b = int(min(255, b * intensity))
+        bar_color = (r, g, b, 255)
+        
+        # Draw 4 bars rotating around center
+        bar_length = size * 0.3
+        bar_width = size * 0.08
+        
+        for i in range(4):
+            bar_angle = angle + (i * 90)
+            rad = math.radians(bar_angle)
+            
+            # Calculate bar endpoints
+            start_x = center + math.cos(rad) * (size * 0.15)
+            start_y = center + math.sin(rad) * (size * 0.15)
+            end_x = center + math.cos(rad) * (size * 0.35)
+            end_y = center + math.sin(rad) * (size * 0.35)
+            
+            # Draw thick line as bar
+            self._draw_thick_line(draw, start_x, start_y, end_x, end_y, bar_width, bar_color)
+    
+    def _draw_voice_bars(self, draw, center, size, color, intensity, current_time):
+        """Draw vibrating voice bars for speaking status."""
+        import math
+        
+        # Adjust color intensity
+        r, g, b = color
+        r = int(min(255, r * intensity))
+        g = int(min(255, g * intensity))
+        b = int(min(255, b * intensity))
+        bar_color = (r, g, b, 255)
+        
+        # Draw 5 vertical bars with different vibration frequencies (like voice visualizer)
+        bar_count = 5
+        bar_width = size * 0.08
+        bar_spacing = size * 0.12
+        
+        for i in range(bar_count):
+            # Each bar has slightly different frequency for realistic voice effect
+            bar_freq = 6.0 + i * 1.5  # Different frequencies per bar
+            bar_vibration = math.sin(current_time * bar_freq * 2 * math.pi)
+            
+            # Bar height varies with vibration (like audio visualizer)
+            base_height = size * 0.15
+            vibration_height = size * 0.25 * abs(bar_vibration)
+            total_height = base_height + vibration_height
+            
+            # Position bars horizontally across the icon
+            x = center - (bar_count - 1) * bar_spacing / 2 + i * bar_spacing
+            y_top = center - total_height / 2
+            y_bottom = center + total_height / 2
+            
+            # Draw vertical bar
+            bbox = [x - bar_width/2, y_top, x + bar_width/2, y_bottom]
+            draw.rectangle(bbox, fill=bar_color)
+    
+    def _draw_breathing_circle(self, draw, center, size, color, intensity):
+        """Draw breathing circle for ready status."""
+        # Adjust color intensity
+        r, g, b = color
+        r = int(min(255, r * intensity))
+        g = int(min(255, g * intensity))
+        b = int(min(255, b * intensity))
+        circle_color = (r, g, b, 255)
+        
+        # Draw MUCH LARGER pulsing circle to match menu bar icon size
+        base_radius = size * 0.35  # Much larger base size
+        radius = base_radius * (0.8 + 0.4 * intensity)
+        bbox = [center - radius, center - radius, center + radius, center + radius]
+        draw.ellipse(bbox, fill=circle_color)
+    
+    def _draw_thick_line(self, draw, x1, y1, x2, y2, width, color):
+        """Draw a thick line between two points."""
+        import math
+        # Calculate perpendicular offset for thickness
+        dx = x2 - x1
+        dy = y2 - y1
+        length = math.sqrt(dx*dx + dy*dy)
+        if length == 0:
+            return
+            
+        # Normalize and get perpendicular
+        dx /= length
+        dy /= length
+        px = -dy * width / 2
+        py = dx * width / 2
+        
+        # Draw polygon for thick line
+        points = [
+            (x1 + px, y1 + py),
+            (x1 - px, y1 - py),
+            (x2 - px, y2 - py),
+            (x2 + px, y2 + py)
+        ]
+        draw.polygon(points, fill=color)
