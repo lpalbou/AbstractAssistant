@@ -33,7 +33,8 @@ class EnhancedClickableIcon(pystray.Icon):
         self.DOUBLE_CLICK_TIMEOUT = 300  # milliseconds
 
         if self.debug:
-            print(f"🔄 EnhancedClickableIcon created with single_click: {single_click_handler is not None}, double_click: {double_click_handler is not None}")
+            if hasattr(self, 'debug') and self.debug:
+                print(f"🔄 EnhancedClickableIcon created with single_click: {single_click_handler is not None}, double_click: {double_click_handler is not None}")
 
         # Create with no menu initially
         super().__init__(name, image, text, menu=None)
@@ -42,7 +43,8 @@ class EnhancedClickableIcon(pystray.Icon):
     def _menu(self):
         """Override _menu property to intercept access and handle click timing."""
         if self.debug:
-            print(f"🔍 _menu property accessed! Click count: {self.click_count}")
+            if hasattr(self, 'debug') and self.debug:
+                print(f"🔍 _menu property accessed! Click count: {self.click_count}")
 
         self._handle_click_timing()
         # Return None so no menu is displayed
@@ -66,7 +68,8 @@ class EnhancedClickableIcon(pystray.Icon):
             self.click_timer.start()
 
             if self.debug:
-                print("🔄 First click detected, starting timer...")
+                if hasattr(self, 'debug') and self.debug:
+                    print("🔄 First click detected, starting timer...")
 
         elif self.click_count == 2:
             # Second click - cancel timer and execute double click
@@ -78,7 +81,8 @@ class EnhancedClickableIcon(pystray.Icon):
             self._execute_double_click()
 
             if self.debug:
-                print("🔄 Double click detected!")
+                if hasattr(self, 'debug') and self.debug:
+                    print("🔄 Double click detected!")
 
     def _execute_single_click(self):
         """Execute single click handler after timeout."""
@@ -86,13 +90,15 @@ class EnhancedClickableIcon(pystray.Icon):
         self.click_timer = None
 
         if self.debug:
-            print("✅ Single click detected on system tray icon!")
+            if hasattr(self, 'debug') and self.debug:
+                print("✅ Single click detected on system tray icon!")
 
         if self.single_click_handler:
             try:
                 self.single_click_handler()
             except Exception as e:
-                print(f"❌ Single click handler error: {e}")
+                if hasattr(self, 'debug') and self.debug:
+                    print(f"❌ Single click handler error: {e}")
                 if self.debug:
                     import traceback
                     traceback.print_exc()
@@ -100,13 +106,15 @@ class EnhancedClickableIcon(pystray.Icon):
     def _execute_double_click(self):
         """Execute double click handler immediately."""
         if self.debug:
-            print("✅ Double click detected on system tray icon!")
+            if hasattr(self, 'debug') and self.debug:
+                print("✅ Double click detected on system tray icon!")
 
         if self.double_click_handler:
             try:
                 self.double_click_handler()
             except Exception as e:
-                print(f"❌ Double click handler error: {e}")
+                if hasattr(self, 'debug') and self.debug:
+                    print(f"❌ Double click handler error: {e}")
                 if self.debug:
                     import traceback
                     traceback.print_exc()
@@ -115,7 +123,8 @@ class EnhancedClickableIcon(pystray.Icon):
     def _menu(self, value):
         """Allow setting _menu during initialization."""
         if self.debug:
-            print(f"🔍 _menu property set to: {value}")
+            if hasattr(self, 'debug') and self.debug:
+                print(f"🔍 _menu property set to: {value}")
         self._stored_menu = value
 
 
@@ -136,7 +145,8 @@ class AbstractAssistantApp:
         
         # Validate configuration
         if not self.config.validate():
-            print("Warning: Configuration validation failed, using defaults")
+            if self.debug:
+                print("Warning: Configuration validation failed, using defaults")
             self.config = Config.default()
         
         # Initialize components
@@ -172,7 +182,8 @@ class AbstractAssistantApp:
         icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, "ready")
 
         if self.debug:
-            print("🔄 Creating enhanced system tray icon with single/double click detection")
+            if self.debug:
+                print("🔄 Creating enhanced system tray icon with single/double click detection")
 
         # Use our enhanced ClickableIcon for single/double click handling
         return EnhancedClickableIcon(
@@ -192,26 +203,30 @@ class AbstractAssistantApp:
             app_bundle_icon = Path("/Applications/AbstractAssistant.app/Contents/Resources/icon.png")
             
             if self.debug:
-                print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
-                print(f"   Exists: {app_bundle_icon.exists()}")
+                if self.debug:
+                    print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
+                    print(f"   Exists: {app_bundle_icon.exists()}")
             
             if app_bundle_icon.exists():
                 base_icon = Image.open(app_bundle_icon)
                 
                 if self.debug:
-                    print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
+                    if self.debug:
+                        print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
                 
                 # Resize to system tray size if needed
                 target_size = (self.config.system_tray.icon_size, self.config.system_tray.icon_size)
                 if base_icon.size != target_size:
                     if self.debug:
-                        print(f"🔄 Resizing from {base_icon.size} to {target_size}")
+                        if self.debug:
+                            print(f"🔄 Resizing from {base_icon.size} to {target_size}")
                     base_icon = base_icon.resize(target_size, Image.Resampling.LANCZOS)
                 
                 return base_icon
         except Exception as e:
             if self.debug:
-                print(f"❌ Could not load app bundle icon: {e}")
+                if self.debug:
+                    print(f"❌ Could not load app bundle icon: {e}")
         return None
     
     def update_icon_status(self, status: str):
@@ -559,10 +574,12 @@ class AbstractAssistantApp:
     def show_toast_notification(self, message: str, type: str = "info"):
         """Show a toast notification."""
         icon = "✅" if type == "success" else "❌" if type == "error" else "ℹ️"
-        print(f"{icon} {message}")
+        if self.debug:
+            print(f"{icon} {message}")
         
         if self.debug:
-            print(f"Toast notification: {type} - {message}")
+            if self.debug:
+                print(f"Toast notification: {type} - {message}")
         
         # Show a proper macOS notification
         try:
@@ -596,22 +613,40 @@ class AbstractAssistantApp:
         """Update application status."""
         # Status is now handled by the web interface
         if self.debug:
-            print(f"Status update: {status}")
+            if self.debug:
+                print(f"Status update: {status}")
     
     def clear_session(self, icon=None, item=None):
-        """Clear the current session."""
+        """Clear the current session with user confirmation."""
         try:
             if self.debug:
-                print("🔄 Clearing session...")
+                print("🔄 System tray clear session requested...")
             
-            self.llm_manager.clear_session()
+            # CRITICAL: System tray actions MUST have user confirmation
+            # Use the bubble's clear_session method which includes confirmation dialog
+            if hasattr(self, 'bubble_manager') and self.bubble_manager:
+                # Delegate to bubble manager which has proper user confirmation
+                bubble = self.bubble_manager.get_current_bubble()
+                if bubble:
+                    bubble.clear_session()  # This includes user confirmation dialog
+                    return
             
+            # Fallback: Show notification that clearing requires UI interaction
+            try:
+                from .ui.toast_window import show_toast_notification
+                show_toast_notification(
+                    "To clear session, please use the Clear button in the chat interface", 
+                    debug=self.debug
+                )
+            except:
+                print("💬 To clear session, please use the Clear button in the chat interface")
+                
             if self.debug:
-                print("✅ Session cleared")
+                print("⚠️  System tray clear session requires user confirmation via UI")
                 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error clearing session: {e}")
+                print(f"❌ Error in clear session request: {e}")
     
     def save_session(self, icon=None, item=None):
         """Save the current session to file."""
@@ -651,58 +686,36 @@ class AbstractAssistantApp:
                 print(f"❌ Error saving session: {e}")
     
     def load_session(self, icon=None, item=None):
-        """Load a session from file."""
+        """Load a session from file with user confirmation."""
         try:
             if self.debug:
-                print("🔄 Loading session...")
+                print("🔄 System tray load session requested...")
             
-            # Get sessions directory
-            import os
-            sessions_dir = os.path.join(os.path.expanduser("~"), ".abstractassistant", "sessions")
+            # CRITICAL: System tray actions MUST NOT automatically replace sessions
+            # Use the bubble's load_session method which includes proper file picker
+            if hasattr(self, 'bubble_manager') and self.bubble_manager:
+                # Delegate to bubble manager which has proper user file selection
+                bubble = self.bubble_manager.get_current_bubble()
+                if bubble:
+                    bubble.load_session()  # This includes user file picker dialog
+                    return
             
-            if not os.path.exists(sessions_dir):
-                if self.debug:
-                    print("❌ No sessions directory found")
-                return
-            
-            # Get list of session files
-            session_files = [f for f in os.listdir(sessions_dir) if f.endswith('.json')]
-            
-            if not session_files:
-                if self.debug:
-                    print("❌ No session files found")
-                try:
-                    from .ui.toast_window import show_toast_notification
-                    show_toast_notification("No saved sessions found", debug=self.debug)
-                except:
-                    print("📂 No saved sessions found")
-                return
-            
-            # For now, load the most recent session
-            # TODO: Add proper file picker dialog
-            session_files.sort(reverse=True)  # Most recent first
-            latest_session = session_files[0]
-            filepath = os.path.join(sessions_dir, latest_session)
-            
-            # Load session
-            success = self.llm_manager.load_session(filepath)
-            
-            if success:
-                if self.debug:
-                    print(f"✅ Session loaded from: {filepath}")
-                # Show notification
-                try:
-                    from .ui.toast_window import show_toast_notification
-                    show_toast_notification(f"Session loaded:\n{latest_session}", debug=self.debug)
-                except:
-                    print(f"📂 Session loaded: {latest_session}")
-            else:
-                if self.debug:
-                    print("❌ Failed to load session")
+            # Fallback: Show notification that loading requires UI interaction
+            try:
+                from .ui.toast_window import show_toast_notification
+                show_toast_notification(
+                    "To load session, please use the Load button in the chat interface", 
+                    debug=self.debug
+                )
+            except:
+                print("💬 To load session, please use the Load button in the chat interface")
+                
+            if self.debug:
+                print("⚠️  System tray load session requires user file selection via UI")
                 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error loading session: {e}")
+                print(f"❌ Error in load session request: {e}")
 
     def _preflight_initialization(self):
         """Pre-initialize components for instant bubble display on first click."""
@@ -799,7 +812,7 @@ class AbstractAssistantApp:
 
             # Check if system tray is available
             if not QSystemTrayIcon.isSystemTrayAvailable():
-                print("❌ System tray is not available on this system")
+                print("❌ System tray is not available on this system")  # Always show this error
                 return
 
             # Create Qt-based system tray icon
@@ -808,14 +821,19 @@ class AbstractAssistantApp:
             # Preflight initialization: Pre-load bubble manager for instant display
             self._preflight_initialization()
 
-            print("AbstractAssistant started. Check your menu bar!")
-            print("Click the icon to open the chat interface.")
+            if not self.debug:
+                print("AbstractAssistant started. Check your menu bar!")
+                print("Click the icon to open the chat interface.")
+            else:
+                print("AbstractAssistant started. Check your menu bar!")
+                print("Click the icon to open the chat interface.")
 
             # Run Qt event loop (this blocks until quit)
             self.qt_app.exec_()
 
         except ImportError:
-            print("❌ PyQt5 not available. Falling back to pystray...")
+            if self.debug:
+                print("❌ PyQt5 not available. Falling back to pystray...")
             # Fallback to original pystray implementation
             self.icon = self.create_system_tray_icon()
             self.icon.run()

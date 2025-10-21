@@ -2,6 +2,21 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+
+## [0.3.0] - 2025-10-22
+
+### Fixed
+- **CRITICAL: Session Persistence**: Completely eliminated unwanted session clearing that was destroying chat history
+  - Sessions now persist when switching providers or models
+  - TTS mode switching preserves chat history
+  - Error handling preserves sessions instead of creating new ones
+  - System tray actions require user confirmation and cannot bypass session control
+  - Only explicit "Clear" button action in UI destroys sessions
+  - Separated LLM initialization from session management
+  - Added `update_session_mode()` method for history-preserving mode switches
+  - Fixed automatic session loading that bypassed user control
+  - Bulletproof session control: NO internal process can clear sessions
+
 ## [0.2.8] - 2025-10-21
 
 ### Added

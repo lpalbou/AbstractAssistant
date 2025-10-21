@@ -70,30 +70,109 @@ class LLMManager:
         self._initialize_llm()
     
     def _initialize_llm(self):
-        """Initialize the LLM with current provider and model."""
+        """Initialize the LLM with current provider and model.
+        
+        CRITICAL: This method ONLY initializes the LLM provider connection.
+        It does NOT create a new session to preserve chat history.
+        Sessions are only created when explicitly requested.
+        """
         try:
             if self.debug:
-                print(f"🔄 Creating LLM with provider={self.current_provider}, model={self.current_model}")
+                if self.debug:
+                    print(f"🔄 Creating LLM with provider={self.current_provider}, model={self.current_model}")
+            
+            old_llm = self.llm  # Keep reference to old LLM
             self.llm = create_llm(
                 self.current_provider,
                 model=self.current_model,
                 execute_tools=True  # Enable automatic tool execution
             )
             if self.debug:
-                print(f"✅ LLM created successfully")
+                if self.debug:
+                    print(f"✅ LLM created successfully")
             
-            # Create new session with the LLM and tools
-            self.create_new_session()
+            # CRITICAL FIX: Only create a session if we don't have one yet
+            # This preserves existing sessions when switching providers/models
+            if self.current_session is None:
+                if self.debug:
+                    if self.debug:
+                        print("🆕 No existing session - creating initial session")
+                self.create_new_session()
+            else:
+                # Update existing session with new LLM while preserving history
+                if self.debug:
+                    if self.debug:
+                        print("🔄 Updating existing session with new LLM (preserving history)")
+                self._update_session_llm()
             
             # Use AbstractCore's built-in token detection
             self._update_token_limits_from_abstractcore()
             
         except Exception as e:
-            print(f"❌ Error initializing LLM: {e}")
+            if self.debug:
+                print(f"❌ Error initializing LLM: {e}")
             import traceback
             traceback.print_exc()
             # Keep previous LLM if initialization fails
     
+    def _update_session_llm(self):
+        """Update existing session with new LLM while preserving message history.
+        
+        This method allows switching providers/models without losing chat history.
+        """
+        if not self.current_session or not self.llm:
+            return
+            
+        try:
+            # Get current session messages to preserve history
+            existing_messages = getattr(self.current_session, 'messages', [])
+            existing_system_prompt = getattr(self.current_session, 'system_prompt', None)
+            
+            # Prepare tools list (same as in create_new_session)
+            tools = []
+            if TOOLS_AVAILABLE:
+                tools = [
+                    list_files, search_files, read_file, edit_file,
+                    write_file, execute_command, web_search
+                ]
+            
+            # Create new session with new LLM but preserve system prompt
+            system_prompt = existing_system_prompt or (
+                """
+                You are a helpful AI assistant who has access to tools to help the user.
+                Always be a critical and creative thinker who leverage constructive skepticism to progress and evolve its reasoning and answers.
+                Always answer in nicely formatted markdown.
+                """
+            )
+            
+            # Create new session with preserved system prompt
+            new_session = BasicSession(
+                self.llm,
+                system_prompt=system_prompt,
+                tools=tools
+            )
+            
+            # Restore message history by replaying messages
+            # Skip system message (first message) as it's already set
+            for msg in existing_messages[1:] if len(existing_messages) > 1 else []:
+                if hasattr(msg, 'role') and hasattr(msg, 'content'):
+                    # Add message to new session's history without generating response
+                    new_session.messages.append(msg)
+            
+            # Replace current session
+            self.current_session = new_session
+            
+            if self.debug:
+                if self.debug:
+                    print(f"🔄 Session updated with new LLM - preserved {len(existing_messages)} messages")
+                
+        except Exception as e:
+            if self.debug:
+                if self.debug:
+                    print(f"❌ Error updating session LLM (preserving existing session): {e}")
+            # CRITICAL: Do NOT create new session on error - preserve existing session
+            # The user's chat history is more important than a perfect LLM update
+
     def _update_token_limits_from_abstractcore(self):
         """Update token limits using AbstractCore's built-in detection."""
         if self.llm:
@@ -104,16 +183,21 @@ class LLMManager:
             
             if self.debug:
                 # Show AbstractCore's token configuration
-                print(f"📊 {self.llm.get_token_configuration_summary()}")
+                if self.debug:
+                    print(f"📊 {self.llm.get_token_configuration_summary()}")
     
     def create_new_session(self, tts_mode: bool = False):
         """Create a new session with tools - CLEAN AND SIMPLE as per AbstractCore docs.
+        
+        WARNING: This method creates a completely new session, destroying existing chat history.
+        Use update_session_mode() to switch TTS mode while preserving history.
         
         Args:
             tts_mode: If True, use concise prompts optimized for text-to-speech
         """
         if not self.llm:
-            print("❌ No LLM available - cannot create session")
+            if self.debug:
+                print("❌ No LLM available - cannot create session")
             return
             
         # Prepare tools list
@@ -124,7 +208,8 @@ class LLMManager:
                 write_file, execute_command, web_search
             ]
             if self.debug:
-                print(f"🔧 Registering {len(tools)} tools with session")
+                if self.debug:
+                    print(f"🔧 Registering {len(tools)} tools with session")
         
         # Choose system prompt based on TTS mode
         if tts_mode:
@@ -155,9 +240,84 @@ class LLMManager:
         
         if self.debug:
             if TOOLS_AVAILABLE:
-                print(f"✅ Created new AbstractCore session with tools ({'TTS mode' if tts_mode else 'normal mode'})")
+                if self.debug:
+                    print(f"✅ Created new AbstractCore session with tools ({'TTS mode' if tts_mode else 'normal mode'})")
             else:
-                print(f"✅ Created new AbstractCore session (no tools available, {'TTS mode' if tts_mode else 'normal mode'})")
+                if self.debug:
+                    print(f"✅ Created new AbstractCore session (no tools available, {'TTS mode' if tts_mode else 'normal mode'})")
+
+    def update_session_mode(self, tts_mode: bool = False):
+        """Update session mode (TTS vs normal) while preserving chat history.
+        
+        This method changes the system prompt behavior without destroying the session.
+        
+        Args:
+            tts_mode: If True, switch to TTS-optimized mode; if False, switch to normal mode
+        """
+        if not self.current_session:
+            # No existing session - only create if this is initial startup
+            if self.debug:
+                if self.debug:
+                    print("⚠️  No session exists - creating initial session for mode update")
+            self.create_new_session(tts_mode=tts_mode)
+            return
+            
+        try:
+            # Get current session messages to preserve history
+            existing_messages = getattr(self.current_session, 'messages', [])
+            
+            # Prepare tools list
+            tools = []
+            if TOOLS_AVAILABLE:
+                tools = [
+                    list_files, search_files, read_file, edit_file,
+                    write_file, execute_command, web_search
+                ]
+            
+            # Choose system prompt based on TTS mode
+            if tts_mode:
+                system_prompt = (
+                    """
+                    You are a Helpful Voice Assistant. By design, your answers are short and more conversational, unless specifically asked to detail something.
+                    You only speak, so never use any text formatting or markdown. Write for a speaker.
+                    """
+                )
+            else:
+                system_prompt = (
+                    """
+                    You are a helpful AI assistant who has access to tools to help the user.
+                    Always be a critical and creative thinker who leverage constructive skepticism to progress and evolve its reasoning and answers.
+                    Always answer in nicely formatted markdown.
+                    """
+                )
+            
+            # Create new session with updated system prompt
+            new_session = BasicSession(
+                self.llm,
+                system_prompt=system_prompt,
+                tools=tools
+            )
+            
+            # Restore message history by replaying messages
+            # Skip system message (first message) as it's already set with new prompt
+            for msg in existing_messages[1:] if len(existing_messages) > 1 else []:
+                if hasattr(msg, 'role') and hasattr(msg, 'content'):
+                    # Add message to new session's history without generating response
+                    new_session.messages.append(msg)
+            
+            # Replace current session
+            self.current_session = new_session
+            
+            if self.debug:
+                if self.debug:
+                    print(f"🔄 Session mode updated to {'TTS' if tts_mode else 'normal'} - preserved {len(existing_messages)} messages")
+                
+        except Exception as e:
+            if self.debug:
+                if self.debug:
+                    print(f"❌ Error updating session mode (preserving existing session): {e}")
+            # CRITICAL: Do NOT create new session on error - preserve existing session
+            # The user's chat history is more important than a perfect mode switch
     
     def clear_session(self):
         """Clear current session and create a new one."""
@@ -168,19 +328,22 @@ class LLMManager:
         try:
             if not self.current_session:
                 if self.debug:
-                    print("⚠️  No session to save")
+                    if self.debug:
+                        print("⚠️  No session to save")
                 return False
             
             # Use AbstractCore's built-in save method
             self.current_session.save(filepath)
             
             if self.debug:
-                print(f"✅ Session saved to {filepath}")
+                if self.debug:
+                    print(f"✅ Session saved to {filepath}")
             return True
             
         except Exception as e:
             if self.debug:
-                print(f"❌ Error saving session: {e}")
+                if self.debug:
+                    print(f"❌ Error saving session: {e}")
             return False
     
     def load_session(self, filepath: str):
@@ -201,12 +364,14 @@ class LLMManager:
             self._update_token_limits_from_abstractcore()
             
             if self.debug:
-                print(f"✅ Session loaded from {filepath}")
+                if self.debug:
+                    print(f"✅ Session loaded from {filepath}")
             return True
             
         except Exception as e:
             if self.debug:
-                print(f"❌ Error loading session: {e}")
+                if self.debug:
+                    print(f"❌ Error loading session: {e}")
             return False
     
     def get_providers(self) -> List[Dict[str, Any]]:
@@ -219,7 +384,8 @@ class LLMManager:
             return get_available_models_for_provider(provider)
         except Exception as e:
             if self.debug:
-                print(f"⚠️  Could not get models for {provider}: {e}")
+                if self.debug:
+                    print(f"⚠️  Could not get models for {provider}: {e}")
             return []
     
     def set_provider(self, provider: str, model: Optional[str] = None):
@@ -235,7 +401,8 @@ class LLMManager:
             # Reinitialize LLM
             self._initialize_llm()
         elif self.debug:
-            print(f"⚠️  Provider {provider} not available")
+            if self.debug:
+                print(f"⚠️  Provider {provider} not available")
     
     def set_model(self, model: str):
         """Set the active model for current provider."""
@@ -261,8 +428,11 @@ class LLMManager:
             self.set_model(model)
 
         try:
-            # Ensure we have a session
+            # Ensure we have a session - but only create if absolutely necessary
             if self.current_session is None:
+                if self.debug:
+                    if self.debug:
+                        print("⚠️  No session exists - creating initial session for first use")
                 self.create_new_session()
 
             # Generate response using session with optional media files

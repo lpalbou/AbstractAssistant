@@ -257,7 +257,8 @@ class LLMWorker(QThread):
             self.response_ready.emit(response_text)
 
         except Exception as e:
-            print(f"❌ LLM Error: {e}")
+            if self.debug:
+                print(f"❌ LLM Error: {e}")
             import traceback
             traceback.print_exc()
             self.error_occurred.emit(str(e))
@@ -886,7 +887,8 @@ class QtChatBubble(QWidget):
         self.move(x, y)
         
         if self.debug:
-            print(f"Positioned bubble at ({x}, {y})")
+            if self.debug:
+                print(f"Positioned bubble at ({x}, {y})")
     
     def load_providers(self):
         """Load available providers using ProviderManager."""
@@ -899,13 +901,15 @@ class QtChatBubble(QWidget):
                 available_providers = self.provider_manager.get_available_providers(exclude_mock=True)
 
                 if self.debug:
-                    print(f"🔍 ProviderManager found {len(available_providers)} available providers")
+                    if self.debug:
+                        print(f"🔍 ProviderManager found {len(available_providers)} available providers")
 
                 # Add providers to dropdown
                 for display_name, provider_key in available_providers:
                     self.provider_combo.addItem(display_name, provider_key)
                     if self.debug:
-                        print(f"    ✅ Added: {display_name} ({provider_key})")
+                        if self.debug:
+                            print(f"    ✅ Added: {display_name} ({provider_key})")
 
                 # Set preferred provider
                 preferred = self.provider_manager.get_preferred_provider(available_providers, 'lmstudio')
@@ -942,14 +946,16 @@ class QtChatBubble(QWidget):
                 )
 
             if self.debug:
-                print(f"🔍 Final selected provider: {self.current_provider}")
+                if self.debug:
+                    print(f"🔍 Final selected provider: {self.current_provider}")
 
             # Load models for current provider
             self.update_models()
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error loading providers: {e}")
+                if self.debug:
+                    print(f"❌ Error loading providers: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -958,7 +964,8 @@ class QtChatBubble(QWidget):
                 self.provider_combo.addItem("LMStudio (Local)", "lmstudio")
                 self.current_provider = "lmstudio"
                 if self.debug:
-                    print("🔄 Using fallback provider list")
+                    if self.debug:
+                        print("🔄 Using fallback provider list")
     
     def update_models(self):
         """Update model dropdown using ProviderManager."""
@@ -970,7 +977,8 @@ class QtChatBubble(QWidget):
                 models = self.provider_manager.get_models_for_provider(self.current_provider)
 
                 if self.debug:
-                    print(f"📋 ProviderManager loaded {len(models)} models for {self.current_provider}")
+                    if self.debug:
+                        print(f"📋 ProviderManager loaded {len(models)} models for {self.current_provider}")
 
                 # Add models to dropdown with display names
                 for model in models:
@@ -1012,13 +1020,15 @@ class QtChatBubble(QWidget):
                     self.model_combo.setCurrentIndex(0)
 
             if self.debug:
-                print(f"✅ Final selected model: {self.current_model}")
+                if self.debug:
+                    print(f"✅ Final selected model: {self.current_model}")
 
             self.update_token_limits()
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error updating models: {e}")
+                if self.debug:
+                    print(f"❌ Error updating models: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -1028,7 +1038,8 @@ class QtChatBubble(QWidget):
                 self.current_model = "default-model"
                 self.model_combo.setCurrentIndex(0)
                 if self.debug:
-                    print(f"🔄 Using final fallback model: {self.current_model}")
+                    if self.debug:
+                        print(f"🔄 Using final fallback model: {self.current_model}")
     
     def update_token_limits(self):
         """Update token limits using AbstractCore's built-in detection."""
@@ -1078,7 +1089,8 @@ class QtChatBubble(QWidget):
         self.update_models()
         
         if self.debug:
-            print(f"Provider changed to: {self.current_provider}")
+            if self.debug:
+                print(f"Provider changed to: {self.current_provider}")
     
     def on_model_changed(self, model_name):
         """Handle model change."""
@@ -1113,7 +1125,8 @@ class QtChatBubble(QWidget):
                 if file_path not in self.attached_files:
                     self.attached_files.append(file_path)
                     if self.debug:
-                        print(f"📎 Attached file: {file_path}")
+                        if self.debug:
+                            print(f"📎 Attached file: {file_path}")
 
             self.update_attached_files_display()
 
@@ -1199,7 +1212,8 @@ class QtChatBubble(QWidget):
         if file_path in self.attached_files:
             self.attached_files.remove(file_path)
             if self.debug:
-                print(f"🗑️ Removed attached file: {file_path}")
+                if self.debug:
+                    print(f"🗑️ Removed attached file: {file_path}")
             self.update_attached_files_display()
 
     def send_message(self):
@@ -1246,7 +1260,8 @@ class QtChatBubble(QWidget):
         if self.status_callback:
             self.status_callback("generating")
 
-        print("🔄 QtChatBubble: UI updated, creating worker thread...")
+        if self.debug:
+            print("🔄 QtChatBubble: UI updated, creating worker thread...")
 
         # 5. Start worker thread to send request with optional media files
         self.worker = LLMWorker(
@@ -1259,17 +1274,20 @@ class QtChatBubble(QWidget):
         self.worker.response_ready.connect(self.on_response_ready)
         self.worker.error_occurred.connect(self.on_error_occurred)
 
-        print("🔄 QtChatBubble: Starting worker thread...")
+        if self.debug:
+            print("🔄 QtChatBubble: Starting worker thread...")
         self.worker.start()
 
-        print("🔄 QtChatBubble: Worker thread started, hiding bubble...")
+        if self.debug:
+            print("🔄 QtChatBubble: Worker thread started, hiding bubble...")
         # Hide bubble after sending (like the original design)
         QTimer.singleShot(500, self.hide)
     
     @pyqtSlot(str)
     def on_response_ready(self, response):
         """Handle LLM response."""
-        print(f"✅ QtChatBubble: on_response_ready called with response: {response[:100]}...")
+        if self.debug:
+            print(f"✅ QtChatBubble: on_response_ready called with response: {response[:100]}...")
         
         self.send_button.setEnabled(True)
         self.send_button.setText("→")
@@ -1302,91 +1320,83 @@ class QtChatBubble(QWidget):
         # Handle TTS if enabled (AbstractVoice integration)
         if self.tts_enabled and self.voice_manager and self.voice_manager.is_available():
             if self.debug:
-                print("🔊 TTS enabled, speaking response...")
+                if self.debug:
+                    print("🔊 TTS enabled, speaking response...")
             
             # Don't show toast when TTS is enabled
             try:
                 # Clean response for voice synthesis
                 clean_response = self._clean_response_for_voice(response)
                 
-                # Notify main app about speaking status (for icon animation)
-                if self.status_callback:
-                    self.status_callback("speaking")
+                # Set up callbacks to detect when speech actually starts/ends
+                # Use QMetaObject.invokeMethod to ensure callbacks run on main thread
+                def on_speech_start():
+                    if self.debug:
+                        print("🔊 QtChatBubble: Speech actually started (background thread)")
+                    # Schedule status update on main thread
+                    QMetaObject.invokeMethod(self, "_on_speech_started_main_thread", Qt.QueuedConnection)
+                
+                def on_speech_end():
+                    if self.debug:
+                        print("🔊 QtChatBubble: Speech ended (background thread)")
+                    # Schedule completion handling on main thread
+                    QMetaObject.invokeMethod(self, "_on_speech_ended_main_thread", Qt.QueuedConnection)
+                
+                # Set the callbacks on the voice manager
+                self.voice_manager.on_speech_start = on_speech_start
+                self.voice_manager.on_speech_end = on_speech_end
                 
                 # Speak the cleaned response using AbstractVoice-compatible interface
+                # Note: We don't set "speaking" status here anymore - we wait for the callback
                 self.voice_manager.speak(clean_response)
 
                 # Update toggle state to 'speaking'
                 self._update_tts_toggle_state()
-
-                # Wait for speech to complete in a separate thread
-                def wait_for_speech():
-                    if self.debug:
-                        print("🔊 Starting TTS completion monitoring...")
-                    
-                    while self.voice_manager.is_speaking():
-                        if self.debug:
-                            print("🔊 TTS still speaking...")
-                        time.sleep(0.1)
-                    
-                    if self.debug:
-                        print("🔊 TTS finished speaking, updating status...")
-                    
-                    # Update toggle state when speech completes (this is safe from any thread)
-                    self._update_tts_toggle_state()
-                    
-                    # Use QMetaObject.invokeMethod to call callbacks on the main thread
-                    def call_callbacks_on_main_thread():
-                        # Call response callback now that TTS is done
-                        if self.response_callback:
-                            print(f"🔄 QtChatBubble: TTS completed, calling response callback...")
-                            self.response_callback(response)
-                        
-                        # Notify main app that speaking is done (back to ready)
-                        if self.status_callback:
-                            print(f"🔊 QtChatBubble: Calling status callback with 'ready' on main thread")
-                            self.status_callback("ready")
-                        
-                        if self.debug:
-                            print("🔊 TTS completed - all callbacks finished")
-                    
-                    # Schedule the callback execution on the main thread
-                    QMetaObject.invokeMethod(self, "_execute_tts_completion_callbacks", Qt.QueuedConnection)
                 
-                # Store the callback function so it can be called from the main thread
-                self._tts_completion_callback = lambda: (
-                    self.response_callback(response) if self.response_callback else None,
-                    self.status_callback("ready") if self.status_callback else None,
-                    print("🔊 QtChatBubble: TTS completed - all callbacks finished on main thread") if self.debug else None
-                )
-                
-                speech_thread = threading.Thread(target=wait_for_speech, daemon=True)
-                speech_thread.start()
+                # Store response for callback when TTS completes
+                self._pending_response = response
 
                 # Show chat history after TTS starts (small delay) - only if voice mode is OFF
                 QTimer.singleShot(800, self._show_history_if_voice_mode_off)
 
             except Exception as e:
                 if self.debug:
-                    print(f"❌ TTS error: {e}")
+                    if self.debug:
+                        print(f"❌ TTS error: {e}")
                 # Show chat history as fallback - only if voice mode is OFF
                 QTimer.singleShot(100, self._show_history_if_voice_mode_off)
         else:
             # Show chat history instead of toast when TTS is disabled - only if voice mode is OFF
             self._show_history_if_voice_mode_off()
         
-        # Call response callback if set (but NOT when TTS is active - wait for TTS to complete)
-        if self.response_callback and not (self.tts_enabled and self.voice_manager and self.voice_manager.is_available()):
-            print(f"🔄 QtChatBubble: Response callback exists, calling it...")
-            self.response_callback(response)
-        elif self.response_callback and self.tts_enabled:
-            print(f"🔊 QtChatBubble: Response callback delayed - waiting for TTS to complete")
+        # Handle status transitions based on TTS mode
+        tts_will_handle = self.tts_enabled and self.voice_manager and self.voice_manager.is_available()
+        if self.debug:
+            print(f"🔍 QtChatBubble: TTS decision - tts_enabled={self.tts_enabled}, voice_manager={self.voice_manager is not None}, is_available={self.voice_manager.is_available() if self.voice_manager else False}")
+            print(f"🔍 QtChatBubble: TTS will handle callbacks: {tts_will_handle}")
+        
+        if not tts_will_handle:
+            # Non-TTS path: Go directly to ready mode
+            if self.debug:
+                print(f"🔄 QtChatBubble: Non-TTS path - going to ready mode immediately")
+            if self.response_callback:
+                self.response_callback(response)
+            if self.status_callback:
+                self.status_callback("ready")
+        else:
+            # TTS path: Stay in thinking mode until audio actually starts
+            if self.debug:
+                print(f"🔊 QtChatBubble: TTS path - staying in thinking mode until audio starts")
+                print(f"🔊 QtChatBubble: v0.5.1 callbacks will handle status transitions")
+            # DON'T call response_callback or set "ready" status here!
+            # The v0.5.1 callbacks will handle everything
     
     def on_tts_toggled(self, enabled: bool):
         """Handle TTS toggle state change."""
         self.tts_enabled = enabled
         if self.debug:
-            print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
+            if self.debug:
+                print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
 
         # Stop any current speech when disabling
         if not enabled and self.voice_manager:
@@ -1395,17 +1405,20 @@ class QtChatBubble(QWidget):
                 self._update_tts_toggle_state()
             except Exception as e:
                 if self.debug:
-                    print(f"❌ Error stopping TTS: {e}")
+                    if self.debug:
+                        print(f"❌ Error stopping TTS: {e}")
 
-        # Update LLM session with TTS-appropriate system prompt
+        # Update LLM session mode while preserving chat history
         if self.llm_manager:
             try:
-                self.llm_manager.create_new_session(tts_mode=enabled)
+                self.llm_manager.update_session_mode(tts_mode=enabled)
                 if self.debug:
-                    print(f"🔄 LLM session updated for {'TTS' if enabled else 'normal'} mode")
+                    if self.debug:
+                        print(f"🔄 LLM session mode updated for {'TTS' if enabled else 'normal'} mode (history preserved)")
             except Exception as e:
                 if self.debug:
-                    print(f"❌ Error updating LLM session: {e}")
+                    if self.debug:
+                        print(f"❌ Error updating LLM session: {e}")
 
     def on_tts_single_click(self):
         """Handle single click on TTS toggle - pause/resume functionality."""
@@ -1419,27 +1432,33 @@ class QtChatBubble(QWidget):
                 # Pause the speech - may need multiple attempts if audio stream just started
                 success = self._attempt_pause_with_retry()
                 if success and self.debug:
-                    print("🔊 TTS paused via single click")
+                    if self.debug:
+                        print("🔊 TTS paused via single click")
                 elif self.debug:
-                    print("🔊 TTS pause failed - audio stream may not be ready yet")
+                    if self.debug:
+                        print("🔊 TTS pause failed - audio stream may not be ready yet")
             elif current_state == 'paused':
                 # Resume the speech
                 success = self.voice_manager.resume()
                 if success and self.debug:
-                    print("🔊 TTS resumed via single click")
+                    if self.debug:
+                        print("🔊 TTS resumed via single click")
                 elif self.debug:
-                    print("🔊 TTS resume failed")
+                    if self.debug:
+                        print("🔊 TTS resume failed")
             else:
                 # If idle, do nothing or could show a message
                 if self.debug:
-                    print("🔊 TTS single click - no active speech to pause/resume")
+                    if self.debug:
+                        print("🔊 TTS single click - no active speech to pause/resume")
 
             # Update visual state
             self._update_tts_toggle_state()
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error handling TTS single click: {e}")
+                if self.debug:
+                    print(f"❌ Error handling TTS single click: {e}")
 
     def _attempt_pause_with_retry(self, max_attempts=5):
         """Attempt to pause with retry logic for timing issues.
@@ -1462,7 +1481,8 @@ class QtChatBubble(QWidget):
                 return True
 
             if self.debug:
-                print(f"🔊 Pause attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                if self.debug:
+                    print(f"🔊 Pause attempt {attempt + 1}/{max_attempts} failed, retrying...")
 
             # Short delay before retry
             time.sleep(0.1)
@@ -1472,7 +1492,8 @@ class QtChatBubble(QWidget):
     def on_tts_double_click(self):
         """Handle double click on TTS toggle - stop TTS and open chat bubble."""
         if self.debug:
-            print("🔊 TTS double click - stopping speech and showing chat")
+            if self.debug:
+                print("🔊 TTS double click - stopping speech and showing chat")
 
         # Prevent double-free errors by checking if objects are still valid
         try:
@@ -1489,7 +1510,8 @@ class QtChatBubble(QWidget):
 
                 except Exception as e:
                     if self.debug:
-                        print(f"❌ Error stopping TTS on double click: {e}")
+                        if self.debug:
+                            print(f"❌ Error stopping TTS on double click: {e}")
 
             # Show the chat bubble with safety checks
             if hasattr(self, 'show') and not self.isVisible():
@@ -1523,12 +1545,14 @@ class QtChatBubble(QWidget):
         try:
             # Ensure voice manager is available
             if not self.voice_manager or not self.voice_manager.is_available():
-                print("❌ Voice manager not available for Full Voice Mode")
+                if self.debug:
+                    print("❌ Voice manager not available for Full Voice Mode")
                 self.full_voice_toggle.set_enabled(False)
                 return
 
             if self.debug:
-                print("🚀 Starting Full Voice Mode...")
+                if self.debug:
+                    print("🚀 Starting Full Voice Mode...")
 
             # Hide text input UI
             self.hide_text_ui()
@@ -1540,9 +1564,9 @@ class QtChatBubble(QWidget):
             # Set up voice mode based on CLI parameter
             self.voice_manager.set_voice_mode(self.listening_mode)
 
-            # Update LLM session for voice-optimized responses
+            # Update LLM session mode for voice-optimized responses (preserve history)
             if self.llm_manager:
-                self.llm_manager.create_new_session(tts_mode=True)
+                self.llm_manager.update_session_mode(tts_mode=True)
 
             # Start listening
             self.voice_manager.listen(
@@ -1557,11 +1581,13 @@ class QtChatBubble(QWidget):
             self.voice_manager.speak("Full voice mode activated. I'm listening...")
 
             if self.debug:
-                print("✅ Full Voice Mode started successfully")
+                if self.debug:
+                    print("✅ Full Voice Mode started successfully")
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error starting Full Voice Mode: {e}")
+                if self.debug:
+                    print(f"❌ Error starting Full Voice Mode: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -1573,7 +1599,8 @@ class QtChatBubble(QWidget):
         """Stop Full Voice Mode and return to normal text mode."""
         try:
             if self.debug:
-                print("🛑 Stopping Full Voice Mode...")
+                if self.debug:
+                    print("🛑 Stopping Full Voice Mode...")
 
             # Stop listening
             if self.voice_manager:
@@ -1587,11 +1614,13 @@ class QtChatBubble(QWidget):
             self.update_status("READY")
 
             if self.debug:
-                print("✅ Full Voice Mode stopped")
+                if self.debug:
+                    print("✅ Full Voice Mode stopped")
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error stopping Full Voice Mode: {e}")
+                if self.debug:
+                    print(f"❌ Error stopping Full Voice Mode: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -1599,7 +1628,8 @@ class QtChatBubble(QWidget):
         """Handle speech-to-text input from the user."""
         try:
             if self.debug:
-                print(f"👤 Voice input: {transcribed_text}")
+                if self.debug:
+                    print(f"👤 Voice input: {transcribed_text}")
 
             # No longer updating voice toggle appearance - it's a simple user control
             self.update_status("PROCESSING")
@@ -1615,7 +1645,8 @@ class QtChatBubble(QWidget):
             self._update_message_history_from_session()
 
             if self.debug:
-                print(f"🤖 AI response: {response[:100]}...")
+                if self.debug:
+                    print(f"🤖 AI response: {response[:100]}...")
 
             # Speak the response
             self.voice_manager.speak(response)
@@ -1625,7 +1656,8 @@ class QtChatBubble(QWidget):
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error handling voice input: {e}")
+                if self.debug:
+                    print(f"❌ Error handling voice input: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -1635,7 +1667,8 @@ class QtChatBubble(QWidget):
     def handle_voice_stop(self):
         """Handle when user says 'stop' to exit Full Voice Mode."""
         if self.debug:
-            print("🛑 User said 'stop' - exiting Full Voice Mode")
+            if self.debug:
+                print("🛑 User said 'stop' - exiting Full Voice Mode")
 
         # Disable Full Voice Mode
         self.full_voice_toggle.set_enabled(False)
@@ -1703,10 +1736,12 @@ class QtChatBubble(QWidget):
                         self.voice_control_panel.hide()
 
                 if self.debug:
-                    print(f"🔊 TTS toggle state updated to: {current_state}")
+                    if self.debug:
+                        print(f"🔊 TTS toggle state updated to: {current_state}")
             except Exception as e:
                 if self.debug:
-                    print(f"❌ Error updating TTS toggle state: {e}")
+                    if self.debug:
+                        print(f"❌ Error updating TTS toggle state: {e}")
 
     def create_voice_control_panel(self):
         """Create a prominent voice control panel that appears when TTS is active."""
@@ -1807,11 +1842,13 @@ class QtChatBubble(QWidget):
             self.escape_shortcut.activated.connect(self.handle_escape_shortcut)
 
             if self.debug:
-                print("✅ Keyboard shortcuts setup: Space (pause/resume), Escape (stop)")
+                if self.debug:
+                    print("✅ Keyboard shortcuts setup: Space (pause/resume), Escape (stop)")
 
         except Exception as e:
             if self.debug:
-                print(f"❌ Error setting up keyboard shortcuts: {e}")
+                if self.debug:
+                    print(f"❌ Error setting up keyboard shortcuts: {e}")
 
     def handle_space_shortcut(self):
         """Handle space bar shortcut for pause/resume."""
@@ -1820,14 +1857,16 @@ class QtChatBubble(QWidget):
             not self.input_text.hasFocus()):
             self.on_tts_single_click()
             if self.debug:
-                print("🔊 Space shortcut triggered pause/resume")
+                if self.debug:
+                    print("🔊 Space shortcut triggered pause/resume")
 
     def handle_escape_shortcut(self):
         """Handle escape key shortcut for stop."""
         if self.voice_manager and self.voice_manager.get_state() in ['speaking', 'paused']:
             self.on_tts_double_click()
             if self.debug:
-                print("🔊 Escape shortcut triggered stop")
+                if self.debug:
+                    print("🔊 Escape shortcut triggered stop")
     
     def _clean_response_for_voice(self, text: str) -> str:
         """Clean response text for voice synthesis - remove formatting and make conversational."""
@@ -1877,7 +1916,8 @@ class QtChatBubble(QWidget):
         # NO TRUNCATION - let the LLM decide response length based on system prompt
         
         if self.debug:
-            print(f"🔊 Cleaned text for TTS: {text[:100]}{'...' if len(text) > 100 else ''}")
+            if self.debug:
+                print(f"🔊 Cleaned text for TTS: {text[:100]}{'...' if len(text) > 100 else ''}")
         
         return text
     
@@ -1903,11 +1943,13 @@ class QtChatBubble(QWidget):
         """)
         
         if self.debug:
-            print(f"Error occurred: {error}")
+            if self.debug:
+                print(f"Error occurred: {error}")
         
         # Show chat history instead of error toast
         if self.debug:
-            print(f"❌ AI Error: {error}")
+            if self.debug:
+                print(f"❌ AI Error: {error}")
 
         # Show history so user can see the error context - only if voice mode is OFF
         QTimer.singleShot(100, self._show_history_if_voice_mode_off)
@@ -1947,14 +1989,16 @@ class QtChatBubble(QWidget):
             if self.llm_manager:
                 self.llm_manager.create_new_session()
                 if self.debug:
-                    print("🧹 AbstractCore session cleared and recreated")
+                    if self.debug:
+                        print("🧹 AbstractCore session cleared and recreated")
 
             self.message_history.clear()
             self.token_count = 0
             self.update_token_display()
 
             if self.debug:
-                print("🧹 Session cleared")
+                if self.debug:
+                    print("🧹 Session cleared")
     
     def load_session(self):
         """Load a session using AbstractCore via LLMManager."""
@@ -1991,7 +2035,8 @@ class QtChatBubble(QWidget):
                         )
 
                         if self.debug:
-                            print(f"📂 Loaded session via AbstractCore from {file_path}")
+                            if self.debug:
+                                print(f"📂 Loaded session via AbstractCore from {file_path}")
                     else:
                         raise Exception("Session loaded but not available in LLMManager")
                 else:
@@ -2004,7 +2049,8 @@ class QtChatBubble(QWidget):
                     f"Failed to load session via AbstractCore:\n{str(e)}"
                 )
                 if self.debug:
-                    print(f"❌ Failed to load session: {e}")
+                    if self.debug:
+                        print(f"❌ Failed to load session: {e}")
     
     def save_session(self):
         """Save the current session using AbstractCore via LLMManager."""
@@ -2040,7 +2086,8 @@ class QtChatBubble(QWidget):
                     )
 
                     if self.debug:
-                        print(f"💾 Saved session via AbstractCore to {file_path}")
+                        if self.debug:
+                            print(f"💾 Saved session via AbstractCore to {file_path}")
                 else:
                     raise Exception("AbstractCore session saving failed")
 
@@ -2051,7 +2098,8 @@ class QtChatBubble(QWidget):
                     f"Failed to save session via AbstractCore:\n{str(e)}"
                 )
                 if self.debug:
-                    print(f"❌ Failed to save session: {e}")
+                    if self.debug:
+                        print(f"❌ Failed to save session: {e}")
     
     def _is_voice_mode_active(self):
         """Centralized source of truth: Check if ANY voice mode is active."""
@@ -2098,11 +2146,13 @@ class QtChatBubble(QWidget):
                     self.message_history.append(message)
 
                 if self.debug:
-                    print(f"📚 Updated message history from AbstractCore: {len(self.message_history)} messages")
+                    if self.debug:
+                        print(f"📚 Updated message history from AbstractCore: {len(self.message_history)} messages")
 
             except Exception as e:
                 if self.debug:
-                    print(f"❌ Error updating message history from session: {e}")
+                    if self.debug:
+                        print(f"❌ Error updating message history from session: {e}")
 
     def _update_token_count_from_session(self):
         """Update token count from AbstractCore session."""
@@ -2113,10 +2163,12 @@ class QtChatBubble(QWidget):
                 self.update_token_display()
 
                 if self.debug:
-                    print(f"📊 Updated token count from AbstractCore: {self.token_count}")
+                    if self.debug:
+                        print(f"📊 Updated token count from AbstractCore: {self.token_count}")
         except Exception as e:
             if self.debug:
-                print(f"❌ Error updating token count from session: {e}")
+                if self.debug:
+                    print(f"❌ Error updating token count from session: {e}")
 
     def _show_history_if_voice_mode_off(self):
         """Show chat history only if voice mode is OFF."""
@@ -2214,7 +2266,8 @@ class QtChatBubble(QWidget):
     def close_app(self):
         """Close the entire application completely."""
         if self.debug:
-            print("🔄 Close button clicked - shutting down application")
+            if self.debug:
+                print("🔄 Close button clicked - shutting down application")
 
         # Stop TTS if running
         if hasattr(self, 'voice_manager') and self.voice_manager:
@@ -2230,16 +2283,19 @@ class QtChatBubble(QWidget):
         # ALWAYS try to call the app quit callback first
         if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
             if self.debug:
-                print("🔄 Calling app quit callback")
+                if self.debug:
+                    print("🔄 Calling app quit callback")
             try:
                 self.app_quit_callback()
             except Exception as e:
                 if self.debug:
-                    print(f"❌ App callback failed: {e}")
+                    if self.debug:
+                        print(f"❌ App callback failed: {e}")
 
         # ALWAYS force quit as well to ensure the app terminates
         if self.debug:
-            print("🔄 Force quitting application")
+            if self.debug:
+                print("🔄 Force quitting application")
 
         # Get the QApplication instance
         app = QApplication.instance()
@@ -2253,7 +2309,8 @@ class QtChatBubble(QWidget):
         import sys
         import os
         if self.debug:
-            print("🔄 Force exit with sys.exit and os._exit")
+            if self.debug:
+                print("🔄 Force exit with sys.exit and os._exit")
         try:
             sys.exit(0)
         except:
@@ -2265,16 +2322,48 @@ class QtChatBubble(QWidget):
         self.app_quit_callback = callback
     
     @pyqtSlot()
+    def _on_speech_started_main_thread(self):
+        """Handle speech start on main thread (called via QMetaObject.invokeMethod)."""
+        if self.debug:
+            print("🔊 QtChatBubble: Speech started - updating status on main thread")
+        if self.status_callback:
+            self.status_callback("speaking")
+    
+    @pyqtSlot()
+    def _on_speech_ended_main_thread(self):
+        """Handle speech end on main thread (called via QMetaObject.invokeMethod)."""
+        if self.debug:
+            print("🔊 QtChatBubble: Speech ended - handling completion on main thread")
+        
+        # Update toggle state when speech completes
+        self._update_tts_toggle_state()
+        
+        # Call response callback now that TTS is done
+        if self.response_callback and hasattr(self, '_pending_response'):
+            if self.debug:
+                print(f"🔄 QtChatBubble: TTS completed, calling response callback...")
+            self.response_callback(self._pending_response)
+            delattr(self, '_pending_response')
+        
+        # Notify main app that speaking is done (back to ready)
+        if self.status_callback:
+            if self.debug:
+                print("🔊 QtChatBubble: Speech ended, setting ready status")
+            self.status_callback("ready")
+    
+    @pyqtSlot()
     def _execute_tts_completion_callbacks(self):
         """Execute TTS completion callbacks on the main thread."""
         if hasattr(self, '_tts_completion_callback') and self._tts_completion_callback:
-            print("🔊 QtChatBubble: Executing TTS completion callbacks on main thread...")
+            if self.debug:
+                print("🔊 QtChatBubble: Executing TTS completion callbacks on main thread...")
             
             # Execute the stored callback
             try:
                 self._tts_completion_callback()
             except Exception as e:
-                print(f"❌ Error executing TTS completion callback: {e}")
+                if self.debug:
+                    print(f"❌ Error executing TTS completion callback: {e}")
             finally:
                 # Clear the callback
                 self._tts_completion_callback = None
@@ -2292,7 +2381,8 @@ class QtChatBubble(QWidget):
                 self.voice_manager.cleanup()
             except Exception as e:
                 if self.debug:
-                    print(f"❌ Error cleaning up voice manager: {e}")
+                    if self.debug:
+                        print(f"❌ Error cleaning up voice manager: {e}")
         
         event.accept()
 
@@ -2316,7 +2406,8 @@ class QtBubbleManager:
             raise RuntimeError("No Qt library available. Install PyQt5, PySide2, or PyQt6")
         
         if self.debug:
-            print(f"✅ QtBubbleManager initialized with {QT_AVAILABLE}")
+            if self.debug:
+                print(f"✅ QtBubbleManager initialized with {QT_AVAILABLE}")
 
     def _prepare_bubble(self):
         """Pre-initialize the bubble for instant display later."""
@@ -2328,7 +2419,8 @@ class QtBubbleManager:
 
         if not self.bubble:
             if self.debug:
-                print("🔄 Pre-creating QtChatBubble...")
+                if self.debug:
+                    print("🔄 Pre-creating QtChatBubble...")
 
             # Create the bubble but don't show it yet
             self.bubble = QtChatBubble(self.llm_manager, self.config, self.debug, self.listening_mode)
@@ -2342,7 +2434,8 @@ class QtBubbleManager:
                 self.bubble.set_status_callback(self.status_callback)
 
             if self.debug:
-                print("✅ QtChatBubble pre-created and ready")
+                if self.debug:
+                    print("✅ QtChatBubble pre-created and ready")
 
     def show(self):
         """Show the chat bubble (instantly if pre-initialized)."""
@@ -2360,7 +2453,8 @@ class QtBubbleManager:
         self.bubble.activateWindow()
         
         if self.debug:
-            print("💬 Qt chat bubble shown")
+            if self.debug:
+                print("💬 Qt chat bubble shown")
     
     def hide(self):
         """Hide the chat bubble."""
@@ -2368,7 +2462,8 @@ class QtBubbleManager:
             self.bubble.hide()
             
             if self.debug:
-                print("💬 Qt chat bubble hidden")
+                if self.debug:
+                    print("💬 Qt chat bubble hidden")
     
     def destroy(self):
         """Destroy the chat bubble."""
@@ -2377,7 +2472,8 @@ class QtBubbleManager:
             self.bubble = None
             
             if self.debug:
-                print("💬 Qt chat bubble destroyed")
+                if self.debug:
+                    print("💬 Qt chat bubble destroyed")
     
     def set_response_callback(self, callback):
         """Set response callback."""

@@ -200,9 +200,10 @@ class IconGenerator:
                 print(f"🎨 Icon animation status: {status}")
                 self._last_debug_time = time.time()
         
-        # Always print status changes for debugging
+        # Print status changes only in debug mode
         if not hasattr(self, '_last_status') or self._last_status != status:
-            print(f"🔄 Icon status changed: {getattr(self, '_last_status', 'none')} → {status}")
+            if hasattr(self, 'debug') and self.debug:
+                print(f"🔄 Icon status changed: {getattr(self, '_last_status', 'none')} → {status}")
             self._last_status = status
         
         # SOLID background colors for maximum visibility
@@ -228,10 +229,11 @@ class IconGenerator:
         base_color = solid_colors.get(status, solid_colors['ready'])
         
         # Status-specific animation patterns with rotation
-        print(f"🎯 Animation logic: status='{status}', base_color={base_color}")
+        # Debug output disabled for clean terminal
+        # print(f"🎯 Animation logic: status='{status}', base_color={base_color}")
         
         if status == 'thinking':
-            print("🔴 THINKING: Drawing rotating red bars")
+            # print("🔴 THINKING: Drawing rotating red bars")  # Debug disabled
             # Fast rotating bars with red color - CLOCKWISE rotation
             rotation_speed = 4.0  # 4 rotations per second
             angle = -(current_time * rotation_speed * 360) % 360  # Negative for clockwise
@@ -251,8 +253,8 @@ class IconGenerator:
             self._draw_rotating_bars(draw, center, size, angle, base_color, intensity)
             
         elif status == 'speaking':
-            print("🔵 SPEAKING: Drawing vibrating blue bars")
-            print(f"🔵 SPEAKING: Using color {base_color} (should be blue)")
+            # print("🔵 SPEAKING: Drawing vibrating blue bars")  # Debug disabled
+            # print(f"🔵 SPEAKING: Using color {base_color} (should be blue)")  # Debug disabled
             
             # Create voice frequency-like vibration pattern
             freq1 = 8.0  # High frequency vibration
@@ -269,7 +271,7 @@ class IconGenerator:
             self._draw_voice_bars(draw, center, size, base_color, intensity, current_time)
             
         elif status == 'ready':
-            print("🟢 READY: Drawing breathing green circle")
+            # print("🟢 READY: Drawing breathing green circle")  # Debug disabled
             # Slow breathing circle with green color
             breath = 0.5 + 0.5 * math.sin(current_time * 0.6 * math.pi)  # 0.3Hz breathing
             intensity = 0.4 + breath * 0.3
@@ -278,7 +280,7 @@ class IconGenerator:
             self._draw_breathing_circle(draw, center, size, base_color, intensity)
             
         else:
-            print(f"❓ UNKNOWN STATUS: '{status}' - using default circle")
+            # print(f"❓ UNKNOWN STATUS: '{status}' - using default circle")  # Debug disabled
             # Default: static circle
             self._draw_breathing_circle(draw, center, size, base_color, 0.5)
         

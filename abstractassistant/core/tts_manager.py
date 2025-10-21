@@ -23,15 +23,42 @@ class VoiceManager:
         """
         self.debug_mode = debug_mode
         self._abstractvoice_manager = None
+        
+        # Callbacks for speech start/end events
+        self.on_speech_start = None
+        self.on_speech_end = None
 
         try:
             self._abstractvoice_manager = AbstractVoiceManager(debug_mode=debug_mode)
+            
+            # Set up NEW v0.5.1 precise audio callbacks (not synthesis callbacks)
+            self._abstractvoice_manager.on_audio_start = self._on_audio_start
+            self._abstractvoice_manager.on_audio_end = self._on_audio_end
+            
             if self.debug_mode:
-                print("🔊 AbstractVoice initialized successfully")
+                if self.debug_mode:
+                    print("🔊 AbstractVoice v0.5.1 initialized with precise audio callbacks")
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ AbstractVoice initialization failed: {e}")
+                if self.debug_mode:
+                    print(f"❌ AbstractVoice initialization failed: {e}")
             raise RuntimeError(f"Failed to initialize AbstractVoice: {e}")
+    
+    def _on_audio_start(self):
+        """Called when audio stream actually starts playing (v0.5.1 precise timing)."""
+        if self.debug_mode:
+            if self.debug_mode:
+                print("🔊 Audio stream started - user can hear speech")
+        if self.on_speech_start:
+            self.on_speech_start()
+    
+    def _on_audio_end(self):
+        """Called when audio stream actually ends (v0.5.1 precise timing)."""
+        if self.debug_mode:
+            if self.debug_mode:
+                print("🔊 Audio stream ended - ready for next action")
+        if self.on_speech_end:
+            self.on_speech_end()
     
     def is_available(self) -> bool:
         """Check if TTS is available."""
@@ -54,7 +81,8 @@ class VoiceManager:
         """
         if not text.strip():
             if self.debug_mode:
-                print("❌ Empty text provided to TTS")
+                if self.debug_mode:
+                    print("❌ Empty text provided to TTS")
             return False
 
         try:
@@ -62,7 +90,8 @@ class VoiceManager:
             return True
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ AbstractVoice speak error: {e}")
+                if self.debug_mode:
+                    print(f"❌ AbstractVoice speak error: {e}")
             return False
     
     def pause(self) -> bool:
@@ -74,11 +103,13 @@ class VoiceManager:
         try:
             success = self._abstractvoice_manager.pause_speaking()
             if self.debug_mode:
-                print(f"🔊 AbstractVoice speech {'paused' if success else 'pause failed'}")
+                if self.debug_mode:
+                    print(f"🔊 AbstractVoice speech {'paused' if success else 'pause failed'}")
             return success
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ Error pausing AbstractVoice: {e}")
+                if self.debug_mode:
+                    print(f"❌ Error pausing AbstractVoice: {e}")
             return False
 
     def resume(self) -> bool:
@@ -90,11 +121,13 @@ class VoiceManager:
         try:
             success = self._abstractvoice_manager.resume_speaking()
             if self.debug_mode:
-                print(f"🔊 AbstractVoice speech {'resumed' if success else 'resume failed'}")
+                if self.debug_mode:
+                    print(f"🔊 AbstractVoice speech {'resumed' if success else 'resume failed'}")
             return success
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ Error resuming AbstractVoice: {e}")
+                if self.debug_mode:
+                    print(f"❌ Error resuming AbstractVoice: {e}")
             return False
 
     def is_paused(self) -> bool:
@@ -103,7 +136,8 @@ class VoiceManager:
             return self._abstractvoice_manager.is_paused()
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ Error checking pause state: {e}")
+                if self.debug_mode:
+                    print(f"❌ Error checking pause state: {e}")
             return False
 
     def get_state(self) -> str:
@@ -121,7 +155,8 @@ class VoiceManager:
                 return 'idle'
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ Error getting TTS state: {e}")
+                if self.debug_mode:
+                    print(f"❌ Error getting TTS state: {e}")
             return 'idle'
 
     def stop(self):
@@ -129,20 +164,24 @@ class VoiceManager:
         try:
             self._abstractvoice_manager.stop_speaking()
             if self.debug_mode:
-                print("🔊 AbstractVoice speech stopped")
+                if self.debug_mode:
+                    print("🔊 AbstractVoice speech stopped")
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ Error stopping AbstractVoice: {e}")
+                if self.debug_mode:
+                    print(f"❌ Error stopping AbstractVoice: {e}")
 
     def cleanup(self):
         """Clean up TTS resources."""
         try:
             self._abstractvoice_manager.cleanup()
             if self.debug_mode:
-                print("🔊 AbstractVoice cleaned up")
+                if self.debug_mode:
+                    print("🔊 AbstractVoice cleaned up")
         except Exception as e:
             if self.debug_mode:
-                print(f"❌ Error cleaning up AbstractVoice: {e}")
+                if self.debug_mode:
+                    print(f"❌ Error cleaning up AbstractVoice: {e}")
 
     # STT (Speech-to-Text) Methods for Full Voice Mode
 
@@ -156,13 +195,16 @@ class VoiceManager:
             try:
                 self._abstractvoice_manager.set_voice_mode(mode)
                 if self.debug_mode:
-                    print(f"🔊 Voice mode set to: {mode}")
+                    if self.debug_mode:
+                        print(f"🔊 Voice mode set to: {mode}")
             except Exception as e:
                 if self.debug_mode:
-                    print(f"❌ Error setting voice mode: {e}")
+                    if self.debug_mode:
+                        print(f"❌ Error setting voice mode: {e}")
         else:
             if self.debug_mode:
-                print(f"⚠️  Voice mode setting not available, simulating mode: {mode}")
+                if self.debug_mode:
+                    print(f"⚠️  Voice mode setting not available, simulating mode: {mode}")
 
     def listen(self, on_transcription: Callable[[str], None], on_stop: Callable[[], None] = None):
         """Start listening for speech input.
@@ -178,14 +220,17 @@ class VoiceManager:
                     on_stop=on_stop
                 )
                 if self.debug_mode:
-                    print("🎤 Started listening for speech")
+                    if self.debug_mode:
+                        print("🎤 Started listening for speech")
             except Exception as e:
                 if self.debug_mode:
-                    print(f"❌ Error starting listening: {e}")
+                    if self.debug_mode:
+                        print(f"❌ Error starting listening: {e}")
                 raise
         else:
             if self.debug_mode:
-                print("⚠️  STT listening not available in current AbstractVoice version")
+                if self.debug_mode:
+                    print("⚠️  STT listening not available in current AbstractVoice version")
             raise RuntimeError("STT listening not available")
 
     def stop_listening(self):
@@ -194,13 +239,16 @@ class VoiceManager:
             try:
                 self._abstractvoice_manager.stop_listening()
                 if self.debug_mode:
-                    print("🎤 Stopped listening for speech")
+                    if self.debug_mode:
+                        print("🎤 Stopped listening for speech")
             except Exception as e:
                 if self.debug_mode:
-                    print(f"❌ Error stopping listening: {e}")
+                    if self.debug_mode:
+                        print(f"❌ Error stopping listening: {e}")
         else:
             if self.debug_mode:
-                print("⚠️  Stop listening not available in current AbstractVoice version")
+                if self.debug_mode:
+                    print("⚠️  Stop listening not available in current AbstractVoice version")
 
     def is_listening(self) -> bool:
         """Check if currently listening for speech."""
@@ -209,11 +257,13 @@ class VoiceManager:
                 return self._abstractvoice_manager.is_listening()
             except Exception as e:
                 if self.debug_mode:
-                    print(f"❌ Error checking listening state: {e}")
+                    if self.debug_mode:
+                        print(f"❌ Error checking listening state: {e}")
                 return False
         else:
             if self.debug_mode:
-                print("⚠️  Listening state check not available")
+                if self.debug_mode:
+                    print("⚠️  Listening state check not available")
             return False
 
 
