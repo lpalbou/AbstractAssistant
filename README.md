@@ -36,6 +36,12 @@ This will:
 - Create a macOS app bundle in `/Applications`
 - Add AbstractAssistant to your Dock for easy access
 
+**Alternative**: After installation, create the app bundle manually:
+```bash
+pip install abstractassistant
+create-app-bundle
+```
+
 #### 🔧 Standard Installation
 ```bash
 # Install from PyPI
@@ -56,7 +62,7 @@ For detailed installation instructions including prerequisites and voice setup, 
 # Launch the assistant
 assistant
 
-# Or create macOS app bundle after installation
+# Create macOS app bundle after installation
 create-app-bundle
 ```
 

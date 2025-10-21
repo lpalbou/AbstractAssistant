@@ -8,7 +8,24 @@ Complete setup instructions for AbstractAssistant on macOS, including prerequisi
 
 ## 🚀 Quick Installation
 
-### Method 1: PyPI (Recommended)
+### Method 1: macOS App Bundle (Recommended for macOS)
+
+```bash
+# Enhanced installation with Dock integration
+python3 install.py
+```
+
+This automatically:
+- Installs AbstractAssistant from PyPI
+- Creates a macOS app bundle in `/Applications`
+- Makes AbstractAssistant available in your Dock
+
+**🎯 Launch Options**:
+- **Dock**: Click the AbstractAssistant icon
+- **Spotlight**: Search for "AbstractAssistant"
+- **Finder**: Open `/Applications/AbstractAssistant.app`
+
+### Method 2: PyPI (Standard)
 
 ```bash
 # Install the latest stable version
@@ -16,11 +33,14 @@ pip install abstractassistant
 
 # Launch immediately
 assistant
+
+# Optional: Create macOS app bundle after installation
+create-app-bundle
 ```
 
 **📦 PyPI Package**: [https://pypi.org/project/abstractassistant/](https://pypi.org/project/abstractassistant/)
 
-### Method 2: From Source
+### Method 3: From Source
 
 ```bash
 # Clone the repository
@@ -89,6 +109,27 @@ assistant --version
 # Test launch (should show system tray icon)
 assistant --debug
 ```
+
+### Step 4: macOS App Bundle (Optional but Recommended)
+
+For the best macOS experience, create a native app bundle:
+
+```bash
+# Create macOS app bundle after installation
+create-app-bundle
+```
+
+This will:
+- Create `/Applications/AbstractAssistant.app`
+- Generate a beautiful neural network-inspired icon
+- Make AbstractAssistant launchable from Dock, Spotlight, or Finder
+- Provide a native macOS application experience
+
+**🎯 Benefits**:
+- **Dock Integration**: Click to launch from Dock
+- **Spotlight Search**: Find and launch via Spotlight (⌘+Space)
+- **Native Feel**: Behaves like any other macOS application
+- **Easy Discovery**: Users can find it in Applications folder
 
 ## 🎙️ Voice Features Setup
 
@@ -236,6 +277,25 @@ source ~/.venvs/abstractassistant/bin/activate
 pip install --user abstractassistant
 ```
 
+#### macOS App Bundle Issues
+```bash
+# If create-app-bundle fails, try:
+pip install --upgrade abstractassistant
+create-app-bundle
+
+# If you don't have permissions to write to /Applications:
+sudo create-app-bundle
+
+# Manual app bundle creation:
+python3 -c "from abstractassistant.setup_macos_app import create_macos_app_bundle; create_macos_app_bundle()"
+```
+
+#### App Bundle Not Appearing in Dock
+- The app bundle runs in the background (system tray only)
+- Look for the AbstractAssistant icon in your menu bar
+- The Dock icon only appears briefly during launch
+- This is normal behavior for system tray applications
+
 #### "No Qt library available"
 ```bash
 # Install a Qt framework
@@ -312,10 +372,17 @@ function ai-claude() {
 
 To start AbstractAssistant automatically on login:
 
+#### Option 1: macOS App Bundle (Recommended)
 1. Open System Preferences > Users & Groups
 2. Click your user account
 3. Go to Login Items
-4. Add AbstractAssistant to the list
+4. Add `/Applications/AbstractAssistant.app` to the list
+
+#### Option 2: Terminal Command
+1. Open System Preferences > Users & Groups
+2. Click your user account
+3. Go to Login Items
+4. Add the `assistant` command to the list
 
 Or create a LaunchAgent:
 
@@ -366,6 +433,9 @@ pip install -e .
 ```bash
 # Uninstall the package
 pip uninstall abstractassistant
+
+# Remove macOS app bundle (if created)
+rm -rf /Applications/AbstractAssistant.app
 
 # Remove configuration (optional)
 rm -rf ~/.config/abstractassistant

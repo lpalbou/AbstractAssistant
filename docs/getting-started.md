@@ -9,6 +9,15 @@ Complete user guide for AbstractAssistant - learn how to use all features effect
 ## 🚀 First Launch
 
 ### 1. Start the Application
+
+Choose your preferred launch method:
+
+#### 🍎 macOS App Bundle Users
+- **Dock**: Click the AbstractAssistant icon in your Dock
+- **Spotlight**: Press `⌘+Space`, search "AbstractAssistant", press Enter
+- **Finder**: Open `/Applications/AbstractAssistant.app`
+
+#### 🔧 Terminal Users
 ```bash
 assistant
 ```

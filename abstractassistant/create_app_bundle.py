@@ -14,7 +14,12 @@ def main():
     """Create macOS app bundle for AbstractAssistant."""
     try:
         # Import the app bundle generator
-        from abstractassistant.setup_macos_app import MacOSAppBundleGenerator
+        try:
+            import setup_macos_app
+            MacOSAppBundleGenerator = setup_macos_app.MacOSAppBundleGenerator
+        except ImportError:
+            # Fallback: try importing from abstractassistant package
+            from abstractassistant.setup_macos_app import MacOSAppBundleGenerator
         
         # Find the package directory
         import abstractassistant
