@@ -2,16 +2,13 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-py-modules = ["setup_macos_app"]
-
 [project]
 name = "abstractassistant"
 version = "0.2.6"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}
 ]
@@ -19,7 +16,6 @@ keywords = ["ai", "llm", "macos", "system-tray", "assistant"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -65,6 +61,9 @@ Issues = "https://github.com/lpalbou/abstractassistant/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["abstractassistant*"]
+
+[tool.setuptools]
+py-modules = ["setup_macos_app"]
 
 [tool.black]
 line-length = 88
