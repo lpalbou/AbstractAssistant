@@ -9,20 +9,89 @@ from typing import Dict, List
 
 try:
     from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
-                                 QWidget, QLabel, QFrame, QPushButton)
-    from PyQt6.QtCore import Qt, QTimer
-    from PyQt6.QtGui import QFont
+                                 QWidget, QLabel, QFrame, QPushButton, QApplication)
+    from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+    from PyQt6.QtGui import QFont, QCursor
 except ImportError:
     try:
         from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
-                                     QWidget, QLabel, QFrame, QPushButton)
-        from PyQt5.QtCore import Qt, QTimer
-        from PyQt5.QtGui import QFont
+                                     QWidget, QLabel, QFrame, QPushButton, QApplication)
+        from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+        from PyQt5.QtGui import QFont, QCursor
     except ImportError:
         from PySide2.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
-                                       QWidget, QLabel, QFrame, QPushButton)
-        from PySide2.QtCore import Qt, QTimer
-        from PySide2.QtGui import QFont
+                                       QWidget, QLabel, QFrame, QPushButton, QApplication)
+        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal
+        from PySide2.QtGui import QFont, QCursor
+
+
+class ClickableBubble(QFrame):
+    """Clickable message bubble that copies content to clipboard."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, content: str, is_user: bool, parent=None):
+        super().__init__(parent)
+        self.content = content
+        self.is_user = is_user
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+        # Store original colors for animation
+        if is_user:
+            self.normal_bg = "#007AFF"
+            self.clicked_bg = "#0066CC"
+        else:
+            self.normal_bg = "#3a3a3c"
+            self.clicked_bg = "#4a4a4c"
+
+    def mousePressEvent(self, event):
+        """Handle mouse press with visual feedback."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Apply clicked style (darker)
+            self.setStyleSheet(f"""
+                QFrame {{
+                    background: {self.clicked_bg};
+                    border: none;
+                    border-radius: 18px;
+                    max-width: 400px;
+                }}
+            """)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release - copy to clipboard and restore style."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Copy to clipboard
+            clipboard = QApplication.clipboard()
+            clipboard.setText(self.content)
+
+            # Visual feedback: glossy effect (lighter color briefly)
+            glossy_color = "#0080FF" if self.is_user else "#5a5a5c"
+            self.setStyleSheet(f"""
+                QFrame {{
+                    background: {glossy_color};
+                    border: none;
+                    border-radius: 18px;
+                    max-width: 400px;
+                }}
+            """)
+
+            # Restore normal color after brief delay
+            QTimer.singleShot(200, self._restore_normal_style)
+
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+    def _restore_normal_style(self):
+        """Restore normal bubble style."""
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {self.normal_bg};
+                border: none;
+                border-radius: 18px;
+                max-width: 400px;
+            }}
+        """)
 
 
 class SafeDialog(QDialog):
@@ -164,7 +233,7 @@ class iPhoneMessagesDialog:
                 background: transparent;
                 border: none;
                 text-align: left;
-                font-family: -apple-system;
+                font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
             }
         """)
         nav_layout.addWidget(back_btn)
@@ -178,7 +247,7 @@ class iPhoneMessagesDialog:
                 color: #ffffff;
                 font-size: 17px;
                 font-weight: 600;
-                font-family: -apple-system;
+                font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
             }
         """)
         nav_layout.addWidget(title)
@@ -219,20 +288,20 @@ class iPhoneMessagesDialog:
         container = QFrame()
         container.setStyleSheet("background: transparent; border: none;")
         layout = QHBoxLayout(container)
-        layout.setContentsMargins(16, 0, 16, 0)  # iPhone margins
+        layout.setContentsMargins(12, 0, 12, 0)  # Tighter margins for more width
         layout.setSpacing(0)
 
-        # Create bubble
-        bubble = QFrame()
+        # Create clickable bubble
+        bubble = ClickableBubble(msg['content'], is_user)
         bubble_layout = QVBoxLayout(bubble)
-        bubble_layout.setContentsMargins(13, 8, 13, 8)  # iPhone padding
+        bubble_layout.setContentsMargins(12, 7, 12, 7)  # More compact padding
         bubble_layout.setSpacing(0)
 
         # Process content with FULL markdown support
         content = iPhoneMessagesDialog._process_full_markdown(msg['content'])
         content_label = QLabel(content)
         content_label.setWordWrap(True)
-        content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        content_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)  # No text selection, bubble handles clicks
         content_label.setTextFormat(Qt.TextFormat.RichText)
 
         if is_user:
@@ -242,17 +311,17 @@ class iPhoneMessagesDialog:
                     background: #007AFF;
                     border: none;
                     border-radius: 18px;
-                    max-width: 320px;
+                    max-width: 400px;
                 }
             """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;
                     color: #FFFFFF;
-                    font-size: 17px;
+                    font-size: 14px;
                     font-weight: 400;
-                    line-height: 22px;
-                    font-family: -apple-system;
+                    line-height: 18px;
+                    font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
                 }
             """)
             # Right align
@@ -265,17 +334,17 @@ class iPhoneMessagesDialog:
                     background: #3a3a3c;
                     border: none;
                     border-radius: 18px;
-                    max-width: 320px;
+                    max-width: 400px;
                 }
             """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;
                     color: #ffffff;
-                    font-size: 17px;
+                    font-size: 14px;
                     font-weight: 400;
-                    line-height: 22px;
-                    font-family: -apple-system;
+                    line-height: 18px;
+                    font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
                 }
             """)
             # Left align
@@ -318,7 +387,7 @@ class iPhoneMessagesDialog:
                 font-size: 13px;
                 font-weight: 400;
                 color: rgba(255, 255, 255, 0.6);
-                font-family: -apple-system;
+                font-family: "SF Pro Text", "Helvetica Neue", sans-serif;
                 padding: 0px;
             }
         """)
@@ -343,7 +412,7 @@ class iPhoneMessagesDialog:
 
     @staticmethod
     def _process_full_markdown(text: str) -> str:
-        """Process markdown formatting for iPhone Messages display."""
+        """Process markdown formatting for iPhone Messages display with MINIMAL spacing."""
         # Convert **bold** to <strong>bold</strong>
         text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
 
@@ -351,19 +420,24 @@ class iPhoneMessagesDialog:
         text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', text)
 
         # Convert `code` to inline code
-        text = re.sub(r'`([^`]+)`', r'<code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px; font-family: monospace;">\1</code>', text)
+        text = re.sub(r'`([^`]+)`', r'<code style="background: rgba(0,0,0,0.15); padding: 1px 3px; border-radius: 3px; font-family: monospace; font-size: 13px;">\1</code>', text)
 
-        # Convert headers
-        text = re.sub(r'^#### (.*$)', r'<h4 style="margin: 8px 0 4px 0; font-weight: 600;">\1</h4>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*$)', r'<h3 style="margin: 10px 0 5px 0; font-weight: 600;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*$)', r'<h2 style="margin: 12px 0 6px 0; font-weight: 600;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.*$)', r'<h1 style="margin: 14px 0 7px 0; font-weight: 600;">\1</h1>', text, flags=re.MULTILINE)
+        # Convert headers with MINIMAL spacing - almost no gaps
+        text = re.sub(r'^#### (.*$)', r'<div style="margin: 3px 0 1px 0; font-weight: 600; font-size: 14px;">\1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'^### (.*$)', r'<div style="margin: 4px 0 1px 0; font-weight: 600; font-size: 15px;">\1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*$)', r'<div style="margin: 5px 0 2px 0; font-weight: 600; font-size: 16px;">\1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'^# (.*$)', r'<div style="margin: 6px 0 2px 0; font-weight: 600; font-size: 17px;">\1</div>', text, flags=re.MULTILINE)
 
-        # Convert bullet points
-        text = re.sub(r'^[•\-\*] (.*)$', r'<p style="margin: 2px 0; padding-left: 16px;">• \1</p>', text, flags=re.MULTILINE)
+        # Convert bullet points with minimal spacing
+        text = re.sub(r'^[•\-\*] (.*)$', r'<div style="margin: 0; padding-left: 12px; line-height: 1.25;">• \1</div>', text, flags=re.MULTILINE)
 
-        # Convert line breaks to HTML
-        text = text.replace('\n', '<br>')
+        # Handle line breaks - be very conservative with spacing
+        # First, convert double line breaks to a paragraph separator
+        text = text.replace('\n\n', '|||PARA|||')
+        # Single line breaks become just spaces (inline continuation)
+        text = text.replace('\n', ' ')
+        # Paragraph separators become single line break
+        text = text.replace('|||PARA|||', '<br>')
 
         return text
 

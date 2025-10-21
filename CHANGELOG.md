@@ -2,6 +2,25 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.2.5] - 2025-10-21
+
+### Added
+- **File Attachments**: Click the 📎 button to attach images, PDFs, Office docs, or data files to your messages. The AI can now analyze documents, images, spreadsheets, and more.
+- **Clickable Messages**: Click any message bubble in the history panel to copy its content to clipboard. A subtle flash confirms the copy.
+
+### Improved
+- **Chat History Layout**: Reduced text size (17px → 14px), increased bubble width (320px → 400px), and tightened spacing throughout for better readability and more efficient use of screen space.
+- **Markdown Rendering**: Headers, paragraphs, and lists now use minimal spacing to display more content without scrolling.
+
+### Updated
+- **AbstractCore 2.4.5**: Upgraded from 2.4.2 to leverage universal media handling system with support for images, PDFs, Office documents (DOCX, XLSX, PPTX), and data files (CSV, JSON).
+
+### Technical
+- Added `ClickableBubble` widget with visual feedback for clipboard operations
+- Enhanced `LLMManager` and `LLMWorker` to handle media file attachments
+- File chips display with type-specific icons and individual remove buttons
+- Improved markdown processor with tighter vertical spacing
+
 ## [1.1.0] - 2024-10-16
 
 ### 🌐 Major UI Overhaul: Beautiful Web Interface

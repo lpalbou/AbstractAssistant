@@ -242,14 +242,15 @@ class LLMManager:
         self.current_model = model
         self._initialize_llm()
     
-    def generate_response(self, message: str, provider: str = None, model: str = None) -> str:
+    def generate_response(self, message: str, provider: str = None, model: str = None, media: Optional[List[str]] = None) -> str:
         """Generate a response using the session for context persistence.
-        
+
         Args:
             message: User message
             provider: Optional provider override
             model: Optional model override
-            
+            media: Optional list of file paths to attach (images, PDFs, Office docs, etc.)
+
         Returns:
             Generated response text
         """
@@ -258,24 +259,27 @@ class LLMManager:
             self.set_provider(provider, model)
         elif model and model != self.current_model:
             self.set_model(model)
-        
+
         try:
             # Ensure we have a session
             if self.current_session is None:
                 self.create_new_session()
-            
-            # Generate response using session - CLEAN AND SIMPLE
-            # response = session.generate('What is my name?') # Remembers context
-            response = self.current_session.generate(message)
-            
+
+            # Generate response using session with optional media files
+            # AbstractCore 2.4.5+ supports media=[] parameter for file attachments
+            if media and len(media) > 0:
+                response = self.current_session.generate(message, media=media)
+            else:
+                response = self.current_session.generate(message)
+
             # Handle response format
             if hasattr(response, 'content'):
                 response_text = response.content
             else:
                 response_text = str(response)
-            
+
             return response_text
-            
+
         except Exception as e:
             return f"Error generating response: {str(e)}"
     

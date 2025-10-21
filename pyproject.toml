@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.2.0"
+version = "0.2.5"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,7 +28,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "abstractcore[all]>=2.4.2",
+    "abstractcore[all]>=2.4.5",
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",

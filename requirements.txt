@@ -1,4 +1,4 @@
-abstractcore[all]>=2.4.2
+abstractcore[all]>=2.4.5
 pystray>=0.19.4
 Pillow>=10.0.0
 PyQt5>=5.15.0

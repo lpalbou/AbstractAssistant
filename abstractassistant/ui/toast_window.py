@@ -107,7 +107,7 @@ class ToastWindow(QWidget):
                 color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
         """)
         header_layout.addWidget(title_label)
@@ -128,7 +128,7 @@ class ToastWindow(QWidget):
                     border-radius: 12px;
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: -apple-system, system-ui, sans-serif;
+                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 }
                 QPushButton:hover {
                     background: rgba(255, 255, 255, 0.15);
@@ -149,7 +149,7 @@ class ToastWindow(QWidget):
                     border-radius: 12px;
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: -apple-system, system-ui, sans-serif;
+                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 }
                 QPushButton:hover {
                     background: rgba(255, 255, 255, 0.15);
@@ -173,7 +173,7 @@ class ToastWindow(QWidget):
                 border-radius: 12px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.7);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.15);
@@ -194,7 +194,7 @@ class ToastWindow(QWidget):
                 border-radius: 12px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.7);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.15);
@@ -260,7 +260,7 @@ class ToastWindow(QWidget):
                 color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 font-size: 11px;
                 font-weight: 500;
             }
@@ -274,7 +274,7 @@ class ToastWindow(QWidget):
                 font-size: 10px;
                 font-weight: 500;
                 color: rgba(255, 255, 255, 0.8);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
             
             QPushButton:hover {
@@ -295,7 +295,7 @@ class ToastWindow(QWidget):
                 font-size: 13px;
                 font-weight: 400;
                 color: rgba(255, 255, 255, 0.95);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 selection-background-color: rgba(34, 197, 94, 0.3);
                 line-height: 1.5;
             }

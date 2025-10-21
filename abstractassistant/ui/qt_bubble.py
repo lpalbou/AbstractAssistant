@@ -145,7 +145,7 @@ class TTSToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -212,7 +212,7 @@ class FullVoiceToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -228,28 +228,34 @@ class FullVoiceToggle(QPushButton):
 
 class LLMWorker(QThread):
     """Worker thread for LLM processing."""
-    
+
     response_ready = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
-    
-    def __init__(self, llm_manager, message, provider, model):
+
+    def __init__(self, llm_manager, message, provider, model, media=None):
         super().__init__()
         self.llm_manager = llm_manager
         self.message = message
         self.provider = provider
         self.model = model
-    
+        self.media = media or []
+
     def run(self):
         """Run LLM processing in background."""
         try:
-            # Use LLMManager session for context persistence
-            response = self.llm_manager.generate_response(self.message, self.provider, self.model)
-            
+            # Use LLMManager session for context persistence with optional media files
+            response = self.llm_manager.generate_response(
+                self.message,
+                self.provider,
+                self.model,
+                media=self.media if self.media else None
+            )
+
             # Response is already a string from LLMManager
             response_text = str(response)
-            
+
             self.response_ready.emit(response_text)
-            
+
         except Exception as e:
             print(f"❌ LLM Error: {e}")
             import traceback
@@ -278,6 +284,9 @@ class QtChatBubble(QWidget):
 
         # History dialog instance for toggle behavior
         self.history_dialog = None
+
+        # Attached files for media handling (AbstractCore 2.4.5+)
+        self.attached_files: List[str] = []
         
         # Initialize new manager classes
         self.provider_manager = None
@@ -357,7 +366,7 @@ class QtChatBubble(QWidget):
                 font-size: 14px;
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
             QPushButton:hover {
                 background: rgba(255, 60, 60, 0.8);
@@ -389,7 +398,7 @@ class QtChatBubble(QWidget):
                     border-radius: 11px;
                     font-size: 10px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: -apple-system, system-ui, sans-serif;
+                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                     padding: 0 10px;
                 }
                 QPushButton:hover {
@@ -431,7 +440,7 @@ class QtChatBubble(QWidget):
                 font-size: 10px;
                 font-weight: 600;
                 color: #ffffff;
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
         """)
         header_layout.addWidget(self.status_label)
@@ -455,14 +464,42 @@ class QtChatBubble(QWidget):
         # Input field with inline send button
         input_row = QHBoxLayout()
         input_row.setSpacing(4)
-        
+
+        # File attachment button - modern paperclip icon
+        self.attach_button = QPushButton("📎")
+        self.attach_button.clicked.connect(self.attach_files)
+        self.attach_button.setFixedSize(36, 36)
+        self.attach_button.setToolTip("Attach files (images, PDFs, Office docs, etc.)")
+        self.attach_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid #404040;
+                border-radius: 18px;
+                font-size: 14px;
+                color: rgba(255, 255, 255, 0.7);
+                text-align: center;
+                padding: 0px;
+            }
+
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+                border: 1px solid #0066cc;
+                color: rgba(255, 255, 255, 0.9);
+            }
+
+            QPushButton:pressed {
+                background: rgba(255, 255, 255, 0.06);
+            }
+        """)
+        input_row.addWidget(self.attach_button)
+
         # Text input - larger, primary focus
         self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
         self.input_text.setMaximumHeight(100)  # Increased to better use available space
         self.input_text.setMinimumHeight(70)   # Increased to better use available space
         input_row.addWidget(self.input_text)
-        
+
         # Send button - primary action with special styling
         self.send_button = QPushButton("→")
         self.send_button.clicked.connect(self.send_message)
@@ -478,16 +515,16 @@ class QtChatBubble(QWidget):
                 text-align: center;
                 padding: 0px;
             }
-            
+
             QPushButton:hover {
                 background: #0080ff;
                 border: 1px solid #0099ff;
             }
-            
+
             QPushButton:pressed {
                 background: #0052a3;
             }
-            
+
             QPushButton:disabled {
                 background: #404040;
                 color: #666666;
@@ -495,8 +532,24 @@ class QtChatBubble(QWidget):
             }
         """)
         input_row.addWidget(self.send_button)
-        
+
         input_layout.addLayout(input_row)
+
+        # Attached files display area (initially hidden)
+        self.attached_files_container = QFrame()
+        self.attached_files_container.setStyleSheet("""
+            QFrame {
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 4px;
+            }
+        """)
+        self.attached_files_layout = QHBoxLayout(self.attached_files_container)
+        self.attached_files_layout.setContentsMargins(4, 4, 4, 4)
+        self.attached_files_layout.setSpacing(4)
+        self.attached_files_container.hide()  # Initially hidden
+        input_layout.addWidget(self.attached_files_container)
         layout.addWidget(self.input_container)
         
         # Bottom controls - Cursor style (minimal, clean)
@@ -517,7 +570,7 @@ class QtChatBubble(QWidget):
                 padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
             QComboBox:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -547,7 +600,7 @@ class QtChatBubble(QWidget):
                 padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
             QComboBox:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -578,7 +631,7 @@ class QtChatBubble(QWidget):
                 border-radius: 14px;
                 font-size: 12px;
                 color: rgba(255, 255, 255, 0.6);
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
         """)
         controls_layout.addWidget(self.token_label)
@@ -619,7 +672,7 @@ class QtChatBubble(QWidget):
                 font-size: 14px;
                 font-weight: 400;
                 color: #ffffff;
-                font-family: system-ui, -apple-system, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 selection-background-color: #0066cc;
                 line-height: 1.4;
             }
@@ -642,7 +695,7 @@ class QtChatBubble(QWidget):
                 font-size: 11px;
                 font-weight: 500;
                 color: #ffffff;
-                font-family: system-ui, -apple-system, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
             }
             
             QPushButton:hover {
@@ -670,7 +723,7 @@ class QtChatBubble(QWidget):
                     font-size: 12px;
                     font-weight: 400;
                     color: #ffffff;
-                    font-family: system-ui, -apple-system, sans-serif;
+                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                     letter-spacing: 0.01em;
                 }
             
@@ -700,7 +753,7 @@ class QtChatBubble(QWidget):
                     selection-background-color: #4299e1;
                     color: #e2e8f0;
                     padding: 4px;
-                    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                    font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
                 }
                 
                 QComboBox QAbstractItemView::item {
@@ -732,7 +785,7 @@ class QtChatBubble(QWidget):
                 color: rgba(255, 255, 255, 0.8);
                 font-size: 12px;
                 font-weight: 500;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", 'Segoe UI', Roboto, sans-serif;
                 letter-spacing: 0.3px;
             }
             
@@ -747,7 +800,7 @@ class QtChatBubble(QWidget):
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 color: #a6e3a1;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
             }
             
             QLabel#status_generating {
@@ -760,7 +813,7 @@ class QtChatBubble(QWidget):
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 color: #fab387;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
             }
             
             QLabel#status_error {
@@ -773,7 +826,7 @@ class QtChatBubble(QWidget):
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 color: #f38ba8;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
             }
             
             QLabel#token_label {
@@ -781,7 +834,7 @@ class QtChatBubble(QWidget):
                 border: 1px solid #4a5568;
                 border-radius: 8px;
                 padding: 10px 12px;
-                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+                font-family: "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
                 font-size: 11px;
                 font-weight: 500;
                 color: #cbd5e0;
@@ -1023,22 +1076,136 @@ class QtChatBubble(QWidget):
             print(f"Model changed to: {self.current_model}")
     
 
+    def attach_files(self):
+        """Open file dialog to attach files (AbstractCore 2.4.5+ media handling)."""
+        file_dialog = QFileDialog(self)
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+        file_dialog.setNameFilter(
+            "All supported files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff "
+            "*.pdf *.docx *.xlsx *.pptx *.txt *.md *.csv *.tsv *.json);;"
+            "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff);;"
+            "Documents (*.pdf *.docx *.xlsx *.pptx *.txt *.md);;"
+            "Data files (*.csv *.tsv *.json);;"
+            "All files (*.*)"
+        )
+
+        if file_dialog.exec():
+            selected_files = file_dialog.selectedFiles()
+            for file_path in selected_files:
+                if file_path not in self.attached_files:
+                    self.attached_files.append(file_path)
+                    if self.debug:
+                        print(f"📎 Attached file: {file_path}")
+
+            self.update_attached_files_display()
+
+    def update_attached_files_display(self):
+        """Update the visual display of attached files."""
+        # Clear existing file chips
+        while self.attached_files_layout.count():
+            child = self.attached_files_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        if not self.attached_files:
+            self.attached_files_container.hide()
+            return
+
+        # Show container and add file chips
+        self.attached_files_container.show()
+
+        for file_path in self.attached_files:
+            import os
+            file_name = os.path.basename(file_path)
+
+            # Create file chip
+            file_chip = QFrame()
+            file_chip.setStyleSheet("""
+                QFrame {
+                    background: rgba(0, 102, 204, 0.2);
+                    border: 1px solid rgba(0, 102, 204, 0.4);
+                    border-radius: 10px;
+                    padding: 2px 8px;
+                }
+            """)
+
+            chip_layout = QHBoxLayout(file_chip)
+            chip_layout.setContentsMargins(4, 2, 4, 2)
+            chip_layout.setSpacing(4)
+
+            # File icon based on type
+            ext = os.path.splitext(file_name)[1].lower()
+            if ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff']:
+                icon = "🖼️"
+            elif ext == '.pdf':
+                icon = "📄"
+            elif ext in ['.docx', '.doc']:
+                icon = "📝"
+            elif ext in ['.xlsx', '.xls']:
+                icon = "📊"
+            elif ext in ['.pptx', '.ppt']:
+                icon = "📊"
+            elif ext in ['.csv', '.tsv']:
+                icon = "📋"
+            else:
+                icon = "📎"
+
+            file_label = QLabel(f"{icon} {file_name[:20]}{'...' if len(file_name) > 20 else ''}")
+            file_label.setStyleSheet("background: transparent; border: none; color: rgba(255, 255, 255, 0.9); font-size: 10px;")
+            chip_layout.addWidget(file_label)
+
+            # Remove button
+            remove_btn = QPushButton("✕")
+            remove_btn.setFixedSize(16, 16)
+            remove_btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: rgba(255, 255, 255, 0.6);
+                    font-size: 10px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    color: rgba(255, 60, 60, 0.9);
+                }
+            """)
+            remove_btn.clicked.connect(lambda checked, fp=file_path: self.remove_attached_file(fp))
+            chip_layout.addWidget(remove_btn)
+
+            self.attached_files_layout.addWidget(file_chip)
+
+        self.attached_files_layout.addStretch()
+
+    def remove_attached_file(self, file_path):
+        """Remove a file from the attached files list."""
+        if file_path in self.attached_files:
+            self.attached_files.remove(file_path)
+            if self.debug:
+                print(f"🗑️ Removed attached file: {file_path}")
+            self.update_attached_files_display()
+
     def send_message(self):
-        """Send message to LLM."""
+        """Send message to LLM with optional media attachments."""
         message = self.input_text.toPlainText().strip()
         if not message:
             return
-        
+
         if self.debug:
             print(f"💬 Sending message: '{message[:50]}...' to {self.current_provider}/{self.current_model}")
-        
+            if self.attached_files:
+                print(f"📎 With {len(self.attached_files)} attached file(s)")
+
         # 1. Clear input immediately
         self.input_text.clear()
-        
-        # 2. Don't manually add to history - let AbstractCore handle it via session.generate()
-        # The LLMManager will automatically add the message when generate_response is called
-        
-        # 3. Update UI for sending state
+
+        # 2. Capture attached files before clearing
+        media_files = self.attached_files.copy()
+
+        # 3. Clear attached files display
+        self.attached_files.clear()
+        self.update_attached_files_display()
+
+        # 4. Update UI for sending state
         self.send_button.setEnabled(False)
         self.send_button.setText("⏳")
         self.status_label.setText("generating")
@@ -1056,21 +1223,27 @@ class QtChatBubble(QWidget):
                 color: #fab387;
             }
         """)
-        
+
         # Notify main app about status change (for icon animation)
         if self.status_callback:
             self.status_callback("generating")
-        
+
         print("🔄 QtChatBubble: UI updated, creating worker thread...")
-        
-        # 4. Start worker thread to send request
-        self.worker = LLMWorker(self.llm_manager, message, self.current_provider, self.current_model)
+
+        # 5. Start worker thread to send request with optional media files
+        self.worker = LLMWorker(
+            self.llm_manager,
+            message,
+            self.current_provider,
+            self.current_model,
+            media=media_files if media_files else None
+        )
         self.worker.response_ready.connect(self.on_response_ready)
         self.worker.error_occurred.connect(self.on_error_occurred)
-        
+
         print("🔄 QtChatBubble: Starting worker thread...")
         self.worker.start()
-        
+
         print("🔄 QtChatBubble: Worker thread started, hiding bubble...")
         # Hide bubble after sending (like the original design)
         QTimer.singleShot(500, self.hide)
@@ -1450,7 +1623,7 @@ class QtChatBubble(QWidget):
                     font-size: 10px;
                     font-weight: 600;
                     color: #ffffff;
-                    font-family: -apple-system, system-ui, sans-serif;
+                    font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                 }}
             """)
 
@@ -1952,7 +2125,7 @@ class QtChatBubble(QWidget):
                         border-radius: 11px;
                         font-size: 10px;
                         color: #ffffff;
-                        font-family: -apple-system, system-ui, sans-serif;
+                        font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                         padding: 0 10px;
                         font-weight: 600;
                     }
@@ -1969,7 +2142,7 @@ class QtChatBubble(QWidget):
                         border-radius: 11px;
                         font-size: 10px;
                         color: rgba(255, 255, 255, 0.7);
-                        font-family: -apple-system, system-ui, sans-serif;
+                        font-family: "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
                         padding: 0 10px;
                     }
                     QPushButton:hover {
