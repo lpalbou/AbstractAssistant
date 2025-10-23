@@ -35,6 +35,12 @@ All notable changes to AbstractAssistant will be documented in this file.
   - Eliminated the play/pause control panel that sometimes appeared at bottom
   - Cleaner interface without unnecessary UI extensions
   - Voice controls still available through existing TTS toggle button
+- **File Attachment Persistence & Visual Indicators**: Enhanced file handling for better user experience
+  - Files now remain attached after sending messages, allowing for easy reuse in follow-up messages
+  - Added visual file attachment indicators (📎) in chat history dialog showing file count per message
+  - Enhanced message history structure to track file attachments per message
+  - Clear session now properly clears both messages and file attachment tracking
+  - Improved file workflow: attach once, use multiple times until manually removed
 
 ## [0.2.8] - 2025-10-21
 

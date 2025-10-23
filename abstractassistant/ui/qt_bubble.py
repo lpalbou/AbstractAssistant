@@ -289,6 +289,9 @@ class QtChatBubble(QWidget):
         # Attached files for media handling (AbstractCore 2.4.5+)
         self.attached_files: List[str] = []
         
+        # Track file attachments per message for history display
+        self.message_file_attachments: Dict[int, List[str]] = {}
+        
         # Initialize new manager classes
         self.provider_manager = None
         self.tts_state_manager = None
@@ -1255,12 +1258,18 @@ class QtChatBubble(QWidget):
         # 1. Clear input immediately
         self.input_text.clear()
 
-        # 2. Capture attached files before clearing
+        # 2. Capture attached files for sending (but keep them attached)
         media_files = self.attached_files.copy()
+        
+        # 3. Store file attachments for this message in our tracking dict
+        # We'll use the message count as a simple key
+        if media_files:
+            message_index = len(self.message_history)  # Current message index before adding
+            self.message_file_attachments[message_index] = media_files.copy()
+            if self.debug:
+                print(f"📎 Storing {len(media_files)} file(s) for message index {message_index}")
 
-        # 3. Clear attached files display
-        self.attached_files.clear()
-        self.update_attached_files_display()
+        # Note: We no longer clear attached_files here - they persist for reuse
 
         # 4. Update UI for sending state
         self.send_button.setEnabled(False)
@@ -1953,11 +1962,12 @@ class QtChatBubble(QWidget):
 
             # Clear attached files as part of session clearing
             self.attached_files.clear()
+            self.message_file_attachments.clear()
             self.update_attached_files_display()
 
             if self.debug:
                 if self.debug:
-                    print("🧹 Session cleared (including attached files)")
+                    print("🧹 Session cleared (including attached files and file tracking)")
     
     def load_session(self):
         """Load a session using AbstractCore via LLMManager."""
@@ -2090,7 +2100,7 @@ class QtChatBubble(QWidget):
 
                 # Convert AbstractCore messages to our format
                 self.message_history = []
-                for msg in session_messages:
+                for i, msg in enumerate(session_messages):
                     # Skip system messages
                     if hasattr(msg, 'role') and msg.role == 'system':
                         continue
@@ -2100,7 +2110,8 @@ class QtChatBubble(QWidget):
                         'type': getattr(msg, 'role', 'unknown'),
                         'content': getattr(msg, 'content', str(msg)),
                         'provider': self.current_provider,
-                        'model': self.current_model
+                        'model': self.current_model,
+                        'attached_files': self.message_file_attachments.get(len(self.message_history), [])
                     }
                     self.message_history.append(message)
 

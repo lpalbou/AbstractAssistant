@@ -359,6 +359,24 @@ class iPhoneMessagesDialog:
             layout.addStretch()
 
         bubble_layout.addWidget(content_label)
+        
+        # Add file attachment indicator if files were attached to this message
+        attached_files = msg.get('attached_files', [])
+        if attached_files:
+            file_indicator = QLabel(f"📎 {len(attached_files)} file{'s' if len(attached_files) > 1 else ''}")
+            file_indicator.setStyleSheet("""
+                QLabel {
+                    background: transparent;
+                    color: rgba(255, 255, 255, 0.7);
+                    font-size: 11px;
+                    font-weight: 500;
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    padding: 2px 0px;
+                    margin: 0px;
+                }
+            """)
+            bubble_layout.addWidget(file_indicator)
+        
         main_layout.addWidget(container)
 
         # Add timestamp below bubble (iPhone style)
