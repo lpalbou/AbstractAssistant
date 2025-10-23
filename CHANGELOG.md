@@ -31,6 +31,10 @@ All notable changes to AbstractAssistant will be documented in this file.
   - Minimized padding and margins throughout (50% reduction)
   - Smaller remove buttons (16x16 → 12x12) for cleaner look
   - Window expansion reduced from +40px to +28px (30% space savings)
+- **UI Cleanup**: Removed unwanted voice control panel extension
+  - Eliminated the play/pause control panel that sometimes appeared at bottom
+  - Cleaner interface without unnecessary UI extensions
+  - Voice controls still available through existing TTS toggle button
 
 ## [0.2.8] - 2025-10-21
 

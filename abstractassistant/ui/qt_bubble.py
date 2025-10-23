@@ -443,10 +443,7 @@ class QtChatBubble(QWidget):
             self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
             header_layout.addWidget(self.full_voice_toggle)
 
-            # Add prominent voice control panel when TTS is active
-            self.voice_control_panel = self.create_voice_control_panel()
-            header_layout.addWidget(self.voice_control_panel)
-            self.voice_control_panel.hide()  # Hidden initially
+            # Voice control panel removed - not needed
         
         header_layout.addStretch()
         
@@ -1773,13 +1770,7 @@ class QtChatBubble(QWidget):
                 current_state = self.voice_manager.get_state()
                 # No longer updating tts_toggle appearance - it's a simple user control
 
-                # Show/hide voice control panel based on TTS state
-                if hasattr(self, 'voice_control_panel'):
-                    if current_state in ['speaking', 'paused']:
-                        self.voice_control_panel.show()
-                        self._update_voice_control_panel(current_state)
-                    else:
-                        self.voice_control_panel.hide()
+                # Voice control panel removed - no longer needed
 
                 if self.debug:
                     if self.debug:
@@ -1789,89 +1780,7 @@ class QtChatBubble(QWidget):
                     if self.debug:
                         print(f"❌ Error updating TTS toggle state: {e}")
 
-    def create_voice_control_panel(self):
-        """Create a prominent voice control panel that appears when TTS is active."""
-        panel = QWidget()
-        layout = QHBoxLayout()
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(4)
-
-        # Pause/Resume button
-        self.voice_pause_button = QPushButton("⏸")
-        self.voice_pause_button.setFixedSize(24, 24)
-        self.voice_pause_button.setToolTip("Pause/Resume TTS (Space)")
-        self.voice_pause_button.clicked.connect(self.on_tts_single_click)
-        self.voice_pause_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 12px;
-                font-size: 12px;
-                color: rgba(255, 255, 255, 0.9);
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.2);
-                border: 1px solid rgba(255, 255, 255, 0.3);
-            }
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.05);
-            }
-        """)
-        layout.addWidget(self.voice_pause_button)
-
-        # Stop button
-        self.voice_stop_button = QPushButton("⏹")
-        self.voice_stop_button.setFixedSize(24, 24)
-        self.voice_stop_button.setToolTip("Stop TTS (Escape)")
-        self.voice_stop_button.clicked.connect(self.on_tts_double_click)
-        self.voice_stop_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 100, 100, 0.1);
-                border: 1px solid rgba(255, 100, 100, 0.3);
-                border-radius: 12px;
-                font-size: 12px;
-                color: rgba(255, 200, 200, 0.9);
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: rgba(255, 100, 100, 0.2);
-                border: 1px solid rgba(255, 100, 100, 0.4);
-            }
-            QPushButton:pressed {
-                background: rgba(255, 100, 100, 0.05);
-            }
-        """)
-        layout.addWidget(self.voice_stop_button)
-
-        # Status text
-        self.voice_status_label = QLabel("Speaking...")
-        self.voice_status_label.setStyleSheet("""
-            QLabel {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 10px;
-                font-weight: 500;
-                padding: 2px 4px;
-            }
-        """)
-        layout.addWidget(self.voice_status_label)
-
-        panel.setLayout(layout)
-        return panel
-
-    def _update_voice_control_panel(self, state):
-        """Update the voice control panel based on TTS state."""
-        if not hasattr(self, 'voice_control_panel'):
-            return
-
-        if state == 'speaking':
-            self.voice_pause_button.setText("⏸")
-            self.voice_pause_button.setToolTip("Pause TTS (Space)")
-            self.voice_status_label.setText("Speaking...")
-        elif state == 'paused':
-            self.voice_pause_button.setText("▶")
-            self.voice_pause_button.setToolTip("Resume TTS (Space)")
-            self.voice_status_label.setText("Paused")
+    # Voice control panel methods removed - not needed
 
     def setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts for voice control."""
