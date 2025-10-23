@@ -324,9 +324,10 @@ class IconGenerator:
         bar_color = (r, g, b, 255)
         
         # Draw 5 vertical bars with different vibration frequencies (like voice visualizer)
+        # Made much larger to match other menu bar icons
         bar_count = 5
-        bar_width = size * 0.08
-        bar_spacing = size * 0.12
+        bar_width = size * 0.15      # Increased from 0.08 to 0.15 (almost 2x wider)
+        bar_spacing = size * 0.18    # Increased from 0.12 to 0.18 (more spacing)
         
         for i in range(bar_count):
             # Each bar has slightly different frequency for realistic voice effect
@@ -334,8 +335,9 @@ class IconGenerator:
             bar_vibration = math.sin(current_time * bar_freq * 2 * math.pi)
             
             # Bar height varies with vibration (like audio visualizer)
-            base_height = size * 0.15
-            vibration_height = size * 0.25 * abs(bar_vibration)
+            # Made much taller to be more visible
+            base_height = size * 0.25    # Increased from 0.15 to 0.25
+            vibration_height = size * 0.35 * abs(bar_vibration)  # Increased from 0.25 to 0.35
             total_height = base_height + vibration_height
             
             # Position bars horizontally across the icon

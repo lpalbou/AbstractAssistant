@@ -526,6 +526,11 @@ class AbstractAssistantApp:
                     voice_manager.stop()
                     if self.debug:
                         print("⏹ Voice stopped")
+                    
+                    # Update icon status to ready since v0.5.1 callback won't fire for manual stops
+                    self.update_icon_status("ready")
+                    if self.debug:
+                        print("🔄 Icon status set to ready after manual voice stop")
 
             # Always show chat bubble on double click
             if self.debug:

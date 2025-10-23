@@ -1403,6 +1403,14 @@ class QtChatBubble(QWidget):
             try:
                 self.voice_manager.stop()
                 self._update_tts_toggle_state()
+                
+                # Manually trigger status update to "ready" since v0.5.1 callback won't fire
+                # when we manually stop the audio
+                if self.status_callback:
+                    if self.debug:
+                        print("🔊 QtChatBubble: TTS disabled, setting ready status")
+                    self.status_callback("ready")
+                    
             except Exception as e:
                 if self.debug:
                     if self.debug:
@@ -1507,6 +1515,13 @@ class QtChatBubble(QWidget):
                     # Safely update TTS toggle state
                     if hasattr(self, '_update_tts_toggle_state'):
                         self._update_tts_toggle_state()
+                    
+                    # Manually trigger status update to "ready" since v0.5.1 callback won't fire
+                    # when we manually stop the audio
+                    if hasattr(self, 'status_callback') and self.status_callback:
+                        if self.debug:
+                            print("🔊 QtChatBubble: Manually stopped TTS, setting ready status")
+                        self.status_callback("ready")
 
                 except Exception as e:
                     if self.debug:
@@ -2153,6 +2168,27 @@ class QtChatBubble(QWidget):
                 if self.debug:
                     if self.debug:
                         print(f"❌ Error updating message history from session: {e}")
+
+    def _rebuild_chat_display(self):
+        """Rebuild chat display after session loading.
+        
+        Since the main bubble doesn't have a chat display area, this method
+        updates the history dialog if it's currently open.
+        """
+        try:
+            # If history dialog is open, refresh it with new message history
+            if self.history_dialog and self.history_dialog.isVisible():
+                self.history_dialog.refresh_messages(self.message_history)
+                if self.debug:
+                    print("🔄 Refreshed history dialog with loaded session messages")
+            
+            # No action needed if history dialog is closed since main bubble has no chat display
+            if self.debug:
+                print("✅ Chat display rebuild completed")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error rebuilding chat display: {e}")
 
     def _update_token_count_from_session(self):
         """Update token count from AbstractCore session."""
