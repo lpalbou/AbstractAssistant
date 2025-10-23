@@ -16,6 +16,21 @@ All notable changes to AbstractAssistant will be documented in this file.
   - Added `update_session_mode()` method for history-preserving mode switches
   - Fixed automatic session loading that bypassed user control
   - Bulletproof session control: NO internal process can clear sessions
+- **UI Layout**: Fixed window resizing when adding/removing file attachments
+  - Window now dynamically resizes to accommodate file attachment widget
+  - Base size: 630x196, expands to 630x224 when files are attached (compact)
+  - Voice mode properly adjusts: 630x120 base, 630x148 with attachments
+  - Maintains proper positioning relative to system tray after resize
+- **Session Clearing**: Clear session now also clears attached files
+  - When user clicks "Clear" button, both messages and attached files are cleared
+  - Updated confirmation dialog to mention attached files will be removed
+  - Ensures complete session reset including file attachments
+- **File Chip Styling**: Made file attachment chips more compact and space-efficient
+  - Reduced font size from 10px to 8px for better space utilization
+  - Decreased border radius from 10px to 6px for tighter appearance
+  - Minimized padding and margins throughout (50% reduction)
+  - Smaller remove buttons (16x16 → 12x12) for cleaner look
+  - Window expansion reduced from +40px to +28px (30% space savings)
 
 ## [0.2.8] - 2025-10-21
 

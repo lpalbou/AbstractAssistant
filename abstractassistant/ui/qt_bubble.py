@@ -360,7 +360,10 @@ class QtChatBubble(QWidget):
         )
         
         # Set optimal size for modern chat interface - much wider to nearly touch screen edge
-        self.setFixedSize(630, 196)  # Increased width from 540 to 700 for better text display
+        # Initial size - will be adjusted dynamically based on file attachments
+        self.base_width = 630
+        self.base_height = 196
+        self.setFixedSize(self.base_width, self.base_height)
         self.position_near_tray()
         
         # Main layout with minimal spacing
@@ -565,8 +568,8 @@ class QtChatBubble(QWidget):
             }
         """)
         self.attached_files_layout = QHBoxLayout(self.attached_files_container)
-        self.attached_files_layout.setContentsMargins(4, 4, 4, 4)
-        self.attached_files_layout.setSpacing(4)
+        self.attached_files_layout.setContentsMargins(2, 2, 2, 2)
+        self.attached_files_layout.setSpacing(2)
         self.attached_files_container.hide()  # Initially hidden
         input_layout.addWidget(self.attached_files_container)
         layout.addWidget(self.input_container)
@@ -1140,6 +1143,7 @@ class QtChatBubble(QWidget):
 
         if not self.attached_files:
             self.attached_files_container.hide()
+            self._adjust_window_size_for_attachments()
             return
 
         # Show container and add file chips
@@ -1155,14 +1159,14 @@ class QtChatBubble(QWidget):
                 QFrame {
                     background: rgba(0, 102, 204, 0.2);
                     border: 1px solid rgba(0, 102, 204, 0.4);
-                    border-radius: 10px;
-                    padding: 2px 8px;
+                    border-radius: 6px;
+                    padding: 1px 4px;
                 }
             """)
 
             chip_layout = QHBoxLayout(file_chip)
-            chip_layout.setContentsMargins(4, 2, 4, 2)
-            chip_layout.setSpacing(4)
+            chip_layout.setContentsMargins(2, 1, 2, 1)
+            chip_layout.setSpacing(2)
 
             # File icon based on type
             ext = os.path.splitext(file_name)[1].lower()
@@ -1182,18 +1186,18 @@ class QtChatBubble(QWidget):
                 icon = "📎"
 
             file_label = QLabel(f"{icon} {file_name[:20]}{'...' if len(file_name) > 20 else ''}")
-            file_label.setStyleSheet("background: transparent; border: none; color: rgba(255, 255, 255, 0.9); font-size: 10px;")
+            file_label.setStyleSheet("background: transparent; border: none; color: rgba(255, 255, 255, 0.9); font-size: 8px;")
             chip_layout.addWidget(file_label)
 
             # Remove button
             remove_btn = QPushButton("✕")
-            remove_btn.setFixedSize(16, 16)
+            remove_btn.setFixedSize(12, 12)
             remove_btn.setStyleSheet("""
                 QPushButton {
                     background: transparent;
                     border: none;
                     color: rgba(255, 255, 255, 0.6);
-                    font-size: 10px;
+                    font-size: 8px;
                     padding: 0px;
                 }
                 QPushButton:hover {
@@ -1206,6 +1210,30 @@ class QtChatBubble(QWidget):
             self.attached_files_layout.addWidget(file_chip)
 
         self.attached_files_layout.addStretch()
+        
+        # Adjust window size to accommodate file attachments
+        self._adjust_window_size_for_attachments()
+
+    def _adjust_window_size_for_attachments(self):
+        """Dynamically adjust window size based on file attachments presence."""
+        attachment_height = 28  # Height needed for file attachment container (reduced for compact chips)
+        
+        if self.attached_files and self.attached_files_container.isVisible():
+            # Files are attached - expand window
+            new_height = self.base_height + attachment_height
+            if self.debug:
+                print(f"📏 Expanding window for attachments: {self.base_height} -> {new_height}")
+        else:
+            # No files attached - use base size
+            new_height = self.base_height
+            if self.debug:
+                print(f"📏 Contracting window (no attachments): -> {new_height}")
+        
+        # Apply new size
+        self.setFixedSize(self.base_width, new_height)
+        
+        # Reposition to maintain alignment with system tray
+        self.position_near_tray()
 
     def remove_attached_file(self, file_path):
         """Remove a file from the attached files list."""
@@ -1695,7 +1723,10 @@ class QtChatBubble(QWidget):
             self.input_container.hide()
 
         # Update window size to be smaller but maintain wider width
-        self.setFixedSize(630, 120)  # Reduced width by 10% to match normal size
+        voice_base_height = 120
+        attachment_height = 28 if (self.attached_files and self.attached_files_container.isVisible()) else 0
+        voice_height = voice_base_height + attachment_height
+        self.setFixedSize(self.base_width, voice_height)  # Dynamic height for voice mode
 
     def show_text_ui(self):
         """Show the text input interface when exiting Full Voice Mode."""
@@ -1703,8 +1734,8 @@ class QtChatBubble(QWidget):
         if hasattr(self, 'input_container'):
             self.input_container.show()
 
-        # Restore normal window size with wider width
-        self.setFixedSize(630, 196)
+        # Restore normal window size with wider width - use dynamic sizing
+        self._adjust_window_size_for_attachments()
 
     def update_status(self, status_text: str):
         """Update the status label with the given text."""
@@ -1990,7 +2021,7 @@ class QtChatBubble(QWidget):
         reply = QMessageBox.question(
             self, 
             "Clear Session", 
-            "Are you sure you want to clear the current session?\nThis will remove all messages and reset the token count.",
+            "Are you sure you want to clear the current session?\nThis will remove all messages, attached files, and reset the token count.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -2011,9 +2042,13 @@ class QtChatBubble(QWidget):
             self.token_count = 0
             self.update_token_display()
 
+            # Clear attached files as part of session clearing
+            self.attached_files.clear()
+            self.update_attached_files_display()
+
             if self.debug:
                 if self.debug:
-                    print("🧹 Session cleared")
+                    print("🧹 Session cleared (including attached files)")
     
     def load_session(self):
         """Load a session using AbstractCore via LLMManager."""
