@@ -1070,13 +1070,15 @@ class QtChatBubble(QWidget):
         
         # Check for Enter/Return key
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
-            # Shift+Enter or Ctrl+Enter or Cmd+Enter should send message
-            if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier or 
-                event.modifiers() & Qt.KeyboardModifier.ControlModifier or 
-                event.modifiers() & Qt.KeyboardModifier.MetaModifier):
+            # Shift+Enter should add a new line
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                # Allow default behavior (new line)
+                QTextEdit.keyPressEvent(self.input_text, event)
+                return
+            # Plain Enter should send message
+            else:
                 self.send_message()
                 return
-            # Plain Enter should add a new line (default behavior)
         
         # Call original keyPressEvent for all other keys
         QTextEdit.keyPressEvent(self.input_text, event)

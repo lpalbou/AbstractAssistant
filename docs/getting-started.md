@@ -39,7 +39,8 @@ The icon provides visual feedback about what AbstractAssistant is doing at any m
 
 ### 4. Start Your First Conversation
 - **Type your message** in the text area
-- **Send**: Press `Shift+Enter` or click the blue send button (→)
+- **Send**: Press `Enter` or click the blue send button (→)
+- **New Line**: Press `Shift+Enter` to add a new line without sending
 - **Wait for response**: The AI will process and respond to your query
 
 ## Main Interface
@@ -163,7 +164,8 @@ Keep track of your conversations:
 ## Keyboard Shortcuts
 
 ### In Chat Bubble
-- **Shift+Enter**: Send message
+- **Enter**: Send message
+- **Shift+Enter**: Add new line (without sending)
 - **Escape**: Close chat bubble
 - **Tab**: Navigate between controls
 

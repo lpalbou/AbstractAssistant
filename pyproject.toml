@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.3.2"
+version = "0.3.3"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -61,9 +61,7 @@ Issues = "https://github.com/lpalbou/abstractassistant/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["abstractassistant*"]
-
-[tool.setuptools]
-py-modules = ["setup_macos_app"]
+exclude = ["tests*", "docs*", "AbstractAssistant.app*"]
 
 [tool.black]
 line-length = 88

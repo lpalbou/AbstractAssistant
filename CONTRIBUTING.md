@@ -243,9 +243,9 @@ class LLMManager:
 
 #### **User Documentation**
 - **README.md**: Project overview and quick start
-- **docs/INSTALLATION.md**: Detailed setup instructions
-- **docs/USAGE.md**: Complete user guide
-- **docs/ARCHITECTURE.md**: Technical documentation
+- **docs/installation.md**: Detailed setup instructions
+- **docs/getting-started.md**: Complete user guide
+- **docs/architecture.md**: Technical documentation
 
 ## 🐛 Bug Reports
 

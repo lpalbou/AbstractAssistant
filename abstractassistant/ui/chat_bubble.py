@@ -121,8 +121,10 @@ class ChatBubble:
         )
         self.text_input.pack(fill="both", expand=True)
         
-        # Bind Enter key for sending (Cmd+Enter on macOS)
-        self.text_input.bind("<Command-Return>", lambda e: self._send_message())
+        # Bind keyboard shortcuts for message sending
+        # Enter = send message, Shift+Enter = new line
+        self.text_input.bind("<Return>", self._handle_enter_key)
+        self.text_input.bind("<KP_Enter>", self._handle_enter_key)  # Numpad Enter
         
         # Controls frame
         controls_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
@@ -270,6 +272,17 @@ class ChatBubble:
             text=status_text.get(status, "● Unknown"),
             text_color=status_colors.get(status, "gray")
         )
+    
+    def _handle_enter_key(self, event):
+        """Handle Enter key press in text input."""
+        # Check if Shift is held down
+        if event.state & 0x1:  # Shift modifier
+            # Shift+Enter: Allow default behavior (new line)
+            return None
+        else:
+            # Plain Enter: Send message
+            self._send_message()
+            return "break"  # Prevent default behavior
     
     def _send_message(self):
         """Send the current message."""

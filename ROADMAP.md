@@ -21,3 +21,7 @@
     - crucial : freedom to switch from discussion to discussion
 
 - fix session
+- system prompt
+- give the voice of hal9000
+- changing speed or voice ? (eg french voice)
+

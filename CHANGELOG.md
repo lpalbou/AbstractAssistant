@@ -3,6 +3,36 @@
 All notable changes to AbstractAssistant will be documented in this file.
 
 
+## [0.3.3] - 2025-10-24
+
+### Changed
+- **Keyboard Behavior**: Reversed Enter/Shift+Enter behavior for more intuitive message sending
+  - `Enter`: Send message (previously required Shift+Enter)
+  - `Shift+Enter`: Add new line without sending (previously just Enter)
+  - Updated both Qt and Tkinter chat interfaces for consistency
+  - Improved user experience with standard chat application behavior
+
+### Fixed
+- **macOS App Bundle**: Consolidated and improved app bundle creation system
+  - Merged `setup_macos_app.py` functionality into `create_app_bundle.py` for cleaner architecture
+  - Enhanced Python environment discovery in launch script for better reliability
+  - Improved custom icon preservation logic to prevent overwriting user icons
+  - Fixed app bundle creation for various Python installation methods (pyenv, system, conda)
+  - Removed redundant files and streamlined packaging structure
+
+### Improved
+- **Documentation**: Updated all documentation to reflect current features and behavior
+  - Fixed keyboard shortcuts documentation across all guides
+  - Updated installation instructions with correct app bundle creation commands
+  - Verified consistency of Python version requirements (3.9+) across all docs
+  - Corrected outdated references to deprecated modules
+
+### Removed
+- **Code Cleanup**: Removed deprecated `setup_macos_app.py` after consolidation
+  - All functionality moved to `abstractassistant/create_app_bundle.py`
+  - Updated PyPI packaging to exclude development artifacts
+  - Cleaner project structure with single app bundle creation entry point
+
 ## [0.3.0] - 2025-10-22
 
 ### Fixed

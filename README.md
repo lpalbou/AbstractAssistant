@@ -169,26 +169,26 @@ assistant --debug
 
 ```
 abstractassistant/
-├── pyproject.toml          # Package configuration
-├── requirements.txt        # Dependencies
-├── config.toml            # Default configuration
-├── abstractassistant/     # Main package
-│   ├── cli.py            # CLI entry point
-│   ├── app.py            # Main application
-│   ├── config.py         # Configuration management
-│   ├── core/             # Business logic
-│   │   ├── llm_manager.py    # LLM provider management
-│   │   └── tts_manager.py    # Voice/TTS integration
-│   ├── ui/               # User interface
-│   │   ├── qt_bubble.py      # Main Qt chat interface
-│   │   └── toast_window.py   # Notification system
-│   └── utils/            # Utilities
-│       ├── icon_generator.py # Dynamic icon creation
-│       └── markdown_renderer.py # Markdown processing
-└── docs/                 # Documentation
-    ├── ARCHITECTURE.md   # Technical documentation
-    ├── INSTALLATION.md   # Installation guide
-    └── USAGE.md         # Usage guide
+├── pyproject.toml                  # Package configuration
+├── requirements.txt                # Dependencies
+├── config.toml                     # Default configuration
+├── abstractassistant/              # Main package
+│   ├── cli.py                          # CLI entry point
+│   ├── app.py                          # Main application
+│   ├── config.py                       # Configuration management
+│   ├── core/                           # Business logic
+│   │   ├── llm_manager.py                  # LLM provider management
+│   │   └── tts_manager.py                  # Voice/TTS integration
+│   ├── ui/                         # User interface
+│   │   ├── qt_bubble.py                    # Main Qt chat interface
+│   │   └── toast_window.py                 # Notification system
+│   └── utils/                      # Utilities
+│       ├── icon_generator.py               # Dynamic icon creation
+│       └── markdown_renderer.py            # Markdown processing
+└── docs/                           # Documentation
+    ├── architecture.md                 # Technical documentation
+    ├── installation.md                 # Installation guide
+    └── getting-started.md              # Usage guide
 ```
 
 ## 🌟 Why AbstractAssistant?

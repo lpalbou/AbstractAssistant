@@ -42,6 +42,7 @@ venv.bak/
 
 # macOS specific
 .DS_Store
+AbstractAssistant.app/
 
 # IDEs and editors
 .vscode/

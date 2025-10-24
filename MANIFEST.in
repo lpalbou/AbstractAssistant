@@ -1,0 +1,30 @@
+# Include important documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+include CONTRIBUTING.md
+include ACKNOWLEDGMENTS.md
+
+# Include configuration files
+include pyproject.toml
+
+# Include documentation
+recursive-include docs *.md *.txt
+prune docs/devnotes
+
+# Exclude development artifacts
+exclude setup_macos_app.py
+prune AbstractAssistant.app
+prune tests
+prune .venv
+prune dist
+prune build
+prune *.egg-info
+
+# Exclude temporary and cache files
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.so
+global-exclude .DS_Store
+global-exclude *.swp
+global-exclude *~
