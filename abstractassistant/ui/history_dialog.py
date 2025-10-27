@@ -4,8 +4,9 @@ iPhone Messages-style history dialog for AbstractAssistant.
 This module provides an authentic iPhone Messages UI for displaying chat history.
 """
 import re
+import time
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Callable, Optional
 import markdown
 from markdown.extensions.fenced_code import FencedCodeExtension
 from markdown.extensions.tables import TableExtension
@@ -33,61 +34,193 @@ except ImportError:
 
 
 class ClickableBubble(QFrame):
-    """Clickable message bubble that copies content to clipboard."""
+    """Clickable message bubble that copies content to clipboard and supports deletion."""
 
     clicked = pyqtSignal()
+    delete_requested = pyqtSignal(int)  # Signal with message index
+    selection_changed = pyqtSignal(int, bool)  # Signal with message index and selection state
 
-    def __init__(self, content: str, is_user: bool, parent=None):
+    def __init__(self, content: str, is_user: bool, message_index: int, parent=None):
         super().__init__(parent)
         self.content = content
         self.is_user = is_user
+        self.message_index = message_index
+        self.is_selected = False
+        self.selection_mode = False
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         # Store original colors for animation
         if is_user:
             self.normal_bg = "#007AFF"
             self.clicked_bg = "#0066CC"
+            self.selected_bg = "#FF3B30"  # Red for selection
         else:
             self.normal_bg = "#3a3a3c"
             self.clicked_bg = "#4a4a4c"
+            self.selected_bg = "#FF3B30"  # Red for selection
+        
+        # Long press timer for selection mode
+        self.long_press_timer = QTimer()
+        self.long_press_timer.setSingleShot(True)
+        self.long_press_timer.timeout.connect(self._start_selection_mode)
+        self.press_start_time = None
 
     def mousePressEvent(self, event):
-        """Handle mouse press with visual feedback."""
+        """Handle mouse press with visual feedback and long press detection."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Apply clicked style (darker)
-            self.setStyleSheet(f"""
-                QFrame {{
-                    background: {self.clicked_bg};
-                    border: none;
-                    border-radius: 18px;
-                    max-width: 400px;
-                }}
-            """)
+            self.press_start_time = time.time()
+            
+            if self.selection_mode:
+                # In selection mode, toggle selection
+                self.toggle_selection()
+            else:
+                # Normal mode - start long press timer and apply clicked style
+                self.long_press_timer.start(800)  # 800ms for long press
+                self.setStyleSheet(f"""
+                    QFrame {{
+                        background: {self.clicked_bg};
+                        border: none;
+                        border-radius: 18px;
+                        max-width: 400px;
+                    }}
+                """)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        """Handle mouse release - copy to clipboard and restore style."""
+        """Handle mouse release - copy to clipboard, handle selection, and restore style."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Copy to clipboard
-            clipboard = QApplication.clipboard()
-            clipboard.setText(self.content)
+            # Stop long press timer
+            self.long_press_timer.stop()
+            
+            if self.selection_mode:
+                # In selection mode, just restore style
+                self._update_visual_state()
+            else:
+                # Check if this was a quick tap (not long press)
+                if self.press_start_time and (time.time() - self.press_start_time) < 0.5:
+                    # Copy to clipboard
+                    clipboard = QApplication.clipboard()
+                    clipboard.setText(self.content)
 
-            # Visual feedback: glossy effect (lighter color briefly)
-            glossy_color = "#0080FF" if self.is_user else "#5a5a5c"
-            self.setStyleSheet(f"""
-                QFrame {{
-                    background: {glossy_color};
-                    border: none;
-                    border-radius: 18px;
-                    max-width: 400px;
-                }}
-            """)
+                    # Visual feedback: glossy effect (lighter color briefly)
+                    glossy_color = "#0080FF" if self.is_user else "#5a5a5c"
+                    self.setStyleSheet(f"""
+                        QFrame {{
+                            background: {glossy_color};
+                            border: none;
+                            border-radius: 18px;
+                            max-width: 400px;
+                        }}
+                    """)
 
-            # Restore normal color after brief delay
-            QTimer.singleShot(200, self._restore_normal_style)
+                    # Restore normal color after brief delay
+                    QTimer.singleShot(200, self._restore_normal_style)
 
-            self.clicked.emit()
+                    self.clicked.emit()
+                else:
+                    # Long press - restore style immediately
+                    self._restore_normal_style()
         super().mouseReleaseEvent(event)
+
+    def _start_selection_mode(self):
+        """Start selection mode on long press."""
+        self.selection_mode = True
+        self.is_selected = True
+        self._update_visual_state()
+        self.selection_changed.emit(self.message_index, True)
+        
+        # Provide haptic-like feedback by briefly changing color
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {self.selected_bg};
+                border: 2px solid #FFFFFF;
+                border-radius: 18px;
+                max-width: 400px;
+            }}
+        """)
+        
+        # Add selection indicator
+        QTimer.singleShot(100, self._update_visual_state)
+
+    def toggle_selection(self):
+        """Toggle selection state in selection mode."""
+        self.is_selected = not self.is_selected
+        self._update_selection_circle()
+        self._update_visual_state()
+        self.selection_changed.emit(self.message_index, self.is_selected)
+
+    def set_selection_mode(self, enabled: bool):
+        """Set selection mode state."""
+        self.selection_mode = enabled
+        if not enabled:
+            self.is_selected = False
+        
+        # Show/hide selection circle
+        if hasattr(self, 'selection_circle'):
+            if enabled:
+                self.selection_circle.show()
+            else:
+                self.selection_circle.hide()
+        
+        self._update_selection_circle()
+        self._update_visual_state()
+
+    def set_selected(self, selected: bool):
+        """Set selection state."""
+        self.is_selected = selected
+        self._update_selection_circle()
+        self._update_visual_state()
+
+    def _update_selection_circle(self):
+        """Update selection circle appearance."""
+        if hasattr(self, 'selection_circle') and self.selection_mode:
+            if self.is_selected:
+                # Selected state - filled circle with checkmark
+                self.selection_circle.setStyleSheet("""
+                    QPushButton {
+                        background: #007AFF;
+                        border: 2px solid #007AFF;
+                        border-radius: 11px;
+                        margin: 0px;
+                        padding: 0px;
+                        color: white;
+                        font-size: 12px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background: #0066CC;
+                        border: 2px solid #0066CC;
+                    }
+                """)
+                self.selection_circle.setText("✓")
+            else:
+                # Unselected state - empty circle
+                self.selection_circle.setStyleSheet("""
+                    QPushButton {
+                        background: transparent;
+                        border: 2px solid rgba(255, 255, 255, 0.6);
+                        border-radius: 11px;
+                        margin: 0px;
+                        padding: 0px;
+                    }
+                    QPushButton:hover {
+                        border: 2px solid rgba(255, 255, 255, 0.8);
+                    }
+                """)
+                self.selection_circle.setText("")
+
+    def _update_visual_state(self):
+        """Update visual state based on selection - no visual changes to bubble itself."""
+        # In authentic iPhone Messages, the bubble appearance doesn't change
+        # Only the selection circle changes state - bubble stays the same
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {self.normal_bg};
+                border: none;
+                border-radius: 18px;
+                max-width: 400px;
+            }}
+        """)
 
     def _restore_normal_style(self):
         """Restore normal bubble style."""
@@ -107,13 +240,269 @@ class SafeDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hide_callback = None
+        self.delete_callback = None
+        self.selection_mode = False
+        self.selected_messages = set()
+        self.message_bubbles = []
+        self.trash_button = None
+        self.edit_button = None
 
     def set_hide_callback(self, callback):
         """Set callback to call when dialog is hidden."""
         self.hide_callback = callback
 
+    def set_delete_callback(self, callback):
+        """Set callback to call when messages are deleted."""
+        self.delete_callback = callback
+
+    def enter_selection_mode(self):
+        """Enter selection mode for message deletion."""
+        self.selection_mode = True
+        self.selected_messages.clear()
+        
+        # Update all bubbles to selection mode
+        for bubble in self.message_bubbles:
+            bubble.set_selection_mode(True)
+        
+        # Update navigation bar
+        self._update_navbar_for_selection_mode()
+
+    def exit_selection_mode(self):
+        """Exit selection mode."""
+        self.selection_mode = False
+        self.selected_messages.clear()
+        
+        # Update all bubbles to normal mode
+        for bubble in self.message_bubbles:
+            bubble.set_selection_mode(False)
+        
+        # Update navigation bar
+        self._update_navbar_for_normal_mode()
+
+    def _update_navbar_for_selection_mode(self):
+        """Update navbar for selection mode."""
+        if hasattr(self, 'edit_button'):
+            self.edit_button.setText("Cancel")
+            self.edit_button.clicked.disconnect()
+            self.edit_button.clicked.connect(self.exit_selection_mode)
+        
+        # Hide trash button initially (will show when messages are selected)
+        if hasattr(self, 'trash_button'):
+            self.trash_button.hide()
+
+    def _update_navbar_for_normal_mode(self):
+        """Update navbar for normal mode."""
+        if hasattr(self, 'edit_button'):
+            self.edit_button.setText("Edit")
+            self.edit_button.clicked.disconnect()
+            self.edit_button.clicked.connect(self.enter_selection_mode)
+        
+        # Hide trash button
+        if hasattr(self, 'trash_button'):
+            self.trash_button.hide()
+
+    def on_selection_changed(self, message_index: int, selected: bool):
+        """Handle selection change from a bubble."""
+        if selected:
+            self.selected_messages.add(message_index)
+        else:
+            self.selected_messages.discard(message_index)
+        
+        # Show/hide trash button based on selection
+        if hasattr(self, 'trash_button'):
+            if len(self.selected_messages) > 0:
+                self.trash_button.show()
+            else:
+                self.trash_button.hide()
+
+    def delete_selected_messages(self):
+        """Delete selected messages with iPhone-style bottom action sheet."""
+        try:
+            if not self.selected_messages or not self.delete_callback:
+                print("❌ No messages selected or no delete callback")
+                return
+
+            print(f"🗑️ Attempting to delete {len(self.selected_messages)} messages")
+
+            # Show iPhone-style bottom action sheet
+            count = len(self.selected_messages)
+            self._show_delete_action_sheet(count)
+
+        except Exception as e:
+            print(f"❌ Error in delete_selected_messages: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _show_delete_action_sheet(self, count: int):
+        """Show iPhone-style bottom action sheet for deletion confirmation."""
+        # Create overlay widget that covers the entire dialog
+        overlay = QWidget(self)
+        overlay.setStyleSheet("background: rgba(0, 0, 0, 0.4);")
+        overlay.resize(self.size())
+        overlay.move(0, 0)
+        
+        # Create action sheet container
+        action_sheet = QWidget(overlay)
+        action_sheet.setStyleSheet("""
+            QWidget {
+                background: #2C2C2E;
+                border-radius: 13px;
+                border: none;
+            }
+        """)
+        
+        # Layout for action sheet
+        layout = QVBoxLayout(action_sheet)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(1)
+        
+        # Delete button (red, destructive)
+        delete_btn = QPushButton(f"Delete {count} Message{'s' if count > 1 else ''}")
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background: #FF3B30;
+                color: white;
+                border: none;
+                padding: 16px;
+                font-size: 17px;
+                font-weight: 400;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background: #D70015;
+            }
+        """)
+        delete_btn.clicked.connect(lambda: self._confirm_deletion(overlay))
+        
+        # Cancel button
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background: #48484A;
+                color: #007AFF;
+                border: none;
+                padding: 16px;
+                font-size: 17px;
+                font-weight: 600;
+                text-align: center;
+                border-radius: 13px;
+                margin-top: 8px;
+            }
+            QPushButton:hover {
+                background: #5A5A5C;
+            }
+        """)
+        cancel_btn.clicked.connect(lambda: self._cancel_deletion(overlay))
+        
+        layout.addWidget(delete_btn)
+        layout.addWidget(cancel_btn)
+        
+        # Position action sheet at bottom
+        action_sheet.setFixedWidth(self.width() - 40)
+        action_sheet.adjustSize()
+        action_sheet.move(20, self.height() - action_sheet.height() - 20)
+        
+        # Show overlay and action sheet
+        overlay.show()
+        overlay.raise_()
+        
+        # Store reference for cleanup
+        self.current_overlay = overlay
+
+    def _confirm_deletion(self, overlay):
+        """Confirm deletion and execute it."""
+        try:
+            # Hide overlay
+            overlay.hide()
+            overlay.deleteLater()
+            self.current_overlay = None
+            
+            # Convert to sorted list for consistent deletion
+            indices_to_delete = sorted(list(self.selected_messages), reverse=True)
+            print(f"🗑️ Indices to delete: {indices_to_delete}")
+
+            # Call the delete callback with error handling
+            self.delete_callback(indices_to_delete)
+
+            print("✅ Messages deleted successfully")
+
+        except Exception as e:
+            print(f"❌ Error confirming deletion: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _cancel_deletion(self, overlay):
+        """Cancel deletion and hide action sheet."""
+        overlay.hide()
+        overlay.deleteLater()
+        self.current_overlay = None
+
+    def update_message_history(self, new_message_history: List[Dict]):
+        """Update the dialog with new message history without closing it."""
+        try:
+            print(f"🔄 Updating dialog with {len(new_message_history)} messages")
+            
+            # Exit selection mode if active
+            if self.selection_mode:
+                self.exit_selection_mode()
+            
+            # Clear existing content
+            if hasattr(self, 'scroll_content'):
+                # Remove all existing bubble widgets
+                layout = self.scroll_content.layout()
+                if layout:
+                    while layout.count():
+                        child = layout.takeAt(0)
+                        if child.widget():
+                            child.widget().deleteLater()
+            
+            # Recreate bubbles with new message history
+            self._populate_messages(new_message_history)
+            
+            # Scroll to bottom to show latest messages
+            if hasattr(self, 'scroll_area'):
+                QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(
+                    self.scroll_area.verticalScrollBar().maximum()
+                ))
+            
+            print("✅ Dialog content updated successfully")
+            
+        except Exception as e:
+            print(f"❌ Error updating message history: {e}")
+            import traceback
+            traceback.print_exc()
+            raise  # Re-raise to trigger fallback in qt_bubble.py
+
+    def _populate_messages(self, message_history: List[Dict]):
+        """Populate the scroll area with message bubbles."""
+        if not hasattr(self, 'scroll_content') or not message_history:
+            return
+            
+        layout = self.scroll_content.layout()
+        if not layout:
+            layout = QVBoxLayout(self.scroll_content)
+            layout.setContentsMargins(20, 20, 20, 20)
+            layout.setSpacing(8)
+        
+        # Add messages as bubbles
+        for i, message in enumerate(message_history):
+            if message.get('type') in ['user', 'assistant']:
+                bubble = ClickableBubble(
+                    message.get('content', ''),
+                    message.get('type') == 'user',
+                    i,
+                    self
+                )
+                layout.addWidget(bubble)
+        
+        # Add stretch to push messages to top
+        layout.addStretch()
+
+
     def closeEvent(self, event):
         """Override close event to hide instead of close."""
+        if self.selection_mode:
+            self.exit_selection_mode()
         event.ignore()
         self.hide()
         if self.hide_callback:
@@ -121,6 +510,8 @@ class SafeDialog(QDialog):
 
     def reject(self):
         """Override reject to hide instead of close."""
+        if self.selection_mode:
+            self.exit_selection_mode()
         self.hide()
         if self.hide_callback:
             self.hide_callback()
@@ -130,13 +521,22 @@ class iPhoneMessagesDialog:
     """Create authentic iPhone Messages-style chat history dialog."""
 
     @staticmethod
-    def create_dialog(message_history: List[Dict], parent=None) -> QDialog:
-        """Create AUTHENTIC iPhone Messages dialog - EXACTLY like the real app."""
+    def create_dialog(message_history: List[Dict], parent=None, delete_callback: Optional[Callable] = None) -> QDialog:
+        """Create AUTHENTIC iPhone Messages dialog with deletion support."""
+        # Safety check for empty message history
+        if not message_history:
+            print("⚠️ Cannot create dialog with empty message history")
+            return None
+        
         dialog = SafeDialog(parent)
         dialog.setWindowTitle("Messages")
         dialog.setModal(False)
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         dialog.resize(504, 650)  # Increased width by 20% (420 * 1.2 = 504)
+
+        # Set delete callback
+        if delete_callback:
+            dialog.set_delete_callback(delete_callback)
 
         # Position dialog near right edge of screen like iPhone
         iPhoneMessagesDialog._position_dialog_right(dialog)
@@ -146,10 +546,10 @@ class iPhoneMessagesDialog:
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # iPhone navigation bar
+        # iPhone navigation bar with delete button
         navbar = iPhoneMessagesDialog._create_authentic_navbar(dialog)
         main_layout.addWidget(navbar)
-
+        
         # Messages container with pure white background
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -163,8 +563,8 @@ class iPhoneMessagesDialog:
         messages_layout.setContentsMargins(0, 16, 0, 16)  # iPhone spacing
         messages_layout.setSpacing(0)
 
-        # Add messages with authentic iPhone styling
-        iPhoneMessagesDialog._add_authentic_iphone_messages(messages_layout, message_history)
+        # Add messages with authentic iPhone styling and deletion support
+        iPhoneMessagesDialog._add_authentic_iphone_messages(messages_layout, message_history, dialog)
 
         messages_layout.addStretch()
         scroll_area.setWidget(messages_widget)
@@ -203,8 +603,8 @@ class iPhoneMessagesDialog:
         dialog.move(x, y)
 
     @staticmethod
-    def _create_authentic_navbar(dialog: QDialog) -> QFrame:
-        """Create AUTHENTIC iPhone Messages navigation bar."""
+    def _create_authentic_navbar(dialog: SafeDialog) -> QFrame:
+        """Create AUTHENTIC iPhone Messages navigation bar with delete functionality."""
         navbar = QFrame()
         navbar.setFixedHeight(94)  # iPhone status bar + nav bar
         navbar.setStyleSheet("""
@@ -261,18 +661,57 @@ class iPhoneMessagesDialog:
 
         nav_layout.addStretch()
 
+        # Trash icon (initially hidden, appears when messages are selected)
+        trash_btn = QPushButton("🗑️")
+        trash_btn.setFixedSize(30, 30)
+        trash_btn.clicked.connect(dialog.delete_selected_messages)
+        trash_btn.setStyleSheet("""
+            QPushButton {
+                color: #FF3B30;
+                font-size: 18px;
+                background: transparent;
+                border: none;
+                text-align: center;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+            }
+            QPushButton:hover {
+                background: rgba(255, 59, 48, 0.1);
+                border-radius: 15px;
+            }
+        """)
+        trash_btn.hide()  # Initially hidden
+        dialog.trash_button = trash_btn  # Store reference
+        nav_layout.addWidget(trash_btn)
+
+        # Delete button (Edit in iPhone style)
+        edit_btn = QPushButton("Edit")
+        edit_btn.clicked.connect(dialog.enter_selection_mode)
+        edit_btn.setStyleSheet("""
+            QPushButton {
+                color: #007AFF;
+                font-size: 17px;
+                font-weight: 400;
+                background: transparent;
+                border: none;
+                text-align: right;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+            }
+        """)
+        dialog.edit_button = edit_btn  # Store reference
+        nav_layout.addWidget(edit_btn)
+
         layout.addWidget(nav_frame)
         return navbar
 
     @staticmethod
-    def _add_authentic_iphone_messages(layout: QVBoxLayout, message_history: List[Dict]):
-        """Add messages with AUTHENTIC iPhone Messages styling."""
+    def _add_authentic_iphone_messages(layout: QVBoxLayout, message_history: List[Dict], dialog: SafeDialog):
+        """Add messages with AUTHENTIC iPhone Messages styling and deletion support."""
         for index, msg in enumerate(message_history):
             message_type = msg.get('type', msg.get('role', 'unknown'))
             is_user = message_type in ['user', 'human']
 
-            # Create authentic iPhone bubble
-            bubble_container = iPhoneMessagesDialog._create_authentic_iphone_bubble(msg, is_user, index, message_history)
+            # Create authentic iPhone bubble with deletion support
+            bubble_container = iPhoneMessagesDialog._create_authentic_iphone_bubble(msg, is_user, index, message_history, dialog)
             layout.addWidget(bubble_container)
 
             # Add spacing between messages (6px like iPhone)
@@ -283,8 +722,8 @@ class iPhoneMessagesDialog:
                 layout.addWidget(spacer)
 
     @staticmethod
-    def _create_authentic_iphone_bubble(msg: Dict, is_user: bool, index: int, message_history: List[Dict]) -> QFrame:
-        """Create AUTHENTIC iPhone Messages bubble - exactly like real iPhone."""
+    def _create_authentic_iphone_bubble(msg: Dict, is_user: bool, index: int, message_history: List[Dict], dialog: SafeDialog) -> QFrame:
+        """Create AUTHENTIC iPhone Messages bubble with deletion support."""
         main_container = QFrame()
         main_container.setStyleSheet("background: transparent; border: none;")
         main_layout = QVBoxLayout(main_container)
@@ -298,8 +737,32 @@ class iPhoneMessagesDialog:
         layout.setContentsMargins(12, 0, 12, 0)  # Tighter margins for more width
         layout.setSpacing(0)
 
-        # Create clickable bubble
-        bubble = ClickableBubble(msg['content'], is_user)
+        # Create selection circle (initially hidden)
+        selection_circle = QPushButton()
+        selection_circle.setFixedSize(22, 22)
+        selection_circle.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 2px solid rgba(255, 255, 255, 0.6);
+                border-radius: 11px;
+                margin: 0px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                border: 2px solid rgba(255, 255, 255, 0.8);
+            }
+        """)
+        selection_circle.hide()  # Initially hidden
+        
+        # Create clickable bubble with deletion support
+        bubble = ClickableBubble(msg['content'], is_user, index)
+        bubble.selection_changed.connect(dialog.on_selection_changed)
+        bubble.selection_circle = selection_circle  # Store reference
+        dialog.message_bubbles.append(bubble)  # Track bubbles for selection mode
+        
+        # Connect selection circle click
+        selection_circle.clicked.connect(bubble.toggle_selection)
+        
         bubble_layout = QVBoxLayout(bubble)
         bubble_layout.setContentsMargins(12, 7, 12, 7)  # More compact padding
         bubble_layout.setSpacing(0)
@@ -331,8 +794,10 @@ class iPhoneMessagesDialog:
                     font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 }
             """)
-            # Right align
+            # Right align - selection circle on the left of bubble (towards center)
             layout.addStretch()
+            layout.addWidget(selection_circle, 0, Qt.AlignmentFlag.AlignCenter)
+            layout.addSpacing(8)  # Small gap between circle and bubble
             layout.addWidget(bubble)
         else:
             # Received bubble: Light gray with black text
@@ -354,8 +819,10 @@ class iPhoneMessagesDialog:
                     font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 }
             """)
-            # Left align
+            # Left align - selection circle on the right of bubble (towards center)
             layout.addWidget(bubble)
+            layout.addSpacing(8)  # Small gap between bubble and circle
+            layout.addWidget(selection_circle, 0, Qt.AlignmentFlag.AlignCenter)
             layout.addStretch()
 
         bubble_layout.addWidget(content_label)

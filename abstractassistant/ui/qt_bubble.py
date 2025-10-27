@@ -405,6 +405,7 @@ class QtChatBubble(QWidget):
             ("Clear", self.clear_session),
             ("Load", self.load_session), 
             ("Save", self.save_session),
+            # ("Compact", self.compact_session),  # Hidden for now - functionality preserved
             ("History", self.show_history)
         ]
         
@@ -1971,6 +1972,268 @@ class QtChatBubble(QWidget):
                 if self.debug:
                     print("🧹 Session cleared (including attached files and file tracking)")
     
+    def compact_session(self):
+        """Compact the current session using AbstractCore's summarizer functionality."""
+        if not self.message_history:
+            QMessageBox.information(
+                self,
+                "No Session",
+                "No conversation history to compact. Start a conversation first."
+            )
+            return
+        
+        # Check if session is too short to compact
+        if len(self.message_history) < 4:  # Need at least 2 exchanges to be worth compacting
+            QMessageBox.information(
+                self,
+                "Session Too Short",
+                "Session is too short to compact. Need at least 2 exchanges (4 messages)."
+            )
+            return
+        
+        reply = QMessageBox.question(
+            self, 
+            "Compact Session", 
+            "This will summarize the conversation history into a concise system message, "
+            "keeping only the most recent 2 exchanges for context.\n\n"
+            "This action cannot be undone. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Show progress
+                self.status_label.setText("compacting")
+                self.status_label.setStyleSheet("""
+                    QLabel {
+                        background: rgba(250, 179, 135, 0.2);
+                        border: 1px solid rgba(250, 179, 135, 0.3);
+                        border-radius: 12px;
+                        padding: 4px 12px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        color: #fab387;
+                    }
+                """)
+                
+                # Notify main app about status change
+                if self.status_callback:
+                    self.status_callback("compacting")
+                
+                # Create conversation text for summarization
+                conversation_text = self._format_conversation_for_summarization()
+                
+                # Use AbstractCore's summarizer functionality through LLMManager
+                summary = self._generate_conversation_summary(conversation_text)
+                
+                if summary:
+                    # Keep the last 2 exchanges (4 messages) for context
+                    recent_messages = self.message_history[-4:] if len(self.message_history) >= 4 else self.message_history[-2:]
+                    
+                    # Create new session with summary as system context
+                    self._create_compacted_session(summary, recent_messages)
+                    
+                    # Update UI
+                    self.token_count = 0  # Reset token count
+                    self.update_token_display()
+                    
+                    # Show success message
+                    QMessageBox.information(
+                        self,
+                        "Session Compacted",
+                        f"Session successfully compacted!\n\n"
+                        f"Original: {len(self.message_history)} messages\n"
+                        f"Compacted: Summary + {len(recent_messages)} recent messages"
+                    )
+                    
+                    if self.debug:
+                        print(f"🗜️ Session compacted: {len(self.message_history)} -> summary + {len(recent_messages)} recent")
+                else:
+                    raise Exception("Failed to generate summary")
+                    
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Compaction Error",
+                    f"Failed to compact session:\n{str(e)}"
+                )
+                if self.debug:
+                    print(f"❌ Failed to compact session: {e}")
+                    import traceback
+                    traceback.print_exc()
+            finally:
+                # Reset status
+                self.status_label.setText("ready")
+                self.status_label.setStyleSheet("""
+                    QLabel {
+                        background: rgba(166, 227, 161, 0.2);
+                        border: 1px solid rgba(166, 227, 161, 0.3);
+                        border-radius: 12px;
+                        padding: 4px 12px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        color: #a6e3a1;
+                    }
+                """)
+                if self.status_callback:
+                    self.status_callback("ready")
+    
+    def _format_conversation_for_summarization(self) -> str:
+        """Format the conversation history for summarization."""
+        lines = []
+        lines.append("=== CONVERSATION HISTORY ===\n")
+        
+        for i, msg in enumerate(self.message_history):
+            role = "USER" if msg.get('type') == 'user' else "ASSISTANT"
+            content = msg.get('content', '')
+            timestamp = msg.get('timestamp', '')
+            
+            # Add timestamp if available
+            if timestamp:
+                try:
+                    from datetime import datetime
+                    if isinstance(timestamp, str):
+                        dt = datetime.fromisoformat(timestamp)
+                        time_str = dt.strftime("%Y-%m-%d %H:%M")
+                        lines.append(f"[{time_str}] {role}:")
+                    else:
+                        lines.append(f"{role}:")
+                except:
+                    lines.append(f"{role}:")
+            else:
+                lines.append(f"{role}:")
+            
+            lines.append(content)
+            lines.append("")  # Empty line between messages
+        
+        return "\n".join(lines)
+    
+    def _generate_conversation_summary(self, conversation_text: str) -> str:
+        """Generate a conversation summary using AbstractCore's summarizer functionality."""
+        try:
+            # Use the current LLM to generate a summary
+            # This mimics what the AbstractCore summarizer CLI does
+            summary_prompt = f"""Please provide a comprehensive but concise summary of the following conversation. 
+Focus on:
+- Key topics discussed
+- Important decisions or conclusions reached
+- Relevant context that should be preserved
+- Any ongoing tasks or questions
+
+The summary should be detailed enough to provide context for continuing the conversation, but concise enough to save tokens.
+
+Conversation to summarize:
+{conversation_text}
+
+Please provide the summary in a clear, structured format:"""
+
+            if self.llm_manager and self.llm_manager.llm:
+                # Generate summary using current LLM
+                response = self.llm_manager.llm.generate(summary_prompt)
+                
+                if hasattr(response, 'content'):
+                    return response.content
+                else:
+                    return str(response)
+            else:
+                raise Exception("No LLM available for summarization")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error generating summary: {e}")
+            raise
+    
+    def _create_compacted_session(self, summary: str, recent_messages: list):
+        """Create a new session with the summary and recent messages."""
+        try:
+            # Create new session with summary as enhanced system prompt
+            enhanced_system_prompt = f"""You are a helpful AI assistant who has access to tools to help the user.
+Always be a critical and creative thinker who leverage constructive skepticism to progress and evolve its reasoning and answers.
+Always answer in nicely formatted markdown.
+
+=== CONVERSATION CONTEXT ===
+The following is a summary of our previous conversation:
+
+{summary}
+
+=== END CONTEXT ===
+
+Continue the conversation naturally, referring to the context above when relevant."""
+
+            # Create new session with enhanced system prompt
+            if self.llm_manager:
+                # Create new session with custom system prompt
+                from abstractcore import BasicSession
+                
+                # Prepare tools list (same as in LLMManager)
+                tools = []
+                try:
+                    from abstractcore.tools.common_tools import (
+                        list_files, search_files, read_file, edit_file, 
+                        write_file, execute_command, web_search
+                    )
+                    tools = [
+                        list_files, search_files, read_file, edit_file,
+                        write_file, execute_command, web_search
+                    ]
+                except ImportError:
+                    pass
+                
+                # Create new session with summary in system prompt
+                new_session = BasicSession(
+                    self.llm_manager.llm,
+                    system_prompt=enhanced_system_prompt,
+                    tools=tools
+                )
+                
+                # Add recent messages to the new session
+                for msg in recent_messages:
+                    if msg.get('type') == 'user':
+                        # Add user message without generating response
+                        from abstractcore.messages import UserMessage
+                        user_msg = UserMessage(content=msg.get('content', ''))
+                        new_session.messages.append(user_msg)
+                    elif msg.get('type') == 'assistant':
+                        # Add assistant message
+                        from abstractcore.messages import AssistantMessage
+                        assistant_msg = AssistantMessage(content=msg.get('content', ''))
+                        new_session.messages.append(assistant_msg)
+                
+                # Replace current session
+                self.llm_manager.current_session = new_session
+                
+                # Update local message history to reflect the compacted state
+                # Create a special "system" message to represent the summary
+                compacted_history = [
+                    {
+                        'timestamp': datetime.now().isoformat(),
+                        'type': 'system',
+                        'content': f"📋 **Session Compacted**\n\n{summary}",
+                        'provider': self.current_provider,
+                        'model': self.current_model,
+                        'attached_files': []
+                    }
+                ]
+                
+                # Add recent messages
+                compacted_history.extend(recent_messages)
+                
+                # Update message history
+                self.message_history = compacted_history
+                
+                if self.debug:
+                    print(f"✅ Created compacted session with enhanced system prompt")
+                    
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error creating compacted session: {e}")
+            raise
+    
     def load_session(self):
         """Load a session using AbstractCore via LLMManager."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -2192,8 +2455,12 @@ class QtChatBubble(QWidget):
         # Toggle behavior: create dialog if doesn't exist, toggle visibility if it does
         if iPhoneMessagesDialog:
             if self.history_dialog is None:
-                # Create dialog first time
-                self.history_dialog = iPhoneMessagesDialog.create_dialog(self.message_history, self)
+                # Create dialog first time with deletion support
+                self.history_dialog = iPhoneMessagesDialog.create_dialog(
+                    self.message_history, 
+                    self, 
+                    delete_callback=self._handle_message_deletion
+                )
                 # Set callback to update button when dialog is hidden via Back button
                 self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
                 self.history_dialog.show()
@@ -2205,7 +2472,11 @@ class QtChatBubble(QWidget):
                     self._update_history_button_appearance(False)
                 else:
                     # Update dialog with latest messages before showing
-                    self.history_dialog = iPhoneMessagesDialog.create_dialog(self.message_history, self)
+                    self.history_dialog = iPhoneMessagesDialog.create_dialog(
+                        self.message_history, 
+                        self, 
+                        delete_callback=self._handle_message_deletion
+                    )
                     # Set callback to update button when dialog is hidden via Back button
                     self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
                     self.history_dialog.show()
@@ -2255,6 +2526,194 @@ class QtChatBubble(QWidget):
                         color: rgba(255, 255, 255, 0.9);
                     }
                 """)
+
+    def _handle_message_deletion(self, indices_to_delete: List[int]):
+        """Handle deletion of messages from the history dialog."""
+        try:
+            print(f"🗑️ _handle_message_deletion called with indices: {indices_to_delete}")
+            
+            if not indices_to_delete:
+                print("❌ No indices to delete")
+                return
+            
+            # Validate indices
+            for index in indices_to_delete:
+                if not (0 <= index < len(self.message_history)):
+                    print(f"❌ Invalid index {index}, message_history length: {len(self.message_history)}")
+                    QMessageBox.critical(
+                        self,
+                        "Invalid Selection",
+                        f"Invalid message index {index}. Please refresh and try again."
+                    )
+                    return
+            
+            print(f"✅ Proceeding with deletion of {len(indices_to_delete)} messages")
+            
+            # Delete messages from local history (indices are sorted in reverse order)
+            original_count = len(self.message_history)
+            print(f"📊 Original message count: {original_count}")
+            
+            for index in indices_to_delete:
+                if 0 <= index < len(self.message_history):
+                    deleted_msg = self.message_history[index]
+                    print(f"🗑️ Deleting message at index {index}: {deleted_msg.get('content', '')[:50]}...")
+                    del self.message_history[index]
+                else:
+                    print(f"⚠️ Skipping invalid index {index}")
+            
+            print(f"📊 Messages after deletion: {len(self.message_history)}")
+            
+            # Update AbstractCore session to reflect deletions
+            print("🔄 Updating AbstractCore session...")
+            self._update_abstractcore_session_after_deletion()
+            
+            # Update token count
+            print("🔄 Updating token count...")
+            self._update_token_count_from_session()
+            
+            # Update history dialog if it's open (keep it open!)
+            if self.history_dialog and self.history_dialog.isVisible():
+                print("🔄 Updating history dialog content...")
+                try:
+                    # Update the dialog content without closing it
+                    self.history_dialog.update_message_history(self.message_history)
+                    print("✅ History dialog updated successfully")
+                except Exception as dialog_error:
+                    print(f"❌ Error updating dialog: {dialog_error}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback: recreate dialog if update fails
+                    try:
+                        print("🔄 Fallback: recreating dialog...")
+                        if len(self.message_history) == 0:
+                            print("📭 No messages remaining - closing history dialog")
+                            self.history_dialog.hide()
+                            self._update_history_button_appearance(False)
+                        else:
+                            new_dialog = iPhoneMessagesDialog.create_dialog(
+                                self.message_history, 
+                                self, 
+                                delete_callback=self._handle_message_deletion
+                            )
+                            if new_dialog:
+                                old_pos = self.history_dialog.pos()
+                                self.history_dialog.hide()
+                                self.history_dialog = new_dialog
+                                self.history_dialog.move(old_pos)  # Keep same position
+                                self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
+                                self.history_dialog.show()
+                                print("✅ History dialog recreated")
+                    except:
+                        print("❌ Fallback failed - closing dialog")
+                        try:
+                            self.history_dialog.hide()
+                            self._update_history_button_appearance(False)
+                        except:
+                            pass
+            
+            # Log success (no popup)
+            deleted_count = original_count - len(self.message_history)
+            print(f"✅ Successfully deleted {deleted_count} messages")
+            
+            if self.debug:
+                print(f"🗑️ Deleted {deleted_count} messages from history")
+                
+        except Exception as e:
+            print(f"❌ Critical error in _handle_message_deletion: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            try:
+                QMessageBox.critical(
+                    self,
+                    "Deletion Error",
+                    f"Failed to delete messages:\n{str(e)}\n\nCheck console for details."
+                )
+            except:
+                print("❌ Could not show error dialog")
+            
+            if self.debug:
+                print(f"❌ Failed to delete messages: {e}")
+                import traceback
+                traceback.print_exc()
+
+    def _update_abstractcore_session_after_deletion(self):
+        """Update AbstractCore session to reflect message deletions."""
+        try:
+            print("🔄 Starting AbstractCore session update...")
+            
+            if not self.llm_manager or not self.llm_manager.current_session:
+                print("⚠️ No LLM manager or current session - skipping AbstractCore update")
+                return
+            
+            # Get current system prompt
+            current_session = self.llm_manager.current_session
+            system_prompt = getattr(current_session, 'system_prompt', None) or """
+                You are a helpful AI assistant who has access to tools to help the user.
+                Always be a critical and creative thinker who leverage constructive skepticism to progress and evolve its reasoning and answers.
+                Always answer in nicely formatted markdown.
+            """
+            print("✅ Got system prompt")
+            
+            # Prepare tools list (same as in LLMManager)
+            tools = []
+            try:
+                from abstractcore.tools.common_tools import (
+                    list_files, search_files, read_file, edit_file, 
+                    write_file, execute_command, web_search
+                )
+                tools = [
+                    list_files, search_files, read_file, edit_file,
+                    write_file, execute_command, web_search
+                ]
+                print(f"✅ Loaded {len(tools)} tools")
+            except ImportError as import_error:
+                print(f"⚠️ Could not import tools: {import_error}")
+                pass
+            
+            # Create new session with updated message history
+            print("🔄 Creating new AbstractCore session...")
+            from abstractcore import BasicSession
+            new_session = BasicSession(
+                self.llm_manager.llm,
+                system_prompt=system_prompt,
+                tools=tools
+            )
+            print("✅ New session created")
+            
+            # Add remaining messages to the new session
+            print(f"🔄 Adding {len(self.message_history)} messages to new session...")
+            for i, msg in enumerate(self.message_history):
+                try:
+                    if msg.get('type') == 'user':
+                        from abstractcore.messages import UserMessage
+                        user_msg = UserMessage(content=msg.get('content', ''))
+                        new_session.messages.append(user_msg)
+                        print(f"✅ Added user message {i}")
+                    elif msg.get('type') == 'assistant':
+                        from abstractcore.messages import AssistantMessage
+                        assistant_msg = AssistantMessage(content=msg.get('content', ''))
+                        new_session.messages.append(assistant_msg)
+                        print(f"✅ Added assistant message {i}")
+                    elif msg.get('type') == 'system':
+                        print(f"⚠️ Skipping system message {i} (handled by system_prompt)")
+                    else:
+                        print(f"⚠️ Unknown message type at {i}: {msg.get('type')}")
+                except Exception as msg_error:
+                    print(f"❌ Error adding message {i}: {msg_error}")
+                    # Continue with other messages
+            
+            # Replace current session
+            print("🔄 Replacing current session...")
+            self.llm_manager.current_session = new_session
+            
+            print(f"✅ Updated AbstractCore session after message deletion")
+                
+        except Exception as e:
+            print(f"❌ Error updating AbstractCore session after deletion: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't raise - this is not critical for the UI operation
 
     def close_app(self):
         """Close the entire application completely."""
