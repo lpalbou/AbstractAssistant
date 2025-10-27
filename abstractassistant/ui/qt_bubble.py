@@ -2530,17 +2530,12 @@ Continue the conversation naturally, referring to the context above when relevan
     def _handle_message_deletion(self, indices_to_delete: List[int]):
         """Handle deletion of messages from the history dialog."""
         try:
-            print(f"🗑️ _handle_message_deletion called with indices: {indices_to_delete}")
-            print(f"📊 Current message_history length: {len(self.message_history)}")
-
             if not indices_to_delete:
-                print("❌ No indices to delete")
                 return
 
             # Validate indices
             for index in indices_to_delete:
                 if not (0 <= index < len(self.message_history)):
-                    print(f"❌ Invalid index {index}, message_history length: {len(self.message_history)}")
                     QMessageBox.critical(
                         self,
                         "Invalid Selection",
@@ -2548,51 +2543,30 @@ Continue the conversation naturally, referring to the context above when relevan
                     )
                     return
             
-            print(f"✅ All indices valid. Proceeding with deletion of {len(indices_to_delete)} messages")
-            
-            # Show which messages will be deleted
-            for index in indices_to_delete:
-                msg = self.message_history[index]
-                print(f"🗑️ Will delete index {index}: {msg.get('type')} - {msg.get('content', '')[:50]}...")
-            
             # Delete messages from local history (indices are sorted in reverse order)
             original_count = len(self.message_history)
-            print(f"📊 Original message count: {original_count}")
             
             for index in indices_to_delete:
                 if 0 <= index < len(self.message_history):
-                    deleted_msg = self.message_history[index]
-                    print(f"🗑️ Deleting message at index {index}: {deleted_msg.get('content', '')[:50]}...")
                     del self.message_history[index]
-                else:
-                    print(f"⚠️ Skipping invalid index {index}")
-            
-            print(f"📊 Messages after deletion: {len(self.message_history)}")
             
             # Update AbstractCore session to reflect deletions
-            print("🔄 Updating AbstractCore session...")
             self._update_abstractcore_session_after_deletion()
             
             # Update token count
-            print("🔄 Updating token count...")
             self._update_token_count_from_session()
             
             # Update history dialog if it's open (keep it open!)
             if self.history_dialog and self.history_dialog.isVisible():
-                print(f"🔄 Updating history dialog content with {len(self.message_history)} remaining messages...")
                 try:
                     # Update the dialog content without closing it
                     self.history_dialog.update_message_history(self.message_history)
-                    print("✅ History dialog updated successfully")
                 except Exception as dialog_error:
-                    print(f"❌ Error updating dialog: {dialog_error}")
                     import traceback
                     traceback.print_exc()
                     # Fallback: recreate dialog if update fails
                     try:
-                        print("🔄 Fallback: recreating dialog...")
                         if len(self.message_history) == 0:
-                            print("📭 No messages remaining - closing history dialog")
                             self.history_dialog.hide()
                             self._update_history_button_appearance(False)
                         else:
@@ -2608,9 +2582,7 @@ Continue the conversation naturally, referring to the context above when relevan
                                 self.history_dialog.move(old_pos)  # Keep same position
                                 self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
                                 self.history_dialog.show()
-                                print("✅ History dialog recreated")
                     except:
-                        print("❌ Fallback failed - closing dialog")
                         try:
                             self.history_dialog.hide()
                             self._update_history_button_appearance(False)
@@ -2619,7 +2591,6 @@ Continue the conversation naturally, referring to the context above when relevan
             
             # Log success (no popup)
             deleted_count = original_count - len(self.message_history)
-            print(f"✅ Successfully deleted {deleted_count} messages")
             
             if self.debug:
                 print(f"🗑️ Deleted {deleted_count} messages from history")
@@ -2646,10 +2617,7 @@ Continue the conversation naturally, referring to the context above when relevan
     def _update_abstractcore_session_after_deletion(self):
         """Update AbstractCore session to reflect message deletions."""
         try:
-            print("🔄 Starting AbstractCore session update...")
-            
             if not self.llm_manager or not self.llm_manager.current_session:
-                print("⚠️ No LLM manager or current session - skipping AbstractCore update")
                 return
             
             # Get current system prompt
@@ -2659,7 +2627,6 @@ Continue the conversation naturally, referring to the context above when relevan
                 Always be a critical and creative thinker who leverage constructive skepticism to progress and evolve its reasoning and answers.
                 Always answer in nicely formatted markdown.
             """
-            print("✅ Got system prompt")
             
             # Prepare tools list (same as in LLMManager)
             tools = []
@@ -2672,51 +2639,43 @@ Continue the conversation naturally, referring to the context above when relevan
                     list_files, search_files, read_file, edit_file,
                     write_file, execute_command, web_search
                 ]
-                print(f"✅ Loaded {len(tools)} tools")
             except ImportError as import_error:
-                print(f"⚠️ Could not import tools: {import_error}")
+                pass
                 pass
             
             # Create new session with updated message history
-            print("🔄 Creating new AbstractCore session...")
             from abstractcore import BasicSession
             new_session = BasicSession(
                 self.llm_manager.llm,
                 system_prompt=system_prompt,
                 tools=tools
             )
-            print("✅ New session created")
             
             # Add remaining messages to the new session
-            print(f"🔄 Adding {len(self.message_history)} messages to new session...")
             for i, msg in enumerate(self.message_history):
                 try:
                     if msg.get('type') == 'user':
                         from abstractcore.messages import UserMessage
                         user_msg = UserMessage(content=msg.get('content', ''))
                         new_session.messages.append(user_msg)
-                        print(f"✅ Added user message {i}")
                     elif msg.get('type') == 'assistant':
                         from abstractcore.messages import AssistantMessage
                         assistant_msg = AssistantMessage(content=msg.get('content', ''))
                         new_session.messages.append(assistant_msg)
-                        print(f"✅ Added assistant message {i}")
                     elif msg.get('type') == 'system':
-                        print(f"⚠️ Skipping system message {i} (handled by system_prompt)")
+                        # Skip system messages (handled by system_prompt)
+                        pass
                     else:
-                        print(f"⚠️ Unknown message type at {i}: {msg.get('type')}")
+                        # Unknown message type
+                        pass
                 except Exception as msg_error:
-                    print(f"❌ Error adding message {i}: {msg_error}")
                     # Continue with other messages
+                    pass
             
             # Replace current session
-            print("🔄 Replacing current session...")
             self.llm_manager.current_session = new_session
-            
-            print(f"✅ Updated AbstractCore session after message deletion")
                 
         except Exception as e:
-            print(f"❌ Error updating AbstractCore session after deletion: {e}")
             import traceback
             traceback.print_exc()
             # Don't raise - this is not critical for the UI operation

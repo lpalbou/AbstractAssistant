@@ -319,17 +319,13 @@ class SafeDialog(QDialog):
         """Delete selected messages with iPhone-style bottom action sheet."""
         try:
             if not self.selected_messages or not self.delete_callback:
-                print("❌ No messages selected or no delete callback")
                 return
-
-            print(f"🗑️ Attempting to delete {len(self.selected_messages)} messages")
 
             # Show iPhone-style bottom action sheet
             count = len(self.selected_messages)
             self._show_delete_action_sheet(count)
 
         except Exception as e:
-            print(f"❌ Error in delete_selected_messages: {e}")
             import traceback
             traceback.print_exc()
 
@@ -412,8 +408,6 @@ class SafeDialog(QDialog):
     def _confirm_deletion(self, overlay):
         """Confirm deletion and execute it."""
         try:
-            print(f"🗑️ _confirm_deletion called with {len(self.selected_messages)} selected messages")
-            
             # Hide overlay
             overlay.hide()
             overlay.deleteLater()
@@ -421,25 +415,15 @@ class SafeDialog(QDialog):
             
             # Convert to sorted list for consistent deletion
             indices_to_delete = sorted(list(self.selected_messages), reverse=True)
-            print(f"🗑️ Indices to delete: {indices_to_delete}")
-            print(f"🗑️ Delete callback exists: {self.delete_callback is not None}")
 
             # Call the delete callback with error handling
             if self.delete_callback:
-                print("🗑️ Calling delete callback...")
                 self.delete_callback(indices_to_delete)
-                print("✅ Delete callback completed")
-            else:
-                print("❌ No delete callback available!")
 
             # Exit selection mode after deletion
-            print("🔄 Exiting selection mode...")
             self.exit_selection_mode()
 
-            print("✅ Messages deletion process completed")
-
         except Exception as e:
-            print(f"❌ Error confirming deletion: {e}")
             import traceback
             traceback.print_exc()
             
@@ -447,7 +431,7 @@ class SafeDialog(QDialog):
             try:
                 self.exit_selection_mode()
             except:
-                print("❌ Could not exit selection mode")
+                pass
 
     def _cancel_deletion(self, overlay):
         """Cancel deletion and hide action sheet."""
@@ -458,18 +442,13 @@ class SafeDialog(QDialog):
     def update_message_history(self, new_message_history: List[Dict]):
         """Update the dialog with new message history without closing it."""
         try:
-            print(f"🔄 Updating dialog with {len(new_message_history)} messages")
-            
             # Exit selection mode if active
             if self.selection_mode:
                 self.exit_selection_mode()
             
             # Clear existing content completely using correct widget references
             if hasattr(self, 'messages_layout'):
-                print("🔄 Clearing existing messages...")
                 layout = self.messages_layout
-                widget_count = layout.count()
-                print(f"🔄 Removing {widget_count} existing widgets...")
                 
                 # Remove all widgets except the stretch at the end
                 while layout.count() > 0:
@@ -478,24 +457,15 @@ class SafeDialog(QDialog):
                         widget = child.widget()
                         widget.setParent(None)
                         widget.deleteLater()
-                        print(f"🗑️ Removed widget: {type(widget).__name__}")
-                    elif child.spacerItem():
-                        # This is the stretch - we'll re-add it later
-                        print("🔄 Removed stretch spacer")
-                
-                print("✅ All widgets removed")
                 
                 # Force immediate processing of deleteLater calls
-                from PyQt6.QtCore import QCoreApplication
+                from PyQt5.QtCore import QCoreApplication
                 QCoreApplication.processEvents()
                 
                 # Recreate messages with new history
-                print("🔄 Recreating messages...")
                 if new_message_history:
                     # Re-add messages using the same method as original creation
-                    from . import history_dialog
                     iPhoneMessagesDialog._add_authentic_iphone_messages(layout, new_message_history, self)
-                    print(f"✅ Added {len(new_message_history)} new messages")
                 else:
                     # Add placeholder for empty state
                     placeholder = QLabel("No messages")
@@ -508,13 +478,11 @@ class SafeDialog(QDialog):
                         }
                     """)
                     layout.addWidget(placeholder)
-                    print("✅ Added 'No messages' placeholder")
                 
                 # Re-add stretch to push messages to top
                 layout.addStretch()
                 
                 # Force complete UI update
-                print("🔄 Forcing UI update...")
                 if hasattr(self, 'messages_widget'):
                     self.messages_widget.adjustSize()
                     self.messages_widget.update()
@@ -532,13 +500,10 @@ class SafeDialog(QDialog):
                 self.update()
                 self.repaint()
                 
-                print("✅ Dialog content updated successfully")
             else:
-                print("❌ No messages_layout found - cannot update")
                 raise Exception("Dialog structure not found")
             
         except Exception as e:
-            print(f"❌ Error updating message history: {e}")
             import traceback
             traceback.print_exc()
             raise  # Re-raise to trigger fallback in qt_bubble.py
@@ -546,7 +511,6 @@ class SafeDialog(QDialog):
     def _populate_messages(self, message_history: List[Dict]):
         """Populate the scroll area with message bubbles."""
         if not hasattr(self, 'scroll_content'):
-            print("❌ No scroll_content found")
             return
             
         layout = self.scroll_content.layout()
@@ -554,8 +518,6 @@ class SafeDialog(QDialog):
             layout = QVBoxLayout(self.scroll_content)
             layout.setContentsMargins(20, 20, 20, 20)
             layout.setSpacing(8)
-        
-        print(f"🔄 Populating with {len(message_history)} messages")
         
         # Add messages as bubbles (only if there are messages)
         if message_history:
@@ -568,7 +530,6 @@ class SafeDialog(QDialog):
                         self
                     )
                     layout.addWidget(bubble)
-                    print(f"✅ Added bubble {i}: {message.get('type')}")
         else:
             # If no messages, add a placeholder
             placeholder = QLabel("No messages")
@@ -581,7 +542,6 @@ class SafeDialog(QDialog):
                 }
             """)
             layout.addWidget(placeholder)
-            print("✅ Added 'No messages' placeholder")
         
         # Add stretch to push messages to top
         layout.addStretch()
@@ -618,7 +578,6 @@ class iPhoneMessagesDialog:
         """Create AUTHENTIC iPhone Messages dialog with deletion support."""
         # Safety check for empty message history
         if not message_history:
-            print("⚠️ Cannot create dialog with empty message history")
             return None
         
         dialog = SafeDialog(parent)
