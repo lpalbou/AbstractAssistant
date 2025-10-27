@@ -2531,11 +2531,12 @@ Continue the conversation naturally, referring to the context above when relevan
         """Handle deletion of messages from the history dialog."""
         try:
             print(f"🗑️ _handle_message_deletion called with indices: {indices_to_delete}")
-            
+            print(f"📊 Current message_history length: {len(self.message_history)}")
+
             if not indices_to_delete:
                 print("❌ No indices to delete")
                 return
-            
+
             # Validate indices
             for index in indices_to_delete:
                 if not (0 <= index < len(self.message_history)):
@@ -2547,7 +2548,12 @@ Continue the conversation naturally, referring to the context above when relevan
                     )
                     return
             
-            print(f"✅ Proceeding with deletion of {len(indices_to_delete)} messages")
+            print(f"✅ All indices valid. Proceeding with deletion of {len(indices_to_delete)} messages")
+            
+            # Show which messages will be deleted
+            for index in indices_to_delete:
+                msg = self.message_history[index]
+                print(f"🗑️ Will delete index {index}: {msg.get('type')} - {msg.get('content', '')[:50]}...")
             
             # Delete messages from local history (indices are sorted in reverse order)
             original_count = len(self.message_history)
@@ -2573,7 +2579,7 @@ Continue the conversation naturally, referring to the context above when relevan
             
             # Update history dialog if it's open (keep it open!)
             if self.history_dialog and self.history_dialog.isVisible():
-                print("🔄 Updating history dialog content...")
+                print(f"🔄 Updating history dialog content with {len(self.message_history)} remaining messages...")
                 try:
                     # Update the dialog content without closing it
                     self.history_dialog.update_message_history(self.message_history)
