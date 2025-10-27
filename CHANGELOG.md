@@ -3,6 +3,22 @@
 All notable changes to AbstractAssistant will be documented in this file.
 
 
+## [0.3.4] - 2025-10-27
+
+### Improved
+- **Chat History Management**: Enhanced message deletion and history dialog handling
+  - Streamlined message deletion process with improved error handling
+  - Removed excessive debug output for cleaner user experience
+  - Enhanced widget management for better performance in history dialog
+  - Improved UI consistency during message operations
+  - Better error handling and widget lifecycle management
+
+### Fixed
+- **Code Cleanup**: Removed debug print statements that cluttered console output
+  - Cleaner codebase with reduced unnecessary logging
+  - Maintained UI integrity during message deletions
+  - Enhanced performance through optimized widget management
+
 ## [0.3.3] - 2025-10-24
 
 ### Changed
