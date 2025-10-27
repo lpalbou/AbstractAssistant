@@ -25,3 +25,4 @@
 - give the voice of hal9000
 - changing speed or voice ? (eg french voice)
 
+Improve doc with nice visuals
