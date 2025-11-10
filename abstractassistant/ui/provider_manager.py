@@ -186,8 +186,8 @@ class ProviderManager:
         Returns:
             Formatted display name
         """
-        # Extract the last part of the model name (after /)
-        display_name = model.split('/')[-1] if '/' in model else model
+        # Use the full model name (preserving provider prefix)
+        display_name = model
 
         # Truncate if too long
         if len(display_name) > max_length:

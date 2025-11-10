@@ -26,3 +26,5 @@
 - changing speed or voice ? (eg french voice)
 
 Improve doc with nice visuals
+
+- refresh when we click the provider dropdown list

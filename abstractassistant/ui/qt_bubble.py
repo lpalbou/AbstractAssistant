@@ -615,6 +615,7 @@ class QtChatBubble(QWidget):
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
         self.model_combo.setFixedHeight(28)
         self.model_combo.setMinimumWidth(140)
+        self.model_combo.view().setMinimumWidth(380)  # Wider dropdown to show full model names
         self.model_combo.setStyleSheet("""
             QComboBox {
                 background: rgba(255, 255, 255, 0.08);
@@ -770,38 +771,37 @@ class QtChatBubble(QWidget):
             }
             
                 QComboBox QAbstractItemView {
-                    background: #1a202c;
-                    border: 1px solid #4a5568;
+                    background: #252525;
+                    border: 1px solid #404040;
                     border-radius: 8px;
-                    selection-background-color: #4299e1;
-                    color: #e2e8f0;
-                    padding: 4px;
-                    font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
-                }
-                
-                QComboBox QAbstractItemView::item {
-                    height: 36px;
-                    padding: 8px 12px;
-                    border: none;
-                    font-size: 12px;
-                    font-weight: 400;  /* Changed from 500 to 400 (normal weight) */
-                    color: #e2e8f0;
-                    border-radius: 4px;
-                    margin: 2px;
-                }
-                
-                QComboBox QAbstractItemView::item:selected {
-                    background: #4299e1;
+                    selection-background-color: #404040;
                     color: #ffffff;
+                    padding: 6px;
+                    font-family: "SF Mono", "Monaco", "Menlo", "Consolas", monospace;
                 }
-                
+
+                QComboBox QAbstractItemView::item {
+                    height: 44px;
+                    padding: 10px 16px;
+                    border: none;
+                    font-size: 13px;
+                    font-weight: 400;
+                    color: #e8e8e8;
+                    border-radius: 6px;
+                    margin: 3px;
+                    letter-spacing: 0.02em;
+                }
+
+                QComboBox QAbstractItemView::item:selected {
+                    background: #404040;
+                    color: #ffffff;
+                    font-weight: 500;
+                    border: 1px solid #0066cc;
+                }
+
                 QComboBox QAbstractItemView::item:hover {
-                    background: #374151;
+                    background: #333333;
                 }
-            
-            QComboBox QAbstractItemView::item:selected {
-                background: #4299e1;
-            }
             
             /* Labels - Clean Typography */
             QLabel {
@@ -986,7 +986,7 @@ class QtChatBubble(QWidget):
 
                 # Add models to dropdown with display names
                 for model in models:
-                    display_name = self.provider_manager.create_model_display_name(model, max_length=25)
+                    display_name = self.provider_manager.create_model_display_name(model, max_length=55)
                     self.model_combo.addItem(display_name, model)
 
                 # Set preferred model
@@ -1014,9 +1014,10 @@ class QtChatBubble(QWidget):
                 models = get_available_models_for_provider(self.current_provider)
 
                 for model in models:
-                    display_name = model.split('/')[-1] if '/' in model else model
-                    if len(display_name) > 25:
-                        display_name = display_name[:22] + "..."
+                    # Use full model name (preserving provider prefix)
+                    display_name = model
+                    if len(display_name) > 55:
+                        display_name = display_name[:52] + "..."
                     self.model_combo.addItem(display_name, model)
 
                 if self.model_combo.count() > 0:
