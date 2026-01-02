@@ -2152,8 +2152,8 @@ Please provide the summary in a clear, structured format:"""
     def _create_compacted_session(self, summary: str, recent_messages: list):
         """Create a new session with the summary and recent messages."""
         try:
-            # Create new session with summary as enhanced system prompt
-            enhanced_system_prompt = f"""You are a helpful AI assistant who has access to tools to help the user.
+            # Create new session with summary embedded in the system prompt.
+            final_system_prompt = f"""You are a helpful AI assistant who has access to tools to help the user.
 Always be a critical and creative thinker who leverage constructive skepticism to progress and evolve its reasoning and answers.
 Always answer in nicely formatted markdown.
 
@@ -2166,7 +2166,7 @@ The following is a summary of our previous conversation:
 
 Continue the conversation naturally, referring to the context above when relevant."""
 
-            # Create new session with enhanced system prompt
+            # Create new session with the composed system prompt
             if self.llm_manager:
                 # Create new session with custom system prompt
                 from abstractcore import BasicSession
@@ -2188,7 +2188,7 @@ Continue the conversation naturally, referring to the context above when relevan
                 # Create new session with summary in system prompt
                 new_session = BasicSession(
                     self.llm_manager.llm,
-                    system_prompt=enhanced_system_prompt,
+                    system_prompt=final_system_prompt,
                     tools=tools
                 )
                 
