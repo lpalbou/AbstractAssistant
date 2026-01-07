@@ -1,4 +1,7 @@
-# 🏗️ Architecture Guide
+# AbstractAssistant — Architecture (Current)
+
+> Updated: 2026-01-07  
+> Scope: this document describes the current AbstractAssistant app structure and how it integrates with AbstractFramework components.
 
 Technical documentation for AbstractAssistant's design, components, and development information.
 
@@ -8,7 +11,17 @@ Technical documentation for AbstractAssistant's design, components, and developm
 
 ## Overview
 
-AbstractAssistant is a modern macOS system tray application that provides instant access to Large Language Models through a sleek Qt-based interface. Built with Python, it leverages [AbstractCore](https://github.com/lpalbou/abstractcore) for universal LLM provider support and [AbstractVoice](https://github.com/lpalbou/abstractvoice) for conversational AI capabilities.
+AbstractAssistant is a macOS system tray application that provides quick access to LLMs through a Qt-based interface.
+
+High-level integration:
+
+```mermaid
+graph TD
+  UI[Qt UI / System Tray] --> App[AbstractAssistantApp]
+  App --> Core[AbstractCore (providers + tool calling)]
+  App --> Voice[AbstractVoice (TTS)]
+  Core --> Providers[LLM provider endpoints]
+```
 
 ## Core Design Philosophy
 
