@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.3.4"
+version = "0.3.5"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -27,7 +27,10 @@ classifiers = [
 ]
 
 dependencies = [
-    "abstractcore[all]>=2.5.3",
+    # AbstractAssistant is a macOS app; avoid GPU-only stacks (e.g. vLLM) that can pull
+    # heavy/incompatible transitive deps (datasets/pyarrow) and even break CLI `--help`.
+    # Users who want additional providers can install extra AbstractCore provider groups separately.
+    "abstractcore[openai,anthropic,ollama,lmstudio,tools]>=2.9.1",
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",

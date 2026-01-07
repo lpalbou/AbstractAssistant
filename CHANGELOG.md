@@ -2,6 +2,11 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.3.5] - 2026-01-07
+
+### Fixed
+- **Packaging / installability**: narrowed the default `abstractcore[...]` dependency set to avoid GPU-only stacks (notably vLLM) being installed on macOS, which could break `assistant --help` due to transitive `datasets/pyarrow` incompatibilities.
+
 
 ## [0.3.4] - 2025-10-27
 
