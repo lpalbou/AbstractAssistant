@@ -19,6 +19,7 @@ All notable changes to AbstractAssistant will be documented in this file.
 - **Qt chat bubble input actions**: Fixed first-open layout race that caused the right-side action buttons to overlap. The action column now deterministically sizes to the input row, keeps strict 1:1 square buttons, and preserves 1px vertical spacing.
 - **Tray app shutdown**: Ctrl+C (SIGINT) and SIGTERM now trigger a clean Qt shutdown path (stop timers, hide tray icon, destroy bubble) instead of an abrupt interpreter exit.
 - **Voice toggle icon**: The mic indicator now defaults to a clearly struck "mic off" icon when Full Voice Mode is disabled (non-listening default).
+- **Voice mode UI switch**: Exiting Full Voice Mode now reliably restores the normal interface; while listening, attachment + tools controls remain available and Send is hidden.
 
 ### Removed
 - `ROADMAP.md` (removed from the repository).

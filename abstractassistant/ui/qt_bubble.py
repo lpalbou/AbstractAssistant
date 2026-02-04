@@ -858,6 +858,7 @@ class _MessageInputRow(QWidget):
         self.attach_button = QPushButton("📎", self)
         self.tools_button = QPushButton("🛠", self)
         self.send_button = QPushButton("→", self)
+        self._voice_mode: bool = False
 
         # Keep focus/navigation sane.
         for b in (self.attach_button, self.tools_button, self.send_button):
@@ -865,6 +866,23 @@ class _MessageInputRow(QWidget):
                 b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             except Exception:
                 pass
+
+    def set_voice_mode(self, enabled: bool) -> None:
+        """
+        In voice mode we keep the action column, but hide the Send button because
+        end-of-sentence detection effectively acts as "send".
+        """
+        enabled = bool(enabled)
+        if self._voice_mode == enabled:
+            return
+        self._voice_mode = enabled
+        try:
+            self.send_button.setVisible(not enabled)
+            self.send_button.setEnabled(not enabled)
+        except Exception:
+            pass
+        self.updateGeometry()
+        self.update()
 
     def _set_button_font_px(self, px: int) -> None:
         px = max(10, int(px))
@@ -892,9 +910,11 @@ class _MessageInputRow(QWidget):
             return
 
         # Compute a square button size that uses as much vertical space as possible.
-        # With 3 buttons and 2 gaps:
-        #   used_h = 3*btn + 2*v_spacing  <= h
-        btn_from_h = (h - (2 * self._v_spacing_px)) // 3
+        # With N buttons and (N-1) gaps:
+        #   used_h = N*btn + (N-1)*v_spacing  <= h
+        action_buttons = (self.attach_button, self.tools_button) if self._voice_mode else (self.attach_button, self.tools_button, self.send_button)
+        n = max(1, len(action_buttons))
+        btn_from_h = (h - ((n - 1) * self._v_spacing_px)) // n
         btn = max(self._min_button_px, btn_from_h)
 
         # Ensure the column also fits horizontally (keep a minimum text width).
@@ -911,13 +931,13 @@ class _MessageInputRow(QWidget):
 
         # Place the square buttons stacked on the right with strict spacing.
         # We anchor to the top to keep the tiny leftover (0-2px) at the bottom.
-        used_h = (3 * btn) + (2 * self._v_spacing_px)
+        used_h = (n * btn) + ((n - 1) * self._v_spacing_px)
         top = 0
         if used_h < h:
             # If there's slack (usually 0-2px), split it so borders look even.
             top = (h - used_h) // 2
 
-        for i, b in enumerate((self.attach_button, self.tools_button, self.send_button)):
+        for i, b in enumerate(action_buttons):
             y = top + i * (btn + self._v_spacing_px)
             b.setGeometry(col_x, y, btn, btn)
 
@@ -2912,7 +2932,13 @@ class QtChatBubble(QWidget):
                 pass
 
     def on_full_voice_toggled(self, enabled: bool):
-        """Handle Full Voice Mode toggle state change."""
+        """Handle Full Voice Mode toggle state change (always apply on Qt main thread)."""
+        try:
+            QTimer.singleShot(0, lambda e=bool(enabled): self._apply_full_voice_toggled(e))
+        except Exception:
+            self._apply_full_voice_toggled(bool(enabled))
+
+    def _apply_full_voice_toggled(self, enabled: bool) -> None:
         if self.debug:
             print(f"🎙️  Full Voice Mode {'enabled' if enabled else 'disabled'}")
 
@@ -2935,7 +2961,8 @@ class QtChatBubble(QWidget):
                 if self.debug:
                     print("🚀 Starting Full Voice Mode...")
 
-            # Hide text input UI
+            # Keep the normal interface visible, but switch input actions to voice mode
+            # (attach + tools remain usable; send is hidden).
             self.hide_text_ui()
 
             # Enable TTS automatically
@@ -2988,7 +3015,7 @@ class QtChatBubble(QWidget):
                 self.voice_manager.stop_listening()
                 self.voice_manager.stop_speaking()
 
-            # Show text input UI
+            # Restore normal text UI (including Send button)
             self.show_text_ui()
 
             # No longer updating voice toggle appearance - it's a simple user control
@@ -3053,25 +3080,60 @@ class QtChatBubble(QWidget):
         self.full_voice_toggle.set_enabled(False)
 
     def hide_text_ui(self):
-        """Hide the text input interface during Full Voice Mode."""
-        # Hide the input container and other text-related UI elements
-        if hasattr(self, 'input_container'):
-            self.input_container.hide()
-
-        # Update window size to be smaller but maintain wider width
-        voice_base_height = 120
-        attachment_height = 28 if (self.attached_files and self.attached_files_container.isVisible()) else 0
-        voice_height = voice_base_height + attachment_height
-        self.setFixedSize(self.base_width, voice_height)  # Dynamic height for voice mode
+        """Enter Full Voice Mode UI (keep input visible; hide Send; keep attach/tools)."""
+        self._set_voice_ui_mode(True)
 
     def show_text_ui(self):
-        """Show the text input interface when exiting Full Voice Mode."""
-        # Show the input container and other text-related UI elements
-        if hasattr(self, 'input_container'):
-            self.input_container.show()
+        """Exit Full Voice Mode UI (restore Send and normal text interaction)."""
+        self._set_voice_ui_mode(False)
 
-        # Restore normal window size with wider width - use dynamic sizing
-        self._adjust_window_size_for_attachments()
+    def _set_voice_ui_mode(self, enabled: bool) -> None:
+        """
+        Centralized UI state switch for voice mode.
+
+        Requirements:
+        - Even in voice mode, user can still change file attachments and tools.
+        - Send is hidden/disabled in voice mode (end-of-sentence acts as "send").
+        """
+        enabled = bool(enabled)
+        try:
+            if hasattr(self, "input_container") and self.input_container:
+                self.input_container.show()
+        except Exception:
+            pass
+
+        # Toggle the action column behavior (2 buttons in voice mode, 3 otherwise).
+        try:
+            if hasattr(self, "_input_row") and self._input_row:
+                self._input_row.set_voice_mode(enabled)
+        except Exception:
+            pass
+
+        # Ensure attach/tools remain available in both modes.
+        for btn_attr in ("attach_button", "tools_button"):
+            b = getattr(self, btn_attr, None)
+            if b is None:
+                continue
+            try:
+                b.setEnabled(True)
+                b.setVisible(True)
+            except Exception:
+                pass
+
+        # Send button is only relevant in text mode.
+        sb = getattr(self, "send_button", None)
+        if sb is not None:
+            try:
+                sb.setVisible(not enabled)
+                sb.setEnabled(not enabled)
+            except Exception:
+                pass
+
+        # Keep the window sizing consistent with attachments.
+        try:
+            self._adjust_window_size_for_attachments()
+        except Exception:
+            pass
 
     def update_status(self, status_text: str):
         """Update the status label with the given text."""
