@@ -1,203 +1,66 @@
-# AbstractAssistant 🤖
+# AbstractAssistant
 
-Philosophy : *your AI assistant, always here and available in one click*
+One-click, tray-accessible agent host for AbstractFramework.
 
-A sleek macOS system tray application providing instant access to Large Language Models with a modern Qt-based interface. Built with Python and powered by [AbstractCore](https://github.com/lpalbou/abstractcore) and [AbstractVoice](https://github.com/lpalbou/abstractvoice).
+AbstractAssistant runs **agentic** loops (ReAct/CodeAct/MemAct) on top of:
+- **AbstractAgent** (agent patterns)
+- **AbstractRuntime** (durable runs, waits, ledgers)
+- **AbstractCore** (provider/tool normalization)
+- Optional: **AbstractVoice** (STT/TTS)
 
-## 📦 Installation & Links
+Docs:
+- `docs/getting-started.md`
+- `docs/architecture.md`
 
-- **📋 GitHub Repository**: [https://github.com/lpalbou/abstractassistant](https://github.com/lpalbou/abstractassistant)
-- **🐍 PyPI Package**: [https://pypi.org/project/abstractassistant/](https://pypi.org/project/abstractassistant/)
-- **📚 Documentation**: See [docs/](docs/) folder for detailed guides
+## Install profiles
 
-## ✨ Features
-
-- **🎯 System Tray Integration**: Quick access from macOS menu bar - always at your fingertips
-- **💬 Modern Qt Interface**: Clean, iPhone Messages-style chat bubble with dark theme
-- **🔊 Voice Support**: Text-to-Speech integration with [AbstractVoice](https://github.com/lpalbou/abstractvoice) for conversational AI
-- **🔄 Multi-Provider Support**: Seamlessly switch between LMStudio, Ollama, OpenAI, Anthropic, MLX, HuggingFace via [AbstractCore](https://github.com/lpalbou/abstractcore)
-- **📊 Real-time Status**: Live token counting, provider/model selection, and animated status indicators
-- **💾 Session Management**: Save, load, and view conversation history with markdown rendering
-- **⚙️ Smart Controls**: Provider/model dropdowns, TTS toggle, and session buttons
-- **🎨 Professional Design**: Rounded corners, smooth animations, and native macOS feel
-
-## 🚀 Quick Start
-
-### 1. Installation
-
-#### 🍎 macOS Users (Recommended)
-```bash
-# Install AbstractAssistant
-pip install abstractassistant
-
-# Create native macOS app bundle
-create-app-bundle
-```
-
-This will:
-- Install AbstractAssistant from PyPI with all dependencies
-- Create a native macOS app bundle in `/Applications`
-- Add AbstractAssistant to your Dock with a beautiful neural network icon
-- Enable launch from Spotlight, Finder, and Dock
-
-#### 🔧 Standard Installation
-```bash
-# Install from PyPI (terminal access only)
-pip install abstractassistant
-```
-
-For detailed installation instructions including prerequisites and voice setup, see **[📖 Installation Guide](docs/installation.md)**.
-
-### 2. First Launch
-
-#### 🍎 macOS App Bundle Users
-- **Dock**: Click the AbstractAssistant icon in your Dock
-- **Spotlight**: Search for "AbstractAssistant" and press Enter
-- **Finder**: Open `/Applications/AbstractAssistant.app`
-
-#### 🔧 Terminal Users
-```bash
-# Launch the assistant
-assistant
-
-# Create macOS app bundle after installation
-create-app-bundle
-```
-
-### 3. Start Using
-1. **Find the Icon**: Look for AbstractAssistant in your macOS menu bar (top-right)
-2. **Click to Open**: Click the icon to open the chat bubble
-3. **Start Chatting**: Type your message and send!
-
-For a complete walkthrough of all features, see **[🎯 Getting Started Guide](docs/getting-started.md)**.
-
-### 📋 Prerequisites
-- **macOS**: 10.14+ (Mojave or later)
-- **Python**: 3.9+
-- **Models**: Local (LMStudio/Ollama) or API keys (OpenAI/Anthropic)
-
-See **[⚙️ Installation Guide](docs/installation.md)** for detailed setup instructions.
-
-## 🎮 Usage Overview
-
-AbstractAssistant provides a clean, intuitive interface for AI conversations:
-
-### 🖱️ Main Interface
-- **Chat Bubble**: Modern iPhone Messages-style interface
-- **Provider/Model Selection**: Easy switching between AI providers
-- **Voice Support**: Optional text-to-speech for responses
-- **Session Management**: Save, load, and view conversation history
-
-### 🎙️ Voice Features
-- **Text-to-Speech**: Powered by [AbstractVoice](https://github.com/lpalbou/abstractvoice)
-- **High-Quality Speech**: Natural-sounding voice synthesis
-- **Simple Controls**: One-click enable/disable
-
-### 🔧 System Integration
-- **System Tray**: Always accessible from macOS menu bar
-- **Native Feel**: Designed for macOS with smooth animations
-- **Lightweight**: Minimal resource usage when idle
-
-**👉 For detailed usage instructions, see [🎯 Getting Started Guide](docs/getting-started.md)**
-
-## ⚙️ Configuration
-
-Create a `config.toml` file to customize settings:
-
-```toml
-[ui]
-theme = "dark"
-always_on_top = true
-
-[llm]
-default_provider = "lmstudio"
-default_model = "qwen/qwen3-next-80b"
-max_tokens = 128000
-temperature = 0.7
-
-[system_tray]
-icon_size = 64
-```
-
-### API Keys Setup
-
-Set your API keys as environment variables:
+- `abstractassistant[lite]`: tray UI + agent backend (no voice)
+- `abstractassistant[full]`: `lite` + voice (STT/TTS) + broader provider/media extras
 
 ```bash
-# For OpenAI
-export OPENAI_API_KEY="your_openai_key_here"
-
-# For Anthropic
-export ANTHROPIC_API_KEY="your_anthropic_key_here"
-
-# For local models (LMStudio, Ollama), no API key needed
+pip install "abstractassistant[lite]"
+# or
+pip install "abstractassistant[full]"
 ```
 
-## 🏗️ Architecture
+## Quick start
 
-AbstractAssistant is built on a modern, modular architecture:
+Tray (macOS):
+```bash
+assistant tray
+```
 
-- **[AbstractCore](https://github.com/lpalbou/abstractcore)**: Universal LLM provider interface
-- **[AbstractVoice](https://github.com/lpalbou/abstractvoice)**: High-quality text-to-speech engine
-- **Qt Interface**: Cross-platform GUI (PyQt5/PySide2/PyQt6 support)
-- **System Integration**: Native macOS system tray with `pystray`
-- **Session Management**: Persistent conversation history and settings
+Terminal (one turn):
+```bash
+assistant run --prompt "What is in this repo and where do I start?"
+```
 
-**👉 For technical details, see [🏗️ Architecture Guide](docs/architecture.md)**
+Provider/model override:
+```bash
+assistant run --provider ollama --model qwen3:4b-instruct --prompt "Summarize my changes"
+```
 
-## 🔧 Development
+## Tool approvals (important)
 
-### Running from Source
+AbstractAssistant enforces a durable tool boundary:
+- read-only / known-safe tools can auto-run
+- anything else pauses and requires approval (tray dialog or terminal prompt)
+
+This aligns with the framework’s durability + safety model: tools are executed by the host, not persisted as callables inside run state.
+
+## Data & durability
+
+By default, assistant state is stored in `~/.abstractassistant/` (configurable via `--data-dir`):
+- `session.json`: fast UI snapshot (transcript + last run id)
+- `runtime/`: run store + ledger + artifacts (source of truth)
+
+## Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/lpalbou/abstractassistant.git
-cd abstractassistant
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install in development mode
-pip install -e .
-
-# Run with debug mode
-assistant --debug
+pip install -e ".[dev,lite]"
+python -m pytest -q
+assistant tray --debug
 ```
-
-### Project Structure
-
-```
-abstractassistant/
-├── pyproject.toml                  # Package configuration
-├── requirements.txt                # Dependencies
-├── config.toml                     # Default configuration
-├── abstractassistant/              # Main package
-│   ├── cli.py                          # CLI entry point
-│   ├── app.py                          # Main application
-│   ├── config.py                       # Configuration management
-│   ├── core/                           # Business logic
-│   │   ├── llm_manager.py                  # LLM provider management
-│   │   └── tts_manager.py                  # Voice/TTS integration
-│   ├── ui/                         # User interface
-│   │   ├── qt_bubble.py                    # Main Qt chat interface
-│   │   └── toast_window.py                 # Notification system
-│   └── utils/                      # Utilities
-│       ├── icon_generator.py               # Dynamic icon creation
-│       └── markdown_renderer.py            # Markdown processing
-└── docs/                           # Documentation
-    ├── architecture.md                 # Technical documentation
-    ├── installation.md                 # Installation guide
-    └── getting-started.md              # Usage guide
-```
-
-## 🌟 Why AbstractAssistant?
-
-- **🎯 Focused**: Designed specifically for quick AI interactions
-- **🎨 Beautiful**: Modern Qt interface with native macOS feel
-- **⚡ Fast**: Instant access without opening heavy applications
-- **🔄 Flexible**: Support for multiple AI providers in one interface
-- **🛡️ Robust**: Built with error handling and graceful fallbacks
 - **📱 Unobtrusive**: Lives quietly in your menu bar until needed
 - **🔊 Conversational**: Optional voice mode for natural AI interactions
 

@@ -3,6 +3,18 @@
 Integration test for the voice features with the main AbstractAssistant application.
 """
 
+import os
+
+import pytest
+
+# Requires a local desktop environment, audio backends, and the separately-installed AbstractAssistant/AbstractVoice
+# stack. Keep it opt-in for automated test runs.
+if os.getenv("ABSTRACTASSISTANT_E2E") != "1":  # pragma: no cover
+    pytest.skip(
+        "AbstractAssistant voice integration tests are opt-in (set ABSTRACTASSISTANT_E2E=1).",
+        allow_module_level=True,
+    )
+
 import sys
 import time
 

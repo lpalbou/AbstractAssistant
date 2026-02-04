@@ -8,6 +8,14 @@ This script tests:
 3. Playback controls in Toast window
 """
 
+if __name__ != "__main__":  # pragma: no cover
+    import pytest
+
+    pytest.skip(
+        "Interactive GUI manual test; excluded from automated pytest runs.",
+        allow_module_level=True,
+    )
+
 import sys
 import time
 import threading

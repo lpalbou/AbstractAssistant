@@ -7,7 +7,7 @@ name = "abstractassistant"
 version = "0.3.5"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
     {name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}
@@ -27,24 +27,40 @@ classifiers = [
 ]
 
 dependencies = [
-    # AbstractAssistant is a macOS app; avoid GPU-only stacks (e.g. vLLM) that can pull
-    # heavy/incompatible transitive deps (datasets/pyarrow) and even break CLI `--help`.
-    # Users who want additional providers can install extra AbstractCore provider groups separately.
-    "abstractcore[openai,anthropic,ollama,lmstudio,tools]>=2.9.1",
+    # Base install: agentic backend + CLI (GUI/voice are optional extras).
+    "abstractagent>=0.3.0",
+    "tomli>=2.0.0; python_version<'3.11'",
+    "tomli-w>=1.0.0",
+]
+
+[project.optional-dependencies]
+lite = [
+    # Tray + Qt UI
+    "pystray>=0.19.4",
+    "Pillow>=10.0.0",
+    "PyQt5>=5.15.0",
+    # Markdown rendering in UI
+    "markdown>=3.5.0",
+    "pygments>=2.16.0",
+    "pymdown-extensions>=10.0",
+    # UX helpers
+    "pyperclip>=1.8.2",
+    "plyer>=2.1.0",
+]
+full = [
+    # Everything in lite + voice + broader provider/tool/media support.
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",
     "markdown>=3.5.0",
     "pygments>=2.16.0",
     "pymdown-extensions>=10.0",
-    "abstractvoice>=0.5.2",
     "pyperclip>=1.8.2",
     "plyer>=2.1.0",
-    "tomli>=2.0.0; python_version<'3.11'",
-    "tomli-w>=1.0.0",
+    "abstractvoice>=0.6.0",
+    # Provider/client extras (still avoid GPU-only stacks like vLLM by default).
+    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media]>=2.11.0",
 ]
-
-[project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "black>=23.0.0",
@@ -68,14 +84,22 @@ exclude = ["tests*", "docs*", "AbstractAssistant.app*"]
 
 [tool.black]
 line-length = 88
-target-version = ['py39']
+target-version = ['py310']
 
 [tool.isort]
 profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/basic", "tests/integration"]
+markers = [
+    "basic: Level A (contract/unit) tests",
+    "integration: Level B (integration/local) tests",
+    "e2e: Level C (end-to-end/real infra) tests (opt-in)",
+]

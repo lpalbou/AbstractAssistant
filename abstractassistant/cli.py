@@ -1,76 +1,46 @@
 #!/usr/bin/env python3
-"""
-CLI entry point for AbstractAssistant.
+"""CLI entry point for AbstractAssistant.
 
-This module provides the command-line interface for launching AbstractAssistant.
+Packaging invariant:
+- `assistant --help` must not import GUI/voice stacks (optional dependencies).
 """
 
-import sys
+from __future__ import annotations
+
 import argparse
+import sys
 from pathlib import Path
 from typing import Optional
-
-from .app import AbstractAssistantApp
-from .config import Config
 
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the command-line argument parser."""
-    parser = argparse.ArgumentParser(
-        prog="assistant",
-        description="AbstractAssistant - AI at your fingertips",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  assistant                    # Launch with default settings
-  assistant --config custom.toml  # Use custom config file
-  assistant --provider openai     # Set default provider
-  assistant --model gpt-4o        # Set default model
-  assistant --debug               # Enable debug mode
-
-For more information, visit: https://github.com/yourusername/abstractassistant
-        """,
-    )
+    parser = argparse.ArgumentParser(prog="assistant", description="AbstractAssistant (agentic tray + CLI)")
     
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to configuration file (default: config.toml)",
-        default=None,
-    )
+    parser.add_argument("--version", action="version", version="abstractassistant (agentic) v1")
     
-    parser.add_argument(
-        "--provider",
-        type=str,
-        choices=["lmstudio", "openai", "anthropic", "ollama"],
-        help="Default LLM provider",
-    )
+    parser.add_argument("--config", type=str, default=None, help="Path to config.toml (optional)")
+    parser.add_argument("--provider", type=str, default=None, help="LLM provider id (e.g. ollama, lmstudio, openai)")
+    parser.add_argument("--model", type=str, default=None, help="Model name/id for the provider")
+    parser.add_argument("--agent", type=str, default=None, choices=["react", "codeact", "memact"], help="Agent kind")
+    parser.add_argument("--data-dir", type=str, default=None, help="Assistant data dir (runtime stores + session)")
+    parser.add_argument("--workspace-root", type=str, default=None, help="Workspace root for filesystem-ish tools")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
-    parser.add_argument(
-        "--model",
-        type=str,
-        help="Default model name",
-    )
+    sub = parser.add_subparsers(dest="command")
     
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode",
-    )
-
-    parser.add_argument(
+    tray = sub.add_parser("tray", help="Run the macOS tray app (requires [lite] extra)")
+    tray.add_argument(
         "--listening-mode",
         type=str,
-        choices=["none", "stop", "wait", "full"],
-        help="Voice listening mode (none: no STT, stop: continuous listen/stop on 'STOP' keyword, wait: listen when TTS idle, full: continuous listen/interrupt on any speech)",
+        choices=["none", "stop", "wait", "full", "ptt"],
         default="wait",
+        help="Voice listening mode (requires [full] extra for STT/TTS)",
     )
-    
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="AbstractAssistant 1.0.0",
-    )
+
+    run = sub.add_parser("run", help="Run one agentic turn in the terminal")
+    run.add_argument("--prompt", type=str, required=True, help="User prompt text")
+    run.add_argument("--approve-all-tools", action="store_true", help="Auto-approve all tool calls (dangerous)")
     
     return parser
 
@@ -103,37 +73,82 @@ def main() -> int:
     args = parser.parse_args()
     
     try:
-        # Load configuration
-        config_file = find_config_file(args.config)
-        if config_file:
-            config = Config.from_file(config_file)
+        command = args.command or "tray"
+
+        if command == "run":
+            from .core.agent_host import AgentHost, AgentHostConfig
+
+            provider = str(args.provider or "ollama")
+            model = str(args.model or "qwen3:4b-instruct")
+            agent_kind = str(args.agent or "react")
+            data_dir = Path(args.data_dir).expanduser() if args.data_dir else (Path.home() / ".abstractassistant")
+
+            host = AgentHost(
+                AgentHostConfig(
+                    provider=provider,
+                    model=model,
+                    agent_kind=agent_kind,
+                    data_dir=data_dir,
+                    workspace_root=args.workspace_root,
+                )
+            )
+
+            def _approve(tool_calls):
+                if args.approve_all_tools:
+                    return True
+                # Prompt for dangerous/unknown batches; safe-only batches auto-approve.
+                if not host.tool_policy.requires_approval(tool_calls):
+                    return True
+                print("\nTool approval required:")
+                for tc in tool_calls:
+                    name = tc.get("name")
+                    arguments = tc.get("arguments")
+                    print(f"- {name}({arguments})")
+                ans = input("Approve this batch? [y/N] ").strip().lower()
+                return ans in {"y", "yes"}
+
+            def _ask_user(wait):
+                prompt = str(getattr(wait, "prompt", "") or "Input required:")
+                return input(f"\n{prompt}\n> ").strip()
+
+            final = ""
+            for ev in host.run_turn(user_text=args.prompt, approve_tools=_approve, ask_user=_ask_user):
+                typ = ev.get("type")
+                if typ == "assistant":
+                    final = str(ev.get("content") or "")
+                if typ == "error":
+                    raise RuntimeError(str(ev.get("error") or "error"))
+            print(final)
+            return 0
+
+        # tray (default)
+        try:
+            from .config import Config  # lightweight
+
+            config_file = find_config_file(args.config)
+            config = Config.from_file(config_file) if config_file else Config.default()
+            if args.provider:
+                config.llm.default_provider = str(args.provider)
+            if args.model:
+                config.llm.default_model = str(args.model)
+        except Exception:
+            config = None
+
+        try:
+            from .app import AbstractAssistantApp
+        except Exception as e:
+            print("AbstractAssistant tray mode requires GUI dependencies.")
+            print("Install: pip install 'abstractassistant[lite]'")
             if args.debug:
-                print(f"Loaded config from: {config_file}")
-        else:
-            config = Config.default()
-            if args.debug:
-                print("Using default configuration")
-        
-        # Override config with CLI arguments
-        if args.provider:
-            config.llm.default_provider = args.provider
-        if args.model:
-            config.llm.default_model = args.model
-        
-        # Create and run the application
-        app = AbstractAssistantApp(config=config, debug=args.debug, listening_mode=args.listening_mode)
-        
-        print("🤖 Starting AbstractAssistant...")
-        print("Look for the icon in your macOS menu bar!")
-        
-        if args.debug:
-            print("Debug mode enabled")
-            print(f"Provider: {config.llm.default_provider}")
-            print(f"Model: {config.llm.default_model}")
-            print(f"Listening mode: {args.listening_mode}")
-        
+                print(f"Import error: {e}")
+            return 2
+
+        app = AbstractAssistantApp(
+            config=config,
+            debug=bool(args.debug),
+            listening_mode=str(getattr(args, "listening_mode", "wait")),
+        )
         app.run()
-        
         return 0
         
     except KeyboardInterrupt:
@@ -141,8 +156,9 @@ def main() -> int:
         return 0
     except Exception as e:
         print(f"❌ Error starting AbstractAssistant: {e}")
-        if args.debug:
+        if getattr(args, "debug", False):
             import traceback
+
             traceback.print_exc()
         return 1
 

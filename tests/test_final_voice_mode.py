@@ -4,6 +4,14 @@ Final test of the complete voice mode implementation with system tray integratio
 This simulates the exact workflow a user would experience.
 """
 
+if __name__ != "__main__":  # pragma: no cover
+    import pytest
+
+    pytest.skip(
+        "Interactive GUI/system-tray manual test; excluded from automated pytest runs.",
+        allow_module_level=True,
+    )
+
 import sys
 import time
 import threading

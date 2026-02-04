@@ -13,7 +13,16 @@ from pathlib import Path
 from typing import Optional, Callable, List, Dict
 
 # Import AbstractVoice-compatible TTS manager (required dependency)
-from ..core.tts_manager import VoiceManager
+from ..core.agent_host import AgentHost
+
+try:
+    # Optional dependency (installed via `abstractassistant[full]`).
+    from ..core.tts_manager import VoiceManager  # type: ignore
+
+    TTS_AVAILABLE = True
+except Exception:
+    VoiceManager = None  # type: ignore[assignment]
+    TTS_AVAILABLE = False
 
 # Import our new manager classes (required dependencies)
 from .provider_manager import ProviderManager
@@ -21,15 +30,14 @@ from .ui_styles import UIStyles
 from .tts_state_manager import TTSStateManager, TTSState
 from .history_dialog import iPhoneMessagesDialog
 
-# Since these are required dependencies, set availability to True
-TTS_AVAILABLE = True
+# Provider/model managers are package-local.
 MANAGERS_AVAILABLE = True
 
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-        QFileDialog, QMessageBox
+        QFileDialog, QMessageBox, QInputDialog, QCheckBox
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -40,7 +48,7 @@ except ImportError:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-            QFileDialog, QMessageBox
+            QFileDialog, QMessageBox, QInputDialog, QCheckBox
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -51,7 +59,7 @@ except ImportError:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-                QFileDialog, QMessageBox
+                QFileDialog, QMessageBox, QInputDialog, QCheckBox
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -232,13 +240,14 @@ class LLMWorker(QThread):
     response_ready = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, llm_manager, message, provider, model, media=None):
+    def __init__(self, llm_manager, message, provider, model, media=None, debug: bool = False):
         super().__init__()
         self.llm_manager = llm_manager
         self.message = message
         self.provider = provider
         self.model = model
         self.media = media or []
+        self.debug = bool(debug)
 
     def run(self):
         """Run LLM processing in background."""
@@ -264,6 +273,101 @@ class LLMWorker(QThread):
             self.error_occurred.emit(str(e))
 
 
+class AgentWorker(QThread):
+    """Worker thread that drives an AgentHost turn (tick/resume loop)."""
+
+    event_emitted = pyqtSignal(object)  # dict payloads
+    error_occurred = pyqtSignal(str)
+
+    def __init__(
+        self,
+        *,
+        agent_host: AgentHost,
+        user_text: str,
+        provider: str,
+        model: str,
+        attachments: Optional[List[str]] = None,
+        system_prompt_extra: Optional[str] = None,
+        debug: bool = False,
+    ):
+        super().__init__()
+        self._agent_host = agent_host
+        self._user_text = str(user_text or "")
+        self._provider = str(provider or "")
+        self._model = str(model or "")
+        self._attachments = list(attachments or [])
+        self._system_prompt_extra = str(system_prompt_extra) if system_prompt_extra else None
+        self._debug = bool(debug)
+
+        self._tool_approval_event = threading.Event()
+        self._tool_approval_decision: Optional[bool] = None
+        self._ask_user_event = threading.Event()
+        self._ask_user_response: Optional[str] = None
+
+    def provide_tool_approval(self, approved: bool) -> None:
+        self._tool_approval_decision = bool(approved)
+        self._tool_approval_event.set()
+
+    def provide_user_response(self, response: str) -> None:
+        self._ask_user_response = str(response or "")
+        self._ask_user_event.set()
+
+    def run(self) -> None:
+        try:
+            def _approve(_tool_calls):
+                return bool(self._tool_approval_decision)
+
+            def _ask_user(_wait):
+                return str(self._ask_user_response or "")
+
+            gen = self._agent_host.run_turn(
+                user_text=self._user_text,
+                attachments=self._attachments if self._attachments else None,
+                provider=self._provider,
+                model=self._model,
+                system_prompt_extra=self._system_prompt_extra,
+                approve_tools=_approve,
+                ask_user=_ask_user,
+            )
+
+            while True:
+                try:
+                    ev = next(gen)
+                except StopIteration:
+                    return
+
+                self.event_emitted.emit(ev)
+
+                typ = ev.get("type") if isinstance(ev, dict) else None
+                if typ == "tool_request":
+                    tool_calls = ev.get("tool_calls")
+                    if isinstance(tool_calls, list) and not self._agent_host.tool_policy.requires_approval(tool_calls):
+                        # Safe/read-only tool batch: auto-approve (no UI prompt required).
+                        self._tool_approval_decision = True
+                        continue
+                    self._tool_approval_decision = None
+                    self._tool_approval_event.clear()
+                    self._tool_approval_event.wait()
+                    if self._tool_approval_decision is None:
+                        self._tool_approval_decision = False
+                    continue
+
+                if typ == "ask_user":
+                    self._ask_user_response = None
+                    self._ask_user_event.clear()
+                    self._ask_user_event.wait()
+                    if self._ask_user_response is None:
+                        self._ask_user_response = ""
+                    continue
+
+        except Exception as e:
+            if self._debug:
+                import traceback
+
+                traceback.print_exc()
+            self.error_occurred.emit(str(e))
+
+
 class QtChatBubble(QWidget):
     """Modern Qt-based chat bubble."""
     
@@ -282,6 +386,8 @@ class QtChatBubble(QWidget):
         
         # Message history for session management
         self.message_history: List[Dict] = []
+        self._session_auto_approve_tools: set[str] = set()
+        self._voice_busy: bool = False
 
         # History dialog instance for toggle behavior
         self.history_dialog = None
@@ -1302,15 +1408,38 @@ class QtChatBubble(QWidget):
             print("🔄 QtChatBubble: UI updated, creating worker thread...")
 
         # 5. Start worker thread to send request with optional media files
-        self.worker = LLMWorker(
-            self.llm_manager,
-            message,
-            self.current_provider,
-            self.current_model,
-            media=media_files if media_files else None
-        )
-        self.worker.response_ready.connect(self.on_response_ready)
-        self.worker.error_occurred.connect(self.on_error_occurred)
+        system_prompt_extra = None
+        if self._is_voice_mode_active():
+            system_prompt_extra = (
+                "You are in voice mode.\n"
+                "- Keep responses concise and conversational.\n"
+                "- Avoid markdown and heavy formatting.\n"
+            )
+
+        host = getattr(self.llm_manager, "agent_host", None)
+        if host is not None:
+            self.worker = AgentWorker(
+                agent_host=host,
+                user_text=message,
+                provider=self.current_provider,
+                model=self.current_model,
+                attachments=media_files if media_files else None,
+                system_prompt_extra=system_prompt_extra,
+                debug=bool(self.debug),
+            )
+            self.worker.event_emitted.connect(self.on_agent_event)
+            self.worker.error_occurred.connect(self.on_error_occurred)
+        else:
+            self.worker = LLMWorker(
+                self.llm_manager,
+                message,
+                self.current_provider,
+                self.current_model,
+                media=media_files if media_files else None,
+                debug=bool(self.debug),
+            )
+            self.worker.response_ready.connect(self.on_response_ready)
+            self.worker.error_occurred.connect(self.on_error_occurred)
 
         if self.debug:
             print("🔄 QtChatBubble: Starting worker thread...")
@@ -1320,6 +1449,172 @@ class QtChatBubble(QWidget):
             print("🔄 QtChatBubble: Worker thread started, hiding bubble...")
         # Hide bubble after sending (like the original design)
         QTimer.singleShot(500, self.hide)
+
+    @pyqtSlot(object)
+    def on_agent_event(self, event):
+        """Handle AgentHost events emitted by AgentWorker."""
+        if not isinstance(event, dict):
+            return
+
+        typ = event.get("type")
+        if typ == "status":
+            status = str(event.get("status") or "")
+            self._set_agent_status(status)
+            return
+
+        if typ == "tool_request":
+            self._handle_tool_request(event)
+            return
+
+        if typ == "ask_user":
+            self._handle_ask_user(event)
+            return
+
+        if typ == "assistant":
+            try:
+                if hasattr(self.llm_manager, "refresh"):
+                    self.llm_manager.refresh()
+            except Exception:
+                pass
+            self.on_response_ready(str(event.get("content") or ""))
+            return
+
+        if typ == "error":
+            self.on_error_occurred(str(event.get("error") or "error"))
+            return
+
+    def _set_agent_status(self, status: str) -> None:
+        st = str(status or "").strip().lower()
+        if st in {"thinking", "running"}:
+            self.status_label.setText("thinking")
+            if self.status_callback:
+                self.status_callback("thinking")
+            return
+        if st in {"executing_tools", "executing"}:
+            self.status_label.setText("executing")
+            if self.status_callback:
+                self.status_callback("executing")
+            return
+        if st in {"ready", "completed"}:
+            self.status_label.setText("ready")
+            if self.status_callback:
+                self.status_callback("ready")
+            return
+
+    def _handle_tool_request(self, event: Dict) -> None:
+        """Prompt user for tool approval when required."""
+        tool_calls = event.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            tool_calls = []
+
+        host = getattr(self.llm_manager, "agent_host", None)
+        requires = True
+        try:
+            if host is not None:
+                requires = bool(host.tool_policy.requires_approval(tool_calls))
+        except Exception:
+            requires = True
+
+        # Session-level allowlist can bypass approval prompts (still bounded by policy).
+        try:
+            if all(
+                str(tc.get("name") or "") in self._session_auto_approve_tools
+                for tc in tool_calls
+                if isinstance(tc, dict)
+            ):
+                requires = False
+        except Exception:
+            pass
+
+        if not requires:
+            if self.debug:
+                print("✅ Auto-approving safe tool batch (no prompt).")
+            if self.status_callback:
+                self.status_callback("executing")
+            if isinstance(self.worker, AgentWorker):
+                self.worker.provide_tool_approval(True)
+            return
+
+        # Bring UI forward for interactive approvals.
+        try:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+
+        self.status_label.setText("approve")
+        if self.status_callback:
+            self.status_callback("thinking")
+
+        # Format tool calls for display.
+        lines: List[str] = []
+        for i, tc in enumerate(tool_calls):
+            if not isinstance(tc, dict):
+                continue
+            name = str(tc.get("name") or f"tool_{i}")
+            args = tc.get("arguments")
+            try:
+                args_txt = json.dumps(args, ensure_ascii=False, indent=2)
+            except Exception:
+                args_txt = str(args)
+            lines.append(f"{name}({args_txt})")
+        details = "\n\n".join(lines).strip()
+        if len(details) > 8000:
+            details = details[:8000] + "\n…(truncated)…"
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Tool approval required")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText("The assistant wants to run tools that may affect your system or workspace.")
+        box.setInformativeText("Review the tool calls and approve or deny this batch.")
+        box.setDetailedText(details)
+
+        allow_box = QCheckBox("Always allow these tools for this session (non-destructive tools only)")
+        box.setCheckBox(allow_box)
+
+        approve_btn = box.addButton("Approve", QMessageBox.ButtonRole.AcceptRole)
+        deny_btn = box.addButton("Deny", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(deny_btn)
+
+        box.exec()
+        clicked = box.clickedButton()
+        approved = clicked == approve_btn
+
+        if approved and allow_box.isChecked() and host is not None:
+            try:
+                policy = host.tool_policy
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    name = str(tc.get("name") or "").strip()
+                    if not name:
+                        continue
+                    # Only allow session auto-approvals for tools that are not in the explicit "requires approval" set.
+                    if name in getattr(policy, "require_approval_tools", set()):
+                        continue
+                    self._session_auto_approve_tools.add(name)
+            except Exception:
+                pass
+
+        if isinstance(self.worker, AgentWorker):
+            self.worker.provide_tool_approval(bool(approved))
+
+    def _handle_ask_user(self, event: Dict) -> None:
+        """Prompt user for input required by the run."""
+        prompt = str(event.get("prompt") or "Input required:")
+
+        try:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+
+        text, ok = QInputDialog.getText(self, "Assistant needs input", prompt)
+        response = str(text) if ok else ""
+        if isinstance(self.worker, AgentWorker):
+            self.worker.provide_user_response(response)
     
     @pyqtSlot(str)
     def on_response_ready(self, response):
@@ -1386,7 +1681,9 @@ class QtChatBubble(QWidget):
                 
                 # Speak the cleaned response using AbstractVoice-compatible interface
                 # Note: We don't set "speaking" status here anymore - we wait for the callback
-                self.voice_manager.speak(clean_response)
+                started = bool(self.voice_manager.speak(clean_response))
+                if not started:
+                    raise RuntimeError("TTS speak() returned False")
 
                 # Update toggle state to 'speaking'
                 self._update_tts_toggle_state()
@@ -1403,6 +1700,12 @@ class QtChatBubble(QWidget):
                         print(f"❌ TTS error: {e}")
                 # Show chat history as fallback - only if voice mode is OFF
                 QTimer.singleShot(100, self._show_history_if_voice_mode_off)
+                if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+                    self._voice_busy = False
+                    try:
+                        self.update_status("LISTENING")
+                    except Exception:
+                        pass
         else:
             # Show chat history instead of toast when TTS is disabled - only if voice mode is OFF
             self._show_history_if_voice_mode_off()
@@ -1421,6 +1724,12 @@ class QtChatBubble(QWidget):
                 self.response_callback(response)
             if self.status_callback:
                 self.status_callback("ready")
+            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+                self._voice_busy = False
+                try:
+                    self.update_status("LISTENING")
+                except Exception:
+                    pass
         else:
             # TTS path: Stay in thinking mode until audio actually starts
             if self.debug:
@@ -1678,44 +1987,42 @@ class QtChatBubble(QWidget):
                 traceback.print_exc()
 
     def handle_voice_input(self, transcribed_text: str):
-        """Handle speech-to-text input from the user."""
-        try:
-            if self.debug:
-                if self.debug:
-                    print(f"👤 Voice input: {transcribed_text}")
+        """Handle speech-to-text input (thread-safe, routes through agentic pipeline)."""
+        text = str(transcribed_text or "").strip()
+        if not text:
+            return
 
-            # No longer updating voice toggle appearance - it's a simple user control
+        if self.debug:
+            print(f"👤 Voice input: {text}")
+
+        # Ensure we run UI + agent turn creation on the Qt main thread.
+        QTimer.singleShot(0, lambda t=text: self._handle_voice_input_main_thread(t))
+
+    def _handle_voice_input_main_thread(self, transcribed_text: str) -> None:
+        """Execute a voice input turn on the Qt main thread."""
+        if self._voice_busy:
+            if self.debug:
+                print("🎙️  Ignoring transcription while busy")
+            return
+
+        self._voice_busy = True
+        try:
             self.update_status("PROCESSING")
 
-            # Generate AI response (AbstractCore will handle message logging automatically)
-            response = self.llm_manager.generate_response(
-                transcribed_text,
-                self.current_provider,
-                self.current_model
-            )
-
-            # Update message history from AbstractCore session
-            self._update_message_history_from_session()
-
-            if self.debug:
-                if self.debug:
-                    print(f"🤖 AI response: {response[:100]}...")
-
-            # Speak the response
-            self.voice_manager.speak(response)
-
-            # No longer updating voice toggle appearance - it's a simple user control
-            self.update_status("LISTENING")
-
+            # Route through the same agentic sending path as typed input.
+            try:
+                self.input_text.setPlainText(str(transcribed_text or ""))
+            except Exception:
+                pass
+            self.send_message()
         except Exception as e:
+            self._voice_busy = False
             if self.debug:
-                if self.debug:
-                    print(f"❌ Error handling voice input: {e}")
-                import traceback
-                traceback.print_exc()
-
-            # No longer updating voice toggle appearance - it's a simple user control
-            self.update_status("LISTENING")
+                print(f"❌ Error handling voice input: {e}")
+            try:
+                self.update_status("LISTENING")
+            except Exception:
+                pass
 
     def handle_voice_stop(self):
         """Handle when user says 'stop' to exit Full Voice Mode."""
@@ -1921,6 +2228,14 @@ class QtChatBubble(QWidget):
 
         # Show history so user can see the error context - only if voice mode is OFF
         QTimer.singleShot(100, self._show_history_if_voice_mode_off)
+
+        # If we're in full voice mode, unblock the STT loop.
+        if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+            self._voice_busy = False
+            try:
+                self.update_status("LISTENING")
+            except Exception:
+                pass
         
         # Call error callback
         if self.error_callback:
@@ -2768,6 +3083,14 @@ Continue the conversation naturally, referring to the context above when relevan
             if self.debug:
                 print("🔊 QtChatBubble: Speech ended, setting ready status")
             self.status_callback("ready")
+
+        # Voice loop: allow next transcription after speaking ends.
+        if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+            self._voice_busy = False
+            try:
+                self.update_status("LISTENING")
+            except Exception:
+                pass
     
     @pyqtSlot()
     def _execute_tts_completion_callbacks(self):

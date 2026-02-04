@@ -3,6 +3,16 @@
 Test script for proper timing with AbstractVoice pause/resume functionality.
 """
 
+import os
+
+import pytest
+
+if os.getenv("ABSTRACTASSISTANT_E2E") != "1":  # pragma: no cover
+    pytest.skip(
+        "AbstractAssistant/AbstractVoice timing test is opt-in (set ABSTRACTASSISTANT_E2E=1).",
+        allow_module_level=True,
+    )
+
 import sys
 import time
 
