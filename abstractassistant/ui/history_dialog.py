@@ -111,7 +111,7 @@ class ClickableBubble(QFrame):
                         background: {self.clicked_bg};
                         border: none;
                         border-radius: 18px;
-                        max-width: 576px;
+                        max-width: 490px;
                     }}
                 """)
         super().mousePressEvent(event)
@@ -139,7 +139,7 @@ class ClickableBubble(QFrame):
                             background: {glossy_color};
                             border: none;
                             border-radius: 18px;
-                            max-width: 576px;
+                            max-width: 490px;
                         }}
                     """)
 
@@ -165,7 +165,7 @@ class ClickableBubble(QFrame):
                 background: {self.selected_bg};
                 border: 2px solid #FFFFFF;
                 border-radius: 18px;
-                max-width: 576px;
+                max-width: 490px;
             }}
         """)
         
@@ -248,7 +248,7 @@ class ClickableBubble(QFrame):
                 background: {self.normal_bg};
                 border: none;
                 border-radius: 18px;
-                max-width: 576px;
+                max-width: 490px;
             }}
         """)
 
@@ -259,7 +259,7 @@ class ClickableBubble(QFrame):
                 background: {self.normal_bg};
                 border: none;
                 border-radius: 18px;
-                max-width: 576px;
+                max-width: 490px;
             }}
         """)
 
@@ -614,7 +614,11 @@ class iPhoneMessagesDialog:
         dialog.setWindowTitle("Messages")
         dialog.setModal(False)
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(726, 650)  # Wider history dialog for readability
+        dialog.resize(617, 553)  # ~15% smaller than the previous 726x650
+        try:
+            dialog.setWindowOpacity(0.97)
+        except Exception:
+            pass
 
         # Set delete callback
         if delete_callback:
@@ -693,7 +697,7 @@ class iPhoneMessagesDialog:
     def _create_authentic_navbar(dialog: SafeDialog) -> QFrame:
         """Create AUTHENTIC iPhone Messages navigation bar with delete functionality."""
         navbar = QFrame()
-        navbar.setFixedHeight(94)  # iPhone status bar + nav bar
+        navbar.setFixedHeight(44)  # Compact header (about half the previous height)
         navbar.setStyleSheet("""
             QFrame {
                 background: #1c1c1e;
@@ -714,7 +718,7 @@ class iPhoneMessagesDialog:
         nav_frame = QFrame()
         nav_frame.setFixedHeight(44)
         nav_layout = QHBoxLayout(nav_frame)
-        nav_layout.setContentsMargins(20, 0, 20, 0)
+        nav_layout.setContentsMargins(16, 0, 16, 0)
 
         # Back button
         back_btn = QPushButton("‹ Back")
@@ -722,7 +726,7 @@ class iPhoneMessagesDialog:
         back_btn.setStyleSheet("""
             QPushButton {
                 color: #007AFF;
-                font-size: 17px;
+                font-size: 13px;
                 font-weight: 400;
                 background: transparent;
                 border: none;
@@ -739,7 +743,7 @@ class iPhoneMessagesDialog:
         title.setStyleSheet("""
             QLabel {
                 color: #ffffff;
-                font-size: 17px;
+                font-size: 13px;
                 font-weight: 600;
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
@@ -750,12 +754,12 @@ class iPhoneMessagesDialog:
 
         # Trash icon (initially hidden, appears when messages are selected)
         trash_btn = QPushButton("🗑️")
-        trash_btn.setFixedSize(30, 30)
+        trash_btn.setFixedSize(24, 24)
         trash_btn.clicked.connect(dialog.delete_selected_messages)
         trash_btn.setStyleSheet("""
             QPushButton {
                 color: #FF3B30;
-                font-size: 18px;
+                font-size: 14px;
                 background: transparent;
                 border: none;
                 text-align: center;
@@ -763,7 +767,7 @@ class iPhoneMessagesDialog:
             }
             QPushButton:hover {
                 background: rgba(255, 59, 48, 0.1);
-                border-radius: 15px;
+                border-radius: 12px;
             }
         """)
         trash_btn.hide()  # Initially hidden
@@ -776,7 +780,7 @@ class iPhoneMessagesDialog:
         edit_btn.setStyleSheet("""
             QPushButton {
                 color: #007AFF;
-                font-size: 17px;
+                font-size: 13px;
                 font-weight: 400;
                 background: transparent;
                 border: none;
@@ -868,7 +872,7 @@ class iPhoneMessagesDialog:
                     background: #007AFF;
                     border: none;
                     border-radius: 18px;
-                    max-width: 576px;
+                    max-width: 490px;
                 }
             """)
             content_label.setStyleSheet("""
@@ -893,7 +897,7 @@ class iPhoneMessagesDialog:
                     background: #3a3a3c;
                     border: none;
                     border-radius: 18px;
-                    max-width: 576px;
+                    max-width: 490px;
                 }
             """)
             content_label.setStyleSheet("""

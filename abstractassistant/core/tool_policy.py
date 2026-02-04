@@ -16,6 +16,8 @@ _DEFAULT_SAFE_AUTO_APPROVE: Set[str] = {
     "search_files",
     # Network read-only
     "web_search",
+    "skim_websearch",
+    "skim_url",
     "fetch_url",
 }
 
@@ -54,4 +56,3 @@ class ToolApprovalPolicy:
             "auto_approve_tools": sorted(self.auto_approve_tools),
             "require_approval_tools": sorted(self.require_approval_tools),
         }
-

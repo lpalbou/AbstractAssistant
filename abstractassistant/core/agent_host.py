@@ -125,7 +125,30 @@ class AgentHost:
         lazy_runtime: bool = True,
     ):
         self._config = config
-        self._tools = list(tools) if tools is not None else list(ALL_TOOLS)
+        base_tools = list(tools) if tools is not None else list(ALL_TOOLS)
+
+        # Optional AbstractCore skim tools (installed via `abstractcore[tools]`).
+        # These keep web triage prompt-friendly vs fetching full pages.
+        try:
+            from abstractcore.tools.common_tools import skim_url, skim_websearch  # type: ignore
+        except Exception:
+            pass
+        else:
+            def _tool_name(fn: Callable[..., Any]) -> str:
+                td = getattr(fn, "_tool_definition", None)
+                name = getattr(td, "name", None) if td is not None else None
+                if not name:
+                    name = getattr(fn, "__name__", None)
+                return str(name or "").strip()
+
+            existing_names = {_tool_name(t) for t in base_tools if callable(t) and _tool_name(t)}
+            for extra in (skim_websearch, skim_url):
+                name = _tool_name(extra)
+                if name and name not in existing_names:
+                    base_tools.append(extra)
+                    existing_names.add(name)
+
+        self._tools = base_tools
         self._runtime_builder = runtime_builder
         self._lazy_runtime = bool(lazy_runtime)
 

@@ -37,7 +37,8 @@ try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-        QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
+        QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu,
+        QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject, QEvent
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -48,7 +49,8 @@ except ImportError:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-            QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
+            QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu,
+            QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject, QEvent
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -59,7 +61,8 @@ except ImportError:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-                QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
+                QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu,
+                QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QEvent
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -255,7 +258,7 @@ class FullVoiceToggle(QPushButton):
 
 
 class ToolSelectorDialog(QDialog):
-    """Simple modal dialog to enable/disable external tools for the session."""
+    """Tool allowlist editor (All tools vs Custom allowlist)."""
 
     def __init__(
         self,
@@ -270,24 +273,51 @@ class ToolSelectorDialog(QDialog):
         self.setWindowTitle("Tools")
         self.setModal(True)
 
+        self._tools = [t for t in list(tools) if isinstance(t, dict)]
+        self._safe_preset = set(safe_preset)
+        self._require_approval = set(require_approval)
+
+        # Keep the tool order stable.
+        self._all_names = [
+            str(t.get("name") or "").strip()
+            for t in self._tools
+            if isinstance(t.get("name"), str) and str(t.get("name") or "").strip()
+        ]
+        self._all_names_set = set(self._all_names)
+
+        self._mode: str = "all" if set(enabled) == self._all_names_set else "custom"
+        self._custom_selected: set[str] = set(enabled)
+        if self._mode == "all":
+            self._custom_selected = set(self._all_names_set)
+
         palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
         is_dark = palette.window().color().lightness() < 128
-        mid = palette.mid().color().name()
+        window_bg = palette.window().color().name()
+        base_bg = palette.base().color().name()
+        mid = palette.mid().color()
+        mid_hex = mid.name()
         text = palette.text().color()
         accent = palette.highlight().color()
 
         def rgba(color: QColor, alpha: float) -> str:
             return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
 
-        window_bg = palette.window().color().name()
         overlay = "rgba(255, 255, 255, 0.08)" if is_dark else "rgba(0, 0, 0, 0.06)"
         overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
         overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
-        text_primary = rgba(text, 0.9)
-        text_secondary = rgba(text, 0.65)
+        text_primary = rgba(text, 0.92)
+        text_secondary = rgba(text, 0.70)
+        text_muted = rgba(text, 0.55 if is_dark else 0.50)
         accent_hex = accent.name()
         accent_hover = accent.lighter(115).name()
         accent_pressed = accent.darker(115).name()
+        accent_border = rgba(accent, 0.28)
+        danger = QColor(255, 59, 48)
+        danger_border = rgba(danger, 0.45)
+        tool_name_color = "#22c55e" if is_dark else "#16a34a"
+        indicator_border = rgba(text, 0.38 if is_dark else 0.30)
+
+        self._suppress_checkbox_updates: bool = False
 
         self.setStyleSheet(
             f"""
@@ -298,123 +328,364 @@ class ToolSelectorDialog(QDialog):
             """
         )
 
-        self._tools = list(tools)
-        self._safe_preset = set(safe_preset)
-        self._require_approval = set(require_approval)
-        self._boxes: Dict[str, QCheckBox] = {}
-
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
 
-        title = QLabel("Choose which tools the assistant can use")
-        title.setStyleSheet(f"QLabel {{ font-size: 13px; font-weight: 600; color: {text_primary}; }}")
-        layout.addWidget(title)
+        header = QLabel("TOOLS")
+        header.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {accent_hex};
+                font-size: 11px;
+                font-weight: 700;
+            }}
+            """
+        )
+        layout.addWidget(header)
 
-        hint = QLabel("Dangerous tools still require approval when called.")
-        hint.setStyleSheet(f"QLabel {{ font-size: 11px; color: {text_secondary}; }}")
-        layout.addWidget(hint)
+        subtitle = QLabel("Default is all tools. Switch to a custom allowlist only when needed.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(f"QLabel {{ font-size: 12px; color: {text_secondary}; }}")
+        layout.addWidget(subtitle)
 
-        presets = QHBoxLayout()
-        presets.setSpacing(6)
-        safe_btn = QPushButton("Safe")
-        all_btn = QPushButton("All")
-        none_btn = QPushButton("None")
-        for b in (safe_btn, all_btn, none_btn):
-            b.setFixedHeight(24)
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(10)
+
+        seg_frame = QFrame()
+        seg_frame.setStyleSheet(
+            f"""
+            QFrame {{
+                background: {overlay_pressed};
+                border: 1px solid {mid_hex};
+                border-radius: 14px;
+            }}
+            """
+        )
+        seg_layout = QHBoxLayout(seg_frame)
+        seg_layout.setContentsMargins(2, 2, 2, 2)
+        seg_layout.setSpacing(2)
+
+        self.all_mode_btn = QPushButton("All tools")
+        self.custom_mode_btn = QPushButton("Custom allowlist")
+        for b in (self.all_mode_btn, self.custom_mode_btn):
+            b.setCheckable(True)
+            try:
+                b.setAutoExclusive(True)
+            except Exception:
+                pass
+            b.setFixedHeight(28)
             b.setStyleSheet(
                 f"""
                 QPushButton {{
-                    background: {overlay};
-                    border: 1px solid {mid};
+                    background: transparent;
+                    border: none;
                     border-radius: 12px;
-                    padding: 0 10px;
-                    font-size: 11px;
-                    color: {text_primary};
+                    padding: 0 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: {text_secondary};
                 }}
-                QPushButton:hover {{ background: {overlay_hover}; border: 1px solid {accent_hex}; }}
-                QPushButton:pressed {{ background: {overlay_pressed}; }}
+                QPushButton:hover {{ background: {overlay_hover}; color: {text_primary}; }}
+                QPushButton:checked {{ background: {base_bg}; color: {text_primary}; }}
                 """
             )
-            presets.addWidget(b)
-        presets.addStretch()
-        layout.addLayout(presets)
+        self.all_mode_btn.setChecked(self._mode == "all")
+        self.custom_mode_btn.setChecked(self._mode == "custom")
 
-        def _set_checked(names: set[str]) -> None:
-            for name, box in self._boxes.items():
-                box.setChecked(name in names)
+        seg_layout.addWidget(self.all_mode_btn)
+        seg_layout.addWidget(self.custom_mode_btn)
+        controls_row.addWidget(seg_frame)
 
-        safe_btn.clicked.connect(lambda: _set_checked(set(self._safe_preset)))
-        all_btn.clicked.connect(lambda: _set_checked({t.get("name", "") for t in self._tools if t.get("name")}))
-        none_btn.clicked.connect(lambda: _set_checked(set()))
+        self.count_pill = QLabel("")
+        self.count_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.count_pill.setFixedHeight(28)
+        self.count_pill.setMinimumWidth(160)
+        self.count_pill.setStyleSheet(
+            f"""
+            QLabel {{
+                background: {overlay};
+                border: 1px solid {mid_hex};
+                border-radius: 14px;
+                font-size: 11px;
+                font-weight: 600;
+                color: {text_secondary};
+                padding: 0 12px;
+            }}
+            """
+        )
+        controls_row.addWidget(self.count_pill)
+        controls_row.addStretch()
+        layout.addLayout(controls_row)
 
-        # Tool list (simple vertical list; current tool count is small).
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Filter tools…")
+        self.filter_input.setClearButtonEnabled(True)
+        self.filter_input.setFixedHeight(34)
+        self.filter_input.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background: {overlay_pressed};
+                border: 1px solid {mid_hex};
+                border-radius: 10px;
+                padding: 0 12px;
+                font-size: 12px;
+                color: {text_primary};
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {accent_hex};
+                background: {overlay_hover};
+            }}
+            """
+        )
+        layout.addWidget(self.filter_input)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; }")
+        layout.addWidget(scroll, 1)
+
+        list_root = QWidget()
+        list_layout = QVBoxLayout(list_root)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.setSpacing(10)
+        scroll.setWidget(list_root)
+
+        self._rows: Dict[str, Dict[str, Any]] = {}
+
+        def _badge(text_value: str, *, fg: str, bg: str, border: str) -> QLabel:
+            lab = QLabel(text_value)
+            lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lab.setFixedHeight(18)
+            lab.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: {fg};
+                    background: {bg};
+                    border: 1px solid {border};
+                    border-radius: 9px;
+                    padding: 0 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                }}
+                """
+            )
+            return lab
+
+        def _current_selected() -> set[str]:
+            return {n for n, info in self._rows.items() if info["checkbox"].isChecked()}
+
+        def _on_checkbox_changed(_: str) -> None:
+            if getattr(self, "_suppress_checkbox_updates", False):
+                return
+
+            selected = _current_selected()
+
+            # In "All tools" mode, any manual uncheck means the user is starting
+            # a custom allowlist. Flip to custom and keep current selection.
+            if self._mode == "all" and selected != self._all_names_set:
+                self._custom_selected = set(selected)
+                _set_mode("custom")
+                return
+
+            if self._mode == "custom":
+                self._custom_selected = set(selected)
+
+            self._update_counts()
+
         for info in self._tools:
             name = str(info.get("name") or "").strip()
             if not name:
                 continue
             desc = str(info.get("description") or "").strip()
-            label = name
-            if name in self._require_approval:
-                label = f"{label}  (approval)"
-            box = QCheckBox(label)
-            box.setChecked(name in enabled)
-            if desc:
-                box.setToolTip(desc)
-            box.setStyleSheet(
+
+            row = QFrame()
+            row.setObjectName("toolRow")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(12, 10, 12, 10)
+            row_layout.setSpacing(10)
+
+            cb = QCheckBox()
+            cb.setChecked(name in self._custom_selected)
+            cb.setStyleSheet(
                 f"""
-                QCheckBox {{ font-size: 12px; color: {text_primary}; padding: 2px 0; }}
-                QCheckBox::indicator {{ width: 14px; height: 14px; }}
+                QCheckBox {{ color: {text_primary}; }}
+                QCheckBox::indicator {{
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 4px;
+                    border: 1px solid {indicator_border};
+                    background: {overlay};
+                }}
+                QCheckBox::indicator:hover {{
+                    background: {overlay_hover};
+                    border: 1px solid {accent_hex};
+                }}
+                QCheckBox::indicator:checked {{
+                    background: {accent_hex};
+                    border: 1px solid {accent_hover};
+                }}
+                QCheckBox::indicator:checked:hover {{
+                    background: {accent_hover};
+                    border: 1px solid {accent_hover};
+                }}
                 """
             )
-            self._boxes[name] = box
-            layout.addWidget(box)
+            cb.stateChanged.connect(lambda _=0, n=name: _on_checkbox_changed(n))
+            row_layout.addWidget(cb, 0, Qt.AlignmentFlag.AlignTop)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch()
+            text_col = QWidget()
+            text_col_layout = QVBoxLayout(text_col)
+            text_col_layout.setContentsMargins(0, 0, 0, 0)
+            text_col_layout.setSpacing(4)
+
+            meta_row = QHBoxLayout()
+            meta_row.setContentsMargins(0, 0, 0, 0)
+            meta_row.setSpacing(8)
+
+            name_label = QLabel(name.upper())
+            name_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: {tool_name_color};
+	                font-size: 12px;
+                    font-weight: 800;
+                    font-family: "SF Mono", "Monaco", "Menlo", "Consolas", monospace;
+                }}
+                """
+            )
+            meta_row.addWidget(name_label)
+
+            if name in self._require_approval:
+                meta_row.addWidget(
+                    _badge("APPROVAL", fg="#ffffff", bg=danger_border, border=danger_border)
+                )
+
+            meta_row.addStretch()
+            text_col_layout.addLayout(meta_row)
+
+            if desc:
+                desc_label = QLabel(desc)
+                desc_label.setWordWrap(True)
+                desc_label.setStyleSheet(f"QLabel {{ color: {text_muted}; font-size: 11px; }}")
+                text_col_layout.addWidget(desc_label)
+
+            row_layout.addWidget(text_col, 1)
+
+            border_color = danger_border if name in self._require_approval else accent_border
+            row.setStyleSheet(
+                f"""
+                QFrame#toolRow {{
+                    background: {overlay_pressed};
+                    border: 1px solid {border_color};
+                    border-radius: 12px;
+                }}
+                """
+            )
+
+            list_layout.addWidget(row)
+            self._rows[name] = {"row": row, "checkbox": cb, "desc": desc}
+
+        list_layout.addStretch(1)
+
+        footer = QHBoxLayout()
+        footer.setSpacing(10)
+        footer.addStretch()
+
         cancel_btn = QPushButton("Cancel")
-        ok_btn = QPushButton("Save")
-        for b in (cancel_btn, ok_btn):
-            b.setFixedHeight(28)
+        save_btn = QPushButton("Save")
+        for b in (cancel_btn, save_btn):
+            b.setFixedHeight(34)
             b.setStyleSheet(
                 f"""
                 QPushButton {{
                     background: {overlay};
-                    border: 1px solid {mid};
-                    border-radius: 14px;
-                    padding: 0 14px;
+                    border: 1px solid {mid_hex};
+                    border-radius: 12px;
+                    padding: 0 16px;
                     font-size: 12px;
+                    font-weight: 700;
                     color: {text_primary};
                 }}
                 QPushButton:hover {{ background: {overlay_hover}; border: 1px solid {accent_hex}; }}
                 QPushButton:pressed {{ background: {overlay_pressed}; }}
                 """
             )
-        ok_btn.setStyleSheet(
+        save_btn.setStyleSheet(
             f"""
             QPushButton {{
                 background: {accent_hex};
                 border: 1px solid {accent_hover};
-                border-radius: 14px;
-                padding: 0 14px;
+                border-radius: 12px;
+                padding: 0 16px;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 800;
                 color: #ffffff;
             }}
             QPushButton:hover {{ background: {accent_hover}; border: 1px solid {accent_hover}; }}
             QPushButton:pressed {{ background: {accent_pressed}; }}
             """
         )
-        cancel_btn.clicked.connect(self.reject)
-        ok_btn.clicked.connect(self.accept)
-        buttons.addWidget(cancel_btn)
-        buttons.addWidget(ok_btn)
-        layout.addLayout(buttons)
 
-        self.resize(420, 420)
+        cancel_btn.clicked.connect(self.reject)
+        save_btn.clicked.connect(self.accept)
+        footer.addWidget(cancel_btn)
+        footer.addWidget(save_btn)
+        layout.addLayout(footer)
+
+        def _set_mode(mode: str) -> None:
+            mode = "all" if mode == "all" else "custom"
+            self._mode = mode
+            self.all_mode_btn.setChecked(self._mode == "all")
+            self.custom_mode_btn.setChecked(self._mode == "custom")
+            self._suppress_checkbox_updates = True
+            try:
+                if self._mode == "all":
+                    self._custom_selected = set(self._all_names_set)
+                    for _, info in self._rows.items():
+                        info["checkbox"].setEnabled(True)
+                        info["checkbox"].setChecked(True)
+                else:
+                    for n, info in self._rows.items():
+                        info["checkbox"].setEnabled(True)
+                        info["checkbox"].setChecked(n in self._custom_selected)
+            finally:
+                self._suppress_checkbox_updates = False
+
+            self._update_counts()
+
+        self.all_mode_btn.clicked.connect(lambda _=False: _set_mode("all"))
+        self.custom_mode_btn.clicked.connect(lambda _=False: _set_mode("custom"))
+
+        def _apply_filter() -> None:
+            q = (self.filter_input.text() or "").strip().lower()
+            for n, info in self._rows.items():
+                if not q:
+                    info["row"].setVisible(True)
+                    continue
+                hay = f"{n}\n{info.get('desc','')}".lower()
+                info["row"].setVisible(q in hay)
+
+        self.filter_input.textChanged.connect(lambda _=None: _apply_filter())
+
+        self.resize(720, 560)
+        _set_mode(self._mode)
+        _apply_filter()
+        self._update_counts()
+
+    def _update_counts(self) -> None:
+        total = len(self._all_names)
+        if self._mode == "all":
+            selected = total
+        else:
+            selected = len({n for n, info in self._rows.items() if info["checkbox"].isChecked()})
+        self.count_pill.setText(f"✓ {selected} of {total} selected")
 
     def selected_tools(self) -> List[str]:
-        return sorted([name for name, box in self._boxes.items() if box.isChecked()])
+        if self._mode == "all":
+            return list(self._all_names)
+        return sorted([n for n, info in self._rows.items() if info["checkbox"].isChecked()])
 
 
 class LLMWorker(QThread):
@@ -683,6 +954,10 @@ class QtChatBubble(QWidget):
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool
         )
+        try:
+            self.setWindowOpacity(0.97)
+        except Exception:
+            pass
         
         # Set optimal size for modern chat interface.
         # Keep the default lightweight and compact: ~15% narrower than the previous 630px.
@@ -732,7 +1007,7 @@ class QtChatBubble(QWidget):
             QComboBox {
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
-                border-radius: 11px;
+                border-radius: 6px;
                 font-size: 10px;
                 color: rgba(255, 255, 255, 0.8);
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
@@ -761,7 +1036,7 @@ class QtChatBubble(QWidget):
             QPushButton {
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
-                border-radius: 11px;
+                border-radius: 6px;
                 font-size: 10px;
                 color: rgba(255, 255, 255, 0.7);
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
@@ -783,7 +1058,7 @@ class QtChatBubble(QWidget):
             QPushButton {
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
-                border-radius: 11px;
+                border-radius: 6px;
                 font-size: 14px;
                 color: rgba(255, 255, 255, 0.7);
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
@@ -797,18 +1072,20 @@ class QtChatBubble(QWidget):
         header_layout.addWidget(self.more_button)
 
         # Messages/history button (user-facing transcript).
-        self.history_button = QPushButton("Messages")
+        self.history_button = QPushButton("💬")
         self.history_button.setFixedHeight(22)
+        self.history_button.setFixedWidth(28)
+        self.history_button.setToolTip("Messages")
         self.history_button.clicked.connect(self.show_history)
         self.history_button.setStyleSheet("""
             QPushButton {
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
                 border-radius: 11px;
-                font-size: 10px;
+                font-size: 12px;
                 color: rgba(255, 255, 255, 0.7);
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                padding: 0 10px;
+                padding: 0px;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -862,7 +1139,7 @@ class QtChatBubble(QWidget):
             QFrame {
                 background: #2a2a2a;
                 border: 1px solid #404040;
-                border-radius: 8px;
+                border-radius: 6px;
                 padding: 4px;
             }
         """)
@@ -877,18 +1154,18 @@ class QtChatBubble(QWidget):
         # File attachment button - modern paperclip icon
         self.attach_button = QPushButton("📎")
         self.attach_button.clicked.connect(self.attach_files)
-        self.attach_button.setFixedSize(36, 36)
+        self.attach_button.setFixedSize(22, 22)
         self.attach_button.setToolTip("Attach files (images, PDFs, Office docs, etc.)")
         self.attach_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid #404040;
-                border-radius: 18px;
-                font-size: 14px;
-                color: rgba(255, 255, 255, 0.7);
-                text-align: center;
-                padding: 0px;
-            }
+	            QPushButton {
+	                background: rgba(255, 255, 255, 0.08);
+	                border: 1px solid #404040;
+	                border-radius: 6px;
+	                font-size: 12px;
+	                color: rgba(255, 255, 255, 0.7);
+	                text-align: center;
+	                padding: 0px;
+	            }
 
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -904,18 +1181,18 @@ class QtChatBubble(QWidget):
         # Tool selector button (per-run tool allowlist)
         self.tools_button = QPushButton("🛠")
         self.tools_button.clicked.connect(self.open_tool_selector)
-        self.tools_button.setFixedSize(36, 36)
+        self.tools_button.setFixedSize(22, 22)
         self.tools_button.setToolTip("Tools")
         self.tools_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid #404040;
-                border-radius: 18px;
-                font-size: 14px;
-                color: rgba(255, 255, 255, 0.7);
-                text-align: center;
-                padding: 0px;
-            }
+	            QPushButton {
+	                background: rgba(255, 255, 255, 0.08);
+	                border: 1px solid #404040;
+	                border-radius: 6px;
+	                font-size: 12px;
+	                color: rgba(255, 255, 255, 0.7);
+	                text-align: center;
+	                padding: 0px;
+	            }
 
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -942,18 +1219,18 @@ class QtChatBubble(QWidget):
         # Send button - primary action with special styling
         self.send_button = QPushButton("→")
         self.send_button.clicked.connect(self.send_message)
-        self.send_button.setFixedSize(36, 36)
+        self.send_button.setFixedSize(22, 22)
         self.send_button.setStyleSheet("""
-            QPushButton {
-                background: #0066cc;
-                border: 1px solid #0080ff;
-                border-radius: 18px;
-                font-size: 16px;
-                font-weight: bold;
-                color: white;
-                text-align: center;
-                padding: 0px;
-            }
+	            QPushButton {
+	                background: #0066cc;
+	                border: 1px solid #0080ff;
+	                border-radius: 6px;
+	                font-size: 13px;
+	                font-weight: bold;
+	                color: white;
+	                text-align: center;
+	                padding: 0px;
+	            }
 
             QPushButton:hover {
                 background: #0080ff;
@@ -974,13 +1251,15 @@ class QtChatBubble(QWidget):
         # Stack action buttons vertically on the right: files, tools, send.
         actions_column = QVBoxLayout()
         actions_column.setContentsMargins(0, 0, 0, 0)
-        actions_column.setSpacing(4)
-        actions_column.addStretch(1)
+        actions_column.setSpacing(2)
         actions_column.addWidget(self.attach_button, 0, Qt.AlignmentFlag.AlignHCenter)
         actions_column.addWidget(self.tools_button, 0, Qt.AlignmentFlag.AlignHCenter)
         actions_column.addWidget(self.send_button, 0, Qt.AlignmentFlag.AlignHCenter)
-        actions_column.addStretch(1)
         input_row.addLayout(actions_column)
+        try:
+            input_row.setAlignment(actions_column, Qt.AlignmentFlag.AlignVCenter)
+        except Exception:
+            pass
 
         input_layout.addLayout(input_row)
         self._update_tools_button_state()
@@ -1180,7 +1459,7 @@ class QtChatBubble(QWidget):
                 QFrame#inputContainer {{
                     background: {t['surface_bg']};
                     border: 1px solid {input_border};
-                    border-radius: 8px;
+                    border-radius: 6px;
                     padding: 4px;
                 }}
                 """
@@ -1191,7 +1470,7 @@ class QtChatBubble(QWidget):
                 QTextEdit {{
                     background: transparent;
                     border: none;
-                    padding: 12px 16px;
+                    padding: 4px 8px;
                     font-size: 14px;
                     font-weight: 400;
                     color: {t['text_primary']};
@@ -1265,10 +1544,10 @@ class QtChatBubble(QWidget):
                     background: {t['overlay_pressed']};
                     border: none;
                     border-radius: 11px;
-                    font-size: 10px;
+                    font-size: 12px;
                     color: {t['text_secondary']};
                     font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                    padding: 0 10px;
+                    padding: 0px;
                 }}
                 QPushButton:hover {{
                     background: {t['overlay_hover']};
@@ -1301,15 +1580,15 @@ class QtChatBubble(QWidget):
 
         # Input action buttons
         icon_btn_qss = f"""
-            QPushButton {{
-                background: {t['overlay']};
-                border: 1px solid {t['border']};
-                border-radius: 18px;
-                font-size: 14px;
-                color: {t['text_secondary']};
-                text-align: center;
-                padding: 0px;
-            }}
+	            QPushButton {{
+	                background: {t['overlay']};
+	                border: 1px solid {t['border']};
+	                border-radius: 6px;
+	                font-size: 12px;
+	                color: {t['text_secondary']};
+	                text-align: center;
+	                padding: 0px;
+	            }}
             QPushButton:hover {{
                 background: {t['overlay_hover']};
                 border: 1px solid {t['accent']};
@@ -1327,16 +1606,16 @@ class QtChatBubble(QWidget):
         if hasattr(self, "send_button"):
             self.send_button.setStyleSheet(
                 f"""
-                QPushButton {{
-                    background: {t['accent']};
-                    border: 1px solid {t['accent_hover']};
-                    border-radius: 18px;
-                    font-size: 16px;
-                    font-weight: bold;
-                    color: #ffffff;
-                    text-align: center;
-                    padding: 0px;
-                }}
+	                QPushButton {{
+	                    background: {t['accent']};
+	                    border: 1px solid {t['accent_hover']};
+	                    border-radius: 6px;
+	                    font-size: 13px;
+	                    font-weight: bold;
+	                    color: #ffffff;
+	                    text-align: center;
+	                    padding: 0px;
+	                }}
                 QPushButton:hover {{
                     background: {t['accent_hover']};
                     border: 1px solid {t['accent_hover']};
@@ -1820,8 +2099,8 @@ class QtChatBubble(QWidget):
             QPushButton {{
                 background: {bg};
                 border: 1px solid {border};
-                border-radius: 18px;
-                font-size: 14px;
+	                border-radius: 6px;
+	                font-size: 12px;
                 color: {fg};
                 text-align: center;
                 padding: 0px;
