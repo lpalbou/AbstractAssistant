@@ -4,9 +4,24 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Agent host + durability**: new core modules for agent runs and durable state: `agent_host`, `session_index`, `session_store`, `tool_policy`, `transcript_summary`.
+- **CLI**: `assistant run` for one-turn agentic runs in terminal; `assistant tray` as the explicit tray-mode entry.
+- **Tests**: added basic + integration coverage for the new host/session/tool-policy/summarization components.
+- **Reports**: added research notes under `reports/` (dated 2026-02-04).
+
+### Changed
+- **Docs & README**: rewritten/updated to reflect the agentic host model, tool approval boundary, and install profiles.
+- **Dependencies**: updated `pyproject.toml` (profiles/requirements refined).
+- **Qt bubble UI**: significant updates to `qt_bubble.py` (input/action controls, tool allowlist UI, voice-mode behaviors, theming).
+
 ### Fixed
 - **Qt chat bubble input actions**: Fixed first-open layout race that caused the right-side action buttons to overlap. The action column now deterministically sizes to the input row, keeps strict 1:1 square buttons, and preserves 1px vertical spacing.
 - **Tray app shutdown**: Ctrl+C (SIGINT) and SIGTERM now trigger a clean Qt shutdown path (stop timers, hide tray icon, destroy bubble) instead of an abrupt interpreter exit.
+- **Voice toggle icon**: The mic indicator now defaults to a clearly struck "mic off" icon when Full Voice Mode is disabled (non-listening default).
+
+### Removed
+- `ROADMAP.md` (removed from the repository).
 
 ## [0.3.5] - 2026-01-07
 

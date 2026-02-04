@@ -231,7 +231,10 @@ class FullVoiceToggle(QPushButton):
             bg_color = rgba(accent, 0.85)
             text_color = "#ffffff"
         else:
-            icon = "🎤"  # Muted microphone when disabled
+            # Show an explicit "mic off" glyph by default (struck mic),
+            # because the app starts in non-listening mode until the user enables Full Voice Mode.
+            # Using a combining overlay is the most portable way to get a clear strike without custom painting.
+            icon = "🎙️\u20E0"  # "no" overlay (combining enclosing circle backslash)
             bg_color = overlay_bg
             text_color = overlay_fg
 
