@@ -2,7 +2,7 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
-## [Unreleased]
+## [0.4.0]
 
 ### Added
 - **Agent host + durability**: new core modules for agent runs and durable state: `agent_host`, `session_index`, `session_store`, `tool_policy`, `transcript_summary`.
@@ -20,6 +20,7 @@ All notable changes to AbstractAssistant will be documented in this file.
 - **Tray app shutdown**: Ctrl+C (SIGINT) and SIGTERM now trigger a clean Qt shutdown path (stop timers, hide tray icon, destroy bubble) instead of an abrupt interpreter exit.
 - **Voice toggle icon**: The mic indicator now defaults to a clearly struck "mic off" icon when Full Voice Mode is disabled (non-listening default).
 - **Voice mode UI switch**: Exiting Full Voice Mode now reliably restores the normal interface; while listening, attachment + tools controls remain available and Send is hidden.
+- **Voice mode shutdown**: Stopping Full Voice Mode now force-stops listening/speaking, turns off TTS, restores Ready (green) status, and prevents late STT/TTS callbacks from flipping the UI back to LISTENING.
 
 ### Removed
 - `ROADMAP.md` (removed from the repository).

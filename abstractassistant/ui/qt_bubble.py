@@ -966,6 +966,9 @@ class QtChatBubble(QWidget):
         self.message_history: List[Dict] = []
         self._session_auto_approve_tools: set[str] = set()
         self._voice_busy: bool = False
+        # Full Voice Mode lifecycle: treat "running" as separate from the toggle state so
+        # late callbacks cannot keep the UI in LISTENING after a user-initiated stop.
+        self._full_voice_running: bool = False
 
         # History dialog instance for toggle behavior
         self.history_dialog = None
@@ -2739,7 +2742,7 @@ class QtChatBubble(QWidget):
                         print(f"❌ TTS error: {e}")
                 # Show chat history as fallback - only if voice mode is OFF
                 QTimer.singleShot(100, self._show_history_if_voice_mode_off)
-                if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+                if self._is_full_voice_running():
                     self._voice_busy = False
                     try:
                         self.update_status("LISTENING")
@@ -2763,7 +2766,7 @@ class QtChatBubble(QWidget):
                 self.response_callback(response)
             if self.status_callback:
                 self.status_callback("ready")
-            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+            if self._is_full_voice_running():
                 self._voice_busy = False
                 try:
                     self.update_status("LISTENING")
@@ -2976,6 +2979,9 @@ class QtChatBubble(QWidget):
             if self.llm_manager:
                 self.llm_manager.update_session_mode(tts_mode=True)
 
+            # Mark running before starting the underlying loop so late UI updates can be gated.
+            self._full_voice_running = True
+
             # Start listening
             self.voice_manager.listen(
                 on_transcription=self.handle_voice_input,
@@ -3000,40 +3006,92 @@ class QtChatBubble(QWidget):
                 traceback.print_exc()
 
             # Reset toggle state on error
+            self._full_voice_running = False
             self.full_voice_toggle.set_enabled(False)
             self.show_text_ui()
 
+    def _is_full_voice_running(self) -> bool:
+        """Centralized guard for any 'LISTENING' UI updates from async callbacks."""
+        try:
+            return bool(self._full_voice_running) and bool(self.full_voice_toggle.is_enabled())
+        except Exception:
+            return bool(getattr(self, "_full_voice_running", False))
+
     def stop_full_voice_mode(self):
         """Stop Full Voice Mode and return to normal text mode."""
-        try:
+        # IMPORTANT: make this robust. Even if voice backend stop throws, the UI must restore.
+        if self.debug:
             if self.debug:
-                if self.debug:
-                    print("🛑 Stopping Full Voice Mode...")
+                print("🛑 Stopping Full Voice Mode...")
 
-            # Stop listening
-            if self.voice_manager:
+        # Gate all future async 'LISTENING' updates immediately.
+        self._full_voice_running = False
+        self._voice_busy = False
+
+        # 1) Stop listening/speaking (best-effort, never block UI restore)
+        if self.voice_manager:
+            try:
+                # Detach callbacks to avoid late status flips after shutdown.
+                try:
+                    self.voice_manager.on_speech_start = None
+                    self.voice_manager.on_speech_end = None
+                except Exception:
+                    pass
                 self.voice_manager.stop_listening()
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error stopping listening: {e}")
+            try:
                 self.voice_manager.stop_speaking()
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error stopping speaking: {e}")
 
-            # Restore normal text UI (including Send button)
+        # 2) Turn off the speaker toggle (TTS) when leaving voice mode (as requested)
+        try:
+            if hasattr(self, "tts_toggle") and self.tts_toggle:
+                self.tts_toggle.set_enabled(False)
+            self.tts_enabled = False
+        except Exception:
+            pass
+
+        # 3) Restore normal UI (Send visible again)
+        try:
             self.show_text_ui()
+        except Exception:
+            pass
 
-            # No longer updating voice toggle appearance - it's a simple user control
+        # If no run is currently in progress, restore the send affordance immediately.
+        try:
+            if not self._is_run_in_progress():
+                if getattr(self, "send_button", None) is not None:
+                    self.send_button.setEnabled(True)
+                    self.send_button.setText("→")
+                self._set_session_controls_enabled(True)
+        except Exception:
+            pass
+
+        # 4) Status back to Ready (green) + tray icon ready
+        try:
             self.update_status("READY")
+        except Exception:
+            pass
+        try:
+            if self.status_callback:
+                self.status_callback("ready")
+        except Exception:
+            pass
 
+        if self.debug:
             if self.debug:
-                if self.debug:
-                    print("✅ Full Voice Mode stopped")
-
-        except Exception as e:
-            if self.debug:
-                if self.debug:
-                    print(f"❌ Error stopping Full Voice Mode: {e}")
-                import traceback
-                traceback.print_exc()
+                print("✅ Full Voice Mode stopped")
 
     def handle_voice_input(self, transcribed_text: str):
         """Handle speech-to-text input (thread-safe, routes through agentic pipeline)."""
+        # Ignore any late STT callbacks after the user stopped voice mode.
+        if not self._is_full_voice_running():
+            return
+
         text = str(transcribed_text or "").strip()
         if not text:
             return
@@ -3046,6 +3104,10 @@ class QtChatBubble(QWidget):
 
     def _handle_voice_input_main_thread(self, transcribed_text: str) -> None:
         """Execute a voice input turn on the Qt main thread."""
+        if not self._is_full_voice_running():
+            self._voice_busy = False
+            return
+
         if self._voice_busy:
             if self.debug:
                 print("🎙️  Ignoring transcription while busy")
@@ -3066,7 +3128,8 @@ class QtChatBubble(QWidget):
             if self.debug:
                 print(f"❌ Error handling voice input: {e}")
             try:
-                self.update_status("LISTENING")
+                if self._is_full_voice_running():
+                    self.update_status("LISTENING")
             except Exception:
                 pass
 
@@ -3077,6 +3140,7 @@ class QtChatBubble(QWidget):
                 print("🛑 User said 'stop' - exiting Full Voice Mode")
 
         # Disable Full Voice Mode
+        self._full_voice_running = False
         self.full_voice_toggle.set_enabled(False)
 
     def hide_text_ui(self):
@@ -3312,7 +3376,7 @@ class QtChatBubble(QWidget):
         QTimer.singleShot(100, self._show_history_if_voice_mode_off)
 
         # If we're in full voice mode, unblock the STT loop.
-        if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+        if self._is_full_voice_running():
             self._voice_busy = False
             try:
                 self.update_status("LISTENING")
@@ -4495,7 +4559,7 @@ Continue the conversation naturally, referring to the context above when relevan
             self.status_callback("ready")
 
         # Voice loop: allow next transcription after speaking ends.
-        if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+        if self._is_full_voice_running():
             self._voice_busy = False
             try:
                 self.update_status("LISTENING")
