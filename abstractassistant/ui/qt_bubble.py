@@ -1327,15 +1327,46 @@ class QtChatBubble(QWidget):
     
     def update_token_limits(self):
         """Update token limits using AbstractCore's built-in detection."""
-        # Get token limits from LLMManager (which uses AbstractCore's detection)
-        if self.llm_manager and self.llm_manager.llm:
-            self.max_tokens = self.llm_manager.llm.max_tokens
-            
-            if self.debug:
-                print(f"📊 Token limits from AbstractCore: {self.max_tokens}")
-        else:
-            # Fallback if LLM not initialized
-            self.max_tokens = 128000
+        max_tokens = None
+        source = None
+
+        # Preferred: AbstractCore model capabilities (model_capabilities.json).
+        try:
+            from abstractcore.architectures.detection import get_model_capabilities
+
+            caps = get_model_capabilities(str(self.current_model or ""))
+            mt = caps.get("max_tokens") if isinstance(caps, dict) else None
+            if isinstance(mt, int) and mt > 0:
+                max_tokens = int(mt)
+                source = "abstractcore:model_capabilities"
+        except Exception:
+            max_tokens = None
+
+        # Fallback: provider instance (best-effort; may be lazy/unavailable).
+        if max_tokens is None:
+            try:
+                llm = getattr(self.llm_manager, "llm", None)
+                mt = getattr(llm, "max_tokens", None)
+                if isinstance(mt, int) and mt > 0:
+                    max_tokens = int(mt)
+                    source = "provider"
+            except Exception:
+                max_tokens = None
+
+        # Final fallback: keep UI stable even for unknown models.
+        if max_tokens is None:
+            max_tokens = 128000
+            source = "fallback"
+
+        self.max_tokens = int(max_tokens)
+
+        try:
+            self.token_label.setToolTip(f"Max context: {self.max_tokens} tokens ({source})")
+        except Exception:
+            pass
+
+        if self.debug:
+            print(f"📊 Token limit: {self.max_tokens} ({source})")
             
         self.update_token_display()
     

@@ -1,6 +1,6 @@
 # Architecture
 
-AbstractAssistant is a local “agent host” application: it exposes a tray UI and a CLI, but the core execution model is **agentic** and **durable**.
+AbstractAssistant is a local **agent host** application: it exposes a tray UI and a CLI, and it runs **AbstractAgent + AbstractRuntime locally** (not via AbstractGateway).
 
 At a high level:
 
@@ -10,7 +10,7 @@ UI (Qt/tray) or CLI
       -> AbstractAgent (ReAct / CodeAct / MemAct)
           -> AbstractRuntime (durable runs + waits + ledger)
               -> AbstractCore integrations (LLM providers + tool schemas)
-              -> Tool execution (host-held, approval gated)
+              -> Tool execution (host-held, approval gated, resumed into runtime)
 ```
 
 ## Goals
@@ -19,6 +19,16 @@ UI (Qt/tray) or CLI
 - Durable execution (runs survive restarts; waits are explicit).
 - Safe tool execution: tools are never persisted as callables in run state; the host executes them only after approval.
 - Optional voice (STT/TTS) without forcing heavy deps on all installs.
+
+## What “durable tool execution” means here
+
+Durability requires that tool calls are:
+1) written to durable state as **JSON tool-call specs** (name + arguments),
+2) surfaced as a **durable wait** (`TOOL_CALLS`),
+3) executed by a host-held executor **outside** of the provider call,
+4) and then resumed into the runtime with **JSON tool results**.
+
+AbstractAssistant follows this rule. It **does not** use AbstractCore’s legacy provider-side tool execution (`execute_tools=True`, deprecated).
 
 ## Core modules
 
@@ -39,6 +49,17 @@ Events are plain dicts intended to be consumed by any UI:
 - `assistant` (final answer)
 - `error`
 
+### Runtime wiring (local, file-backed)
+
+`AgentHost` builds a local runtime via `abstractruntime.integrations.abstractcore.create_local_runtime(...)` with file-backed stores:
+- Run store (`JsonFileRunStore`)
+- Ledger store (`JsonlLedgerStore`)
+- Artifact store (`FileArtifactStore`)
+
+The runtime is configured with:
+- `PassthroughToolExecutor(mode="approval_required")` so `TOOL_CALLS` produces a **durable wait**.
+- A host-held `MappingToolExecutor.from_tools(...)` that executes approved tool calls and returns tool results.
+
 ### Session snapshot (fast UI state)
 
 `abstractassistant/core/session_store.py` persists a small `session.json` snapshot:
@@ -57,7 +78,11 @@ This is a UX optimization only: the runtime stores remain the durability source 
 
 ## Durability model
 
-By default, state is stored under `~/.abstractassistant/` (override via `--data-dir`):
+By default, state is stored under `~/.abstractassistant/`.
+
+Notes:
+- `assistant run ...` supports `--data-dir` (CLI-only).
+- The tray app currently uses `~/.abstractassistant/` directly.
 
 ```
 ~/.abstractassistant/
@@ -88,6 +113,15 @@ This ensures:
 - pending tool work can be resumed after restarts
 - the UI can always show “what is about to happen” before it happens
 
+### Why you might see “tool execution disabled” logs
+
+AbstractCore providers have a legacy mode where the **provider** executes tools (`execute_tools=True`, deprecated). In agentic/runtime hosts (AbstractAssistant), provider-side tool execution is intentionally disabled:
+- the provider still receives tool *schemas* (so the model can emit tool calls),
+- but it returns tool calls without executing them,
+- and the runtime/host executes them durably (as described above).
+
+So “tool execution disabled” refers to **provider-side** tool execution, not “tools are off”.
+
 ## UI integration (Qt/tray)
 
 The tray UI uses a worker thread to keep Qt responsive:
@@ -117,3 +151,23 @@ Voice is optional by design: `assistant --help` and headless CLI usage must not 
 Defined in `pyproject.toml`:
 - `abstractassistant` (default) == `lite`: tray UI dependencies (Qt + tray + markdown UX)
 - `abstractassistant[full]`: voice (AbstractVoice) + broader AbstractCore provider/media extras
+
+## Comparison: AbstractAssistant vs AbstractCode Web (thin client)
+
+AbstractAssistant is a **local host** (runs agent + runtime locally). AbstractCode Web (`abstractcode/web/`) is a **gateway-first thin client** (browser UI only).
+
+| Concern | AbstractAssistant (this repo) | AbstractCode Web (`abstractcode/web/`) |
+|---|---|---|
+| Agent execution | Local process (`abstractagent`) | Remote (behind `abstractgateway`) |
+| Runtime execution | Local (`abstractruntime`, file-backed stores) | Remote (gateway exposes run APIs + ledger) |
+| Tool execution | Local host executes tools after a durable `TOOL_CALLS` wait | Browser does not execute tools; it submits approvals/commands to gateway |
+| Durability location | Local disk (`~/.abstractassistant/runtime/`) | Gateway stores (server-side) |
+| UI rendering | Events from `AgentHost.run_turn(...)` | Ledger replay/stream (SSE) from gateway |
+| Offline/local-model | Possible (e.g. LMStudio/Ollama) | Not by itself; requires gateway connectivity |
+
+Code references:
+- AbstractAssistant local host: `abstractassistant/core/agent_host.py`
+- AbstractCode Web thin client:
+  - docs: `abstractcode/docs/architecture.md` (section “Web host (gateway-first)”)
+  - gateway client: `abstractcode/web/src/lib/gateway_client.ts`
+  - main UI: `abstractcode/web/src/ui/app.tsx`
