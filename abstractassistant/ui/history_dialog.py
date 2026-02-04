@@ -15,22 +15,52 @@ from pygments import highlight
 from pygments.lexers import get_lexer_by_name, TextLexer
 from pygments.formatters import HtmlFormatter
 
-	try:
-	    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
-	                                 QWidget, QLabel, QFrame, QPushButton, QApplication)
-	    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
-	    from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon
-	except ImportError:
-	    try:
-	        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
-	                                     QWidget, QLabel, QFrame, QPushButton, QApplication)
-	        from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
-	        from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon
-	    except ImportError:
-	        from PySide2.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
-	                                       QWidget, QLabel, QFrame, QPushButton, QApplication)
-	        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize
-	        from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon
+try:
+    from PyQt6.QtWidgets import (
+        QDialog,
+        QVBoxLayout,
+        QHBoxLayout,
+        QGridLayout,
+        QScrollArea,
+        QWidget,
+        QLabel,
+        QFrame,
+        QPushButton,
+        QApplication,
+    )
+    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
+    from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon
+except ImportError:
+    try:
+        from PyQt5.QtWidgets import (
+            QDialog,
+            QVBoxLayout,
+            QHBoxLayout,
+            QGridLayout,
+            QScrollArea,
+            QWidget,
+            QLabel,
+            QFrame,
+            QPushButton,
+            QApplication,
+        )
+        from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
+        from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon
+    except ImportError:
+        from PySide2.QtWidgets import (
+            QDialog,
+            QVBoxLayout,
+            QHBoxLayout,
+            QGridLayout,
+            QScrollArea,
+            QWidget,
+            QLabel,
+            QFrame,
+            QPushButton,
+            QApplication,
+        )
+        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize
+        from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon
 
 
 class ClickableBubble(QFrame):
@@ -76,14 +106,14 @@ class ClickableBubble(QFrame):
             else:
                 # Normal mode - start long press timer and apply clicked style
                 self.long_press_timer.start(800)  # 800ms for long press
-	                self.setStyleSheet(f"""
-	                    QFrame {{
-	                        background: {self.clicked_bg};
-	                        border: none;
-	                        border-radius: 18px;
-	                        max-width: 480px;
-	                    }}
-	                """)
+                self.setStyleSheet(f"""
+                    QFrame {{
+                        background: {self.clicked_bg};
+                        border: none;
+                        border-radius: 18px;
+                        max-width: 480px;
+                    }}
+                """)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -104,14 +134,14 @@ class ClickableBubble(QFrame):
 
                     # Visual feedback: glossy effect (lighter color briefly)
                     glossy_color = "#0080FF" if self.is_user else "#5a5a5c"
-	                    self.setStyleSheet(f"""
-	                        QFrame {{
-	                            background: {glossy_color};
-	                            border: none;
-	                            border-radius: 18px;
-	                            max-width: 480px;
-	                        }}
-	                    """)
+                    self.setStyleSheet(f"""
+                        QFrame {{
+                            background: {glossy_color};
+                            border: none;
+                            border-radius: 18px;
+                            max-width: 480px;
+                        }}
+                    """)
 
                     # Restore normal color after brief delay
                     QTimer.singleShot(200, self._restore_normal_style)
@@ -130,14 +160,14 @@ class ClickableBubble(QFrame):
         self.selection_changed.emit(self.message_index, True)
         
         # Provide haptic-like feedback by briefly changing color
-	        self.setStyleSheet(f"""
-	            QFrame {{
-	                background: {self.selected_bg};
-	                border: 2px solid #FFFFFF;
-	                border-radius: 18px;
-	                max-width: 480px;
-	            }}
-	        """)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {self.selected_bg};
+                border: 2px solid #FFFFFF;
+                border-radius: 18px;
+                max-width: 480px;
+            }}
+        """)
         
         # Add selection indicator
         QTimer.singleShot(100, self._update_visual_state)
@@ -213,25 +243,25 @@ class ClickableBubble(QFrame):
         """Update visual state based on selection - no visual changes to bubble itself."""
         # In authentic iPhone Messages, the bubble appearance doesn't change
         # Only the selection circle changes state - bubble stays the same
-	        self.setStyleSheet(f"""
-	            QFrame {{
-	                background: {self.normal_bg};
-	                border: none;
-	                border-radius: 18px;
-	                max-width: 480px;
-	            }}
-	        """)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {self.normal_bg};
+                border: none;
+                border-radius: 18px;
+                max-width: 480px;
+            }}
+        """)
 
     def _restore_normal_style(self):
         """Restore normal bubble style."""
-	        self.setStyleSheet(f"""
-	            QFrame {{
-	                background: {self.normal_bg};
-	                border: none;
-	                border-radius: 18px;
-	                max-width: 480px;
-	            }}
-	        """)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {self.normal_bg};
+                border: none;
+                border-radius: 18px;
+                max-width: 480px;
+            }}
+        """)
 
 
 class SafeDialog(QDialog):
@@ -833,14 +863,14 @@ class iPhoneMessagesDialog:
 
         if is_user:
             # User bubble: Blue with white text
-	            bubble.setStyleSheet("""
-	                QFrame {
-	                    background: #007AFF;
-	                    border: none;
-	                    border-radius: 18px;
-	                    max-width: 480px;
-	                }
-	            """)
+            bubble.setStyleSheet("""
+                QFrame {
+                    background: #007AFF;
+                    border: none;
+                    border-radius: 18px;
+                    max-width: 480px;
+                }
+            """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;
@@ -858,14 +888,14 @@ class iPhoneMessagesDialog:
             layout.addWidget(bubble)
         else:
             # Received bubble: Light gray with black text
-	            bubble.setStyleSheet("""
-	                QFrame {
-	                    background: #3a3a3c;
-	                    border: none;
-	                    border-radius: 18px;
-	                    max-width: 480px;
-	                }
-	            """)
+            bubble.setStyleSheet("""
+                QFrame {
+                    background: #3a3a3c;
+                    border: none;
+                    border-radius: 18px;
+                    max-width: 480px;
+                }
+            """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;
