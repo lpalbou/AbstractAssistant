@@ -15,22 +15,22 @@ from pygments import highlight
 from pygments.lexers import get_lexer_by_name, TextLexer
 from pygments.formatters import HtmlFormatter
 
-try:
-    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
-                                 QWidget, QLabel, QFrame, QPushButton, QApplication)
-    from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-    from PyQt6.QtGui import QFont, QCursor
-except ImportError:
-    try:
-        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
-                                     QWidget, QLabel, QFrame, QPushButton, QApplication)
-        from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-        from PyQt5.QtGui import QFont, QCursor
-    except ImportError:
-        from PySide2.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QScrollArea,
-                                       QWidget, QLabel, QFrame, QPushButton, QApplication)
-        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal
-        from PySide2.QtGui import QFont, QCursor
+	try:
+	    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
+	                                 QWidget, QLabel, QFrame, QPushButton, QApplication)
+	    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
+	    from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon
+	except ImportError:
+	    try:
+	        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
+	                                     QWidget, QLabel, QFrame, QPushButton, QApplication)
+	        from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
+	        from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon
+	    except ImportError:
+	        from PySide2.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QScrollArea,
+	                                       QWidget, QLabel, QFrame, QPushButton, QApplication)
+	        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize
+	        from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon
 
 
 class ClickableBubble(QFrame):
@@ -76,14 +76,14 @@ class ClickableBubble(QFrame):
             else:
                 # Normal mode - start long press timer and apply clicked style
                 self.long_press_timer.start(800)  # 800ms for long press
-                self.setStyleSheet(f"""
-                    QFrame {{
-                        background: {self.clicked_bg};
-                        border: none;
-                        border-radius: 18px;
-                        max-width: 400px;
-                    }}
-                """)
+	                self.setStyleSheet(f"""
+	                    QFrame {{
+	                        background: {self.clicked_bg};
+	                        border: none;
+	                        border-radius: 18px;
+	                        max-width: 480px;
+	                    }}
+	                """)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -104,14 +104,14 @@ class ClickableBubble(QFrame):
 
                     # Visual feedback: glossy effect (lighter color briefly)
                     glossy_color = "#0080FF" if self.is_user else "#5a5a5c"
-                    self.setStyleSheet(f"""
-                        QFrame {{
-                            background: {glossy_color};
-                            border: none;
-                            border-radius: 18px;
-                            max-width: 400px;
-                        }}
-                    """)
+	                    self.setStyleSheet(f"""
+	                        QFrame {{
+	                            background: {glossy_color};
+	                            border: none;
+	                            border-radius: 18px;
+	                            max-width: 480px;
+	                        }}
+	                    """)
 
                     # Restore normal color after brief delay
                     QTimer.singleShot(200, self._restore_normal_style)
@@ -130,14 +130,14 @@ class ClickableBubble(QFrame):
         self.selection_changed.emit(self.message_index, True)
         
         # Provide haptic-like feedback by briefly changing color
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: {self.selected_bg};
-                border: 2px solid #FFFFFF;
-                border-radius: 18px;
-                max-width: 400px;
-            }}
-        """)
+	        self.setStyleSheet(f"""
+	            QFrame {{
+	                background: {self.selected_bg};
+	                border: 2px solid #FFFFFF;
+	                border-radius: 18px;
+	                max-width: 480px;
+	            }}
+	        """)
         
         # Add selection indicator
         QTimer.singleShot(100, self._update_visual_state)
@@ -213,25 +213,25 @@ class ClickableBubble(QFrame):
         """Update visual state based on selection - no visual changes to bubble itself."""
         # In authentic iPhone Messages, the bubble appearance doesn't change
         # Only the selection circle changes state - bubble stays the same
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: {self.normal_bg};
-                border: none;
-                border-radius: 18px;
-                max-width: 400px;
-            }}
-        """)
+	        self.setStyleSheet(f"""
+	            QFrame {{
+	                background: {self.normal_bg};
+	                border: none;
+	                border-radius: 18px;
+	                max-width: 480px;
+	            }}
+	        """)
 
     def _restore_normal_style(self):
         """Restore normal bubble style."""
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: {self.normal_bg};
-                border: none;
-                border-radius: 18px;
-                max-width: 400px;
-            }}
-        """)
+	        self.setStyleSheet(f"""
+	            QFrame {{
+	                background: {self.normal_bg};
+	                border: none;
+	                border-radius: 18px;
+	                max-width: 480px;
+	            }}
+	        """)
 
 
 class SafeDialog(QDialog):
@@ -584,7 +584,7 @@ class iPhoneMessagesDialog:
         dialog.setWindowTitle("Messages")
         dialog.setModal(False)
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(504, 650)  # Increased width by 20% (420 * 1.2 = 504)
+        dialog.resize(605, 650)  # Wider history dialog for readability
 
         # Set delete callback
         if delete_callback:
@@ -833,14 +833,14 @@ class iPhoneMessagesDialog:
 
         if is_user:
             # User bubble: Blue with white text
-            bubble.setStyleSheet("""
-                QFrame {
-                    background: #007AFF;
-                    border: none;
-                    border-radius: 18px;
-                    max-width: 400px;
-                }
-            """)
+	            bubble.setStyleSheet("""
+	                QFrame {
+	                    background: #007AFF;
+	                    border: none;
+	                    border-radius: 18px;
+	                    max-width: 480px;
+	                }
+	            """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;
@@ -858,14 +858,14 @@ class iPhoneMessagesDialog:
             layout.addWidget(bubble)
         else:
             # Received bubble: Light gray with black text
-            bubble.setStyleSheet("""
-                QFrame {
-                    background: #3a3a3c;
-                    border: none;
-                    border-radius: 18px;
-                    max-width: 400px;
-                }
-            """)
+	            bubble.setStyleSheet("""
+	                QFrame {
+	                    background: #3a3a3c;
+	                    border: none;
+	                    border-radius: 18px;
+	                    max-width: 480px;
+	                }
+	            """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;
@@ -900,6 +900,181 @@ class iPhoneMessagesDialog:
                 }
             """)
             bubble_layout.addWidget(file_indicator)
+
+        # Images: render thumbnails under the message when present.
+        image_thumbnails = msg.get("image_thumbnails")
+        if not isinstance(image_thumbnails, list):
+            image_thumbnails = []
+        thumbs: List[Dict] = [dict(x) for x in image_thumbnails if isinstance(x, dict)]
+        thumb_targets = {
+            str(x.get("target") or "").strip()
+            for x in thumbs
+            if isinstance(x, dict) and str(x.get("target") or "").strip()
+        }
+
+        # Add a compact tool execution summary (attached to assistant messages).
+        tool_summary = msg.get("tool_summary")
+        tool_links = msg.get("tool_links")
+        if not isinstance(tool_links, list):
+            tool_links = []
+        # Don't duplicate image resources as both chips and thumbnails.
+        if thumb_targets:
+            tool_links = [
+                link for link in tool_links
+                if isinstance(link, dict) and str(link.get("target") or "").strip() not in thumb_targets
+            ]
+        tool_summary_text = str(tool_summary or "").strip()
+        if tool_summary_text or tool_links:
+            tools_container = QFrame()
+            tools_container.setStyleSheet("QFrame { background: transparent; border: none; }")
+            tools_layout = QVBoxLayout(tools_container)
+            tools_layout.setContentsMargins(0, 2, 0, 0)
+            tools_layout.setSpacing(4)
+
+            if tool_summary_text:
+                tools_label = QLabel(tool_summary_text)
+                tools_label.setWordWrap(True)
+                tools_label.setStyleSheet("""
+                    QLabel {
+                        background: transparent;
+                        color: rgba(255, 255, 255, 0.65);
+                        font-size: 11px;
+                        font-weight: 500;
+                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                        padding: 0px;
+                        margin: 0px;
+                    }
+                """)
+                tools_layout.addWidget(tools_label)
+
+            if tool_links:
+                max_chips = 6
+                chips_per_row = 3
+                shown = tool_links[:max_chips]
+                extra = max(0, len(tool_links) - len(shown))
+
+                links_frame = QFrame()
+                links_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
+                links_layout = QGridLayout(links_frame)
+                links_layout.setContentsMargins(0, 0, 0, 0)
+                links_layout.setHorizontalSpacing(6)
+                links_layout.setVerticalSpacing(6)
+
+                def _mk_chip(link: Dict) -> QPushButton:
+                    kind = str(link.get("kind") or "url")
+                    target = str(link.get("target") or "").strip()
+                    label = str(link.get("label") or target).strip() or target
+                    icon = "🌐" if kind == "url" else "📄"
+                    btn = QPushButton(f"{icon} {label}")
+                    btn.setToolTip(target)
+                    btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+                    btn.setStyleSheet("""
+                        QPushButton {
+                            background: rgba(255, 255, 255, 0.08);
+                            border: 1px solid rgba(255, 255, 255, 0.14);
+                            border-radius: 10px;
+                            padding: 2px 8px;
+                            font-size: 11px;
+                            color: rgba(255, 255, 255, 0.85);
+                            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                            text-align: left;
+                        }
+                        QPushButton:hover {
+                            background: rgba(255, 255, 255, 0.12);
+                            border: 1px solid rgba(0, 122, 255, 0.6);
+                            color: rgba(255, 255, 255, 0.95);
+                        }
+                    """)
+                    btn.clicked.connect(
+                        lambda _checked=False, k=kind, t=target: iPhoneMessagesDialog._open_tool_link(k, t)
+                    )
+                    return btn
+
+                for idx, link in enumerate(shown):
+                    if not isinstance(link, dict):
+                        continue
+                    row = idx // chips_per_row
+                    col = idx % chips_per_row
+                    links_layout.addWidget(_mk_chip(link), row, col)
+
+                if extra > 0:
+                    more_btn = QPushButton(f"+{extra}")
+                    more_btn.setToolTip("Show all tool links")
+                    more_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+                    more_btn.setStyleSheet("""
+                        QPushButton {
+                            background: rgba(255, 255, 255, 0.06);
+                            border: 1px solid rgba(255, 255, 255, 0.12);
+                            border-radius: 10px;
+                            padding: 2px 8px;
+                            font-size: 11px;
+                            color: rgba(255, 255, 255, 0.75);
+                            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                        }
+                        QPushButton:hover {
+                            background: rgba(255, 255, 255, 0.10);
+                            border: 1px solid rgba(0, 122, 255, 0.45);
+                            color: rgba(255, 255, 255, 0.9);
+                        }
+                    """)
+                    more_btn.clicked.connect(lambda: iPhoneMessagesDialog._show_tool_links_dialog(tool_links, parent=dialog))
+                    row = len(shown) // chips_per_row
+                    col = len(shown) % chips_per_row
+                    links_layout.addWidget(more_btn, row, col)
+
+                tools_layout.addWidget(links_frame)
+
+            bubble_layout.addWidget(tools_container)
+
+        if thumbs:
+            thumb_container = QFrame()
+            thumb_container.setStyleSheet("QFrame { background: transparent; border: none; }")
+            thumb_layout = QHBoxLayout(thumb_container)
+            thumb_layout.setContentsMargins(0, 2, 0, 0)
+            thumb_layout.setSpacing(6)
+
+            max_thumbs = 3
+            shown_thumbs = thumbs[:max_thumbs]
+            for th in shown_thumbs:
+                kind = str(th.get("kind") or "url")
+                target = str(th.get("target") or "").strip()
+                label = str(th.get("label") or target).strip()
+                if not target:
+                    continue
+                thumb_layout.addWidget(
+                    iPhoneMessagesDialog._make_thumbnail_button(
+                        kind=kind,
+                        target=target,
+                        label=label,
+                        parent=dialog,
+                    )
+                )
+
+            extra_thumbs = max(0, len(thumbs) - len(shown_thumbs))
+            if extra_thumbs > 0:
+                more_btn = QPushButton(f"+{extra_thumbs}")
+                more_btn.setToolTip("Show all images")
+                more_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+                more_btn.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(255, 255, 255, 0.06);
+                        border: 1px solid rgba(255, 255, 255, 0.12);
+                        border-radius: 12px;
+                        padding: 2px 10px;
+                        font-size: 12px;
+                        color: rgba(255, 255, 255, 0.75);
+                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    }
+                    QPushButton:hover {
+                        background: rgba(255, 255, 255, 0.10);
+                        border: 1px solid rgba(0, 122, 255, 0.45);
+                        color: rgba(255, 255, 255, 0.9);
+                    }
+                """)
+                more_btn.clicked.connect(lambda: iPhoneMessagesDialog._show_tool_links_dialog(thumbs, parent=dialog))
+                thumb_layout.addWidget(more_btn)
+
+            bubble_layout.addWidget(thumb_container)
         
         main_layout.addWidget(container)
 
@@ -1005,6 +1180,272 @@ class iPhoneMessagesDialog:
         html = html.replace('<p>', '<p style="margin: 2px 0; line-height: 1.3;">')
 
         return html
+
+    @staticmethod
+    def _make_thumbnail_button(*, kind: str, target: str, label: str, parent=None) -> QPushButton:
+        """Create a clickable thumbnail button for a local file or remote image URL."""
+        k = str(kind or "").strip().lower()
+        t = str(target or "").strip()
+        lbl = str(label or "").strip()
+
+        btn = QPushButton("🖼")
+        btn.setToolTip(t or lbl)
+        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        thumb_w, thumb_h = 150, 94
+        btn.setFixedSize(thumb_w, thumb_h)
+        btn.setIconSize(QSize(thumb_w - 6, thumb_h - 6))
+        btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 12px;
+                color: rgba(255, 255, 255, 0.75);
+                font-size: 20px;
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.10);
+                border: 1px solid rgba(0, 122, 255, 0.6);
+                color: rgba(255, 255, 255, 0.9);
+            }
+        """)
+        btn.clicked.connect(lambda _checked=False: iPhoneMessagesDialog._open_tool_link(k, t))
+
+        def _apply_pixmap(pix: QPixmap) -> None:
+            if pix.isNull():
+                return
+            try:
+                try:
+                    aspect = Qt.AspectRatioMode.KeepAspectRatio
+                    transform = Qt.TransformationMode.SmoothTransformation
+                except Exception:
+                    aspect = Qt.KeepAspectRatio  # type: ignore[attr-defined]
+                    transform = Qt.SmoothTransformation  # type: ignore[attr-defined]
+                scaled = pix.scaled(thumb_w - 6, thumb_h - 6, aspect, transform)
+            except Exception:
+                scaled = pix
+            btn.setText("")
+            btn.setIcon(QIcon(scaled))
+
+        # Local file thumbnail
+        if k == "file" and t:
+            try:
+                pix = QPixmap(t)
+                if not pix.isNull():
+                    _apply_pixmap(pix)
+            except Exception:
+                pass
+            return btn
+
+        # Remote image thumbnail (download + cache).
+        if k != "url" or not t:
+            return btn
+
+        cache_path = iPhoneMessagesDialog._thumbnail_cache_path(t)
+        try:
+            if cache_path is not None and cache_path.exists():
+                data = cache_path.read_bytes()
+                pix = QPixmap()
+                if data and pix.loadFromData(data):
+                    _apply_pixmap(pix)
+                    return btn
+        except Exception:
+            pass
+
+        import threading
+
+        def _download() -> None:
+            data = iPhoneMessagesDialog._fetch_image_bytes(t)
+            if not data:
+                return
+
+            def _set_on_ui() -> None:
+                try:
+                    pix = QPixmap()
+                    if pix.loadFromData(data):
+                        _apply_pixmap(pix)
+                except Exception:
+                    return
+
+            try:
+                QTimer.singleShot(0, _set_on_ui)
+            except Exception:
+                _set_on_ui()
+
+        threading.Thread(target=_download, daemon=True).start()
+        return btn
+
+    @staticmethod
+    def _thumbnail_cache_path(url: str):
+        """Return a filesystem cache path for a remote image URL (under ~/.abstractassistant/cache/images/)."""
+        u = str(url or "").strip()
+        if not u:
+            return None
+        try:
+            import hashlib
+            from pathlib import Path
+            from urllib.parse import urlparse
+
+            parsed = urlparse(u)
+            suffix = Path(parsed.path or "").suffix.lower()
+            if suffix not in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}:
+                suffix = ".img"
+
+            h = hashlib.sha256(u.encode("utf-8")).hexdigest()[:32]
+            base = Path.home() / ".abstractassistant" / "cache" / "images"
+            base.mkdir(parents=True, exist_ok=True)
+            return base / f"{h}{suffix}"
+        except Exception:
+            return None
+
+    @staticmethod
+    def _fetch_image_bytes(url: str, *, timeout_s: float = 4.0, max_bytes: int = 4_000_000) -> Optional[bytes]:
+        """Download an image URL (bounded) and cache it; returns bytes or None."""
+        u = str(url or "").strip()
+        if not u:
+            return None
+
+        cache_path = iPhoneMessagesDialog._thumbnail_cache_path(u)
+        if cache_path is not None:
+            try:
+                if cache_path.exists() and cache_path.stat().st_size > 0:
+                    return cache_path.read_bytes()
+            except Exception:
+                pass
+
+        try:
+            import urllib.request
+
+            req = urllib.request.Request(
+                u,
+                headers={
+                    "User-Agent": "AbstractAssistant/1.0",
+                    "Accept": "image/*,*/*;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=float(timeout_s)) as resp:
+                ct = str(resp.headers.get("Content-Type") or "").lower()
+                if ct and not ct.startswith("image/"):
+                    return None
+                try:
+                    clen = resp.headers.get("Content-Length")
+                    if clen is not None and int(clen) > int(max_bytes):
+                        return None
+                except Exception:
+                    pass
+                data = resp.read(int(max_bytes))
+        except Exception:
+            return None
+
+        if not data:
+            return None
+
+        if cache_path is not None:
+            try:
+                tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
+                tmp.write_bytes(data)
+                tmp.replace(cache_path)
+            except Exception:
+                pass
+        return data
+
+    @staticmethod
+    def _open_tool_link(kind: str, target: str) -> None:
+        """Open a tool-produced resource (URL or file path) using the OS default handler."""
+        k = str(kind or "").strip().lower()
+        t = str(target or "").strip()
+        if not t:
+            return
+
+        try:
+            if k == "url":
+                import webbrowser
+
+                webbrowser.open(t)
+                return
+
+            # Default: treat as a file path (best-effort).
+            from urllib.parse import unquote, urlparse
+
+            if t.startswith("file://"):
+                parsed = urlparse(t)
+                t = unquote(parsed.path)
+
+            import os
+            import sys
+            import subprocess
+
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", t])
+            elif sys.platform.startswith("win"):
+                os.startfile(t)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", t])
+        except Exception:
+            return
+
+    @staticmethod
+    def _show_tool_links_dialog(tool_links: List[Dict], parent=None) -> None:
+        """Show a small dialog listing all tool links for quick access."""
+        links: List[Dict] = [dict(x) for x in (tool_links or []) if isinstance(x, dict)]
+        if not links:
+            return
+
+        dlg = QDialog(parent)
+        dlg.setWindowTitle("Tool Links")
+        dlg.setModal(True)
+        dlg.resize(560, 320)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        for link in links:
+            kind = str(link.get("kind") or "url")
+            target = str(link.get("target") or "").strip()
+            label = str(link.get("label") or target).strip() or target
+            icon = "🌐" if kind == "url" else "📄"
+            btn = QPushButton(f"{icon} {label}")
+            btn.setToolTip(target)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.14);
+                    border-radius: 10px;
+                    padding: 6px 10px;
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    text-align: left;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                    border: 1px solid rgba(0, 122, 255, 0.6);
+                }
+            """)
+            btn.clicked.connect(lambda _checked=False, k=kind, t=target: iPhoneMessagesDialog._open_tool_link(k, t))
+            layout.addWidget(btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.10);
+                border: 1px solid rgba(255, 255, 255, 0.16);
+                border-radius: 12px;
+                padding: 8px 12px;
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.9);
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.14);
+                border: 1px solid rgba(0, 122, 255, 0.6);
+            }
+        """)
+        layout.addWidget(close_btn)
+
+        dlg.exec()
 
     @staticmethod
     def _get_authentic_iphone_styles() -> str:

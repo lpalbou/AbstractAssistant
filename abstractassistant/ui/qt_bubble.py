@@ -10,7 +10,7 @@ import time
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable, List, Dict
+from typing import Optional, Callable, List, Dict, Any
 
 # Import AbstractVoice-compatible TTS manager (required dependency)
 from ..core.agent_host import AgentHost
@@ -3013,37 +3013,78 @@ Continue the conversation naturally, referring to the context above when relevan
         return not self._is_voice_mode_active()
 
     def _update_message_history_from_session(self):
-        """Update local message history from AbstractCore session."""
-        if self.llm_manager and self.llm_manager.current_session:
+        """Update local message history from the durable agent snapshot (preferred).
+
+        Notes:
+        - Runtime-backed agents include role="tool" observations in the transcript so the
+          model can continue tool loops. Those are hidden from the user-visible history
+          and replaced with a compact per-answer tool summary + resource links.
+        """
+        if not self.llm_manager:
+            return
+
+        from ..core.transcript_summary import build_display_messages
+
+        raw_messages = None
+        try:
+            host = getattr(self.llm_manager, "agent_host", None)
+            snap = getattr(host, "snapshot", None) if host is not None else None
+            raw_messages = getattr(snap, "messages", None) if snap is not None else None
+        except Exception:
+            raw_messages = None
+
+        messages: List[Dict] = []
+        if isinstance(raw_messages, list):
+            messages = [dict(m) for m in raw_messages if isinstance(m, dict)]
+        elif getattr(self.llm_manager, "current_session", None) is not None:
             try:
-                # Get messages from AbstractCore session
-                session_messages = getattr(self.llm_manager.current_session, 'messages', [])
+                session_messages = getattr(self.llm_manager.current_session, "messages", [])
+                for msg in session_messages:
+                    role = getattr(msg, "role", "unknown")
+                    content = getattr(msg, "content", str(msg))
+                    messages.append({"role": str(role), "content": str(content)})
+            except Exception:
+                messages = []
 
-                # Convert AbstractCore messages to our format
-                self.message_history = []
-                for i, msg in enumerate(session_messages):
-                    # Skip system messages
-                    if hasattr(msg, 'role') and msg.role == 'system':
-                        continue
+        try:
+            rendered = build_display_messages(messages)
 
-                    message = {
-                        'timestamp': datetime.now().isoformat(),  # AbstractCore doesn't store timestamps
-                        'type': getattr(msg, 'role', 'unknown'),
-                        'content': getattr(msg, 'content', str(msg)),
-                        'provider': self.current_provider,
-                        'model': self.current_model,
-                        'attached_files': self.message_file_attachments.get(len(self.message_history), [])
-                    }
-                    self.message_history.append(message)
+            self.message_history = []
+            for m in rendered:
+                role = str(m.get("role") or "unknown")
+                content = str(m.get("content") or "")
+                timestamp = m.get("timestamp")
+                if not isinstance(timestamp, (str, int, float)) or (isinstance(timestamp, str) and not timestamp.strip()):
+                    timestamp = datetime.now().isoformat()
 
-                if self.debug:
-                    if self.debug:
-                        print(f"📚 Updated message history from AbstractCore: {len(self.message_history)} messages")
+                entry: Dict[str, Any] = {
+                    "timestamp": timestamp,
+                    "type": role,
+                    "content": content,
+                    "provider": self.current_provider,
+                    "model": self.current_model,
+                    "attached_files": self.message_file_attachments.get(len(self.message_history), []),
+                }
 
-            except Exception as e:
-                if self.debug:
-                    if self.debug:
-                        print(f"❌ Error updating message history from session: {e}")
+                tool_summary = m.get("tool_summary")
+                if isinstance(tool_summary, str) and tool_summary.strip():
+                    entry["tool_summary"] = tool_summary.strip()
+                tool_links = m.get("tool_links")
+                if isinstance(tool_links, list) and tool_links:
+                    entry["tool_links"] = [dict(x) for x in tool_links if isinstance(x, dict)]
+
+                image_thumbnails = m.get("image_thumbnails")
+                if isinstance(image_thumbnails, list) and image_thumbnails:
+                    entry["image_thumbnails"] = [dict(x) for x in image_thumbnails if isinstance(x, dict)]
+
+                self.message_history.append(entry)
+
+            if self.debug:
+                print(f"📚 Updated message history: {len(self.message_history)} messages")
+
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Error updating message history from snapshot/session: {e}")
 
     def _rebuild_chat_display(self):
         """Rebuild chat display after session loading.

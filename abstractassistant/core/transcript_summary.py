@@ -1,0 +1,434 @@
+"""Transcript-to-UI helpers for AbstractAssistant.
+
+AbstractAgent/ReAct persists tool observations as role="tool" messages so the model can
+continue the loop. Those observations are useful for debugging but are too noisy for
+end-user chat history rendering.
+
+This module provides a small, UI-agnostic transformation:
+- hide tool messages from the user-visible transcript
+- attach a compact tool summary + clickable resources to the next user-visible assistant message
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Sequence, Tuple
+from urllib.parse import unquote, urlparse
+
+
+def _dedupe_preserve_order(items: Sequence[str]) -> List[str]:
+    seen: set[str] = set()
+    out: List[str] = []
+    for item in items:
+        s = str(item or "").strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+_URL_RE = re.compile(r"https?://[^\s)\]\"'<>]+")
+_WIN_PATH_RE = re.compile(r"[A-Za-z]:\\[^\s\"'<>]+")
+_FILE_HEADER_RE = re.compile(r"(?im)^File:\s+(.+?)(?:\s\(|\n|$)")
+_URL_HEADER_RE = re.compile(r"(?im)\bURL:\s*(https?://\S+)")
+_HTML_IMG_RE = re.compile(r"(?is)<img[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"'][^>]*>")
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+
+_IMAGE_EXTS: set[str] = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
+
+
+def _extract_urls(text: str, *, limit: int = 10) -> List[str]:
+    candidates = _URL_RE.findall(str(text or ""))
+    out: List[str] = []
+    for raw in candidates:
+        cleaned = str(raw).rstrip(").,;]\"'")
+        if not cleaned:
+            continue
+        out.append(cleaned)
+        if len(out) >= int(limit):
+            break
+    return _dedupe_preserve_order(out)
+
+
+def _extract_primary_url(text: str) -> List[str]:
+    raw_text = str(text or "")
+    match = _URL_HEADER_RE.search(raw_text)
+    if match:
+        cleaned = str(match.group(1) or "").rstrip(").,;]\"'")
+        if cleaned:
+            return [cleaned]
+    return _extract_urls(raw_text, limit=1)
+
+
+def _extract_primary_file_path(text: str) -> List[str]:
+    raw_text = str(text or "")
+    match = _FILE_HEADER_RE.search(raw_text)
+    if match:
+        candidate = str(match.group(1) or "").strip().strip("'\"").rstrip(").,;]\"'")
+        if candidate:
+            if candidate.startswith("~"):
+                try:
+                    candidate = str(Path(candidate).expanduser())
+                except Exception:
+                    pass
+            return [candidate]
+
+    # Common pattern for write/edit tools: "... 'absolute/path' ..."
+    quoted = re.search(r"'([^']+)'", raw_text)
+    if quoted:
+        candidate = str(quoted.group(1) or "").strip().rstrip(").,;]\"'")
+        if candidate:
+            if candidate.startswith("~"):
+                try:
+                    candidate = str(Path(candidate).expanduser())
+                except Exception:
+                    pass
+            return [candidate]
+
+    return _extract_file_paths(raw_text, limit=1)
+
+
+def _extract_resources_for_tool(tool_name: str, content: str) -> Tuple[List[str], List[str]]:
+    name = str(tool_name or "").strip()
+    # URL tools
+    if name in {"fetch_url"}:
+        return _extract_primary_url(content), []
+    # File tools
+    if name in {"read_file", "write_file", "edit_file", "analyze_code"}:
+        return [], _extract_primary_file_path(content)
+    # Default: keep resource extraction bounded to avoid noisy chips (e.g. file contents).
+    return _extract_urls(content, limit=3), _extract_file_paths(content, limit=3)
+
+
+def _extract_file_paths(text: str, *, limit: int = 10) -> List[str]:
+    raw_text = str(text or "")
+    # Avoid capturing URL path segments.
+    for url in _URL_RE.findall(raw_text):
+        raw_text = raw_text.replace(url, " ")
+
+    candidates: List[str] = []
+    candidates.extend(_WIN_PATH_RE.findall(raw_text))
+    # Unix-ish absolute paths (macOS/Linux). Prefer absolute to avoid CWD ambiguity.
+    candidates.extend(re.findall(r"(?:~|/)[^\s\"'<>]+", raw_text))
+
+    out: List[str] = []
+    for raw in candidates:
+        cleaned = str(raw).strip().rstrip(").,;]\"'")
+        if not cleaned:
+            continue
+        # Expand "~" when present so open() works reliably.
+        if cleaned.startswith("~"):
+            try:
+                cleaned = str(Path(cleaned).expanduser())
+            except Exception:
+                pass
+        out.append(cleaned)
+        if len(out) >= int(limit):
+            break
+    return _dedupe_preserve_order(out)
+
+
+def _tool_name_from_message(message: Dict[str, Any]) -> str:
+    metadata = message.get("metadata")
+    if isinstance(metadata, dict):
+        name = metadata.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+
+    content = str(message.get("content") or "")
+    match = re.match(r"\s*\[([^\]]+)\]:", content)
+    if match:
+        name = match.group(1)
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return "tool"
+
+
+def _short_label_for_url(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        host = str(parsed.netloc or "").strip()
+        if host:
+            return host
+    except Exception:
+        pass
+    return url
+
+
+def _short_label_for_path(path: str) -> str:
+    p = str(path or "").strip()
+    if not p:
+        return p
+    try:
+        parts = [part for part in Path(p).parts if part]
+        tail = parts[-3:] if len(parts) > 3 else parts
+        if tail:
+            return "…/" + "/".join(tail) if len(parts) > len(tail) else "/".join(tail)
+    except Exception:
+        return p
+    return p
+
+
+def _is_image_target(target: str) -> bool:
+    t = str(target or "").strip()
+    if not t:
+        return False
+    if t.startswith("data:"):
+        return False
+    try:
+        if t.startswith(("http://", "https://", "file://")):
+            parsed = urlparse(t)
+            suffix = Path(parsed.path or "").suffix.lower()
+            return suffix in _IMAGE_EXTS
+        suffix = Path(t).suffix.lower()
+        return suffix in _IMAGE_EXTS
+    except Exception:
+        return False
+
+
+def _normalize_image_target(target: str) -> Tuple[str, str]:
+    """Return (kind, normalized_target)."""
+    t = str(target or "").strip()
+    if t.startswith("file://"):
+        try:
+            parsed = urlparse(t)
+            file_path = unquote(parsed.path)
+            return "file", str(Path(file_path).expanduser()) if file_path else file_path
+        except Exception:
+            return "file", t
+    if t.startswith(("http://", "https://")):
+        return "url", t
+    # Only treat absolute-ish paths as files.
+    if t.startswith(("~", "/", "\\")) or _WIN_PATH_RE.match(t):
+        try:
+            return "file", str(Path(t).expanduser()) if t.startswith("~") else t
+        except Exception:
+            return "file", t
+    return "url", t
+
+
+def _extract_images_from_text(text: str, *, limit: int = 6) -> Tuple[str, List[Dict[str, str]]]:
+    """Extract image references and return cleaned text + thumbnail descriptors."""
+    raw = str(text or "")
+    thumbs: List[Dict[str, str]] = []
+
+    def _add(target: str, label: str) -> None:
+        if not _is_image_target(target):
+            return
+        kind, norm = _normalize_image_target(target)
+        if not norm:
+            return
+        thumbs.append({"kind": kind, "target": norm, "label": str(label or "").strip()})
+
+    # Markdown images: ![alt](url "title")
+    def _md_repl(match: re.Match) -> str:
+        alt = str(match.group(1) or "").strip()
+        inner = str(match.group(2) or "").strip()
+        # Strip optional title: take first token that looks like a URL/path.
+        inner = inner.strip().strip("<>")
+        target = inner.split()[0] if inner else ""
+        _add(target, alt)
+        return ""  # remove from visible transcript; thumbnails will render below.
+
+    cleaned = _MD_IMAGE_RE.sub(_md_repl, raw)
+
+    # HTML image tags (sometimes returned by models).
+    def _html_repl(match: re.Match) -> str:
+        target = str(match.group(1) or "").strip()
+        _add(target, "")
+        return ""
+
+    cleaned = _HTML_IMG_RE.sub(_html_repl, cleaned)
+
+    # Also detect bare image URLs / paths (do not remove from text).
+    for url in _extract_urls(cleaned, limit=20):
+        if _is_image_target(url):
+            _add(url, _short_label_for_url(url))
+    for path in _extract_file_paths(cleaned, limit=20):
+        if _is_image_target(path):
+            _add(path, _short_label_for_path(path))
+
+    # Dedupe + cap.
+    seen: set[str] = set()
+    uniq: List[Dict[str, str]] = []
+    for th in thumbs:
+        target = str(th.get("target") or "")
+        if not target or target in seen:
+            continue
+        seen.add(target)
+        uniq.append(th)
+        if len(uniq) >= int(limit):
+            break
+
+    # Light whitespace cleanup after removing markdown/html images.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, uniq
+
+
+def _images_from_links(links: Sequence[Dict[str, str]], *, limit: int = 6) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    for link in links or []:
+        if not isinstance(link, dict):
+            continue
+        target = str(link.get("target") or "").strip()
+        if not target or not _is_image_target(target):
+            continue
+        kind, norm = _normalize_image_target(target)
+        label = str(link.get("label") or "").strip()
+        out.append({"kind": kind, "target": norm, "label": label})
+        if len(out) >= int(limit):
+            break
+    # Dedupe preserve order
+    seen: set[str] = set()
+    uniq: List[Dict[str, str]] = []
+    for item in out:
+        t = str(item.get("target") or "")
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        uniq.append(item)
+    return uniq
+
+
+def _build_tool_summary(tool_events: Sequence[Dict[str, Any]]) -> str:
+    order: List[str] = []
+    counts: Dict[str, int] = {}
+    for event in tool_events:
+        name = str(event.get("name") or "tool").strip() or "tool"
+        if name not in counts:
+            counts[name] = 0
+            order.append(name)
+        counts[name] += 1
+
+    parts: List[str] = []
+    for name in order:
+        count = counts.get(name, 0)
+        if count > 1:
+            parts.append(f"{name}×{count}")
+        else:
+            parts.append(name)
+    joined = " • ".join(parts).strip()
+    return f"🛠 {joined}" if joined else "🛠 tools"
+
+
+def _build_tool_links(tool_events: Sequence[Dict[str, Any]], *, limit: int = 30) -> List[Dict[str, str]]:
+    urls: List[str] = []
+    paths: List[str] = []
+    for event in tool_events:
+        urls.extend([str(u) for u in (event.get("urls") or []) if isinstance(u, str)])
+        paths.extend([str(p) for p in (event.get("paths") or []) if isinstance(p, str)])
+
+    links: List[Dict[str, str]] = []
+    for url in _dedupe_preserve_order(urls):
+        # Treat file:// links as files.
+        if url.startswith("file://"):
+            try:
+                parsed = urlparse(url)
+                file_path = unquote(parsed.path)
+                if file_path:
+                    links.append({"kind": "file", "target": file_path, "label": _short_label_for_path(file_path)})
+                    continue
+            except Exception:
+                pass
+        links.append({"kind": "url", "target": url, "label": _short_label_for_url(url)})
+        if len(links) >= int(limit):
+            return links
+
+    for path in _dedupe_preserve_order(paths):
+        links.append({"kind": "file", "target": path, "label": _short_label_for_path(path)})
+        if len(links) >= int(limit):
+            break
+    return links
+
+
+def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return user-visible transcript messages with attached tool summaries.
+
+    Rules:
+    - Drop role="system".
+    - Drop assistant internal tool-call placeholders (`metadata.kind=="tool_calls"` with empty content).
+    - Drop empty assistant messages.
+    - Drop role="tool" bubbles, but attach a compact summary + resource links to the
+      next user-visible assistant message.
+    """
+    pending_tools: List[Dict[str, Any]] = []
+    out: List[Dict[str, Any]] = []
+
+    for msg in raw_messages:
+        if not isinstance(msg, dict):
+            continue
+
+        role = str(msg.get("role") or "")
+        content = str(msg.get("content") or "")
+        metadata = msg.get("metadata")
+        meta = dict(metadata) if isinstance(metadata, dict) else {}
+        kind = str(meta.get("kind") or "").strip().lower()
+
+        if role == "system":
+            continue
+
+        if role == "tool":
+            name = _tool_name_from_message(msg)
+            urls, paths = _extract_resources_for_tool(name, content)
+            pending_tools.append(
+                {
+                    "name": name,
+                    "urls": urls,
+                    "paths": paths,
+                }
+            )
+            continue
+
+        if role == "assistant":
+            if kind == "tool_calls" and not content.strip():
+                # Internal placeholder used to preserve tool-call metadata for providers.
+                continue
+            cleaned_content, content_images = _extract_images_from_text(content)
+            rendered = dict(msg)
+            rendered["content"] = cleaned_content
+            images: List[Dict[str, str]] = list(content_images)
+            if pending_tools:
+                rendered["tool_summary"] = _build_tool_summary(pending_tools)
+                links = _build_tool_links(pending_tools)
+                if links:
+                    rendered["tool_links"] = links
+                    images.extend(_images_from_links(links))
+                pending_tools = []
+            if images:
+                # Dedupe by target.
+                seen_targets: set[str] = set()
+                deduped: List[Dict[str, str]] = []
+                for img in images:
+                    if not isinstance(img, dict):
+                        continue
+                    target = str(img.get("target") or "").strip()
+                    if not target or target in seen_targets:
+                        continue
+                    seen_targets.add(target)
+                    deduped.append({"kind": str(img.get("kind") or "url"), "target": target, "label": str(img.get("label") or "")})
+                if deduped:
+                    rendered["image_thumbnails"] = deduped
+
+            if not cleaned_content.strip() and not rendered.get("tool_summary") and not rendered.get("image_thumbnails"):
+                # Avoid blank bubbles in the user-visible transcript.
+                continue
+            out.append(rendered)
+            continue
+
+        # Default: user / other roles.
+        out.append(dict(msg))
+
+    # Best-effort: attach any leftover tool events to the last assistant message.
+    if pending_tools and out:
+        for rendered in reversed(out):
+            if str(rendered.get("role") or "") != "assistant":
+                continue
+            rendered.setdefault("tool_summary", _build_tool_summary(pending_tools))
+            links = _build_tool_links(pending_tools)
+            if links:
+                rendered.setdefault("tool_links", links)
+            break
+
+    return out
