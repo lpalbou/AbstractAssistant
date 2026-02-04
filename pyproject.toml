@@ -27,15 +27,11 @@ classifiers = [
 ]
 
 dependencies = [
-    # Base install: agentic backend + CLI (GUI/voice are optional extras).
+    # Base install == lite (tray is the core product feature).
     "abstractagent>=0.3.0",
     "tomli>=2.0.0; python_version<'3.11'",
     "tomli-w>=1.0.0",
-]
-
-[project.optional-dependencies]
-lite = [
-    # Tray + Qt UI
+    # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",
@@ -47,16 +43,10 @@ lite = [
     "pyperclip>=1.8.2",
     "plyer>=2.1.0",
 ]
+
+[project.optional-dependencies]
+lite = []  # Back-compat alias for the base install.
 full = [
-    # Everything in lite + voice + broader provider/tool/media support.
-    "pystray>=0.19.4",
-    "Pillow>=10.0.0",
-    "PyQt5>=5.15.0",
-    "markdown>=3.5.0",
-    "pygments>=2.16.0",
-    "pymdown-extensions>=10.0",
-    "pyperclip>=1.8.2",
-    "plyer>=2.1.0",
     "abstractvoice>=0.6.0",
     # Provider/client extras (still avoid GPU-only stacks like vLLM by default).
     "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media]>=2.11.0",
@@ -70,6 +60,7 @@ dev = [
 
 [project.scripts]
 assistant = "abstractassistant.cli:main"
+abstractassistant = "abstractassistant.cli:main"
 create-app-bundle = "abstractassistant.create_app_bundle:main"
 
 [project.urls]

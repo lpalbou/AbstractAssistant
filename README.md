@@ -14,11 +14,11 @@ Docs:
 
 ## Install profiles
 
-- `abstractassistant[lite]`: tray UI + agent backend (no voice)
-- `abstractassistant[full]`: `lite` + voice (STT/TTS) + broader provider/media extras
+- `abstractassistant` (default) == `lite`: tray UI + agent backend (no voice)
+- `abstractassistant[full]`: voice (STT/TTS) + broader provider/media extras
 
 ```bash
-pip install "abstractassistant[lite]"
+pip install "abstractassistant"
 # or
 pip install "abstractassistant[full]"
 ```
@@ -28,6 +28,11 @@ pip install "abstractassistant[full]"
 Tray (macOS):
 ```bash
 assistant tray
+```
+
+Alias:
+```bash
+abstractassistant tray
 ```
 
 Terminal (one turn):

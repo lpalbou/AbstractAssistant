@@ -15,7 +15,8 @@ from typing import Optional
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the command-line argument parser."""
-    parser = argparse.ArgumentParser(prog="assistant", description="AbstractAssistant (agentic tray + CLI)")
+    prog = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "abstractassistant"
+    parser = argparse.ArgumentParser(prog=prog, description="AbstractAssistant (agentic tray + CLI)")
     
     parser.add_argument("--version", action="version", version="abstractassistant (agentic) v1")
     
@@ -29,7 +30,7 @@ def create_parser() -> argparse.ArgumentParser:
     
     sub = parser.add_subparsers(dest="command")
     
-    tray = sub.add_parser("tray", help="Run the macOS tray app (requires [lite] extra)")
+    tray = sub.add_parser("tray", help="Run the macOS tray app")
     tray.add_argument(
         "--listening-mode",
         type=str,
@@ -138,9 +139,10 @@ def main() -> int:
             from .app import AbstractAssistantApp
         except Exception as e:
             print("AbstractAssistant tray mode requires GUI dependencies.")
-            print("Install: pip install 'abstractassistant[lite]'")
-            if args.debug:
-                print(f"Import error: {e}")
+            print('Install (tray): pip install -U "abstractassistant"')
+            print('Install (tray + voice): pip install -U "abstractassistant[full]"')
+            print('From source (editable): pip install -e ".[lite]"')
+            print(f"Import error: {e}")
             return 2
 
         app = AbstractAssistantApp(

@@ -37,7 +37,7 @@ try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-        QFileDialog, QMessageBox, QInputDialog, QCheckBox
+        QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -48,7 +48,7 @@ except ImportError:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-            QFileDialog, QMessageBox, QInputDialog, QCheckBox
+            QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -59,7 +59,7 @@ except ImportError:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-                QFileDialog, QMessageBox, QInputDialog, QCheckBox
+                QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -234,6 +234,139 @@ class FullVoiceToggle(QPushButton):
 
 
 
+class ToolSelectorDialog(QDialog):
+    """Simple modal dialog to enable/disable external tools for the session."""
+
+    def __init__(
+        self,
+        *,
+        parent: Optional[QWidget] = None,
+        tools: List[Dict[str, str]],
+        enabled: set[str],
+        safe_preset: set[str],
+        require_approval: set[str],
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Tools")
+        self.setModal(True)
+
+        self._tools = list(tools)
+        self._safe_preset = set(safe_preset)
+        self._require_approval = set(require_approval)
+        self._boxes: Dict[str, QCheckBox] = {}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        title = QLabel("Choose which tools the assistant can use")
+        title.setStyleSheet('QLabel { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.9); }')
+        layout.addWidget(title)
+
+        hint = QLabel("Dangerous tools still require approval when called.")
+        hint.setStyleSheet('QLabel { font-size: 11px; color: rgba(255, 255, 255, 0.65); }')
+        layout.addWidget(hint)
+
+        presets = QHBoxLayout()
+        presets.setSpacing(6)
+        safe_btn = QPushButton("Safe")
+        all_btn = QPushButton("All")
+        none_btn = QPushButton("None")
+        for b in (safe_btn, all_btn, none_btn):
+            b.setFixedHeight(24)
+            b.setStyleSheet(
+                """
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid #404040;
+                    border-radius: 12px;
+                    padding: 0 10px;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.85);
+                }
+                QPushButton:hover { background: rgba(255, 255, 255, 0.12); border: 1px solid #0066cc; }
+                """
+            )
+            presets.addWidget(b)
+        presets.addStretch()
+        layout.addLayout(presets)
+
+        def _set_checked(names: set[str]) -> None:
+            for name, box in self._boxes.items():
+                box.setChecked(name in names)
+
+        safe_btn.clicked.connect(lambda: _set_checked(set(self._safe_preset)))
+        all_btn.clicked.connect(lambda: _set_checked({t.get("name", "") for t in self._tools if t.get("name")}))
+        none_btn.clicked.connect(lambda: _set_checked(set()))
+
+        # Tool list (simple vertical list; current tool count is small).
+        for info in self._tools:
+            name = str(info.get("name") or "").strip()
+            if not name:
+                continue
+            desc = str(info.get("description") or "").strip()
+            label = name
+            if name in self._require_approval:
+                label = f"{label}  (approval)"
+            box = QCheckBox(label)
+            box.setChecked(name in enabled)
+            if desc:
+                box.setToolTip(desc)
+            box.setStyleSheet(
+                """
+                QCheckBox { font-size: 12px; color: rgba(255, 255, 255, 0.9); padding: 2px 0; }
+                QCheckBox::indicator { width: 14px; height: 14px; }
+                """
+            )
+            self._boxes[name] = box
+            layout.addWidget(box)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        ok_btn = QPushButton("Save")
+        for b in (cancel_btn, ok_btn):
+            b.setFixedHeight(28)
+            b.setStyleSheet(
+                """
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid #404040;
+                    border-radius: 14px;
+                    padding: 0 14px;
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.9);
+                }
+                QPushButton:hover { background: rgba(255, 255, 255, 0.12); border: 1px solid #0066cc; }
+                """
+            )
+        ok_btn.setStyleSheet(
+            """
+            QPushButton {
+                background: #0066cc;
+                border: 1px solid #0080ff;
+                border-radius: 14px;
+                padding: 0 14px;
+                font-size: 12px;
+                font-weight: 600;
+                color: #ffffff;
+            }
+            QPushButton:hover { background: #0080ff; border: 1px solid #0099ff; }
+            QPushButton:pressed { background: #0052a3; }
+            """
+        )
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn.clicked.connect(self.accept)
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(ok_btn)
+        layout.addLayout(buttons)
+
+        self.resize(420, 420)
+
+    def selected_tools(self) -> List[str]:
+        return sorted([name for name, box in self._boxes.items() if box.isChecked()])
+
+
 class LLMWorker(QThread):
     """Worker thread for LLM processing."""
 
@@ -288,6 +421,7 @@ class AgentWorker(QThread):
         model: str,
         attachments: Optional[List[str]] = None,
         system_prompt_extra: Optional[str] = None,
+        allowed_tools: Optional[List[str]] = None,
         debug: bool = False,
     ):
         super().__init__()
@@ -297,6 +431,7 @@ class AgentWorker(QThread):
         self._model = str(model or "")
         self._attachments = list(attachments or [])
         self._system_prompt_extra = str(system_prompt_extra) if system_prompt_extra else None
+        self._allowed_tools = list(allowed_tools) if allowed_tools is not None else None
         self._debug = bool(debug)
 
         self._tool_approval_event = threading.Event()
@@ -326,6 +461,7 @@ class AgentWorker(QThread):
                 provider=self._provider,
                 model=self._model,
                 system_prompt_extra=self._system_prompt_extra,
+                allowed_tools=self._allowed_tools,
                 approve_tools=_approve,
                 ask_user=_ask_user,
             )
@@ -397,6 +533,13 @@ class QtChatBubble(QWidget):
         
         # Track file attachments per message for history display
         self.message_file_attachments: Dict[int, List[str]] = {}
+
+        # Tool selection (external tools): controls the per-run allowlist passed to AbstractAgent.
+        self._available_external_tools: List[Dict[str, str]] = []
+        self._enabled_external_tools: set[str] = set()
+        self._safe_external_tools: set[str] = set()
+        self._require_approval_tools: set[str] = set()
+        self._refresh_tool_inventory()
         
         # Initialize new manager classes
         self.provider_manager = None
@@ -512,7 +655,8 @@ class QtChatBubble(QWidget):
             ("Load", self.load_session), 
             ("Save", self.save_session),
             # ("Compact", self.compact_session),  # Hidden for now - functionality preserved
-            ("History", self.show_history)
+            ("Trace", self.show_trace),
+            ("History", self.show_history),
         ]
         
         for text, handler in session_buttons:
@@ -622,6 +766,34 @@ class QtChatBubble(QWidget):
         """)
         input_row.addWidget(self.attach_button)
 
+        # Tool selector button (per-run tool allowlist)
+        self.tools_button = QPushButton("🛠")
+        self.tools_button.clicked.connect(self.open_tool_selector)
+        self.tools_button.setFixedSize(36, 36)
+        self.tools_button.setToolTip("Tools")
+        self.tools_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid #404040;
+                border-radius: 18px;
+                font-size: 14px;
+                color: rgba(255, 255, 255, 0.7);
+                text-align: center;
+                padding: 0px;
+            }
+
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+                border: 1px solid #7c3aed;
+                color: rgba(255, 255, 255, 0.9);
+            }
+
+            QPushButton:pressed {
+                background: rgba(255, 255, 255, 0.06);
+            }
+        """)
+        input_row.addWidget(self.tools_button)
+
         # Text input - larger, primary focus
         self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
@@ -663,6 +835,7 @@ class QtChatBubble(QWidget):
         input_row.addWidget(self.send_button)
 
         input_layout.addLayout(input_row)
+        self._update_tools_button_state()
 
         # Attached files display area (initially hidden)
         self.attached_files_container = QFrame()
@@ -1219,6 +1392,141 @@ class QtChatBubble(QWidget):
             print(f"Model changed to: {self.current_model}")
     
 
+    def _refresh_tool_inventory(self) -> None:
+        """Refresh the list of available tools and keep the enabled set consistent."""
+        host = getattr(self.llm_manager, "agent_host", None)
+        tool_infos: List[Dict[str, str]] = []
+        safe: set[str] = set()
+        require: set[str] = set()
+
+        if host is not None:
+            try:
+                policy = getattr(host, "tool_policy", None)
+                safe = set(getattr(policy, "auto_approve_tools", set()) or set())
+                require = set(getattr(policy, "require_approval_tools", set()) or set())
+            except Exception:
+                safe = set()
+                require = set()
+
+            try:
+                for t in getattr(host, "tools", []) or []:
+                    td = getattr(t, "_tool_definition", None)
+                    name = getattr(td, "name", None) or getattr(t, "__name__", None)
+                    if not isinstance(name, str) or not name.strip():
+                        continue
+                    desc = ""
+                    try:
+                        desc = str(getattr(td, "description", "") or "") if td is not None else ""
+                    except Exception:
+                        desc = ""
+                    tool_infos.append({"name": name.strip(), "description": desc.strip()})
+            except Exception:
+                tool_infos = []
+
+        available_names = {info.get("name", "") for info in tool_infos if isinstance(info, dict) and info.get("name")}
+        available_names = {n for n in available_names if isinstance(n, str) and n.strip()}
+
+        safe = set(safe) & set(available_names)
+        require = set(require) & set(available_names)
+
+        def _sort_key(info: Dict[str, str]) -> tuple[int, str]:
+            name = str(info.get("name") or "")
+            if name in safe:
+                return (0, name)
+            if name in require:
+                return (1, name)
+            return (2, name)
+
+        self._available_external_tools = sorted(tool_infos, key=_sort_key)
+        self._safe_external_tools = set(safe)
+        self._require_approval_tools = set(require)
+
+        if not self._enabled_external_tools:
+            self._enabled_external_tools = set(available_names)
+        else:
+            self._enabled_external_tools &= set(available_names)
+
+        self._update_tools_button_state()
+
+    def _update_tools_button_state(self) -> None:
+        """Update the tools button tooltip/style based on current selection."""
+        btn = getattr(self, "tools_button", None)
+        if btn is None:
+            return
+
+        total = len(self._available_external_tools or [])
+        enabled = len(self._enabled_external_tools or set())
+        safe_enabled = len((self._enabled_external_tools or set()) & (self._safe_external_tools or set()))
+        approval_enabled = len((self._enabled_external_tools or set()) & (self._require_approval_tools or set()))
+
+        if total <= 0:
+            btn.setEnabled(False)
+            btn.setToolTip("Tools: none available")
+            return
+
+        btn.setEnabled(True)
+        btn.setToolTip(f"Tools enabled: {enabled}/{total} (safe: {safe_enabled}, approval: {approval_enabled})")
+
+        if enabled == 0:
+            border = "#333333"
+            bg = "rgba(255, 255, 255, 0.04)"
+            fg = "rgba(255, 255, 255, 0.45)"
+        elif enabled < total:
+            border = "#0066cc"
+            bg = "rgba(0, 102, 204, 0.12)"
+            fg = "rgba(255, 255, 255, 0.85)"
+        else:
+            border = "#404040"
+            bg = "rgba(255, 255, 255, 0.08)"
+            fg = "rgba(255, 255, 255, 0.7)"
+
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {bg};
+                border: 1px solid {border};
+                border-radius: 18px;
+                font-size: 14px;
+                color: {fg};
+                text-align: center;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background: rgba(255, 255, 255, 0.12);
+                border: 1px solid #7c3aed;
+                color: rgba(255, 255, 255, 0.9);
+            }}
+            QPushButton:pressed {{
+                background: rgba(255, 255, 255, 0.06);
+            }}
+        """)
+
+    def open_tool_selector(self) -> None:
+        """Open the tool selector dialog (controls per-run tool allowlist)."""
+        self._refresh_tool_inventory()
+        if not self._available_external_tools:
+            QMessageBox.information(self, "Tools", "No tools are available in this configuration.")
+            return
+
+        dlg = ToolSelectorDialog(
+            parent=self,
+            tools=list(self._available_external_tools),
+            enabled=set(self._enabled_external_tools),
+            safe_preset=set(self._safe_external_tools),
+            require_approval=set(self._require_approval_tools),
+        )
+        result = dlg.exec()
+        accepted_code = getattr(QDialog, "Accepted", 1)
+        if result != accepted_code:
+            return
+
+        self._enabled_external_tools = set(dlg.selected_tools())
+        # Keep session auto-approve set consistent with enabled tool selection.
+        try:
+            self._session_auto_approve_tools &= set(self._enabled_external_tools)
+        except Exception:
+            pass
+        self._update_tools_button_state()
+
     def attach_files(self):
         """Open file dialog to attach files (AbstractCore 2.4.5+ media handling)."""
         file_dialog = QFileDialog(self)
@@ -1425,6 +1733,7 @@ class QtChatBubble(QWidget):
                 model=self.current_model,
                 attachments=media_files if media_files else None,
                 system_prompt_extra=system_prompt_extra,
+                allowed_tools=sorted(self._enabled_external_tools),
                 debug=bool(self.debug),
             )
             self.worker.event_emitted.connect(self.on_agent_event)
@@ -2741,6 +3050,75 @@ Continue the conversation naturally, referring to the context above when relevan
             if self.debug:
                 if self.debug:
                     print(f"❌ Error updating token count from session: {e}")
+
+    def show_trace(self):
+        """Show a lightweight debug trace for the last run."""
+        host = getattr(self.llm_manager, "agent_host", None)
+        run_id = None
+        try:
+            snap = getattr(host, "snapshot", None)
+            run_id = getattr(snap, "last_run_id", None) if snap else None
+        except Exception:
+            run_id = None
+
+        rid = str(run_id or "").strip()
+        if not host or not rid:
+            QMessageBox.information(self, "Run trace", "No run is available yet.")
+            return
+
+        try:
+            ensure = getattr(host, "_ensure_ready", None)
+            if callable(ensure):
+                ensure()
+        except Exception:
+            pass
+
+        rt = getattr(host, "_runtime", None)
+        if rt is None:
+            QMessageBox.information(self, "Run trace", "Runtime is not initialized yet.")
+            return
+
+        try:
+            state = rt.get_state(rid)
+            payload = {
+                "run_id": getattr(state, "run_id", rid),
+                "status": str(getattr(state, "status", "")),
+                "workflow_id": getattr(state, "workflow_id", None),
+                "actor_id": getattr(state, "actor_id", None),
+                "session_id": getattr(state, "session_id", None),
+                "waiting": str(getattr(state, "waiting", None) or ""),
+                "error": str(getattr(state, "error", None) or ""),
+                "vars_keys": sorted(list(getattr(state, "vars", {}).keys())) if isinstance(getattr(state, "vars", None), dict) else [],
+                "output_keys": sorted(list(getattr(state, "output", {}).keys())) if isinstance(getattr(state, "output", None), dict) else [],
+            }
+
+            details_obj = {
+                "summary": payload,
+                "vars": getattr(state, "vars", None),
+                "output": getattr(state, "output", None),
+            }
+            details_txt = json.dumps(details_obj, ensure_ascii=False, indent=2, default=str)
+            if len(details_txt) > 20000:
+                details_txt = details_txt[:20000] + "\n…(truncated)…"
+
+            box = QMessageBox(self)
+            box.setWindowTitle("Run trace")
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setText("Last run trace (summary).")
+            box.setInformativeText(
+                "\n".join(
+                    [
+                        f"Run ID: {payload['run_id']}",
+                        f"Status: {payload['status']}",
+                        f"Workflow: {payload['workflow_id']}",
+                        f"Actor: {payload['actor_id']}",
+                    ]
+                )
+            )
+            box.setDetailedText(details_txt)
+            box.exec()
+        except Exception as e:
+            QMessageBox.warning(self, "Run trace", f"Failed to load trace:\n{e}")
 
     def _show_history_if_voice_mode_off(self):
         """Show chat history only if voice mode is OFF."""

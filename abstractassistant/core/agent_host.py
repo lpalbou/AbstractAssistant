@@ -58,6 +58,19 @@ class AgentHostConfig:
     tool_policy: ToolApprovalPolicy = field(default_factory=ToolApprovalPolicy)
 
 
+_BUILTIN_TOOL_NAMES: set[str] = {
+    # Agent schema-only tools (handled by adapters/runtime effect handlers).
+    "ask_user",
+    "open_attachment",
+    "recall_memory",
+    "inspect_vars",
+    "remember",
+    "remember_note",
+    "compact_memory",
+    "delegate_agent",
+}
+
+
 def _new_message(*, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     msg: Dict[str, Any] = {"role": str(role), "content": str(content)}
     if metadata:
@@ -83,6 +96,21 @@ def _tool_denied_results(tool_calls: Sequence[Dict[str, Any]], *, reason: str) -
             }
         )
     return {"mode": "executed", "results": results}
+
+
+def _normalize_allowed_tools(allowed_tools: Optional[Sequence[str]]) -> Optional[List[str]]:
+    """Normalize a per-run tool allowlist.
+
+    Notes:
+    - None means "no allowlist" (all tools allowed).
+    - When an allowlist is provided, we always include AbstractAgent built-in schema tools
+      so core agent functionality (ASK_USER, memory, delegation, attachments) continues to work.
+    """
+    if allowed_tools is None:
+        return None
+    allow: set[str] = {str(t).strip() for t in (allowed_tools or []) if isinstance(t, str) and str(t).strip()}
+    allow |= set(_BUILTIN_TOOL_NAMES)
+    return sorted(allow)
 
 
 class AgentHost:
@@ -251,6 +279,7 @@ class AgentHost:
         provider: Optional[str] = None,
         model: Optional[str] = None,
         system_prompt_extra: Optional[str] = None,
+        allowed_tools: Optional[Sequence[str]] = None,
         approve_tools: Optional[Callable[[List[Dict[str, Any]]], bool]] = None,
         ask_user: Optional[Callable[[WaitState], str]] = None,
     ) -> Generator[Dict[str, Any], None, str]:
@@ -284,7 +313,11 @@ class AgentHost:
 
         # Start the run.
         start = getattr(self._agent, "start")  # type: ignore[union-attr]
-        run_id = start(text, attachments=list(attachments) if attachments else None)
+        run_id = start(
+            text,
+            allowed_tools=_normalize_allowed_tools(allowed_tools),
+            attachments=list(attachments) if attachments else None,
+        )
         self._snapshot = SessionSnapshot(
             session_id=self._snapshot.session_id,
             actor_id=self._snapshot.actor_id,
