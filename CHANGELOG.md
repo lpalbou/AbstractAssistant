@@ -2,6 +2,12 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Qt chat bubble input actions**: Fixed first-open layout race that caused the right-side action buttons to overlap. The action column now deterministically sizes to the input row, keeps strict 1:1 square buttons, and preserves 1px vertical spacing.
+- **Tray app shutdown**: Ctrl+C (SIGINT) and SIGTERM now trigger a clean Qt shutdown path (stop timers, hide tray icon, destroy bubble) instead of an abrupt interpreter exit.
+
 ## [0.3.5] - 2026-01-07
 
 ### Fixed

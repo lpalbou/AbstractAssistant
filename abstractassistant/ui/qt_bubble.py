@@ -825,6 +825,103 @@ class AgentWorker(QThread):
             self.error_occurred.emit(str(e))
 
 
+class _MessageInputRow(QWidget):
+    """
+    Two-column message input row with a strict-square (1:1) 3-button action column.
+
+    Design goals (per UX requirements):
+    - The action buttons fill the *full* vertical space of the input row (up to the card border)
+    - Buttons remain perfectly square while scaling with available height
+    - Exactly 1px vertical spacing between the 3 buttons
+    - The text input ends exactly where the action column begins (two columns)
+    """
+
+    def __init__(
+        self,
+        *,
+        parent: Optional[QWidget] = None,
+        h_spacing_px: int = 2,
+        v_spacing_px: int = 1,
+        min_button_px: int = 22,
+        min_text_width_px: int = 140,
+    ) -> None:
+        super().__init__(parent)
+        self._h_spacing_px = max(0, int(h_spacing_px))
+        self._v_spacing_px = max(0, int(v_spacing_px))
+        self._min_button_px = max(12, int(min_button_px))
+        self._min_text_width_px = max(40, int(min_text_width_px))
+
+        self.input_text = QTextEdit(self)
+        self.attach_button = QPushButton("📎", self)
+        self.tools_button = QPushButton("🛠", self)
+        self.send_button = QPushButton("→", self)
+
+        # Keep focus/navigation sane.
+        for b in (self.attach_button, self.tools_button, self.send_button):
+            try:
+                b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            except Exception:
+                pass
+
+    def _set_button_font_px(self, px: int) -> None:
+        px = max(10, int(px))
+        try:
+            for b in (self.attach_button, self.tools_button, self.send_button):
+                f = b.font() if hasattr(b, "font") else QFont()
+                try:
+                    f.setPixelSize(px)
+                except Exception:
+                    # Fallback: point size if pixel sizing isn't available.
+                    f.setPointSize(max(9, px // 2))
+                b.setFont(f)
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        try:
+            super().resizeEvent(event)
+        except Exception:
+            pass
+
+        w = int(self.width())
+        h = int(self.height())
+        if w <= 0 or h <= 0:
+            return
+
+        # Compute a square button size that uses as much vertical space as possible.
+        # With 3 buttons and 2 gaps:
+        #   used_h = 3*btn + 2*v_spacing  <= h
+        btn_from_h = (h - (2 * self._v_spacing_px)) // 3
+        btn = max(self._min_button_px, btn_from_h)
+
+        # Ensure the column also fits horizontally (keep a minimum text width).
+        max_btn_from_w = w - self._min_text_width_px - self._h_spacing_px
+        if max_btn_from_w <= 0:
+            max_btn_from_w = self._min_button_px
+        btn = max(self._min_button_px, min(btn, max_btn_from_w))
+
+        input_w = max(10, w - btn - self._h_spacing_px)
+        col_x = input_w + self._h_spacing_px
+
+        # Place the text input to fill the available height.
+        self.input_text.setGeometry(0, 0, input_w, h)
+
+        # Place the square buttons stacked on the right with strict spacing.
+        # We anchor to the top to keep the tiny leftover (0-2px) at the bottom.
+        used_h = (3 * btn) + (2 * self._v_spacing_px)
+        top = 0
+        if used_h < h:
+            # If there's slack (usually 0-2px), split it so borders look even.
+            top = (h - used_h) // 2
+
+        for i, b in enumerate((self.attach_button, self.tools_button, self.send_button)):
+            y = top + i * (btn + self._v_spacing_px)
+            b.setGeometry(col_x, y, btn, btn)
+
+        # Scale icon glyphs with the square size.
+        self._set_button_font_px(int(btn * 0.55))
+
+
 class QtChatBubble(QWidget):
     """Modern Qt-based chat bubble."""
     
@@ -1144,124 +1241,91 @@ class QtChatBubble(QWidget):
             }
         """)
         input_layout = QVBoxLayout(self.input_container)
-        input_layout.setContentsMargins(4, 4, 4, 4)
-        input_layout.setSpacing(4)
-        
-        # Input field with inline send button
-        input_row = QHBoxLayout()
-        input_row.setSpacing(4)
+        # Keep this tight so the right-side action column visually reaches the card border.
+        input_layout.setContentsMargins(2, 2, 2, 2)
+        input_layout.setSpacing(2)
 
-        # File attachment button - modern paperclip icon
-        self.attach_button = QPushButton("📎")
-        self.attach_button.clicked.connect(self.attach_files)
-        self.attach_button.setFixedSize(22, 22)
-        self.attach_button.setToolTip("Attach files (images, PDFs, Office docs, etc.)")
-        self.attach_button.setStyleSheet("""
-	            QPushButton {
-	                background: rgba(255, 255, 255, 0.08);
-	                border: 1px solid #404040;
-	                border-radius: 6px;
-	                font-size: 12px;
-	                color: rgba(255, 255, 255, 0.7);
-	                text-align: center;
-	                padding: 0px;
-	            }
+        # Deterministic manual-geometry input row (no layout race on first show).
+        self._input_row = _MessageInputRow(parent=self.input_container, h_spacing_px=2, v_spacing_px=1)
+        self._input_row.setMinimumHeight(86)
+        input_layout.addWidget(self._input_row, 1)
 
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
-                border: 1px solid #0066cc;
-                color: rgba(255, 255, 255, 0.9);
-            }
+        # Expose the child widgets on the bubble for the rest of the codebase.
+        self.input_text = self._input_row.input_text
+        self.attach_button = self._input_row.attach_button
+        self.tools_button = self._input_row.tools_button
+        self.send_button = self._input_row.send_button
 
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.06);
-            }
-        """)
-
-        # Tool selector button (per-run tool allowlist)
-        self.tools_button = QPushButton("🛠")
-        self.tools_button.clicked.connect(self.open_tool_selector)
-        self.tools_button.setFixedSize(22, 22)
-        self.tools_button.setToolTip("Tools")
-        self.tools_button.setStyleSheet("""
-	            QPushButton {
-	                background: rgba(255, 255, 255, 0.08);
-	                border: 1px solid #404040;
-	                border-radius: 6px;
-	                font-size: 12px;
-	                color: rgba(255, 255, 255, 0.7);
-	                text-align: center;
-	                padding: 0px;
-	            }
-
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
-                border: 1px solid #7c3aed;
-                color: rgba(255, 255, 255, 0.9);
-            }
-
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.06);
-            }
-        """)
-
-        # Text input - larger, primary focus
-        self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
         try:
             self.input_text.installEventFilter(self)
         except Exception:
             pass
-        self.input_text.setMaximumHeight(120)  # Keep room for vertically stacked action buttons
-        self.input_text.setMinimumHeight(70)   # Increased to better use available space
-        input_row.addWidget(self.input_text, 1)
 
-        # Send button - primary action with special styling
-        self.send_button = QPushButton("→")
+        # Wiring
+        self.attach_button.clicked.connect(self.attach_files)
+        self.attach_button.setToolTip("Attach files (images, PDFs, Office docs, etc.)")
+        self.tools_button.clicked.connect(self.open_tool_selector)
+        self.tools_button.setToolTip("Tools")
         self.send_button.clicked.connect(self.send_message)
-        self.send_button.setFixedSize(22, 22)
-        self.send_button.setStyleSheet("""
-	            QPushButton {
-	                background: #0066cc;
-	                border: 1px solid #0080ff;
-	                border-radius: 6px;
-	                font-size: 13px;
-	                font-weight: bold;
-	                color: white;
-	                text-align: center;
-	                padding: 0px;
-	            }
 
+        # Styling (theme methods will override these too; these are safe defaults for first paint)
+        self.attach_button.setStyleSheet(
+            """
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid #404040;
+                border-radius: 4px;
+                color: rgba(255, 255, 255, 0.75);
+                padding: 0px;
+                margin: 0px;
+            }
             QPushButton:hover {
-                background: #0080ff;
-                border: 1px solid #0099ff;
+                background: rgba(255, 255, 255, 0.12);
+                border: 1px solid #0066cc;
+                color: rgba(255, 255, 255, 0.95);
             }
-
-            QPushButton:pressed {
-                background: #0052a3;
+            QPushButton:pressed { background: rgba(255, 255, 255, 0.06); }
+            """
+        )
+        self.tools_button.setStyleSheet(
+            """
+            QPushButton {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid #404040;
+                border-radius: 4px;
+                color: rgba(255, 255, 255, 0.75);
+                padding: 0px;
+                margin: 0px;
             }
-
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+                border: 1px solid #7c3aed;
+                color: rgba(255, 255, 255, 0.95);
+            }
+            QPushButton:pressed { background: rgba(255, 255, 255, 0.06); }
+            """
+        )
+        self.send_button.setStyleSheet(
+            """
+            QPushButton {
+                background: #0066cc;
+                border: 1px solid #0080ff;
+                border-radius: 4px;
+                font-weight: 700;
+                color: #ffffff;
+                padding: 0px;
+                margin: 0px;
+            }
+            QPushButton:hover { background: #0080ff; border: 1px solid #0099ff; }
+            QPushButton:pressed { background: #0052a3; }
             QPushButton:disabled {
                 background: #404040;
                 color: #666666;
                 border: 1px solid #333333;
             }
-        """)
-
-        # Stack action buttons vertically on the right: files, tools, send.
-        actions_column = QVBoxLayout()
-        actions_column.setContentsMargins(0, 0, 0, 0)
-        actions_column.setSpacing(2)
-        actions_column.addWidget(self.attach_button, 0, Qt.AlignmentFlag.AlignHCenter)
-        actions_column.addWidget(self.tools_button, 0, Qt.AlignmentFlag.AlignHCenter)
-        actions_column.addWidget(self.send_button, 0, Qt.AlignmentFlag.AlignHCenter)
-        input_row.addLayout(actions_column)
-        try:
-            input_row.setAlignment(actions_column, Qt.AlignmentFlag.AlignVCenter)
-        except Exception:
-            pass
-
-        input_layout.addLayout(input_row)
+            """
+        )
         self._update_tools_button_state()
 
         # Attached files display area (initially hidden)
@@ -1578,16 +1642,16 @@ class QtChatBubble(QWidget):
                 """
             )
 
-        # Input action buttons
+        # Input action buttons (stretch to fill vertical space)
         icon_btn_qss = f"""
 	            QPushButton {{
 	                background: {t['overlay']};
 	                border: 1px solid {t['border']};
-	                border-radius: 6px;
-	                font-size: 12px;
+	                border-radius: 4px;
 	                color: {t['text_secondary']};
 	                text-align: center;
 	                padding: 0px;
+	                margin: 0px;
 	            }}
             QPushButton:hover {{
                 background: {t['overlay_hover']};
@@ -1609,12 +1673,12 @@ class QtChatBubble(QWidget):
 	                QPushButton {{
 	                    background: {t['accent']};
 	                    border: 1px solid {t['accent_hover']};
-	                    border-radius: 6px;
-	                    font-size: 13px;
+	                    border-radius: 4px;
 	                    font-weight: bold;
 	                    color: #ffffff;
 	                    text-align: center;
 	                    padding: 0px;
+	                    margin: 0px;
 	                }}
                 QPushButton:hover {{
                     background: {t['accent_hover']};
@@ -2099,11 +2163,11 @@ class QtChatBubble(QWidget):
             QPushButton {{
                 background: {bg};
                 border: 1px solid {border};
-	                border-radius: 6px;
-	                font-size: 12px;
+	                border-radius: 4px;
                 color: {fg};
                 text-align: center;
                 padding: 0px;
+                margin: 0px;
             }}
             QPushButton:hover {{
                 background: {t['overlay_hover']};
@@ -4391,6 +4455,8 @@ Continue the conversation naturally, referring to the context above when relevan
                 self._tts_completion_callback = None
     
     
+    # NOTE: The message input row now owns sizing of the square action buttons via `_MessageInputRow`.
+
     def closeEvent(self, event):
         """Handle close event."""
         if self.worker and self.worker.isRunning():

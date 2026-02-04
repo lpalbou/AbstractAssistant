@@ -6,6 +6,7 @@ Handles system tray integration, UI coordination, and application lifecycle.
 
 import threading
 import time
+import signal
 from pathlib import Path
 from typing import Optional
 
@@ -796,6 +797,20 @@ class AbstractAssistantApp:
         
         if self.icon:
             self.icon.stop()
+
+        # Stop/hide Qt tray icon if we are running in Qt mode.
+        try:
+            if hasattr(self, "qt_tray_icon") and self.qt_tray_icon is not None:
+                self.qt_tray_icon.hide()
+        except Exception:
+            pass
+
+        # Stop click timer used for single/double click detection (Qt mode).
+        try:
+            if hasattr(self, "click_timer") and self.click_timer is not None:
+                self.click_timer.stop()
+        except Exception:
+            pass
         
         # Clean up bubble manager
         if self.bubble_manager:
@@ -807,6 +822,20 @@ class AbstractAssistantApp:
         
         if self.debug:
             print("✅ AbstractAssistant quit successfully")
+
+    def _request_qt_quit(self) -> None:
+        """Request a graceful quit on the Qt event loop (safe to call from SIGINT handler)."""
+        # Always run cleanup first; then quit the Qt event loop.
+        try:
+            self.quit_application()
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "qt_app") and self.qt_app:
+                self.qt_app.quit()
+        except Exception:
+            pass
     
     def run(self):
         """Start the application using Qt event loop for proper threading."""
@@ -843,15 +872,39 @@ class AbstractAssistantApp:
                 print("AbstractAssistant started. Check your menu bar!")
                 print("Click the icon to open the chat interface.")
 
+            # Ctrl+C / SIGTERM should shut down cleanly (avoid macOS "python quit unexpectedly").
+            # We schedule the quit on the Qt loop to keep teardown ordered.
+            def _handle_sigint(_signum, _frame):
+                try:
+                    QTimer.singleShot(0, self._request_qt_quit)
+                except Exception:
+                    self._request_qt_quit()
+
+            try:
+                signal.signal(signal.SIGINT, _handle_sigint)
+                signal.signal(signal.SIGTERM, _handle_sigint)
+            except Exception:
+                # If signals are not available/allowed in this context, we still handle KeyboardInterrupt below.
+                pass
+
             # Run Qt event loop (this blocks until quit)
-            self.qt_app.exec_()
+            try:
+                self.qt_app.exec_()
+            except KeyboardInterrupt:
+                # Ensure a graceful shutdown when Ctrl+C interrupts the event loop.
+                self._request_qt_quit()
+                return
 
         except ImportError:
             if self.debug:
                 print("❌ PyQt5 not available. Falling back to pystray...")
             # Fallback to original pystray implementation
             self.icon = self.create_system_tray_icon()
-            self.icon.run()
+            try:
+                self.icon.run()
+            except KeyboardInterrupt:
+                self.quit_application()
+                return
 
     def _create_qt_system_tray_icon(self):
         """Create Qt-based system tray icon with smooth animations."""
@@ -1006,5 +1059,5 @@ class AbstractAssistantApp:
         if self.debug:
             print("🔄 Qt: Quit requested")
 
-        if hasattr(self, 'qt_app') and self.qt_app:
-            self.qt_app.quit()
+        # Route through the same cleanup path (menu Quit should behave like Ctrl+C).
+        self._request_qt_quit()
