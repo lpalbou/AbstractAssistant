@@ -39,7 +39,7 @@ try:
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
         QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
     )
-    from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject
+    from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject, QEvent
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
     from PyQt5.QtCore import QPoint
     QT_AVAILABLE = "PyQt5"
@@ -50,7 +50,7 @@ except ImportError:
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
             QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
         )
-        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject
+        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject, QEvent
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
         from PySide2.QtCore import QPoint
         QT_AVAILABLE = "PySide2"
@@ -61,7 +61,7 @@ except ImportError:
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
                 QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
             )
-            from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
+            from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QEvent
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
             from PyQt6.QtCore import QPoint
             QT_AVAILABLE = "PyQt6"
@@ -133,17 +133,27 @@ class TTSToggle(QPushButton):
 
     def _update_appearance(self):
         """Update button appearance based on user's toggle state ONLY."""
+        palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
+        is_dark = palette.window().color().lightness() < 128
+        accent = palette.highlight().color()
+
+        def rgba(color: QColor, alpha: float) -> str:
+            return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+        overlay_bg = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.06)"
+        overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
+        overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
+        overlay_fg = "rgba(255, 255, 255, 0.7)" if is_dark else "rgba(0, 0, 0, 0.65)"
+
         # SIMPLE USER CONTROL - only shows enabled/disabled state
         if self._enabled:
-            # User has enabled TTS
             icon = "🔉"  # Speaker icon when enabled
-            bg_color = "rgba(0, 102, 204, 0.8)"  # Blue
+            bg_color = rgba(accent, 0.85)
             text_color = "#ffffff"
         else:
-            # User has disabled TTS
             icon = "🔇"  # Muted speaker when disabled
-            bg_color = "rgba(255, 255, 255, 0.06)"
-            text_color = "rgba(255, 255, 255, 0.7)"
+            bg_color = overlay_bg
+            text_color = overlay_fg
 
         self.setText(icon)
         self.setStyleSheet(f"""
@@ -157,10 +167,10 @@ class TTSToggle(QPushButton):
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background: rgba(0, 122, 255, 0.8);
+                background: {rgba(accent, 0.9) if self._enabled else overlay_hover};
             }}
             QPushButton:pressed {{
-                background: rgba(0, 122, 255, 0.6);
+                background: {rgba(accent, 0.75) if self._enabled else overlay_pressed};
             }}
         """)
 
@@ -200,17 +210,27 @@ class FullVoiceToggle(QPushButton):
 
     def _update_appearance(self):
         """Update button appearance based on user's toggle state ONLY."""
+        palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
+        is_dark = palette.window().color().lightness() < 128
+        accent = palette.highlight().color()
+
+        def rgba(color: QColor, alpha: float) -> str:
+            return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+        overlay_bg = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.06)"
+        overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
+        overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
+        overlay_fg = "rgba(255, 255, 255, 0.7)" if is_dark else "rgba(0, 0, 0, 0.65)"
+
         # SIMPLE USER CONTROL - only shows enabled/disabled state
         if self._enabled:
-            # User has enabled Full Voice Mode
             icon = "🎙️"  # Microphone when enabled
-            bg_color = "rgba(0, 122, 204, 0.8)"  # Blue
+            bg_color = rgba(accent, 0.85)
             text_color = "#ffffff"
         else:
-            # User has disabled Full Voice Mode
             icon = "🎤"  # Muted microphone when disabled
-            bg_color = "rgba(255, 255, 255, 0.06)"
-            text_color = "rgba(255, 255, 255, 0.7)"
+            bg_color = overlay_bg
+            text_color = overlay_fg
 
         self.setText(icon)
         self.setStyleSheet(f"""
@@ -224,10 +244,10 @@ class FullVoiceToggle(QPushButton):
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background: {bg_color.replace('0.8', '1.0') if '0.8' in bg_color else bg_color};
+                background: {rgba(accent, 0.9) if self._enabled else overlay_hover};
             }}
             QPushButton:pressed {{
-                background: {bg_color.replace('0.8', '0.6') if '0.8' in bg_color else bg_color};
+                background: {rgba(accent, 0.75) if self._enabled else overlay_pressed};
             }}
         """)
 
@@ -250,6 +270,34 @@ class ToolSelectorDialog(QDialog):
         self.setWindowTitle("Tools")
         self.setModal(True)
 
+        palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
+        is_dark = palette.window().color().lightness() < 128
+        mid = palette.mid().color().name()
+        text = palette.text().color()
+        accent = palette.highlight().color()
+
+        def rgba(color: QColor, alpha: float) -> str:
+            return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+        window_bg = palette.window().color().name()
+        overlay = "rgba(255, 255, 255, 0.08)" if is_dark else "rgba(0, 0, 0, 0.06)"
+        overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
+        overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
+        text_primary = rgba(text, 0.9)
+        text_secondary = rgba(text, 0.65)
+        accent_hex = accent.name()
+        accent_hover = accent.lighter(115).name()
+        accent_pressed = accent.darker(115).name()
+
+        self.setStyleSheet(
+            f"""
+            QDialog {{
+                background: {window_bg};
+                color: {text_primary};
+            }}
+            """
+        )
+
         self._tools = list(tools)
         self._safe_preset = set(safe_preset)
         self._require_approval = set(require_approval)
@@ -260,11 +308,11 @@ class ToolSelectorDialog(QDialog):
         layout.setSpacing(8)
 
         title = QLabel("Choose which tools the assistant can use")
-        title.setStyleSheet('QLabel { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.9); }')
+        title.setStyleSheet(f"QLabel {{ font-size: 13px; font-weight: 600; color: {text_primary}; }}")
         layout.addWidget(title)
 
         hint = QLabel("Dangerous tools still require approval when called.")
-        hint.setStyleSheet('QLabel { font-size: 11px; color: rgba(255, 255, 255, 0.65); }')
+        hint.setStyleSheet(f"QLabel {{ font-size: 11px; color: {text_secondary}; }}")
         layout.addWidget(hint)
 
         presets = QHBoxLayout()
@@ -275,16 +323,17 @@ class ToolSelectorDialog(QDialog):
         for b in (safe_btn, all_btn, none_btn):
             b.setFixedHeight(24)
             b.setStyleSheet(
-                """
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.08);
-                    border: 1px solid #404040;
+                f"""
+                QPushButton {{
+                    background: {overlay};
+                    border: 1px solid {mid};
                     border-radius: 12px;
                     padding: 0 10px;
                     font-size: 11px;
-                    color: rgba(255, 255, 255, 0.85);
-                }
-                QPushButton:hover { background: rgba(255, 255, 255, 0.12); border: 1px solid #0066cc; }
+                    color: {text_primary};
+                }}
+                QPushButton:hover {{ background: {overlay_hover}; border: 1px solid {accent_hex}; }}
+                QPushButton:pressed {{ background: {overlay_pressed}; }}
                 """
             )
             presets.addWidget(b)
@@ -313,9 +362,9 @@ class ToolSelectorDialog(QDialog):
             if desc:
                 box.setToolTip(desc)
             box.setStyleSheet(
-                """
-                QCheckBox { font-size: 12px; color: rgba(255, 255, 255, 0.9); padding: 2px 0; }
-                QCheckBox::indicator { width: 14px; height: 14px; }
+                f"""
+                QCheckBox {{ font-size: 12px; color: {text_primary}; padding: 2px 0; }}
+                QCheckBox::indicator {{ width: 14px; height: 14px; }}
                 """
             )
             self._boxes[name] = box
@@ -328,31 +377,32 @@ class ToolSelectorDialog(QDialog):
         for b in (cancel_btn, ok_btn):
             b.setFixedHeight(28)
             b.setStyleSheet(
-                """
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.08);
-                    border: 1px solid #404040;
+                f"""
+                QPushButton {{
+                    background: {overlay};
+                    border: 1px solid {mid};
                     border-radius: 14px;
                     padding: 0 14px;
                     font-size: 12px;
-                    color: rgba(255, 255, 255, 0.9);
-                }
-                QPushButton:hover { background: rgba(255, 255, 255, 0.12); border: 1px solid #0066cc; }
+                    color: {text_primary};
+                }}
+                QPushButton:hover {{ background: {overlay_hover}; border: 1px solid {accent_hex}; }}
+                QPushButton:pressed {{ background: {overlay_pressed}; }}
                 """
             )
         ok_btn.setStyleSheet(
-            """
-            QPushButton {
-                background: #0066cc;
-                border: 1px solid #0080ff;
+            f"""
+            QPushButton {{
+                background: {accent_hex};
+                border: 1px solid {accent_hover};
                 border-radius: 14px;
                 padding: 0 14px;
                 font-size: 12px;
                 font-weight: 600;
                 color: #ffffff;
-            }
-            QPushButton:hover { background: #0080ff; border: 1px solid #0099ff; }
-            QPushButton:pressed { background: #0052a3; }
+            }}
+            QPushButton:hover {{ background: {accent_hover}; border: 1px solid {accent_hover}; }}
+            QPushButton:pressed {{ background: {accent_pressed}; }}
             """
         )
         cancel_btn.clicked.connect(self.reject)
@@ -513,6 +563,7 @@ class QtChatBubble(QWidget):
         self.config = config
         self.debug = debug
         self.listening_mode = listening_mode
+        self._theme: Dict[str, Any] = {}
         
         # State - default to LMStudio with qwen/qwen3-next-80b
         self.current_provider = 'lmstudio'  # Default to LMStudio
@@ -618,15 +669,25 @@ class QtChatBubble(QWidget):
     def setup_ui(self):
         """Set up the modern user interface with SOTA UX practices."""
         self.setWindowTitle("AbstractAssistant")
+        self.setObjectName("AbstractAssistantBubble")
+        try:
+            attr = getattr(Qt, "WA_StyledBackground", None)
+            if attr is None and hasattr(Qt, "WidgetAttribute"):
+                attr = Qt.WidgetAttribute.WA_StyledBackground
+            if attr is not None:
+                self.setAttribute(attr, True)
+        except Exception:
+            pass
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool
         )
         
-        # Set optimal size for modern chat interface - much wider to nearly touch screen edge
+        # Set optimal size for modern chat interface.
+        # Keep the default lightweight and compact: ~15% narrower than the previous 630px.
         # Initial size - will be adjusted dynamically based on file attachments
-        self.base_width = 630
+        self.base_width = 536
         self.base_height = 196
         self.setFixedSize(self.base_width, self.base_height)
         self.position_near_tray()
@@ -665,7 +726,7 @@ class QtChatBubble(QWidget):
         # Session selector + New session (replaces legacy "Clear" in the header).
         self.session_combo = QComboBox()
         self.session_combo.setFixedHeight(22)
-        self.session_combo.setMinimumWidth(240)
+        self.session_combo.setMinimumWidth(160)
         self.session_combo.setToolTip("Select a session")
         self.session_combo.setStyleSheet("""
             QComboBox {
@@ -775,7 +836,9 @@ class QtChatBubble(QWidget):
         
         # Status (Cursor-style, enlarged to show full text including "Processing")
         self.status_label = QLabel("READY")
-        self.status_label.setFixedSize(120, 24)  # Increased from 80x24 to 120x24 for "Processing" text
+        self.status_label.setFixedHeight(24)
+        self.status_label.setMinimumWidth(92)
+        self.status_label.setMaximumWidth(120)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("""
             QLabel {
@@ -794,6 +857,7 @@ class QtChatBubble(QWidget):
         
         # Input section with modern card design
         self.input_container = QFrame()
+        self.input_container.setObjectName("inputContainer")
         self.input_container.setStyleSheet("""
             QFrame {
                 background: #2a2a2a;
@@ -867,23 +931,23 @@ class QtChatBubble(QWidget):
         # Text input - larger, primary focus
         self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
-        self.input_text.setMaximumHeight(100)  # Increased to better use available space
+        try:
+            self.input_text.installEventFilter(self)
+        except Exception:
+            pass
+        self.input_text.setMaximumHeight(120)  # Keep room for vertically stacked action buttons
         self.input_text.setMinimumHeight(70)   # Increased to better use available space
         input_row.addWidget(self.input_text, 1)
-
-        # Keep action buttons on the right to maximize typing space.
-        input_row.addWidget(self.attach_button)
-        input_row.addWidget(self.tools_button)
 
         # Send button - primary action with special styling
         self.send_button = QPushButton("→")
         self.send_button.clicked.connect(self.send_message)
-        self.send_button.setFixedSize(40, 40)
+        self.send_button.setFixedSize(36, 36)
         self.send_button.setStyleSheet("""
             QPushButton {
                 background: #0066cc;
                 border: 1px solid #0080ff;
-                border-radius: 20px;
+                border-radius: 18px;
                 font-size: 16px;
                 font-weight: bold;
                 color: white;
@@ -906,13 +970,24 @@ class QtChatBubble(QWidget):
                 border: 1px solid #333333;
             }
         """)
-        input_row.addWidget(self.send_button)
+
+        # Stack action buttons vertically on the right: files, tools, send.
+        actions_column = QVBoxLayout()
+        actions_column.setContentsMargins(0, 0, 0, 0)
+        actions_column.setSpacing(4)
+        actions_column.addStretch(1)
+        actions_column.addWidget(self.attach_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        actions_column.addWidget(self.tools_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        actions_column.addWidget(self.send_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        actions_column.addStretch(1)
+        input_row.addLayout(actions_column)
 
         input_layout.addLayout(input_row)
         self._update_tools_button_state()
 
         # Attached files display area (initially hidden)
         self.attached_files_container = QFrame()
+        self.attached_files_container.setObjectName("attachedFilesContainer")
         self.attached_files_container.setStyleSheet("""
             QFrame {
                 background: rgba(255, 255, 255, 0.04);
@@ -1034,209 +1109,358 @@ class QtChatBubble(QWidget):
             self._reload_session_combo(select_session_id=getattr(self.llm_manager, "active_session_id", None))
         except Exception:
             pass
-    
-    def setup_styling(self):
-        """Set up Cursor-style clean theme."""
-        self.setStyleSheet("""
-            /* Main Window - Cursor Style */
-            QWidget {
-                background: #1e1e1e;
-                border: none;
+
+    def _compute_theme(self) -> Dict[str, Any]:
+        palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
+        window = palette.window().color()
+        base = palette.base().color()
+        mid = palette.mid().color()
+        text = palette.text().color()
+        accent = palette.highlight().color()
+
+        is_dark = window.lightness() < 128
+
+        def rgba(color: QColor, alpha: float) -> str:
+            return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+        overlay = "rgba(255, 255, 255, 0.08)" if is_dark else "rgba(0, 0, 0, 0.06)"
+        overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
+        overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
+
+        focus_bg = base.lighter(112) if is_dark else base.darker(102)
+        accent_hover = accent.lighter(115)
+        accent_pressed = accent.darker(115)
+
+        return {
+            "is_dark": is_dark,
+            "window_bg": window.name(),
+            "surface_bg": base.name(),
+            "surface_focus_bg": focus_bg.name(),
+            "border": mid.name(),
+            "text_primary": rgba(text, 0.9),
+            "text_secondary": rgba(text, 0.72),
+            "text_muted": rgba(text, 0.55 if is_dark else 0.5),
+            "accent": accent.name(),
+            "accent_hover": accent_hover.name(),
+            "accent_pressed": accent_pressed.name(),
+            "accent_rgba_12": rgba(accent, 0.12),
+            "accent_rgba_20": rgba(accent, 0.20),
+            "accent_rgba_35": rgba(accent, 0.35),
+            "overlay": overlay,
+            "overlay_hover": overlay_hover,
+            "overlay_pressed": overlay_pressed,
+        }
+
+    def _apply_theme(self) -> None:
+        t = self._theme or self._compute_theme()
+
+        input_focused = False
+        try:
+            input_focused = bool(getattr(self, "input_text", None) and self.input_text.hasFocus())
+        except Exception:
+            input_focused = False
+        input_border = t["accent"] if input_focused else t["border"]
+
+        # Window
+        self.setStyleSheet(
+            f"""
+            QWidget#AbstractAssistantBubble {{
+                background: {t['window_bg']};
+                border: 1px solid {t['border']};
                 border-radius: 12px;
-                color: #ffffff;
-            }
-            
-            /* Input Field - Modern Grey Design */
-            QTextEdit {
-                background: #2a2a2a;
-                border: 1px solid #404040;
-                border-radius: 8px;
-                padding: 12px 16px;
-                font-size: 14px;
-                font-weight: 400;
-                color: #ffffff;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                selection-background-color: #0066cc;
-                line-height: 1.4;
-            }
-            
-            QTextEdit:focus {
-                border: 1px solid #0066cc;
-                background: #333333;
-            }
-            
-            QTextEdit::placeholder {
-                color: rgba(255, 255, 255, 0.6);
-            }
-            
-            /* Buttons - Grey Theme */
-            QPushButton {
-                background: #404040;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 11px;
-                font-weight: 500;
-                color: #ffffff;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-            }
-            
-            QPushButton:hover {
-                background: #505050;
-                border: 1px solid #0066cc;
-            }
-            
-            QPushButton:pressed {
-                background: #353535;
-            }
-            
-            QPushButton:disabled {
-                background: #2a2a2a;
-                color: #666666;
-                border: 1px solid #333333;
-            }
-            
-            /* Dropdown Menus - Grey Theme */
-                QComboBox {
-                    background: #1e1e1e;
-                    border: 1px solid #404040;
-                    border-radius: 6px;
-                    padding: 6px 10px;
-                    min-width: 80px;
-                    font-size: 12px;
-                    font-weight: 400;
-                    color: #ffffff;
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                    letter-spacing: 0.01em;
-                }
-            
-            QComboBox:hover {
-                border: 1px solid #0066cc;
-                background: #252525;
-            }
-            
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid rgba(255, 255, 255, 0.7);
-                width: 0px;
-                height: 0px;
-            }
-            
-                QComboBox QAbstractItemView {
-                    background: #252525;
-                    border: 1px solid #404040;
+                color: {t['text_primary']};
+            }}
+            """
+        )
+
+        # Input container + text input
+        if hasattr(self, "input_container"):
+            self.input_container.setStyleSheet(
+                f"""
+                QFrame#inputContainer {{
+                    background: {t['surface_bg']};
+                    border: 1px solid {input_border};
                     border-radius: 8px;
-                    selection-background-color: #404040;
-                    color: #ffffff;
-                    padding: 6px;
-                    font-family: "SF Mono", "Monaco", "Menlo", "Consolas", monospace;
-                }
-
-                QComboBox QAbstractItemView::item {
-                    height: 44px;
-                    padding: 10px 16px;
+                    padding: 4px;
+                }}
+                """
+            )
+        if hasattr(self, "input_text"):
+            self.input_text.setStyleSheet(
+                f"""
+                QTextEdit {{
+                    background: transparent;
                     border: none;
-                    font-size: 13px;
+                    padding: 12px 16px;
+                    font-size: 14px;
                     font-weight: 400;
-                    color: #e8e8e8;
-                    border-radius: 6px;
-                    margin: 3px;
-                    letter-spacing: 0.02em;
-                }
+                    color: {t['text_primary']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    selection-background-color: {t['accent']};
+                    line-height: 1.4;
+                }}
 
-                QComboBox QAbstractItemView::item:selected {
-                    background: #404040;
+                QTextEdit:focus {{
+                    background: transparent;
+                }}
+
+                QTextEdit::placeholder {{
+                    color: {t['text_muted']};
+                }}
+                """
+            )
+
+        # Header controls
+        pill_qss = f"""
+            background: {t['overlay_pressed']};
+            border: none;
+            border-radius: 11px;
+            font-size: 10px;
+            color: {t['text_secondary']};
+            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+            padding: 0 10px;
+        """
+        pill_hover = f"background: {t['overlay_hover']}; color: {t['text_primary']};"
+
+        if hasattr(self, "session_combo"):
+            self.session_combo.setStyleSheet(
+                f"""
+                QComboBox {{ {pill_qss} }}
+                QComboBox:hover {{ {pill_hover} }}
+                QComboBox::drop-down {{ border: none; }}
+                """
+            )
+
+        if hasattr(self, "new_session_button"):
+            self.new_session_button.setStyleSheet(
+                f"""
+                QPushButton {{ {pill_qss} }}
+                QPushButton:hover {{ {pill_hover} }}
+                """
+            )
+
+        if hasattr(self, "more_button"):
+            self.more_button.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background: {t['overlay_pressed']};
+                    border: none;
+                    border-radius: 11px;
+                    font-size: 16px;
+                    color: {t['text_secondary']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    padding: 0px;
+                }}
+                QPushButton:hover {{
+                    background: {t['overlay_hover']};
+                    color: {t['text_primary']};
+                }}
+                """
+            )
+
+        if hasattr(self, "history_button"):
+            self.history_button.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background: {t['overlay_pressed']};
+                    border: none;
+                    border-radius: 11px;
+                    font-size: 10px;
+                    color: {t['text_secondary']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    padding: 0 10px;
+                }}
+                QPushButton:hover {{
+                    background: {t['overlay_hover']};
+                    color: {t['text_primary']};
+                }}
+                """
+            )
+
+        if hasattr(self, "close_button"):
+            self.close_button.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background: {t['overlay_hover']};
+                    border: none;
+                    border-radius: 12px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: {t['text_primary']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                }}
+                QPushButton:hover {{
+                    background: rgba(255, 60, 60, 0.85);
                     color: #ffffff;
-                    font-weight: 500;
-                    border: 1px solid #0066cc;
-                }
+                }}
+                QPushButton:pressed {{
+                    background: rgba(255, 60, 60, 0.65);
+                }}
+                """
+            )
 
-                QComboBox QAbstractItemView::item:hover {
-                    background: #333333;
-                }
-            
-            /* Labels - Clean Typography */
-            QLabel {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 12px;
-                font-weight: 500;
-                font-family: "Helvetica Neue", "Helvetica", 'Segoe UI', Arial, sans-serif;
-                letter-spacing: 0.3px;
-            }
-            
-            /* Status and Token Labels - Accent Colors */
-            QLabel#status_ready {
-                background: rgba(166, 227, 161, 0.15);
-                border: 1px solid rgba(166, 227, 161, 0.3);
-                border-radius: 12px;
-                padding: 6px 12px;
-                font-size: 10px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                color: #a6e3a1;
-                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
-            }
-            
-            QLabel#status_generating {
-                background: rgba(250, 179, 135, 0.15);
-                border: 1px solid rgba(250, 179, 135, 0.3);
-                border-radius: 12px;
-                padding: 6px 12px;
-                font-size: 10px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                color: #fab387;
-                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
-            }
-            
-            QLabel#status_error {
-                background: rgba(243, 139, 168, 0.15);
-                border: 1px solid rgba(243, 139, 168, 0.3);
-                border-radius: 12px;
-                padding: 6px 12px;
-                font-size: 10px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                color: #f38ba8;
-                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
-            }
-            
-            QLabel#token_label {
-                background: #2d3748;
-                border: 1px solid #4a5568;
-                border-radius: 8px;
-                padding: 10px 12px;
-                font-family: "Helvetica Neue", "Helvetica", "Segoe UI", Arial, sans-serif;
-                font-size: 11px;
-                font-weight: 500;
-                color: #cbd5e0;
-                text-align: center;
-                letter-spacing: 0.025em;
-            }
-            
-            /* Frames - Invisible Containers */
-            QFrame {
-                border: none;
-                background: transparent;
-            }
-            
-            /* Separator Lines */
-            QLabel#separator {
-                color: rgba(255, 255, 255, 0.3);
+        # Input action buttons
+        icon_btn_qss = f"""
+            QPushButton {{
+                background: {t['overlay']};
+                border: 1px solid {t['border']};
+                border-radius: 18px;
                 font-size: 14px;
-                font-weight: 300;
-            }
-        """)
+                color: {t['text_secondary']};
+                text-align: center;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background: {t['overlay_hover']};
+                border: 1px solid {t['accent']};
+                color: {t['text_primary']};
+            }}
+            QPushButton:pressed {{
+                background: {t['overlay_pressed']};
+            }}
+        """
+        if hasattr(self, "attach_button"):
+            self.attach_button.setStyleSheet(icon_btn_qss)
+
+        # tools_button style is handled via _update_tools_button_state()
+
+        if hasattr(self, "send_button"):
+            self.send_button.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background: {t['accent']};
+                    border: 1px solid {t['accent_hover']};
+                    border-radius: 18px;
+                    font-size: 16px;
+                    font-weight: bold;
+                    color: #ffffff;
+                    text-align: center;
+                    padding: 0px;
+                }}
+                QPushButton:hover {{
+                    background: {t['accent_hover']};
+                    border: 1px solid {t['accent_hover']};
+                }}
+                QPushButton:pressed {{
+                    background: {t['accent_pressed']};
+                }}
+                QPushButton:disabled {{
+                    background: {t['overlay_pressed']};
+                    color: {t['text_muted']};
+                    border: 1px solid {t['border']};
+                }}
+                """
+            )
+
+        # Bottom controls
+        if hasattr(self, "provider_combo"):
+            self.provider_combo.setStyleSheet(
+                f"""
+                QComboBox {{
+                    background: {t['overlay']};
+                    border: none;
+                    border-radius: 14px;
+                    padding: 0 8px;
+                    font-size: 11px;
+                    color: {t['text_primary']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                }}
+                QComboBox:hover {{ background: {t['overlay_hover']}; }}
+                QComboBox::drop-down {{ border: none; width: 20px; }}
+                QComboBox::down-arrow {{ image: none; border: none; width: 0px; }}
+                """
+            )
+
+        if hasattr(self, "model_combo"):
+            self.model_combo.setStyleSheet(
+                f"""
+                QComboBox {{
+                    background: {t['overlay']};
+                    border: none;
+                    border-radius: 14px;
+                    padding: 0 8px;
+                    font-size: 11px;
+                    color: {t['text_primary']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                }}
+                QComboBox:hover {{ background: {t['overlay_hover']}; }}
+                QComboBox::drop-down {{ border: none; width: 20px; }}
+                QComboBox::down-arrow {{ image: none; border: none; width: 0px; }}
+                """
+            )
+
+        if hasattr(self, "token_label"):
+            self.token_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    background: {t['overlay_pressed']};
+                    border: none;
+                    border-radius: 14px;
+                    font-size: 12px;
+                    color: {t['text_muted']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                }}
+                """
+            )
+
+        # Attached files container
+        if hasattr(self, "attached_files_container"):
+            self.attached_files_container.setStyleSheet(
+                f"""
+                QFrame#attachedFilesContainer {{
+                    background: {t['overlay_pressed']};
+                    border: 1px solid {t['border']};
+                    border-radius: 6px;
+                    padding: 4px;
+                }}
+                """
+            )
+
+    def eventFilter(self, obj, event):
+        try:
+            if obj is getattr(self, "input_text", None):
+                etype = event.type()
+                focus_in = getattr(QEvent, "FocusIn", None)
+                focus_out = getattr(QEvent, "FocusOut", None)
+                if focus_in is None and hasattr(QEvent, "Type"):
+                    focus_in = QEvent.Type.FocusIn
+                    focus_out = QEvent.Type.FocusOut
+                if etype in {focus_in, focus_out}:
+                    try:
+                        self._apply_theme()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+    def changeEvent(self, event):
+        try:
+            etype = event.type()
+            palette_change = getattr(QEvent, "PaletteChange", None)
+            app_palette_change = getattr(QEvent, "ApplicationPaletteChange", None)
+            if palette_change is None and hasattr(QEvent, "Type"):
+                palette_change = QEvent.Type.PaletteChange
+                app_palette_change = QEvent.Type.ApplicationPaletteChange
+            if etype in {palette_change, app_palette_change}:
+                self._theme = self._compute_theme()
+                self._apply_theme()
+                try:
+                    self._update_tools_button_state()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        super().changeEvent(event)
+
+    def setup_styling(self):
+        """Apply a system-aware theme (follows OS light/dark)."""
+        self._theme = self._compute_theme()
+        self._apply_theme()
+        try:
+            self._update_tools_button_state()
+        except Exception:
+            pass
     
     def position_near_tray(self):
         """Position the bubble near the system tray."""
@@ -1564,6 +1788,7 @@ class QtChatBubble(QWidget):
         btn = getattr(self, "tools_button", None)
         if btn is None:
             return
+        t = self._theme or self._compute_theme()
 
         total = len(self._available_external_tools or [])
         enabled = len(self._enabled_external_tools or set())
@@ -1579,17 +1804,17 @@ class QtChatBubble(QWidget):
         btn.setToolTip(f"Tools enabled: {enabled}/{total} (safe: {safe_enabled}, approval: {approval_enabled})")
 
         if enabled == 0:
-            border = "#333333"
-            bg = "rgba(255, 255, 255, 0.04)"
-            fg = "rgba(255, 255, 255, 0.45)"
+            border = t["border"]
+            bg = t["overlay_pressed"]
+            fg = t["text_muted"]
         elif enabled < total:
-            border = "#0066cc"
-            bg = "rgba(0, 102, 204, 0.12)"
-            fg = "rgba(255, 255, 255, 0.85)"
+            border = t["accent"]
+            bg = t["accent_rgba_12"]
+            fg = t["text_primary"]
         else:
-            border = "#404040"
-            bg = "rgba(255, 255, 255, 0.08)"
-            fg = "rgba(255, 255, 255, 0.7)"
+            border = t["border"]
+            bg = t["overlay"]
+            fg = t["text_secondary"]
 
         btn.setStyleSheet(f"""
             QPushButton {{
@@ -1602,12 +1827,12 @@ class QtChatBubble(QWidget):
                 padding: 0px;
             }}
             QPushButton:hover {{
-                background: rgba(255, 255, 255, 0.12);
-                border: 1px solid #7c3aed;
-                color: rgba(255, 255, 255, 0.9);
+                background: {t['overlay_hover']};
+                border: 1px solid {t['accent']};
+                color: {t['text_primary']};
             }}
             QPushButton:pressed {{
-                background: rgba(255, 255, 255, 0.06);
+                background: {t['overlay_pressed']};
             }}
         """)
 
@@ -1664,6 +1889,7 @@ class QtChatBubble(QWidget):
 
     def update_attached_files_display(self):
         """Update the visual display of attached files."""
+        t = self._theme or self._compute_theme()
         # Clear existing file chips
         while self.attached_files_layout.count():
             child = self.attached_files_layout.takeAt(0)
@@ -1684,14 +1910,16 @@ class QtChatBubble(QWidget):
 
             # Create file chip
             file_chip = QFrame()
-            file_chip.setStyleSheet("""
-                QFrame {
-                    background: rgba(0, 102, 204, 0.2);
-                    border: 1px solid rgba(0, 102, 204, 0.4);
+            file_chip.setStyleSheet(
+                f"""
+                QFrame {{
+                    background: {t['accent_rgba_20']};
+                    border: 1px solid {t['accent_rgba_35']};
                     border-radius: 6px;
                     padding: 1px 4px;
-                }
-            """)
+                }}
+                """
+            )
 
             chip_layout = QHBoxLayout(file_chip)
             chip_layout.setContentsMargins(2, 1, 2, 1)
@@ -1715,24 +1943,28 @@ class QtChatBubble(QWidget):
                 icon = "📎"
 
             file_label = QLabel(f"{icon} {file_name[:20]}{'...' if len(file_name) > 20 else ''}")
-            file_label.setStyleSheet("background: transparent; border: none; color: rgba(255, 255, 255, 0.9); font-size: 8px;")
+            file_label.setStyleSheet(
+                f"background: transparent; border: none; color: {t['text_primary']}; font-size: 8px;"
+            )
             chip_layout.addWidget(file_label)
 
             # Remove button
             remove_btn = QPushButton("✕")
             remove_btn.setFixedSize(12, 12)
-            remove_btn.setStyleSheet("""
-                QPushButton {
+            remove_btn.setStyleSheet(
+                f"""
+                QPushButton {{
                     background: transparent;
                     border: none;
-                    color: rgba(255, 255, 255, 0.6);
+                    color: {t['text_muted']};
                     font-size: 8px;
                     padding: 0px;
-                }
-                QPushButton:hover {
+                }}
+                QPushButton:hover {{
                     color: rgba(255, 60, 60, 0.9);
-                }
-            """)
+                }}
+                """
+            )
             remove_btn.clicked.connect(lambda checked, fp=file_path: self.remove_attached_file(fp))
             chip_layout.addWidget(remove_btn)
 
