@@ -81,16 +81,24 @@ This is a UX optimization only: the runtime stores remain the durability source 
 By default, state is stored under `~/.abstractassistant/`.
 
 Notes:
-- `assistant run ...` supports `--data-dir` (CLI-only).
-- The tray app currently uses `~/.abstractassistant/` directly.
+- Both `abstractassistant run ...` and `abstractassistant tray ...` support `--data-dir` (optional).
+- Default remains `~/.abstractassistant/`.
 
 ```
 ~/.abstractassistant/
+  sessions.json
   session.json
   runtime/
     *.json   (run store)
     *.jsonl  (ledger)
     ...      (artifacts)
+  sessions/
+    <session_id>/
+      session.json
+      runtime/
+        *.json
+        *.jsonl
+        ...
 ```
 
 Durability is provided by AbstractRuntime:

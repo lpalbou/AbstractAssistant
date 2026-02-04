@@ -6,6 +6,7 @@ Handles system tray integration, UI coordination, and application lifecycle.
 
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import pystray
@@ -131,17 +132,26 @@ class EnhancedClickableIcon(pystray.Icon):
 class AbstractAssistantApp:
     """Main application class coordinating all components."""
     
-    def __init__(self, config: Optional[Config] = None, debug: bool = False, listening_mode: str = "wait"):
+    def __init__(
+        self,
+        config: Optional[Config] = None,
+        debug: bool = False,
+        listening_mode: str = "wait",
+        *,
+        data_dir: Optional[Path] = None,
+    ):
         """Initialize the AbstractAssistant application.
 
         Args:
             config: Configuration object (uses default if None)
             debug: Enable debug mode
             listening_mode: Voice listening mode (none, stop, wait, full)
+            data_dir: Assistant base data dir (sessions + runtime stores)
         """
         self.config = config or Config.default()
         self.debug = debug
         self.listening_mode = listening_mode
+        self.data_dir = Path(data_dir).expanduser() if data_dir is not None else None
         
         # Validate configuration
         if not self.config.validate():
@@ -152,7 +162,7 @@ class AbstractAssistantApp:
         # Initialize components
         self.icon: Optional[pystray.Icon] = None
         self.bubble_manager: Optional[QtBubbleManager] = None
-        self.llm_manager: LLMManager = LLMManager(config=self.config, debug=self.debug)
+        self.llm_manager: LLMManager = LLMManager(config=self.config, debug=self.debug, data_dir=self.data_dir)
         self.icon_generator: IconGenerator = IconGenerator(size=self.config.system_tray.icon_size)
         
         # Application state

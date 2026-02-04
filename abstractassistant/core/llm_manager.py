@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from .agent_host import AgentHost, AgentHostConfig
 from .session_index import SessionIndex
+from .session_store import SessionStore
 
 
 @dataclass
@@ -88,10 +89,15 @@ class LLMManager:
     def list_sessions(self) -> List[Dict[str, str]]:
         out: List[Dict[str, str]] = []
         for rec in self._session_index.records():
+            title = rec.title
+            if str(title).strip().lower() in {"", "new session"}:
+                fallback = self._fallback_title_for_session(rec.session_id)
+                if fallback:
+                    title = fallback
             out.append(
                 {
                     "session_id": rec.session_id,
-                    "title": rec.title,
+                    "title": str(title),
                     "created_at": rec.created_at,
                     "updated_at": rec.updated_at,
                 }
@@ -182,6 +188,40 @@ class LLMManager:
             return None, None
         return prompts[0], prompts[-1]
 
+    def _fallback_title_for_session(self, session_id: str) -> Optional[str]:
+        """Local-only fallback title derived from transcript (no network)."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            return None
+        try:
+            data_dir = self._session_index.data_dir_for(sid)
+            snap = SessionStore(Path(data_dir) / "session.json").load()
+        except Exception:
+            return None
+        if snap is None or not isinstance(getattr(snap, "messages", None), list):
+            return None
+        first, last = self._extract_first_last_questions(list(snap.messages))
+        if not first and not last:
+            return None
+
+        def _clean(s: Optional[str]) -> str:
+            txt = str(s or "").replace("\n", " ").replace("\r", " ").strip()
+            return " ".join(txt.split())
+
+        def _trunc(txt: str, n: int) -> str:
+            t = _clean(txt)
+            if len(t) <= n:
+                return t
+            return (t[: max(0, n - 1)].rstrip() + "…").strip()
+
+        first_txt = _clean(first)
+        last_txt = _clean(last)
+        if not first_txt:
+            return _trunc(last_txt, 80) if last_txt else None
+        if not last_txt or first_txt == last_txt:
+            return _trunc(first_txt, 80)
+        return f"{_trunc(first_txt, 34)} → {_trunc(last_txt, 34)}"
+
     @staticmethod
     def _generate_session_title(*, provider: str, model: str, first: str, last: str) -> Optional[str]:
         """Return a single-line title or None (best-effort)."""
@@ -262,13 +302,13 @@ class LLMManager:
         if isinstance(max_tokens, int) and max_tokens > 0:
             self.token_usage.max_context = max_tokens
 
-    def create_new_session(self, tts_mode: bool = False):
+    def reset_active_session(self, tts_mode: bool = False) -> None:
         self._tts_mode = bool(tts_mode)
         self._host.clear_messages()
         self._refresh_session_view()
 
     def clear_session(self):
-        self.create_new_session(tts_mode=False)
+        self.reset_active_session(tts_mode=False)
 
     def update_session_mode(self, tts_mode: bool = False):
         self._tts_mode = bool(tts_mode)

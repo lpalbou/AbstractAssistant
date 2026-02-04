@@ -149,6 +149,7 @@ def main() -> int:
             config=config,
             debug=bool(args.debug),
             listening_mode=str(getattr(args, "listening_mode", "wait")),
+            data_dir=Path(args.data_dir).expanduser() if getattr(args, "data_dir", None) else None,
         )
         app.run()
         return 0

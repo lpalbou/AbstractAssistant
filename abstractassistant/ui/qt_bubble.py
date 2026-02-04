@@ -37,7 +37,7 @@ try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout,
         QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-        QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog
+        QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject
     from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -48,7 +48,7 @@ except ImportError:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
             QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-            QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog
+            QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject
         from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -59,7 +59,7 @@ except ImportError:
             from PyQt6.QtWidgets import (
                 QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                 QTextEdit, QPushButton, QComboBox, QLabel, QFrame,
-                QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog
+                QFileDialog, QMessageBox, QInputDialog, QCheckBox, QDialog, QMenu
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot
             from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
@@ -580,6 +580,19 @@ class QtChatBubble(QWidget):
         self.setup_ui()
         self.setup_styling()
         self.load_providers()
+
+        # Bootstrap UI state from the durable active session (tokens/history).
+        try:
+            if self.llm_manager and hasattr(self.llm_manager, "refresh"):
+                self.llm_manager.refresh()
+        except Exception:
+            pass
+        try:
+            self._update_message_history_from_session()
+            self._update_token_count_from_session()
+            self._reload_session_combo()
+        except Exception:
+            pass
         
         if self.debug:
             print("✅ QtChatBubble initialized")
@@ -648,41 +661,100 @@ class QtChatBubble(QWidget):
             }
         """)
         header_layout.addWidget(self.close_button)
-        
-        # Session buttons (minimal, rounded)
-        session_buttons = [
-            ("Clear", self.clear_session),
-            ("Load", self.load_session), 
-            ("Save", self.save_session),
-            # ("Compact", self.compact_session),  # Hidden for now - functionality preserved
-            ("Trace", self.show_trace),
-            ("History", self.show_history),
-        ]
-        
-        for text, handler in session_buttons:
-            btn = QPushButton(text)
-            btn.setFixedHeight(22)
-            btn.clicked.connect(handler)
 
-            # Store reference to history button for toggle appearance
-            if text == "History":
-                self.history_button = btn
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: rgba(255, 255, 255, 0.06);
-                    border: none;
-                    border-radius: 11px;
-                    font-size: 10px;
-                    color: rgba(255, 255, 255, 0.7);
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                    padding: 0 10px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.12);
-                    color: rgba(255, 255, 255, 0.9);
-                }
-            """)
-            header_layout.addWidget(btn)
+        # Session selector + New session (replaces legacy "Clear" in the header).
+        self.session_combo = QComboBox()
+        self.session_combo.setFixedHeight(22)
+        self.session_combo.setMinimumWidth(240)
+        self.session_combo.setToolTip("Select a session")
+        self.session_combo.setStyleSheet("""
+            QComboBox {
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 11px;
+                font-size: 10px;
+                color: rgba(255, 255, 255, 0.8);
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                padding: 0 10px;
+            }
+            QComboBox:hover {
+                background: rgba(255, 255, 255, 0.12);
+                color: rgba(255, 255, 255, 0.9);
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+        """)
+        try:
+            self.session_combo.view().setMinimumWidth(420)
+        except Exception:
+            pass
+        self.session_combo.currentIndexChanged.connect(self._on_session_combo_changed)
+        header_layout.addWidget(self.session_combo)
+
+        self.new_session_button = QPushButton("New")
+        self.new_session_button.setFixedHeight(22)
+        self.new_session_button.setToolTip("Start a new session")
+        self.new_session_button.clicked.connect(self._start_new_session)
+        self.new_session_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 11px;
+                font-size: 10px;
+                color: rgba(255, 255, 255, 0.7);
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                padding: 0 10px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+                color: rgba(255, 255, 255, 0.9);
+            }
+        """)
+        header_layout.addWidget(self.new_session_button)
+
+        # Overflow menu to reduce header clutter (Load/Save/Debug actions).
+        self.more_button = QPushButton("⋯")
+        self.more_button.setFixedSize(28, 22)
+        self.more_button.setToolTip("More")
+        self.more_button.clicked.connect(self._show_more_menu)
+        self.more_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 11px;
+                font-size: 14px;
+                color: rgba(255, 255, 255, 0.7);
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+                color: rgba(255, 255, 255, 0.9);
+            }
+        """)
+        header_layout.addWidget(self.more_button)
+
+        # Messages/history button (user-facing transcript).
+        self.history_button = QPushButton("Messages")
+        self.history_button.setFixedHeight(22)
+        self.history_button.clicked.connect(self.show_history)
+        self.history_button.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-radius: 11px;
+                font-size: 10px;
+                color: rgba(255, 255, 255, 0.7);
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                padding: 0 10px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+                color: rgba(255, 255, 255, 0.9);
+            }
+        """)
+        header_layout.addWidget(self.history_button)
         
         # TTS toggle (if available)
         if self.voice_manager and self.voice_manager.is_available():
@@ -764,7 +836,6 @@ class QtChatBubble(QWidget):
                 background: rgba(255, 255, 255, 0.06);
             }
         """)
-        input_row.addWidget(self.attach_button)
 
         # Tool selector button (per-run tool allowlist)
         self.tools_button = QPushButton("🛠")
@@ -792,14 +863,17 @@ class QtChatBubble(QWidget):
                 background: rgba(255, 255, 255, 0.06);
             }
         """)
-        input_row.addWidget(self.tools_button)
 
         # Text input - larger, primary focus
         self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
         self.input_text.setMaximumHeight(100)  # Increased to better use available space
         self.input_text.setMinimumHeight(70)   # Increased to better use available space
-        input_row.addWidget(self.input_text)
+        input_row.addWidget(self.input_text, 1)
+
+        # Keep action buttons on the right to maximize typing space.
+        input_row.addWidget(self.attach_button)
+        input_row.addWidget(self.tools_button)
 
         # Send button - primary action with special styling
         self.send_button = QPushButton("→")
@@ -954,6 +1028,12 @@ class QtChatBubble(QWidget):
 
         # Enter key handling
         self.input_text.keyPressEvent = self.handle_key_press
+
+        # Populate session selector (durable multi-session).
+        try:
+            self._reload_session_combo(select_session_id=getattr(self.llm_manager, "active_session_id", None))
+        except Exception:
+            pass
     
     def setup_styling(self):
         """Set up Cursor-style clean theme."""
@@ -1723,6 +1803,7 @@ class QtChatBubble(QWidget):
         # 4. Update UI for sending state
         self.send_button.setEnabled(False)
         self.send_button.setText("⏳")
+        self._set_session_controls_enabled(False)
         self.status_label.setText("generating")
         self.status_label.setObjectName("status_generating")
         self.status_label.setStyleSheet("""
@@ -1964,6 +2045,7 @@ class QtChatBubble(QWidget):
         
         self.send_button.setEnabled(True)
         self.send_button.setText("→")
+        self._set_session_controls_enabled(True)
         self.status_label.setText("ready")
         self.status_label.setObjectName("status_ready")
         self.status_label.setStyleSheet("""
@@ -1989,6 +2071,25 @@ class QtChatBubble(QWidget):
 
         # Update token count from AbstractCore
         self._update_token_count_from_session()
+
+        # Refresh sessions list (recency ordering).
+        try:
+            self._reload_session_combo()
+        except Exception:
+            pass
+
+        # Best-effort: auto-title the active session for the dropdown.
+        try:
+            if self.llm_manager and hasattr(self.llm_manager, "update_active_session_title_async"):
+                self.llm_manager.update_active_session_title_async(
+                    provider=self.current_provider,
+                    model=self.current_model,
+                    on_done=lambda _sid, _title: QMetaObject.invokeMethod(
+                        self, "_refresh_session_combo_ui", Qt.QueuedConnection
+                    ),
+                )
+        except Exception:
+            pass
         
         # Handle TTS if enabled (AbstractVoice integration)
         if self.tts_enabled and self.voice_manager and self.voice_manager.is_available():
@@ -2541,6 +2642,7 @@ class QtChatBubble(QWidget):
         """Handle LLM error."""
         self.send_button.setEnabled(True)
         self.send_button.setText("→")
+        self._set_session_controls_enabled(True)
         self.status_label.setText("error")
         self.status_label.setObjectName("status_error")
         self.status_label.setStyleSheet("""
@@ -2592,41 +2694,257 @@ class QtChatBubble(QWidget):
     def set_status_callback(self, callback):
         """Set status callback function."""
         self.status_callback = callback
+
+    def _set_session_controls_enabled(self, enabled: bool) -> None:
+        for attr in ("session_combo", "new_session_button"):
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            try:
+                w.setEnabled(bool(enabled))
+            except Exception:
+                pass
+
+    def _selected_session_id(self) -> Optional[str]:
+        combo = getattr(self, "session_combo", None)
+        if combo is None:
+            return None
+        try:
+            sid = combo.currentData()
+        except Exception:
+            sid = None
+        sid = str(sid or "").strip()
+        return sid or None
+
+    def _reload_session_combo(self, *, select_session_id: Optional[str] = None) -> None:
+        combo = getattr(self, "session_combo", None)
+        if combo is None:
+            return
+        if not self.llm_manager or not hasattr(self.llm_manager, "list_sessions"):
+            try:
+                combo.clear()
+                combo.addItem("Session")
+                combo.setEnabled(False)
+            except Exception:
+                pass
+            return
+
+        try:
+            sessions = list(self.llm_manager.list_sessions() or [])
+        except Exception:
+            sessions = []
+
+        active = select_session_id or self._selected_session_id()
+        if not active:
+            try:
+                active = str(getattr(self.llm_manager, "active_session_id", "") or "").strip()
+            except Exception:
+                active = None
+
+        try:
+            combo.blockSignals(True)
+            combo.clear()
+
+            select_index = 0
+            items = 0
+            for rec in sessions:
+                if not isinstance(rec, dict):
+                    continue
+                sid = str(rec.get("session_id") or "").strip()
+                if not sid:
+                    continue
+                title = str(rec.get("title") or "New session").strip() or "New session"
+                label = title
+                if title.strip().lower() == "new session":
+                    stamp = str(rec.get("updated_at") or rec.get("created_at") or "").strip()
+                    human = None
+                    if stamp:
+                        try:
+                            dt = datetime.fromisoformat(stamp)
+                            human = dt.astimezone().strftime("%b %d %H:%M")
+                        except Exception:
+                            human = None
+                    label = f"{title} • {human}" if human else f"{title} • {sid[-6:]}"
+                combo.addItem(label, sid)
+                try:
+                    idx = combo.count() - 1
+                    role = getattr(Qt, "ToolTipRole", None) or getattr(getattr(Qt, "ItemDataRole", object), "ToolTipRole", None)
+                    if role is not None:
+                        tip_lines = [title, sid]
+                        updated = str(rec.get("updated_at") or "").strip()
+                        if updated:
+                            tip_lines.append(f"Updated: {updated}")
+                        combo.setItemData(idx, "\n".join(tip_lines), role)
+                except Exception:
+                    pass
+                if active and sid == active:
+                    select_index = items
+                items += 1
+
+            if combo.count() <= 0:
+                combo.addItem("New session")
+                combo.setEnabled(False)
+            else:
+                combo.setEnabled(True)
+                combo.setCurrentIndex(select_index)
+        finally:
+            try:
+                combo.blockSignals(False)
+            except Exception:
+                pass
+
+    def _is_run_in_progress(self) -> bool:
+        try:
+            if self.worker is not None and hasattr(self.worker, "isRunning") and self.worker.isRunning():
+                return True
+        except Exception:
+            pass
+        try:
+            return not bool(self.send_button.isEnabled())
+        except Exception:
+            return False
+
+    def _on_session_combo_changed(self, index: int) -> None:
+        if not self.llm_manager or not hasattr(self.llm_manager, "switch_session"):
+            return
+
+        combo = getattr(self, "session_combo", None)
+        if combo is None:
+            return
+
+        try:
+            sid = combo.itemData(int(index))
+        except Exception:
+            sid = None
+        sid = str(sid or "").strip()
+        if not sid:
+            return
+
+        try:
+            current = str(getattr(self.llm_manager, "active_session_id", "") or "").strip()
+        except Exception:
+            current = ""
+        if sid == current:
+            return
+
+        if self._is_run_in_progress():
+            QMessageBox.information(self, "Session switch", "Please wait for the current response to finish.")
+            self._reload_session_combo(select_session_id=current or None)
+            return
+
+        try:
+            self.llm_manager.switch_session(sid)
+        except Exception as e:
+            QMessageBox.warning(self, "Session switch", f"Failed to switch session:\n{e}")
+            self._reload_session_combo(select_session_id=current or None)
+            return
+
+        try:
+            if hasattr(self.llm_manager, "refresh"):
+                self.llm_manager.refresh()
+        except Exception:
+            pass
+
+        self._reload_session_combo(select_session_id=sid)
+
+        # Reset per-session UI caches.
+        self.attached_files.clear()
+        self.message_file_attachments.clear()
+        self.update_attached_files_display()
+
+        self._update_message_history_from_session()
+        self._update_token_count_from_session()
+        self._rebuild_chat_display()
+
+        # If the history window is open but the new session is empty, hide it.
+        if self.history_dialog and self.history_dialog.isVisible() and not self.message_history:
+            try:
+                self.history_dialog.hide()
+                self._update_history_button_appearance(False)
+            except Exception:
+                pass
+
+    def _start_new_session(self) -> None:
+        if not self.llm_manager or not hasattr(self.llm_manager, "create_new_session"):
+            return
+
+        if self._is_run_in_progress():
+            QMessageBox.information(self, "New session", "Please wait for the current response to finish.")
+            return
+
+        try:
+            new_id = str(self.llm_manager.create_new_session() or "").strip()
+        except Exception as e:
+            QMessageBox.warning(self, "New session", f"Failed to create a new session:\n{e}")
+            return
+
+        # Reset per-session UI caches.
+        self.attached_files.clear()
+        self.message_file_attachments.clear()
+        self.update_attached_files_display()
+
+        self._update_message_history_from_session()
+        self._update_token_count_from_session()
+        self._rebuild_chat_display()
+
+        if self.history_dialog and self.history_dialog.isVisible():
+            try:
+                self.history_dialog.hide()
+                self._update_history_button_appearance(False)
+            except Exception:
+                pass
+
+        self._reload_session_combo(select_session_id=new_id or None)
+
+    @pyqtSlot()
+    def _refresh_session_combo_ui(self) -> None:
+        try:
+            self._reload_session_combo()
+        except Exception:
+            pass
+
+    def _show_more_menu(self) -> None:
+        btn = getattr(self, "more_button", None)
+        if btn is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("Load…", self.load_session)
+        menu.addAction("Save…", self.save_session)
+        if bool(getattr(self, "debug", False)):
+            menu.addSeparator()
+            menu.addAction("Run trace (debug)…", self.show_trace)
+
+        try:
+            pos = btn.mapToGlobal(QPoint(0, btn.height()))
+        except Exception:
+            pos = None
+
+        try:
+            if pos is None:
+                if hasattr(menu, "exec_"):
+                    menu.exec_()
+                else:
+                    menu.exec()
+            else:
+                if hasattr(menu, "exec_"):
+                    menu.exec_(pos)
+                else:
+                    menu.exec(pos)
+        except Exception:
+            return
     
     def clear_session(self):
-        """Clear the current session."""
+        """Start a new session (prior sessions remain available)."""
         reply = QMessageBox.question(
-            self, 
-            "Clear Session", 
-            "Are you sure you want to clear the current session?\nThis will remove all messages, attached files, and reset the token count.",
+            self,
+            "New Session",
+            "Start a new session?\nYour previous sessions will remain available in the session dropdown.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.No,
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
-            if hasattr(self, 'chat_display'):
-                self.chat_display.clear()
-                self.chat_display.hide()
-
-            # Clear AbstractCore session and create a new one
-            if self.llm_manager:
-                self.llm_manager.create_new_session()
-                if self.debug:
-                    if self.debug:
-                        print("🧹 AbstractCore session cleared and recreated")
-
-            self.message_history.clear()
-            self.token_count = 0
-            self.update_token_display()
-
-            # Clear attached files as part of session clearing
-            self.attached_files.clear()
-            self.message_file_attachments.clear()
-            self.update_attached_files_display()
-
-            if self.debug:
-                if self.debug:
-                    print("🧹 Session cleared (including attached files and file tracking)")
+            self._start_new_session()
     
     def compact_session(self):
         """Compact the current session using AbstractCore's summarizer functionality."""
@@ -2916,6 +3234,8 @@ Continue the conversation naturally, referring to the context above when relevan
 
                         # Update our local message history from AbstractCore
                         self._update_message_history_from_session()
+                        self._update_token_count_from_session()
+                        self._reload_session_combo()
                         self._rebuild_chat_display()
 
                         QMessageBox.information(

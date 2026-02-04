@@ -111,7 +111,7 @@ class ClickableBubble(QFrame):
                         background: {self.clicked_bg};
                         border: none;
                         border-radius: 18px;
-                        max-width: 480px;
+                        max-width: 576px;
                     }}
                 """)
         super().mousePressEvent(event)
@@ -139,7 +139,7 @@ class ClickableBubble(QFrame):
                             background: {glossy_color};
                             border: none;
                             border-radius: 18px;
-                            max-width: 480px;
+                            max-width: 576px;
                         }}
                     """)
 
@@ -165,7 +165,7 @@ class ClickableBubble(QFrame):
                 background: {self.selected_bg};
                 border: 2px solid #FFFFFF;
                 border-radius: 18px;
-                max-width: 480px;
+                max-width: 576px;
             }}
         """)
         
@@ -248,7 +248,7 @@ class ClickableBubble(QFrame):
                 background: {self.normal_bg};
                 border: none;
                 border-radius: 18px;
-                max-width: 480px;
+                max-width: 576px;
             }}
         """)
 
@@ -259,7 +259,7 @@ class ClickableBubble(QFrame):
                 background: {self.normal_bg};
                 border: none;
                 border-radius: 18px;
-                max-width: 480px;
+                max-width: 576px;
             }}
         """)
 
@@ -614,7 +614,7 @@ class iPhoneMessagesDialog:
         dialog.setWindowTitle("Messages")
         dialog.setModal(False)
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(605, 650)  # Wider history dialog for readability
+        dialog.resize(726, 650)  # Wider history dialog for readability
 
         # Set delete callback
         if delete_callback:
@@ -868,7 +868,7 @@ class iPhoneMessagesDialog:
                     background: #007AFF;
                     border: none;
                     border-radius: 18px;
-                    max-width: 480px;
+                    max-width: 576px;
                 }
             """)
             content_label.setStyleSheet("""
@@ -893,7 +893,7 @@ class iPhoneMessagesDialog:
                     background: #3a3a3c;
                     border: none;
                     border-radius: 18px;
-                    max-width: 480px;
+                    max-width: 576px;
                 }
             """)
             content_label.setStyleSheet("""
