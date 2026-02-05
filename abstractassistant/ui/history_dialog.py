@@ -27,6 +27,7 @@ try:
         QFrame,
         QPushButton,
         QApplication,
+        QSizePolicy,
     )
     from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
     from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon
@@ -43,6 +44,7 @@ except ImportError:
             QFrame,
             QPushButton,
             QApplication,
+            QSizePolicy,
         )
         from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
         from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon
@@ -58,6 +60,7 @@ except ImportError:
             QFrame,
             QPushButton,
             QApplication,
+            QSizePolicy,
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize
         from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon
@@ -111,7 +114,6 @@ class ClickableBubble(QFrame):
                         background: {self.clicked_bg};
                         border: none;
                         border-radius: 18px;
-                        max-width: 490px;
                     }}
                 """)
         super().mousePressEvent(event)
@@ -139,7 +141,6 @@ class ClickableBubble(QFrame):
                             background: {glossy_color};
                             border: none;
                             border-radius: 18px;
-                            max-width: 490px;
                         }}
                     """)
 
@@ -165,7 +166,6 @@ class ClickableBubble(QFrame):
                 background: {self.selected_bg};
                 border: 2px solid #FFFFFF;
                 border-radius: 18px;
-                max-width: 490px;
             }}
         """)
         
@@ -248,7 +248,6 @@ class ClickableBubble(QFrame):
                 background: {self.normal_bg};
                 border: none;
                 border-radius: 18px;
-                max-width: 490px;
             }}
         """)
 
@@ -259,7 +258,6 @@ class ClickableBubble(QFrame):
                 background: {self.normal_bg};
                 border: none;
                 border-radius: 18px;
-                max-width: 490px;
             }}
         """)
 
@@ -276,6 +274,26 @@ class SafeDialog(QDialog):
         self.message_bubbles = []
         self.trash_button = None
         self.edit_button = None
+
+    def showEvent(self, event):
+        try:
+            super().showEvent(event)
+        except Exception:
+            pass
+        try:
+            QTimer.singleShot(0, lambda: iPhoneMessagesDialog._sync_bubble_widths(self))
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        try:
+            super().resizeEvent(event)
+        except Exception:
+            pass
+        try:
+            iPhoneMessagesDialog._sync_bubble_widths(self)
+        except Exception:
+            pass
 
     def set_hide_callback(self, callback):
         """Set callback to call when dialog is hidden."""
@@ -525,7 +543,11 @@ class SafeDialog(QDialog):
                     QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(
                         self.scroll_area.verticalScrollBar().maximum()
                     ))
-                
+                    try:
+                        QTimer.singleShot(0, lambda: iPhoneMessagesDialog._sync_bubble_widths(self))
+                    except Exception:
+                        pass
+
                 # Update the entire dialog
                 self.update()
                 self.repaint()
@@ -645,6 +667,18 @@ class iPhoneMessagesDialog:
 
         # Messages content
         messages_widget = QWidget()
+        try:
+            messages_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        except Exception:
+            try:
+                messages_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        try:
+            # Prevent first-paint narrow layouts: keep the content at least as wide as the dialog.
+            messages_widget.setMinimumWidth(int(dialog.width()))
+        except Exception:
+            pass
         messages_layout = QVBoxLayout(messages_widget)
         messages_layout.setContentsMargins(0, 16, 0, 16)  # iPhone spacing
         messages_layout.setSpacing(0)
@@ -667,7 +701,56 @@ class iPhoneMessagesDialog:
         # Auto-scroll to bottom to show the latest messages
         QTimer.singleShot(100, lambda: scroll_area.verticalScrollBar().setValue(scroll_area.verticalScrollBar().maximum()))
 
+        # After the first layout pass, sync bubble widths to the actual viewport size.
+        try:
+            QTimer.singleShot(0, lambda: iPhoneMessagesDialog._sync_bubble_widths(dialog))
+            QTimer.singleShot(40, lambda: iPhoneMessagesDialog._sync_bubble_widths(dialog))
+        except Exception:
+            pass
+
         return dialog
+
+    @staticmethod
+    def _sync_bubble_widths(dialog: "SafeDialog", *, ratio: float = 0.70) -> None:
+        """Ensure message bubbles use the desired width ratio of the visible viewport."""
+        if dialog is None:
+            return
+        try:
+            viewport_w = int(dialog.scroll_area.viewport().width()) if hasattr(dialog, "scroll_area") else int(dialog.width())
+        except Exception:
+            viewport_w = int(getattr(dialog, "width", lambda: 0)() or 0)
+        if viewport_w <= 0:
+            return
+
+        bubble_w = int(max(240, viewport_w * float(ratio)))
+        try:
+            bubble_w = min(bubble_w, viewport_w)
+        except Exception:
+            pass
+
+        try:
+            if hasattr(dialog, "messages_widget") and dialog.messages_widget:
+                dialog.messages_widget.setMinimumWidth(viewport_w)
+        except Exception:
+            pass
+
+        try:
+            bubbles = getattr(dialog, "message_bubbles", None)
+            if isinstance(bubbles, list):
+                for b in bubbles:
+                    try:
+                        b.setFixedWidth(bubble_w)
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        try:
+            if hasattr(dialog, "messages_widget") and dialog.messages_widget:
+                dialog.messages_widget.updateGeometry()
+                dialog.messages_widget.update()
+        except Exception:
+            pass
 
     @staticmethod
     def _position_dialog_right(dialog):
@@ -824,6 +907,13 @@ class iPhoneMessagesDialog:
         # Message bubble container
         container = QFrame()
         container.setStyleSheet("background: transparent; border: none;")
+        try:
+            container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        except Exception:
+            try:
+                container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         layout = QHBoxLayout(container)
         layout.setContentsMargins(12, 0, 12, 0)  # Tighter margins for more width
         layout.setSpacing(0)
@@ -847,6 +937,11 @@ class iPhoneMessagesDialog:
         
         # Create clickable bubble with deletion support
         bubble = ClickableBubble(msg['content'], is_user, index)
+        try:
+            bubble_max_width = int(max(240, dialog.width() * 0.70))
+        except Exception:
+            bubble_max_width = 432
+        bubble.setFixedWidth(bubble_max_width)
         bubble.selection_changed.connect(dialog.on_selection_changed)
         bubble.selection_circle = selection_circle  # Store reference
         dialog.message_bubbles.append(bubble)  # Track bubbles for selection mode
@@ -891,7 +986,38 @@ class iPhoneMessagesDialog:
         content = iPhoneMessagesDialog._process_full_markdown(msg['content'])
         content_label = QLabel(content)
         content_label.setWordWrap(True)
-        content_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)  # No text selection, bubble handles clicks
+        try:
+            content_label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        except Exception:
+            try:
+                content_label.setTextInteractionFlags(Qt.LinksAccessibleByMouse)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        try:
+            def _open_href(href: str) -> None:
+                h = str(href or "").strip()
+                if not h:
+                    return
+                low = h.lower()
+                if low.startswith("file://"):
+                    iPhoneMessagesDialog._open_tool_link("file", h)
+                    return
+                if low.startswith(("http://", "https://")):
+                    iPhoneMessagesDialog._open_tool_link("url", h)
+                    return
+                if re.match(r"^[A-Za-z]:\\\\", h) or h.startswith(("/", "~")):
+                    iPhoneMessagesDialog._open_tool_link("file", h)
+                    return
+                if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", h):
+                    iPhoneMessagesDialog._open_tool_link("url", h)
+                    return
+                # Default: treat as a local (possibly relative) file path.
+                iPhoneMessagesDialog._open_tool_link("file", h)
+
+            content_label.setOpenExternalLinks(False)
+            content_label.linkActivated.connect(_open_href)
+        except Exception:
+            pass
         content_label.setTextFormat(Qt.TextFormat.RichText)
 
         if is_user:
@@ -902,7 +1028,6 @@ class iPhoneMessagesDialog:
                         background: #007AFF;
                         border: 1px solid rgba(255, 255, 255, 0.22);
                         border-radius: 18px;
-                        max-width: 490px;
                     }
                 """)
             else:
@@ -911,7 +1036,6 @@ class iPhoneMessagesDialog:
                         background: #007AFF;
                         border: none;
                         border-radius: 18px;
-                        max-width: 490px;
                     }
                 """)
             content_label.setStyleSheet("""
@@ -937,7 +1061,6 @@ class iPhoneMessagesDialog:
                         background: #343436;
                         border: 1px solid rgba(124, 58, 237, 0.45);
                         border-radius: 18px;
-                        max-width: 490px;
                     }
                 """)
             else:
@@ -946,7 +1069,6 @@ class iPhoneMessagesDialog:
                         background: #3a3a3c;
                         border: none;
                         border-radius: 18px;
-                        max-width: 490px;
                     }
                 """)
             content_label.setStyleSheet("""
@@ -1535,12 +1657,12 @@ class iPhoneMessagesDialog:
         """Get AUTHENTIC iPhone Messages styles - dark background like real iPhone."""
         return """
             QDialog {
-                background: rgba(0, 0, 0, 0.35);
+                background: rgba(0, 0, 0, 0.55);
                 color: #ffffff;
             }
 
             QFrame {
-                background: rgba(0, 0, 0, 1);
+                background: rgba(0, 0, 0, 0.5);
                 border: none;
             }
 
