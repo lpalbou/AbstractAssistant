@@ -858,6 +858,35 @@ class iPhoneMessagesDialog:
         bubble_layout.setContentsMargins(12, 7, 12, 7)  # More compact padding
         bubble_layout.setSpacing(0)
 
+        ui_kind = str(msg.get("ui_kind") or "").strip()
+
+        if ui_kind in {"agent_question", "agent_answer"}:
+            tag_text = "AGENT QUESTION" if ui_kind == "agent_question" else "YOUR ANSWER"
+            if ui_kind == "agent_question":
+                tag_bg = "rgba(124, 58, 237, 0.22)"
+                tag_border = "rgba(124, 58, 237, 0.38)"
+            else:
+                tag_bg = "rgba(255, 255, 255, 0.14)"
+                tag_border = "rgba(255, 255, 255, 0.20)"
+            tag = QLabel(tag_text)
+            tag.setStyleSheet(
+                f"""
+                QLabel {{
+                    background: {tag_bg};
+                    border: 1px solid {tag_border};
+                    border-radius: 8px;
+                    padding: 1px 8px;
+                    margin: 0px 0px 6px 0px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.6px;
+                    color: rgba(255, 255, 255, 0.85);
+                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                }}
+                """
+            )
+            bubble_layout.addWidget(tag, 0, Qt.AlignmentFlag.AlignLeft)
+
         # Process content with FULL markdown support
         content = iPhoneMessagesDialog._process_full_markdown(msg['content'])
         content_label = QLabel(content)
@@ -867,14 +896,24 @@ class iPhoneMessagesDialog:
 
         if is_user:
             # User bubble: Blue with white text
-            bubble.setStyleSheet("""
-                QFrame {
-                    background: #007AFF;
-                    border: none;
-                    border-radius: 18px;
-                    max-width: 490px;
-                }
-            """)
+            if ui_kind == "agent_answer":
+                bubble.setStyleSheet("""
+                    QFrame {
+                        background: #007AFF;
+                        border: 1px solid rgba(255, 255, 255, 0.22);
+                        border-radius: 18px;
+                        max-width: 490px;
+                    }
+                """)
+            else:
+                bubble.setStyleSheet("""
+                    QFrame {
+                        background: #007AFF;
+                        border: none;
+                        border-radius: 18px;
+                        max-width: 490px;
+                    }
+                """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;
@@ -892,14 +931,24 @@ class iPhoneMessagesDialog:
             layout.addWidget(bubble)
         else:
             # Received bubble: Light gray with black text
-            bubble.setStyleSheet("""
-                QFrame {
-                    background: #3a3a3c;
-                    border: none;
-                    border-radius: 18px;
-                    max-width: 490px;
-                }
-            """)
+            if ui_kind == "agent_question":
+                bubble.setStyleSheet("""
+                    QFrame {
+                        background: #343436;
+                        border: 1px solid rgba(124, 58, 237, 0.45);
+                        border-radius: 18px;
+                        max-width: 490px;
+                    }
+                """)
+            else:
+                bubble.setStyleSheet("""
+                    QFrame {
+                        background: #3a3a3c;
+                        border: none;
+                        border-radius: 18px;
+                        max-width: 490px;
+                    }
+                """)
             content_label.setStyleSheet("""
                 QLabel {
                     background: transparent;

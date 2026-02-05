@@ -4283,6 +4283,10 @@ Continue the conversation naturally, referring to the context above when relevan
                     "attached_files": self.message_file_attachments.get(len(self.message_history), []),
                 }
 
+                ui_kind = m.get("ui_kind")
+                if isinstance(ui_kind, str) and ui_kind.strip():
+                    entry["ui_kind"] = ui_kind.strip()
+
                 tool_summary = m.get("tool_summary")
                 if isinstance(tool_summary, str) and tool_summary.strip():
                     entry["tool_summary"] = tool_summary.strip()

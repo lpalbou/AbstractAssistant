@@ -11,6 +11,7 @@ This module provides a small, UI-agnostic transformation:
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
@@ -144,6 +145,67 @@ def _tool_name_from_message(message: Dict[str, Any]) -> str:
         if isinstance(name, str) and name.strip():
             return name.strip()
     return "tool"
+
+
+def _extract_ask_user_prompt_from_tool_calls(metadata: Dict[str, Any]) -> str:
+    """Best-effort extraction of ask_user(prompt=...) from tool-call metadata."""
+    meta = dict(metadata or {}) if isinstance(metadata, dict) else {}
+    tool_calls = meta.get("tool_calls")
+    if tool_calls is None:
+        tool_calls = meta.get("toolCalls")
+    if not isinstance(tool_calls, list):
+        return ""
+
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            continue
+        name = call.get("name")
+        if name is None and isinstance(call.get("function"), dict):
+            name = call["function"].get("name")
+        if str(name or "").strip() != "ask_user":
+            continue
+
+        args = call.get("arguments")
+        if args is None and isinstance(call.get("function"), dict):
+            args = call["function"].get("arguments")
+
+        parsed_args: Any = args
+        if isinstance(args, str):
+            try:
+                parsed_args = json.loads(args)
+            except Exception:
+                parsed_args = args
+        if isinstance(parsed_args, dict):
+            prompt = parsed_args.get("prompt")
+            if isinstance(prompt, str) and prompt.strip():
+                return prompt.strip()
+    return ""
+
+
+def _extract_user_response_from_tool_content(content: str) -> str:
+    raw = str(content or "").strip()
+    if not raw:
+        return ""
+
+    # JSON payloads (common for tool outputs).
+    if raw.startswith("{") and raw.endswith("}"):
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            obj = None
+        if isinstance(obj, dict):
+            val = obj.get("response")
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
+    # Loose "response: ..." formats.
+    m = re.search(r"(?im)^\s*response\s*[:=]\s*(.+?)\s*$", raw)
+    if m:
+        return str(m.group(1) or "").strip()
+
+    # Common "[tool]:" prefix.
+    raw = re.sub(r"^\s*\[[^\]]+\]\s*:\s*", "", raw).strip()
+    return raw
 
 
 def _short_label_for_url(url: str) -> str:
@@ -371,23 +433,47 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
 
         if role == "tool":
             name = _tool_name_from_message(msg)
+            if name == "ask_user":
+                response_text = _extract_user_response_from_tool_content(content)
+                if response_text:
+                    out.append(
+                        {
+                            "role": "user",
+                            "content": response_text,
+                            "ui_kind": "agent_answer",
+                        }
+                    )
+                continue
+
             urls, paths = _extract_resources_for_tool(name, content)
-            pending_tools.append(
-                {
-                    "name": name,
-                    "urls": urls,
-                    "paths": paths,
-                }
-            )
+            pending_tools.append({"name": name, "urls": urls, "paths": paths})
             continue
 
         if role == "assistant":
+            from_tool_calls_prompt = False
             if kind == "tool_calls" and not content.strip():
                 # Internal placeholder used to preserve tool-call metadata for providers.
-                continue
+                prompt = _extract_ask_user_prompt_from_tool_calls(meta)
+                if prompt:
+                    content = prompt
+                    kind = ""
+                    meta = {}
+                    from_tool_calls_prompt = True
+                else:
+                    continue
+
+            ui_kind = ""
+            if from_tool_calls_prompt:
+                ui_kind = "agent_question"
+            elif re.match(r"(?is)^\s*\[\s*agent\s+question\s*\]\s*:\s*", content):
+                ui_kind = "agent_question"
+                content = re.sub(r"(?is)^\s*\[\s*agent\s+question\s*\]\s*:\s*", "", content).strip()
+
             cleaned_content, content_images = _extract_images_from_text(content)
             rendered = dict(msg)
             rendered["content"] = cleaned_content
+            if ui_kind:
+                rendered["ui_kind"] = ui_kind
             images: List[Dict[str, str]] = list(content_images)
             if pending_tools:
                 rendered["tool_summary"] = _build_tool_summary(pending_tools)
@@ -418,7 +504,11 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
             continue
 
         # Default: user / other roles.
-        out.append(dict(msg))
+        if role == "user" and re.match(r"(?is)^\s*\[\s*user\s+response\s*\]\s*:\s*", content):
+            cleaned = re.sub(r"(?is)^\s*\[\s*user\s+response\s*\]\s*:\s*", "", content).strip()
+            out.append({"role": "user", "content": cleaned, "ui_kind": "agent_answer"})
+        else:
+            out.append(dict(msg))
 
     # Best-effort: attach any leftover tool events to the last assistant message.
     if pending_tools and out:
