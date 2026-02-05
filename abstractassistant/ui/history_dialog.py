@@ -614,7 +614,7 @@ class iPhoneMessagesDialog:
         dialog.setWindowTitle("Messages")
         dialog.setModal(False)
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(617, 553)  # ~15% smaller than the previous 726x650
+        dialog.resize(617, 498)  # Slightly shorter; keep top anchored under the macOS navbar
         try:
             dialog.setWindowOpacity(0.97)
         except Exception:
