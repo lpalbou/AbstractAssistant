@@ -422,7 +422,37 @@ class ToolSelectorDialog(QDialog):
             """
         )
         controls_row.addWidget(self.count_pill)
+
+        bulk_btn_qss = f"""
+            QPushButton {{
+                background: {overlay};
+                border: 1px solid {mid_hex};
+                border-radius: 14px;
+                padding: 0 12px;
+                font-size: 11px;
+                font-weight: 700;
+                color: {text_secondary};
+            }}
+            QPushButton:hover {{
+                background: {overlay_hover};
+                border: 1px solid {accent_hex};
+                color: {text_primary};
+            }}
+            QPushButton:pressed {{
+                background: {overlay_pressed};
+            }}
+        """
+
         controls_row.addStretch()
+        select_all_btn = QPushButton("Select all")
+        select_all_btn.setFixedHeight(28)
+        select_all_btn.setStyleSheet(bulk_btn_qss)
+        controls_row.addWidget(select_all_btn)
+
+        select_none_btn = QPushButton("Select none")
+        select_none_btn.setFixedHeight(28)
+        select_none_btn.setStyleSheet(bulk_btn_qss)
+        controls_row.addWidget(select_none_btn)
         layout.addLayout(controls_row)
 
         self.filter_input = QLineEdit()
@@ -513,33 +543,56 @@ class ToolSelectorDialog(QDialog):
             row_layout.setContentsMargins(12, 10, 12, 10)
             row_layout.setSpacing(10)
 
-            cb = QCheckBox()
+            cb = QPushButton("✓")
+            cb.setCheckable(True)
             cb.setChecked(name in self._custom_selected)
+            cb.setFixedSize(22, 22)
+            try:
+                cb.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            except Exception:
+                try:
+                    cb.setFocusPolicy(Qt.NoFocus)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            try:
+                cb.setCursor(Qt.CursorShape.PointingHandCursor)
+            except Exception:
+                try:
+                    cb.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
             cb.setStyleSheet(
                 f"""
-                QCheckBox {{ color: {text_primary}; }}
-                QCheckBox::indicator {{
-                    width: 18px;
-                    height: 18px;
-                    border-radius: 4px;
+                QPushButton {{
+                    background: {overlay_pressed};
                     border: 1px solid {indicator_border};
-                    background: {overlay};
+                    border-radius: 6px;
+                    padding: 0px;
+                    color: transparent;
+                    font-size: 14px;
+                    font-weight: 900;
+                    text-align: center;
                 }}
-                QCheckBox::indicator:hover {{
+                QPushButton:hover {{
                     background: {overlay_hover};
                     border: 1px solid {accent_hex};
                 }}
-                QCheckBox::indicator:checked {{
+                QPushButton:checked {{
                     background: {accent_hex};
                     border: 1px solid {accent_hover};
+                    color: #ffffff;
                 }}
-                QCheckBox::indicator:checked:hover {{
+                QPushButton:checked:hover {{
                     background: {accent_hover};
                     border: 1px solid {accent_hover};
                 }}
+                QPushButton:checked:pressed {{
+                    background: {accent_pressed};
+                    border: 1px solid {accent_pressed};
+                }}
                 """
             )
-            cb.stateChanged.connect(lambda _=0, n=name: _on_checkbox_changed(n))
+            cb.toggled.connect(lambda _checked=False, n=name: _on_checkbox_changed(n))
             row_layout.addWidget(cb, 0, Qt.AlignmentFlag.AlignTop)
 
             text_col = QWidget()
@@ -706,6 +759,14 @@ class ToolSelectorDialog(QDialog):
 
         self.all_mode_btn.clicked.connect(lambda _=False: _set_mode("all"))
         self.custom_mode_btn.clicked.connect(lambda _=False: _set_mode("custom"))
+
+        select_all_btn.clicked.connect(lambda _=False: _set_mode("all"))
+
+        def _select_none() -> None:
+            self._custom_selected = set()
+            _set_mode("custom")
+
+        select_none_btn.clicked.connect(lambda _=False: _select_none())
 
         def _apply_filter() -> None:
             q = (self.filter_input.text() or "").strip().lower()
@@ -1045,6 +1106,7 @@ class QtChatBubble(QWidget):
         # Tool selection (external tools): controls the per-run allowlist passed to AbstractAgent.
         self._available_external_tools: List[Dict[str, str]] = []
         self._enabled_external_tools: set[str] = set()
+        self._enabled_external_tools_user_set: bool = False
         self._safe_external_tools: set[str] = set()
         self._require_approval_tools: set[str] = set()
         self._refresh_tool_inventory()
@@ -2208,7 +2270,7 @@ class QtChatBubble(QWidget):
         self._safe_external_tools = set(safe)
         self._require_approval_tools = set(require)
 
-        if not self._enabled_external_tools:
+        if not self._enabled_external_tools and not getattr(self, "_enabled_external_tools_user_set", False):
             self._enabled_external_tools = set(available_names)
         else:
             self._enabled_external_tools &= set(available_names)
@@ -2299,6 +2361,7 @@ class QtChatBubble(QWidget):
             return
 
         self._enabled_external_tools = set(dlg.selected_tools())
+        self._enabled_external_tools_user_set = True
         modes = dlg.selected_approval_modes()
         self._session_auto_approve_tools = {n for n, m in modes.items() if m == "approve"}
         self._session_force_ask_tools = {n for n, m in modes.items() if m == "ask"}
