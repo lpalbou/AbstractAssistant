@@ -3,9 +3,11 @@
 
 import sys
 import os
+from pathlib import Path
 
 # Add the project to Python path
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_qt_bubble():
     """Test the Qt bubble directly."""

@@ -13,7 +13,9 @@ This test verifies:
 
 import sys
 import time
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_full_voice_mode_ui():
     """Test the Full Voice Mode UI components."""

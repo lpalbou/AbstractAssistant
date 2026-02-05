@@ -12,9 +12,11 @@ This script shows the working application with:
 
 import sys
 import time
+from pathlib import Path
 
 # Add the abstractassistant module to the path
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def demo_voice_controls():

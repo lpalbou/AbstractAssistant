@@ -9,7 +9,9 @@ Based on user testing:
 
 import sys
 import time
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_reason_based_detection():
     """Test click detection with the actual reason values."""

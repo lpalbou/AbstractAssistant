@@ -5,10 +5,12 @@ Test the system tray icon single/double click functionality.
 
 import sys
 import time
+from pathlib import Path
 import threading
 
 # Add the abstractassistant module to the path
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_system_tray_clicks():
     """Test the ClickableIcon single/double click detection."""

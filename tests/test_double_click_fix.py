@@ -10,7 +10,9 @@ This test verifies:
 
 import sys
 import time
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_double_click_fix():
     """Test the fixed double click detection."""

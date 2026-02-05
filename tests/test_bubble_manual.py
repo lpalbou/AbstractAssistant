@@ -4,9 +4,11 @@
 import sys
 import os
 import time
+from pathlib import Path
 
 # Add the project to Python path
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_bubble_directly():
     """Test opening the bubble window directly."""

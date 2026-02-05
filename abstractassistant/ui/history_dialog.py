@@ -641,7 +641,7 @@ class iPhoneMessagesDialog:
         scroll_area.setWidgetResizable(True)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet("QScrollArea { background: #000000; border: none; }")
+        scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         # Messages content
         messages_widget = QWidget()
@@ -700,8 +700,8 @@ class iPhoneMessagesDialog:
         navbar.setFixedHeight(44)  # Compact header (about half the previous height)
         navbar.setStyleSheet("""
             QFrame {
-                background: #1c1c1e;
-                border-bottom: 0.5px solid #38383a;
+                background: #2c2c2e;
+                border-bottom: 0.5px solid #3a3a3c;
             }
         """)
 
@@ -1486,16 +1486,16 @@ class iPhoneMessagesDialog:
         """Get AUTHENTIC iPhone Messages styles - dark background like real iPhone."""
         return """
             QDialog {
-                background: #000000;
+                background: rgba(0, 0, 0, 0.35);
                 color: #ffffff;
             }
 
             QFrame {
-                background: transparent;
+                background: rgba(0, 0, 0, 1);
                 border: none;
             }
 
             QWidget {
-                background: transparent;
+                background: rgba(0, 0, 0, 0.35);
             }
         """

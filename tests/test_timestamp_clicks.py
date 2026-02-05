@@ -4,7 +4,10 @@ Demonstrate the timestamp-based click detection working in the real application.
 """
 
 import sys
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_timestamp_click_detection():
     """Test that demonstrates the actual click detection working."""

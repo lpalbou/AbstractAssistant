@@ -13,12 +13,14 @@ if __name__ != "__main__":  # pragma: no cover
 
 import sys
 import time
+from pathlib import Path
 import threading
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from PyQt5.QtCore import Qt, QTimer
 
 # Add the abstractassistant module to the path
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 try:
     from abstractassistant.core.tts_manager import VoiceManager

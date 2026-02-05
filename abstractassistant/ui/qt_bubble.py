@@ -271,6 +271,8 @@ class ToolSelectorDialog(QDialog):
         enabled: set[str],
         safe_preset: set[str],
         require_approval: set[str],
+        session_auto_approve: Optional[set[str]] = None,
+        session_force_ask: Optional[set[str]] = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Tools")
@@ -279,6 +281,8 @@ class ToolSelectorDialog(QDialog):
         self._tools = [t for t in list(tools) if isinstance(t, dict)]
         self._safe_preset = set(safe_preset)
         self._require_approval = set(require_approval)
+        self._session_auto_approve = set(session_auto_approve or set())
+        self._session_force_ask = set(session_force_ask or set())
 
         # Keep the tool order stable.
         self._all_names = [
@@ -540,7 +544,7 @@ class ToolSelectorDialog(QDialog):
 
             text_col = QWidget()
             text_col_layout = QVBoxLayout(text_col)
-            text_col_layout.setContentsMargins(0, 0, 0, 0)
+            text_col_layout.setContentsMargins(6, 0, 0, 0)
             text_col_layout.setSpacing(4)
 
             meta_row = QHBoxLayout()
@@ -576,6 +580,48 @@ class ToolSelectorDialog(QDialog):
 
             row_layout.addWidget(text_col, 1)
 
+            approval_combo = QComboBox()
+            approval_combo.addItems(["Approve", "Ask"])
+            approval_combo.setFixedHeight(28)
+            approval_combo.setMinimumWidth(110)
+            approval_combo.setStyleSheet(
+                f"""
+                QComboBox {{
+                    background: {overlay_pressed};
+                    border: 1px solid {mid_hex};
+                    border-radius: 10px;
+                    padding: 0 10px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: {text_primary};
+                }}
+                QComboBox:hover {{
+                    background: {overlay_hover};
+                    border: 1px solid {accent_hex};
+                }}
+                QComboBox:focus {{
+                    border: 1px solid {accent_hex};
+                }}
+                QComboBox::drop-down {{
+                    border: none;
+                    width: 18px;
+                }}
+                """
+            )
+
+            if name in self._session_force_ask:
+                approval_combo.setCurrentText("Ask")
+            elif name in self._session_auto_approve:
+                approval_combo.setCurrentText("Approve")
+            elif name in self._require_approval:
+                approval_combo.setCurrentText("Ask")
+            elif name in self._safe_preset:
+                approval_combo.setCurrentText("Approve")
+            else:
+                approval_combo.setCurrentText("Ask")
+
+            row_layout.addWidget(approval_combo, 0, Qt.AlignmentFlag.AlignTop)
+
             border_color = danger_border if name in self._require_approval else accent_border
             row.setStyleSheet(
                 f"""
@@ -588,7 +634,7 @@ class ToolSelectorDialog(QDialog):
             )
 
             list_layout.addWidget(row)
-            self._rows[name] = {"row": row, "checkbox": cb, "desc": desc}
+            self._rows[name] = {"row": row, "checkbox": cb, "approval_combo": approval_combo, "desc": desc}
 
         list_layout.addStretch(1)
 
@@ -689,6 +735,20 @@ class ToolSelectorDialog(QDialog):
         if self._mode == "all":
             return list(self._all_names)
         return sorted([n for n, info in self._rows.items() if info["checkbox"].isChecked()])
+
+    def selected_approval_modes(self) -> Dict[str, str]:
+        """Return per-tool approval mode: 'approve' or 'ask'."""
+        modes: Dict[str, str] = {}
+        for name, info in self._rows.items():
+            combo = info.get("approval_combo")
+            if combo is None:
+                continue
+            try:
+                txt = str(combo.currentText() or "").strip().lower()
+            except Exception:
+                txt = ""
+            modes[name] = "approve" if txt == "approve" else "ask"
+        return modes
 
 
 class LLMWorker(QThread):
@@ -965,6 +1025,9 @@ class QtChatBubble(QWidget):
         # Message history for session management
         self.message_history: List[Dict] = []
         self._session_auto_approve_tools: set[str] = set()
+        self._session_force_ask_tools: set[str] = set()
+        self._session_auto_approve_tools_by_session: Dict[str, set[str]] = {}
+        self._session_force_ask_tools_by_session: Dict[str, set[str]] = {}
         self._voice_busy: bool = False
         # Full Voice Mode lifecycle: treat "running" as separate from the toggle state so
         # late callbacks cannot keep the UI in LISTENING after a user-initiated stop.
@@ -2150,6 +2213,15 @@ class QtChatBubble(QWidget):
         else:
             self._enabled_external_tools &= set(available_names)
 
+        # Keep per-session approval overrides aligned to the tool inventory.
+        try:
+            self._session_auto_approve_tools &= set(available_names)
+            self._session_force_ask_tools &= set(available_names)
+            self._session_auto_approve_tools -= set(self._session_force_ask_tools)
+            self._save_tool_prefs_for_session()
+        except Exception:
+            pass
+
         self._update_tools_button_state()
 
     def _update_tools_button_state(self) -> None:
@@ -2218,6 +2290,8 @@ class QtChatBubble(QWidget):
             enabled=set(self._enabled_external_tools),
             safe_preset=set(self._safe_external_tools),
             require_approval=set(self._require_approval_tools),
+            session_auto_approve=set(self._session_auto_approve_tools),
+            session_force_ask=set(self._session_force_ask_tools),
         )
         result = dlg.exec()
         accepted_code = getattr(QDialog, "Accepted", 1)
@@ -2225,11 +2299,14 @@ class QtChatBubble(QWidget):
             return
 
         self._enabled_external_tools = set(dlg.selected_tools())
-        # Keep session auto-approve set consistent with enabled tool selection.
-        try:
-            self._session_auto_approve_tools &= set(self._enabled_external_tools)
-        except Exception:
-            pass
+        modes = dlg.selected_approval_modes()
+        self._session_auto_approve_tools = {n for n, m in modes.items() if m == "approve"}
+        self._session_force_ask_tools = {n for n, m in modes.items() if m == "ask"}
+
+        # Prefer "Ask" when both are present.
+        self._session_auto_approve_tools -= set(self._session_force_ask_tools)
+
+        self._save_tool_prefs_for_session()
         self._update_tools_button_state()
 
     def attach_files(self):
@@ -2531,19 +2608,38 @@ class QtChatBubble(QWidget):
 
         host = getattr(self.llm_manager, "agent_host", None)
         requires = True
+        policy = None
         try:
             if host is not None:
-                requires = bool(host.tool_policy.requires_approval(tool_calls))
+                policy = getattr(host, "tool_policy", None)
+                requires = bool(policy.requires_approval(tool_calls))
         except Exception:
             requires = True
 
-        # Session-level allowlist can bypass approval prompts (still bounded by policy).
+        tool_names: List[str] = []
+        missing_name = False
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            name = str(tc.get("name") or "").strip()
+            if not name:
+                missing_name = True
+                continue
+            tool_names.append(name)
+
+        if missing_name:
+            requires = True
+
+        # Session-level "Ask" overrides safe defaults.
         try:
-            if all(
-                str(tc.get("name") or "") in self._session_auto_approve_tools
-                for tc in tool_calls
-                if isinstance(tc, dict)
-            ):
+            if any(n in self._session_force_ask_tools for n in tool_names):
+                requires = True
+        except Exception:
+            pass
+
+        # Session-level allowlist can bypass approval prompts.
+        try:
+            if tool_names and all(n in self._session_auto_approve_tools for n in tool_names):
                 requires = False
         except Exception:
             pass
@@ -2592,7 +2688,7 @@ class QtChatBubble(QWidget):
         box.setInformativeText("Review the tool calls and approve or deny this batch.")
         box.setDetailedText(details)
 
-        allow_box = QCheckBox("Always allow these tools for this session (non-destructive tools only)")
+        allow_box = QCheckBox("Always allow these tools for this session")
         box.setCheckBox(allow_box)
 
         approve_btn = box.addButton("Approve", QMessageBox.ButtonRole.AcceptRole)
@@ -2605,17 +2701,18 @@ class QtChatBubble(QWidget):
 
         if approved and allow_box.isChecked() and host is not None:
             try:
-                policy = host.tool_policy
                 for tc in tool_calls:
                     if not isinstance(tc, dict):
                         continue
                     name = str(tc.get("name") or "").strip()
                     if not name:
                         continue
-                    # Only allow session auto-approvals for tools that are not in the explicit "requires approval" set.
-                    if name in getattr(policy, "require_approval_tools", set()):
-                        continue
                     self._session_auto_approve_tools.add(name)
+                    try:
+                        self._session_force_ask_tools.discard(name)
+                    except Exception:
+                        pass
+                self._save_tool_prefs_for_session()
             except Exception:
                 pass
 
@@ -3409,6 +3506,29 @@ class QtChatBubble(QWidget):
             except Exception:
                 pass
 
+    def _active_session_id(self) -> Optional[str]:
+        try:
+            sid = str(getattr(self.llm_manager, "active_session_id", "") or "").strip()
+        except Exception:
+            sid = ""
+        return sid or self._selected_session_id()
+
+    def _save_tool_prefs_for_session(self, session_id: Optional[str] = None) -> None:
+        sid = str(session_id or self._active_session_id() or "").strip()
+        if not sid:
+            return
+        self._session_auto_approve_tools_by_session[sid] = set(self._session_auto_approve_tools)
+        self._session_force_ask_tools_by_session[sid] = set(self._session_force_ask_tools)
+
+    def _load_tool_prefs_for_session(self, session_id: Optional[str] = None) -> None:
+        sid = str(session_id or self._active_session_id() or "").strip()
+        if not sid:
+            self._session_auto_approve_tools = set()
+            self._session_force_ask_tools = set()
+            return
+        self._session_auto_approve_tools = set(self._session_auto_approve_tools_by_session.get(sid, set()))
+        self._session_force_ask_tools = set(self._session_force_ask_tools_by_session.get(sid, set()))
+
     def _selected_session_id(self) -> Optional[str]:
         combo = getattr(self, "session_combo", None)
         if combo is None:
@@ -3537,6 +3657,7 @@ class QtChatBubble(QWidget):
             return
 
         try:
+            self._save_tool_prefs_for_session(current or None)
             self.llm_manager.switch_session(sid)
         except Exception as e:
             QMessageBox.warning(self, "Session switch", f"Failed to switch session:\n{e}")
@@ -3550,6 +3671,8 @@ class QtChatBubble(QWidget):
             pass
 
         self._reload_session_combo(select_session_id=sid)
+        self._load_tool_prefs_for_session(sid)
+        self._refresh_tool_inventory()
 
         # Reset per-session UI caches.
         self.attached_files.clear()
@@ -3576,11 +3699,18 @@ class QtChatBubble(QWidget):
             QMessageBox.information(self, "New session", "Please wait for the current response to finish.")
             return
 
+        old_id = self._active_session_id()
+        if old_id:
+            self._save_tool_prefs_for_session(old_id)
+
         try:
             new_id = str(self.llm_manager.create_new_session() or "").strip()
         except Exception as e:
             QMessageBox.warning(self, "New session", f"Failed to create a new session:\n{e}")
             return
+
+        self._load_tool_prefs_for_session(new_id or None)
+        self._refresh_tool_inventory()
 
         # Reset per-session UI caches.
         self.attached_files.clear()

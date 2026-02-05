@@ -8,7 +8,10 @@ import subprocess
 import time
 import os
 import signal
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_safe_startup():
     """Test that the app starts safely without requesting privileges."""

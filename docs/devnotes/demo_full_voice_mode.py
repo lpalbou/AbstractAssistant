@@ -13,7 +13,10 @@ This script shows all implemented features working together:
 
 import sys
 import time
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 def demo_full_voice_mode():
     """Demonstrate the complete Full Voice Mode implementation."""

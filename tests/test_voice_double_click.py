@@ -6,7 +6,10 @@ Tests the timing manually with realistic voice scenarios.
 
 import sys
 import time
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_click_timing_logic():
     """Test the click timing logic directly."""

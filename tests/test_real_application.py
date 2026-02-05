@@ -7,7 +7,10 @@ This launches the actual app briefly to test click handling.
 import sys
 import subprocess
 import time
-sys.path.insert(0, '/Users/albou/projects/abstractassistant')
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 def test_real_application():
     """Test the actual application to see if click detection works."""
