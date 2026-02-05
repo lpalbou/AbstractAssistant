@@ -29,7 +29,7 @@ try:
         QApplication,
         QSizePolicy,
     )
-    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
+    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent
     from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon
 except ImportError:
     try:
@@ -46,7 +46,7 @@ except ImportError:
             QApplication,
             QSizePolicy,
         )
-        from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize
+        from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent
         from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon
     except ImportError:
         from PySide2.QtWidgets import (
@@ -62,7 +62,7 @@ except ImportError:
             QApplication,
             QSizePolicy,
         )
-        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize
+        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize, QEvent
         from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon
 
 
@@ -274,6 +274,7 @@ class SafeDialog(QDialog):
         self.message_bubbles = []
         self.trash_button = None
         self.edit_button = None
+        self._history_viewport = None
 
     def showEvent(self, event):
         try:
@@ -282,6 +283,8 @@ class SafeDialog(QDialog):
             pass
         try:
             QTimer.singleShot(0, lambda: iPhoneMessagesDialog._sync_bubble_widths(self))
+            QTimer.singleShot(80, lambda: iPhoneMessagesDialog._sync_bubble_widths(self))
+            QTimer.singleShot(200, lambda: iPhoneMessagesDialog._sync_bubble_widths(self))
         except Exception:
             pass
 
@@ -291,9 +294,27 @@ class SafeDialog(QDialog):
         except Exception:
             pass
         try:
-            iPhoneMessagesDialog._sync_bubble_widths(self)
+            QTimer.singleShot(0, lambda: iPhoneMessagesDialog._sync_bubble_widths(self))
         except Exception:
             pass
+
+    def eventFilter(self, watched, event):
+        try:
+            if self._history_viewport is not None and watched is self._history_viewport:
+                et = event.type()
+                types = {QEvent.Type.Resize, QEvent.Type.Show}
+                try:
+                    types.add(QEvent.Type.PolishRequest)
+                except Exception:
+                    pass
+                if et in types:
+                    QTimer.singleShot(0, lambda: iPhoneMessagesDialog._sync_bubble_widths(self))
+        except Exception:
+            pass
+        try:
+            return super().eventFilter(watched, event)
+        except Exception:
+            return False
 
     def set_hide_callback(self, callback):
         """Set callback to call when dialog is hidden."""
@@ -664,6 +685,11 @@ class iPhoneMessagesDialog:
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        try:
+            dialog._history_viewport = scroll_area.viewport()
+            dialog._history_viewport.installEventFilter(dialog)
+        except Exception:
+            pass
 
         # Messages content
         messages_widget = QWidget()
@@ -674,11 +700,6 @@ class iPhoneMessagesDialog:
                 messages_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)  # type: ignore[attr-defined]
             except Exception:
                 pass
-        try:
-            # Prevent first-paint narrow layouts: keep the content at least as wide as the dialog.
-            messages_widget.setMinimumWidth(int(dialog.width()))
-        except Exception:
-            pass
         messages_layout = QVBoxLayout(messages_widget)
         messages_layout.setContentsMargins(0, 16, 0, 16)  # iPhone spacing
         messages_layout.setSpacing(0)
@@ -697,6 +718,10 @@ class iPhoneMessagesDialog:
 
         # Apply authentic iPhone styling
         dialog.setStyleSheet(iPhoneMessagesDialog._get_authentic_iphone_styles())
+        try:
+            dialog.ensurePolished()
+        except Exception:
+            pass
 
         # Auto-scroll to bottom to show the latest messages
         QTimer.singleShot(100, lambda: scroll_area.verticalScrollBar().setValue(scroll_area.verticalScrollBar().maximum()))
@@ -705,6 +730,7 @@ class iPhoneMessagesDialog:
         try:
             QTimer.singleShot(0, lambda: iPhoneMessagesDialog._sync_bubble_widths(dialog))
             QTimer.singleShot(40, lambda: iPhoneMessagesDialog._sync_bubble_widths(dialog))
+            QTimer.singleShot(160, lambda: iPhoneMessagesDialog._sync_bubble_widths(dialog))
         except Exception:
             pass
 
@@ -739,7 +765,14 @@ class iPhoneMessagesDialog:
             if isinstance(bubbles, list):
                 for b in bubbles:
                     try:
-                        b.setFixedWidth(bubble_w)
+                        b.setMaximumWidth(bubble_w)
+                        raw = str(getattr(b, "content", "") or "")
+                        force_wide = ("\n" in raw) or (len(raw) >= 80)
+                        if force_wide:
+                            b.setMinimumWidth(bubble_w)
+                        else:
+                            b.setMinimumWidth(0)
+                        b.updateGeometry()
                     except Exception:
                         continue
         except Exception:
@@ -941,7 +974,23 @@ class iPhoneMessagesDialog:
             bubble_max_width = int(max(240, dialog.width() * 0.70))
         except Exception:
             bubble_max_width = 432
-        bubble.setFixedWidth(bubble_max_width)
+        bubble.setMaximumWidth(bubble_max_width)
+        try:
+            bubble_text = str(msg.get("content") or "")
+            force_wide = ("\n" in bubble_text) or (len(bubble_text) >= 80)
+            if force_wide:
+                bubble.setMinimumWidth(bubble_max_width)
+            else:
+                bubble.setMinimumWidth(0)
+        except Exception:
+            pass
+        try:
+            bubble.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        except Exception:
+            try:
+                bubble.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         bubble.selection_changed.connect(dialog.on_selection_changed)
         bubble.selection_circle = selection_circle  # Store reference
         dialog.message_bubbles.append(bubble)  # Track bubbles for selection mode
