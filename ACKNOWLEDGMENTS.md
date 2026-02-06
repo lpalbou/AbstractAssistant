@@ -27,7 +27,7 @@ Configuration:
 
 ## Optional extras
 
-- **AbstractVoice** — voice/audio capabilities (installed via `abstractassistant[full]` when enabled)
+- **AbstractVoice** — voice/audio capabilities (installed via `abstractassistant[all]` when enabled)
 
 ## Development tooling
 

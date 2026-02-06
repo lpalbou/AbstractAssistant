@@ -5,12 +5,12 @@ For a quick walkthrough, start with `getting-started.md`.
 ## Install profiles
 
 - `abstractassistant` (default) == `lite`: tray UI + agent backend (no voice)
-- `abstractassistant[full]`: voice (STT/TTS) + broader provider/media extras
+- `abstractassistant[all]`: voice (STT/TTS) + broader provider/media extras
 
 ```bash
 pip install "abstractassistant"
 # or
-pip install "abstractassistant[full]"
+pip install "abstractassistant[all]"
 ```
 
 ## macOS app bundle (optional)

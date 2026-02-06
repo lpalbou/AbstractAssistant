@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import json
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Any
@@ -16,7 +17,7 @@ from typing import Optional, Callable, List, Dict, Any
 from ..core.agent_host import AgentHost
 
 try:
-    # Optional dependency (installed via `abstractassistant[full]`).
+    # Optional dependency (installed via `abstractassistant[all]`).
     from ..core.tts_manager import VoiceManager  # type: ignore
 
     TTS_AVAILABLE = True
@@ -1522,6 +1523,10 @@ class QtChatBubble(QWidget):
         self._session_auto_approve_tools_by_session: Dict[str, set[str]] = {}
         self._session_force_ask_tools_by_session: Dict[str, set[str]] = {}
         self._voice_busy: bool = False
+        # STT callbacks arrive from a non-Qt thread. Use a small queue and drain it
+        # on the Qt main thread to avoid calling Qt APIs from the mic thread.
+        self._voice_transcription_queue = deque()
+        self._voice_transcription_queue_lock = threading.Lock()
         # Full Voice Mode lifecycle: treat "running" as separate from the toggle state so
         # late callbacks cannot keep the UI in LISTENING after a user-initiated stop.
         self._full_voice_running: bool = False
@@ -1792,7 +1797,7 @@ class QtChatBubble(QWidget):
 
         voice_available = bool(self.voice_manager and self.voice_manager.is_available())
         if not voice_available:
-            tooltip = "Voice unavailable. Install `abstractassistant[full]` (AbstractVoice) and restart."
+            tooltip = "Voice unavailable. Install `abstractassistant[all]` (AbstractVoice) and restart."
             try:
                 self.tts_toggle.setEnabled(False)
                 self.tts_toggle.setToolTip(tooltip)
@@ -3071,8 +3076,133 @@ class QtChatBubble(QWidget):
 
         if self.debug:
             print("🔄 QtChatBubble: Worker thread started, hiding bubble...")
-        # Hide bubble after sending (like the original design)
-        QTimer.singleShot(500, self.hide)
+        # Hide bubble after sending (like the original design), except in voice mode
+        # where the bubble is a persistent control surface.
+        if not self._is_voice_mode_active():
+            QTimer.singleShot(500, self.hide)
+
+    def _voice_underlying_manager(self):
+        """Return the underlying AbstractVoice manager (when available)."""
+        vm = getattr(self, "voice_manager", None)
+        if vm is None:
+            return None
+        underlying = getattr(vm, "_abstractvoice_manager", None)
+        return underlying if underlying is not None else vm
+
+    def _voice_recognizer(self):
+        """Best-effort access to the active microphone recognizer."""
+        mgr = self._voice_underlying_manager()
+        if mgr is None:
+            return None
+        return getattr(mgr, "voice_recognizer", None)
+
+    def _tune_voice_recognizer_for_conversation(self) -> None:
+        """Make full voice mode responsive (short utterances + faster endpointing)."""
+        mode = str(getattr(self, "listening_mode", "") or "").strip().lower()
+        if mode == "ptt":
+            return
+
+        rec = self._voice_recognizer()
+        if rec is None:
+            return
+        try:
+            set_profile = getattr(rec, "set_profile", None)
+            if callable(set_profile):
+                # Use the "full" profile for tighter VAD thresholds (faster silence->send).
+                set_profile("full")
+        except Exception:
+            pass
+
+    def _schedule_voice_listen_watchdog(self, delay_ms: int = 1200) -> None:
+        """Detect common mic-capture failures (e.g., missing macOS mic permission)."""
+        try:
+            self._voice_watchdog_attempts = 0
+        except Exception:
+            pass
+        try:
+            QTimer.singleShot(int(delay_ms), self._voice_listen_watchdog_check)
+        except Exception:
+            pass
+
+    def _abort_full_voice_mode_with_error(self, title: str, message: str) -> None:
+        try:
+            self.stop_full_voice_mode()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                self.full_voice_toggle.set_enabled(False)
+        except Exception:
+            pass
+        try:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+        try:
+            QMessageBox.critical(self, str(title or "Voice error"), str(message or "Voice mode failed."))
+        except Exception:
+            pass
+
+    def _voice_listen_watchdog_check(self) -> None:
+        if not self._is_full_voice_running():
+            return
+
+        try:
+            self._voice_watchdog_attempts = int(getattr(self, "_voice_watchdog_attempts", 0) or 0) + 1
+        except Exception:
+            self._voice_watchdog_attempts = 1
+
+        rec = self._voice_recognizer()
+        thread_alive = None
+        stream_active = None
+
+        if rec is not None:
+            try:
+                is_running = getattr(rec, "is_running", None)
+                if isinstance(is_running, bool) and not is_running:
+                    thread_alive = False
+            except Exception:
+                pass
+
+            try:
+                thread = getattr(rec, "thread", None)
+                if thread is not None and hasattr(thread, "is_alive"):
+                    thread_alive = bool(thread.is_alive())
+            except Exception:
+                pass
+
+            try:
+                stream = getattr(rec, "stream", None)
+                if stream is not None and hasattr(stream, "active"):
+                    stream_active = bool(getattr(stream, "active"))
+                elif stream is None:
+                    stream_active = False
+            except Exception:
+                pass
+
+        healthy = bool(rec is not None) and (thread_alive is not False) and (stream_active is not False)
+        if healthy:
+            return
+
+        # Retry a couple times to avoid false positives during cold start.
+        if int(getattr(self, "_voice_watchdog_attempts", 1)) < 3:
+            try:
+                QTimer.singleShot(900, self._voice_listen_watchdog_check)
+            except Exception:
+                pass
+            return
+
+        self._abort_full_voice_mode_with_error(
+            "Microphone not working",
+            "Full voice mode couldn't access your microphone.\n\n"
+            "Fix:\n"
+            "1) macOS System Settings → Privacy & Security → Microphone\n"
+            "2) Enable access for AbstractAssistant\n"
+            "3) Restart AbstractAssistant\n\n"
+            "If you started the app from Terminal, you can re-run with `--debug` to see the capture error.",
+        )
 
     @pyqtSlot(object)
     def on_agent_event(self, event):
@@ -3623,21 +3753,25 @@ class QtChatBubble(QWidget):
 
             # Mark running before starting the underlying loop so late UI updates can be gated.
             self._full_voice_running = True
-
-            # Start listening
-            self.voice_manager.listen(
-                on_transcription=self.handle_voice_input,
-                on_stop=self.handle_voice_stop
-            )
+            try:
+                # Invalidate any prior start attempts.
+                self._voice_start_token = time.monotonic_ns()
+            except Exception:
+                self._voice_start_token = int(time.time() * 1000)
 
             try:
-                self.full_voice_toggle.set_listening_state("listening")
+                # We're warming up the voice backend; show a "starting" state immediately.
+                self.full_voice_toggle.set_listening_state("processing")
             except Exception:
                 pass
-            self.update_status("LISTENING")
+            self.update_status("PROCESSING")
 
-            # Greet the user
-            self.voice_manager.speak("Full voice mode activated. I'm listening...")
+            # Start listening (can be slow on first run due to model init); do it off the UI thread.
+            threading.Thread(
+                target=self._start_full_voice_listen_background,
+                args=(self._voice_start_token,),
+                daemon=True,
+            ).start()
 
             if self.debug:
                 if self.debug:
@@ -3655,6 +3789,139 @@ class QtChatBubble(QWidget):
             self.full_voice_toggle.set_enabled(False)
             self.show_text_ui()
 
+    def _start_full_voice_listen_background(self, token: int) -> None:
+        """Start the STT listening loop off the UI thread (may initialize heavy models)."""
+        ok = False
+        err: str | None = None
+        try:
+            self.voice_manager.listen(
+                on_transcription=self.handle_voice_input,
+                on_stop=self.handle_voice_stop,
+            )
+            ok = True
+        except Exception as e:
+            ok = False
+            err = str(e)
+
+        try:
+            self._voice_start_result = {"token": int(token), "ok": bool(ok), "error": err}
+        except Exception:
+            pass
+
+        try:
+            QMetaObject.invokeMethod(self, "_finish_full_voice_listen_start_main_thread", Qt.QueuedConnection)
+        except Exception:
+            # Best-effort: if we can't hop back to the UI thread, give up silently.
+            pass
+
+    @pyqtSlot()
+    def _finish_full_voice_listen_start_main_thread(self) -> None:
+        """Finalize voice-mode startup on the Qt main thread."""
+        try:
+            res = getattr(self, "_voice_start_result", None) or {}
+            token = int(res.get("token") or 0)
+            ok = bool(res.get("ok"))
+            err = str(res.get("error") or "").strip() or None
+        except Exception:
+            token = 0
+            ok = False
+            err = "unknown error"
+
+        # Ignore stale results (user toggled voice mode off/on).
+        try:
+            current = int(getattr(self, "_voice_start_token", 0) or 0)
+        except Exception:
+            current = 0
+        if int(current) != int(token):
+            # If voice mode was stopped while the backend was starting, ensure we
+            # don't leave a late-started recognizer running in the background.
+            if not bool(getattr(self, "_full_voice_running", False)):
+                try:
+                    if self.voice_manager:
+                        self.voice_manager.stop_listening()
+                except Exception:
+                    pass
+            return
+
+        if not ok:
+            self._abort_full_voice_mode_with_error(
+                "Voice mode failed",
+                "Full voice mode couldn't start listening.\n\n"
+                f"Error: {err or 'unknown'}\n\n"
+                "If this persists, run the tray app with `--debug` for details.",
+            )
+            return
+
+        # If the user already turned it off, stop listening and don't update UI.
+        if not bool(getattr(self, "_full_voice_running", False)):
+            try:
+                if self.voice_manager:
+                    self.voice_manager.stop_listening()
+            except Exception:
+                pass
+            return
+
+        # Make conversation snappy (short utterances + quicker silence endpointing).
+        self._tune_voice_recognizer_for_conversation()
+        # Catch common mic failures (permissions / device errors) quickly.
+        self._schedule_voice_listen_watchdog()
+
+        # Sanity check: ensure STT backend looks initialized (model loaded).
+        try:
+            rec = self._voice_recognizer()
+            stt = getattr(rec, "stt_adapter", None)
+            if stt is not None and hasattr(stt, "is_available") and not bool(stt.is_available()):
+                raise RuntimeError("STT model not available (not loaded)")
+        except Exception as e:
+            self._abort_full_voice_mode_with_error(
+                "Speech-to-text not ready",
+                "Full voice mode started, but speech-to-text isn't ready.\n\n"
+                f"Error: {e}\n\n"
+                "Fix:\n"
+                "1) Ensure `abstractassistant[all]` is installed\n"
+                "2) Restart AbstractAssistant\n"
+                "3) If needed, re-install dependencies in a clean venv\n",
+            )
+            return
+
+        try:
+            self.full_voice_toggle.set_listening_state("listening")
+        except Exception:
+            pass
+        self.update_status("LISTENING")
+
+        # Ensure TTS playback updates UI state even for the activation greeting.
+        try:
+            def _speech_start() -> None:
+                try:
+                    QMetaObject.invokeMethod(self, "_on_speech_started_main_thread", Qt.QueuedConnection)
+                except Exception:
+                    pass
+
+            def _speech_end() -> None:
+                try:
+                    QMetaObject.invokeMethod(self, "_on_speech_ended_main_thread", Qt.QueuedConnection)
+                except Exception:
+                    pass
+
+            if self.voice_manager:
+                self.voice_manager.on_speech_start = _speech_start
+                self.voice_manager.on_speech_end = _speech_end
+        except Exception:
+            pass
+
+        # Greet the user (non-blocking, avoid freezing the Qt event loop during synthesis).
+        def _greet() -> None:
+            try:
+                if not bool(getattr(self, "_full_voice_running", False)):
+                    return
+                if self.voice_manager:
+                    self.voice_manager.speak("Full voice mode activated. I'm listening...")
+            except Exception:
+                pass
+
+        threading.Thread(target=_greet, daemon=True).start()
+
     def _is_full_voice_running(self) -> bool:
         """Centralized guard for any 'LISTENING' UI updates from async callbacks."""
         try:
@@ -3671,6 +3938,11 @@ class QtChatBubble(QWidget):
 
         # Gate all future async 'LISTENING' updates immediately.
         self._full_voice_running = False
+        try:
+            # Invalidate any in-flight start attempt.
+            self._voice_start_token = 0
+        except Exception:
+            pass
         self._voice_busy = False
 
         # 1) Stop listening/speaking (best-effort, never block UI restore)
@@ -3738,9 +4010,13 @@ class QtChatBubble(QWidget):
                 print("✅ Full Voice Mode stopped")
 
     def handle_voice_input(self, transcribed_text: str):
-        """Handle speech-to-text input (thread-safe, routes through agentic pipeline)."""
+        """Handle speech-to-text input.
+
+        IMPORTANT: This callback is invoked from the microphone recognizer thread.
+        Do not touch Qt widgets here; enqueue and dispatch to the Qt main thread.
+        """
         # Ignore any late STT callbacks after the user stopped voice mode.
-        if not self._is_full_voice_running():
+        if not bool(getattr(self, "_full_voice_running", False)):
             return
 
         text = str(transcribed_text or "").strip()
@@ -3750,8 +4026,54 @@ class QtChatBubble(QWidget):
         if self.debug:
             print(f"👤 Voice input: {text}")
 
-        # Ensure we run UI + agent turn creation on the Qt main thread.
-        QTimer.singleShot(0, lambda t=text: self._handle_voice_input_main_thread(t))
+        # Enqueue + drain on main thread (QTimer.singleShot is not reliable from non-Qt threads).
+        try:
+            with self._voice_transcription_queue_lock:
+                self._voice_transcription_queue.append(text)
+        except Exception:
+            # Best-effort fallback (single latest transcription).
+            try:
+                self._pending_voice_transcription = text
+            except Exception:
+                return
+
+        try:
+            QMetaObject.invokeMethod(self, "_drain_voice_transcriptions", Qt.QueuedConnection)
+        except Exception:
+            # Best-effort fallback: if invokeMethod fails, don't crash the mic thread.
+            pass
+
+    @pyqtSlot()
+    def _drain_voice_transcriptions(self) -> None:
+        """Drain queued voice transcriptions on the Qt main thread."""
+        if not self._is_full_voice_running():
+            try:
+                with self._voice_transcription_queue_lock:
+                    self._voice_transcription_queue.clear()
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "_pending_voice_transcription"):
+                    self._pending_voice_transcription = None
+            except Exception:
+                pass
+            return
+
+        text: str | None = None
+        try:
+            with self._voice_transcription_queue_lock:
+                while self._voice_transcription_queue:
+                    text = self._voice_transcription_queue.pop()
+                self._voice_transcription_queue.clear()
+        except Exception:
+            try:
+                text = str(getattr(self, "_pending_voice_transcription", "") or "").strip() or None
+                self._pending_voice_transcription = None
+            except Exception:
+                text = None
+
+        if text:
+            self._handle_voice_input_main_thread(str(text))
 
     def _handle_voice_input_main_thread(self, transcribed_text: str) -> None:
         """Execute a voice input turn on the Qt main thread."""
@@ -3790,14 +4112,33 @@ class QtChatBubble(QWidget):
                 pass
 
     def handle_voice_stop(self):
-        """Handle when user says 'stop' to exit Full Voice Mode."""
+        """Handle when user says 'stop' to exit Full Voice Mode (thread-safe)."""
+        if not bool(getattr(self, "_full_voice_running", False)):
+            return
         if self.debug:
-            if self.debug:
-                print("🛑 User said 'stop' - exiting Full Voice Mode")
+            print("🛑 User said 'stop' - exiting Full Voice Mode")
 
-        # Disable Full Voice Mode
-        self._full_voice_running = False
-        self.full_voice_toggle.set_enabled(False)
+        try:
+            QMetaObject.invokeMethod(self, "_handle_voice_stop_main_thread", Qt.QueuedConnection)
+        except Exception:
+            pass
+
+    @pyqtSlot()
+    def _handle_voice_stop_main_thread(self) -> None:
+        """Exit voice mode due to stop phrase (Qt main thread)."""
+        try:
+            self.stop_full_voice_mode()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                self.full_voice_toggle.blockSignals(True)
+                try:
+                    self.full_voice_toggle.set_enabled(False)
+                finally:
+                    self.full_voice_toggle.blockSignals(False)
+        except Exception:
+            pass
 
     def hide_text_ui(self):
         """Enter Full Voice Mode UI (no typing, voice-only)."""
@@ -4022,13 +4363,56 @@ class QtChatBubble(QWidget):
             if self.debug:
                 print(f"Error occurred: {error}")
         
+        # Stop any tray icon "working" animation (ensure we don't spin forever on errors).
+        try:
+            if self.status_callback:
+                self.status_callback("ready")
+        except Exception:
+            pass
+
         # Show chat history instead of error toast
         if self.debug:
             if self.debug:
                 print(f"❌ AI Error: {error}")
 
-        # Show history so user can see the error context - only if voice mode is OFF
-        QTimer.singleShot(100, self._show_history_if_voice_mode_off)
+        # Surface the error immediately in a modal (like tool approval prompts).
+        # In full voice mode, avoid modal UI (voice-only): just resume listening.
+        if not self._is_full_voice_running():
+            err_txt = str(error or "").strip() or "Unknown error"
+            informative = err_txt.splitlines()[0].strip() if err_txt else "Unknown error"
+            lower = err_txt.lower()
+            if "model unloaded" in lower:
+                informative = (
+                    "LM Studio says the model is unloaded. Load the model in LM Studio (or pick another model) "
+                    "and try again."
+                )
+            elif "connection" in lower and ("refused" in lower or "failed" in lower):
+                informative = "Couldn't reach the provider. Check that it is running and reachable, then try again."
+
+            try:
+                # Bring bubble forward so the modal isn't lost behind other windows.
+                self.show()
+                self.raise_()
+                self.activateWindow()
+            except Exception:
+                pass
+
+            try:
+                box = QMessageBox(self)
+                box.setWindowTitle("Request failed")
+                box.setIcon(QMessageBox.Icon.Critical)
+                box.setText("The assistant hit an error while generating a response.")
+                box.setInformativeText(informative)
+                box.setDetailedText(err_txt)
+                box.exec()
+            except Exception:
+                pass
+
+            # Show history so user can see the error context (only if voice mode is OFF).
+            try:
+                self._show_history_if_voice_mode_off()
+            except Exception:
+                pass
 
         # If we're in full voice mode, unblock the STT loop.
         if self._is_full_voice_running():
@@ -5292,6 +5676,17 @@ Continue the conversation naturally, referring to the context above when relevan
                 self.tts_toggle.set_tts_state("speaking")
         except Exception:
             pass
+        # In full voice mode, accurately reflect that we are speaking (not listening).
+        if self._is_full_voice_running():
+            try:
+                if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                    self.full_voice_toggle.set_listening_state("idle")
+            except Exception:
+                pass
+            try:
+                self.update_status("SPEAKING")
+            except Exception:
+                pass
         if self.status_callback:
             self.status_callback("speaking")
     

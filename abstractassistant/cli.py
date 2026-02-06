@@ -36,7 +36,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         choices=["none", "stop", "wait", "full", "ptt"],
         default="wait",
-        help="Voice listening mode (requires [full] extra for STT/TTS)",
+        help="Voice listening mode (requires [all] extra for STT/TTS)",
     )
 
     run = sub.add_parser("run", help="Run one agentic turn in the terminal")
@@ -140,7 +140,7 @@ def main() -> int:
         except Exception as e:
             print("AbstractAssistant tray mode requires GUI dependencies.")
             print('Install (tray): pip install -U "abstractassistant"')
-            print('Install (tray + voice): pip install -U "abstractassistant[full]"')
+            print('Install (tray + voice): pip install -U "abstractassistant[all]"')
             print('From source (editable): pip install -e ".[lite]"')
             print(f"Import error: {e}")
             return 2

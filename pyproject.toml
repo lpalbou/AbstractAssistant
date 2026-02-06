@@ -46,7 +46,7 @@ dependencies = [
 
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
-full = [
+all = [
     "abstractvoice>=0.6.0",
     # Provider/client extras (still avoid GPU-only stacks like vLLM by default).
     "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media]>=2.11.0",

@@ -15,12 +15,12 @@ Docs:
 ## Install profiles
 
 - `abstractassistant` (default) == `lite`: tray UI + agent backend (no voice)
-- `abstractassistant[full]`: voice (STT/TTS) + broader provider/media extras
+- `abstractassistant[all]`: voice (STT/TTS) + broader provider/media extras
 
 ```bash
 pip install "abstractassistant"
 # or
-pip install "abstractassistant[full]"
+pip install "abstractassistant[all]"
 ```
 
 ## Quick start
@@ -62,7 +62,9 @@ By default, assistant state is stored in `~/.abstractassistant/` (configurable v
 ## Development
 
 ```bash
-pip install -e ".[dev,lite]"
+pip install -e ".[dev,lite]"   # base tray (no voice)
+# or
+pip install -e ".[dev,all]"    # voice (STT/TTS) + provider/media extras
 python -m pytest -q
 assistant tray --debug
 ```
@@ -73,16 +75,17 @@ assistant tray --debug
 
 | Guide | Description |
 |-------|------------|
-| [📖 Installation Guide](docs/installation.md) | Complete setup instructions, prerequisites, and troubleshooting |
+| [📖 Installation Guide](docs/INSTALLATION.md) | Complete setup instructions, prerequisites, and troubleshooting |
 | [🎯 Getting Started Guide](docs/getting-started.md) | Step-by-step usage guide with all features explained |
 | [🏗️ Architecture Guide](docs/architecture.md) | Technical documentation and development information |
 
 ## 📋 Requirements
 
 - **macOS**: 10.14+ (Mojave or later)
-- **Python**: 3.9+
+- **Python**: 3.10+
 - **Qt Framework**: PyQt5, PySide2, or PyQt6 (automatically detected)
-- **Dependencies**: [AbstractCore](https://github.com/lpalbou/abstractcore) and [AbstractVoice](https://github.com/lpalbou/abstractvoice) (automatically installed)
+- **Core deps**: AbstractAgent + AbstractRuntime (installed with `abstractassistant`)
+- **Optional deps**: voice + provider/media extras via `abstractassistant[all]` (installs AbstractVoice + AbstractCore extras)
 
 ## 🤝 Contributing
 

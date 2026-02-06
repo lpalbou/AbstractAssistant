@@ -581,6 +581,12 @@ class AbstractAssistantApp:
     
     def handle_bubble_error(self, error: str):
         """Handle error from bubble."""
+        # Always reset tray icon animation on errors.
+        try:
+            self.update_icon_status("ready")
+        except Exception:
+            pass
+
         # Show error toast notification
         self.show_toast_notification(error, "error")
         
@@ -607,9 +613,23 @@ class AbstractAssistantApp:
             display_message = message[:200] + "..." if len(message) > 200 else message
             
             # Use osascript to show macOS notification
-            script = f'''
-            display notification "{display_message}" with title "{title}" subtitle "{subtitle}"
-            '''
+            def _escape_applescript_string(txt: str) -> str:
+                txt = str(txt or "")
+                txt = txt.replace("\\", "\\\\")
+                txt = txt.replace('"', '\\"')
+                txt = txt.replace("\r\n", "\n").replace("\r", "\n")
+                txt = txt.replace("\n", "\\n")
+                return txt
+
+            script = (
+                'display notification "'
+                + _escape_applescript_string(display_message)
+                + '" with title "'
+                + _escape_applescript_string(title)
+                + '" subtitle "'
+                + _escape_applescript_string(subtitle)
+                + '"'
+            )
             subprocess.run(["osascript", "-e", script], check=False)
             
             if self.debug:
