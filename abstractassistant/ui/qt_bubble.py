@@ -74,98 +74,52 @@ except ImportError:
 
 
 class TTSToggle(QPushButton):
-    """TTS toggle button with speaker icon and single/double click detection."""
-
-    toggled = pyqtSignal(bool)
-    single_clicked = pyqtSignal()    # New signal for single click (pause/resume)
-    double_clicked = pyqtSignal()    # New signal for double click (stop + chat)
+    """TTS toggle button with speaker icon (simple on/off)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(40, 24)  # Slightly wider for button
-        self.setToolTip("Single click: Pause/Resume TTS, Double click: Stop and open chat")
-        self._enabled = False
-        self._tts_state = 'idle'  # 'idle', 'speaking', 'paused'
+        self.setFixedSize(40, 24)
+        self.setToolTip("Speaker (TTS)")
         self.setCheckable(True)
-
-        # Click detection for single/double click
-        self._click_count = 0
-        self._click_timer = QTimer()
-        self._click_timer.setSingleShot(True)
-        self._click_timer.timeout.connect(self._handle_single_click)
-        self._double_click_interval = 300  # ms
-
+        self._tts_state = "idle"  # 'idle', 'speaking', 'paused'
+        try:
+            self.toggled.connect(lambda _=False: self._update_appearance())
+        except Exception:
+            pass
         self._update_appearance()
-        
+
     def is_enabled(self) -> bool:
-        """Check if TTS is enabled."""
-        return self._enabled
-    
+        return bool(self.isChecked())
+
     def set_enabled(self, enabled: bool):
-        """Set TTS enabled state."""
-        if self._enabled != enabled:
-            self._enabled = enabled
-            self.setChecked(enabled)
-            self._update_appearance()
-            self.toggled.emit(enabled)
+        self.setChecked(bool(enabled))
+        self._update_appearance()
 
     def set_tts_state(self, state: str):
-        """Set TTS state for visual feedback.
-
-        Args:
-            state: One of 'idle', 'speaking', 'paused'
-        """
-        if self._tts_state != state:
-            self._tts_state = state
+        state_norm = str(state or "").strip().lower()
+        if state_norm not in {"idle", "speaking", "paused"}:
+            state_norm = "idle"
+        if self._tts_state != state_norm:
+            self._tts_state = state_norm
             self._update_appearance()
 
     def get_tts_state(self) -> str:
-        """Get current TTS state."""
-        return self._tts_state
-
-    def mousePressEvent(self, event):
-        """Handle mouse press for single/double click detection."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._click_count += 1
-
-            if self._click_count == 1:
-                # Start timer for single click
-                self._click_timer.start(self._double_click_interval)
-            elif self._click_count == 2:
-                # Double click detected
-                self._click_timer.stop()
-                self._click_count = 0
-                self._handle_double_click()
-
-        super().mousePressEvent(event)
-
-    def _handle_single_click(self):
-        """Handle single click - pause/resume or toggle."""
-        self._click_count = 0
-
-        if self._enabled:
-            # TTS is enabled, handle pause/resume
-            self.single_clicked.emit()
-        else:
-            # TTS is disabled, toggle it on
-            self.set_enabled(True)
-
-    def _handle_double_click(self):
-        """Handle double click - stop TTS and open chat."""
-        self.double_clicked.emit()
+        return str(self._tts_state or "idle")
 
     def _update_appearance(self):
-        """Update button appearance based on TTS state."""
+        enabled = bool(self.isChecked())
+        state = "idle" if not enabled else str(self._tts_state or "idle")
+
         # Set icon text based on state
-        if not self._enabled:
+        if not enabled:
             icon = "🔇"  # Muted speaker when disabled
             bg_color = "rgba(255, 255, 255, 0.06)"
             text_color = "rgba(255, 255, 255, 0.7)"
-        elif self._tts_state == 'speaking':
+        elif state == "speaking":
             icon = "🔊"  # Loud speaker when speaking
             bg_color = "rgba(0, 170, 0, 0.8)"  # Green
             text_color = "#ffffff"
-        elif self._tts_state == 'paused':
+        elif state == "paused":
             icon = "⏸️"  # Pause when paused
             bg_color = "rgba(255, 136, 0, 0.8)"  # Orange
             text_color = "#ffffff"
@@ -1675,6 +1629,15 @@ class QtChatBubble(QWidget):
         self.window_frame = QFrame(self)
         self.window_frame.setObjectName("windowFrame")
         try:
+            expanding = QSizePolicy.Policy.Expanding
+        except Exception:
+            expanding = getattr(QSizePolicy, "Expanding", None)
+        try:
+            if expanding is not None:
+                self.window_frame.setSizePolicy(expanding, expanding)
+        except Exception:
+            pass
+        try:
             attr = getattr(Qt, "WA_StyledBackground", None)
             if attr is None and hasattr(Qt, "WidgetAttribute"):
                 attr = Qt.WidgetAttribute.WA_StyledBackground
@@ -1693,7 +1656,14 @@ class QtChatBubble(QWidget):
         # Simple header like Cursor
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(0)
+
+        # Stable 3-cluster navbar (left / center / right). This avoids first-show layout
+        # compression and ensures the header always uses the full available width.
+        left_cluster = QWidget()
+        left_row = QHBoxLayout(left_cluster)
+        left_row.setContentsMargins(0, 0, 0, 0)
+        left_row.setSpacing(10)
         
         # Close button (minimal)
         self.close_button = QPushButton("⨯")  # Better close icon - geometric multiplication symbol
@@ -1712,10 +1682,10 @@ class QtChatBubble(QWidget):
             }
             QPushButton:hover {
                 background: rgba(255, 60, 60, 0.8);
-                color: #ffffff;
-            }
-        """)
-        header_layout.addWidget(self.close_button)
+	                color: #ffffff;
+	            }
+	        """)
+        left_row.addWidget(self.close_button)
 
         # Internal session selector model (hidden; sessions are managed via the Sessions badge dialog).
         self.session_combo = QComboBox()
@@ -1771,7 +1741,7 @@ class QtChatBubble(QWidget):
                 color: rgba(255, 255, 255, 0.95);
             }
         """)
-        header_layout.addWidget(self.sessions_button)
+        left_row.addWidget(self.sessions_button)
 
         # Session controls: New / Clear / Import / Export.
         header_icon_qss = """
@@ -1795,28 +1765,28 @@ class QtChatBubble(QWidget):
         self.new_session_button.setToolTip("New session")
         self.new_session_button.clicked.connect(self._start_new_session)
         self.new_session_button.setStyleSheet(header_icon_qss)
-        header_layout.addWidget(self.new_session_button)
+        left_row.addWidget(self.new_session_button)
 
         self.clear_session_button = QPushButton("🗑")
         self.clear_session_button.setFixedSize(28, 22)
         self.clear_session_button.setToolTip("Clear this session")
         self.clear_session_button.clicked.connect(self.clear_active_session_contents)
         self.clear_session_button.setStyleSheet(header_icon_qss)
-        header_layout.addWidget(self.clear_session_button)
+        left_row.addWidget(self.clear_session_button)
 
         self.import_session_button = QPushButton("⤓")
         self.import_session_button.setFixedSize(28, 22)
         self.import_session_button.setToolTip("Import session from file")
         self.import_session_button.clicked.connect(self.load_session)
         self.import_session_button.setStyleSheet(header_icon_qss)
-        header_layout.addWidget(self.import_session_button)
+        left_row.addWidget(self.import_session_button)
 
         self.export_session_button = QPushButton("⤒")
         self.export_session_button.setFixedSize(28, 22)
         self.export_session_button.setToolTip("Export current session to file")
         self.export_session_button.clicked.connect(self.save_session)
         self.export_session_button.setStyleSheet(header_icon_qss)
-        header_layout.addWidget(self.export_session_button)
+        left_row.addWidget(self.export_session_button)
 
         # Messages/history button (user-facing transcript).
         self.history_button = QPushButton("💬")
@@ -1828,8 +1798,6 @@ class QtChatBubble(QWidget):
         # Voice controls (always visible; disabled when voice backend is unavailable).
         self.tts_toggle = TTSToggle()
         self.tts_toggle.toggled.connect(self.on_tts_toggled)
-        self.tts_toggle.single_clicked.connect(self.on_tts_single_click)
-        self.tts_toggle.double_clicked.connect(self.on_tts_double_click)
         self.full_voice_toggle = FullVoiceToggle()
         self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
 
@@ -1847,17 +1815,6 @@ class QtChatBubble(QWidget):
             except Exception:
                 pass
 
-        # Use the full navbar width:
-        # - left cluster: close + sessions + session actions
-        # - center: Messages
-        # - right cluster: Speaker + Mic + Status
-        header_layout.addStretch(1)
-        header_layout.addWidget(self.history_button)
-        header_layout.addStretch(1)
-        header_layout.addWidget(self.tts_toggle)
-        header_layout.addWidget(self.full_voice_toggle)
-        header_layout.addSpacing(10)
-        
         # Status (Cursor-style, enlarged to show full text including "Processing")
         self.status_label = QLabel("READY")
         self.status_label.setFixedHeight(24)
@@ -1876,7 +1833,38 @@ class QtChatBubble(QWidget):
             }
         """)
         self.status_label.setToolTip("Status")
-        header_layout.addWidget(self.status_label)
+
+        center_cluster = QWidget()
+        center_row = QHBoxLayout(center_cluster)
+        center_row.setContentsMargins(0, 0, 0, 0)
+        center_row.setSpacing(0)
+        center_row.addWidget(self.history_button)
+
+        right_cluster = QWidget()
+        right_row = QHBoxLayout(right_cluster)
+        right_row.setContentsMargins(0, 0, 0, 0)
+        right_row.setSpacing(10)
+        right_row.addWidget(self.tts_toggle)
+        right_row.addWidget(self.full_voice_toggle)
+        right_row.addWidget(self.status_label)
+
+        try:
+            fixed = QSizePolicy.Policy.Fixed
+        except Exception:
+            fixed = getattr(QSizePolicy, "Fixed", None)
+        try:
+            if fixed is not None:
+                left_cluster.setSizePolicy(fixed, fixed)
+                center_cluster.setSizePolicy(fixed, fixed)
+                right_cluster.setSizePolicy(fixed, fixed)
+        except Exception:
+            pass
+
+        header_layout.addWidget(left_cluster)
+        header_layout.addStretch(1)
+        header_layout.addWidget(center_cluster)
+        header_layout.addStretch(1)
+        header_layout.addWidget(right_cluster)
         
         layout.addLayout(header_layout)
         
@@ -2099,6 +2087,19 @@ class QtChatBubble(QWidget):
         # Populate session selector (durable multi-session).
         try:
             self._reload_session_combo(select_session_id=getattr(self.llm_manager, "active_session_id", None))
+        except Exception:
+            pass
+
+        # Make the first show match subsequent show/hide cycles (avoid layout settling later).
+        try:
+            self.ensurePolished()
+            if hasattr(self, "window_frame") and self.window_frame:
+                self.window_frame.ensurePolished()
+            if self.layout() is not None:
+                self.layout().activate()
+            if hasattr(self, "window_frame") and self.window_frame and self.window_frame.layout() is not None:
+                self.window_frame.layout().activate()
+            self.updateGeometry()
         except Exception:
             pass
 
