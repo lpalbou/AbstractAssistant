@@ -17,7 +17,7 @@ from typing import Optional, Callable, List, Dict, Any
 from ..core.agent_host import AgentHost
 
 try:
-    # Optional dependency (installed via `abstractassistant[all]`).
+    # Voice backend (AbstractVoice; installed with `abstractassistant`).
     from ..core.tts_manager import VoiceManager  # type: ignore
 
     TTS_AVAILABLE = True
@@ -42,7 +42,7 @@ try:
         QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject, QEvent
-    from PyQt5.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
+    from PyQt5.QtGui import QFont, QPalette, QColor
     from PyQt5.QtCore import QPoint
     QT_AVAILABLE = "PyQt5"
 except ImportError:
@@ -54,7 +54,7 @@ except ImportError:
             QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject, QEvent
-        from PySide2.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
+        from PySide2.QtGui import QFont, QPalette, QColor
         from PySide2.QtCore import QPoint
         QT_AVAILABLE = "PySide2"
     except ImportError:
@@ -66,7 +66,7 @@ except ImportError:
                 QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QEvent
-            from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QPen, QBrush
+            from PyQt6.QtGui import QFont, QPalette, QColor
             from PyQt6.QtCore import QPoint
             QT_AVAILABLE = "PyQt6"
         except ImportError:
@@ -387,6 +387,7 @@ class SessionsDialog(QDialog):
             QDialog {{
                 background: {window_bg};
                 color: {text_primary};
+                border-radius: 14px;
             }}
 
             QFrame#sessionRow {{
@@ -764,6 +765,7 @@ class ToolSelectorDialog(QDialog):
             QDialog {{
                 background: {window_bg};
                 color: {text_primary};
+                border-radius: 14px;
             }}
             """
         )
@@ -1634,13 +1636,23 @@ class QtChatBubble(QWidget):
                 self.setAttribute(attr, True)
         except Exception:
             pass
+        try:
+            attr = getattr(Qt, "WA_TranslucentBackground", None)
+            if attr is None and hasattr(Qt, "WidgetAttribute"):
+                attr = Qt.WidgetAttribute.WA_TranslucentBackground
+            if attr is not None:
+                self.setAttribute(attr, True)
+        except Exception:
+            pass
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool
         )
         try:
-            self.setWindowOpacity(0.97)
+            # Keep the window fully opaque; transparency is handled by painting an
+            # alpha-blended "glass" background in paintEvent().
+            self.setWindowOpacity(1.0)
         except Exception:
             pass
         
@@ -1650,21 +1662,43 @@ class QtChatBubble(QWidget):
         self.base_width = 536
         self.base_height = 196
         self.setFixedSize(self.base_width, self.base_height)
+        self._window_corner_radius = 12
         self.position_near_tray()
         
-        # Main layout with minimal spacing
-        layout = QVBoxLayout()
+        # Window structure:
+        # - Top-level widget stays transparent (for rounded corners via translucent backing).
+        # - A single child frame paints the "glass" background and border.
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        self.window_frame = QFrame(self)
+        self.window_frame.setObjectName("windowFrame")
+        try:
+            attr = getattr(Qt, "WA_StyledBackground", None)
+            if attr is None and hasattr(Qt, "WidgetAttribute"):
+                attr = Qt.WidgetAttribute.WA_StyledBackground
+            if attr is not None:
+                self.window_frame.setAttribute(attr, True)
+        except Exception:
+            pass
+
+        outer_layout.addWidget(self.window_frame)
+
+        # Main layout with minimal spacing (inside the glass frame)
+        layout = QVBoxLayout(self.window_frame)
         layout.setContentsMargins(8, 4, 8, 8)  # Strict minimum margins
         layout.setSpacing(4)  # Minimal spacing
         
         # Simple header like Cursor
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(8)
+        header_layout.setSpacing(10)
         
         # Close button (minimal)
         self.close_button = QPushButton("⨯")  # Better close icon - geometric multiplication symbol
         self.close_button.setFixedSize(24, 24)  # Increased from 18x18 to 24x24 for better visibility
+        self.close_button.setToolTip("Quit")
         self.close_button.clicked.connect(self.close_app)
         self.close_button.setStyleSheet("""
             QPushButton {
@@ -1739,65 +1773,69 @@ class QtChatBubble(QWidget):
         """)
         header_layout.addWidget(self.sessions_button)
 
-        # Overflow menu to reduce header clutter (Load/Save/Debug actions).
-        self.more_button = QPushButton("⋯")
-        self.more_button.setFixedSize(28, 22)
-        self.more_button.setToolTip("More")
-        self.more_button.clicked.connect(self._show_more_menu)
-        self.more_button.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.06);
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                color: rgba(255, 255, 255, 0.7);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
-                color: rgba(255, 255, 255, 0.9);
-            }
-        """)
-        header_layout.addWidget(self.more_button)
-
-        # Messages/history button (user-facing transcript).
-        self.history_button = QPushButton("💬")
-        self.history_button.setFixedHeight(22)
-        self.history_button.setFixedWidth(28)
-        self.history_button.setToolTip("Messages")
-        self.history_button.clicked.connect(self.show_history)
-        self.history_button.setStyleSheet("""
+        # Session controls: New / Clear / Import / Export.
+        header_icon_qss = """
             QPushButton {
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
                 border-radius: 11px;
-                font-size: 12px;
-                color: rgba(255, 255, 255, 0.7);
+                font-size: 13px;
+                color: rgba(255, 255, 255, 0.75);
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 padding: 0px;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.12);
-                color: rgba(255, 255, 255, 0.9);
+                color: rgba(255, 255, 255, 0.95);
             }
-        """)
-        header_layout.addWidget(self.history_button)
+        """
+
+        self.new_session_button = QPushButton("＋")
+        self.new_session_button.setFixedSize(28, 22)
+        self.new_session_button.setToolTip("New session")
+        self.new_session_button.clicked.connect(self._start_new_session)
+        self.new_session_button.setStyleSheet(header_icon_qss)
+        header_layout.addWidget(self.new_session_button)
+
+        self.clear_session_button = QPushButton("🗑")
+        self.clear_session_button.setFixedSize(28, 22)
+        self.clear_session_button.setToolTip("Clear this session")
+        self.clear_session_button.clicked.connect(self.clear_active_session_contents)
+        self.clear_session_button.setStyleSheet(header_icon_qss)
+        header_layout.addWidget(self.clear_session_button)
+
+        self.import_session_button = QPushButton("⤓")
+        self.import_session_button.setFixedSize(28, 22)
+        self.import_session_button.setToolTip("Import session from file")
+        self.import_session_button.clicked.connect(self.load_session)
+        self.import_session_button.setStyleSheet(header_icon_qss)
+        header_layout.addWidget(self.import_session_button)
+
+        self.export_session_button = QPushButton("⤒")
+        self.export_session_button.setFixedSize(28, 22)
+        self.export_session_button.setToolTip("Export current session to file")
+        self.export_session_button.clicked.connect(self.save_session)
+        self.export_session_button.setStyleSheet(header_icon_qss)
+        header_layout.addWidget(self.export_session_button)
+
+        # Messages/history button (user-facing transcript).
+        self.history_button = QPushButton("💬")
+        self.history_button.setFixedSize(28, 22)
+        self.history_button.setToolTip("Messages")
+        self.history_button.clicked.connect(self.show_history)
+        self.history_button.setStyleSheet(header_icon_qss)
         
         # Voice controls (always visible; disabled when voice backend is unavailable).
         self.tts_toggle = TTSToggle()
         self.tts_toggle.toggled.connect(self.on_tts_toggled)
         self.tts_toggle.single_clicked.connect(self.on_tts_single_click)
         self.tts_toggle.double_clicked.connect(self.on_tts_double_click)
-        header_layout.addWidget(self.tts_toggle)
-
         self.full_voice_toggle = FullVoiceToggle()
         self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
-        header_layout.addWidget(self.full_voice_toggle)
 
         voice_available = bool(self.voice_manager and self.voice_manager.is_available())
         if not voice_available:
-            tooltip = "Voice unavailable. Install `abstractassistant[all]` (AbstractVoice) and restart."
+            tooltip = "Voice unavailable. Install `abstractassistant` (AbstractVoice) and restart."
             try:
                 self.tts_toggle.setEnabled(False)
                 self.tts_toggle.setToolTip(tooltip)
@@ -1808,8 +1846,17 @@ class QtChatBubble(QWidget):
                 self.full_voice_toggle.setToolTip(tooltip)
             except Exception:
                 pass
-        
-        header_layout.addStretch()
+
+        # Use the full navbar width:
+        # - left cluster: close + sessions + session actions
+        # - center: Messages
+        # - right cluster: Speaker + Mic + Status
+        header_layout.addStretch(1)
+        header_layout.addWidget(self.history_button)
+        header_layout.addStretch(1)
+        header_layout.addWidget(self.tts_toggle)
+        header_layout.addWidget(self.full_voice_toggle)
+        header_layout.addSpacing(10)
         
         # Status (Cursor-style, enlarged to show full text including "Processing")
         self.status_label = QLabel("READY")
@@ -1828,6 +1875,7 @@ class QtChatBubble(QWidget):
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
             }
         """)
+        self.status_label.setToolTip("Status")
         header_layout.addWidget(self.status_label)
         
         layout.addLayout(header_layout)
@@ -1867,7 +1915,7 @@ class QtChatBubble(QWidget):
 
         # Wiring
         self.attach_button.clicked.connect(self.attach_files)
-        self.attach_button.setToolTip("Attach files (images, PDFs, Office docs, etc.)")
+        self.attach_button.setToolTip("Attach files (images, documents, audio, video)")
         self.tools_button.clicked.connect(self.open_tool_selector)
         self.tools_button.setToolTip("Tools")
         self.send_button.clicked.connect(self.send_message)
@@ -2039,8 +2087,6 @@ class QtChatBubble(QWidget):
         
         layout.addLayout(controls_layout)
         
-        self.setLayout(layout)
-
         # Setup keyboard shortcuts for voice control
         self.setup_keyboard_shortcuts()
 
@@ -2077,9 +2123,19 @@ class QtChatBubble(QWidget):
         accent_hover = accent.lighter(115)
         accent_pressed = accent.darker(115)
 
+        # Single source of truth for window translucency ("glass").
+        # Keep it readable and consistent across the app. (No global window opacity.)
+        glass_alpha = 0.92 if is_dark else 0.86
+        glass_bg = rgba(window, glass_alpha)
+        glass_border = rgba(QColor(255, 255, 255), 0.18) if is_dark else rgba(QColor(0, 0, 0), 0.12)
+        composer_bg = rgba(QColor(0, 0, 0), 0.22) if is_dark else rgba(QColor(255, 255, 255), 0.52)
+
         return {
             "is_dark": is_dark,
             "window_bg": window.name(),
+            "glass_bg": glass_bg,
+            "glass_border": glass_border,
+            "composer_bg": composer_bg,
             "surface_bg": base.name(),
             "surface_focus_bg": focus_bg.name(),
             "border": mid.name(),
@@ -2111,10 +2167,14 @@ class QtChatBubble(QWidget):
         self.setStyleSheet(
             f"""
             QWidget#AbstractAssistantBubble {{
-                background: {t['window_bg']};
-                border: 1px solid {t['border']};
-                border-radius: 12px;
+                background: transparent;
+                border: none;
                 color: {t['text_primary']};
+            }}
+            QFrame#windowFrame {{
+                background: {t['glass_bg']};
+                border: 1px solid {t['glass_border']};
+                border-radius: 12px;
             }}
             """
         )
@@ -2124,7 +2184,7 @@ class QtChatBubble(QWidget):
             self.input_container.setStyleSheet(
                 f"""
                 QFrame#inputContainer {{
-                    background: {t['surface_bg']};
+                    background: {t['composer_bg']};
                     border: 1px solid {input_border};
                     border-radius: 6px;
                     padding: 4px;
@@ -2204,24 +2264,34 @@ class QtChatBubble(QWidget):
                 """
             )
 
-        if hasattr(self, "history_button"):
-            self.history_button.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background: {t['overlay_pressed']};
-                    border: none;
-                    border-radius: 11px;
-                    font-size: 12px;
-                    color: {t['text_secondary']};
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                    padding: 0px;
-                }}
-                QPushButton:hover {{
-                    background: {t['overlay_hover']};
-                    color: {t['text_primary']};
-                }}
-                """
-            )
+        icon_btn_qss = f"""
+            QPushButton {{
+                background: {t['overlay_pressed']};
+                border: none;
+                border-radius: 11px;
+                font-size: 13px;
+                color: {t['text_secondary']};
+                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background: {t['overlay_hover']};
+                color: {t['text_primary']};
+            }}
+        """
+
+        for attr in (
+            "history_button",
+            "new_session_button",
+            "clear_session_button",
+            "import_session_button",
+            "export_session_button",
+        ):
+            if hasattr(self, attr):
+                try:
+                    getattr(self, attr).setStyleSheet(icon_btn_qss)
+                except Exception:
+                    pass
 
         if hasattr(self, "close_button"):
             self.close_button.setStyleSheet(
@@ -2828,13 +2898,34 @@ class QtChatBubble(QWidget):
         """Open file dialog to attach files (AbstractCore 2.4.5+ media handling)."""
         file_dialog = QFileDialog(self)
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
+        # Keep filters aligned with AbstractCore's supported formats (fallback list is conservative).
+        audio_exts = ["wav", "mp3", "m4a", "ogg", "flac", "aac", "webm"]
+        video_exts = ["mp4", "mov", "mkv", "webm", "avi", "wmv", "m4v"]
+        try:
+            from abstractcore.media.auto_handler import AutoMediaHandler  # type: ignore
+
+            formats = AutoMediaHandler().get_supported_formats()
+            if isinstance(formats, dict):
+                aud = formats.get("audio")
+                vid = formats.get("video")
+                if isinstance(aud, list) and aud:
+                    audio_exts = [str(x).lstrip(".").lower() for x in aud if isinstance(x, str) and str(x).strip()]
+                if isinstance(vid, list) and vid:
+                    video_exts = [str(x).lstrip(".").lower() for x in vid if isinstance(x, str) and str(x).strip()]
+        except Exception:
+            pass
+
+        audio_patterns = " ".join(f"*.{ext}" for ext in sorted(set(audio_exts)))
+        video_patterns = " ".join(f"*.{ext}" for ext in sorted(set(video_exts)))
         file_dialog.setNameFilter(
             "All supported files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff "
-            "*.pdf *.docx *.xlsx *.pptx *.txt *.md *.csv *.tsv *.json *.wav);;"
+            "*.pdf *.docx *.xlsx *.pptx *.txt *.md *.csv *.tsv *.json "
+            f"{audio_patterns} {video_patterns});;"
             "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff);;"
             "Documents (*.pdf *.docx *.xlsx *.pptx *.txt *.md);;"
             "Data files (*.csv *.tsv *.json);;"
-            "Audio (*.wav);;"
+            f"Audio ({audio_patterns});;"
+            f"Video ({video_patterns});;"
             "All files (*.*)"
         )
 
@@ -3794,11 +3885,13 @@ class QtChatBubble(QWidget):
         ok = False
         err: str | None = None
         try:
-            self.voice_manager.listen(
+            started = self.voice_manager.listen(
                 on_transcription=self.handle_voice_input,
                 on_stop=self.handle_voice_stop,
             )
-            ok = True
+            ok = bool(started)
+            if not ok:
+                raise RuntimeError("Voice backend did not start listening.")
         except Exception as e:
             ok = False
             err = str(e)
@@ -3869,6 +3962,8 @@ class QtChatBubble(QWidget):
         # Sanity check: ensure STT backend looks initialized (model loaded).
         try:
             rec = self._voice_recognizer()
+            if rec is None:
+                raise RuntimeError("Voice recognizer is not initialized")
             stt = getattr(rec, "stt_adapter", None)
             if stt is not None and hasattr(stt, "is_available") and not bool(stt.is_available()):
                 raise RuntimeError("STT model not available (not loaded)")
@@ -3878,7 +3973,7 @@ class QtChatBubble(QWidget):
                 "Full voice mode started, but speech-to-text isn't ready.\n\n"
                 f"Error: {e}\n\n"
                 "Fix:\n"
-                "1) Ensure `abstractassistant[all]` is installed\n"
+                "1) Ensure `abstractassistant` is installed\n"
                 "2) Restart AbstractAssistant\n"
                 "3) If needed, re-install dependencies in a clean venv\n",
             )
@@ -4444,7 +4539,15 @@ class QtChatBubble(QWidget):
         self.status_callback = callback
 
     def _set_session_controls_enabled(self, enabled: bool) -> None:
-        for attr in ("session_combo", "sessions_button"):
+        for attr in (
+            "session_combo",
+            "sessions_button",
+            "new_session_button",
+            "clear_session_button",
+            "import_session_button",
+            "export_session_button",
+            "history_button",
+        ):
             w = getattr(self, attr, None)
             if w is None:
                 continue
@@ -4770,6 +4873,73 @@ class QtChatBubble(QWidget):
                     menu.exec(pos)
         except Exception:
             return
+
+    def clear_active_session_contents(self) -> None:
+        """Clear all messages/attachments in the active session (does not create a new session)."""
+        if self._is_run_in_progress():
+            QMessageBox.information(self, "Clear session", "Please wait for the current response to finish.")
+            return
+
+        if not self.llm_manager:
+            return
+
+        has_anything = bool(self.message_history) or bool(getattr(self, "attached_files", []))
+        if not has_anything:
+            QMessageBox.information(self, "Clear session", "This session is already empty.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Clear Session",
+            "Clear this session?\n\nThis removes all messages and attachments from the current session.\nThis action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            reset = getattr(self.llm_manager, "reset_active_session", None)
+            if callable(reset):
+                reset(tts_mode=bool(getattr(self, "tts_enabled", False)))
+            else:
+                clear = getattr(self.llm_manager, "clear_session", None)
+                if callable(clear):
+                    clear()
+        except Exception as e:
+            QMessageBox.critical(self, "Clear session", f"Failed to clear this session:\n{e}")
+            return
+
+        try:
+            if hasattr(self.llm_manager, "refresh"):
+                self.llm_manager.refresh()
+        except Exception:
+            pass
+
+        # Reset per-session UI caches.
+        try:
+            self.attached_files.clear()
+            self.message_file_attachments.clear()
+            self.update_attached_files_display()
+        except Exception:
+            pass
+
+        self._update_message_history_from_session()
+        self._update_token_count_from_session()
+        self._rebuild_chat_display()
+
+        # If the history window is open, refresh it to reflect the cleared session.
+        if self.history_dialog and self.history_dialog.isVisible():
+            try:
+                self.history_dialog.refresh_messages(self.message_history)
+            except Exception:
+                pass
+
+        # Keep the header/session list up to date (message counts, updated_at).
+        try:
+            self._reload_session_combo(select_session_id=self._active_session_id())
+        except Exception:
+            pass
     
     def clear_session(self):
         """Start a new session (prior sessions remain available)."""

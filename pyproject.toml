@@ -27,8 +27,11 @@ classifiers = [
 ]
 
 dependencies = [
-    # Base install == lite (tray is the core product feature).
+    # Base install is fully-featured (voice + media + provider/tool integrations).
     "abstractagent>=0.3.0",
+    "abstractvoice>=0.6.2",
+    # Provider/client extras (avoid GPU-only stacks like vLLM by default).
+    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.11.5",
     "tomli>=2.0.0; python_version<'3.11'",
     "tomli-w>=1.0.0",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
@@ -46,11 +49,7 @@ dependencies = [
 
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
-all = [
-    "abstractvoice>=0.6.0",
-    # Provider/client extras (still avoid GPU-only stacks like vLLM by default).
-    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media]>=2.11.0",
-]
+all = []  # Back-compat alias (base install already includes everything).
 dev = [
     "pytest>=7.0.0",
     "black>=23.0.0",

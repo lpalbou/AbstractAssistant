@@ -137,15 +137,15 @@ The tray UI uses a worker thread to keep Qt responsive:
 - tool approvals are handled on the main thread via a modal approval dialog
 - ASK_USER waits are handled via a simple input prompt
 
-## Voice integration (optional)
+## Voice integration
 
-Voice features are installed via `abstractassistant[all]`:
+Voice features are included in the default install (`pip install abstractassistant`):
 - `abstractassistant/core/tts_manager.py` wraps `abstractvoice.VoiceManager`
 - the tray UI can run:
   - TTS for assistant outputs
   - Full Voice Mode: STT transcriptions routed into the same agentic send pipeline
 
-Voice is optional by design: `assistant --help` and headless CLI usage must not import audio/GUI stacks.
+Voice is still optional at runtime: users can keep it off, and `assistant --help` / headless usage should avoid importing GUI/audio stacks for fast startup.
 
 ## Entry points
 
@@ -154,11 +154,9 @@ Voice is optional by design: `assistant --help` and headless CLI usage must not 
   - `assistant run --prompt ...` (interactive tool approvals in terminal)
 - Tray app: `abstractassistant/app.py` (pystray + Qt)
 
-## Install profiles
+## Install
 
-Defined in `pyproject.toml`:
-- `abstractassistant` (default) == `lite`: tray UI dependencies (Qt + tray + markdown UX)
-- `abstractassistant[all]`: voice (AbstractVoice) + broader AbstractCore provider/media extras
+`pip install abstractassistant` installs the tray UI plus voice/media/provider/tool integrations by default.
 
 ## Comparison: AbstractAssistant vs AbstractCode Web (thin client)
 

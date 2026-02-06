@@ -30,7 +30,7 @@ try:
         QSizePolicy,
     )
     from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent
-    from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon
+    from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon, QPainterPath, QRegion
 except ImportError:
     try:
         from PyQt5.QtWidgets import (
@@ -47,7 +47,7 @@ except ImportError:
             QSizePolicy,
         )
         from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent
-        from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon
+        from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon, QPainterPath, QRegion
     except ImportError:
         from PySide2.QtWidgets import (
             QDialog,
@@ -63,7 +63,7 @@ except ImportError:
             QSizePolicy,
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize, QEvent
-        from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon
+        from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon, QPainterPath, QRegion
 
 
 class ClickableBubble(QFrame):
@@ -275,10 +275,33 @@ class SafeDialog(QDialog):
         self.trash_button = None
         self.edit_button = None
         self._history_viewport = None
+        self._window_corner_radius = 14
+
+    def _apply_rounded_mask(self) -> None:
+        try:
+            radius = int(getattr(self, "_window_corner_radius", 14) or 14)
+        except Exception:
+            radius = 14
+        radius = max(0, radius)
+        w = int(self.width())
+        h = int(self.height())
+        if w <= 0 or h <= 0:
+            return
+        try:
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, w, h, radius, radius)
+            region = QRegion(path.toFillPolygon().toPolygon())
+            self.setMask(region)
+        except Exception:
+            return
 
     def showEvent(self, event):
         try:
             super().showEvent(event)
+        except Exception:
+            pass
+        try:
+            self._apply_rounded_mask()
         except Exception:
             pass
         try:
@@ -291,6 +314,10 @@ class SafeDialog(QDialog):
     def resizeEvent(self, event):
         try:
             super().resizeEvent(event)
+        except Exception:
+            pass
+        try:
+            self._apply_rounded_mask()
         except Exception:
             pass
         try:
@@ -659,7 +686,17 @@ class iPhoneMessagesDialog:
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         dialog.resize(617, 498)  # Slightly shorter; keep top anchored under the macOS navbar
         try:
-            dialog.setWindowOpacity(0.97)
+            # Keep the window fully opaque; the dialog uses translucent sub-surfaces
+            # and a rounded mask for the Apple-style look.
+            dialog.setWindowOpacity(1.0)
+        except Exception:
+            pass
+        try:
+            attr = getattr(Qt, "WA_TranslucentBackground", None)
+            if attr is None and hasattr(Qt, "WidgetAttribute"):
+                attr = Qt.WidgetAttribute.WA_TranslucentBackground
+            if attr is not None:
+                dialog.setAttribute(attr, True)
         except Exception:
             pass
 
@@ -1706,16 +1743,17 @@ class iPhoneMessagesDialog:
         """Get AUTHENTIC iPhone Messages styles - dark background like real iPhone."""
         return """
             QDialog {
-                background: rgba(0, 0, 0, 0.55);
+                background: rgba(0, 0, 0, 0.95);
+                border-radius: 14px;
                 color: #ffffff;
             }
 
             QFrame {
-                background: rgba(0, 0, 0, 0.5);
+                background: rgba(0, 0, 0, 0.9);
                 border: none;
             }
 
             QWidget {
-                background: rgba(0, 0, 0, 0.35);
+                background: rgba(0, 0, 0, 0.95);
             }
         """

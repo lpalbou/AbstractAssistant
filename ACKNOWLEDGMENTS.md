@@ -25,9 +25,9 @@ Rendering and UX helpers:
 Configuration:
 - **tomli** / **tomli-w** — TOML parsing/writing (compatibility across Python versions)
 
-## Optional extras
+## Voice
 
-- **AbstractVoice** — voice/audio capabilities (installed via `abstractassistant[all]` when enabled)
+- **AbstractVoice** — voice/audio capabilities (installed with `abstractassistant`)
 
 ## Development tooling
 

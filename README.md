@@ -5,22 +5,17 @@ One-click, tray-accessible agent host for AbstractFramework.
 AbstractAssistant runs **agentic** loops (ReAct/CodeAct/MemAct) on top of:
 - **AbstractAgent** (agent patterns)
 - **AbstractRuntime** (durable runs, waits, ledgers)
-- **AbstractCore** (provider/tool normalization)
-- Optional: **AbstractVoice** (STT/TTS)
+- **AbstractCore** (providers + tools + media handling)
+- **AbstractVoice** (STT/TTS)
 
 Docs:
 - `docs/getting-started.md`
 - `docs/architecture.md`
 
-## Install profiles
-
-- `abstractassistant` (default) == `lite`: tray UI + agent backend (no voice)
-- `abstractassistant[all]`: voice (STT/TTS) + broader provider/media extras
+## Install
 
 ```bash
 pip install "abstractassistant"
-# or
-pip install "abstractassistant[all]"
 ```
 
 ## Quick start
@@ -62,9 +57,7 @@ By default, assistant state is stored in `~/.abstractassistant/` (configurable v
 ## Development
 
 ```bash
-pip install -e ".[dev,lite]"   # base tray (no voice)
-# or
-pip install -e ".[dev,all]"    # voice (STT/TTS) + provider/media extras
+pip install -e ".[dev]"
 python -m pytest -q
 assistant tray --debug
 ```
@@ -84,8 +77,9 @@ assistant tray --debug
 - **macOS**: 10.14+ (Mojave or later)
 - **Python**: 3.10+
 - **Qt Framework**: PyQt5, PySide2, or PyQt6 (automatically detected)
-- **Core deps**: AbstractAgent + AbstractRuntime (installed with `abstractassistant`)
-- **Optional deps**: voice + provider/media extras via `abstractassistant[all]` (installs AbstractVoice + AbstractCore extras)
+- **Core deps**: AbstractAgent + AbstractRuntime + AbstractCore + AbstractVoice (installed with `abstractassistant`)
+- **Audio note**: audio attachments are auto-transcribed via AbstractVoice (first run may download model weights)
+- **Video note**: frame-sampling fallback may require `ffmpeg` on your PATH
 
 ## 🤝 Contributing
 

@@ -2,15 +2,10 @@
 
 For a quick walkthrough, start with `getting-started.md`.
 
-## Install profiles
-
-- `abstractassistant` (default) == `lite`: tray UI + agent backend (no voice)
-- `abstractassistant[all]`: voice (STT/TTS) + broader provider/media extras
+## Install
 
 ```bash
 pip install "abstractassistant"
-# or
-pip install "abstractassistant[all]"
 ```
 
 ## macOS app bundle (optional)
@@ -27,7 +22,7 @@ Notes:
 
 ## Headless / terminal only
 
-If you want only the CLI (no tray UI), you can install without extras and use:
+If you want only the CLI (no tray UI), install and use:
 
 ```bash
 pip install abstractassistant
@@ -35,3 +30,7 @@ assistant run --prompt "Hello"
 ```
 
 The CLI entrypoint is available as both `assistant` and `abstractassistant`.
+
+## Notes
+
+- Video frame-sampling fallback (for non-video-native models) may require `ffmpeg` on your PATH.

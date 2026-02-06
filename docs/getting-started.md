@@ -8,22 +8,14 @@ See also:
 
 ## Install
 
-### Lite (tray UI, no voice)
-
 ```bash
 pip install "abstractassistant"
-```
-
-### All (tray + voice + broader provider/media extras)
-
-```bash
-pip install "abstractassistant[all]"
 ```
 
 ### Editable (development)
 
 ```bash
-pip install -e ".[dev,lite]"
+pip install -e ".[dev]"
 ```
 
 ## Run
@@ -40,13 +32,7 @@ Alias:
 abstractassistant tray
 ```
 
-If you installed without the UI extra, you’ll see an install hint. Fix with:
-
-```bash
-pip install "abstractassistant"
-```
-
-### Voice modes (requires `abstractassistant[all]`)
+### Voice modes
 
 ```bash
 assistant tray --listening-mode wait
@@ -80,18 +66,19 @@ In the tray bubble, the Tools button lets you:
 
 ## Attachments (tray UI)
 
-Use the paperclip button to attach local files (images, PDFs, office docs, audio, etc.). File paths are passed to the underlying provider/media pipeline when supported by your provider/model.
+Use the paperclip button to attach local files (images, documents, audio, video). File paths are passed to the underlying provider/media pipeline.
 
 Notes:
-- `.wav` is supported for audio attachments (requires `abstractassistant[all]` for STT fallback).
+- Audio: common containers like `.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`, `.aac`, `.webm`
+- Audio STT: when `abstractvoice` is installed (default), audio attachments are automatically transcribed and the transcript is inlined into the prompt for text-only models (the first run may download model weights).
+- Video: common containers like `.mp4`, `.mov`, `.mkv`, `.webm`, `.avi`, `.wmv`, `.m4v`
+- Video frame-sampling fallback (for text-only models) may require `ffmpeg` on your PATH.
 
 ## Sessions (tray UI)
 
 Use the “Sessions” badge to switch between sessions. Each row shows a short date, title, and a few quick stats (messages, files, tools).
 
 ## Voice (STT/TTS)
-
-Voice features require `abstractassistant[all]`.
 
 In the tray bubble:
 - Speaker toggle: enable/disable TTS for assistant responses
@@ -132,7 +119,7 @@ assistant --data-dir /path/to/dir tray
 ## Troubleshooting
 
 - Tray fails to start: reinstall base dependencies: `pip install --upgrade "abstractassistant"`.
-- Voice toggles missing: install the voice extra: `pip install "abstractassistant[all]"`.
+- Voice toggles missing/unavailable: reinstall: `pip install --upgrade "abstractassistant"` and restart.
 - Mic says “listening” but hears nothing: macOS System Settings → Privacy & Security → Microphone → enable access for AbstractAssistant, then restart the app.
 - Provider errors: ensure your local provider is running (LMStudio/Ollama) or set API keys (OpenAI/Anthropic).
 - Reset state: use “Clear” in the UI, or delete your data dir (`~/.abstractassistant/` by default).

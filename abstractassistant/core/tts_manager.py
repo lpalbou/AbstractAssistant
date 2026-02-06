@@ -215,13 +215,16 @@ class VoiceManager:
         """
         if hasattr(self._abstractvoice_manager, 'listen'):
             try:
-                self._abstractvoice_manager.listen(
+                started = self._abstractvoice_manager.listen(
                     on_transcription=on_transcription,
                     on_stop=on_stop
                 )
                 if self.debug_mode:
                     if self.debug_mode:
-                        print("🎤 Started listening for speech")
+                        print(f"🎤 Started listening for speech (started={bool(started)})")
+                if not started:
+                    raise RuntimeError("Voice listening failed to start (no exception was raised).")
+                return bool(started)
             except Exception as e:
                 if self.debug_mode:
                     if self.debug_mode:
@@ -249,6 +252,10 @@ class VoiceManager:
             if self.debug_mode:
                 if self.debug_mode:
                     print("⚠️  Stop listening not available in current AbstractVoice version")
+
+    def stop_speaking(self):
+        """Stop current speech (compat alias used by the Qt UI)."""
+        return self.stop()
 
     def is_listening(self) -> bool:
         """Check if currently listening for speech."""

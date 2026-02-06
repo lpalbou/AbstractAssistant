@@ -10,6 +10,11 @@ Key invariants:
 
 from __future__ import annotations
 
+import datetime
+import hashlib
+import mimetypes
+import os
+import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -173,8 +178,403 @@ class AgentHost:
         self._runtime = None
         self._local_tool_executor = None
         self._agent = None
+        self._stt_adapter = None
+        self._stt_adapter_lock = threading.Lock()
         if not self._lazy_runtime:
             self._ensure_ready()
+
+    def _default_stt_language(self) -> Optional[str]:
+        try:
+            from abstractcore.config.manager import get_config_manager  # type: ignore
+
+            lang = getattr(getattr(get_config_manager().config, "audio", None), "stt_language", None)
+            if isinstance(lang, str) and lang.strip():
+                return lang.strip()
+        except Exception:
+            return None
+        return None
+
+    def _get_stt_adapter(self):
+        with self._stt_adapter_lock:
+            adapter = self._stt_adapter
+            try:
+                if adapter is not None and bool(getattr(adapter, "is_available", lambda: False)()):
+                    return adapter
+            except Exception:
+                adapter = None
+
+            try:
+                from abstractvoice.adapters.stt_faster_whisper import FasterWhisperAdapter  # type: ignore
+
+                adapter = FasterWhisperAdapter(
+                    model_size="base",
+                    device="auto",
+                    compute_type="int8",
+                    allow_downloads=True,
+                )
+                if bool(getattr(adapter, "is_available", lambda: False)()):
+                    self._stt_adapter = adapter
+                    return adapter
+            except Exception:
+                adapter = None
+
+            self._stt_adapter = None
+            return None
+
+    def _transcribe_audio_file(self, *, file_path: str, language: Optional[str]) -> str:
+        adapter = self._get_stt_adapter()
+        if adapter is None:
+            raise RuntimeError(
+                "Audio transcription is unavailable. Ensure `abstractvoice` and its STT backend are installed "
+                "(faster-whisper) and that the model weights can be downloaded/cached."
+            )
+
+        transcribe = getattr(adapter, "transcribe", None)
+        if not callable(transcribe):
+            raise RuntimeError("Audio transcription adapter does not support transcribe().")
+
+        try:
+            text = transcribe(str(file_path), language=language)
+        except Exception as e:
+            raise RuntimeError(f"Audio transcription failed: {e}") from e
+
+        return str(text or "").strip()
+
+    @staticmethod
+    def _sha256_file(file_path: str, *, chunk_bytes: int = 1024 * 1024) -> str:
+        """Compute SHA-256 for a file without loading it fully into memory."""
+        p = str(file_path or "").strip()
+        if not p:
+            raise ValueError("file_path is required")
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            while True:
+                chunk = f.read(int(chunk_bytes))
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _ensure_audio_transcript_artifact(
+        self,
+        *,
+        session_id: str,
+        audio_sha256: str,
+        audio_filename: str,
+        audio_path: str,
+        language: Optional[str],
+    ) -> Dict[str, Any]:
+        """Return transcript artifact metadata (creates it if missing)."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("session_id is required")
+        sha = str(audio_sha256 or "").strip().lower()
+        if not sha:
+            raise ValueError("audio_sha256 is required")
+
+        rid = self._ensure_session_memory_run_exists(session_id=sid)
+        try:
+            existing = self._artifact_store.list_by_run(str(rid))
+        except Exception:
+            existing = []
+
+        for m in existing or []:
+            tags = getattr(m, "tags", None)
+            if not isinstance(tags, dict):
+                continue
+            if str(tags.get("kind") or "") != "attachment":
+                continue
+            if str(tags.get("source") or "") != "ui.attachment.transcript":
+                continue
+            if str(tags.get("parent_sha256") or "").lower() != sha:
+                continue
+            aid = str(getattr(m, "artifact_id", "") or "").strip()
+            if aid:
+                return {
+                    "artifact_id": aid,
+                    "filename": str(tags.get("filename") or ""),
+                    "handle": str(tags.get("path") or tags.get("source_path") or tags.get("filename") or ""),
+                    "content_type": str(getattr(m, "content_type", "") or "text/plain"),
+                    "size_bytes": int(getattr(m, "size_bytes", 0) or 0),
+                }
+
+        transcript = self._transcribe_audio_file(file_path=audio_path, language=language)
+        if not transcript:
+            raise RuntimeError(f"Audio transcription produced empty text for '{audio_filename}'.")
+
+        stem = Path(audio_filename).stem if audio_filename else "audio"
+        transcript_filename = f"{stem}.transcript.txt"
+        transcript_handle = transcript_filename
+
+        tags: Dict[str, str] = {
+            "kind": "attachment",
+            "source": "ui.attachment.transcript",
+            "path": transcript_handle,
+            "filename": transcript_filename,
+            "session_id": sid,
+            "parent_sha256": sha,
+        }
+
+        payload = f"Transcript of audio attachment '{audio_filename}':\n\n{transcript}\n"
+        meta = self._artifact_store.store(
+            payload.encode("utf-8"),
+            content_type="text/plain",
+            run_id=str(rid),
+            tags=tags,
+        )
+        return {
+            "artifact_id": str(getattr(meta, "artifact_id", "") or ""),
+            "filename": transcript_filename,
+            "handle": transcript_handle,
+            "content_type": "text/plain",
+            "size_bytes": len(payload.encode("utf-8")),
+        }
+
+    @staticmethod
+    def _max_attachment_bytes() -> int:
+        raw = str(os.getenv("ABSTRACTGATEWAY_MAX_ATTACHMENT_BYTES", "") or "").strip()
+        if raw:
+            try:
+                v = int(raw)
+                if v > 0:
+                    return v
+            except Exception:
+                pass
+        return 25 * 1024 * 1024
+
+    def _ensure_session_memory_run_exists(self, *, session_id: str) -> str:
+        from abstractruntime.integrations.abstractcore.session_attachments import session_memory_owner_run_id
+
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("session_id is required")
+
+        rid = session_memory_owner_run_id(sid)
+        try:
+            existing = self._run_store.load(str(rid))
+        except Exception:
+            existing = None
+        if existing is not None:
+            return str(rid)
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        run0 = RunState(
+            run_id=str(rid),
+            workflow_id="__session_memory__",
+            status=RunStatus.COMPLETED,
+            current_node="done",
+            vars={
+                "context": {"task": "", "messages": []},
+                "scratchpad": {},
+                "_runtime": {"memory_spans": []},
+                "_temp": {},
+                "_limits": {},
+            },
+            waiting=None,
+            output={"messages": []},
+            error=None,
+            created_at=now_iso,
+            updated_at=now_iso,
+            actor_id=None,
+            session_id=sid,
+            parent_run_id=None,
+        )
+        try:
+            self._run_store.save(run0)
+        except Exception:
+            # Best-effort: artifacts can still be stored, but run-scoped APIs may 404.
+            pass
+        return str(rid)
+
+    def _register_path_attachment(self, *, session_id: str, file_path: str, source: str) -> Optional[Dict[str, Any]]:
+        if not file_path:
+            return None
+        if self._artifact_store is None:
+            return None
+
+        sid = str(session_id or "").strip()
+        if not sid:
+            return None
+
+        fp_raw = str(file_path or "").strip()
+        if not fp_raw:
+            return None
+
+        try:
+            p = Path(fp_raw).expanduser()
+        except Exception:
+            return None
+        try:
+            resolved = p.resolve()
+        except Exception:
+            resolved = p
+
+        try:
+            if not resolved.exists() or not resolved.is_file():
+                return None
+        except Exception:
+            return None
+
+        max_bytes = self._max_attachment_bytes()
+        try:
+            size = int(resolved.stat().st_size)
+        except Exception:
+            size = -1
+        if size >= 0 and size > max_bytes:
+            return None
+
+        try:
+            content = resolved.read_bytes()
+        except Exception:
+            return None
+        if len(content) > max_bytes:
+            return None
+
+        sha256 = hashlib.sha256(bytes(content)).hexdigest()
+        filename = resolved.name or fp_raw.replace("\\", "/").rsplit("/", 1)[-1]
+
+        # Keep attachment handles model-safe: relative to workspace root when inside,
+        # otherwise just the filename (avoid leaking absolute local paths).
+        handle = filename
+        ws_root = getattr(self._config, "workspace_root", None)
+        if isinstance(ws_root, str) and ws_root.strip():
+            try:
+                ws = Path(ws_root).expanduser().resolve()
+                handle = resolved.relative_to(ws).as_posix()
+            except Exception:
+                handle = filename
+
+        guessed, _enc = mimetypes.guess_type(filename)
+        content_type = str(guessed or "application/octet-stream")
+
+        rid = self._ensure_session_memory_run_exists(session_id=sid)
+        try:
+            existing = self._artifact_store.list_by_run(str(rid))
+        except Exception:
+            existing = []
+
+        for m in existing or []:
+            tags = getattr(m, "tags", None)
+            if not isinstance(tags, dict):
+                continue
+            if str(tags.get("kind") or "") != "attachment":
+                continue
+            if str(tags.get("sha256") or "") != sha256:
+                continue
+            if str(tags.get("filename") or "") != filename:
+                continue
+            if str(getattr(m, "artifact_id", "") or ""):
+                return {
+                    "artifact_id": str(getattr(m, "artifact_id", "") or ""),
+                    "handle": str(handle),
+                    "filename": str(filename),
+                    "sha256": sha256,
+                    "content_type": content_type,
+                    "size_bytes": len(content),
+                }
+
+        tags: Dict[str, str] = {
+            "kind": "attachment",
+            "source": str(source or "ui.attachment"),
+            "path": str(handle),
+            "filename": str(filename),
+            "session_id": sid,
+            "sha256": sha256,
+        }
+        try:
+            meta = self._artifact_store.store(bytes(content), content_type=str(content_type), run_id=str(rid), tags=tags)
+        except Exception:
+            return None
+        return {
+            "artifact_id": str(getattr(meta, "artifact_id", "") or ""),
+            "handle": str(handle),
+            "filename": str(filename),
+            "sha256": sha256,
+            "content_type": content_type,
+            "size_bytes": len(content),
+        }
+
+    def _normalize_attachments_for_run(self, attachments: Optional[Sequence[Any]]) -> Optional[List[Any]]:
+        items = list(attachments) if isinstance(attachments, (list, tuple)) else []
+        if not items:
+            return None
+
+        out: List[Any] = []
+        for it in items:
+            if isinstance(it, dict):
+                # Keep artifact refs intact.
+                aid = it.get("$artifact")
+                if not (isinstance(aid, str) and aid.strip()):
+                    aid = it.get("artifact_id")
+                if isinstance(aid, str) and aid.strip():
+                    out.append(dict(it))
+                continue
+
+            if isinstance(it, str) and it.strip():
+                meta = self._register_path_attachment(
+                    session_id=self._snapshot.session_id,
+                    file_path=it.strip(),
+                    source="ui.attachment",
+                )
+                ct = str((meta or {}).get("content_type") or "").strip().lower()
+                filename = str((meta or {}).get("filename") or Path(it.strip()).name or "").strip()
+                sha = str((meta or {}).get("sha256") or "").strip().lower()
+                is_audio = ct.startswith("audio/") or Path(filename).suffix.lower() in {
+                    ".wav",
+                    ".mp3",
+                    ".m4a",
+                    ".aac",
+                    ".ogg",
+                    ".flac",
+                    ".opus",
+                    ".webm",
+                }
+
+                # Audio attachments: pre-transcribe via AbstractVoice so text-only models
+                # work even when AbstractCore capability plugins aren't packaged in this env.
+                if is_audio and filename:
+                    # If the attachment is too large to store as an artifact, compute a stable SHA
+                    # directly from disk so we can cache/reuse transcripts across turns.
+                    if not sha:
+                        try:
+                            sha = self._sha256_file(it.strip())
+                        except Exception as e:
+                            raise RuntimeError(f"Failed to read audio attachment '{filename}': {e}") from e
+                    lang = self._default_stt_language()
+                    transcript_meta = self._ensure_audio_transcript_artifact(
+                        session_id=self._snapshot.session_id,
+                        audio_sha256=sha,
+                        audio_filename=filename,
+                        audio_path=it.strip(),
+                        language=lang,
+                    )
+                    out.append(
+                        {
+                            "$artifact": str(transcript_meta.get("artifact_id") or ""),
+                            "filename": str(transcript_meta.get("filename") or ""),
+                            "source_path": str(transcript_meta.get("handle") or ""),
+                            "content_type": str(transcript_meta.get("content_type") or "text/plain"),
+                        }
+                    )
+                    continue
+
+                # Default: attach the original file as artifact-backed media when possible.
+                if meta and meta.get("artifact_id"):
+                    out.append(
+                        {
+                            "$artifact": str(meta["artifact_id"]),
+                            "filename": str(meta.get("filename") or ""),
+                            "source_path": str(meta.get("handle") or ""),
+                            "content_type": str(meta.get("content_type") or ""),
+                            "sha256": str(meta.get("sha256") or ""),
+                            "size_bytes": int(meta.get("size_bytes") or 0),
+                        }
+                    )
+                else:
+                    out.append(it.strip())
+                continue
+
+        return out or None
 
     @property
     def config(self) -> AgentHostConfig:
@@ -334,12 +734,14 @@ class AgentHost:
         # Keep the agent’s session cache aligned with the persisted snapshot.
         setattr(self._agent, "session_messages", self._agent_session_messages())  # type: ignore[union-attr]
 
+        normalized_attachments = self._normalize_attachments_for_run(attachments)
+
         # Start the run.
         start = getattr(self._agent, "start")  # type: ignore[union-attr]
         run_id = start(
             text,
             allowed_tools=_normalize_allowed_tools(allowed_tools),
-            attachments=list(attachments) if attachments else None,
+            attachments=list(normalized_attachments) if normalized_attachments else None,
         )
         self._snapshot = SessionSnapshot(
             session_id=self._snapshot.session_id,
@@ -367,7 +769,7 @@ class AgentHost:
         # If the user attached audio, nudge the agent away from shell-based Whisper fallbacks.
         has_audio_attachment = False
         try:
-            for a in attachments or []:
+            for a in normalized_attachments or []:
                 if isinstance(a, dict):
                     ct = str(a.get("content_type") or a.get("mime_type") or "").strip().lower()
                     if ct.startswith("audio/"):
