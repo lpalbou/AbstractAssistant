@@ -84,6 +84,7 @@ class TTSToggle(QPushButton):
         self.setFixedSize(40, 24)  # Slightly wider for button
         self.setToolTip("Single click: Pause/Resume TTS, Double click: Stop and open chat")
         self._enabled = False
+        self._tts_state = 'idle'  # 'idle', 'speaking', 'paused'
         self.setCheckable(True)
 
         # Click detection for single/double click
@@ -100,12 +101,26 @@ class TTSToggle(QPushButton):
         return self._enabled
     
     def set_enabled(self, enabled: bool):
-        """Set TTS enabled state - USER CONTROL ONLY."""
+        """Set TTS enabled state."""
         if self._enabled != enabled:
             self._enabled = enabled
             self.setChecked(enabled)
             self._update_appearance()
             self.toggled.emit(enabled)
+
+    def set_tts_state(self, state: str):
+        """Set TTS state for visual feedback.
+
+        Args:
+            state: One of 'idle', 'speaking', 'paused'
+        """
+        if self._tts_state != state:
+            self._tts_state = state
+            self._update_appearance()
+
+    def get_tts_state(self) -> str:
+        """Get current TTS state."""
+        return self._tts_state
 
     def mousePressEvent(self, event):
         """Handle mouse press for single/double click detection."""
@@ -124,39 +139,39 @@ class TTSToggle(QPushButton):
         super().mousePressEvent(event)
 
     def _handle_single_click(self):
-        """Handle single click - toggle TTS on/off."""
+        """Handle single click - pause/resume or toggle."""
         self._click_count = 0
-        # Simple toggle: if enabled, disable it; if disabled, enable it
-        new_state = not self._enabled
-        self.set_enabled(new_state)
+
+        if self._enabled:
+            # TTS is enabled, handle pause/resume
+            self.single_clicked.emit()
+        else:
+            # TTS is disabled, toggle it on
+            self.set_enabled(True)
 
     def _handle_double_click(self):
         """Handle double click - stop TTS and open chat."""
         self.double_clicked.emit()
 
     def _update_appearance(self):
-        """Update button appearance based on user's toggle state ONLY."""
-        palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
-        is_dark = palette.window().color().lightness() < 128
-        accent = palette.highlight().color()
-
-        def rgba(color: QColor, alpha: float) -> str:
-            return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
-
-        overlay_bg = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.06)"
-        overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
-        overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
-        overlay_fg = "rgba(255, 255, 255, 0.7)" if is_dark else "rgba(0, 0, 0, 0.65)"
-
-        # SIMPLE USER CONTROL - only shows enabled/disabled state
-        if self._enabled:
-            icon = "🔉"  # Speaker icon when enabled
-            bg_color = rgba(accent, 0.85)
+        """Update button appearance based on TTS state."""
+        # Set icon text based on state
+        if not self._enabled:
+            icon = "🔇"  # Muted speaker when disabled
+            bg_color = "rgba(255, 255, 255, 0.06)"
+            text_color = "rgba(255, 255, 255, 0.7)"
+        elif self._tts_state == 'speaking':
+            icon = "🔊"  # Loud speaker when speaking
+            bg_color = "rgba(0, 170, 0, 0.8)"  # Green
+            text_color = "#ffffff"
+        elif self._tts_state == 'paused':
+            icon = "⏸️"  # Pause when paused
+            bg_color = "rgba(255, 136, 0, 0.8)"  # Orange
             text_color = "#ffffff"
         else:
-            icon = "🔇"  # Muted speaker when disabled
-            bg_color = overlay_bg
-            text_color = overlay_fg
+            icon = "🔉"  # Medium speaker when idle but enabled
+            bg_color = "rgba(0, 102, 204, 0.8)"  # Blue
+            text_color = "#ffffff"
 
         self.setText(icon)
         self.setStyleSheet(f"""
@@ -166,14 +181,14 @@ class TTSToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: -apple-system, system-ui, sans-serif;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background: {rgba(accent, 0.9) if self._enabled else overlay_hover};
+                background: {bg_color.replace('0.8', '1.0') if '0.8' in bg_color else bg_color};
             }}
             QPushButton:pressed {{
-                background: {rgba(accent, 0.75) if self._enabled else overlay_pressed};
+                background: {bg_color.replace('0.8', '0.6') if '0.8' in bg_color else bg_color};
             }}
         """)
 
@@ -188,6 +203,7 @@ class FullVoiceToggle(QPushButton):
         self.setFixedSize(40, 24)  # Slightly wider for button
         self.setToolTip("Full Voice Mode: Continuous listening with speech-to-text and text-to-speech")
         self._enabled = False
+        self._listening_state = 'idle'  # 'idle', 'listening', 'processing'
         self.setCheckable(True)
         self.clicked.connect(self._on_clicked)
         self._update_appearance()
@@ -208,35 +224,43 @@ class FullVoiceToggle(QPushButton):
             self._enabled = enabled
             self.setChecked(enabled)
             self._update_appearance()
-            self.toggled.emit(enabled)
+            if not enabled:
+                self.toggled.emit(enabled)
+
+    def set_listening_state(self, state: str):
+        """Set listening state for visual feedback.
+
+        Args:
+            state: One of 'idle', 'listening', 'processing'
+        """
+        if self._listening_state != state:
+            self._listening_state = state
+            self._update_appearance()
+
+    def get_listening_state(self) -> str:
+        """Get current listening state."""
+        return self._listening_state
 
 
     def _update_appearance(self):
-        """Update button appearance based on user's toggle state ONLY."""
-        palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
-        is_dark = palette.window().color().lightness() < 128
-        accent = palette.highlight().color()
-
-        def rgba(color: QColor, alpha: float) -> str:
-            return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
-
-        overlay_bg = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.06)"
-        overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
-        overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
-        overlay_fg = "rgba(255, 255, 255, 0.7)" if is_dark else "rgba(0, 0, 0, 0.65)"
-
-        # SIMPLE USER CONTROL - only shows enabled/disabled state
-        if self._enabled:
-            icon = "🎙️"  # Microphone when enabled
-            bg_color = rgba(accent, 0.85)
+        """Update button appearance based on state."""
+        # Set icon text based on state
+        if not self._enabled:
+            icon = "🎤"  # Microphone when disabled
+            bg_color = "rgba(255, 255, 255, 0.06)"
+            text_color = "rgba(255, 255, 255, 0.7)"
+        elif self._listening_state == 'listening':
+            icon = "🔴"  # Red circle when actively listening
+            bg_color = "rgba(255, 107, 53, 0.8)"  # Orange
+            text_color = "#ffffff"
+        elif self._listening_state == 'processing':
+            icon = "⚡"  # Lightning when processing
+            bg_color = "rgba(255, 165, 0, 0.8)"  # Yellow
             text_color = "#ffffff"
         else:
-            # Show an explicit "mic off" glyph by default (struck mic),
-            # because the app starts in non-listening mode until the user enables Full Voice Mode.
-            # Using a combining overlay is the most portable way to get a clear strike without custom painting.
-            icon = "🎙️\u20E0"  # "no" overlay (combining enclosing circle backslash)
-            bg_color = overlay_bg
-            text_color = overlay_fg
+            icon = "🎙️"  # Studio microphone when enabled but idle
+            bg_color = "rgba(0, 122, 204, 0.8)"  # Blue
+            text_color = "#ffffff"
 
         self.setText(icon)
         self.setStyleSheet(f"""
@@ -246,18 +270,426 @@ class FullVoiceToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: -apple-system, system-ui, sans-serif;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background: {rgba(accent, 0.9) if self._enabled else overlay_hover};
+                background: {bg_color.replace('0.8', '1.0') if '0.8' in bg_color else bg_color};
             }}
             QPushButton:pressed {{
-                background: {rgba(accent, 0.75) if self._enabled else overlay_pressed};
+                background: {bg_color.replace('0.8', '0.6') if '0.8' in bg_color else bg_color};
             }}
         """)
 
 
+
+
+class _SessionRow(QFrame):
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        short_date: str,
+        title: str,
+        msg_count: int,
+        file_count: int,
+        tool_count: int,
+        is_active: bool,
+        on_select: Callable[[str], None],
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self._session_id = str(session_id or "")
+        self._on_select = on_select
+
+        self.setObjectName("sessionRowActive" if is_active else "sessionRow")
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 8, 12, 8)
+        row.setSpacing(10)
+
+        date_label = QLabel(str(short_date or ""))
+        date_label.setFixedWidth(92)
+        try:
+            date_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        except Exception:
+            try:
+                date_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        date_label.setObjectName("sessionRowDate")
+        row.addWidget(date_label)
+
+        title_label = QLabel(str(title or "New session"))
+        title_label.setObjectName("sessionRowTitle")
+        title_label.setWordWrap(False)
+        row.addWidget(title_label, 1)
+
+        def _stat(value: int) -> QLabel:
+            lbl = QLabel(str(int(value)))
+            lbl.setFixedWidth(52)
+            try:
+                lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            except Exception:
+                try:
+                    lbl.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            lbl.setObjectName("sessionRowStat")
+            return lbl
+
+        row.addWidget(_stat(msg_count))
+        row.addWidget(_stat(file_count))
+        row.addWidget(_stat(tool_count))
+
+    def mousePressEvent(self, event):
+        try:
+            if event.button() == Qt.MouseButton.LeftButton:
+                if callable(self._on_select):
+                    self._on_select(self._session_id)
+        except Exception:
+            pass
+        try:
+            super().mousePressEvent(event)
+        except Exception:
+            pass
+
+
+class SessionsDialog(QDialog):
+    def __init__(self, *, parent: QWidget, bubble: "QtChatBubble"):
+        super().__init__(parent)
+        self._bubble = bubble
+
+        self.setWindowTitle("Sessions")
+        self.setModal(True)
+        self.resize(640, 460)
+
+        palette = QApplication.instance().palette() if QApplication.instance() else self.palette()
+        is_dark = palette.window().color().lightness() < 128
+        window_bg = palette.window().color().name()
+        text = palette.text().color()
+        accent = palette.highlight().color()
+
+        def rgba(color: QColor, alpha: float) -> str:
+            return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
+
+        overlay = "rgba(255, 255, 255, 0.08)" if is_dark else "rgba(0, 0, 0, 0.06)"
+        overlay_hover = "rgba(255, 255, 255, 0.12)" if is_dark else "rgba(0, 0, 0, 0.10)"
+        overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
+        text_primary = rgba(text, 0.92)
+        text_secondary = rgba(text, 0.70)
+        text_muted = rgba(text, 0.55 if is_dark else 0.50)
+        accent_hex = accent.name()
+
+        self.setStyleSheet(
+            f"""
+            QDialog {{
+                background: {window_bg};
+                color: {text_primary};
+            }}
+
+            QFrame#sessionRow {{
+                background: {overlay};
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+            }}
+            QFrame#sessionRow:hover {{
+                background: {overlay_hover};
+            }}
+            QFrame#sessionRowActive {{
+                background: rgba(0, 122, 255, 0.18);
+                border: 1px solid rgba(0, 122, 255, 0.35);
+                border-radius: 10px;
+            }}
+
+            QLabel#sessionRowDate {{
+                font-size: 11px;
+                color: {text_muted};
+            }}
+            QLabel#sessionRowTitle {{
+                font-size: 12px;
+                font-weight: 600;
+                color: {text_primary};
+            }}
+            QLabel#sessionRowStat {{
+                font-size: 11px;
+                color: {text_secondary};
+            }}
+
+            QPushButton#sessionsPill {{
+                background: {overlay_pressed};
+                border: none;
+                border-radius: 11px;
+                font-size: 11px;
+                font-weight: 700;
+                color: {text_primary};
+                padding: 0 12px;
+                min-height: 26px;
+            }}
+            QPushButton#sessionsPill:hover {{
+                background: {overlay_hover};
+            }}
+            QPushButton#sessionsPill:pressed {{
+                background: {overlay_pressed};
+            }}
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(10)
+
+        header = QLabel("SESSIONS")
+        header.setStyleSheet(f"QLabel {{ color: {accent_hex}; font-size: 11px; font-weight: 800; }}")
+        header_row.addWidget(header)
+        header_row.addStretch()
+
+        new_btn = QPushButton("New session")
+        new_btn.setObjectName("sessionsPill")
+        new_btn.clicked.connect(self._on_new_session)
+        header_row.addWidget(new_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("sessionsPill")
+        close_btn.clicked.connect(self.reject)
+        header_row.addWidget(close_btn)
+
+        layout.addLayout(header_row)
+
+        subtitle = QLabel("Date | Title | #Msgs | #Files | #Tools")
+        subtitle.setStyleSheet(f"QLabel {{ font-size: 12px; color: {text_secondary}; }}")
+        layout.addWidget(subtitle)
+
+        col = QFrame()
+        col.setStyleSheet("QFrame { background: transparent; border: none; }")
+        col_row = QHBoxLayout(col)
+        col_row.setContentsMargins(12, 0, 12, 0)
+        col_row.setSpacing(10)
+
+        def _hdr(text: str, width: int, align_center: bool = False) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setFixedWidth(width)
+            try:
+                if align_center:
+                    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                else:
+                    lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            except Exception:
+                pass
+            lbl.setStyleSheet(f"QLabel {{ font-size: 10px; font-weight: 800; color: {text_muted}; }}")
+            return lbl
+
+        col_row.addWidget(_hdr("DATE", 92, False))
+        title_hdr = QLabel("TITLE")
+        title_hdr.setStyleSheet(f"QLabel {{ font-size: 10px; font-weight: 800; color: {text_muted}; }}")
+        col_row.addWidget(title_hdr, 1)
+        col_row.addWidget(_hdr("MSGS", 52, True))
+        col_row.addWidget(_hdr("FILES", 52, True))
+        col_row.addWidget(_hdr("TOOLS", 52, True))
+        layout.addWidget(col)
+
+        self._rows_container = QWidget()
+        self._rows_layout = QVBoxLayout(self._rows_container)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(8)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        try:
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        except Exception:
+            try:
+                scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setWidget(self._rows_container)
+        layout.addWidget(scroll, 1)
+
+        self.refresh()
+
+    def _on_new_session(self):
+        try:
+            self._bubble._start_new_session()
+        except Exception:
+            pass
+        self.refresh()
+
+    def _on_select(self, session_id: str) -> None:
+        bubble = self._bubble
+        if getattr(bubble, "_is_run_in_progress", lambda: False)():
+            QMessageBox.information(self, "Session switch", "Please wait for the current response to finish.")
+            return
+        try:
+            bubble._switch_session_via_combo(str(session_id or "").strip())
+        except Exception:
+            pass
+        self.accept()
+
+    @staticmethod
+    def _tool_name_from_message(message: Dict[str, Any]) -> str:
+        meta = message.get("metadata")
+        if isinstance(meta, dict):
+            name = meta.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+        import re
+
+        content = str(message.get("content") or "")
+        match = re.match(r"\\s*\\[([^\\]]+)\\]:", content)
+        if match:
+            return str(match.group(1) or "").strip()
+        return ""
+
+    @staticmethod
+    def _extract_file_paths(text: str) -> List[str]:
+        import re
+
+        raw = str(text or "")
+        candidates: List[str] = []
+        candidates.extend(re.findall(r"file://[^\\s)\\]\"'<>]+", raw))
+        candidates.extend(re.findall(r"[A-Za-z]:\\\\[^\\s\"'<>]+", raw))
+        candidates.extend(re.findall(r"(?:~|/)[^\\s\"'<>]+", raw))
+
+        out: List[str] = []
+        for p in candidates:
+            cleaned = str(p).strip().rstrip(").,;]\"'")
+            if cleaned:
+                out.append(cleaned)
+
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for p in out:
+            if p in seen:
+                continue
+            seen.add(p)
+            deduped.append(p)
+        return deduped
+
+    def _session_stats(self, session_id: str) -> Dict[str, int]:
+        bubble = self._bubble
+        llm = getattr(bubble, "llm_manager", None)
+        if llm is None:
+            return {"msgs": 0, "files": 0, "tools": 0}
+
+        data_dir = None
+        try:
+            idx = getattr(llm, "_session_index", None)
+            if idx is None and hasattr(llm, "data_dir"):
+                from ..core.session_index import SessionIndex
+
+                idx = SessionIndex(Path(getattr(llm, "data_dir")))
+            if idx is not None and hasattr(idx, "data_dir_for"):
+                data_dir = idx.data_dir_for(str(session_id))
+        except Exception:
+            data_dir = None
+
+        if data_dir is None:
+            try:
+                data_dir = Path(getattr(llm, "data_dir"))
+            except Exception:
+                data_dir = None
+        if data_dir is None:
+            return {"msgs": 0, "files": 0, "tools": 0}
+
+        try:
+            from ..core.session_store import SessionStore
+
+            snap = SessionStore(Path(data_dir) / "session.json").load()
+        except Exception:
+            snap = None
+
+        messages = list(getattr(snap, "messages", []) or []) if snap is not None else []
+        msg_count = 0
+        tool_msgs: List[Dict[str, Any]] = []
+        for m in messages:
+            if not isinstance(m, dict):
+                continue
+            role = str(m.get("role") or "").strip()
+            if role == "tool":
+                tool_msgs.append(m)
+            elif role in {"user", "assistant"}:
+                msg_count += 1
+
+        tool_count = len(tool_msgs)
+        files: set[str] = set()
+        for m in tool_msgs:
+            name = self._tool_name_from_message(m)
+            if name != "open_attachment":
+                continue
+            for p in self._extract_file_paths(str(m.get("content") or "")):
+                files.add(p)
+
+        return {"msgs": int(msg_count), "files": int(len(files)), "tools": int(tool_count)}
+
+    @staticmethod
+    def _short_date(stamp: str) -> str:
+        raw = str(stamp or "").strip()
+        if not raw:
+            return ""
+        try:
+            dt = datetime.fromisoformat(raw)
+            return dt.astimezone().strftime("%b %d %H:%M")
+        except Exception:
+            return raw[:16]
+
+    def refresh(self) -> None:
+        while self._rows_layout.count():
+            item = self._rows_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        llm = getattr(self._bubble, "llm_manager", None)
+        sessions: List[Dict[str, Any]] = []
+        if llm is not None and hasattr(llm, "list_sessions"):
+            try:
+                sessions = list(llm.list_sessions() or [])
+            except Exception:
+                sessions = []
+
+        active_id = str(getattr(llm, "active_session_id", "") or "").strip() if llm is not None else ""
+
+        def _key(rec: Dict[str, Any]) -> str:
+            u = str(rec.get("updated_at") or "").strip()
+            c = str(rec.get("created_at") or "").strip()
+            return u or c
+
+        sessions = [s for s in sessions if isinstance(s, dict)]
+        sessions.sort(key=_key, reverse=True)
+
+        if not sessions:
+            empty = QLabel("No sessions found.")
+            empty.setStyleSheet("QLabel { color: rgba(255,255,255,0.65); font-size: 12px; }")
+            self._rows_layout.addWidget(empty)
+            self._rows_layout.addStretch()
+            return
+
+        for rec in sessions:
+            sid = str(rec.get("session_id") or "").strip()
+            if not sid:
+                continue
+            title = str(rec.get("title") or "New session").strip() or "New session"
+            short_date = self._short_date(str(rec.get("updated_at") or rec.get("created_at") or ""))
+            stats = self._session_stats(sid)
+            row = _SessionRow(
+                session_id=sid,
+                short_date=short_date,
+                title=title,
+                msg_count=int(stats.get("msgs", 0)),
+                file_count=int(stats.get("files", 0)),
+                tool_count=int(stats.get("tools", 0)),
+                is_active=bool(active_id and sid == active_id),
+                on_select=self._on_select,
+                parent=self._rows_container,
+            )
+            self._rows_layout.addWidget(row)
+
+        self._rows_layout.addStretch()
 
 
 class ToolSelectorDialog(QDialog):
@@ -1246,7 +1678,7 @@ class QtChatBubble(QWidget):
         """)
         header_layout.addWidget(self.close_button)
 
-        # Session selector + New session (replaces legacy "Clear" in the header).
+        # Internal session selector model (hidden; sessions are managed via the Sessions badge dialog).
         self.session_combo = QComboBox()
         self.session_combo.setFixedHeight(22)
         self.session_combo.setMinimumWidth(160)
@@ -1274,28 +1706,33 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
         self.session_combo.currentIndexChanged.connect(self._on_session_combo_changed)
-        header_layout.addWidget(self.session_combo)
+        try:
+            self.session_combo.setVisible(False)
+        except Exception:
+            pass
 
-        self.new_session_button = QPushButton("New")
-        self.new_session_button.setFixedHeight(22)
-        self.new_session_button.setToolTip("Start a new session")
-        self.new_session_button.clicked.connect(self._start_new_session)
-        self.new_session_button.setStyleSheet("""
+        # Sessions badge (opens a full session list).
+        self.sessions_button = QPushButton("Sessions")
+        self.sessions_button.setFixedHeight(22)
+        self.sessions_button.setFixedWidth(86)
+        self.sessions_button.setToolTip("Sessions")
+        self.sessions_button.clicked.connect(self.open_sessions_dialog)
+        self.sessions_button.setStyleSheet("""
             QPushButton {
                 background: rgba(255, 255, 255, 0.06);
                 border: none;
-                border-radius: 6px;
+                border-radius: 11px;
                 font-size: 10px;
-                color: rgba(255, 255, 255, 0.7);
+                color: rgba(255, 255, 255, 0.8);
                 font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
                 padding: 0 10px;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.12);
-                color: rgba(255, 255, 255, 0.9);
+                color: rgba(255, 255, 255, 0.95);
             }
         """)
-        header_layout.addWidget(self.new_session_button)
+        header_layout.addWidget(self.sessions_button)
 
         # Overflow menu to reduce header clutter (Load/Save/Debug actions).
         self.more_button = QPushButton("⋯")
@@ -1342,20 +1779,30 @@ class QtChatBubble(QWidget):
         """)
         header_layout.addWidget(self.history_button)
         
-        # TTS toggle (if available)
-        if self.voice_manager and self.voice_manager.is_available():
-            self.tts_toggle = TTSToggle()
-            self.tts_toggle.toggled.connect(self.on_tts_toggled)
-            self.tts_toggle.single_clicked.connect(self.on_tts_single_click)
-            self.tts_toggle.double_clicked.connect(self.on_tts_double_click)
-            header_layout.addWidget(self.tts_toggle)
+        # Voice controls (always visible; disabled when voice backend is unavailable).
+        self.tts_toggle = TTSToggle()
+        self.tts_toggle.toggled.connect(self.on_tts_toggled)
+        self.tts_toggle.single_clicked.connect(self.on_tts_single_click)
+        self.tts_toggle.double_clicked.connect(self.on_tts_double_click)
+        header_layout.addWidget(self.tts_toggle)
 
-            # Full Voice Mode toggle (STT + TTS)
-            self.full_voice_toggle = FullVoiceToggle()
-            self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
-            header_layout.addWidget(self.full_voice_toggle)
+        self.full_voice_toggle = FullVoiceToggle()
+        self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
+        header_layout.addWidget(self.full_voice_toggle)
 
-            # Voice control panel removed - not needed
+        voice_available = bool(self.voice_manager and self.voice_manager.is_available())
+        if not voice_available:
+            tooltip = "Voice unavailable. Install `abstractassistant[full]` (AbstractVoice) and restart."
+            try:
+                self.tts_toggle.setEnabled(False)
+                self.tts_toggle.setToolTip(tooltip)
+            except Exception:
+                pass
+            try:
+                self.full_voice_toggle.setEnabled(False)
+                self.full_voice_toggle.setToolTip(tooltip)
+            except Exception:
+                pass
         
         header_layout.addStretch()
         
@@ -1725,8 +2172,8 @@ class QtChatBubble(QWidget):
                 """
             )
 
-        if hasattr(self, "new_session_button"):
-            self.new_session_button.setStyleSheet(
+        if hasattr(self, "sessions_button"):
+            self.sessions_button.setStyleSheet(
                 f"""
                 QPushButton {{ {pill_qss} }}
                 QPushButton:hover {{ {pill_hover} }}
@@ -2378,10 +2825,11 @@ class QtChatBubble(QWidget):
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
         file_dialog.setNameFilter(
             "All supported files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff "
-            "*.pdf *.docx *.xlsx *.pptx *.txt *.md *.csv *.tsv *.json);;"
+            "*.pdf *.docx *.xlsx *.pptx *.txt *.md *.csv *.tsv *.json *.wav);;"
             "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff);;"
             "Documents (*.pdf *.docx *.xlsx *.pptx *.txt *.md);;"
             "Data files (*.csv *.tsv *.json);;"
+            "Audio (*.wav);;"
             "All files (*.*)"
         )
 
@@ -2448,6 +2896,8 @@ class QtChatBubble(QWidget):
                 icon = "📊"
             elif ext in ['.csv', '.tsv']:
                 icon = "📋"
+            elif ext in ['.wav']:
+                icon = "🔊"
             else:
                 icon = "📎"
 
@@ -2486,6 +2936,18 @@ class QtChatBubble(QWidget):
 
     def _adjust_window_size_for_attachments(self):
         """Dynamically adjust window size based on file attachments presence."""
+        # In full voice mode, the UI is compact and voice-only; don't resize for attachments.
+        try:
+            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+                return
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "input_container") and self.input_container and not self.input_container.isVisible():
+                return
+        except Exception:
+            pass
+
         attachment_height = 28  # Height needed for file attachment container (reduced for compact chips)
         
         if self.attached_files and self.attached_files_container.isVisible():
@@ -2892,9 +3354,7 @@ class QtChatBubble(QWidget):
                 
                 # Store response for callback when TTS completes
                 self._pending_response = response
-
-                # Show chat history after TTS starts (small delay) - only if voice mode is OFF
-                QTimer.singleShot(800, self._show_history_if_voice_mode_off)
+                # In speaker mode, don't auto-open the Messages window.
 
             except Exception as e:
                 if self.debug:
@@ -2905,6 +3365,11 @@ class QtChatBubble(QWidget):
                 if self._is_full_voice_running():
                     self._voice_busy = False
                     try:
+                        try:
+                            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                                self.full_voice_toggle.set_listening_state("listening")
+                        except Exception:
+                            pass
                         self.update_status("LISTENING")
                     except Exception:
                         pass
@@ -2964,6 +3429,13 @@ class QtChatBubble(QWidget):
                 if self.debug:
                     if self.debug:
                         print(f"❌ Error stopping TTS: {e}")
+        elif enabled:
+            # When enabling TTS, reset the toggle to the idle visual state.
+            try:
+                if hasattr(self, "tts_toggle") and self.tts_toggle:
+                    self.tts_toggle.set_tts_state("idle")
+            except Exception:
+                pass
 
         # Update LLM session mode while preserving chat history
         if self.llm_manager:
@@ -3127,6 +3599,16 @@ class QtChatBubble(QWidget):
             # Keep the normal interface visible, but switch input actions to voice mode
             # (attach + tools remain usable; send is hidden).
             self.hide_text_ui()
+            try:
+                self._set_session_controls_enabled(False)
+            except Exception:
+                pass
+            try:
+                if self.history_dialog and self.history_dialog.isVisible():
+                    self.history_dialog.hide()
+                    self._update_history_button_appearance(False)
+            except Exception:
+                pass
 
             # Enable TTS automatically
             if not self.tts_enabled:
@@ -3148,7 +3630,10 @@ class QtChatBubble(QWidget):
                 on_stop=self.handle_voice_stop
             )
 
-            # No longer updating voice toggle appearance - it's a simple user control
+            try:
+                self.full_voice_toggle.set_listening_state("listening")
+            except Exception:
+                pass
             self.update_status("LISTENING")
 
             # Greet the user
@@ -3215,6 +3700,12 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
 
+        try:
+            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                self.full_voice_toggle.set_listening_state("idle")
+        except Exception:
+            pass
+
         # 3) Restore normal UI (Send visible again)
         try:
             self.show_text_ui()
@@ -3275,6 +3766,11 @@ class QtChatBubble(QWidget):
 
         self._voice_busy = True
         try:
+            try:
+                if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                    self.full_voice_toggle.set_listening_state("processing")
+            except Exception:
+                pass
             self.update_status("PROCESSING")
 
             # Route through the same agentic sending path as typed input.
@@ -3304,11 +3800,11 @@ class QtChatBubble(QWidget):
         self.full_voice_toggle.set_enabled(False)
 
     def hide_text_ui(self):
-        """Enter Full Voice Mode UI (keep input visible; hide Send; keep attach/tools)."""
+        """Enter Full Voice Mode UI (no typing, voice-only)."""
         self._set_voice_ui_mode(True)
 
     def show_text_ui(self):
-        """Exit Full Voice Mode UI (restore Send and normal text interaction)."""
+        """Exit Full Voice Mode UI (restore typing)."""
         self._set_voice_ui_mode(False)
 
     def _set_voice_ui_mode(self, enabled: bool) -> None:
@@ -3316,46 +3812,44 @@ class QtChatBubble(QWidget):
         Centralized UI state switch for voice mode.
 
         Requirements:
-        - Even in voice mode, user can still change file attachments and tools.
-        - Send is hidden/disabled in voice mode (end-of-sentence acts as "send").
+        - In voice mode, it's a pure spoken conversation: no typing, no Messages window.
         """
         enabled = bool(enabled)
         try:
             if hasattr(self, "input_container") and self.input_container:
-                self.input_container.show()
+                if enabled:
+                    self.input_container.hide()
+                else:
+                    self.input_container.show()
         except Exception:
             pass
 
-        # Toggle the action column behavior (2 buttons in voice mode, 3 otherwise).
+        # Toggle the action column behavior (keep internal state consistent).
         try:
             if hasattr(self, "_input_row") and self._input_row:
                 self._input_row.set_voice_mode(enabled)
         except Exception:
             pass
 
-        # Ensure attach/tools remain available in both modes.
-        for btn_attr in ("attach_button", "tools_button"):
-            b = getattr(self, btn_attr, None)
-            if b is None:
-                continue
-            try:
-                b.setEnabled(True)
-                b.setVisible(True)
-            except Exception:
-                pass
-
-        # Send button is only relevant in text mode.
-        sb = getattr(self, "send_button", None)
-        if sb is not None:
-            try:
-                sb.setVisible(not enabled)
-                sb.setEnabled(not enabled)
-            except Exception:
-                pass
-
-        # Keep the window sizing consistent with attachments.
+        # No typing controls in voice mode.
         try:
-            self._adjust_window_size_for_attachments()
+            if hasattr(self, "send_button") and self.send_button:
+                self.send_button.setVisible(not enabled)
+                self.send_button.setEnabled(not enabled)
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "input_text") and self.input_text:
+                self.input_text.setEnabled(not enabled)
+        except Exception:
+            pass
+
+        # Compact window in voice mode; restore after.
+        try:
+            if enabled:
+                self.setFixedSize(self.base_width, 120)
+            else:
+                self._adjust_window_size_for_attachments()
         except Exception:
             pass
 
@@ -3392,14 +3886,15 @@ class QtChatBubble(QWidget):
         """Update the TTS toggle visual state based on current TTS state."""
         if hasattr(self, 'tts_toggle') and self.voice_manager:
             try:
-                current_state = self.voice_manager.get_state()
-                # No longer updating tts_toggle appearance - it's a simple user control
-
-                # Voice control panel removed - no longer needed
-
-                if self.debug:
-                    if self.debug:
-                        print(f"🔊 TTS toggle state updated to: {current_state}")
+                current_state = str(self.voice_manager.get_state() or "").strip().lower()
+                if current_state not in {"idle", "speaking", "paused"}:
+                    current_state = "idle"
+                if not bool(getattr(self, "tts_enabled", False)):
+                    current_state = "idle"
+                try:
+                    self.tts_toggle.set_tts_state(current_state)
+                except Exception:
+                    pass
             except Exception as e:
                 if self.debug:
                     if self.debug:
@@ -3539,6 +4034,11 @@ class QtChatBubble(QWidget):
         if self._is_full_voice_running():
             self._voice_busy = False
             try:
+                try:
+                    if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                        self.full_voice_toggle.set_listening_state("listening")
+                except Exception:
+                    pass
                 self.update_status("LISTENING")
             except Exception:
                 pass
@@ -3560,7 +4060,7 @@ class QtChatBubble(QWidget):
         self.status_callback = callback
 
     def _set_session_controls_enabled(self, enabled: bool) -> None:
-        for attr in ("session_combo", "new_session_button"):
+        for attr in ("session_combo", "sessions_button"):
             w = getattr(self, attr, None)
             if w is None:
                 continue
@@ -3677,6 +4177,63 @@ class QtChatBubble(QWidget):
         finally:
             try:
                 combo.blockSignals(False)
+            except Exception:
+                pass
+
+    def _switch_session_via_combo(self, session_id: str) -> None:
+        """Switch sessions by selecting the matching hidden combo entry (reuses existing logic)."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            return
+
+        combo = getattr(self, "session_combo", None)
+        if combo is None:
+            return
+
+        def _find_index() -> Optional[int]:
+            try:
+                n = int(combo.count())
+            except Exception:
+                n = 0
+            for i in range(max(0, n)):
+                try:
+                    data = combo.itemData(i)
+                except Exception:
+                    data = None
+                if str(data or "").strip() == sid:
+                    return i
+            return None
+
+        idx = _find_index()
+        if idx is None:
+            try:
+                self._reload_session_combo()
+            except Exception:
+                pass
+            idx = _find_index()
+
+        if idx is None:
+            return
+
+        try:
+            combo.setCurrentIndex(int(idx))
+        except Exception:
+            pass
+
+    def open_sessions_dialog(self) -> None:
+        """Open the Sessions dialog (replaces the header dropdown)."""
+        if not self.llm_manager or not hasattr(self.llm_manager, "list_sessions"):
+            return
+        try:
+            self._reload_session_combo(select_session_id=getattr(self.llm_manager, "active_session_id", None))
+        except Exception:
+            pass
+        dlg = SessionsDialog(parent=self, bubble=self)
+        try:
+            dlg.exec()
+        except Exception:
+            try:
+                dlg.exec_()  # type: ignore[attr-defined]
             except Exception:
                 pass
 
@@ -4730,6 +5287,11 @@ Continue the conversation naturally, referring to the context above when relevan
         """Handle speech start on main thread (called via QMetaObject.invokeMethod)."""
         if self.debug:
             print("🔊 QtChatBubble: Speech started - updating status on main thread")
+        try:
+            if hasattr(self, "tts_toggle") and self.tts_toggle:
+                self.tts_toggle.set_tts_state("speaking")
+        except Exception:
+            pass
         if self.status_callback:
             self.status_callback("speaking")
     
@@ -4741,6 +5303,11 @@ Continue the conversation naturally, referring to the context above when relevan
         
         # Update toggle state when speech completes
         self._update_tts_toggle_state()
+        try:
+            if hasattr(self, "tts_toggle") and self.tts_toggle:
+                self.tts_toggle.set_tts_state("idle")
+        except Exception:
+            pass
         
         # Call response callback now that TTS is done
         if self.response_callback and hasattr(self, '_pending_response'):
@@ -4759,6 +5326,11 @@ Continue the conversation naturally, referring to the context above when relevan
         if self._is_full_voice_running():
             self._voice_busy = False
             try:
+                try:
+                    if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                        self.full_voice_toggle.set_listening_state("listening")
+                except Exception:
+                    pass
                 self.update_status("LISTENING")
             except Exception:
                 pass

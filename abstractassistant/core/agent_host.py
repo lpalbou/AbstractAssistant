@@ -356,10 +356,45 @@ class AgentHost:
         if not isinstance(runtime_ns, dict):
             runtime_ns = {}
             state.vars["_runtime"] = runtime_ns
+
+        # Default audio handling: make audio attachments usable with text-only models by
+        # enabling the AbstractCore STT fallback (requires an audio capability plugin, e.g. AbstractVoice).
+        try:
+            runtime_ns.setdefault("audio_policy", "speech_to_text")
+        except Exception:
+            pass
+
+        # If the user attached audio, nudge the agent away from shell-based Whisper fallbacks.
+        has_audio_attachment = False
+        try:
+            for a in attachments or []:
+                if isinstance(a, dict):
+                    ct = str(a.get("content_type") or a.get("mime_type") or "").strip().lower()
+                    if ct.startswith("audio/"):
+                        has_audio_attachment = True
+                        break
+                    candidate = a.get("source_path") or a.get("path") or a.get("filename") or a.get("handle")
+                    a = candidate if candidate is not None else a
+                if isinstance(a, str):
+                    ext = Path(a).suffix.lower()
+                    if ext in {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus", ".webm"}:
+                        has_audio_attachment = True
+                        break
+        except Exception:
+            has_audio_attachment = False
         if isinstance(provider, str) and provider.strip():
             runtime_ns["provider"] = provider.strip()
         if isinstance(model, str) and model.strip():
             runtime_ns["model"] = model.strip()
+        if has_audio_attachment:
+            audio_hint = (
+                "Audio attachments are supported via AbstractCore STT (audio_policy='speech_to_text'). "
+                "Do not run external transcription via execute_command; use the built-in audio pipeline."
+            )
+            if isinstance(system_prompt_extra, str) and system_prompt_extra.strip():
+                system_prompt_extra = system_prompt_extra.strip() + "\n" + audio_hint
+            else:
+                system_prompt_extra = audio_hint
         if isinstance(system_prompt_extra, str) and system_prompt_extra.strip():
             runtime_ns["system_prompt_extra"] = system_prompt_extra.strip()
         self._run_store.save(state)
