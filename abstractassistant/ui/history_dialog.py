@@ -29,7 +29,7 @@ try:
         QApplication,
         QSizePolicy,
     )
-    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent
+    from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent, QCoreApplication
     from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon, QPainterPath, QRegion
 except ImportError:
     try:
@@ -46,7 +46,7 @@ except ImportError:
             QApplication,
             QSizePolicy,
         )
-        from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent
+        from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QSize, QEvent, QCoreApplication
         from PyQt5.QtGui import QFont, QCursor, QPixmap, QIcon, QPainterPath, QRegion
     except ImportError:
         from PySide2.QtWidgets import (
@@ -62,7 +62,7 @@ except ImportError:
             QApplication,
             QSizePolicy,
         )
-        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize, QEvent
+        from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize, QEvent, QCoreApplication
         from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon, QPainterPath, QRegion
 
 
@@ -555,7 +555,6 @@ class SafeDialog(QDialog):
                         widget.deleteLater()
                 
                 # Force immediate processing of deleteLater calls
-                from PyQt5.QtCore import QCoreApplication
                 QCoreApplication.processEvents()
                 
                 # Recreate messages with new history
@@ -681,6 +680,7 @@ class iPhoneMessagesDialog:
             return None
         
         dialog = SafeDialog(parent)
+        dialog.setObjectName("MessagesDialog")
         dialog.setWindowTitle("Messages")
         dialog.setModal(False)
         dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
@@ -707,16 +707,31 @@ class iPhoneMessagesDialog:
         # Position dialog near right edge of screen like iPhone
         iPhoneMessagesDialog._position_dialog_right(dialog)
 
-        # Main layout - zero margins like iPhone
+        # Top-level stays transparent; a single frame paints the dialog background.
         main_layout = QVBoxLayout(dialog)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
+        frame = QFrame(dialog)
+        frame.setObjectName("MessagesDialogFrame")
+        try:
+            attr = getattr(Qt, "WA_StyledBackground", None)
+            if attr is None and hasattr(Qt, "WidgetAttribute"):
+                attr = Qt.WidgetAttribute.WA_StyledBackground
+            if attr is not None:
+                frame.setAttribute(attr, True)
+        except Exception:
+            pass
+        main_layout.addWidget(frame)
+
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(0, 0, 0, 0)
+        frame_layout.setSpacing(0)
+
         # iPhone navigation bar with delete button
         navbar = iPhoneMessagesDialog._create_authentic_navbar(dialog)
-        main_layout.addWidget(navbar)
+        frame_layout.addWidget(navbar)
         
-        # Messages container with pure white background
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -725,11 +740,17 @@ class iPhoneMessagesDialog:
         try:
             dialog._history_viewport = scroll_area.viewport()
             dialog._history_viewport.installEventFilter(dialog)
+            dialog._history_viewport.setStyleSheet("background: transparent;")
         except Exception:
             pass
 
         # Messages content
         messages_widget = QWidget()
+        messages_widget.setObjectName("MessagesWidget")
+        try:
+            messages_widget.setStyleSheet("background: transparent;")
+        except Exception:
+            pass
         try:
             messages_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         except Exception:
@@ -751,7 +772,7 @@ class iPhoneMessagesDialog:
 
         messages_layout.addStretch()
         scroll_area.setWidget(messages_widget)
-        main_layout.addWidget(scroll_area)
+        frame_layout.addWidget(scroll_area)
 
         # Apply authentic iPhone styling
         dialog.setStyleSheet(iPhoneMessagesDialog._get_authentic_iphone_styles())
@@ -1740,20 +1761,21 @@ class iPhoneMessagesDialog:
 
     @staticmethod
     def _get_authentic_iphone_styles() -> str:
-        """Get AUTHENTIC iPhone Messages styles - dark background like real iPhone."""
+        """Get iPhone Messages styles (single, unified appearance)."""
         return """
-            QDialog {
-                background: rgba(0, 0, 0, 0.95);
-                border-radius: 14px;
+            QDialog#MessagesDialog {
+                background: transparent;
                 color: #ffffff;
             }
 
-            QFrame {
-                background: rgba(0, 0, 0, 0.9);
-                border: none;
+            QFrame#MessagesDialogFrame {
+                /* Between black and grey, slightly transparent */
+                background: rgba(36, 36, 38, 0.88);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
             }
 
-            QWidget {
-                background: rgba(0, 0, 0, 0.95);
+            QWidget#MessagesWidget {
+                background: transparent;
             }
         """

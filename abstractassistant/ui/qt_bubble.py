@@ -1792,7 +1792,16 @@ class QtChatBubble(QWidget):
         self.history_button = QPushButton("💬")
         self.history_button.setFixedSize(28, 22)
         self.history_button.setToolTip("Messages")
-        self.history_button.clicked.connect(self.show_history)
+        try:
+            # Make it a true toggle with stable sizing (checked => active highlight).
+            self.history_button.setCheckable(True)
+            self.history_button.setChecked(False)
+        except Exception:
+            pass
+        try:
+            self.history_button.toggled.connect(self.show_history)
+        except Exception:
+            self.history_button.clicked.connect(self.show_history)
         self.history_button.setStyleSheet(header_icon_qss)
         
         # Voice controls (always visible; disabled when voice backend is unavailable).
@@ -2091,10 +2100,8 @@ class QtChatBubble(QWidget):
             pass
 
         # Make the first show match subsequent show/hide cycles (avoid layout settling later).
+        # Note: final stabilization is done in showEvent() once the window is on-screen.
         try:
-            self.ensurePolished()
-            if hasattr(self, "window_frame") and self.window_frame:
-                self.window_frame.ensurePolished()
             if self.layout() is not None:
                 self.layout().activate()
             if hasattr(self, "window_frame") and self.window_frame and self.window_frame.layout() is not None:
@@ -2278,6 +2285,17 @@ class QtChatBubble(QWidget):
             QPushButton:hover {{
                 background: {t['overlay_hover']};
                 color: {t['text_primary']};
+            }}
+            QPushButton:checked {{
+                background: {t['accent']};
+                color: #ffffff;
+            }}
+            QPushButton:checked:hover {{
+                background: {t['accent_hover']};
+                color: #ffffff;
+            }}
+            QPushButton:checked:pressed {{
+                background: {t['accent_pressed']};
             }}
         """
 
@@ -2469,6 +2487,46 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
         super().changeEvent(event)
+
+    def _stabilize_layout(self) -> None:
+        """Force a deterministic layout pass (avoids first-show / first-click UI jumps)."""
+        try:
+            self.ensurePolished()
+        except Exception:
+            pass
+        try:
+            if self.layout() is not None:
+                self.layout().activate()
+        except Exception:
+            pass
+        try:
+            frame = getattr(self, "window_frame", None)
+            if frame is not None and frame.layout() is not None:
+                frame.layout().activate()
+        except Exception:
+            pass
+        try:
+            self.updateGeometry()
+        except Exception:
+            pass
+        try:
+            if getattr(self, "window_frame", None) is not None:
+                self.window_frame.updateGeometry()
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        try:
+            super().showEvent(event)
+        except Exception:
+            pass
+        self._stabilize_layout()
+        try:
+            QTimer.singleShot(0, self._apply_theme)
+            QTimer.singleShot(0, self._stabilize_layout)
+            QTimer.singleShot(40, self._stabilize_layout)
+        except Exception:
+            pass
 
     def setup_styling(self):
         """Apply a system-aware theme (follows OS light/dark)."""
@@ -5532,15 +5590,23 @@ Continue the conversation naturally, referring to the context above when relevan
                 print("🎙️ Chat history blocked - Voice mode is active")
             return
 
-        # Voice mode is off, show history
-        self.show_history()
+        # Voice mode is off, show history (and reflect state in the toggle).
+        try:
+            if hasattr(self, "history_button") and self.history_button:
+                self.history_button.setChecked(True)
+                return
+        except Exception:
+            pass
+        self.show_history(True)
 
-    def show_history(self):
+    def show_history(self, checked: Optional[bool] = None):
         """Toggle message history dialog visibility."""
+        want_visible = None if checked is None else bool(checked)
         # Use centralized logic to check if chat history should be shown
         if not self._should_show_chat_history():
             if self.debug:
                 print("🎙️ Chat history blocked - Voice mode is active")
+            self._update_history_button_appearance(False)
             return
 
         if not self.message_history:
@@ -5549,82 +5615,75 @@ Continue the conversation naturally, referring to the context above when relevan
                 "No History",
                 "No message history available. Start a conversation first."
             )
+            self._update_history_button_appearance(False)
             return
 
-        # Toggle behavior: create dialog if doesn't exist, toggle visibility if it does
-        if iPhoneMessagesDialog:
-            if self.history_dialog is None:
-                # Create dialog first time with deletion support
-                self.history_dialog = iPhoneMessagesDialog.create_dialog(
-                    self.message_history, 
-                    self, 
-                    delete_callback=self._handle_message_deletion
-                )
-                # Set callback to update button when dialog is hidden via Back button
-                self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
-                self.history_dialog.show()
-                self._update_history_button_appearance(True)
-            else:
-                # Toggle visibility
-                if self.history_dialog.isVisible():
+        if want_visible is None:
+            want_visible = not bool(self.history_dialog and self.history_dialog.isVisible())
+
+        # Toggle behavior: create dialog if doesn't exist; reuse/update if it does.
+        if not iPhoneMessagesDialog:
+            QMessageBox.information(self, "History Unavailable", "History dialog module not available.")
+            self._update_history_button_appearance(False)
+            return
+
+        if not want_visible:
+            try:
+                if self.history_dialog and self.history_dialog.isVisible():
                     self.history_dialog.hide()
-                    self._update_history_button_appearance(False)
-                else:
-                    # Update dialog with latest messages before showing
+            except Exception:
+                pass
+            self._update_history_button_appearance(False)
+            return
+
+        try:
+            if self.history_dialog is None:
+                self.history_dialog = iPhoneMessagesDialog.create_dialog(
+                    self.message_history,
+                    self,
+                    delete_callback=self._handle_message_deletion,
+                )
+            else:
+                try:
+                    self.history_dialog.update_message_history(self.message_history)
+                except Exception:
+                    # If incremental update fails, recreate a clean dialog.
                     self.history_dialog = iPhoneMessagesDialog.create_dialog(
-                        self.message_history, 
-                        self, 
-                        delete_callback=self._handle_message_deletion
+                        self.message_history,
+                        self,
+                        delete_callback=self._handle_message_deletion,
                     )
-                    # Set callback to update button when dialog is hidden via Back button
-                    self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
-                    self.history_dialog.show()
-                    self._update_history_button_appearance(True)
-        else:
-            # Fallback if the module isn't available
-            QMessageBox.information(
-                self,
-                "History Unavailable",
-                "History dialog module not available."
-            )
+
+            if not self.history_dialog:
+                self._update_history_button_appearance(False)
+                return
+
+            self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
+            self.history_dialog.show()
+            self._update_history_button_appearance(True)
+        except Exception as e:
+            QMessageBox.warning(self, "History", f"Failed to open messages:\n{e}")
+            self._update_history_button_appearance(False)
 
     def _update_history_button_appearance(self, is_active: bool):
-        """Update history button appearance to show toggle state."""
-        if hasattr(self, 'history_button'):
-            if is_active:
-                # Active state - highlighted
-                self.history_button.setStyleSheet("""
-                    QPushButton {
-                        background: rgba(0, 122, 255, 0.8);
-                        border: none;
-                        border-radius: 11px;
-                        font-size: 10px;
-                        color: #ffffff;
-                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                        padding: 0 10px;
-                        font-weight: 600;
-                    }
-                    QPushButton:hover {
-                        background: rgba(0, 122, 255, 1.0);
-                    }
-                """)
-            else:
-                # Inactive state - normal
-                self.history_button.setStyleSheet("""
-                    QPushButton {
-                        background: rgba(255, 255, 255, 0.06);
-                        border: none;
-                        border-radius: 11px;
-                        font-size: 10px;
-                        color: rgba(255, 255, 255, 0.7);
-                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-                        padding: 0 10px;
-                    }
-                    QPushButton:hover {
-                        background: rgba(255, 255, 255, 0.1);
-                        color: rgba(255, 255, 255, 0.9);
-                    }
-                """)
+        """Update history button appearance (via :checked state in the theme QSS)."""
+        btn = getattr(self, "history_button", None)
+        if not btn:
+            return
+        try:
+            prev = btn.blockSignals(True)
+        except Exception:
+            prev = False
+        try:
+            try:
+                btn.setChecked(bool(is_active))
+            except Exception:
+                pass
+        finally:
+            try:
+                btn.blockSignals(prev)
+            except Exception:
+                pass
 
     def _handle_message_deletion(self, indices_to_delete: List[int]):
         """Handle deletion of messages from the history dialog."""
