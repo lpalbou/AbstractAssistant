@@ -1,16 +1,34 @@
 # Architecture
 
-AbstractAssistant is a local **agent host** application: it exposes a tray UI and a CLI, and it runs **AbstractAgent + AbstractRuntime locally** (not via AbstractGateway).
+AbstractAssistant is a local **agent host**: it exposes a tray UI and a CLI and runs
+**AbstractAgent + AbstractRuntime locally**, using **AbstractCore** for provider/tool/media schemas.
 
-At a high level:
+See also:
+- [README.md](README.md) (docs hub)
+- [api.md](api.md) (CLI + programmatic API)
+- [getting-started.md](getting-started.md) (user guide)
 
-```
-UI (Qt/tray) or CLI
-  -> AgentHost (UI-agnostic backend)
-      -> AbstractAgent (ReAct / CodeAct / MemAct)
-          -> AbstractRuntime (durable runs + waits + ledger)
-              -> AbstractCore integrations (LLM providers + tool schemas)
-              -> Tool execution (host-held, approval gated, resumed into runtime)
+## High-level diagram
+
+```mermaid
+flowchart LR
+  subgraph Frontends
+    Tray[Tray UI\\npystray + Qt bubble]
+    CLI[CLI\\nassistant run / tray]
+  end
+
+  Tray --> Host
+  CLI --> Host
+
+  Host[AgentHost\\nabstractassistant/core/agent_host.py] --> Agent[AbstractAgent\\nReact / CodeAct / MemAct]
+  Agent --> RT[AbstractRuntime\\nfile-backed stores]
+  RT --> Core[AbstractCore integration\\nproviders + tool/media schemas]
+
+  RT --> Wait[Durable wait\\nTOOL_CALLS / ASK_USER]
+  Wait --> HostExec[Host-held tool executor\\nMappingToolExecutor]
+  HostExec --> RT
+
+  Core --> Providers[Providers\\nOllama / LMStudio / OpenAI / Anthropic / ...]
 ```
 
 ## Goals
@@ -18,7 +36,7 @@ UI (Qt/tray) or CLI
 - One-click access (tray) to a capable agent.
 - Durable execution (runs survive restarts; waits are explicit).
 - Safe tool execution: tools are never persisted as callables in run state; the host executes them only after approval.
-- Optional voice (STT/TTS) without forcing heavy deps on all installs.
+- Optional voice (STT/TTS) at runtime (voice dependencies are included in the default install).
 
 ## What “durable tool execution” means here
 
@@ -81,7 +99,9 @@ This is a UX optimization only: the runtime stores remain the durability source 
 By default, state is stored under `~/.abstractassistant/`.
 
 Notes:
-- Both `abstractassistant run ...` and `abstractassistant tray ...` support `--data-dir` (optional).
+- Both `assistant` and `abstractassistant` accept `--data-dir` (as a global flag, before the subcommand).
+  - `assistant --data-dir ~/.abstractassistant tray`
+  - `assistant --data-dir ~/.abstractassistant run --prompt "Hello"`
 - Default remains `~/.abstractassistant/`.
 
 ```
@@ -154,15 +174,30 @@ Voice is still optional at runtime: users can keep it off, and `assistant --help
   - `assistant run --prompt ...` (interactive tool approvals in terminal)
 - Tray app: `abstractassistant/app.py` (pystray + Qt)
 
+## Ecosystem positioning
+
+AbstractAssistant is part of the **AbstractFramework** ecosystem:
+- https://github.com/lpalbou/AbstractFramework
+- core components used directly in this repo:
+  - **AbstractCore**: https://github.com/lpalbou/abstractcore
+  - **AbstractRuntime**: https://github.com/lpalbou/abstractruntime
+
+## Notes / current boundaries
+
+- The tray UI currently drives `ReactAgent` via `abstractassistant/core/llm_manager.py`.
+- CLI can select `--agent react|codeact|memact` (see `abstractassistant/cli.py`).
+
 ## Install
 
 `pip install abstractassistant` installs the tray UI plus voice/media/provider/tool integrations by default.
 
 ## Comparison: AbstractAssistant vs AbstractCode Web (thin client)
 
-AbstractAssistant is a **local host** (runs agent + runtime locally). AbstractCode Web (`abstractcode/web/`) is a **gateway-first thin client** (browser UI only).
+AbstractAssistant is a **local host** (runs agent + runtime locally).
+AbstractCode Web is a **gateway-first thin client** (browser UI only) in the AbstractFramework repository:
+https://github.com/lpalbou/AbstractFramework (see `abstractcode/web/` there).
 
-| Concern | AbstractAssistant (this repo) | AbstractCode Web (`abstractcode/web/`) |
+| Concern | AbstractAssistant (this repo) | AbstractCode Web (in AbstractFramework) |
 |---|---|---|
 | Agent execution | Local process (`abstractagent`) | Remote (behind `abstractgateway`) |
 | Runtime execution | Local (`abstractruntime`, file-backed stores) | Remote (gateway exposes run APIs + ledger) |
@@ -174,6 +209,4 @@ AbstractAssistant is a **local host** (runs agent + runtime locally). AbstractCo
 Code references:
 - AbstractAssistant local host: `abstractassistant/core/agent_host.py`
 - AbstractCode Web thin client:
-  - docs: `abstractcode/docs/architecture.md` (section “Web host (gateway-first)”)
-  - gateway client: `abstractcode/web/src/lib/gateway_client.ts`
-  - main UI: `abstractcode/web/src/ui/app.tsx`
+  - repository: https://github.com/lpalbou/AbstractFramework

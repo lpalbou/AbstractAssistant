@@ -1,10 +1,14 @@
 # Getting started
 
-AbstractAssistant is a tray-accessible agent host built on AbstractFramework (Agent + Runtime + Core).
+AbstractAssistant is a macOS-first tray app and CLI that hosts a **local, durable agent**:
+- agent loop: `abstractagent` (ReAct / CodeAct / MemAct)
+- durability: `abstractruntime` (runs + waits + ledger + artifacts)
+- providers/tools/media: `abstractcore`
 
 See also:
-- `../README.md`
-- `architecture.md`
+- [README.md](README.md) (docs hub)
+- [architecture.md](architecture.md) (durability + tool boundary, diagrams)
+- [api.md](api.md) (CLI + programmatic API)
 
 ## Install
 
@@ -12,27 +16,17 @@ See also:
 pip install "abstractassistant"
 ```
 
-### Editable (development)
-
-```bash
-pip install -e ".[dev]"
-```
-
 ## Run
 
-### Tray
+### Tray UI (macOS)
 
 ```bash
 assistant tray
 ```
 
-Alias:
+Running `assistant` with no subcommand also starts the tray UI.
 
-```bash
-abstractassistant tray
-```
-
-### Voice modes
+Voice listening mode (tray):
 
 ```bash
 assistant tray --listening-mode wait
@@ -40,75 +34,108 @@ assistant tray --listening-mode wait
 
 Valid modes: `none`, `stop`, `wait`, `full`, `ptt`.
 
-### Terminal (one agentic turn)
+### CLI (single agentic turn)
 
 ```bash
-assistant run --prompt "Explain this repository structure"
+assistant run --prompt "What is in this repo and where do I start?"
 ```
 
 Override provider/model:
 
 ```bash
-assistant run --provider ollama --model qwen3:4b-instruct --prompt "Summarize my last changes"
+assistant --provider ollama --model qwen3:4b-instruct run --prompt "Summarize my last changes"
 ```
 
-## Tool approvals
+Select agent kind (CLI only):
 
-AbstractAssistant enforces an explicit tool approval boundary:
-- read-only / known-safe tools may auto-run
-- writes, shell execution, and unknown tools pause and require approval
+```bash
+assistant --agent codeact run --prompt "Refactor this function safely"
+```
 
-Approvals are requested as a **batch** of tool calls.
+Defaults:
+- Tray UI defaults come from `config.toml` (or built-in defaults). By default: provider `lmstudio`, model `qwen/qwen3-next-80b`.
+- CLI `run` defaults to provider `ollama`, model `qwen3:4b-instruct`, agent `react`.
 
-In the tray bubble, the Tools button lets you:
-- choose “All tools” vs a “Custom allowlist”
-- set per-tool default approval mode (`Approve` or `Ask`) for the current session
+Tip: global flags (like `--provider`, `--model`, `--agent`, `--data-dir`) go **before** the subcommand.
+
+## Providers (local vs cloud)
+
+AbstractAssistant delegates provider access to **AbstractCore**.
+
+- Local providers:
+  - **Ollama**: ensure the daemon is running, then use `--provider ollama`
+  - **LMStudio**: enable the local server, then use `--provider lmstudio`
+- Cloud providers:
+  - set API keys via environment variables (for example `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+
+## Tool approvals (safety boundary)
+
+Tool calls are surfaced as a **durable wait** and require explicit approval by default:
+- safe/read-only tools can be auto-approved
+- writes, shell execution, and unknown tools require approval
+
+Evidence in code:
+- default policy: `abstractassistant/core/tool_policy.py`
+- durable wait/resume: `abstractassistant/core/agent_host.py`
+
+CLI:
+- prompts interactively when a tool batch requires approval
+- `--approve-all-tools` auto-approves all tool calls (dangerous)
+
+Tray UI:
+- “Tools” lets you choose **All tools** vs a **Custom allowlist**
+- per-tool default approval mode for the current session
 
 ## Attachments (tray UI)
 
-Use the paperclip button to attach local files (images, documents, audio, video). File paths are passed to the underlying provider/media pipeline.
+Use the paperclip button to attach local files.
 
-Notes:
-- Audio: common containers like `.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`, `.aac`, `.webm`
-- Audio STT: when `abstractvoice` is installed (default), audio attachments are automatically transcribed and the transcript is inlined into the prompt for text-only models (the first run may download model weights).
-- Video: common containers like `.mp4`, `.mov`, `.mkv`, `.webm`, `.avi`, `.wmv`, `.m4v`
-- Video frame-sampling fallback (for text-only models) may require `ffmpeg` on your PATH.
+What happens (evidence: `abstractassistant/core/agent_host.py`):
+- attachments are stored as **runtime artifacts** when possible
+- file “handles” are kept model-safe (relative to `workspace_root` when configured, otherwise filename)
+- default max attachment size is **25 MiB** (override via `ABSTRACTGATEWAY_MAX_ATTACHMENT_BYTES`)
+
+Audio notes:
+- common containers like `.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`, `.aac`, `.webm`
+- audio attachments are **pre-transcribed** via AbstractVoice when available, and the transcript is attached as text
+
+Video notes:
+- common containers like `.mp4`, `.mov`, `.mkv`, `.webm`, `.avi`, `.wmv`, `.m4v`
+- AbstractAssistant does not bundle `ffmpeg`. If your provider/media pipeline relies on `ffmpeg` for frame extraction, ensure it is on your PATH.
 
 ## Sessions (tray UI)
 
-Use the “Sessions” badge to switch between sessions. Each row shows a short date, title, and a few quick stats (messages, files, tools).
+The tray UI supports multiple sessions and persists them under your data directory:
+- index: `sessions.json`
+- legacy/base session: `session.json`
+- additional sessions: `sessions/<session_id>/...`
 
-## Voice (STT/TTS)
-
-In the tray bubble:
-- Speaker toggle: enable/disable TTS for assistant responses
-- Microphone toggle (“Full Voice Mode”): continuous STT → agent turns → TTS responses
-- In Full Voice Mode, the UI becomes voice-only (no typing). Say “stop” to exit.
-
-Listening modes control how STT interacts with speaking/processing and depend on your AbstractVoice backend.
+Evidence: `abstractassistant/core/session_index.py`, `abstractassistant/core/session_store.py`
 
 ## Configuration
 
-AbstractAssistant can load a `config.toml` (optional).
+Tray mode can load an optional `config.toml`:
+- pass explicitly: `assistant --config /path/to/config.toml tray`
+- auto-discovery: `config.toml` in current directory, then in the package directory
 
-- Pass an explicit file with: `assistant --config /path/to/config.toml`
-- If omitted, it searches `config.toml` in:
-  - the current directory
-  - the package directory
-
-Common keys:
+Common keys (evidence: `abstractassistant/config.py`):
 
 ```toml
 [llm]
-default_provider = "ollama"
-default_model = "qwen3:4b-instruct"
+default_provider = "lmstudio"
+default_model = "qwen/qwen3-next-80b"
+max_tokens = 32000
+temperature = 0.7
 ```
+
+Note: `assistant run` currently uses CLI defaults and flags; it does not read `config.toml`.
 
 ## Data directory
 
-By default, assistant state is stored in `~/.abstractassistant/`:
-- `session.json`: quick UI snapshot (transcript + last run id)
-- `runtime/`: run store + ledger + artifacts (source of truth)
+By default, state is stored in `~/.abstractassistant/`:
+- `session.json`: transcript snapshot + last run id (fast UX state)
+- `sessions.json`: session registry + active session id
+- `runtime/`: AbstractRuntime stores (durability source of truth)
 
 Override with:
 
@@ -118,8 +145,15 @@ assistant --data-dir /path/to/dir tray
 
 ## Troubleshooting
 
-- Tray fails to start: reinstall base dependencies: `pip install --upgrade "abstractassistant"`.
-- Voice toggles missing/unavailable: reinstall: `pip install --upgrade "abstractassistant"` and restart.
-- Mic says “listening” but hears nothing: macOS System Settings → Privacy & Security → Microphone → enable access for AbstractAssistant, then restart the app.
-- Provider errors: ensure your local provider is running (LMStudio/Ollama) or set API keys (OpenAI/Anthropic).
+- Tray fails to start: reinstall: `pip install --upgrade "abstractassistant"`.
+- Provider errors:
+  - local: ensure LMStudio/Ollama is running
+  - cloud: ensure API keys are set
+- Microphone hears nothing (macOS): System Settings → Privacy & Security → Microphone → enable access for AbstractAssistant, then restart.
 - Reset state: use “Clear” in the UI, or delete your data dir (`~/.abstractassistant/` by default).
+
+## Next
+
+- [api.md](api.md)
+- [architecture.md](architecture.md)
+- [faq.md](faq.md)

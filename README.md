@@ -1,16 +1,24 @@
 # AbstractAssistant
 
-One-click, tray-accessible agent host for AbstractFramework.
+AbstractAssistant is a macOS-first tray app and CLI that hosts a **local, durable agent**.
 
-AbstractAssistant runs **agentic** loops (ReAct/CodeAct/MemAct) on top of:
-- **AbstractAgent** (agent patterns)
-- **AbstractRuntime** (durable runs, waits, ledgers)
-- **AbstractCore** (providers + tools + media handling)
-- **AbstractVoice** (STT/TTS)
+It is part of the **AbstractFramework** ecosystem:
+- https://github.com/lpalbou/AbstractFramework
+- key components used directly here:
+  - AbstractCore: https://github.com/lpalbou/abstractcore
+  - AbstractRuntime: https://github.com/lpalbou/abstractruntime
 
-Docs:
-- `docs/getting-started.md`
-- `docs/architecture.md`
+## What it does
+
+- **Tray UI**: menu bar/system tray bubble with sessions, attachments, tool approvals, and optional voice.
+- **CLI**: run a single agentic turn in the terminal.
+- **Durable tool boundary**: tool calls are surfaced as a resumable wait and executed only by the host after approval.
+
+High-level flow (evidence: `abstractassistant/core/agent_host.py`):
+
+```
+Tray UI / CLI -> AgentHost -> AbstractAgent -> AbstractRuntime -> AbstractCore -> Provider(s)
+```
 
 ## Install
 
@@ -18,103 +26,62 @@ Docs:
 pip install "abstractassistant"
 ```
 
+Requirements (summary):
+- Python 3.10+
+- Tray UI is macOS-first (menu bar/system tray); CLI/backend may work elsewhere but macOS is the primary target.
+- A provider must be available (for example LMStudio/Ollama running locally, or cloud API keys set via env vars).
+
 ## Quick start
 
-Tray (macOS):
+Tray UI:
+
 ```bash
 assistant tray
 ```
 
-Alias:
-```bash
-abstractassistant tray
-```
+CLI (one turn):
 
-Terminal (one turn):
 ```bash
 assistant run --prompt "What is in this repo and where do I start?"
 ```
 
 Provider/model override:
+
 ```bash
-assistant run --provider ollama --model qwen3:4b-instruct --prompt "Summarize my changes"
+assistant --provider ollama --model qwen3:4b-instruct run --prompt "Summarize my changes"
 ```
-
-## Tool approvals (important)
-
-AbstractAssistant enforces a durable tool boundary:
-- read-only / known-safe tools can auto-run
-- anything else pauses and requires approval (tray dialog or terminal prompt)
-
-This aligns with the framework’s durability + safety model: tools are executed by the host, not persisted as callables inside run state.
 
 ## Data & durability
 
-By default, assistant state is stored in `~/.abstractassistant/` (configurable via `--data-dir`):
-- `session.json`: fast UI snapshot (transcript + last run id)
-- `runtime/`: run store + ledger + artifacts (source of truth)
+Default data directory: `~/.abstractassistant/` (override with `--data-dir`).
+
+Contents (evidence: `abstractassistant/core/session_index.py`):
+- `session.json`: transcript snapshot + last run id (fast UX state)
+- `sessions.json`: session registry + active session id
+- `runtime/`: AbstractRuntime stores (run state, ledger, artifacts)
+
+## Documentation
+
+Start here: [docs/README.md](docs/README.md)
+
+Core guides:
+- [docs/INSTALLATION.md](docs/INSTALLATION.md)
+- [docs/getting-started.md](docs/getting-started.md)
+- [docs/api.md](docs/api.md)
+- [docs/architecture.md](docs/architecture.md)
+- [docs/faq.md](docs/faq.md)
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
 python -m pytest -q
-assistant tray --debug
+assistant --debug tray
 ```
-- **📱 Unobtrusive**: Lives quietly in your menu bar until needed
-- **🔊 Conversational**: Optional voice mode for natural AI interactions
 
-## 📚 Documentation
+## Contributing / Security / License
 
-| Guide | Description |
-|-------|------------|
-| [📖 Installation Guide](docs/INSTALLATION.md) | Complete setup instructions, prerequisites, and troubleshooting |
-| [🎯 Getting Started Guide](docs/getting-started.md) | Step-by-step usage guide with all features explained |
-| [🏗️ Architecture Guide](docs/architecture.md) | Technical documentation and development information |
-
-## 📋 Requirements
-
-- **macOS**: 10.14+ (Mojave or later)
-- **Python**: 3.10+
-- **Qt Framework**: PyQt5, PySide2, or PyQt6 (automatically detected)
-- **Core deps**: AbstractAgent + AbstractRuntime + AbstractCore + AbstractVoice (installed with `abstractassistant`)
-- **Audio note**: audio attachments are auto-transcribed via AbstractVoice (first run may download model weights)
-- **Video note**: frame-sampling fallback may require `ffmpeg` on your PATH
-
-## 🤝 Contributing
-
-Contributions welcome! Please read the architecture documentation and follow the established patterns:
-
-- **Clean Code**: Follow PEP 8 and use type hints
-- **Modular Design**: Keep components focused and reusable
-- **Modern UI/UX**: Maintain the sleek, native feel
-- **Error Handling**: Always include graceful fallbacks
-- **Documentation**: Update docs for any new features
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-AbstractAssistant is built on excellent open-source projects:
-
-### Core Dependencies
-- **[AbstractCore](https://github.com/lpalbou/abstractcore)**: Universal LLM interface - enables seamless multi-provider support
-- **[AbstractVoice](https://github.com/lpalbou/abstractvoice)**: High-quality text-to-speech engine with natural voice synthesis
-
-### Framework & UI
-- **[PyQt5/PySide2/PyQt6](https://www.qt.io/)**: Cross-platform GUI framework for the modern interface
-- **[pystray](https://github.com/moses-palmer/pystray)**: Cross-platform system tray integration
-- **[Pillow](https://python-pillow.org/)**: Image processing for dynamic icon generation
-
-### Part of the AbstractX Ecosystem
-AbstractAssistant integrates seamlessly with other AbstractX projects:
-- 🧠 **[AbstractCore](https://github.com/lpalbou/abstractcore)**: Universal LLM provider interface
-- 🗣️ **[AbstractVoice](https://github.com/lpalbou/abstractvoice)**: Advanced text-to-speech capabilities
-
-See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for complete attribution.
-
----
-
-**Built with ❤️ for macOS users who want AI at their fingertips**
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security reporting: [SECURITY.md](SECURITY.md)
+- License: [LICENSE](LICENSE)
+- Acknowledgments: [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)

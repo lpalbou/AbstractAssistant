@@ -1,11 +1,27 @@
 # Installation
 
-For a quick walkthrough, start with `getting-started.md`.
+See also:
+- [README.md](README.md) (docs hub)
+- [getting-started.md](getting-started.md) (first run)
 
-## Install
+## Requirements (practical)
+
+- **Python**: 3.10+
+- **Tray UI**: macOS is the primary target (menu bar app). Other OSes may work via `pystray`/Qt but are not the focus.
+- **Providers**:
+  - local: LMStudio / Ollama must be running
+  - cloud: set API keys via environment variables (for example `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+
+## Install (PyPI)
 
 ```bash
 pip install "abstractassistant"
+```
+
+Verify:
+
+```bash
+assistant --help
 ```
 
 ## macOS app bundle (optional)
@@ -22,7 +38,7 @@ Notes:
 
 ## Headless / terminal only
 
-If you want only the CLI (no tray UI), install and use:
+You can use the CLI without running the tray UI:
 
 ```bash
 pip install abstractassistant
@@ -33,4 +49,9 @@ The CLI entrypoint is available as both `assistant` and `abstractassistant`.
 
 ## Notes
 
-- Video frame-sampling fallback (for non-video-native models) may require `ffmpeg` on your PATH.
+- AbstractAssistant does not bundle `ffmpeg`. If your provider/media pipeline relies on `ffmpeg` for video frame extraction, ensure it is on your PATH.
+
+## Next
+
+- [getting-started.md](getting-started.md)
+- [api.md](api.md)

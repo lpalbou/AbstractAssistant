@@ -4,30 +4,30 @@ AbstractAssistant is built on top of a number of open-source projects. We’re g
 
 This list is not exhaustive. The source of truth for install-time dependencies is `pyproject.toml`.
 
-## Core libraries
+## AbstractFramework ecosystem
 
-Agent/runtime foundations:
-- **AbstractAgent** — agent loop + tool calling interface
-- **AbstractRuntime** — durable runs/session storage + tool execution boundary
-- **AbstractCore** — provider-agnostic LLM interface (`create_llm`) and provider/model utilities
+- **AbstractCore** — providers, tool/media schemas, LLM client helpers: https://github.com/lpalbou/abstractcore
+- **AbstractRuntime** — durable runs, waits, ledger, artifacts: https://github.com/lpalbou/abstractruntime
+- **AbstractAgent** — agent loops (ReAct/CodeAct/MemAct): https://github.com/lpalbou/abstractagent
+- **AbstractVoice** — STT/TTS integration used by the tray UI: https://github.com/lpalbou/abstractvoice
 
-UI and desktop integration:
-- **PyQt5** — native UI framework
-- **pystray** — menu bar / system tray integration
-- **Pillow** — tray icon rendering and image utilities
+## UI and desktop integration
 
-Rendering and UX helpers:
-- **markdown**, **pymdown-extensions** — Markdown rendering
+- **pystray** — system tray integration: https://github.com/moses-palmer/pystray
+- **PyQt5 / PySide2 / PyQt6** — Qt bindings used by the tray bubble UI
+- **Pillow** — image utilities (tray icons)
+
+## Rendering and UX helpers
+
+- **markdown** + **pymdown-extensions** — Markdown rendering
 - **Pygments** — syntax highlighting
 - **pyperclip** — clipboard integration
 - **plyer** — native notifications
 
-Configuration:
-- **tomli** / **tomli-w** — TOML parsing/writing (compatibility across Python versions)
+## Configuration and packaging
 
-## Voice
-
-- **AbstractVoice** — voice/audio capabilities (installed with `abstractassistant`)
+- **tomli** / **tomli-w** — TOML parsing/writing (Python version compatibility)
+- **setuptools** / **wheel** — build tooling
 
 ## Development tooling
 
