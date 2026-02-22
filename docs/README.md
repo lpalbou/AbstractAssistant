@@ -15,6 +15,7 @@ AbstractFramework ecosystem:
 
 - **API & CLI reference**: [api.md](api.md)
 - **Architecture & durability model** (includes diagrams): [architecture.md](architecture.md)
+- **Gateway-first design draft** (thin-client plan): [gateway-first-design.md](gateway-first-design.md)
 - **FAQ / troubleshooting**: [faq.md](faq.md)
 
 ## Development notes (internal)

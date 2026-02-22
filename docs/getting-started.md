@@ -16,6 +16,8 @@ See also:
 pip install "abstractassistant"
 ```
 
+AbstractVoice is installed by default so voice features work out of the box.
+
 ## Run
 
 ### Tray UI (macOS)

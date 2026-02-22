@@ -42,7 +42,11 @@ def test_complete_functionality():
 
         time.sleep(2)
         process.terminate()
-        stdout, stderr = process.communicate()
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate(timeout=5)
 
         # Check for security red flags
         security_red_flags = ['lldb', 'process attach', 'Developer Tool Access', 'sudo']

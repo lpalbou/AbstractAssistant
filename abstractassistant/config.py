@@ -37,10 +37,22 @@ class LLMConfig:
 
 
 @dataclass
+class GatewayConfig:
+    """Gateway configuration settings (thin-client mode)."""
+
+    url: str = ""
+    auth_token: str = ""
+    use_gateway: bool = False
+    bundle_id: str = "basic-agent"
+    flow_id: str = ""
+
+
+@dataclass
 class SystemTrayConfig:
     """System tray configuration settings."""
     icon_size: int = 64
     show_notifications: bool = True
+    animation_fps: int = 30
 
 
 @dataclass
@@ -54,6 +66,7 @@ class Config:
     """Main configuration class."""
     ui: UIConfig = field(default_factory=UIConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    gateway: GatewayConfig = field(default_factory=GatewayConfig)
     system_tray: SystemTrayConfig = field(default_factory=SystemTrayConfig)
     shortcuts: ShortcutsConfig = field(default_factory=ShortcutsConfig)
     
@@ -67,9 +80,36 @@ class Config:
         """Create configuration from dictionary."""
         ui_data = data.get("ui", {})
         llm_data = data.get("llm", {})
+        gateway_data = data.get("gateway", {})
         system_tray_data = data.get("system_tray", {})
+        animation_fps_raw = system_tray_data.get("animation_fps", 30)
+        animation_fps = 30
+        try:
+            animation_fps = int(animation_fps_raw)
+        except Exception:
+            print(f"#FALLBACK: invalid system_tray.animation_fps={animation_fps_raw}; using 30")
+            animation_fps = 30
+        if animation_fps < 10:
+            print(f"#FALLBACK: system_tray.animation_fps={animation_fps} too low; using 10")
+            animation_fps = 10
+        if animation_fps > 30:
+            print(f"#FALLBACK: system_tray.animation_fps={animation_fps} too high; using 30")
+            animation_fps = 30
         shortcuts_data = data.get("shortcuts", {})
         
+        gateway_url = str(gateway_data.get("url", "") or "")
+        raw_use_gateway = gateway_data.get("use_gateway", False)
+        use_gateway = bool(raw_use_gateway)
+        if isinstance(raw_use_gateway, str):
+            raw = raw_use_gateway.strip().lower()
+            if raw in {"true", "1", "yes", "y"}:
+                use_gateway = True
+            elif raw in {"false", "0", "no", "n"}:
+                use_gateway = False
+        if gateway_url.strip() and not use_gateway:
+            print("#FALLBACK: gateway.url is set but use_gateway=false; enabling gateway mode")
+            use_gateway = True
+
         return cls(
             ui=UIConfig(
                 theme=ui_data.get("theme", "dark"),
@@ -83,9 +123,17 @@ class Config:
                 max_tokens=llm_data.get("max_tokens", 32000),
                 temperature=llm_data.get("temperature", 0.7),
             ),
+            gateway=GatewayConfig(
+                url=gateway_url,
+                auth_token=gateway_data.get("auth_token", ""),
+                use_gateway=use_gateway,
+                bundle_id=gateway_data.get("bundle_id", "basic-agent"),
+                flow_id=gateway_data.get("flow_id", ""),
+            ),
             system_tray=SystemTrayConfig(
                 icon_size=system_tray_data.get("icon_size", 64),
                 show_notifications=system_tray_data.get("show_notifications", True),
+                animation_fps=animation_fps,
             ),
             shortcuts=ShortcutsConfig(
                 show_bubble=shortcuts_data.get("show_bubble", "cmd+shift+a"),
@@ -119,9 +167,17 @@ class Config:
                 "max_tokens": self.llm.max_tokens,
                 "temperature": self.llm.temperature,
             },
+            "gateway": {
+                "url": self.gateway.url,
+                "auth_token": self.gateway.auth_token,
+                "use_gateway": self.gateway.use_gateway,
+                "bundle_id": self.gateway.bundle_id,
+                "flow_id": self.gateway.flow_id,
+            },
             "system_tray": {
                 "icon_size": self.system_tray.icon_size,
                 "show_notifications": self.system_tray.show_notifications,
+                "animation_fps": self.system_tray.animation_fps,
             },
             "shortcuts": {
                 "show_bubble": self.shortcuts.show_bubble,
@@ -159,10 +215,17 @@ class Config:
         
         if self.llm.max_tokens < 1000:
             errors.append(f"Invalid max_tokens: {self.llm.max_tokens}")
+
+        # Validate gateway settings
+        if self.gateway.use_gateway and not str(self.gateway.url or "").strip():
+            errors.append("Gateway URL is required when use_gateway=true")
         
         # Validate system tray settings
         if not 16 <= self.system_tray.icon_size <= 128:
             errors.append(f"Invalid icon_size: {self.system_tray.icon_size}")
+
+        if not 10 <= int(self.system_tray.animation_fps) <= 30:
+            errors.append(f"Invalid animation_fps: {self.system_tray.animation_fps} (expected 10-30)")
         
         if errors:
             for error in errors:

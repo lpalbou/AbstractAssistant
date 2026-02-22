@@ -156,6 +156,7 @@ The tray UI uses a worker thread to keep Qt responsive:
 - `abstractassistant/ui/qt_bubble.py` uses `AgentWorker` (a `QThread`) to drive `AgentHost.run_turn(...)`
 - tool approvals are handled on the main thread via a modal approval dialog
 - ASK_USER waits are handled via a simple input prompt
+- A run state machine keeps tray status aligned with gateway/local run progress and emits a `#FALLBACK` completion message if no final output arrives.
 
 ## Voice integration
 
@@ -181,6 +182,12 @@ AbstractAssistant is part of the **AbstractFramework** ecosystem:
 - core components used directly in this repo:
   - **AbstractCore**: https://github.com/lpalbou/abstractcore
   - **AbstractRuntime**: https://github.com/lpalbou/abstractruntime
+
+## Gateway-first direction (design draft)
+
+AbstractAssistant is currently a **local host**. A gateway-first thin-client
+design is in progress to align with `abstractcode/web` and the gateway contract.
+See: [gateway-first-design.md](gateway-first-design.md).
 
 ## Notes / current boundaries
 

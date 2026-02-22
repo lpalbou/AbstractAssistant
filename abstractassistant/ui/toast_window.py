@@ -107,7 +107,7 @@ class ToastWindow(QWidget):
                 color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
         """)
         header_layout.addWidget(title_label)
@@ -128,7 +128,7 @@ class ToastWindow(QWidget):
                     border-radius: 12px;
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }
                 QPushButton:hover {
                     background: rgba(255, 255, 255, 0.15);
@@ -149,7 +149,7 @@ class ToastWindow(QWidget):
                     border-radius: 12px;
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.7);
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }
                 QPushButton:hover {
                     background: rgba(255, 255, 255, 0.15);
@@ -173,7 +173,7 @@ class ToastWindow(QWidget):
                 border-radius: 12px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.7);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.15);
@@ -194,7 +194,7 @@ class ToastWindow(QWidget):
                 border-radius: 12px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.7);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.15);
@@ -260,7 +260,7 @@ class ToastWindow(QWidget):
                 color: rgba(255, 255, 255, 0.9);
                 background: transparent;
                 border: none;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 font-size: 11px;
                 font-weight: 500;
             }
@@ -274,7 +274,7 @@ class ToastWindow(QWidget):
                 font-size: 10px;
                 font-weight: 500;
                 color: rgba(255, 255, 255, 0.8);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             
             QPushButton:hover {
@@ -295,7 +295,7 @@ class ToastWindow(QWidget):
                 font-size: 13px;
                 font-weight: 400;
                 color: rgba(255, 255, 255, 0.95);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 selection-background-color: rgba(34, 197, 94, 0.3);
                 line-height: 1.5;
             }
@@ -328,12 +328,19 @@ class ToastWindow(QWidget):
     
     def position_window(self):
         """Position window in top-right corner."""
-        screen = QApplication.primaryScreen().geometry()
-        
-        # Position in top-right with some margin
-        x = screen.width() - self.window_width - 20
-        y = 60  # Below menu bar
-        
+        screen = QApplication.primaryScreen()
+        screen_geom = screen.availableGeometry() if screen else None
+        if screen_geom is None:
+            return
+
+        height = self.height() or self.collapsed_height
+        x = screen_geom.x() + screen_geom.width() - self.window_width
+        y = screen_geom.y()
+        max_x = screen_geom.x() + max(0, screen_geom.width() - self.window_width)
+        max_y = screen_geom.y() + max(0, screen_geom.height() - height)
+        x = max(screen_geom.x(), min(int(x), int(max_x)))
+        y = max(screen_geom.y(), min(int(y), int(max_y)))
+
         self.move(x, y)
         
         if self.debug:

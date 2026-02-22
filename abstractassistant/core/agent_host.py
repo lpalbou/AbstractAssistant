@@ -613,6 +613,23 @@ class AgentHost:
         """Clear the persisted transcript for the current session."""
         self._set_agent_session_messages([])
 
+    def append_message(self, *, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Append a message to the session transcript (gateway-friendly)."""
+        messages = self._agent_session_messages()
+        messages.append(_new_message(role=str(role), content=str(content), metadata=metadata))
+        self._set_agent_session_messages(messages)
+
+    def set_last_run_id(self, run_id: str) -> None:
+        """Persist the last gateway run id for this session."""
+        rid = str(run_id or "").strip()
+        self._snapshot = SessionSnapshot(
+            session_id=self._snapshot.session_id,
+            actor_id=self._snapshot.actor_id,
+            messages=self._snapshot.messages,
+            last_run_id=rid or self._snapshot.last_run_id,
+        )
+        self._persist_snapshot()
+
     def export_messages(self, path: Path) -> None:
         """Export the current transcript snapshot to a JSON file."""
         p = Path(path)

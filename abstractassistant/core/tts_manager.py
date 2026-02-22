@@ -7,13 +7,26 @@ This module provides TTS functionality using AbstractVoice exclusively.
 import threading
 import time
 from typing import Optional, Callable
+import warnings
 
 # Import AbstractVoice (required dependency)
-from abstractvoice import VoiceManager as AbstractVoiceManager
+try:
+    from abstractvoice import VoiceManager as AbstractVoiceManager
+    _ABSTRACTVOICE_AVAILABLE = True
+    _ABSTRACTVOICE_ERROR = ""
+except Exception as e:
+    AbstractVoiceManager = None  # type: ignore[assignment]
+    _ABSTRACTVOICE_AVAILABLE = False
+    _ABSTRACTVOICE_ERROR = str(e)
 
 
 class VoiceManager:
     """AbstractVoice-only TTS manager."""
+
+    @staticmethod
+    def is_available() -> bool:
+        """Return True if AbstractVoice is installed and importable."""
+        return bool(_ABSTRACTVOICE_AVAILABLE)
     
     def __init__(self, debug_mode: bool = False):
         """Initialize the voice manager using AbstractVoice.
@@ -23,10 +36,23 @@ class VoiceManager:
         """
         self.debug_mode = debug_mode
         self._abstractvoice_manager = None
+        self._audio_meter_callback = None
+        self._audio_chunk_hooked = False
+        self._audio_chunk_player = None
+        self._audio_chunk_prev = None
+        self._audio_meter_warned = False
+        self._audio_meter_band_warned = False
         
         # Callbacks for speech start/end events
         self.on_speech_start = None
         self.on_speech_end = None
+
+        if not _ABSTRACTVOICE_AVAILABLE:
+            warnings.warn(
+                "#FALLBACK: AbstractVoice is not installed; TTS is disabled. "
+                "Install with `pip install abstractvoice` or reinstall `abstractassistant`."
+            )
+            raise RuntimeError(f"AbstractVoice unavailable: {_ABSTRACTVOICE_ERROR}")
 
         try:
             self._abstractvoice_manager = AbstractVoiceManager(debug_mode=debug_mode)
@@ -34,6 +60,7 @@ class VoiceManager:
             # Set up NEW v0.5.1 precise audio callbacks (not synthesis callbacks)
             self._abstractvoice_manager.on_audio_start = self._on_audio_start
             self._abstractvoice_manager.on_audio_end = self._on_audio_end
+            self._wire_audio_chunk_meter()
             
             if self.debug_mode:
                 if self.debug_mode:
@@ -59,10 +86,138 @@ class VoiceManager:
                 print("🔊 Audio stream ended - ready for next action")
         if self.on_speech_end:
             self.on_speech_end()
+        self._emit_audio_meter(0.0)
+
+    def set_audio_meter_callback(self, callback: Optional[Callable[[float | list[float]], None]]) -> None:
+        """Set a callback for audio meter updates (0..1 or per-band)."""
+        self._audio_meter_callback = callback
+        self._wire_audio_chunk_meter()
+
+    def _wire_audio_chunk_meter(self) -> None:
+        """Attach to the underlying audio player for meter updates."""
+        mgr = self._abstractvoice_manager
+        if mgr is None:
+            return
+        tts_engine = getattr(mgr, "tts_engine", None)
+        audio_player = getattr(tts_engine, "audio_player", None) if tts_engine is not None else None
+        if audio_player is None:
+            if self._audio_meter_callback and not self._audio_meter_warned:
+                warnings.warn("#FALLBACK: voice meter unavailable; audio player missing")
+                self._audio_meter_warned = True
+            return
+        if self._audio_chunk_hooked and self._audio_chunk_player is audio_player:
+            return
+
+        prev = getattr(audio_player, "on_audio_chunk", None)
+
+        def _on_chunk(chunk, sample_rate: int) -> None:
+            if callable(prev):
+                try:
+                    prev(chunk, sample_rate)
+                except Exception:
+                    pass
+            self._emit_audio_meter_from_chunk(chunk, sample_rate)
+
+        audio_player.on_audio_chunk = _on_chunk
+        self._audio_chunk_hooked = True
+        self._audio_chunk_player = audio_player
+        self._audio_chunk_prev = prev
+
+    def _emit_audio_meter_from_chunk(self, chunk, sample_rate: int | None = None) -> None:
+        cb = self._audio_meter_callback
+        if cb is None:
+            return
+        try:
+            import numpy as np
+
+            arr = np.asarray(chunk, dtype=np.float32)
+            if arr.size <= 0:
+                return
+            if arr.ndim > 1:
+                arr = np.mean(arr, axis=1)
+            if arr.size <= 0:
+                return
+            arr = arr - float(np.mean(arr))
+            rms = float(np.sqrt(np.mean(np.square(arr))))
+            level = min(1.0, max(0.0, rms * 3.0))
+            bands = []
+            if sample_rate and sample_rate > 0:
+                bands = self._compute_band_levels(arr, int(sample_rate), rms)
+            else:
+                if self._audio_meter_callback and not self._audio_meter_band_warned:
+                    warnings.warn("#FALLBACK: voice meter bands unavailable; missing sample rate")
+                    self._audio_meter_band_warned = True
+            if bands:
+                cb(bands)
+            else:
+                if sample_rate and sample_rate > 0 and self._audio_meter_callback and not self._audio_meter_band_warned:
+                    warnings.warn("#FALLBACK: voice meter bands unavailable; FFT analysis failed")
+                    self._audio_meter_band_warned = True
+                cb(level)
+        except Exception:
+            pass
+
+    def _emit_audio_meter(self, level) -> None:
+        cb = self._audio_meter_callback
+        if cb is None:
+            return
+        try:
+            cb(level)
+        except Exception:
+            pass
+
+    def _compute_band_levels(self, samples, sample_rate: int, rms: float) -> list[float]:
+        """Compute log-spaced band levels for a short audio slice."""
+        try:
+            import numpy as np
+            import math
+        except Exception:
+            return []
+        if sample_rate <= 0 or samples is None:
+            return []
+        n = int(min(len(samples), 2048))
+        if n <= 8:
+            return []
+        window = np.hanning(n)
+        slice_samples = samples[-n:] * window
+        spectrum = np.fft.rfft(slice_samples)
+        power = np.abs(spectrum) ** 2
+        freqs = np.fft.rfftfreq(n, d=1.0 / float(sample_rate))
+        nyquist = max(1.0, float(sample_rate) / 2.0)
+        low = 80.0
+        high = min(6000.0, nyquist)
+        if high <= low:
+            return []
+        band_count = 5
+        ratio = (high / low) ** (1.0 / band_count)
+        edges = [low * (ratio ** i) for i in range(band_count + 1)]
+        total = float(np.sqrt(np.mean(power))) if power.size else 0.0
+        if total <= 0.0:
+            return []
+        levels: list[float] = []
+        for i in range(band_count):
+            lo = edges[i]
+            hi = edges[i + 1]
+            mask = (freqs >= lo) & (freqs < hi)
+            if not np.any(mask):
+                levels.append(0.0)
+                continue
+            band_power = float(np.sqrt(np.mean(power[mask])))
+            levels.append(band_power / total)
+        max_level = max(levels) if levels else 0.0
+        if max_level <= 0.0:
+            return []
+        amp = min(1.0, max(0.0, rms * 3.0))
+        shaped = [math.sqrt(min(1.0, max(0.0, lvl / max_level))) for lvl in levels]
+        return [min(1.0, lvl * (0.4 + 0.6 * amp)) for lvl in shaped]
     
-    def is_available(self) -> bool:
-        """Check if TTS is available."""
-        return True  # AbstractVoice is a required dependency, always available after construction
+    def supports_tts(self) -> bool:
+        """Return True when TTS is supported."""
+        return True
+
+    def supports_stt(self) -> bool:
+        """Return True when STT is supported by the installed AbstractVoice."""
+        return bool(hasattr(self._abstractvoice_manager, "listen"))
     
     def is_speaking(self) -> bool:
         """Check if TTS is currently speaking."""
@@ -163,6 +318,7 @@ class VoiceManager:
         """Stop current speech."""
         try:
             self._abstractvoice_manager.stop_speaking()
+            self._emit_audio_meter(0.0)
             if self.debug_mode:
                 if self.debug_mode:
                     print("🔊 AbstractVoice speech stopped")

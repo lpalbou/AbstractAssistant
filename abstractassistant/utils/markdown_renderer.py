@@ -160,7 +160,7 @@ class MarkdownRenderer:
             color: #e2e8f0;
             padding: 2px 6px;
             border-radius: 4px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+            font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
             font-size: 0.9em;
         }
         

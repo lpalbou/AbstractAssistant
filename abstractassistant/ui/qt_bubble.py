@@ -8,28 +8,36 @@ import sys
 import threading
 import time
 import json
+import warnings
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable, List, Dict, Any
+from typing import Optional, Callable, List, Dict, Any, TYPE_CHECKING, Tuple
 
-# Import AbstractVoice-compatible TTS manager (required dependency)
-from ..core.agent_host import AgentHost
-
+# Voice backends.
 try:
-    # Voice backend (AbstractVoice; installed with `abstractassistant`).
     from ..core.tts_manager import VoiceManager  # type: ignore
-
-    TTS_AVAILABLE = True
+    try:
+        TTS_AVAILABLE = bool(getattr(VoiceManager, "is_available", lambda: True)())
+    except Exception:
+        TTS_AVAILABLE = False
 except Exception:
     VoiceManager = None  # type: ignore[assignment]
     TTS_AVAILABLE = False
 
+from ..core.gateway_voice_manager import GatewayVoiceManager
+from ..core.gateway_selection_store import GatewaySelection
+from ..gateway import list_agent_entrypoints
+from .gateway_worker import GatewayWorker
+
 # Import our new manager classes (required dependencies)
-from .provider_manager import ProviderManager
 from .ui_styles import UIStyles
 from .tts_state_manager import TTSStateManager, TTSState
 from .history_dialog import iPhoneMessagesDialog
+from .run_state import RunStateMachine
+
+if TYPE_CHECKING:
+    from ..core.agent_host import AgentHost
 
 # Provider/model managers are package-local.
 MANAGERS_AVAILABLE = True
@@ -42,7 +50,7 @@ try:
         QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject, QEvent
-    from PyQt5.QtGui import QFont, QPalette, QColor
+    from PyQt5.QtGui import QFont, QPalette, QColor, QCursor
     from PyQt5.QtCore import QPoint
     QT_AVAILABLE = "PyQt5"
 except ImportError:
@@ -54,7 +62,7 @@ except ImportError:
             QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject, QEvent
-        from PySide2.QtGui import QFont, QPalette, QColor
+        from PySide2.QtGui import QFont, QPalette, QColor, QCursor
         from PySide2.QtCore import QPoint
         QT_AVAILABLE = "PySide2"
     except ImportError:
@@ -66,7 +74,7 @@ except ImportError:
                 QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QEvent
-            from PyQt6.QtGui import QFont, QPalette, QColor
+            from PyQt6.QtGui import QFont, QPalette, QColor, QCursor
             from PyQt6.QtCore import QPoint
             QT_AVAILABLE = "PyQt6"
         except ImportError:
@@ -136,7 +144,7 @@ class TTSToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -225,7 +233,7 @@ class FullVoiceToggle(QPushButton):
                 border-radius: 12px;
                 font-size: 12px;
                 color: {text_color};
-                font-family: -apple-system, system-ui, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -334,7 +342,7 @@ class SessionsDialog(QDialog):
         text_primary = rgba(text, 0.92)
         text_secondary = rgba(text, 0.70)
         text_muted = rgba(text, 0.55 if is_dark else 0.50)
-        accent_hex = accent.name()
+        accent_hex = "#0066cc" if not is_dark else "#3399ff"
 
         self.setStyleSheet(
             f"""
@@ -392,8 +400,8 @@ class SessionsDialog(QDialog):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(8)
 
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
@@ -478,7 +486,18 @@ class SessionsDialog(QDialog):
     def _on_select(self, session_id: str) -> None:
         bubble = self._bubble
         if getattr(bubble, "_is_run_in_progress", lambda: False)():
-            QMessageBox.information(self, "Session switch", "Please wait for the current response to finish.")
+            try:
+                bubble._show_info("Session switch", "Please wait for the current response to finish.")
+            except Exception:
+                try:
+                    box = QMessageBox(self)
+                    box.setWindowTitle("Session switch")
+                    box.setIcon(QMessageBox.Icon.Information)
+                    box.setText("Please wait for the current response to finish.")
+                    bubble._position_window_top_right(box, y_offset=0, x_offset=0)
+                    box.exec()
+                except Exception:
+                    QMessageBox.information(self, "Session switch", "Please wait for the current response to finish.")
             return
         try:
             bubble._switch_session_via_combo(str(session_id or "").strip())
@@ -659,8 +678,11 @@ class ToolSelectorDialog(QDialog):
         enabled: set[str],
         safe_preset: set[str],
         require_approval: set[str],
+        tool_mode: Optional[str] = None,
+        tool_mode_note: Optional[str] = None,
         session_auto_approve: Optional[set[str]] = None,
         session_force_ask: Optional[set[str]] = None,
+        note: Optional[str] = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Tools")
@@ -669,8 +691,11 @@ class ToolSelectorDialog(QDialog):
         self._tools = [t for t in list(tools) if isinstance(t, dict)]
         self._safe_preset = set(safe_preset)
         self._require_approval = set(require_approval)
+        self._tool_mode = str(tool_mode or "").strip().lower()
+        self._tool_mode_note = str(tool_mode_note or "").strip()
         self._session_auto_approve = set(session_auto_approve or set())
         self._session_force_ask = set(session_force_ask or set())
+        self._note = str(note or "").strip()
 
         # Keep the tool order stable.
         self._all_names = [
@@ -679,6 +704,69 @@ class ToolSelectorDialog(QDialog):
             if isinstance(t.get("name"), str) and str(t.get("name") or "").strip()
         ]
         self._all_names_set = set(self._all_names)
+
+        toolset_labels = {
+            "files": "File system",
+            "web": "Internet",
+            "system": "System",
+            "comms": "Comms",
+            "smartnote": "SmartNote",
+            "other": "Other",
+        }
+        toolset_order = ["files", "web", "system", "comms", "smartnote", "other"]
+
+        def _infer_toolset(name: str) -> str:
+            n = str(name or "").strip().lower()
+            if not n:
+                return "other"
+            if n.startswith("smartnote_"):
+                return "smartnote"
+            if n in {
+                "list_files",
+                "skim_folders",
+                "search_files",
+                "analyze_code",
+                "skim_files",
+                "read_file",
+                "write_file",
+                "edit_file",
+                "open_attachment",
+            }:
+                return "files"
+            if n in {"web_search", "fetch_url"}:
+                return "web"
+            if n in {"execute_command"}:
+                return "system"
+            if any(k in n for k in ("email", "whatsapp", "telegram")):
+                return "comms"
+            if "file" in n:
+                return "files"
+            if "web" in n or "url" in n:
+                return "web"
+            return "other"
+
+        def _normalize_toolset(info: Dict[str, str]) -> str:
+            raw = str(info.get("toolset") or info.get("toolset_id") or info.get("toolsetId") or "").strip().lower()
+            if raw:
+                return raw
+            name = str(info.get("name") or "").strip()
+            return _infer_toolset(name)
+
+        for info in self._tools:
+            if not isinstance(info, dict):
+                continue
+            info["_toolset"] = _normalize_toolset(info)
+
+        def _tool_sort_key(info: Dict[str, str]) -> tuple[int, str]:
+            grp = str(info.get("_toolset") or "other")
+            try:
+                idx = toolset_order.index(grp)
+            except ValueError:
+                idx = len(toolset_order)
+            return (idx, str(info.get("name") or ""))
+
+        self._tools.sort(key=_tool_sort_key)
+        self._toolset_labels = dict(toolset_labels)
 
         self._mode: str = "all" if set(enabled) == self._all_names_set else "custom"
         self._custom_selected: set[str] = set(enabled)
@@ -703,10 +791,10 @@ class ToolSelectorDialog(QDialog):
         text_primary = rgba(text, 0.92)
         text_secondary = rgba(text, 0.70)
         text_muted = rgba(text, 0.55 if is_dark else 0.50)
-        accent_hex = accent.name()
-        accent_hover = accent.lighter(115).name()
-        accent_pressed = accent.darker(115).name()
-        accent_border = rgba(accent, 0.28)
+        accent_hex = "#0066cc" if not is_dark else "#3399ff"
+        accent_hover = "#0080ff" if not is_dark else "#66b3ff"
+        accent_pressed = "#0052a3" if not is_dark else "#2277cc"
+        accent_border = "rgba(0, 102, 204, 0.28)" if not is_dark else "rgba(51, 153, 255, 0.28)"
         danger = QColor(255, 59, 48)
         danger_border = rgba(danger, 0.45)
         tool_name_color = "#22c55e" if is_dark else "#16a34a"
@@ -733,20 +821,100 @@ class ToolSelectorDialog(QDialog):
             f"""
             QLabel {{
                 color: {accent_hex};
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 700;
             }}
             """
         )
         layout.addWidget(header)
 
-        subtitle = QLabel("Default is all tools. Switch to a custom allowlist only when needed.")
+        subtitle = QLabel(
+            "Default is all tools. Safe/read-only tools auto-approve; mutating tools ask for approval."
+        )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"QLabel {{ font-size: 12px; color: {text_secondary}; }}")
+        subtitle.setStyleSheet(f"QLabel {{ font-size: 11px; color: {text_secondary}; }}")
         layout.addWidget(subtitle)
 
+        def _tool_mode_info(raw_mode: str) -> tuple[str, str, str, str]:
+            mode = str(raw_mode or "").strip().lower()
+            warn = QColor("#f59e0b")
+            info = QColor("#38bdf8")
+            if mode in {"approval", "local_approval", "local-approval"}:
+                return (
+                    "APPROVAL",
+                    "Safe tools auto-run; mutating tools ask for approval.",
+                    rgba(accent, 0.12),
+                    rgba(accent, 0.45),
+                )
+            if mode in {"passthrough"}:
+                return (
+                    "PASSTHROUGH",
+                    "All tools require approval before execution.",
+                    rgba(warn, 0.12),
+                    rgba(warn, 0.45),
+                )
+            if mode in {"delegated", "delegate", "job"}:
+                return (
+                    "DELEGATED",
+                    "Tool calls wait for external executors.",
+                    rgba(info, 0.12),
+                    rgba(info, 0.45),
+                )
+            if mode in {"local", "local_all", "local-all"}:
+                return (
+                    "LOCAL",
+                    "All tools run locally; client policy may still require approval.",
+                    rgba(danger, 0.12),
+                    rgba(danger, 0.55),
+                )
+            return (
+                "UNKNOWN",
+                "#FALLBACK: gateway tool mode not reported.",
+                rgba(danger, 0.08),
+                rgba(danger, 0.35),
+            )
+
+        mode_label = ""
+        mode_detail = ""
+        mode_bg = ""
+        mode_border = ""
+        if self._tool_mode or self._tool_mode_note:
+            mode_label, mode_detail, mode_bg, mode_border = _tool_mode_info(self._tool_mode)
+            if self._tool_mode_note:
+                mode_detail = f"{mode_detail} {self._tool_mode_note}".strip()
+
+        if mode_label:
+            mode_frame = QFrame()
+            mode_layout = QVBoxLayout(mode_frame)
+            mode_layout.setContentsMargins(10, 8, 10, 8)
+            mode_layout.setSpacing(4)
+            mode_frame.setStyleSheet(
+                f"""
+                QFrame {{
+                    background: {mode_bg};
+                    border: 1px solid {mode_border};
+                    border-radius: 10px;
+                }}
+                """
+            )
+            mode_title = QLabel(f"GATEWAY TOOL MODE: {mode_label}")
+            mode_title.setStyleSheet(f"QLabel {{ font-size: 11px; font-weight: 800; color: {text_primary}; }}")
+            mode_layout.addWidget(mode_title)
+            if mode_detail:
+                mode_desc = QLabel(mode_detail)
+                mode_desc.setWordWrap(True)
+                mode_desc.setStyleSheet(f"QLabel {{ font-size: 10px; color: {text_secondary}; }}")
+                mode_layout.addWidget(mode_desc)
+            layout.addWidget(mode_frame)
+
+        if self._note:
+            note_label = QLabel(self._note)
+            note_label.setWordWrap(True)
+            note_label.setStyleSheet(f"QLabel {{ font-size: 10px; color: {text_muted}; }}")
+            layout.addWidget(note_label)
+
         controls_row = QHBoxLayout()
-        controls_row.setSpacing(10)
+        controls_row.setSpacing(8)
 
         seg_frame = QFrame()
         seg_frame.setStyleSheet(
@@ -754,7 +922,7 @@ class ToolSelectorDialog(QDialog):
             QFrame {{
                 background: {overlay_pressed};
                 border: 1px solid {mid_hex};
-                border-radius: 14px;
+                border-radius: 12px;
             }}
             """
         )
@@ -770,15 +938,15 @@ class ToolSelectorDialog(QDialog):
                 b.setAutoExclusive(True)
             except Exception:
                 pass
-            b.setFixedHeight(28)
+            b.setFixedHeight(24)
             b.setStyleSheet(
                 f"""
                 QPushButton {{
                     background: transparent;
                     border: none;
-                    border-radius: 12px;
-                    padding: 0 12px;
-                    font-size: 12px;
+                    border-radius: 10px;
+                    padding: 0 10px;
+                    font-size: 11px;
                     font-weight: 600;
                     color: {text_secondary};
                 }}
@@ -795,15 +963,15 @@ class ToolSelectorDialog(QDialog):
 
         self.count_pill = QLabel("")
         self.count_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.count_pill.setFixedHeight(28)
-        self.count_pill.setMinimumWidth(160)
+        self.count_pill.setFixedHeight(24)
+        self.count_pill.setMinimumWidth(120)
         self.count_pill.setStyleSheet(
             f"""
             QLabel {{
                 background: {overlay};
                 border: 1px solid {mid_hex};
-                border-radius: 14px;
-                font-size: 11px;
+                border-radius: 12px;
+                font-size: 10px;
                 font-weight: 600;
                 color: {text_secondary};
                 padding: 0 12px;
@@ -816,9 +984,9 @@ class ToolSelectorDialog(QDialog):
             QPushButton {{
                 background: {overlay};
                 border: 1px solid {mid_hex};
-                border-radius: 14px;
-                padding: 0 12px;
-                font-size: 11px;
+                border-radius: 12px;
+                padding: 0 10px;
+                font-size: 10px;
                 font-weight: 700;
                 color: {text_secondary};
             }}
@@ -834,12 +1002,12 @@ class ToolSelectorDialog(QDialog):
 
         controls_row.addStretch()
         select_all_btn = QPushButton("Select all")
-        select_all_btn.setFixedHeight(28)
+        select_all_btn.setFixedHeight(24)
         select_all_btn.setStyleSheet(bulk_btn_qss)
         controls_row.addWidget(select_all_btn)
 
         select_none_btn = QPushButton("Select none")
-        select_none_btn.setFixedHeight(28)
+        select_none_btn.setFixedHeight(24)
         select_none_btn.setStyleSheet(bulk_btn_qss)
         controls_row.addWidget(select_none_btn)
         layout.addLayout(controls_row)
@@ -847,15 +1015,15 @@ class ToolSelectorDialog(QDialog):
         self.filter_input = QLineEdit()
         self.filter_input.setPlaceholderText("Filter tools…")
         self.filter_input.setClearButtonEnabled(True)
-        self.filter_input.setFixedHeight(34)
+        self.filter_input.setFixedHeight(28)
         self.filter_input.setStyleSheet(
             f"""
             QLineEdit {{
                 background: {overlay_pressed};
                 border: 1px solid {mid_hex};
-                border-radius: 10px;
+                border-radius: 8px;
                 padding: 0 12px;
-                font-size: 12px;
+                font-size: 11px;
                 color: {text_primary};
             }}
             QLineEdit:focus {{
@@ -875,10 +1043,12 @@ class ToolSelectorDialog(QDialog):
         list_root = QWidget()
         list_layout = QVBoxLayout(list_root)
         list_layout.setContentsMargins(0, 0, 0, 0)
-        list_layout.setSpacing(10)
+        list_layout.setSpacing(8)
         scroll.setWidget(list_root)
 
         self._rows: Dict[str, Dict[str, Any]] = {}
+        self._group_headers: Dict[str, QLabel] = {}
+        self._group_rows: Dict[str, List[str]] = {}
 
         def _badge(text_value: str, *, fg: str, bg: str, border: str) -> QLabel:
             lab = QLabel(text_value)
@@ -920,22 +1090,38 @@ class ToolSelectorDialog(QDialog):
 
             self._update_counts()
 
+        last_group: Optional[str] = None
         for info in self._tools:
             name = str(info.get("name") or "").strip()
             if not name:
                 continue
             desc = str(info.get("description") or "").strip()
+            when = str(info.get("when_to_use") or info.get("whenToUse") or "").strip()
+            toolset = str(info.get("_toolset") or info.get("toolset") or "other").strip().lower()
+            if toolset not in getattr(self, "_toolset_labels", {}):
+                toolset = "other"
+
+            if toolset != last_group:
+                group_label = str(self._toolset_labels.get(toolset, "Other")).upper()
+                header = QLabel(group_label)
+                header.setStyleSheet(
+                    f"QLabel {{ color: {text_muted}; font-size: 10px; font-weight: 700; letter-spacing: 1px; }}"
+                )
+                list_layout.addWidget(header)
+                self._group_headers[toolset] = header
+                self._group_rows[toolset] = []
+                last_group = toolset
 
             row = QFrame()
             row.setObjectName("toolRow")
             row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(12, 10, 12, 10)
-            row_layout.setSpacing(10)
+            row_layout.setContentsMargins(10, 8, 10, 8)
+            row_layout.setSpacing(8)
 
             cb = QPushButton("✓")
             cb.setCheckable(True)
             cb.setChecked(name in self._custom_selected)
-            cb.setFixedSize(22, 22)
+            cb.setFixedSize(20, 20)
             try:
                 cb.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             except Exception:
@@ -955,10 +1141,10 @@ class ToolSelectorDialog(QDialog):
                 QPushButton {{
                     background: {overlay_pressed};
                     border: 1px solid {indicator_border};
-                    border-radius: 6px;
+                    border-radius: 5px;
                     padding: 0px;
                     color: transparent;
-                    font-size: 14px;
+                    font-size: 12px;
                     font-weight: 900;
                     text-align: center;
                 }}
@@ -987,7 +1173,7 @@ class ToolSelectorDialog(QDialog):
             text_col = QWidget()
             text_col_layout = QVBoxLayout(text_col)
             text_col_layout.setContentsMargins(6, 0, 0, 0)
-            text_col_layout.setSpacing(4)
+            text_col_layout.setSpacing(3)
 
             meta_row = QHBoxLayout()
             meta_row.setContentsMargins(0, 0, 0, 0)
@@ -998,9 +1184,9 @@ class ToolSelectorDialog(QDialog):
                 f"""
                 QLabel {{
                     color: {tool_name_color};
-	                font-size: 12px;
+	                font-size: 11px;
                     font-weight: 800;
-                    font-family: "SF Mono", "Monaco", "Menlo", "Consolas", monospace;
+                    font-family: "Menlo", "Monaco", "Consolas", monospace;
                 }}
                 """
             )
@@ -1017,23 +1203,23 @@ class ToolSelectorDialog(QDialog):
             if desc:
                 desc_label = QLabel(desc)
                 desc_label.setWordWrap(True)
-                desc_label.setStyleSheet(f"QLabel {{ color: {text_muted}; font-size: 11px; }}")
+                desc_label.setStyleSheet(f"QLabel {{ color: {text_muted}; font-size: 10px; }}")
                 text_col_layout.addWidget(desc_label)
 
             row_layout.addWidget(text_col, 1)
 
             approval_combo = QComboBox()
             approval_combo.addItems(["Approve", "Ask"])
-            approval_combo.setFixedHeight(28)
-            approval_combo.setMinimumWidth(110)
+            approval_combo.setFixedHeight(24)
+            approval_combo.setMinimumWidth(90)
             approval_combo.setStyleSheet(
                 f"""
                 QComboBox {{
                     background: {overlay_pressed};
                     border: 1px solid {mid_hex};
-                    border-radius: 10px;
-                    padding: 0 10px;
-                    font-size: 12px;
+                    border-radius: 8px;
+                    padding: 0 8px;
+                    font-size: 10px;
                     font-weight: 700;
                     color: {text_primary};
                 }}
@@ -1070,32 +1256,39 @@ class ToolSelectorDialog(QDialog):
                 QFrame#toolRow {{
                     background: {overlay_pressed};
                     border: 1px solid {border_color};
-                    border-radius: 12px;
+                    border-radius: 10px;
                 }}
                 """
             )
 
             list_layout.addWidget(row)
-            self._rows[name] = {"row": row, "checkbox": cb, "approval_combo": approval_combo, "desc": desc}
+            self._rows[name] = {
+                "row": row,
+                "checkbox": cb,
+                "approval_combo": approval_combo,
+                "desc": f"{desc}\n{when}".strip(),
+                "group": toolset,
+            }
+            self._group_rows.setdefault(toolset, []).append(name)
 
         list_layout.addStretch(1)
 
         footer = QHBoxLayout()
-        footer.setSpacing(10)
+        footer.setSpacing(8)
         footer.addStretch()
 
         cancel_btn = QPushButton("Cancel")
         save_btn = QPushButton("Save")
         for b in (cancel_btn, save_btn):
-            b.setFixedHeight(34)
+            b.setFixedHeight(30)
             b.setStyleSheet(
                 f"""
                 QPushButton {{
                     background: {overlay};
                     border: 1px solid {mid_hex};
-                    border-radius: 12px;
-                    padding: 0 16px;
-                    font-size: 12px;
+                    border-radius: 10px;
+                    padding: 0 12px;
+                    font-size: 11px;
                     font-weight: 700;
                     color: {text_primary};
                 }}
@@ -1108,9 +1301,9 @@ class ToolSelectorDialog(QDialog):
             QPushButton {{
                 background: {accent_hex};
                 border: 1px solid {accent_hover};
-                border-radius: 12px;
-                padding: 0 16px;
-                font-size: 12px;
+                border-radius: 10px;
+                padding: 0 12px;
+                font-size: 11px;
                 font-weight: 800;
                 color: #ffffff;
             }}
@@ -1159,16 +1352,28 @@ class ToolSelectorDialog(QDialog):
 
         def _apply_filter() -> None:
             q = (self.filter_input.text() or "").strip().lower()
+            visible_by_group: Dict[str, bool] = {g: False for g in self._group_headers.keys()}
             for n, info in self._rows.items():
                 if not q:
                     info["row"].setVisible(True)
+                    group = str(info.get("group") or "")
+                    if group in visible_by_group:
+                        visible_by_group[group] = True
                     continue
                 hay = f"{n}\n{info.get('desc','')}".lower()
-                info["row"].setVisible(q in hay)
+                show = q in hay
+                info["row"].setVisible(show)
+                if show:
+                    group = str(info.get("group") or "")
+                    if group in visible_by_group:
+                        visible_by_group[group] = True
+
+            for grp, header in self._group_headers.items():
+                header.setVisible(bool(visible_by_group.get(grp, False)))
 
         self.filter_input.textChanged.connect(lambda _=None: _apply_filter())
 
-        self.resize(720, 560)
+        self.resize(640, 480)
         _set_mode(self._mode)
         _apply_filter()
         self._update_counts()
@@ -1249,7 +1454,7 @@ class AgentWorker(QThread):
     def __init__(
         self,
         *,
-        agent_host: AgentHost,
+        agent_host: Any,
         user_text: str,
         provider: str,
         model: str,
@@ -1464,6 +1669,10 @@ class QtChatBubble(QWidget):
         self.config = config
         self.debug = debug
         self.listening_mode = listening_mode
+        gw = getattr(config, "gateway", None) if config is not None else None
+        self.use_gateway = bool(getattr(gw, "use_gateway", False))
+        self.gateway_bundle_id = str(getattr(gw, "bundle_id", "basic-agent") or "basic-agent")
+        self.gateway_flow_id = str(getattr(gw, "flow_id", "") or "")
         self._theme: Dict[str, Any] = {}
         
         # State - default to LMStudio with qwen/qwen3-next-80b
@@ -1502,13 +1711,14 @@ class QtChatBubble(QWidget):
         self._enabled_external_tools_user_set: bool = False
         self._safe_external_tools: set[str] = set()
         self._require_approval_tools: set[str] = set()
-        self._refresh_tool_inventory()
+        self._tool_inventory_note: str = ""
         
         # Initialize new manager classes
         self.provider_manager = None
         self.tts_state_manager = None
-        if MANAGERS_AVAILABLE:
+        if MANAGERS_AVAILABLE and not self.use_gateway:
             try:
+                from .provider_manager import ProviderManager
                 self.provider_manager = ProviderManager(debug=debug)
                 self.tts_state_manager = TTSStateManager(debug=debug)
                 if self.debug:
@@ -1517,10 +1727,18 @@ class QtChatBubble(QWidget):
                 if self.debug:
                     print(f"❌ Failed to initialize manager classes: {e}")
 
-        # TTS functionality (AbstractVoice-compatible)
+        # Voice backend (gateway-first or local AbstractVoice).
         self.voice_manager = None
         self.tts_enabled = False
-        if TTS_AVAILABLE:
+        if self.use_gateway:
+            try:
+                self.voice_manager = GatewayVoiceManager(llm_manager=self.llm_manager, debug_mode=debug)
+                if self.debug:
+                    print("🔊 GatewayVoiceManager initialized")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Failed to initialize GatewayVoiceManager: {e}")
+        elif TTS_AVAILABLE:
             try:
                 self.voice_manager = VoiceManager(debug_mode=debug)
                 # Connect voice manager to TTS state manager
@@ -1531,18 +1749,45 @@ class QtChatBubble(QWidget):
             except Exception as e:
                 if self.debug:
                     print(f"❌ Failed to initialize VoiceManager: {e}")
+        try:
+            self._attach_voice_meter()
+        except Exception:
+            pass
         
         # Callbacks
         self.response_callback = None
         self.error_callback = None
         self.status_callback = None  # New callback for status updates
+        self._voice_meter_callback = None
+        self._run_state = RunStateMachine(
+            on_state_change=self._handle_run_state_change,
+            on_missing_final=self._handle_missing_final_output,
+            debug=bool(self.debug),
+        )
+        self._last_run_activity: str = ""
+        self._turn_id: int = 0
+        self._final_emitted_turn_id: Optional[int] = None
+        self._final_emitted_runs: set[str] = set()
         
         # Worker thread
         self.worker = None
+        self._reattach_attempted = False
         
         self.setup_ui()
         self.setup_styling()
+        self._gateway_default_provider = ""
+        self._gateway_default_model = ""
+        self._gateway_cache: Dict[str, Dict[str, Any]] = {}
+        self._gateway_cache_ttl_s = 30.0
+        self._loading_workflows = False
+        self._refresh_tool_inventory()
+
         self.load_providers()
+        if self.use_gateway:
+            try:
+                self.load_workflows()
+            except Exception:
+                pass
 
         # Bootstrap UI state from the durable active session (tokens/history).
         try:
@@ -1556,9 +1801,29 @@ class QtChatBubble(QWidget):
             self._reload_session_combo()
         except Exception:
             pass
+
+        if self.use_gateway:
+            try:
+                QTimer.singleShot(200, self._maybe_reattach_gateway_run)
+            except Exception:
+                pass
         
         if self.debug:
             print("✅ QtChatBubble initialized")
+
+    def _gateway_cache_get(self, key: str) -> Optional[Any]:
+        entry = self._gateway_cache.get(str(key))
+        if not isinstance(entry, dict):
+            return None
+        ts = entry.get("ts")
+        if not isinstance(ts, (int, float)):
+            return None
+        if (time.time() - float(ts)) > float(self._gateway_cache_ttl_s):
+            return None
+        return entry.get("value")
+
+    def _gateway_cache_set(self, key: str, value: Any) -> None:
+        self._gateway_cache[str(key)] = {"ts": time.time(), "value": value}
     
     def set_response_callback(self, callback):
         """Set response callback."""
@@ -1573,6 +1838,14 @@ class QtChatBubble(QWidget):
         self.status_callback = callback
         if self.debug:
             print("✅ Status callback set in QtChatBubble")
+
+    def set_voice_meter_callback(self, callback):
+        """Set voice meter callback (0..1 or per-band) for speaking animation."""
+        self._voice_meter_callback = callback
+        try:
+            self._attach_voice_meter()
+        except Exception:
+            pass
     
     def set_app_quit_callback(self, callback):
         """Set app quit callback."""
@@ -1678,7 +1951,7 @@ class QtChatBubble(QWidget):
                 font-size: 14px;
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QPushButton:hover {
                 background: rgba(255, 60, 60, 0.8);
@@ -1699,7 +1972,7 @@ class QtChatBubble(QWidget):
                 border-radius: 6px;
                 font-size: 10px;
                 color: rgba(255, 255, 255, 0.8);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 padding: 0 10px;
             }
             QComboBox:hover {
@@ -1733,7 +2006,7 @@ class QtChatBubble(QWidget):
                 border-radius: 11px;
                 font-size: 10px;
                 color: rgba(255, 255, 255, 0.8);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 padding: 0 10px;
             }
             QPushButton:hover {
@@ -1751,7 +2024,7 @@ class QtChatBubble(QWidget):
                 border-radius: 11px;
                 font-size: 13px;
                 color: rgba(255, 255, 255, 0.75);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 padding: 0px;
             }
             QPushButton:hover {
@@ -1810,14 +2083,17 @@ class QtChatBubble(QWidget):
         self.full_voice_toggle = FullVoiceToggle()
         self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
 
-        voice_available = bool(self.voice_manager and self.voice_manager.is_available())
-        if not voice_available:
-            tooltip = "Voice unavailable. Install `abstractassistant` (AbstractVoice) and restart."
+        tts_available = bool(self.voice_manager and getattr(self.voice_manager, "supports_tts", lambda: False)())
+        stt_available = bool(self.voice_manager and getattr(self.voice_manager, "supports_stt", lambda: False)())
+        if not tts_available:
+            tooltip = "TTS unavailable. Install AbstractVoice or enable gateway voice."
             try:
                 self.tts_toggle.setEnabled(False)
                 self.tts_toggle.setToolTip(tooltip)
             except Exception:
                 pass
+        if not stt_available:
+            tooltip = "Voice input unavailable. Install AbstractVoice or enable gateway voice."
             try:
                 self.full_voice_toggle.setEnabled(False)
                 self.full_voice_toggle.setToolTip(tooltip)
@@ -1838,7 +2114,7 @@ class QtChatBubble(QWidget):
                 font-size: 10px;
                 font-weight: 600;
                 color: #ffffff;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
         """)
         self.status_label.setToolTip("Status")
@@ -1999,6 +2275,42 @@ class QtChatBubble(QWidget):
         controls_layout.setContentsMargins(8, 2, 8, 2)
         controls_layout.setSpacing(4)
         
+        # Workflow selector (gateway mode only)
+        if self.use_gateway:
+            self.workflow_combo = QComboBox()
+            self.workflow_combo.currentIndexChanged.connect(self._on_workflow_changed)
+            self.workflow_combo.setFixedHeight(28)
+            self.workflow_combo.setMinimumWidth(140)
+            try:
+                self.workflow_combo.view().setMinimumWidth(360)
+            except Exception:
+                pass
+            self.workflow_combo.setToolTip("Workflow")
+            self.workflow_combo.setStyleSheet("""
+                QComboBox {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: none;
+                    border-radius: 14px;
+                    padding: 0 8px;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
+                }
+                QComboBox:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                }
+                QComboBox::drop-down {
+                    border: none;
+                    width: 20px;
+                }
+                QComboBox::down-arrow {
+                    image: none;
+                    border: none;
+                    width: 0px;
+                }
+            """)
+            controls_layout.addWidget(self.workflow_combo)
+
         # Provider dropdown (rounded, clean)
         self.provider_combo = QComboBox()
         self.provider_combo.currentTextChanged.connect(self.on_provider_changed)
@@ -2012,7 +2324,7 @@ class QtChatBubble(QWidget):
                 padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QComboBox:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -2043,7 +2355,7 @@ class QtChatBubble(QWidget):
                 padding: 0 8px;
                 font-size: 11px;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QComboBox:hover {
                 background: rgba(255, 255, 255, 0.12);
@@ -2074,7 +2386,7 @@ class QtChatBubble(QWidget):
                 border-radius: 14px;
                 font-size: 12px;
                 color: rgba(255, 255, 255, 0.6);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
         """)
         controls_layout.addWidget(self.token_label)
@@ -2128,11 +2440,13 @@ class QtChatBubble(QWidget):
         overlay_pressed = "rgba(255, 255, 255, 0.06)" if is_dark else "rgba(0, 0, 0, 0.04)"
 
         focus_bg = base.lighter(112) if is_dark else base.darker(102)
-        accent_hover = accent.lighter(115)
-        accent_pressed = accent.darker(115)
 
-        # Single source of truth for window translucency ("glass").
-        # Keep it readable and consistent across the app. (No global window opacity.)
+        # Explicit accent colours — system palette highlight can be near-white in
+        # macOS light mode, rendering action buttons invisible.
+        accent_c = "#3399ff" if is_dark else "#0066cc"
+        accent_hover_c = "#66b3ff" if is_dark else "#0080ff"
+        accent_pressed_c = "#2277cc" if is_dark else "#0052a3"
+
         glass_alpha = 0.92 if is_dark else 0.86
         glass_bg = rgba(window, glass_alpha)
         glass_border = rgba(QColor(255, 255, 255), 0.18) if is_dark else rgba(QColor(0, 0, 0), 0.12)
@@ -2150,12 +2464,12 @@ class QtChatBubble(QWidget):
             "text_primary": rgba(text, 0.9),
             "text_secondary": rgba(text, 0.72),
             "text_muted": rgba(text, 0.55 if is_dark else 0.5),
-            "accent": accent.name(),
-            "accent_hover": accent_hover.name(),
-            "accent_pressed": accent_pressed.name(),
-            "accent_rgba_12": rgba(accent, 0.12),
-            "accent_rgba_20": rgba(accent, 0.20),
-            "accent_rgba_35": rgba(accent, 0.35),
+            "accent": accent_c,
+            "accent_hover": accent_hover_c,
+            "accent_pressed": accent_pressed_c,
+            "accent_rgba_12": "rgba(0, 102, 204, 0.12)" if not is_dark else "rgba(51, 153, 255, 0.12)",
+            "accent_rgba_20": "rgba(0, 102, 204, 0.20)" if not is_dark else "rgba(51, 153, 255, 0.20)",
+            "accent_rgba_35": "rgba(0, 102, 204, 0.35)" if not is_dark else "rgba(51, 153, 255, 0.35)",
             "overlay": overlay,
             "overlay_hover": overlay_hover,
             "overlay_pressed": overlay_pressed,
@@ -2209,7 +2523,7 @@ class QtChatBubble(QWidget):
                     font-size: 14px;
                     font-weight: 400;
                     color: {t['text_primary']};
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                     selection-background-color: {t['accent']};
                     line-height: 1.4;
                 }}
@@ -2231,7 +2545,7 @@ class QtChatBubble(QWidget):
             border-radius: 11px;
             font-size: 10px;
             color: {t['text_secondary']};
-            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+            font-family: "Helvetica Neue", "Helvetica", Arial;
             padding: 0 10px;
         """
         pill_hover = f"background: {t['overlay_hover']}; color: {t['text_primary']};"
@@ -2262,7 +2576,7 @@ class QtChatBubble(QWidget):
                     border-radius: 11px;
                     font-size: 16px;
                     color: {t['text_secondary']};
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                     padding: 0px;
                 }}
                 QPushButton:hover {{
@@ -2279,7 +2593,7 @@ class QtChatBubble(QWidget):
                 border-radius: 11px;
                 font-size: 13px;
                 color: {t['text_secondary']};
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 padding: 0px;
             }}
             QPushButton:hover {{
@@ -2322,7 +2636,7 @@ class QtChatBubble(QWidget):
                     font-size: 14px;
                     font-weight: 600;
                     color: {t['text_primary']};
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }}
                 QPushButton:hover {{
                     background: rgba(255, 60, 60, 0.85);
@@ -2359,25 +2673,28 @@ class QtChatBubble(QWidget):
 
         # tools_button style is handled via _update_tools_button_state()
 
+        send_bg = "#0066cc"
+        send_hover = "#0080ff"
+        send_pressed = "#0052a3"
         if hasattr(self, "send_button"):
             self.send_button.setStyleSheet(
                 f"""
-	                QPushButton {{
-	                    background: {t['accent']};
-	                    border: 1px solid {t['accent_hover']};
-	                    border-radius: 4px;
-	                    font-weight: bold;
-	                    color: #ffffff;
-	                    text-align: center;
-	                    padding: 0px;
-	                    margin: 0px;
-	                }}
+                QPushButton {{
+                    background: {send_bg};
+                    border: 1px solid {send_hover};
+                    border-radius: 4px;
+                    font-weight: bold;
+                    color: #ffffff;
+                    text-align: center;
+                    padding: 0px;
+                    margin: 0px;
+                }}
                 QPushButton:hover {{
-                    background: {t['accent_hover']};
-                    border: 1px solid {t['accent_hover']};
+                    background: {send_hover};
+                    border: 1px solid {send_hover};
                 }}
                 QPushButton:pressed {{
-                    background: {t['accent_pressed']};
+                    background: {send_pressed};
                 }}
                 QPushButton:disabled {{
                     background: {t['overlay_pressed']};
@@ -2388,6 +2705,24 @@ class QtChatBubble(QWidget):
             )
 
         # Bottom controls
+        if hasattr(self, "workflow_combo"):
+            self.workflow_combo.setStyleSheet(
+                f"""
+                QComboBox {{
+                    background: {t['overlay']};
+                    border: none;
+                    border-radius: 14px;
+                    padding: 0 8px;
+                    font-size: 11px;
+                    color: {t['text_primary']};
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
+                }}
+                QComboBox:hover {{ background: {t['overlay_hover']}; }}
+                QComboBox::drop-down {{ border: none; width: 20px; }}
+                QComboBox::down-arrow {{ image: none; border: none; width: 0px; }}
+                """
+            )
+
         if hasattr(self, "provider_combo"):
             self.provider_combo.setStyleSheet(
                 f"""
@@ -2398,7 +2733,7 @@ class QtChatBubble(QWidget):
                     padding: 0 8px;
                     font-size: 11px;
                     color: {t['text_primary']};
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }}
                 QComboBox:hover {{ background: {t['overlay_hover']}; }}
                 QComboBox::drop-down {{ border: none; width: 20px; }}
@@ -2416,7 +2751,7 @@ class QtChatBubble(QWidget):
                     padding: 0 8px;
                     font-size: 11px;
                     color: {t['text_primary']};
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }}
                 QComboBox:hover {{ background: {t['overlay_hover']}; }}
                 QComboBox::drop-down {{ border: none; width: 20px; }}
@@ -2433,7 +2768,7 @@ class QtChatBubble(QWidget):
                     border-radius: 14px;
                     font-size: 12px;
                     color: {t['text_muted']};
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }}
                 """
             )
@@ -2539,26 +2874,222 @@ class QtChatBubble(QWidget):
     
     def position_near_tray(self):
         """Position the bubble near the system tray."""
-        # Get screen geometry
-        screen = QApplication.primaryScreen().geometry()
-        
-        # Position at the right corner with no gap
-        x = screen.width() - self.width()  # 0px from right edge - touching the corner
-        y = 50
-        
-        self.move(x, y)
+        self._position_window_top_right(self, y_offset=0, x_offset=0)
         
         if self.debug:
             if self.debug:
-                print(f"Positioned bubble at ({x}, {y})")
+                try:
+                    pos = self.pos()
+                    print(f"Positioned bubble at ({pos.x()}, {pos.y()})")
+                except Exception:
+                    print("Positioned bubble (position unavailable)")
+
+    def _available_screen_geometry(self):
+        """Return the available screen geometry for the active screen."""
+        try:
+            pos = QCursor.pos()
+        except Exception:
+            pos = None
+        screen = None
+        try:
+            if pos is not None and hasattr(QApplication, "screenAt"):
+                screen = QApplication.screenAt(pos)
+        except Exception:
+            screen = None
+        if screen is None:
+            try:
+                screen = QApplication.primaryScreen()
+            except Exception:
+                screen = None
+        if screen is None:
+            return None
+        try:
+            return screen.availableGeometry()
+        except Exception:
+            try:
+                return screen.geometry()
+            except Exception:
+                return None
+
+    def _clamp_window_to_screen(self, *, x: int, y: int, w: int, h: int, screen_geom) -> Tuple[int, int]:
+        min_x = int(screen_geom.x())
+        min_y = int(screen_geom.y())
+        max_x = int(screen_geom.x() + max(0, int(screen_geom.width()) - int(w)))
+        max_y = int(screen_geom.y() + max(0, int(screen_geom.height()) - int(h)))
+        return max(min_x, min(int(x), max_x)), max(min_y, min(int(y), max_y))
+
+    def _position_window_top_right(self, widget, *, y_offset: int = 0, x_offset: int = 0) -> None:
+        """Position a window at the top-right of the available screen area, clamped."""
+        if widget is None:
+            return
+        screen_geom = self._available_screen_geometry()
+        if screen_geom is None:
+            return
+        try:
+            widget.adjustSize()
+        except Exception:
+            pass
+        try:
+            geom = widget.frameGeometry()
+            w = int(geom.width())
+            h = int(geom.height())
+        except Exception:
+            w = int(getattr(widget, "width", lambda: 0)() or 0)
+            h = int(getattr(widget, "height", lambda: 0)() or 0)
+        if w <= 0 or h <= 0:
+            return
+        x = int(screen_geom.x() + screen_geom.width() - w - int(x_offset))
+        y = int(screen_geom.y() + int(y_offset))
+        x, y = self._clamp_window_to_screen(x=x, y=y, w=w, h=h, screen_geom=screen_geom)
+        try:
+            widget.move(x, y)
+        except Exception:
+            pass
+
+    def _ensure_window_within_screen(self, widget) -> None:
+        """Clamp an already-positioned window to the available screen."""
+        if widget is None:
+            return
+        screen_geom = self._available_screen_geometry()
+        if screen_geom is None:
+            return
+        try:
+            geom = widget.frameGeometry()
+            w = int(geom.width())
+            h = int(geom.height())
+            x = int(geom.x())
+            y = int(geom.y())
+        except Exception:
+            return
+        if w <= 0 or h <= 0:
+            return
+        x, y = self._clamp_window_to_screen(x=x, y=y, w=w, h=h, screen_geom=screen_geom)
+        try:
+            widget.move(x, y)
+        except Exception:
+            pass
+
+    def _show_message_box(
+        self,
+        *,
+        title: str,
+        text: str,
+        icon,
+        informative: Optional[str] = None,
+        detailed: Optional[str] = None,
+        buttons=None,
+        default=None,
+    ):
+        box = QMessageBox(self)
+        try:
+            box.setIcon(icon)
+        except Exception:
+            pass
+        box.setWindowTitle(str(title or ""))
+        box.setText(str(text or ""))
+        if informative:
+            box.setInformativeText(str(informative))
+        if detailed:
+            box.setDetailedText(str(detailed))
+        if buttons is not None:
+            try:
+                box.setStandardButtons(buttons)
+            except Exception:
+                pass
+        if default is not None:
+            try:
+                box.setDefaultButton(default)
+            except Exception:
+                pass
+        self._position_window_top_right(box, y_offset=0, x_offset=0)
+        try:
+            return box.exec()
+        except Exception:
+            try:
+                return box.exec_()  # type: ignore[attr-defined]
+            except Exception:
+                return 0
+
+    def _show_info(self, title: str, text: str) -> None:
+        self._show_message_box(title=title, text=text, icon=QMessageBox.Icon.Information)
+
+    def _show_warning(self, title: str, text: str) -> None:
+        self._show_message_box(title=title, text=text, icon=QMessageBox.Icon.Warning)
+
+    def _show_error(self, title: str, text: str) -> None:
+        self._show_message_box(title=title, text=text, icon=QMessageBox.Icon.Critical)
+
+    def _ask_question(self, title: str, text: str, *, buttons, default) -> int:
+        return self._show_message_box(
+            title=title,
+            text=text,
+            icon=QMessageBox.Icon.Question,
+            buttons=buttons,
+            default=default,
+        )
     
     def load_providers(self):
         """Load available providers using ProviderManager."""
         try:
             # Clear and populate provider combo
             self.provider_combo.clear()
+            if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
+                try:
+                    gw = self.llm_manager.gateway_client()
+                    cached = self._gateway_cache_get("providers")
+                    if cached is None:
+                        res = gw.discovery_providers()
+                        items = res.get("items") if isinstance(res, dict) else []
+                        if isinstance(items, list):
+                            self._gateway_cache_set(
+                                "providers",
+                                {
+                                    "items": items,
+                                    "default_provider": res.get("default_provider") if isinstance(res, dict) else "",
+                                    "default_model": res.get("default_model") if isinstance(res, dict) else "",
+                                },
+                            )
+                    else:
+                        res = cached if isinstance(cached, dict) else {}
+                        items = res.get("items") if isinstance(res, dict) else []
+                    if not isinstance(items, list):
+                        items = []
+                    default_provider = str(res.get("default_provider") or "") if isinstance(res, dict) else ""
+                    default_model = str(res.get("default_model") or "") if isinstance(res, dict) else ""
+                    self._gateway_default_provider = default_provider
+                    self._gateway_default_model = default_model
 
-            if self.provider_manager:
+                    for it in items:
+                        if not isinstance(it, dict):
+                            continue
+                        name = str(it.get("name") or "").strip()
+                        if not name:
+                            continue
+                        display = str(it.get("display_name") or "").strip() or name
+                        self.provider_combo.addItem(display, name)
+
+                    pick = ""
+                    if default_provider and any(self.provider_combo.itemData(i) == default_provider for i in range(self.provider_combo.count())):
+                        pick = default_provider
+                    elif self.current_provider and any(self.provider_combo.itemData(i) == self.current_provider for i in range(self.provider_combo.count())):
+                        pick = self.current_provider
+                    elif self.provider_combo.count() > 0:
+                        pick = str(self.provider_combo.itemData(0) or "")
+
+                    if pick:
+                        for i in range(self.provider_combo.count()):
+                            if self.provider_combo.itemData(i) == pick:
+                                self.provider_combo.setCurrentIndex(i)
+                                self.current_provider = pick
+                                break
+
+                except Exception as e:
+                    warnings.warn(f"#FALLBACK: gateway provider discovery failed; using configured provider only ({e})")
+                    prov = str(self.current_provider or self._gateway_default_provider or "openai").strip()
+                    self.provider_combo.addItem(prov, prov)
+                    self.current_provider = prov
+
+            elif self.provider_manager:
                 # Use new ProviderManager
                 available_providers = self.provider_manager.get_available_providers(exclude_mock=True)
 
@@ -2623,18 +3154,197 @@ class QtChatBubble(QWidget):
 
             # Final fallback
             if self.provider_combo.count() == 0:
-                self.provider_combo.addItem("LMStudio (Local)", "lmstudio")
-                self.current_provider = "lmstudio"
+                prov = "lmstudio" if not self.use_gateway else "openai"
+                self.provider_combo.addItem(prov, prov)
+                self.current_provider = prov
                 if self.debug:
                     if self.debug:
                         print("🔄 Using fallback provider list")
     
+    def _gateway_selection_store(self, session_id: Optional[str] = None):
+        if not self.llm_manager or not hasattr(self.llm_manager, "gateway_selection_store"):
+            return None
+        try:
+            return self.llm_manager.gateway_selection_store(session_id=session_id)
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to access gateway selection store: {e}")
+            return None
+
+    def _load_gateway_selection(self, session_id: Optional[str] = None) -> Optional[GatewaySelection]:
+        store = self._gateway_selection_store(session_id=session_id)
+        if store is None:
+            return None
+        try:
+            return store.load()
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to load gateway selection: {e}")
+            return None
+
+    def _save_gateway_selection(self, *, bundle_id: str, flow_id: str, session_id: Optional[str] = None) -> None:
+        store = self._gateway_selection_store(session_id=session_id)
+        if store is None:
+            return
+        try:
+            store.save(GatewaySelection(bundle_id=str(bundle_id or ""), flow_id=str(flow_id or "")))
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to save gateway selection: {e}")
+
+    def load_workflows(self, *, session_id: Optional[str] = None) -> None:
+        """Load gateway workflows (abstractcode.agent.v1 entrypoints)."""
+        combo = getattr(self, "workflow_combo", None)
+        if combo is None or not self.use_gateway:
+            return
+
+        self._loading_workflows = True
+        try:
+            combo.clear()
+            entrypoints: List[Dict[str, Any]] = []
+            try:
+                gw = self.llm_manager.gateway_client() if self.llm_manager else None
+                if gw is None:
+                    raise RuntimeError("gateway client unavailable")
+                cached = self._gateway_cache_get("workflows")
+                if cached is None:
+                    res = gw.list_bundles()
+                    entrypoints = list_agent_entrypoints(bundles_response=res)
+                    self._gateway_cache_set("workflows", entrypoints)
+                else:
+                    entrypoints = cached if isinstance(cached, list) else []
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: gateway bundle discovery failed; using configured workflow only ({e})")
+                entrypoints = []
+
+            if not entrypoints:
+                bundle_id = str(self.gateway_bundle_id or "").strip()
+                flow_id = str(self.gateway_flow_id or "").strip()
+                if bundle_id or flow_id:
+                    label = f"{bundle_id}:{flow_id}".strip(":")
+                    combo.addItem(label or "workflow", {"bundle_id": bundle_id, "flow_id": flow_id, "name": label})
+                    combo.setCurrentIndex(0)
+                self._loading_workflows = False
+                return
+
+            for ep in entrypoints:
+                if not isinstance(ep, dict):
+                    continue
+                bundle_id = str(ep.get("bundle_id") or "").strip()
+                flow_id = str(ep.get("flow_id") or "").strip()
+                if not bundle_id or not flow_id:
+                    continue
+                name = str(ep.get("name") or "").strip()
+                label = name or f"{bundle_id}:{flow_id}"
+                combo.addItem(label, {"bundle_id": bundle_id, "flow_id": flow_id, "name": label})
+
+            selection = self._load_gateway_selection(session_id=session_id)
+            preferred_bundle = str(selection.bundle_id) if selection else str(self.gateway_bundle_id or "")
+            preferred_flow = str(selection.flow_id) if selection else str(self.gateway_flow_id or "")
+
+            def _find_index(bundle_id: str, flow_id: str) -> Optional[int]:
+                try:
+                    n = int(combo.count())
+                except Exception:
+                    n = 0
+                for i in range(max(0, n)):
+                    data = combo.itemData(i)
+                    if not isinstance(data, dict):
+                        continue
+                    if str(data.get("bundle_id") or "") == bundle_id and str(data.get("flow_id") or "") == flow_id:
+                        return i
+                return None
+
+            idx = _find_index(preferred_bundle, preferred_flow) if preferred_bundle or preferred_flow else None
+            if idx is None and preferred_bundle:
+                for i in range(combo.count()):
+                    data = combo.itemData(i)
+                    if isinstance(data, dict) and str(data.get("bundle_id") or "") == preferred_bundle:
+                        idx = i
+                        warnings.warn("#FALLBACK: gateway flow_id missing; using first entrypoint in bundle")
+                        break
+            if idx is None and combo.count() > 0:
+                idx = 0
+                warnings.warn("#FALLBACK: gateway workflow missing; using first entrypoint")
+
+            if idx is not None:
+                combo.setCurrentIndex(int(idx))
+                data = combo.itemData(int(idx))
+                if isinstance(data, dict):
+                    self.gateway_bundle_id = str(data.get("bundle_id") or "").strip()
+                    self.gateway_flow_id = str(data.get("flow_id") or "").strip()
+                    self._save_gateway_selection(
+                        bundle_id=self.gateway_bundle_id,
+                        flow_id=self.gateway_flow_id,
+                        session_id=session_id,
+                    )
+        finally:
+            self._loading_workflows = False
+
+    def _on_workflow_changed(self, index: int) -> None:
+        if self._loading_workflows:
+            return
+        combo = getattr(self, "workflow_combo", None)
+        if combo is None:
+            return
+        try:
+            data = combo.itemData(int(index))
+        except Exception:
+            data = None
+        if not isinstance(data, dict):
+            return
+        bundle_id = str(data.get("bundle_id") or "").strip()
+        flow_id = str(data.get("flow_id") or "").strip()
+        if not bundle_id and not flow_id:
+            return
+        self.gateway_bundle_id = bundle_id
+        self.gateway_flow_id = flow_id
+        self._save_gateway_selection(bundle_id=bundle_id, flow_id=flow_id, session_id=self._active_session_id())
+
     def update_models(self):
         """Update model dropdown using ProviderManager."""
         try:
             self.model_combo.clear()
 
-            if self.provider_manager:
+            if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
+                try:
+                    gw = self.llm_manager.gateway_client()
+                    cache_key = f"models:{str(self.current_provider or '').strip()}"
+                    cached = self._gateway_cache_get(cache_key)
+                    if cached is None:
+                        res = gw.discovery_provider_models(provider_name=self.current_provider)
+                        models = res.get("models") if isinstance(res, dict) else []
+                        if isinstance(models, list):
+                            self._gateway_cache_set(cache_key, models)
+                    else:
+                        models = cached
+                    if not isinstance(models, list):
+                        models = []
+
+                    if not models and self._gateway_default_model:
+                        warnings.warn("#FALLBACK: gateway returned no models; using gateway default model")
+                        models = [self._gateway_default_model]
+
+                    for model in models:
+                        display_name = str(model)
+                        if len(display_name) > 55:
+                            display_name = display_name[:52] + "..."
+                        self.model_combo.addItem(display_name, model)
+
+                    preferred_model = self._gateway_default_model or self.current_model
+                    if preferred_model:
+                        for i in range(self.model_combo.count()):
+                            if self.model_combo.itemData(i) == preferred_model:
+                                self.model_combo.setCurrentIndex(i)
+                                self.current_model = preferred_model
+                                break
+                    elif self.model_combo.count() > 0:
+                        self.current_model = self.model_combo.itemData(0)
+                        self.model_combo.setCurrentIndex(0)
+                except Exception as e:
+                    warnings.warn(f"#FALLBACK: gateway model discovery failed; using configured model only ({e})")
+                    model = str(self.current_model or self._gateway_default_model or "gpt-5-mini").strip()
+                    self.model_combo.addItem(model, model)
+                    self.current_model = model
+
+            elif self.provider_manager:
                 # Use ProviderManager with 3-tier fallback strategy
                 models = self.provider_manager.get_models_for_provider(self.current_provider)
 
@@ -2697,8 +3407,9 @@ class QtChatBubble(QWidget):
 
             # Final fallback: add default model
             if self.model_combo.count() == 0:
-                self.model_combo.addItem("Default Model", "default-model")
-                self.current_model = "default-model"
+                fallback = "default-model" if not self.use_gateway else "gpt-5-mini"
+                self.model_combo.addItem(fallback, fallback)
+                self.current_model = fallback
                 self.model_combo.setCurrentIndex(0)
                 if self.debug:
                     if self.debug:
@@ -2709,28 +3420,48 @@ class QtChatBubble(QWidget):
         max_tokens = None
         source = None
 
-        # Preferred: AbstractCore model capabilities (model_capabilities.json).
-        try:
-            from abstractcore.architectures.detection import get_model_capabilities
-
-            caps = get_model_capabilities(str(self.current_model or ""))
-            mt = caps.get("max_tokens") if isinstance(caps, dict) else None
-            if isinstance(mt, int) and mt > 0:
-                max_tokens = int(mt)
-                source = "abstractcore:model_capabilities"
-        except Exception:
-            max_tokens = None
-
-        # Fallback: provider instance (best-effort; may be lazy/unavailable).
-        if max_tokens is None:
+        if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
             try:
-                llm = getattr(self.llm_manager, "llm", None)
-                mt = getattr(llm, "max_tokens", None)
+                gw = self.llm_manager.gateway_client()
+                cache_key = f"caps:{str(self.current_model or '').strip()}"
+                cached = self._gateway_cache_get(cache_key)
+                if cached is None:
+                    res = gw.discovery_model_capabilities(model_name=str(self.current_model or ""))
+                    caps = res.get("capabilities") if isinstance(res, dict) else {}
+                    if isinstance(caps, dict):
+                        self._gateway_cache_set(cache_key, caps)
+                else:
+                    caps = cached
+                mt = caps.get("max_tokens") if isinstance(caps, dict) else None
                 if isinstance(mt, int) and mt > 0:
                     max_tokens = int(mt)
-                    source = "provider"
+                    source = "gateway:model_capabilities"
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: gateway model capabilities unavailable; using defaults ({e})")
+                max_tokens = None
+        else:
+            # Preferred: AbstractCore model capabilities (model_capabilities.json).
+            try:
+                from abstractcore.architectures.detection import get_model_capabilities
+
+                caps = get_model_capabilities(str(self.current_model or ""))
+                mt = caps.get("max_tokens") if isinstance(caps, dict) else None
+                if isinstance(mt, int) and mt > 0:
+                    max_tokens = int(mt)
+                    source = "abstractcore:model_capabilities"
             except Exception:
                 max_tokens = None
+
+            # Fallback: provider instance (best-effort; may be lazy/unavailable).
+            if max_tokens is None:
+                try:
+                    llm = getattr(self.llm_manager, "llm", None)
+                    mt = getattr(llm, "max_tokens", None)
+                    if isinstance(mt, int) and mt > 0:
+                        max_tokens = int(mt)
+                        source = "provider"
+                except Exception:
+                    max_tokens = None
 
         # Final fallback: keep UI stable even for unknown models.
         if max_tokens is None:
@@ -2808,8 +3539,107 @@ class QtChatBubble(QWidget):
         tool_infos: List[Dict[str, str]] = []
         safe: set[str] = set()
         require: set[str] = set()
+        self._tool_inventory_note = ""
 
-        if host is not None:
+        if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
+            try:
+                try:
+                    from abstractruntime.integrations.abstractcore.tool_executor import ToolApprovalPolicy as RuntimeToolPolicy
+
+                    policy = RuntimeToolPolicy()
+                    safe = set(getattr(policy, "auto_approve_tools", set()) or set())
+                    require = set(getattr(policy, "require_approval_tools", set()) or set())
+                except Exception as e:
+                    try:
+                        from ..core.tool_policy import ToolApprovalPolicy as LocalToolPolicy
+
+                        policy = LocalToolPolicy()
+                        safe = set(getattr(policy, "auto_approve_tools", set()) or set())
+                        require = set(getattr(policy, "require_approval_tools", set()) or set())
+                        warnings.warn("#FALLBACK: runtime tool defaults unavailable; using local policy")
+                    except Exception as e2:
+                        warnings.warn(f"#FALLBACK: tool approval defaults unavailable; using ask for all ({e}; {e2})")
+                        safe = set()
+                        require = set()
+
+                gw = self.llm_manager.gateway_client()
+                cached = self._gateway_cache_get("tools")
+                tool_mode = ""
+                if cached is None:
+                    res = gw.discovery_tools()
+                    items = res.get("items") if isinstance(res, dict) else []
+                    if isinstance(items, list):
+                        self._gateway_cache_set("tools", items)
+                    try:
+                        tool_mode = str((res or {}).get("tool_mode") or "").strip().lower()
+                        if tool_mode:
+                            self._gateway_cache_set("tool_mode", tool_mode)
+                    except Exception:
+                        tool_mode = ""
+                else:
+                    items = cached
+                    try:
+                        tool_mode = str(self._gateway_cache_get("tool_mode") or "").strip().lower()
+                    except Exception:
+                        tool_mode = ""
+                if not isinstance(items, list):
+                    items = []
+                if not items:
+                    try:
+                        from abstractruntime.integrations.abstractcore.default_tools import list_default_tool_specs
+
+                        specs = list_default_tool_specs()
+                        if isinstance(specs, list):
+                            items = specs
+                        self._tool_inventory_note = "#FALLBACK: gateway tools unavailable; using local defaults"
+                        warnings.warn(self._tool_inventory_note)
+                    except Exception as e:
+                        warnings.warn(f"#FALLBACK: gateway tool fallback failed; tools unavailable ({e})")
+                        items = []
+                if not tool_mode:
+                    self._tool_mode_note = "#FALLBACK: gateway tool mode not reported"
+                    warnings.warn(self._tool_mode_note)
+                else:
+                    self._tool_mode_note = ""
+                self._gateway_tool_mode = tool_mode
+                for it in items:
+                    if not isinstance(it, dict):
+                        continue
+                    name = str(it.get("name") or "").strip()
+                    if not name:
+                        continue
+                    desc = str(it.get("description") or "").strip()
+                    toolset = str(it.get("toolset") or it.get("toolset_id") or it.get("toolsetId") or "").strip()
+                    when = str(it.get("when_to_use") or it.get("whenToUse") or "").strip()
+                    tool_infos.append({"name": name, "description": desc, "toolset": toolset, "when_to_use": when})
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: gateway tool discovery failed; tools unavailable ({e})")
+                self._gateway_tool_mode = ""
+                self._tool_mode_note = "#FALLBACK: gateway tool mode not reported"
+                try:
+                    from abstractruntime.integrations.abstractcore.default_tools import list_default_tool_specs
+
+                    specs = list_default_tool_specs()
+                    if isinstance(specs, list):
+                        for it in specs:
+                            if not isinstance(it, dict):
+                                continue
+                            name = str(it.get("name") or "").strip()
+                            if not name:
+                                continue
+                            desc = str(it.get("description") or "").strip()
+                            toolset = str(it.get("toolset") or it.get("toolset_id") or it.get("toolsetId") or "").strip()
+                            when = str(it.get("when_to_use") or it.get("whenToUse") or "").strip()
+                            tool_infos.append({"name": name, "description": desc, "toolset": toolset, "when_to_use": when})
+                        self._tool_inventory_note = "#FALLBACK: gateway discovery failed; using local defaults"
+                        warnings.warn(self._tool_inventory_note)
+                except Exception as e2:
+                    warnings.warn(f"#FALLBACK: gateway tool fallback failed; tools unavailable ({e2})")
+                    tool_infos = []
+
+        elif host is not None:
+            self._gateway_tool_mode = ""
+            self._tool_mode_note = ""
             try:
                 policy = getattr(host, "tool_policy", None)
                 safe = set(getattr(policy, "auto_approve_tools", set()) or set())
@@ -2829,7 +3659,14 @@ class QtChatBubble(QWidget):
                         desc = str(getattr(td, "description", "") or "") if td is not None else ""
                     except Exception:
                         desc = ""
-                    tool_infos.append({"name": name.strip(), "description": desc.strip()})
+                    tool_infos.append(
+                        {
+                            "name": name.strip(),
+                            "description": desc.strip(),
+                            "toolset": "",
+                            "when_to_use": "",
+                        }
+                    )
             except Exception:
                 tool_infos = []
 
@@ -2838,6 +3675,40 @@ class QtChatBubble(QWidget):
 
         safe = set(safe) & set(available_names)
         require = set(require) & set(available_names)
+
+        def _infer_policy_from_tools() -> tuple[set[str], set[str]]:
+            inferred_safe: set[str] = set()
+            inferred_require: set[str] = set()
+            for info in tool_infos:
+                if not isinstance(info, dict):
+                    continue
+                name = str(info.get("name") or "").strip()
+                if not name:
+                    continue
+                toolset = str(info.get("toolset") or info.get("toolset_id") or info.get("toolsetId") or "").strip().lower()
+                lname = name.lower()
+                if toolset == "system" or lname in {"execute_command", "execute_python"}:
+                    inferred_require.add(name)
+                    continue
+                if toolset == "files" and any(k in lname for k in ("write", "edit", "delete", "remove", "move", "rename")):
+                    inferred_require.add(name)
+                    continue
+                inferred_safe.add(name)
+            inferred_safe -= inferred_require
+            return inferred_safe, inferred_require
+
+        if not safe and not require and available_names:
+            try:
+                from ..core.tool_policy import ToolApprovalPolicy as LocalToolPolicy
+
+                policy = LocalToolPolicy()
+                safe = set(getattr(policy, "auto_approve_tools", set()) or set()) & set(available_names)
+                require = set(getattr(policy, "require_approval_tools", set()) or set()) & set(available_names)
+                warnings.warn("#FALLBACK: gateway tool policy defaults missing; using local policy")
+            except Exception as e:
+                safe, require = _infer_policy_from_tools()
+                warnings.warn(f"#FALLBACK: tool policy inference used; local policy unavailable ({e})")
+            safe -= require
 
         def _sort_key(info: Dict[str, str]) -> tuple[int, str]:
             name = str(info.get("name") or "")
@@ -2851,6 +3722,14 @@ class QtChatBubble(QWidget):
         self._safe_external_tools = set(safe)
         self._require_approval_tools = set(require)
 
+        if not self._session_auto_approve_tools and not self._session_force_ask_tools:
+            self._session_auto_approve_tools = set(self._safe_external_tools)
+            self._session_auto_approve_tools -= set(self._require_approval_tools)
+            try:
+                self._save_tool_prefs_for_session()
+            except Exception:
+                pass
+
         if not self._enabled_external_tools and not getattr(self, "_enabled_external_tools_user_set", False):
             self._enabled_external_tools = set(available_names)
         else:
@@ -2862,6 +3741,21 @@ class QtChatBubble(QWidget):
             self._session_force_ask_tools &= set(available_names)
             self._session_auto_approve_tools -= set(self._session_force_ask_tools)
             self._save_tool_prefs_for_session()
+        except Exception:
+            pass
+
+        try:
+            legacy_all_ask = (
+                self._safe_external_tools
+                and not self._session_auto_approve_tools
+                and self._session_force_ask_tools == set(available_names)
+            )
+            if legacy_all_ask:
+                self._session_force_ask_tools = set()
+                self._session_auto_approve_tools = set(self._safe_external_tools)
+                self._session_auto_approve_tools -= set(self._require_approval_tools)
+                warnings.warn("#FALLBACK: reset tool approvals from legacy all-ask state")
+                self._save_tool_prefs_for_session()
         except Exception:
             pass
 
@@ -2920,11 +3814,26 @@ class QtChatBubble(QWidget):
             }}
         """)
 
+    def _build_tool_policy(self) -> Optional[Dict[str, Any]]:
+        """Build per-run tool approval preferences for gateway runs."""
+        auto = set(self._session_auto_approve_tools or set())
+        require = set(self._session_force_ask_tools or set())
+        auto |= set(self._safe_external_tools or set())
+        require |= set(self._require_approval_tools or set())
+        require -= set(self._session_auto_approve_tools or set())
+        auto -= require
+        if not auto and not require:
+            return None
+        return {
+            "auto_approve_tools": sorted(auto),
+            "require_approval_tools": sorted(require),
+        }
+
     def open_tool_selector(self) -> None:
         """Open the tool selector dialog (controls per-run tool allowlist)."""
         self._refresh_tool_inventory()
         if not self._available_external_tools:
-            QMessageBox.information(self, "Tools", "No tools are available in this configuration.")
+            self._show_info("Tools", "No tools are available in this configuration.")
             return
 
         dlg = ToolSelectorDialog(
@@ -2933,9 +3842,13 @@ class QtChatBubble(QWidget):
             enabled=set(self._enabled_external_tools),
             safe_preset=set(self._safe_external_tools),
             require_approval=set(self._require_approval_tools),
+            tool_mode=str(getattr(self, "_gateway_tool_mode", "") or "").strip(),
+            tool_mode_note=str(getattr(self, "_tool_mode_note", "") or "").strip() or None,
             session_auto_approve=set(self._session_auto_approve_tools),
             session_force_ask=set(self._session_force_ask_tools),
+            note=str(getattr(self, "_tool_inventory_note", "") or "").strip() or None,
         )
+        self._position_window_top_right(dlg, y_offset=0, x_offset=0)
         result = dlg.exec()
         accepted_code = getattr(QDialog, "Accepted", 1)
         if result != accepted_code:
@@ -2988,6 +3901,7 @@ class QtChatBubble(QWidget):
             "All files (*.*)"
         )
 
+        self._position_window_top_right(file_dialog, y_offset=0, x_offset=0)
         if file_dialog.exec():
             selected_files = file_dialog.selectedFiles()
             for file_path in selected_files:
@@ -3162,25 +4076,18 @@ class QtChatBubble(QWidget):
         self.send_button.setEnabled(False)
         self.send_button.setText("⏳")
         self._set_session_controls_enabled(False)
-        self.status_label.setText("generating")
-        self.status_label.setObjectName("status_generating")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                background: rgba(250, 179, 135, 0.2);
-                border: 1px solid rgba(250, 179, 135, 0.3);
-                border-radius: 12px;
-                padding: 4px 12px;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                color: #fab387;
-            }
-        """)
-
-        # Notify main app about status change (for icon animation)
-        if self.status_callback:
-            self.status_callback("generating")
+        try:
+            self._run_state.start_run()
+        except Exception:
+            pass
+        try:
+            rid = str(run_id or "").strip()
+            suffix = rid[-6:] if len(rid) > 6 else rid
+            label = f"Running (reattached {suffix})" if suffix else "Running (reattached)"
+            self._set_run_activity(label, override=True)
+        except Exception:
+            pass
+        self._begin_turn()
 
         if self.debug:
             print("🔄 QtChatBubble: UI updated, creating worker thread...")
@@ -3194,50 +4101,223 @@ class QtChatBubble(QWidget):
                 "- Avoid markdown and heavy formatting.\n"
             )
 
-        host = getattr(self.llm_manager, "agent_host", None)
-        if host is not None:
-            self.worker = AgentWorker(
-                agent_host=host,
+        if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
+            tool_policy = self._build_tool_policy()
+            self.worker = GatewayWorker(
+                llm_manager=self.llm_manager,
                 user_text=message,
                 provider=self.current_provider,
                 model=self.current_model,
                 attachments=media_files if media_files else None,
                 system_prompt_extra=system_prompt_extra,
                 allowed_tools=sorted(self._enabled_external_tools),
+                tool_policy=tool_policy,
+                bundle_id=self.gateway_bundle_id,
+                flow_id=self.gateway_flow_id,
                 debug=bool(self.debug),
             )
             self.worker.event_emitted.connect(self.on_agent_event)
             self.worker.error_occurred.connect(self.on_error_occurred)
         else:
-            self.worker = LLMWorker(
-                self.llm_manager,
-                message,
-                self.current_provider,
-                self.current_model,
-                media=media_files if media_files else None,
-                debug=bool(self.debug),
-            )
-            self.worker.response_ready.connect(self.on_response_ready)
-            self.worker.error_occurred.connect(self.on_error_occurred)
+            host = getattr(self.llm_manager, "agent_host", None)
+            if host is not None:
+                self.worker = AgentWorker(
+                    agent_host=host,
+                    user_text=message,
+                    provider=self.current_provider,
+                    model=self.current_model,
+                    attachments=media_files if media_files else None,
+                    system_prompt_extra=system_prompt_extra,
+                    allowed_tools=sorted(self._enabled_external_tools),
+                    debug=bool(self.debug),
+                )
+                self.worker.event_emitted.connect(self.on_agent_event)
+                self.worker.error_occurred.connect(self.on_error_occurred)
+            else:
+                self.worker = LLMWorker(
+                    self.llm_manager,
+                    message,
+                    self.current_provider,
+                    self.current_model,
+                    media=media_files if media_files else None,
+                    debug=bool(self.debug),
+                )
+                self.worker.response_ready.connect(self.on_response_ready)
+                self.worker.error_occurred.connect(self.on_error_occurred)
 
         if self.debug:
             print("🔄 QtChatBubble: Starting worker thread...")
         self.worker.start()
 
         if self.debug:
-            print("🔄 QtChatBubble: Worker thread started, hiding bubble...")
-        # Hide bubble after sending (like the original design), except in voice mode
-        # where the bubble is a persistent control surface.
+            print("🔄 QtChatBubble: Worker thread started")
+
+        # Hide the bubble after sending so the user is not blocked.
+        # Voice mode keeps the bubble visible as a control surface.
         if not self._is_voice_mode_active():
-            QTimer.singleShot(500, self.hide)
+            self.hide()
+
+    def _start_gateway_attach(self, *, run_id: str) -> None:
+        if not run_id or not self.use_gateway:
+            return
+        if self.worker and hasattr(self.worker, "isRunning") and self.worker.isRunning():
+            return
+        self.send_button.setEnabled(False)
+        self.send_button.setText("⏳")
+        self._set_session_controls_enabled(False)
+        try:
+            self._run_state.start_run()
+        except Exception:
+            pass
+        self._begin_turn()
+
+        if self.debug:
+            print(f"🔁 Reattaching to gateway run: {run_id}")
+
+        self.worker = GatewayWorker(
+            llm_manager=self.llm_manager,
+            user_text="",
+            provider=self.current_provider,
+            model=self.current_model,
+            attachments=None,
+            system_prompt_extra=None,
+            allowed_tools=sorted(self._enabled_external_tools),
+            bundle_id=self.gateway_bundle_id,
+            flow_id=self.gateway_flow_id,
+            attach_run_id=run_id,
+            debug=bool(self.debug),
+        )
+        self.worker.event_emitted.connect(self.on_agent_event)
+        self.worker.error_occurred.connect(self.on_error_occurred)
+        self.worker.start()
+
+    def _maybe_reattach_gateway_run(self) -> None:
+        if self._reattach_attempted:
+            return
+        self._reattach_attempted = True
+        if not self.use_gateway or self.llm_manager is None:
+            return
+        if self._is_run_in_progress():
+            return
+        try:
+            gateway = self.llm_manager.gateway_client()
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: gateway client unavailable for reattach: {e}")
+            return
+        if gateway is None:
+            return
+
+        run_id = str(self.llm_manager.get_last_run_id() or "").strip()
+        session_id = str(getattr(self.llm_manager, "active_session_id", "") or "").strip()
+        if not run_id and session_id:
+            try:
+                runs = gateway.list_runs(limit=5, session_id=session_id, root_only=True)
+                items = runs.get("items") if isinstance(runs, dict) else None
+                if isinstance(items, list) and items:
+                    active = [r for r in items if str(r.get("status") or "").lower() in {"running", "waiting"}]
+                    chosen = active[0] if active else items[0]
+                    run_id = str(chosen.get("run_id") or "").strip()
+                    if run_id:
+                        warnings.warn("#FALLBACK: last_run_id missing; using latest gateway run for reattach")
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: failed to list runs for reattach: {e}")
+                return
+
+        if not run_id:
+            return
+
+        try:
+            info = gateway.get_run(run_id)
+            status = str(info.get("status") or "").strip().lower() if isinstance(info, dict) else ""
+            updated_at = info.get("updated_at") if isinstance(info, dict) else None
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to fetch run status for reattach: {e}")
+            return
+
+        if status in {"running", "executing"}:
+            updated_ts = None
+            try:
+                if isinstance(updated_at, (int, float)):
+                    updated_ts = float(updated_at)
+                elif isinstance(updated_at, str):
+                    raw = updated_at.strip()
+                    if raw.endswith("Z"):
+                        raw = raw[:-1] + "+00:00"
+                    try:
+                        updated_ts = datetime.fromisoformat(raw).timestamp()
+                    except Exception:
+                        try:
+                            updated_ts = float(raw)
+                        except Exception:
+                            updated_ts = None
+            except Exception:
+                updated_ts = None
+            if updated_ts is not None and (time.time() - updated_ts) > 600:
+                warnings.warn("#FALLBACK: gateway run appears stale (>10m no updates); skipping reattach")
+                try:
+                    if self.llm_manager is not None:
+                        self.llm_manager.set_last_run_id("")
+                except Exception:
+                    pass
+                return
+
+        if status not in {"running", "waiting"}:
+            return
+
+        self._start_gateway_attach(run_id=run_id)
+
+    def _reconnect_gateway(self) -> None:
+        if not self.use_gateway:
+            return
+        try:
+            self._run_state.mark_status("reconnecting")
+        except Exception:
+            pass
+        try:
+            self._gateway_cache = {}
+            self.load_providers()
+            self.update_models()
+            self.update_token_limits()
+            self.load_workflows(session_id=self._active_session_id())
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: gateway reconnect refresh failed: {e}")
+        try:
+            self._maybe_reattach_gateway_run()
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: gateway reconnect reattach failed: {e}")
+        try:
+            if not self._is_run_in_progress():
+                self._run_state.reset_idle()
+        except Exception:
+            pass
 
     def _voice_underlying_manager(self):
         """Return the underlying AbstractVoice manager (when available)."""
         vm = getattr(self, "voice_manager", None)
         if vm is None:
             return None
+        if isinstance(vm, GatewayVoiceManager):
+            return None
         underlying = getattr(vm, "_abstractvoice_manager", None)
         return underlying if underlying is not None else vm
+
+    def _attach_voice_meter(self) -> None:
+        """Attach audio meter callback to the active voice manager."""
+        vm = getattr(self, "voice_manager", None)
+        if vm is None:
+            return
+        setter = getattr(vm, "set_audio_meter_callback", None)
+        if callable(setter):
+            setter(self._handle_voice_meter)
+
+    def _handle_voice_meter(self, level) -> None:
+        cb = getattr(self, "_voice_meter_callback", None)
+        if cb is None:
+            return
+        try:
+            cb(level)
+        except Exception:
+            pass
 
     def _voice_recognizer(self):
         """Best-effort access to the active microphone recognizer."""
@@ -3291,7 +4371,7 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
         try:
-            QMessageBox.critical(self, str(title or "Voice error"), str(message or "Voice mode failed."))
+            self._show_error(str(title or "Voice error"), str(message or "Voice mode failed."))
         except Exception:
             pass
 
@@ -3357,6 +4437,16 @@ class QtChatBubble(QWidget):
     @pyqtSlot(object)
     def on_agent_event(self, event):
         """Handle AgentHost events emitted by AgentWorker."""
+        try:
+            self._on_agent_event_inner(event)
+        except Exception as e:
+            import traceback as _tb
+            sys.stderr.write(f"\n=== on_agent_event CRASH ===\n{_tb.format_exc()}\n")
+            sys.stderr.flush()
+            if self.debug:
+                print(f"❌ on_agent_event crash: {e}")
+
+    def _on_agent_event_inner(self, event):
         if not isinstance(event, dict):
             return
 
@@ -3364,6 +4454,46 @@ class QtChatBubble(QWidget):
         if typ == "status":
             status = str(event.get("status") or "")
             self._set_agent_status(status)
+            return
+
+        if typ == "history_seeded":
+            try:
+                self._update_message_history_from_session()
+                self._update_token_count_from_session()
+                self._rebuild_chat_display()
+            except Exception:
+                if self.debug:
+                    if self.debug:
+                        print("❌ Failed to rebuild UI after history seed")
+            return
+
+        if typ == "run_activity":
+            summary = str(event.get("summary") or "")
+            if summary:
+                self._set_run_activity(summary, override=True)
+                try:
+                    self._handle_run_state_change(self._run_state.state)
+                except Exception:
+                    pass
+            return
+
+        if typ == "tool":
+            try:
+                self._update_message_history_from_session()
+                self._update_token_count_from_session()
+                self._rebuild_chat_display()
+            except Exception:
+                if self.debug:
+                    if self.debug:
+                        print("❌ Failed to rebuild UI after tool result")
+            try:
+                msg = event.get("message") if isinstance(event, dict) else None
+                if isinstance(msg, dict):
+                    name = self._tool_name_from_message(msg)
+                    if name:
+                        self._set_run_activity(f"Tool executed: {name}", override=True)
+            except Exception:
+                pass
             return
 
         if typ == "tool_request":
@@ -3380,7 +4510,16 @@ class QtChatBubble(QWidget):
                     self.llm_manager.refresh()
             except Exception:
                 pass
-            self.on_response_ready(str(event.get("content") or ""))
+            content = str(event.get("content") or "")
+            if event.get("final", True) is False:
+                self._handle_intermediate_assistant(content)
+            else:
+                run_id = str(event.get("run_id") or "")
+                if not self._should_emit_final(content, run_id):
+                    self._finalize_response(content, allow_tts=False, emit_response=False)
+                else:
+                    self._mark_final_emitted(content, run_id)
+                    self._finalize_response(content, allow_tts=True, emit_response=True)
             return
 
         if typ == "error":
@@ -3388,34 +4527,130 @@ class QtChatBubble(QWidget):
             return
 
     def _set_agent_status(self, status: str) -> None:
-        st = str(status or "").strip().lower()
-        if st in {"thinking", "running"}:
-            self.status_label.setText("thinking")
-            if self.status_callback:
-                self.status_callback("thinking")
+        self._run_state.mark_status(status)
+
+    def _handle_run_state_change(self, state: str) -> None:
+        label_state = "ready" if state in {"idle", "completed"} else state
+        try:
+            self.update_status(label_state, force=True)
+        except Exception:
+            pass
+
+        try:
+            if state in {"idle", "completed"}:
+                self._last_run_activity = ""
+            elif state in {"running", "executing"}:
+                if not self._last_run_activity:
+                    self._last_run_activity = "Running"
+            elif state in {"waiting"}:
+                if not self._last_run_activity:
+                    self._last_run_activity = "Waiting for approval"
+            elif state in {"offline"}:
+                self._last_run_activity = "Gateway offline"
+        except Exception:
+            pass
+
+        if not self.status_callback:
             return
-        if st in {"executing_tools", "executing"}:
-            self.status_label.setText("executing")
-            if self.status_callback:
-                self.status_callback("executing")
+
+        icon_state = "ready"
+        if state in {"running", "waiting", "executing", "offline", "reconnecting"}:
+            icon_state = "thinking"
+        elif state == "speaking":
+            icon_state = "speaking"
+        elif state == "error":
+            icon_state = "ready"
+        self.status_callback(icon_state)
+
+    def _set_run_activity(self, text: str, *, override: bool = True) -> None:
+        try:
+            msg = str(text or "").strip()
+        except Exception:
+            msg = ""
+        if not msg:
             return
-        if st in {"ready", "completed"}:
-            self.status_label.setText("ready")
-            if self.status_callback:
-                self.status_callback("ready")
-            return
+        if override or not self._last_run_activity:
+            self._last_run_activity = msg
+
+    def get_run_activity_summary(self) -> str:
+        try:
+            return str(self._last_run_activity or "").strip()
+        except Exception:
+            return ""
+
+    def is_run_active(self) -> bool:
+        try:
+            return bool(self._run_state.is_run_active())
+        except Exception:
+            return False
+
+    def _handle_missing_final_output(self) -> None:
+        fallback = "#FALLBACK: Run completed without assistant output."
+        try:
+            if self.llm_manager:
+                self.llm_manager.append_message(
+                    role="assistant",
+                    content=fallback,
+                    metadata={"kind": "fallback_completion"},
+                )
+        except Exception:
+            pass
+        try:
+            self._update_message_history_from_session()
+            self._update_token_count_from_session()
+            self._rebuild_chat_display()
+        except Exception:
+            pass
+        try:
+            self.on_response_ready(fallback)
+        except Exception:
+            self._show_history_if_voice_mode_off()
+
+    def _handle_intermediate_assistant(self, content: str) -> None:
+        """Render a non-final assistant message without ending the run."""
+        try:
+            self._run_state.mark_intermediate_output()
+        except Exception:
+            pass
+        try:
+            if hasattr(self.llm_manager, "refresh"):
+                self.llm_manager.refresh()
+        except Exception:
+            pass
+        try:
+            self._update_message_history_from_session()
+            self._update_token_count_from_session()
+            self._rebuild_chat_display()
+        except Exception:
+            if self.debug:
+                if self.debug:
+                    print("❌ Failed to refresh intermediate assistant message")
 
     def _handle_tool_request(self, event: Dict) -> None:
         """Prompt user for tool approval when required."""
+        try:
+            self._handle_tool_request_inner(event)
+        except Exception as e:
+            import traceback as _tb
+            sys.stderr.write(f"\n=== _handle_tool_request CRASH ===\n{_tb.format_exc()}\n")
+            sys.stderr.flush()
+            if hasattr(self, "worker") and self.worker and hasattr(self.worker, "provide_tool_approval"):
+                self.worker.provide_tool_approval(False)
+
+    def _handle_tool_request_inner(self, event: Dict) -> None:
         tool_calls = event.get("tool_calls")
         if not isinstance(tool_calls, list):
             tool_calls = []
+        try:
+            self._run_state.mark_waiting()
+        except Exception:
+            pass
 
         host = getattr(self.llm_manager, "agent_host", None)
         requires = True
         policy = None
         try:
-            if host is not None:
+            if host is not None and not self.use_gateway:
                 policy = getattr(host, "tool_policy", None)
                 requires = bool(policy.requires_approval(tool_calls))
         except Exception:
@@ -3452,44 +4687,155 @@ class QtChatBubble(QWidget):
         if not requires:
             if self.debug:
                 print("✅ Auto-approving safe tool batch (no prompt).")
-            if self.status_callback:
-                self.status_callback("executing")
-            if isinstance(self.worker, AgentWorker):
+            try:
+                if tool_names:
+                    self._set_run_activity(f"Executing tools: {', '.join(tool_names)}", override=True)
+                else:
+                    self._set_run_activity("Executing tools", override=True)
+            except Exception:
+                pass
+            try:
+                self._run_state.mark_executing()
+            except Exception:
+                pass
+            if hasattr(self.worker, "provide_tool_approval"):
                 self.worker.provide_tool_approval(True)
             return
 
-        # Bring UI forward for interactive approvals.
         try:
-            self.show()
-            self.raise_()
-            self.activateWindow()
+            self._run_state.mark_waiting()
         except Exception:
             pass
 
-        self.status_label.setText("approve")
-        if self.status_callback:
-            self.status_callback("thinking")
-
         # Format tool calls for display.
-        lines: List[str] = []
+        def _format_value(val: Any) -> str:
+            if val is None:
+                return "null"
+            if isinstance(val, bool):
+                return "true" if val else "false"
+            if isinstance(val, (int, float)):
+                return str(val)
+            if isinstance(val, str):
+                s = val.strip()
+                if not s:
+                    return '""'
+                if len(s) <= 180:
+                    return s
+                return f"{len(s)} chars"
+            if isinstance(val, (list, tuple, set)):
+                items = list(val)
+                if len(items) <= 4 and all(not isinstance(v, (dict, list, tuple, set)) for v in items):
+                    return "[" + ", ".join(_format_value(v) for v in items) + "]"
+                return f"list({len(items)})"
+            if isinstance(val, dict):
+                if len(val) <= 4 and all(not isinstance(v, (dict, list, tuple, set)) for v in val.values()):
+                    parts = [f"{k}={_format_value(v)}" for k, v in val.items()]
+                    return "{" + ", ".join(parts) + "}"
+                return f"dict({len(val)})"
+            return str(val)
+
+        def _pick_key_args(name: str, args: Dict[str, Any]) -> List[tuple[str, Any]]:
+            lname = name.lower()
+            prefer: List[str] = []
+            if lname in {"write_file", "edit_file"}:
+                prefer = ["file_path", "path", "target_path", "start_line", "end_line", "content", "text"]
+            elif lname in {"read_file", "list_files", "skim_files", "skim_folders"}:
+                prefer = ["file_path", "path", "start_line", "end_line", "max_chars", "pattern"]
+            elif "search" in lname:
+                prefer = ["query", "pattern", "path"]
+            elif lname in {"fetch_url", "skim_url"}:
+                prefer = ["url", "max_chars"]
+            elif lname in {"web_search", "skim_websearch"}:
+                prefer = ["query", "max_chars"]
+            elif lname in {"execute_command"}:
+                prefer = ["command", "cmd", "args", "cwd"]
+            elif lname in {"open_attachment"}:
+                prefer = ["artifact_id", "handle", "start_line", "end_line", "max_chars"]
+            else:
+                prefer = ["path", "file_path", "url", "query", "command", "cmd", "id"]
+            picked: List[tuple[str, Any]] = []
+            for key in prefer:
+                if key in args:
+                    picked.append((key, args.get(key)))
+            if picked:
+                return picked
+            items = list(args.items())
+            return items[:3]
+
+        def _summarize_tool_call(tc: Dict[str, Any], *, fallback: str) -> str:
+            name = str(tc.get("name") or fallback).strip() or fallback
+            args = tc.get("arguments")
+            if isinstance(args, dict) and args:
+                pairs = _pick_key_args(name, args)
+                parts = []
+                for k, v in pairs:
+                    if k in {"content", "text"} and isinstance(v, str):
+                        parts.append(f"{k}={len(v)} chars")
+                    else:
+                        parts.append(f"{k}={_format_value(v)}")
+                return f"{name}({', '.join(parts)})" if parts else name
+            if args is None:
+                return name
+            return f"{name}({ _format_value(args) })"
+
+        def _format_tool_details(tc: Dict[str, Any], *, fallback: str) -> str:
+            name = str(tc.get("name") or fallback).strip() or fallback
+            args = tc.get("arguments")
+            call_id = str(tc.get("call_id") or "")
+            lines = [f"Tool: {name}"]
+            if call_id:
+                lines.append(f"Call id: {call_id}")
+            if isinstance(args, dict):
+                if args:
+                    lines.append("Arguments:")
+                    for key in sorted(args.keys()):
+                        val = args.get(key)
+                        if key in {"content", "text"} and isinstance(val, str):
+                            lines.append(f"  - {key}: {len(val)} chars")
+                        else:
+                            lines.append(f"  - {key}: {_format_value(val)}")
+                else:
+                    lines.append("Arguments: (none)")
+            elif args is None:
+                lines.append("Arguments: (none)")
+            else:
+                lines.append(f"Arguments: {_format_value(args)}")
+            return "\n".join(lines)
+
+        summaries: List[str] = []
+        detail_blocks: List[str] = []
         for i, tc in enumerate(tool_calls):
             if not isinstance(tc, dict):
                 continue
-            name = str(tc.get("name") or f"tool_{i}")
-            args = tc.get("arguments")
-            try:
-                args_txt = json.dumps(args, ensure_ascii=False, indent=2)
-            except Exception:
-                args_txt = str(args)
-            lines.append(f"{name}({args_txt})")
-        details = "\n\n".join(lines).strip()
-        if len(details) > 8000:
-            details = details[:8000] + "\n…(truncated)…"
+            fallback = f"tool_{i + 1}"
+            summaries.append(_summarize_tool_call(tc, fallback=fallback))
+            detail_blocks.append(_format_tool_details(tc, fallback=fallback))
 
-        box = QMessageBox(self)
+        summary_text = ", ".join(summaries)
+        if len(summaries) > 2:
+            summary_text = ", ".join(summaries[:2]) + f", and {len(summaries) - 2} more"
+
+        details = "\n\n".join(detail_blocks).strip()
+        if summary_text:
+            self._set_run_activity(f"Tool approval: {summary_text}", override=True)
+
+        parent = None
+        try:
+            active = QApplication.activeWindow()
+            if active is not None and active is not self:
+                parent = active
+            elif self.isVisible():
+                parent = self
+        except Exception:
+            parent = None
+
+        box = QMessageBox(parent)
         box.setWindowTitle("Tool approval required")
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setText("The assistant wants to run tools that may affect your system or workspace.")
+        if summary_text:
+            box.setText(f"Tool approval required: {summary_text}")
+        else:
+            box.setText("Tool approval required.")
         box.setInformativeText("Review the tool calls and approve or deny this batch.")
         box.setDetailedText(details)
 
@@ -3500,11 +4846,29 @@ class QtChatBubble(QWidget):
         deny_btn = box.addButton("Deny", QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(deny_btn)
 
+        try:
+            flag = getattr(Qt, "WindowStaysOnTopHint", None)
+            if flag is None and hasattr(Qt, "WindowType"):
+                flag = getattr(Qt.WindowType, "WindowStaysOnTopHint", None)
+            if flag is not None:
+                box.setWindowFlag(flag, True)
+        except Exception:
+            pass
+        try:
+            box.setWindowModality(Qt.ApplicationModal)
+        except Exception:
+            pass
+        self._position_window_top_right(box, y_offset=0, x_offset=0)
+        try:
+            box.raise_()
+            box.activateWindow()
+        except Exception:
+            pass
         box.exec()
         clicked = box.clickedButton()
         approved = clicked == approve_btn
 
-        if approved and allow_box.isChecked() and host is not None:
+        if approved and allow_box.isChecked():
             try:
                 for tc in tool_calls:
                     if not isinstance(tc, dict):
@@ -3521,12 +4885,41 @@ class QtChatBubble(QWidget):
             except Exception:
                 pass
 
-        if isinstance(self.worker, AgentWorker):
+        if approved:
+            try:
+                self._run_state.mark_executing()
+            except Exception:
+                pass
+        if hasattr(self.worker, "provide_tool_approval"):
             self.worker.provide_tool_approval(bool(approved))
 
     def _handle_ask_user(self, event: Dict) -> None:
         """Prompt user for input required by the run."""
+        try:
+            self._handle_ask_user_inner(event)
+        except Exception as e:
+            import traceback as _tb
+            sys.stderr.write(f"\n=== _handle_ask_user CRASH ===\n{_tb.format_exc()}\n")
+            sys.stderr.flush()
+            if hasattr(self, "worker") and self.worker and hasattr(self.worker, "provide_user_response"):
+                self.worker.provide_user_response("")
+
+    def _handle_ask_user_inner(self, event: Dict) -> None:
         prompt = str(event.get("prompt") or "Input required:")
+        try:
+            self._run_state.mark_waiting()
+        except Exception:
+            pass
+        try:
+            short_prompt = prompt.strip()
+            if len(short_prompt) > 140:
+                short_prompt = short_prompt[:140].rstrip() + "…"
+            if short_prompt:
+                self._set_run_activity(f"Waiting for input: {short_prompt}", override=True)
+            else:
+                self._set_run_activity("Waiting for input", override=True)
+        except Exception:
+            pass
 
         try:
             self.show()
@@ -3534,40 +4927,83 @@ class QtChatBubble(QWidget):
             self.activateWindow()
         except Exception:
             pass
-
-        text, ok = QInputDialog.getText(self, "Assistant needs input", prompt)
-        response = str(text) if ok else ""
-        if isinstance(self.worker, AgentWorker):
+        response = ""
+        try:
+            dlg = QInputDialog(self)
+            dlg.setWindowTitle("Assistant needs input")
+            dlg.setLabelText(prompt)
+            self._position_window_top_right(dlg, y_offset=0, x_offset=0)
+            accepted_code = getattr(QDialog, "Accepted", 1)
+            result = dlg.exec()
+            if result == accepted_code:
+                response = str(dlg.textValue() or "")
+        except Exception:
+            text, ok = QInputDialog.getText(self, "Assistant needs input", prompt)
+            response = str(text) if ok else ""
+        if hasattr(self.worker, "provide_user_response"):
             self.worker.provide_user_response(response)
     
     @pyqtSlot(str)
     def on_response_ready(self, response):
         """Handle LLM response."""
+        if not self._should_emit_final(response, ""):
+            self._finalize_response(response, allow_tts=False, emit_response=False)
+        else:
+            self._mark_final_emitted(response, "")
+            self._finalize_response(response, allow_tts=True, emit_response=True)
+
+    def _begin_turn(self) -> None:
+        """Start a new turn and reset final-output gating."""
+        self._turn_id += 1
+        self._final_emitted_turn_id = None
+        self._final_emitted_runs.clear()
+
+    def _should_emit_final(self, response: str, run_id: str) -> bool:
+        """Return True if this turn should emit a final response."""
+        text = str(response or "").strip()
+        if not text:
+            return False
+        if self._final_emitted_turn_id == self._turn_id:
+            return False
+        rid = str(run_id or "").strip()
+        if rid and rid in self._final_emitted_runs:
+            return False
+        return True
+
+    def _mark_final_emitted(self, response: str, run_id: str) -> None:
+        """Record that a final response was emitted for this turn."""
+        _ = str(response or "").strip()
+        self._final_emitted_turn_id = self._turn_id
+        rid = str(run_id or "").strip()
+        if rid:
+            self._final_emitted_runs.add(rid)
+
+    def _finalize_response(self, response: str, *, allow_tts: bool, emit_response: bool) -> None:
+        try:
+            self._finalize_response_inner(response, allow_tts=allow_tts, emit_response=emit_response)
+        except Exception as e:
+            import traceback as _tb
+            sys.stderr.write(f"\n=== _finalize_response CRASH ===\n{_tb.format_exc()}\n")
+            sys.stderr.flush()
+
+    def _finalize_response_inner(self, response: str, *, allow_tts: bool, emit_response: bool) -> None:
         if self.debug:
             print(f"✅ QtChatBubble: on_response_ready called with response: {response[:100]}...")
+
+        tts_started = False
         
         self.send_button.setEnabled(True)
         self.send_button.setText("→")
         self._set_session_controls_enabled(True)
-        self.status_label.setText("ready")
-        self.status_label.setObjectName("status_ready")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                background: rgba(166, 227, 161, 0.2);
-                border: 1px solid rgba(166, 227, 161, 0.3);
-                border-radius: 12px;
-                padding: 4px 12px;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                color: #a6e3a1;
-            }
-        """)
-        
-        # Notify main app about status change (for icon animation)
-        if self.status_callback:
-            self.status_callback("ready")
+        try:
+            self._run_state.mark_final_output()
+        except Exception:
+            pass
+        if not self.use_gateway:
+            try:
+                self._run_state.mark_completed()
+            except Exception:
+                pass
         
         # Get updated message history from AbstractCore session
         self._update_message_history_from_session()
@@ -3594,83 +5030,73 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
         
-        # Handle TTS if enabled (AbstractVoice integration)
-        if self.tts_enabled and self.voice_manager and self.voice_manager.is_available():
+        # Handle TTS if enabled (gateway or local voice backend).
+        tts_supported = bool(self.voice_manager and getattr(self.voice_manager, "supports_tts", lambda: False)())
+        tts_allowed = bool(allow_tts and self.tts_enabled and tts_supported and self.voice_manager)
+        if tts_allowed:
             if self.debug:
                 if self.debug:
                     print("🔊 TTS enabled, speaking response...")
-            
-            # Don't show toast when TTS is enabled
+
             try:
-                # Clean response for voice synthesis
                 clean_response = self._clean_response_for_voice(response)
-                
-                # Set up callbacks to detect when speech actually starts/ends
-                # Use QMetaObject.invokeMethod to ensure callbacks run on main thread
-                def on_speech_start():
+
+                def on_speech_start() -> None:
                     if self.debug:
                         print("🔊 QtChatBubble: Speech actually started (background thread)")
-                    # Schedule status update on main thread
                     QMetaObject.invokeMethod(self, "_on_speech_started_main_thread", Qt.QueuedConnection)
-                
-                def on_speech_end():
+
+                def on_speech_end() -> None:
                     if self.debug:
                         print("🔊 QtChatBubble: Speech ended (background thread)")
-                    # Schedule completion handling on main thread
                     QMetaObject.invokeMethod(self, "_on_speech_ended_main_thread", Qt.QueuedConnection)
-                
-                # Set the callbacks on the voice manager
+
                 self.voice_manager.on_speech_start = on_speech_start
                 self.voice_manager.on_speech_end = on_speech_end
-                
-                # Speak the cleaned response using AbstractVoice-compatible interface
-                # Note: We don't set "speaking" status here anymore - we wait for the callback
+
                 started = bool(self.voice_manager.speak(clean_response))
                 if not started:
                     raise RuntimeError("TTS speak() returned False")
+                tts_started = True
 
-                # Update toggle state to 'speaking'
                 self._update_tts_toggle_state()
-                
-                # Store response for callback when TTS completes
-                self._pending_response = response
-                # In speaker mode, don't auto-open the Messages window.
-
+                if emit_response:
+                    self._pending_response = response
             except Exception as e:
                 if self.debug:
                     if self.debug:
                         print(f"❌ TTS error: {e}")
-                # Show chat history as fallback - only if voice mode is OFF
-                QTimer.singleShot(100, self._show_history_if_voice_mode_off)
+                if emit_response:
+                    QTimer.singleShot(100, self._show_history_if_voice_mode_off)
                 if self._is_full_voice_running():
                     self._voice_busy = False
                     try:
-                        try:
-                            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
-                                self.full_voice_toggle.set_listening_state("listening")
-                        except Exception:
-                            pass
+                        if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                            self.full_voice_toggle.set_listening_state("listening")
                         self.update_status("LISTENING")
                     except Exception:
                         pass
         else:
             # Show chat history instead of toast when TTS is disabled - only if voice mode is OFF
-            self._show_history_if_voice_mode_off()
+            if emit_response:
+                self._show_history_if_voice_mode_off()
         
         # Handle status transitions based on TTS mode
-        tts_will_handle = self.tts_enabled and self.voice_manager and self.voice_manager.is_available()
+        tts_will_handle = bool(tts_started)
         if self.debug:
-            print(f"🔍 QtChatBubble: TTS decision - tts_enabled={self.tts_enabled}, voice_manager={self.voice_manager is not None}, is_available={self.voice_manager.is_available() if self.voice_manager else False}")
+            try:
+                avail = bool(self.voice_manager.is_available()) if self.voice_manager else False
+            except Exception:
+                avail = False
+            print(f"🔍 QtChatBubble: TTS decision - tts_enabled={self.tts_enabled}, voice_manager={self.voice_manager is not None}, is_available={avail}")
             print(f"🔍 QtChatBubble: TTS will handle callbacks: {tts_will_handle}")
         
         if not tts_will_handle:
             # Non-TTS path: Go directly to ready mode
             if self.debug:
                 print(f"🔄 QtChatBubble: Non-TTS path - going to ready mode immediately")
-            if self.response_callback:
+            if emit_response and self.response_callback:
                 self.response_callback(response)
-            if self.status_callback:
-                self.status_callback("ready")
             if self._is_full_voice_running():
                 self._voice_busy = False
                 try:
@@ -3692,18 +5118,35 @@ class QtChatBubble(QWidget):
             if self.debug:
                 print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
 
+        if enabled and not self.voice_manager:
+            warnings.warn("#FALLBACK: voice backend unavailable; disabling TTS")
+            try:
+                if hasattr(self, "tts_toggle") and self.tts_toggle:
+                    self.tts_toggle.set_enabled(False)
+            except Exception:
+                pass
+            self.tts_enabled = False
+            return
+
+        if enabled and self.voice_manager and not getattr(self.voice_manager, "supports_tts", lambda: False)():
+            warnings.warn("#FALLBACK: voice backend does not support TTS; disabling")
+            try:
+                if hasattr(self, "tts_toggle") and self.tts_toggle:
+                    self.tts_toggle.set_enabled(False)
+            except Exception:
+                pass
+            self.tts_enabled = False
+            return
+
         # Stop any current speech when disabling
         if not enabled and self.voice_manager:
             try:
                 self.voice_manager.stop()
                 self._update_tts_toggle_state()
-                
-                # Manually trigger status update to "ready" since v0.5.1 callback won't fire
-                # when we manually stop the audio
-                if self.status_callback:
-                    if self.debug:
-                        print("🔊 QtChatBubble: TTS disabled, setting ready status")
-                    self.status_callback("ready")
+                try:
+                    self._run_state.set_speaking(False)
+                except Exception:
+                    pass
                     
             except Exception as e:
                 if self.debug:
@@ -3819,23 +5262,17 @@ class QtChatBubble(QWidget):
                     
                     # Manually trigger status update to "ready" since v0.5.1 callback won't fire
                     # when we manually stop the audio
-                    if hasattr(self, 'status_callback') and self.status_callback:
-                        if self.debug:
-                            print("🔊 QtChatBubble: Manually stopped TTS, setting ready status")
-                        self.status_callback("ready")
+                    try:
+                        self._run_state.set_speaking(False)
+                    except Exception:
+                        pass
 
                 except Exception as e:
                     if self.debug:
                         if self.debug:
                             print(f"❌ Error stopping TTS on double click: {e}")
 
-            # Show the chat bubble with safety checks
-            if hasattr(self, 'show') and not self.isVisible():
-                self.show()
-            if hasattr(self, 'raise_'):
-                self.raise_()
-            if hasattr(self, 'activateWindow'):
-                self.activateWindow()
+            # Do not change visibility when stopping speech.
 
         except Exception as e:
             if self.debug:
@@ -3865,10 +5302,11 @@ class QtChatBubble(QWidget):
     def start_full_voice_mode(self):
         """Start Full Voice Mode - continuous listening with STT + TTS."""
         try:
-            # Ensure voice manager is available
-            if not self.voice_manager or not self.voice_manager.is_available():
+            # Ensure voice backend is available
+            if not self.voice_manager or not getattr(self.voice_manager, "supports_stt", lambda: False)():
+                warnings.warn("#FALLBACK: voice backend does not support STT; full voice mode disabled")
                 if self.debug:
-                    print("❌ Voice manager not available for Full Voice Mode")
+                    print("❌ Voice backend not available for Full Voice Mode")
                 self.full_voice_toggle.set_enabled(False)
                 return
 
@@ -3893,9 +5331,12 @@ class QtChatBubble(QWidget):
             # Enable TTS automatically
             if not self.tts_enabled:
                 self.tts_toggle.set_enabled(True)
+            if self.tts_enabled and self.voice_manager and not getattr(self.voice_manager, "supports_tts", lambda: False)():
+                warnings.warn("#FALLBACK: voice backend does not support TTS; responses will be text-only")
 
             # Set up voice mode based on CLI parameter
-            self.voice_manager.set_voice_mode(self.listening_mode)
+            if self.voice_manager:
+                self.voice_manager.set_voice_mode(self.listening_mode)
 
             # Update LLM session mode for voice-optimized responses (preserve history)
             if self.llm_manager:
@@ -3944,6 +5385,8 @@ class QtChatBubble(QWidget):
         ok = False
         err: str | None = None
         try:
+            if not self.voice_manager:
+                raise RuntimeError("Voice backend not available")
             started = self.voice_manager.listen(
                 on_transcription=self.handle_voice_input,
                 on_stop=self.handle_voice_stop,
@@ -4013,30 +5456,32 @@ class QtChatBubble(QWidget):
                 pass
             return
 
-        # Make conversation snappy (short utterances + quicker silence endpointing).
-        self._tune_voice_recognizer_for_conversation()
-        # Catch common mic failures (permissions / device errors) quickly.
-        self._schedule_voice_listen_watchdog()
+        is_gateway_voice = isinstance(self.voice_manager, GatewayVoiceManager)
+        if not is_gateway_voice:
+            # Make conversation snappy (short utterances + quicker silence endpointing).
+            self._tune_voice_recognizer_for_conversation()
+            # Catch common mic failures (permissions / device errors) quickly.
+            self._schedule_voice_listen_watchdog()
 
-        # Sanity check: ensure STT backend looks initialized (model loaded).
-        try:
-            rec = self._voice_recognizer()
-            if rec is None:
-                raise RuntimeError("Voice recognizer is not initialized")
-            stt = getattr(rec, "stt_adapter", None)
-            if stt is not None and hasattr(stt, "is_available") and not bool(stt.is_available()):
-                raise RuntimeError("STT model not available (not loaded)")
-        except Exception as e:
-            self._abort_full_voice_mode_with_error(
-                "Speech-to-text not ready",
-                "Full voice mode started, but speech-to-text isn't ready.\n\n"
-                f"Error: {e}\n\n"
-                "Fix:\n"
-                "1) Ensure `abstractassistant` is installed\n"
-                "2) Restart AbstractAssistant\n"
-                "3) If needed, re-install dependencies in a clean venv\n",
-            )
-            return
+            # Sanity check: ensure STT backend looks initialized (model loaded).
+            try:
+                rec = self._voice_recognizer()
+                if rec is None:
+                    raise RuntimeError("Voice recognizer is not initialized")
+                stt = getattr(rec, "stt_adapter", None)
+                if stt is not None and hasattr(stt, "is_available") and not bool(stt.is_available()):
+                    raise RuntimeError("STT model not available (not loaded)")
+            except Exception as e:
+                self._abort_full_voice_mode_with_error(
+                    "Speech-to-text not ready",
+                    "Full voice mode started, but speech-to-text isn't ready.\n\n"
+                    f"Error: {e}\n\n"
+                    "Fix:\n"
+                    "1) Ensure `abstractassistant` is installed\n"
+                    "2) Restart AbstractAssistant\n"
+                    "3) If needed, re-install dependencies in a clean venv\n",
+                )
+                return
 
         try:
             self.full_voice_toggle.set_listening_state("listening")
@@ -4150,12 +5595,8 @@ class QtChatBubble(QWidget):
 
         # 4) Status back to Ready (green) + tray icon ready
         try:
-            self.update_status("READY")
-        except Exception:
-            pass
-        try:
-            if self.status_callback:
-                self.status_callback("ready")
+            if not self._run_state.is_run_active():
+                self._run_state.reset_idle()
         except Exception:
             pass
 
@@ -4348,19 +5789,31 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
 
-    def update_status(self, status_text: str):
+    def update_status(self, status_text: str, *, force: bool = False):
         """Update the status label with the given text."""
+        if not force:
+            try:
+                if hasattr(self, "_run_state") and self._run_state.is_run_active():
+                    return
+            except Exception:
+                pass
         if hasattr(self, 'status_label'):
             self.status_label.setText(status_text.upper())
 
             # Update status label style based on status
-            if status_text.lower() in ['ready', 'idle']:
+            if status_text.lower() in ['ready', 'idle', 'completed']:
                 color = "#22c55e"  # Green
             elif status_text.lower() in ['listening']:
                 color = "#ff6b35"  # Orange
-            elif status_text.lower() in ['processing', 'generating']:
+            elif status_text.lower() in ['processing', 'generating', 'running', 'compacting', 'reconnecting']:
                 color = "#ffa500"  # Yellow
-            elif status_text.lower() in ['error']:
+            elif status_text.lower() in ['waiting', 'approve']:
+                color = "#a855f7"  # Purple
+            elif status_text.lower() in ['executing']:
+                color = "#f97316"  # Orange
+            elif status_text.lower() in ['speaking']:
+                color = "#007acc"  # Blue
+            elif status_text.lower() in ['error', 'failed', 'offline', 'disconnected']:
                 color = "#ff3b30"  # Red
             else:
                 color = "#007acc"  # Blue (default)
@@ -4373,7 +5826,7 @@ class QtChatBubble(QWidget):
                     font-size: 10px;
                     font-weight: 600;
                     color: #ffffff;
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }}
             """)
 
@@ -4497,33 +5950,15 @@ class QtChatBubble(QWidget):
         self.send_button.setEnabled(True)
         self.send_button.setText("→")
         self._set_session_controls_enabled(True)
-        self.status_label.setText("error")
-        self.status_label.setObjectName("status_error")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                background: rgba(243, 139, 168, 0.2);
-                border: 1px solid rgba(243, 139, 168, 0.3);
-                border-radius: 12px;
-                padding: 4px 12px;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                color: #f38ba8;
-            }
-        """)
+        try:
+            self._run_state.mark_error()
+        except Exception:
+            pass
         
         if self.debug:
             if self.debug:
                 print(f"Error occurred: {error}")
         
-        # Stop any tray icon "working" animation (ensure we don't spin forever on errors).
-        try:
-            if self.status_callback:
-                self.status_callback("ready")
-        except Exception:
-            pass
-
         # Show chat history instead of error toast
         if self.debug:
             if self.debug:
@@ -4558,6 +5993,7 @@ class QtChatBubble(QWidget):
                 box.setText("The assistant hit an error while generating a response.")
                 box.setInformativeText(informative)
                 box.setDetailedText(err_txt)
+                self._position_window_top_right(box, y_offset=0, x_offset=0)
                 box.exec()
             except Exception:
                 pass
@@ -4599,6 +6035,7 @@ class QtChatBubble(QWidget):
 
     def _set_session_controls_enabled(self, enabled: bool) -> None:
         for attr in (
+            "workflow_combo",
             "session_combo",
             "sessions_button",
             "new_session_button",
@@ -4775,6 +6212,7 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
         dlg = SessionsDialog(parent=self, bubble=self)
+        self._position_window_top_right(dlg, y_offset=0, x_offset=0)
         try:
             dlg.exec()
         except Exception:
@@ -4818,7 +6256,7 @@ class QtChatBubble(QWidget):
             return
 
         if self._is_run_in_progress():
-            QMessageBox.information(self, "Session switch", "Please wait for the current response to finish.")
+            self._show_info("Session switch", "Please wait for the current response to finish.")
             self._reload_session_combo(select_session_id=current or None)
             return
 
@@ -4826,7 +6264,7 @@ class QtChatBubble(QWidget):
             self._save_tool_prefs_for_session(current or None)
             self.llm_manager.switch_session(sid)
         except Exception as e:
-            QMessageBox.warning(self, "Session switch", f"Failed to switch session:\n{e}")
+            self._show_warning("Session switch", f"Failed to switch session:\n{e}")
             self._reload_session_combo(select_session_id=current or None)
             return
 
@@ -4839,6 +6277,11 @@ class QtChatBubble(QWidget):
         self._reload_session_combo(select_session_id=sid)
         self._load_tool_prefs_for_session(sid)
         self._refresh_tool_inventory()
+        if self.use_gateway:
+            try:
+                self.load_workflows(session_id=sid)
+            except Exception:
+                pass
 
         # Reset per-session UI caches.
         self.attached_files.clear()
@@ -4862,7 +6305,7 @@ class QtChatBubble(QWidget):
             return
 
         if self._is_run_in_progress():
-            QMessageBox.information(self, "New session", "Please wait for the current response to finish.")
+            self._show_info("New session", "Please wait for the current response to finish.")
             return
 
         old_id = self._active_session_id()
@@ -4872,11 +6315,16 @@ class QtChatBubble(QWidget):
         try:
             new_id = str(self.llm_manager.create_new_session() or "").strip()
         except Exception as e:
-            QMessageBox.warning(self, "New session", f"Failed to create a new session:\n{e}")
+            self._show_warning("New session", f"Failed to create a new session:\n{e}")
             return
 
         self._load_tool_prefs_for_session(new_id or None)
         self._refresh_tool_inventory()
+        if self.use_gateway:
+            try:
+                self.load_workflows(session_id=new_id or None)
+            except Exception:
+                pass
 
         # Reset per-session UI caches.
         self.attached_files.clear()
@@ -4910,6 +6358,9 @@ class QtChatBubble(QWidget):
         menu = QMenu(self)
         menu.addAction("Load…", self.load_session)
         menu.addAction("Save…", self.save_session)
+        if self.use_gateway:
+            menu.addSeparator()
+            menu.addAction("Reconnect gateway", self._reconnect_gateway)
         if bool(getattr(self, "debug", False)):
             menu.addSeparator()
             menu.addAction("Run trace (debug)…", self.show_trace)
@@ -4936,7 +6387,7 @@ class QtChatBubble(QWidget):
     def clear_active_session_contents(self) -> None:
         """Clear all messages/attachments in the active session (does not create a new session)."""
         if self._is_run_in_progress():
-            QMessageBox.information(self, "Clear session", "Please wait for the current response to finish.")
+            self._show_info("Clear session", "Please wait for the current response to finish.")
             return
 
         if not self.llm_manager:
@@ -4944,15 +6395,14 @@ class QtChatBubble(QWidget):
 
         has_anything = bool(self.message_history) or bool(getattr(self, "attached_files", []))
         if not has_anything:
-            QMessageBox.information(self, "Clear session", "This session is already empty.")
+            self._show_info("Clear session", "This session is already empty.")
             return
 
-        reply = QMessageBox.question(
-            self,
+        reply = self._ask_question(
             "Clear Session",
             "Clear this session?\n\nThis removes all messages and attachments from the current session.\nThis action cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            default=QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -4966,7 +6416,7 @@ class QtChatBubble(QWidget):
                 if callable(clear):
                     clear()
         except Exception as e:
-            QMessageBox.critical(self, "Clear session", f"Failed to clear this session:\n{e}")
+            self._show_error("Clear session", f"Failed to clear this session:\n{e}")
             return
 
         try:
@@ -5002,12 +6452,11 @@ class QtChatBubble(QWidget):
     
     def clear_session(self):
         """Start a new session (prior sessions remain available)."""
-        reply = QMessageBox.question(
-            self,
+        reply = self._ask_question(
             "New Session",
             "Start a new session?\nYour previous sessions will remain available in the session dropdown.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            default=QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -5016,53 +6465,37 @@ class QtChatBubble(QWidget):
     def compact_session(self):
         """Compact the current session using AbstractCore's summarizer functionality."""
         if not self.message_history:
-            QMessageBox.information(
-                self,
+            self._show_info(
                 "No Session",
-                "No conversation history to compact. Start a conversation first."
+                "No conversation history to compact. Start a conversation first.",
             )
             return
         
         # Check if session is too short to compact
         if len(self.message_history) < 4:  # Need at least 2 exchanges to be worth compacting
-            QMessageBox.information(
-                self,
+            self._show_info(
                 "Session Too Short",
-                "Session is too short to compact. Need at least 2 exchanges (4 messages)."
+                "Session is too short to compact. Need at least 2 exchanges (4 messages).",
             )
             return
         
-        reply = QMessageBox.question(
-            self, 
-            "Compact Session", 
+        reply = self._ask_question(
+            "Compact Session",
             "This will summarize the conversation history into a concise system message, "
             "keeping only the most recent 2 exchanges for context.\n\n"
             "This action cannot be undone. Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            default=QMessageBox.StandardButton.No,
         )
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 # Show progress
-                self.status_label.setText("compacting")
-                self.status_label.setStyleSheet("""
-                    QLabel {
-                        background: rgba(250, 179, 135, 0.2);
-                        border: 1px solid rgba(250, 179, 135, 0.3);
-                        border-radius: 12px;
-                        padding: 4px 12px;
-                        font-size: 11px;
-                        font-weight: 600;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                        color: #fab387;
-                    }
-                """)
-                
-                # Notify main app about status change
-                if self.status_callback:
-                    self.status_callback("compacting")
+                try:
+                    if not self._run_state.is_run_active():
+                        self.update_status("compacting", force=True)
+                except Exception:
+                    pass
                 
                 # Create conversation text for summarization
                 conversation_text = self._format_conversation_for_summarization()
@@ -5082,12 +6515,11 @@ class QtChatBubble(QWidget):
                     self.update_token_display()
                     
                     # Show success message
-                    QMessageBox.information(
-                        self,
+                    self._show_info(
                         "Session Compacted",
                         f"Session successfully compacted!\n\n"
                         f"Original: {len(self.message_history)} messages\n"
-                        f"Compacted: Summary + {len(recent_messages)} recent messages"
+                        f"Compacted: Summary + {len(recent_messages)} recent messages",
                     )
                     
                     if self.debug:
@@ -5096,10 +6528,9 @@ class QtChatBubble(QWidget):
                     raise Exception("Failed to generate summary")
                     
             except Exception as e:
-                QMessageBox.critical(
-                    self,
+                self._show_error(
                     "Compaction Error",
-                    f"Failed to compact session:\n{str(e)}"
+                    f"Failed to compact session:\n{str(e)}",
                 )
                 if self.debug:
                     print(f"❌ Failed to compact session: {e}")
@@ -5107,22 +6538,11 @@ class QtChatBubble(QWidget):
                     traceback.print_exc()
             finally:
                 # Reset status
-                self.status_label.setText("ready")
-                self.status_label.setStyleSheet("""
-                    QLabel {
-                        background: rgba(166, 227, 161, 0.2);
-                        border: 1px solid rgba(166, 227, 161, 0.3);
-                        border-radius: 12px;
-                        padding: 4px 12px;
-                        font-size: 11px;
-                        font-weight: 600;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                        color: #a6e3a1;
-                    }
-                """)
-                if self.status_callback:
-                    self.status_callback("ready")
+                try:
+                    if not self._run_state.is_run_active():
+                        self.update_status("ready", force=True)
+                except Exception:
+                    pass
     
     def _format_conversation_for_summarization(self) -> str:
         """Format the conversation history for summarization."""
@@ -5305,10 +6725,9 @@ Continue the conversation naturally, referring to the context above when relevan
                         self._reload_session_combo()
                         self._rebuild_chat_display()
 
-                        QMessageBox.information(
-                            self,
+                        self._show_info(
                             "Session Loaded",
-                            f"Successfully loaded session via AbstractCore.\nMessages: {message_count}"
+                            f"Successfully loaded session via AbstractCore.\nMessages: {message_count}",
                         )
 
                         if self.debug:
@@ -5320,10 +6739,9 @@ Continue the conversation naturally, referring to the context above when relevan
                     raise Exception("AbstractCore session loading failed")
 
             except Exception as e:
-                QMessageBox.critical(
-                    self,
+                self._show_error(
                     "Load Error",
-                    f"Failed to load session via AbstractCore:\n{str(e)}"
+                    f"Failed to load session via AbstractCore:\n{str(e)}",
                 )
                 if self.debug:
                     if self.debug:
@@ -5332,10 +6750,9 @@ Continue the conversation naturally, referring to the context above when relevan
     def save_session(self):
         """Save the current session using AbstractCore via LLMManager."""
         if not self.llm_manager.current_session:
-            QMessageBox.information(
-                self,
+            self._show_info(
                 "No Session",
-                "No active session to save. Start a conversation first."
+                "No active session to save. Start a conversation first.",
             )
             return
 
@@ -5356,10 +6773,9 @@ Continue the conversation naturally, referring to the context above when relevan
                 success = self.llm_manager.save_session(file_path)
 
                 if success:
-                    QMessageBox.information(
-                        self,
+                    self._show_info(
                         "Session Saved",
-                        f"Session saved successfully via AbstractCore to:\n{file_path}"
+                        f"Session saved successfully via AbstractCore to:\n{file_path}",
                     )
 
                     if self.debug:
@@ -5369,10 +6785,9 @@ Continue the conversation naturally, referring to the context above when relevan
                     raise Exception("AbstractCore session saving failed")
 
             except Exception as e:
-                QMessageBox.critical(
-                    self,
+                self._show_error(
                     "Save Error",
-                    f"Failed to save session via AbstractCore:\n{str(e)}"
+                    f"Failed to save session via AbstractCore:\n{str(e)}",
                 )
                 if self.debug:
                     if self.debug:
@@ -5414,9 +6829,12 @@ Continue the conversation naturally, referring to the context above when relevan
 
         raw_messages = None
         try:
-            host = getattr(self.llm_manager, "agent_host", None)
-            snap = getattr(host, "snapshot", None) if host is not None else None
-            raw_messages = getattr(snap, "messages", None) if snap is not None else None
+            if self.use_gateway and hasattr(self.llm_manager, "session_messages"):
+                raw_messages = self.llm_manager.session_messages()
+            else:
+                host = getattr(self.llm_manager, "agent_host", None)
+                snap = getattr(host, "snapshot", None) if host is not None else None
+                raw_messages = getattr(snap, "messages", None) if snap is not None else None
         except Exception:
             raw_messages = None
 
@@ -5501,6 +6919,8 @@ Continue the conversation naturally, referring to the context above when relevan
     def _update_token_count_from_session(self):
         """Update token count from AbstractCore session."""
         try:
+            if self.use_gateway:
+                return
             if self.llm_manager and self.llm_manager.current_session:
                 token_estimate = self.llm_manager.current_session.get_token_estimate()
                 self.token_count = token_estimate
@@ -5516,6 +6936,12 @@ Continue the conversation naturally, referring to the context above when relevan
 
     def show_trace(self):
         """Show a lightweight debug trace for the last run."""
+        if self.use_gateway:
+            self._show_info(
+                "Run trace",
+                "#FALLBACK: Gateway mode does not expose a local trace. Check the gateway run ledger instead.",
+            )
+            return
         host = getattr(self.llm_manager, "agent_host", None)
         run_id = None
         try:
@@ -5526,7 +6952,7 @@ Continue the conversation naturally, referring to the context above when relevan
 
         rid = str(run_id or "").strip()
         if not host or not rid:
-            QMessageBox.information(self, "Run trace", "No run is available yet.")
+            self._show_info("Run trace", "No run is available yet.")
             return
 
         try:
@@ -5538,7 +6964,7 @@ Continue the conversation naturally, referring to the context above when relevan
 
         rt = getattr(host, "_runtime", None)
         if rt is None:
-            QMessageBox.information(self, "Run trace", "Runtime is not initialized yet.")
+            self._show_info("Run trace", "Runtime is not initialized yet.")
             return
 
         try:
@@ -5579,9 +7005,10 @@ Continue the conversation naturally, referring to the context above when relevan
                 )
             )
             box.setDetailedText(details_txt)
+            self._position_window_top_right(box, y_offset=0, x_offset=0)
             box.exec()
         except Exception as e:
-            QMessageBox.warning(self, "Run trace", f"Failed to load trace:\n{e}")
+            self._show_warning("Run trace", f"Failed to load trace:\n{e}")
 
     def _show_history_if_voice_mode_off(self):
         """Show chat history only if voice mode is OFF."""
@@ -5610,10 +7037,9 @@ Continue the conversation naturally, referring to the context above when relevan
             return
 
         if not self.message_history:
-            QMessageBox.information(
-                self,
+            self._show_info(
                 "No History",
-                "No message history available. Start a conversation first."
+                "No message history available. Start a conversation first.",
             )
             self._update_history_button_appearance(False)
             return
@@ -5623,7 +7049,7 @@ Continue the conversation naturally, referring to the context above when relevan
 
         # Toggle behavior: create dialog if doesn't exist; reuse/update if it does.
         if not iPhoneMessagesDialog:
-            QMessageBox.information(self, "History Unavailable", "History dialog module not available.")
+            self._show_info("History Unavailable", "History dialog module not available.")
             self._update_history_button_appearance(False)
             return
 
@@ -5658,11 +7084,19 @@ Continue the conversation naturally, referring to the context above when relevan
                 self._update_history_button_appearance(False)
                 return
 
+            if self.use_gateway and self.llm_manager is not None:
+                try:
+                    self.history_dialog._gateway_client_factory = self.llm_manager.gateway_client
+                    self.history_dialog._artifact_cache_dir = getattr(self.llm_manager, "data_dir", None)
+                except Exception:
+                    pass
+
             self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
+            self._position_window_top_right(self.history_dialog, y_offset=0, x_offset=0)
             self.history_dialog.show()
             self._update_history_button_appearance(True)
         except Exception as e:
-            QMessageBox.warning(self, "History", f"Failed to open messages:\n{e}")
+            self._show_warning("History", f"Failed to open messages:\n{e}")
             self._update_history_button_appearance(False)
 
     def _update_history_button_appearance(self, is_active: bool):
@@ -5694,10 +7128,9 @@ Continue the conversation naturally, referring to the context above when relevan
             # Validate indices
             for index in indices_to_delete:
                 if not (0 <= index < len(self.message_history)):
-                    QMessageBox.critical(
-                        self,
+                    self._show_error(
                         "Invalid Selection",
-                        f"Invalid message index {index}. Please refresh and try again."
+                        f"Invalid message index {index}. Please refresh and try again.",
                     )
                     return
             
@@ -5738,6 +7171,7 @@ Continue the conversation naturally, referring to the context above when relevan
                                 self.history_dialog.hide()
                                 self.history_dialog = new_dialog
                                 self.history_dialog.move(old_pos)  # Keep same position
+                                self._ensure_window_within_screen(self.history_dialog)
                                 self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
                                 self.history_dialog.show()
                     except:
@@ -5759,10 +7193,9 @@ Continue the conversation naturally, referring to the context above when relevan
             traceback.print_exc()
             
             try:
-                QMessageBox.critical(
-                    self,
+                self._show_error(
                     "Deletion Error",
-                    f"Failed to delete messages:\n{str(e)}\n\nCheck console for details."
+                    f"Failed to delete messages:\n{str(e)}\n\nCheck console for details.",
                 )
             except:
                 print("❌ Could not show error dialog")
@@ -5913,12 +7346,10 @@ Continue the conversation naturally, referring to the context above when relevan
                     self.full_voice_toggle.set_listening_state("idle")
             except Exception:
                 pass
-            try:
-                self.update_status("SPEAKING")
-            except Exception:
-                pass
-        if self.status_callback:
-            self.status_callback("speaking")
+        try:
+            self._run_state.set_speaking(True)
+        except Exception:
+            pass
     
     @pyqtSlot()
     def _on_speech_ended_main_thread(self):
@@ -5942,10 +7373,10 @@ Continue the conversation naturally, referring to the context above when relevan
             delattr(self, '_pending_response')
         
         # Notify main app that speaking is done (back to ready)
-        if self.status_callback:
-            if self.debug:
-                print("🔊 QtChatBubble: Speech ended, setting ready status")
-            self.status_callback("ready")
+        try:
+            self._run_state.set_speaking(False)
+        except Exception:
+            pass
 
         # Voice loop: allow next transcription after speaking ends.
         if self._is_full_voice_running():
@@ -5956,6 +7387,28 @@ Continue the conversation naturally, referring to the context above when relevan
                         self.full_voice_toggle.set_listening_state("listening")
                 except Exception:
                     pass
+                self.update_status("LISTENING")
+            except Exception:
+                pass
+
+    def notify_manual_voice_stop(self) -> None:
+        """Best-effort cleanup when speech is stopped outside TTS callbacks."""
+        try:
+            self._update_tts_toggle_state()
+        except Exception:
+            pass
+        try:
+            self._run_state.set_speaking(False)
+        except Exception:
+            pass
+        if self._is_full_voice_running():
+            self._voice_busy = False
+            try:
+                if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                    self.full_voice_toggle.set_listening_state("listening")
+            except Exception:
+                pass
+            try:
                 self.update_status("LISTENING")
             except Exception:
                 pass
@@ -6012,6 +7465,7 @@ class QtBubbleManager:
         self.response_callback = None
         self.error_callback = None
         self.status_callback = None
+        self.voice_meter_callback = None
         
         if not QT_AVAILABLE:
             raise RuntimeError("No Qt library available. Install PyQt5, PySide2, or PyQt6")
@@ -6043,6 +7497,8 @@ class QtBubbleManager:
                 self.bubble.set_error_callback(self.error_callback)
             if self.status_callback:
                 self.bubble.set_status_callback(self.status_callback)
+            if self.voice_meter_callback:
+                self.bubble.set_voice_meter_callback(self.voice_meter_callback)
 
             if self.debug:
                 if self.debug:
@@ -6103,6 +7559,12 @@ class QtBubbleManager:
         self.status_callback = callback
         if self.bubble:
             self.bubble.set_status_callback(callback)
+
+    def set_voice_meter_callback(self, callback):
+        """Set voice meter callback."""
+        self.voice_meter_callback = callback
+        if self.bubble:
+            self.bubble.set_voice_meter_callback(callback)
     
     def set_app_quit_callback(self, callback):
         """Set app quit callback."""

@@ -36,6 +36,7 @@ _FILE_HEADER_RE = re.compile(r"(?im)^File:\s+(.+?)(?:\s\(|\n|$)")
 _URL_HEADER_RE = re.compile(r"(?im)\bURL:\s*(https?://\S+)")
 _HTML_IMG_RE = re.compile(r"(?is)<img[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"'][^>]*>")
 _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_ARTIFACT_RE = re.compile(r"\"\\$artifact\"\\s*:\\s*\"([a-zA-Z0-9_-]+)\"")
 
 _IMAGE_EXTS: set[str] = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
 
@@ -101,6 +102,42 @@ def _extract_resources_for_tool(tool_name: str, content: str) -> Tuple[List[str]
         return [], _extract_primary_file_path(content)
     # Default: keep resource extraction bounded to avoid noisy chips (e.g. file contents).
     return _extract_urls(content, limit=3), _extract_file_paths(content, limit=3)
+
+
+def _extract_artifact_refs(text: str) -> List[Dict[str, str]]:
+    raw = str(text or "").strip()
+    if not raw:
+        return []
+
+    out: List[Dict[str, str]] = []
+
+    def _walk(val: Any) -> None:
+        if isinstance(val, dict):
+            if "$artifact" in val and isinstance(val.get("$artifact"), str) and str(val.get("$artifact")).strip():
+                entry = {"artifact_id": str(val.get("$artifact")).strip()}
+                if isinstance(val.get("filename"), str) and str(val.get("filename")).strip():
+                    entry["filename"] = str(val.get("filename")).strip()
+                if isinstance(val.get("content_type"), str) and str(val.get("content_type")).strip():
+                    entry["content_type"] = str(val.get("content_type")).strip()
+                out.append(entry)
+            for v in val.values():
+                _walk(v)
+        elif isinstance(val, list):
+            for item in val:
+                _walk(item)
+
+    if raw.startswith("{") or raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+            _walk(parsed)
+        except Exception:
+            out = []
+
+    if not out:
+        for hit in _ARTIFACT_RE.findall(raw):
+            if hit:
+                out.append({"artifact_id": str(hit)})
+    return out
 
 
 def _extract_file_paths(text: str, *, limit: int = 10) -> List[str]:
@@ -378,9 +415,18 @@ def _build_tool_summary(tool_events: Sequence[Dict[str, Any]]) -> str:
 def _build_tool_links(tool_events: Sequence[Dict[str, Any]], *, limit: int = 30) -> List[Dict[str, str]]:
     urls: List[str] = []
     paths: List[str] = []
+    artifacts: List[Dict[str, Any]] = []
+    run_id = ""
     for event in tool_events:
         urls.extend([str(u) for u in (event.get("urls") or []) if isinstance(u, str)])
         paths.extend([str(p) for p in (event.get("paths") or []) if isinstance(p, str)])
+        arts = event.get("artifacts")
+        if isinstance(arts, list):
+            artifacts.extend([dict(a) for a in arts if isinstance(a, dict)])
+        if not run_id:
+            rid = str(event.get("run_id") or "").strip()
+            if rid:
+                run_id = rid
 
     links: List[Dict[str, str]] = []
     for url in _dedupe_preserve_order(urls):
@@ -400,6 +446,21 @@ def _build_tool_links(tool_events: Sequence[Dict[str, Any]], *, limit: int = 30)
 
     for path in _dedupe_preserve_order(paths):
         links.append({"kind": "file", "target": path, "label": _short_label_for_path(path)})
+        if len(links) >= int(limit):
+            break
+
+    for art in artifacts:
+        artifact_id = str(art.get("artifact_id") or "").strip()
+        if not artifact_id:
+            continue
+        label = str(art.get("filename") or "").strip() or f"artifact:{artifact_id[:8]}"
+        link: Dict[str, str] = {"kind": "artifact", "target": artifact_id, "label": label}
+        if run_id:
+            link["run_id"] = run_id
+        ct = str(art.get("content_type") or "").strip()
+        if ct:
+            link["content_type"] = ct
+        links.append(link)
         if len(links) >= int(limit):
             break
     return links
@@ -445,8 +506,40 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
                     )
                 continue
 
+            success = meta.get("success") if isinstance(meta, dict) else None
+            error = str(meta.get("error") or "").strip() if isinstance(meta, dict) else ""
+            output_preview = str(meta.get("output_preview") or content or "").strip() if isinstance(meta, dict) else content.strip()
+            artifacts = []
+            if isinstance(meta, dict):
+                arts = meta.get("artifacts")
+                if isinstance(arts, list):
+                    artifacts = [dict(a) for a in arts if isinstance(a, dict)]
+            if not artifacts:
+                artifacts = _extract_artifact_refs(output_preview or content)
+            run_id = str(msg.get("run_id") or meta.get("run_id") or "").strip()
+            if not output_preview and error:
+                output_preview = error
+            if not output_preview:
+                output_preview = "(no output)"
+            if error and name in {"write_file", "edit_file", "delete_file"}:
+                lowered = error.lower()
+                if "workspace" in lowered or "workspace_root" in lowered or "outside" in lowered:
+                    output_preview = (
+                        f"{output_preview}\n\n"
+                        "Hint: Gateway workspace restrictions blocked this path. "
+                        "Set ABSTRACTGATEWAY_WORKSPACE_DIR or ABSTRACTGATEWAY_WORKSPACE_MOUNTS on the gateway."
+                    )
+            status_label = "ok" if success is True else "error" if error or success is False else "done"
+            tool_header = f"[tool:{name}] {status_label}"
+            out.append(
+                {
+                    "role": "assistant",
+                    "content": f"{tool_header}\n{output_preview}".strip(),
+                    "ui_kind": "tool_result",
+                }
+            )
             urls, paths = _extract_resources_for_tool(name, content)
-            pending_tools.append({"name": name, "urls": urls, "paths": paths})
+            pending_tools.append({"name": name, "urls": urls, "paths": paths, "artifacts": artifacts, "run_id": run_id})
             continue
 
         if role == "assistant":

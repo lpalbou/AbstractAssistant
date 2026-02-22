@@ -14,11 +14,22 @@ _DEFAULT_SAFE_AUTO_APPROVE: Set[str] = {
     "read_file",
     "skim_files",
     "search_files",
+    "open_attachment",
     # Network read-only
     "web_search",
     "skim_websearch",
     "skim_url",
     "fetch_url",
+    # Comms (delivery + read-only)
+    "list_email_accounts",
+    "list_emails",
+    "read_email",
+    "list_whatsapp_messages",
+    "read_whatsapp_message",
+    "send_email",
+    "send_whatsapp_message",
+    "send_telegram_message",
+    "send_telegram_artifact",
 }
 
 _DEFAULT_REQUIRE_APPROVAL: Set[str] = {

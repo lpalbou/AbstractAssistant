@@ -22,9 +22,10 @@ def test_build_display_messages_hides_tool_messages_and_attaches_summary() -> No
     ]
 
     out = build_display_messages(raw)
-    assert [m.get("role") for m in out] == ["user", "assistant"]
+    assert out and out[0].get("role") == "user"
+    assert any(m.get("ui_kind") == "tool_result" for m in out)
 
-    assistant = out[1]
+    assistant = out[-1]
     summary = str(assistant.get("tool_summary") or "")
     assert "fetch_url" in summary
     assert "remember_note" in summary
@@ -62,9 +63,10 @@ def test_build_display_messages_groups_multiple_tool_cycles_and_prefers_primary_
     ]
 
     out = build_display_messages(raw)
-    assert [m.get("role") for m in out] == ["user", "assistant"]
+    assert out and out[0].get("role") == "user"
+    assert any(m.get("ui_kind") == "tool_result" for m in out)
 
-    assistant = out[1]
+    assistant = out[-1]
     summary = str(assistant.get("tool_summary") or "")
     assert "fetch_url" in summary
     assert "read_file" in summary
@@ -123,11 +125,34 @@ def test_build_display_messages_promotes_image_tool_links_to_thumbnails() -> Non
     ]
 
     out = build_display_messages(raw)
-    assistant = out[1]
+    assistant = out[-1]
     thumbs = assistant.get("image_thumbnails") or []
     assert any(
         isinstance(th, dict)
         and th.get("kind") == "url"
         and th.get("target") == "https://example.com/pic.jpg"
         for th in thumbs
+    )
+
+
+@pytest.mark.basic
+def test_build_display_messages_includes_artifact_links() -> None:
+    raw = [
+        {"role": "user", "content": "make file", "timestamp": "2026-02-04T12:00:00+00:00"},
+        {
+            "role": "tool",
+            "content": "{\"$artifact\":\"art_123\",\"filename\":\"report.md\",\"content_type\":\"text/markdown\"}",
+            "metadata": {"name": "write_file", "success": True, "run_id": "run_1"},
+        },
+        {"role": "assistant", "content": "Saved.", "metadata": {"kind": "final_answer"}},
+    ]
+    out = build_display_messages(raw)
+    assistant = out[-1]
+    links = assistant.get("tool_links") or []
+    assert any(
+        isinstance(link, dict)
+        and link.get("kind") == "artifact"
+        and link.get("target") == "art_123"
+        and link.get("run_id") == "run_1"
+        for link in links
     )

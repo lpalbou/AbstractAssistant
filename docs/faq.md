@@ -8,7 +8,8 @@ See also:
 
 ## What is AbstractAssistant?
 
-A macOS-first tray app and CLI that hosts a **local, durable agent**. It uses:
+A macOS-first tray app and CLI that runs **gateway-first** by default (thin client).
+Local mode is still available for development. It uses:
 - **AbstractAgent** for agent loops
 - **AbstractRuntime** for durable runs and resumable waits
 - **AbstractCore** for provider/tool/media schemas
@@ -54,6 +55,41 @@ Tray UI:
 Yes:
 - tray UI: switch to a custom tool allowlist and select none (or only safe tools)
 - programmatic: pass `allowed_tools=[]` to `AgentHost.run_turn(...)`
+
+## Why was a file write blocked in gateway mode?
+
+Gateway workspace policies limit where tools can write. If you see a tool result
+error mentioning the workspace/root path, ensure your target path is inside the
+gateway workspace, or configure:
+
+- `ABSTRACTGATEWAY_WORKSPACE_DIR`
+- `ABSTRACTGATEWAY_WORKSPACE_MOUNTS`
+
+The tray UI will surface a hint in the tool result bubble when this happens.
+
+## Where do artifact downloads go?
+
+Artifact downloads are cached under:
+
+- `~/.abstractassistant/artifacts/` by default
+- or `<data-dir>/artifacts/` when you launch with `--data-dir`
+
+## How does voice work in gateway mode?
+
+When `gateway.use_gateway=true`, TTS and STT are routed through the gateway
+audio endpoints (`/voice/tts`, `/audio/transcribe`). The client still needs a
+local recorder and player; if those are unavailable, the UI will emit a
+`#FALLBACK` warning and disable the affected control.
+
+## How do I select a gateway workflow?
+
+Use the **Workflow** dropdown in the tray UI. Selection is saved per session
+and sent with each run via `bundle_id` + `flow_id`.
+
+## Why does the status show OFFLINE?
+
+The gateway is unreachable or restarting. The UI will retry with backoff and
+you can use **Reconnect gateway** from the menu to force a refresh.
 
 ## How do attachments work?
 

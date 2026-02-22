@@ -4,11 +4,17 @@ Main application class for AbstractAssistant.
 Handles system tray integration, UI coordination, and application lifecycle.
 """
 
+import faulthandler
 import threading
 import time
 import signal
+import sys
+import traceback
 from pathlib import Path
 from typing import Optional
+from enum import Enum
+
+faulthandler.enable()
 
 import pystray
 from PIL import Image, ImageDraw
@@ -121,6 +127,7 @@ class EnhancedClickableIcon(pystray.Icon):
                     import traceback
                     traceback.print_exc()
 
+
     @_menu.setter
     def _menu(self, value):
         """Allow setting _menu during initialization."""
@@ -128,6 +135,15 @@ class EnhancedClickableIcon(pystray.Icon):
             if hasattr(self, 'debug') and self.debug:
                 print(f"🔍 _menu property set to: {value}")
         self._stored_menu = value
+
+
+class BubbleVisibility(str, Enum):
+    """Actual bubble visibility state (derived from Qt widget state)."""
+
+    UNINITIALIZED = "uninitialized"
+    HIDDEN = "hidden"
+    VISIBLE = "visible"
+    MINIMIZED = "minimized"
 
 
 class AbstractAssistantApp:
@@ -165,18 +181,41 @@ class AbstractAssistantApp:
         self.bubble_manager: Optional[QtBubbleManager] = None
         self.llm_manager: LLMManager = LLMManager(config=self.config, debug=self.debug, data_dir=self.data_dir)
         self.icon_generator: IconGenerator = IconGenerator(size=self.config.system_tray.icon_size)
+        self.animation_fps: int = self._resolve_animation_fps()
+        self.animation_interval_ms: int = max(1, int(1000 / self.animation_fps))
+        self.animation_interval_s: float = self.animation_interval_ms / 1000.0
         
         # Application state
         self.is_running: bool = False
-        self.bubble_visible: bool = False
         
         # Icon animation state
         self.base_icon: Optional[Image.Image] = None
         self.animation_timer: Optional[threading.Timer] = None
         self.current_status: str = "ready"
+        self._voice_meter: float | list[float] = 0.0
+        self._voice_meter_ts: float = 0.0
+        self._voice_meter_decay_s: float = 0.35
+        self._voice_meter_lock = threading.Lock()
         
         if self.debug:
             print(f"AbstractAssistant initialized with config: {self.config.to_dict()}")
+            print(f"🎛️  Tray animation: {self.animation_fps} FPS ({self.animation_interval_ms} ms)")
+
+    def _resolve_animation_fps(self) -> int:
+        """Resolve tray animation FPS with safe clamping."""
+        fps_raw = getattr(getattr(self.config, "system_tray", None), "animation_fps", 30)
+        try:
+            fps = int(fps_raw)
+        except Exception:
+            print(f"#FALLBACK: invalid animation_fps={fps_raw}; using 30")
+            fps = 30
+        if fps < 10:
+            print(f"#FALLBACK: animation_fps={fps} too low; using 10")
+            fps = 10
+        if fps > 30:
+            print(f"#FALLBACK: animation_fps={fps} too high; using 30")
+            fps = 30
+        return fps
         
     def create_system_tray_icon(self) -> pystray.Icon:
         """Create and configure the system tray icon."""
@@ -266,18 +305,25 @@ class AbstractAssistantApp:
             
             # Map status to animation type
             animation_status = status
-            if status in ["thinking", "generating", "executing"]:
+            if status in ["thinking", "generating", "executing", "offline", "reconnecting"]:
                 animation_status = "thinking"  # All working states use thinking animation
             elif status == "speaking":
                 animation_status = "speaking"
             else:
                 animation_status = "ready"  # Default to ready
+
+            if animation_status != "speaking":
+                self.update_voice_meter(0.0)
             
             # Update current status AFTER determining animation type
             self.current_status = animation_status
             
             # Start appropriate animation
             self._start_heartbeat_animation(animation_status)
+            try:
+                self._update_tray_tooltip(status=animation_status)
+            except Exception:
+                pass
             
             if self.debug:
                 print(f"🎨 Updated icon status: {status} -> animation: {animation_status}")
@@ -285,6 +331,57 @@ class AbstractAssistantApp:
         except Exception as e:
             if self.debug:
                 print(f"❌ Error updating icon status: {e}")
+
+    def update_voice_meter(self, level: float | list[float]) -> None:
+        """Update the live voice meter (0..1) for speaking animation."""
+        if isinstance(level, (list, tuple)):
+            try:
+                vals = [max(0.0, min(1.0, float(v))) for v in level]
+            except Exception:
+                return
+            with self._voice_meter_lock:
+                self._voice_meter = vals
+                self._voice_meter_ts = time.monotonic()
+            return
+        try:
+            val = float(level)
+        except Exception:
+            return
+        val = max(0.0, min(1.0, val))
+        with self._voice_meter_lock:
+            self._voice_meter = val
+            self._voice_meter_ts = time.monotonic()
+
+    def _get_voice_meter(self) -> float | list[float]:
+        """Return a decayed voice meter value."""
+        with self._voice_meter_lock:
+            level = self._voice_meter
+            ts = float(self._voice_meter_ts)
+        if ts <= 0.0:
+            return 0.0
+        dt = max(0.0, time.monotonic() - ts)
+        decay = max(0.1, float(self._voice_meter_decay_s))
+        if isinstance(level, list):
+            if not level:
+                return 0.0
+            if dt <= 0.0:
+                return level
+            if dt >= decay:
+                return [0.0 for _ in level]
+            scale = max(0.0, 1.0 - (dt / decay))
+            return [max(0.0, float(v) * scale) for v in level]
+        try:
+            val = float(level)
+        except Exception:
+            return 0.0
+        if val <= 0.0:
+            return 0.0
+        if dt <= 0.0:
+            return val
+        if dt >= decay:
+            return 0.0
+        # Linear decay for a crisp falloff.
+        return max(0.0, val * (1.0 - (dt / decay)))
     
     def _start_heartbeat_animation(self, status: str):
         """Start smooth heartbeat animation for the given status."""
@@ -312,7 +409,8 @@ class AbstractAssistantApp:
                 try:
                     if self.base_icon and self.current_status == status and hasattr(self, 'qt_tray_icon'):
                         # Apply smooth heartbeat effect
-                        icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status)
+                        meter = self._get_voice_meter() if status == "speaking" else None
+                        icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status, voice_meter=meter)
                         self._update_qt_icon(icon_image)
                     elif self.debug:
                         print(f"⚠️  Qt animation stopped - status_match:{self.current_status == status}")
@@ -325,7 +423,7 @@ class AbstractAssistantApp:
             # Create Qt timer for smooth animation
             self.qt_animation_timer = QTimer()
             self.qt_animation_timer.timeout.connect(update_icon)
-            self.qt_animation_timer.start(50)  # 20 FPS (50ms intervals)
+            self.qt_animation_timer.start(self.animation_interval_ms)
             
             if self.debug:
                 print("✅ Qt animation timer started")
@@ -340,11 +438,12 @@ class AbstractAssistantApp:
             try:
                 if self.icon and self.base_icon and self.current_status == status:
                     # Apply smooth heartbeat effect
-                    icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status)
+                    meter = self._get_voice_meter() if status == "speaking" else None
+                    icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status, voice_meter=meter)
                     self.icon.icon = icon_image
                     
-                    # Schedule next update at 20 FPS for smooth animation
-                    self.animation_timer = threading.Timer(0.05, update_icon)
+                    # Schedule next update at configured FPS
+                    self.animation_timer = threading.Timer(self.animation_interval_s, update_icon)
                     self.animation_timer.start()
                 elif self.debug:
                     print(f"⚠️  Threading animation stopped - status_match:{self.current_status == status}")
@@ -391,207 +490,254 @@ class AbstractAssistantApp:
     
 
     
+    # ── Application state machine ────────────────────────────────────
+    #
+    # States (derived from self.current_status set by update_icon_status):
+    #   "ready"    — idle, green icon
+    #   "thinking" — gateway run active, pulsing icon
+    #   "speaking" — TTS playing, animated icon
+    #
+    # Tray click rules:
+    #   READY    + click  → SHOW the app (always, unconditionally)
+    #   READY    + dblclk → SHOW the app (always, unconditionally)
+    #   RUNNING  + click  → ignore (run in progress)
+    #   RUNNING  + dblclk → ignore (run in progress)
+    #   SPEAKING + click  → PAUSE / RESUME voice (no UI change)
+    #   SPEAKING + dblclk → STOP voice, reset to READY
+    #
+    # After STOP: state resets to "ready" so the next click shows the app.
+
+    def _app_state(self) -> str:
+        """Return the canonical app state: 'ready', 'running', or 'speaking'."""
+        s = str(self.current_status or "").strip().lower()
+        if s == "speaking":
+            return "speaking"
+        if s in {"thinking", "running", "executing", "waiting"}:
+            return "running"
+        return "ready"
+
     def show_chat_bubble(self, icon=None, item=None):
-        """Show the Qt chat bubble interface."""
+        """Show / raise / focus the chat bubble.  Never refuses."""
         try:
-            if self.debug:
-                print("🔄 show_chat_bubble called")
+            state = self._bubble_visibility_state()
+            bubble = self._get_bubble()
 
-            # Check if TTS is currently speaking and stop it
-            if self.bubble_manager and hasattr(self.bubble_manager, 'bubble') and self.bubble_manager.bubble:
-                bubble = self.bubble_manager.bubble
-                if (hasattr(bubble, 'voice_manager') and bubble.voice_manager and
-                    bubble.voice_manager.is_speaking()):
-                    if self.debug:
-                        print("🔊 TTS is speaking, stopping voice...")
-                    bubble.voice_manager.stop()
+            if state == BubbleVisibility.VISIBLE:
+                if bubble is not None:
+                    bubble.raise_()
+                    bubble.activateWindow()
+                return
 
-                    # Always show bubble after stopping TTS
-                    if not self.bubble_visible:
-                        if self.debug:
-                            print("🔄 Showing bubble after stopping TTS...")
-                        self.bubble_manager.show()
-                        self.bubble_visible = True
-                        if self.debug:
-                            print("💬 Qt chat bubble opened after TTS stop")
-                    return
-            
-            # Show the bubble (should be instant due to preflight initialization)
+            if state == BubbleVisibility.MINIMIZED:
+                if bubble is not None:
+                    bubble.showNormal()
+                    bubble.raise_()
+                    bubble.activateWindow()
+                return
+
             if self.bubble_manager:
-                if self.debug:
-                    print("🔄 Showing pre-initialized bubble...")
                 self.bubble_manager.show()
             else:
-                if self.debug:
-                    print("⚠️  Bubble manager not pre-initialized, creating now...")
-                # Fallback: create bubble manager if preflight failed
-                try:
-                    self.bubble_manager = QtBubbleManager(
-                        llm_manager=self.llm_manager,
-                        config=self.config,
-                        debug=self.debug,
-                        listening_mode=self.listening_mode
-                    )
-                    self.bubble_manager.set_response_callback(self.handle_bubble_response)
-                    self.bubble_manager.set_error_callback(self.handle_bubble_error)
-                    self.bubble_manager.set_status_callback(self.update_icon_status)
-                    self.bubble_manager.set_app_quit_callback(self.quit_application)
-                    self.bubble_manager.show()
-                except Exception as e:
-                    if self.debug:
-                        print(f"❌ Failed to create bubble manager: {e}")
-                    print("💬 AbstractAssistant: Error creating chat bubble")
-                    return
+                self.bubble_manager = QtBubbleManager(
+                    llm_manager=self.llm_manager,
+                    config=self.config,
+                    debug=self.debug,
+                    listening_mode=self.listening_mode,
+                )
+                self.bubble_manager.set_response_callback(self.handle_bubble_response)
+                self.bubble_manager.set_error_callback(self.handle_bubble_error)
+                self.bubble_manager.set_status_callback(self.update_icon_status)
+                self.bubble_manager.set_voice_meter_callback(self.update_voice_meter)
+                self.bubble_manager.set_app_quit_callback(self.quit_application)
+                self.bubble_manager.show()
 
-            # Mark bubble as visible
-            self.bubble_visible = True
-
-            if self.debug:
-                print("💬 Qt chat bubble opened")
-                    
         except Exception as e:
             if self.debug:
-                print(f"❌ Error in show_chat_bubble: {e}")
-                import traceback
-                traceback.print_exc()
-            print("💬 AbstractAssistant: Error opening chat bubble")
+                print(f"❌ show_chat_bubble error: {e}")
+
+    # ── Tray click handlers ───────────────────────────────────────────
 
     def handle_single_click(self):
-        """Handle single click on system tray icon.
+        """Single click on tray icon."""
+        state = self._app_state()
+        if self.debug:
+            print(f"🔄 Single click: state={state}")
 
-        Behavior:
-        - If voice is speaking → pause voice (stay hidden)
-        - If voice is paused → resume voice (stay hidden)
-        - If voice is idle → show chat bubble
-        """
-        try:
-            if self.debug:
-                print("🔄 Single click handler called")
+        if state == "speaking":
+            try:
+                vm = self._get_voice_manager()
+                if vm is not None:
+                    paused = False
+                    try:
+                        paused = bool(vm.is_paused())
+                    except Exception:
+                        pass
+                    if paused:
+                        vm.resume()
+                    else:
+                        vm.pause()
+            except Exception:
+                pass
+            return
 
-            # Check if we have voice manager available
-            if (self.bubble_manager and
-                hasattr(self.bubble_manager, 'bubble') and
-                self.bubble_manager.bubble and
-                hasattr(self.bubble_manager.bubble, 'voice_manager') and
-                self.bubble_manager.bubble.voice_manager):
+        if state == "running":
+            return
 
-                voice_manager = self.bubble_manager.bubble.voice_manager
-                voice_state = voice_manager.get_state()
-
-                if self.debug:
-                    print(f"🔊 Voice state: {voice_state}")
-
-                if voice_state == 'speaking':
-                    # Pause voice, don't show bubble
-                    success = voice_manager.pause()
-                    if self.debug:
-                        print(f"⏸ Voice pause: {'success' if success else 'failed'}")
-                    return
-
-                elif voice_state == 'paused':
-                    # Resume voice, don't show bubble
-                    success = voice_manager.resume()
-                    if self.debug:
-                        print(f"▶ Voice resume: {'success' if success else 'failed'}")
-                    return
-
-            # Voice is idle or not available - show chat bubble
-            if self.debug:
-                print("💬 Voice idle or unavailable, showing chat bubble")
-            self.show_chat_bubble()
-
-        except Exception as e:
-            if self.debug:
-                print(f"❌ Error in handle_single_click: {e}")
-                import traceback
-                traceback.print_exc()
-            # Fallback - just show chat bubble
-            self.show_chat_bubble()
+        # ready → show
+        self.show_chat_bubble()
 
     def handle_double_click(self):
-        """Handle double click on system tray icon.
+        """Double click on tray icon."""
+        state = self._app_state()
+        if self.debug:
+            print(f"🔄 Double click: state={state}")
 
-        Behavior:
-        - If voice is speaking/paused → stop voice + show chat bubble
-        - If voice is idle → show chat bubble
-        """
-        try:
-            if self.debug:
-                print("🔄 Double click handler called")
+        if state == "speaking":
+            try:
+                vm = self._get_voice_manager()
+                if vm is not None:
+                    vm.stop()
+                bubble = self._get_bubble()
+                if bubble is not None:
+                    try:
+                        bubble.notify_manual_voice_stop()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            self.update_icon_status("ready")
+            return
 
-            # Check if we have voice manager available
-            if (self.bubble_manager and
-                hasattr(self.bubble_manager, 'bubble') and
-                self.bubble_manager.bubble and
-                hasattr(self.bubble_manager.bubble, 'voice_manager') and
-                self.bubble_manager.bubble.voice_manager):
+        if state == "running":
+            return
 
-                voice_manager = self.bubble_manager.bubble.voice_manager
-                voice_state = voice_manager.get_state()
+        # ready → show
+        self.show_chat_bubble()
 
-                if self.debug:
-                    print(f"🔊 Voice state: {voice_state}")
-
-                if voice_state in ['speaking', 'paused']:
-                    # Stop voice
-                    voice_manager.stop()
-                    if self.debug:
-                        print("⏹ Voice stopped")
-                    
-                    # Update icon status to ready since v0.5.1 callback won't fire for manual stops
-                    self.update_icon_status("ready")
-                    if self.debug:
-                        print("🔄 Icon status set to ready after manual voice stop")
-
-            # Always show chat bubble on double click
-            if self.debug:
-                print("💬 Showing chat bubble after double click")
-            self.show_chat_bubble()
-
-        except Exception as e:
-            if self.debug:
-                print(f"❌ Error in handle_double_click: {e}")
-                import traceback
-                traceback.print_exc()
-            # Fallback - just show chat bubble
-            self.show_chat_bubble()
+    def _get_voice_manager(self):
+        """Return the voice manager if available, else None."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return None
+        return getattr(bubble, "voice_manager", None)
 
     def hide_chat_bubble(self):
         """Hide the chat bubble interface."""
-        self.bubble_visible = False
         if self.bubble_manager:
             self.bubble_manager.hide()
             
             if self.debug:
                 print("💬 Chat bubble hidden")
-    
-    def handle_bubble_response(self, response: str):
-        """Handle AI response from bubble."""
-        if self.debug:
-            print(f"🔄 App: handle_bubble_response called with: {response[:100]}...")
-        
-        # Update icon back to ready state (steady green)
-        self.update_icon_status("ready")
-        
-        # Show toast notification with response
-        self.show_toast_notification(response, "success")
-        
-        # Hide bubble after response
-        self.hide_chat_bubble()
-    
-    def handle_bubble_error(self, error: str):
-        """Handle error from bubble."""
-        # Always reset tray icon animation on errors.
+
+    def _bubble_visibility_state(self) -> BubbleVisibility:
+        """Derive the bubble visibility from the actual Qt widget state."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return BubbleVisibility.UNINITIALIZED
         try:
-            self.update_icon_status("ready")
+            # Visible + minimized are distinct (minimized should restore).
+            if not bubble.isVisible():
+                return BubbleVisibility.HIDDEN
+            try:
+                if hasattr(bubble, "isMinimized") and bubble.isMinimized():
+                    return BubbleVisibility.MINIMIZED
+            except Exception:
+                pass
+            try:
+                from PyQt5.QtCore import Qt
+
+                if bubble.windowState() & Qt.WindowMinimized:
+                    return BubbleVisibility.MINIMIZED
+            except Exception:
+                pass
+            return BubbleVisibility.VISIBLE
+        except Exception:
+            return BubbleVisibility.HIDDEN
+
+    def _bubble_is_visible(self) -> bool:
+        """Return True if the chat bubble is actually visible."""
+        return self._bubble_visibility_state() == BubbleVisibility.VISIBLE
+
+    def _get_bubble(self):
+        try:
+            if self.bubble_manager and getattr(self.bubble_manager, "bubble", None):
+                return self.bubble_manager.bubble
+        except Exception:
+            return None
+        return None
+
+    def _run_is_active(self) -> bool:
+        bubble = self._get_bubble()
+        if bubble is None:
+            return False
+        try:
+            return bool(getattr(bubble, "is_run_active", lambda: False)())
+        except Exception:
+            return False
+
+    def _get_run_activity_summary(self) -> str:
+        bubble = self._get_bubble()
+        if bubble is None:
+            return ""
+        try:
+            return str(getattr(bubble, "get_run_activity_summary", lambda: "")() or "").strip()
+        except Exception:
+            return ""
+
+    def _update_tray_tooltip(self, *, status: Optional[str] = None) -> None:
+        base = "AbstractAssistant"
+        summary = self._get_run_activity_summary()
+        if summary:
+            tip = f"{base} — {summary}"
+        else:
+            state = str(status or "").strip().lower()
+            if state in {"thinking", "running", "executing", "waiting"}:
+                tip = f"{base} — Running"
+            elif state in {"speaking"}:
+                tip = f"{base} — Speaking"
+            else:
+                tip = f"{base} — Ready"
+        try:
+            if hasattr(self, "qt_tray_icon") and self.qt_tray_icon is not None:
+                self.qt_tray_icon.setToolTip(tip)
+        except Exception:
+            pass
+        try:
+            if self.icon is not None:
+                self.icon.title = tip
         except Exception:
             pass
 
-        # Show error toast notification
-        self.show_toast_notification(error, "error")
-        
-        # Hide bubble after error
-        self.hide_chat_bubble()
+    def _notify_run_active(self) -> None:
+        summary = self._get_run_activity_summary() or "A run is in progress."
+        try:
+            if hasattr(self, "qt_tray_icon") and self.qt_tray_icon is not None:
+                from PyQt5.QtWidgets import QSystemTrayIcon
+
+                self.qt_tray_icon.showMessage(
+                    "AbstractAssistant running",
+                    summary,
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000,
+                )
+                return
+        except Exception:
+            pass
+        try:
+            if self.icon is not None and hasattr(self.icon, "notify"):
+                self.icon.notify(summary, "AbstractAssistant running")
+        except Exception:
+            pass
+    
+    def handle_bubble_response(self, response: str):
+        """Handle AI response from bubble (informational only — never hide the UI)."""
+        if self.debug:
+            print(f"🔄 App: handle_bubble_response called with: {response[:100]}...")
+
+    def handle_bubble_error(self, error: str):
+        """Handle error from bubble (informational only — never hide the UI)."""
+        if self.debug:
+            print(f"❌ App: handle_bubble_error: {error}")
     
     def show_toast_notification(self, message: str, type: str = "info"):
         """Show a toast notification."""
@@ -790,6 +936,7 @@ class AbstractAssistantApp:
             # Now set the status callback after TTS initialization is complete
             if self.bubble_manager:
                 self.bubble_manager.set_status_callback(self.update_icon_status)
+                self.bubble_manager.set_voice_meter_callback(self.update_voice_meter)
                 if self.debug:
                     print("✅ Status callback set after TTS initialization")
 
@@ -804,6 +951,7 @@ class AbstractAssistantApp:
             # Still set status callback even if preflight failed
             if self.bubble_manager:
                 self.bubble_manager.set_status_callback(self.update_icon_status)
+                self.bubble_manager.set_voice_meter_callback(self.update_voice_meter)
 
     def quit_application(self, icon=None, item=None):
         """Quit the application gracefully."""
@@ -856,17 +1004,36 @@ class AbstractAssistantApp:
                 self.qt_app.quit()
         except Exception:
             pass
-    
+
     def run(self):
         """Start the application using Qt event loop for proper threading."""
         self.is_running = True
+
+        # Global exception hooks so crashes are never silent.
+        _orig_excepthook = sys.excepthook
+
+        def _excepthook(exc_type, exc_value, exc_tb):
+            sys.stderr.write("\n=== UNCAUGHT EXCEPTION ===\n")
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=sys.stderr)
+            sys.stderr.write("=== END UNCAUGHT EXCEPTION ===\n")
+            sys.stderr.flush()
+            _orig_excepthook(exc_type, exc_value, exc_tb)
+
+        sys.excepthook = _excepthook
+
+        def _thread_excepthook(args):
+            sys.stderr.write(f"\n=== UNCAUGHT THREAD EXCEPTION ({args.thread}) ===\n")
+            traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback, file=sys.stderr)
+            sys.stderr.write("=== END UNCAUGHT THREAD EXCEPTION ===\n")
+            sys.stderr.flush()
+
+        threading.excepthook = _thread_excepthook
 
         try:
             # Import Qt here to avoid conflicts
             from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
             from PyQt5.QtCore import QTimer
             from PyQt5.QtGui import QIcon
-            import sys
 
             # Create Qt application in main thread
             if not QApplication.instance():
@@ -982,6 +1149,12 @@ class AbstractAssistantApp:
         quit_action.triggered.connect(self._qt_quit_application)
         context_menu.addAction(quit_action)
 
+        # macOS: some tray clicks only surface via the context menu.
+        try:
+            context_menu.aboutToShow.connect(self._qt_on_context_menu_show)
+        except Exception:
+            pass
+
         tray_icon.setContextMenu(context_menu)
 
         # Store reference for animations
@@ -1016,7 +1189,26 @@ class AbstractAssistantApp:
         if self.debug:
             print(f"🖱️  Click detected - reason: {reason}")
 
-        if reason == 3:  # Single click (or first part of double click)
+        # Resolve ActivationReason enums (fallback to numeric codes).
+        try:
+            from PyQt5.QtWidgets import QSystemTrayIcon
+
+            Trigger = QSystemTrayIcon.ActivationReason.Trigger
+            DoubleClick = QSystemTrayIcon.ActivationReason.DoubleClick
+            Context = QSystemTrayIcon.ActivationReason.Context
+            MiddleClick = QSystemTrayIcon.ActivationReason.MiddleClick
+            Unknown = QSystemTrayIcon.ActivationReason.Unknown
+        except Exception:
+            Trigger, DoubleClick, Context, MiddleClick, Unknown = 3, 2, 1, 4, 0
+
+        # Defensive: if timers aren't ready, just treat as a single click.
+        if not hasattr(self, "click_timer") or self.click_timer is None:
+            if self.debug:
+                print("#FALLBACK: click timer missing; treating as single click")
+            self._qt_handle_single_click()
+            return
+
+        if reason == Trigger:  # Single click (or first part of double click)
             if self.pending_single_click:
                 # Already have a pending single click, ignore this one
                 if self.debug:
@@ -1032,7 +1224,7 @@ class AbstractAssistantApp:
             if self.debug:
                 print(f"🔄 Qt: reason=3 detected, waiting {self.DOUBLE_CLICK_TIMEOUT}ms for possible reason=2...")
 
-        elif reason == 2:  # Double click confirmation
+        elif reason == DoubleClick:  # Double click confirmation
             if self.pending_single_click and self.click_timer.isActive():
                 # We have a pending single click and timer is still running
                 # This means reason=2 arrived within the timeout period
@@ -1053,6 +1245,21 @@ class AbstractAssistantApp:
 
                 # Execute double click anyway (fallback)
                 self._qt_handle_double_click()
+
+        elif reason == Context:
+            # On macOS, some tray clicks arrive as "Context".
+            if sys.platform == "darwin":
+                if self.debug:
+                    print("🔄 Context activation on macOS; treating as single click")
+                self._qt_handle_single_click()
+            else:
+                if self.debug:
+                    print("ℹ️  Context activation; leaving to context menu")
+
+        elif reason in (MiddleClick, Unknown):
+            if self.debug:
+                print("#FALLBACK: Unknown/middle click; treating as single click")
+            self._qt_handle_single_click()
 
     def _qt_handle_single_click(self):
         """Handle single click after timeout (no reason=2 detected) in Qt main thread."""
@@ -1081,3 +1288,24 @@ class AbstractAssistantApp:
 
         # Route through the same cleanup path (menu Quit should behave like Ctrl+C).
         self._request_qt_quit()
+
+    def _qt_on_context_menu_show(self):
+        """Best-effort: treat macOS context menu activation as a click.
+
+        On macOS a single tray click fires both reason=3 (Trigger) AND
+        aboutToShow.  If a Trigger-based pending click is already queued
+        we must not fire a second one — that would pause then immediately
+        resume the voice.
+        """
+        if sys.platform != "darwin":
+            return
+        if getattr(self, "pending_single_click", False):
+            if self.debug:
+                print("🖱️  Context menu on macOS; skipping (Trigger already pending)")
+            return
+        if self.debug:
+            print("🖱️  Context menu on macOS; treating as single click")
+        try:
+            self._qt_handle_single_click()
+        except Exception:
+            pass

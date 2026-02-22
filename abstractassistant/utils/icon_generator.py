@@ -176,12 +176,18 @@ class IconGenerator:
         
         return img
     
-    def apply_heartbeat_effect(self, base_icon: Image.Image, status: str = "ready") -> Image.Image:
+    def apply_heartbeat_effect(
+        self,
+        base_icon: Image.Image,
+        status: str = "ready",
+        voice_meter: float | list[float] | None = None,
+    ) -> Image.Image:
         """Apply DRAMATIC animated effect with solid colors and rotating elements.
         
         Args:
             base_icon: Base icon image to apply effect to
             status: Status for animation type ('ready', 'thinking', 'speaking')
+            voice_meter: Optional 0..1 meter or per-band meter for speaking amplitude
             
         Returns:
             Icon with dramatic animated effect applied
@@ -216,10 +222,14 @@ class IconGenerator:
         
         # Create a new dramatic icon instead of modifying the base
         size = base_icon.size[0]
-        center = size // 2
         
+        # Render at 2x for smoother animation, then downscale.
+        scale = 2
+        draw_size = size * scale
+        center = draw_size // 2
+
         # Create new image with transparent background
-        result = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        result = Image.new('RGBA', (draw_size, draw_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(result)
         
         # Get current time for animation
@@ -233,42 +243,40 @@ class IconGenerator:
         # print(f"🎯 Animation logic: status='{status}', base_color={base_color}")
         
         if status == 'thinking':
-            # print("🔴 THINKING: Drawing rotating red bars")  # Debug disabled
-            # Fast rotating bars with red color - CLOCKWISE rotation
-            rotation_speed = 4.0  # 4 rotations per second
-            angle = -(current_time * rotation_speed * 360) % 360  # Negative for clockwise
-            
-            # Double-heartbeat intensity
-            heartbeat = (current_time * 3.0) % 1  # 3Hz heartbeat
-            if heartbeat < 0.1:
-                intensity = 1.0
-            elif heartbeat < 0.2:
-                intensity = 0.3
-            elif heartbeat < 0.3:
-                intensity = 1.2
-            else:
-                intensity = 0.2
-            
-            # Draw rotating bars
-            self._draw_rotating_bars(draw, center, size, angle, base_color, intensity)
+            # Smooth spinner to avoid flicker
+            rotation_speed = 1.2  # rotations per second
+            angle = (current_time * rotation_speed * 360) % 360
+            pulse = 0.6 + 0.4 * (0.5 + 0.5 * math.sin(current_time * 2.0 * math.pi))
+            self._draw_spinner_dots(draw, center, draw_size, angle, base_color, pulse)
             
         elif status == 'speaking':
             # print("🔵 SPEAKING: Drawing vibrating blue bars")  # Debug disabled
             # print(f"🔵 SPEAKING: Using color {base_color} (should be blue)")  # Debug disabled
-            
-            # Create voice frequency-like vibration pattern
-            freq1 = 8.0  # High frequency vibration
-            freq2 = 3.0  # Medium frequency modulation
-            freq3 = 1.5  # Low frequency envelope
-            
-            # Complex vibration pattern mimicking voice
-            vibration = (math.sin(current_time * freq1 * 2 * math.pi) * 0.3 +
-                        math.sin(current_time * freq2 * 2 * math.pi) * 0.4 +
-                        math.sin(current_time * freq3 * 2 * math.pi) * 0.3)
-            intensity = 0.7 + vibration * 0.3
-            
-            # Draw vibrating voice bars (vertical bars that vibrate)
-            self._draw_voice_bars(draw, center, size, base_color, intensity, current_time)
+
+            if voice_meter is None:
+                # Create voice frequency-like vibration pattern
+                freq1 = 8.0  # High frequency vibration
+                freq2 = 3.0  # Medium frequency modulation
+                freq3 = 1.5  # Low frequency envelope
+
+                # Complex vibration pattern mimicking voice
+                vibration = (math.sin(current_time * freq1 * 2 * math.pi) * 0.3 +
+                            math.sin(current_time * freq2 * 2 * math.pi) * 0.4 +
+                            math.sin(current_time * freq3 * 2 * math.pi) * 0.3)
+                intensity = 0.7 + vibration * 0.3
+                meter = None
+            else:
+                if isinstance(voice_meter, (list, tuple)):
+                    bands = [max(0.0, min(1.0, float(v))) for v in voice_meter if v is not None]
+                    meter = bands
+                    avg = sum(bands) / len(bands) if bands else 0.0
+                    intensity = 0.55 + (avg * 0.65)
+                else:
+                    meter = max(0.0, min(1.0, float(voice_meter)))
+                    intensity = 0.55 + (meter * 0.65)
+
+            # Draw voice bars (meter-driven when available)
+            self._draw_voice_bars(draw, center, draw_size, base_color, intensity, current_time, meter=meter)
             
         elif status == 'ready':
             # print("🟢 READY: Drawing breathing green circle")  # Debug disabled
@@ -277,13 +285,17 @@ class IconGenerator:
             intensity = 0.4 + breath * 0.3
             
             # Draw breathing circle (no rotation)
-            self._draw_breathing_circle(draw, center, size, base_color, intensity)
+            self._draw_breathing_circle(draw, center, draw_size, base_color, intensity)
             
         else:
             # print(f"❓ UNKNOWN STATUS: '{status}' - using default circle")  # Debug disabled
             # Default: static circle
-            self._draw_breathing_circle(draw, center, size, base_color, 0.5)
-        
+            self._draw_breathing_circle(draw, center, draw_size, base_color, 0.5)
+
+        if scale > 1:
+            resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+            result = result.resize((size, size), resample)
+
         return result
     
     def _draw_rotating_bars(self, draw, center, size, angle, color, intensity):
@@ -312,9 +324,31 @@ class IconGenerator:
             # Draw thick line as bar
             self._draw_thick_line(draw, start_x, start_y, end_x, end_y, bar_width, bar_color)
     
-    def _draw_voice_bars(self, draw, center, size, color, intensity, current_time):
+    def _draw_voice_bars(self, draw, center, size, color, intensity, current_time, *, meter: float | list[float] | None = None):
         """Draw vibrating voice bars for speaking status."""
         import math
+
+        def _resample_levels(levels: list[float], target: int) -> list[float]:
+            if target <= 0:
+                return []
+            if not levels:
+                return [0.0] * target
+            if len(levels) == target:
+                return levels
+            if len(levels) == 1:
+                return [levels[0]] * target
+            out: list[float] = []
+            max_idx = len(levels) - 1
+            for i in range(target):
+                pos = (i / max(1, target - 1)) * max_idx
+                lo = int(math.floor(pos))
+                hi = int(math.ceil(pos))
+                if lo == hi:
+                    out.append(levels[lo])
+                else:
+                    frac = pos - lo
+                    out.append(levels[lo] * (1.0 - frac) + levels[hi] * frac)
+            return out
         
         # Adjust color intensity
         r, g, b = color
@@ -328,17 +362,26 @@ class IconGenerator:
         bar_count = 5
         bar_width = size * 0.15      # Increased from 0.08 to 0.15 (almost 2x wider)
         bar_spacing = size * 0.18    # Increased from 0.12 to 0.18 (more spacing)
+
+        meter_levels: list[float] | None = None
+        if isinstance(meter, (list, tuple)):
+            meter_levels = _resample_levels([max(0.0, min(1.0, float(v))) for v in meter], bar_count)
         
         for i in range(bar_count):
             # Each bar has slightly different frequency for realistic voice effect
             bar_freq = 6.0 + i * 1.5  # Different frequencies per bar
             bar_vibration = math.sin(current_time * bar_freq * 2 * math.pi)
-            
+
             # Bar height varies with vibration (like audio visualizer)
-            # Made much taller to be more visible
-            base_height = size * 0.25    # Increased from 0.15 to 0.25
-            vibration_height = size * 0.35 * abs(bar_vibration)  # Increased from 0.25 to 0.35
-            total_height = base_height + vibration_height
+            base_height = size * 0.22
+            if meter is None:
+                vibration_height = size * 0.33 * abs(bar_vibration)
+                total_height = base_height + vibration_height
+            else:
+                # Real meter drives height, with a subtle per-bar shape
+                shape = 0.75 + (0.25 * abs(bar_vibration))
+                band_level = meter_levels[i] if meter_levels is not None else float(meter)
+                total_height = base_height + (size * 0.45 * band_level * shape)
             
             # Position bars horizontally across the icon
             x = center - (bar_count - 1) * bar_spacing / 2 + i * bar_spacing
@@ -348,6 +391,25 @@ class IconGenerator:
             # Draw vertical bar
             bbox = [x - bar_width/2, y_top, x + bar_width/2, y_bottom]
             draw.rectangle(bbox, fill=bar_color)
+
+    def _draw_spinner_dots(self, draw, center, size, angle, color, intensity):
+        """Draw smooth rotating dots for thinking status."""
+        dot_count = 8
+        radius = size * 0.32
+        dot_radius = size * 0.055
+
+        r, g, b = color
+        for i in range(dot_count):
+            phase = i / dot_count
+            alpha = 0.25 + (0.75 * (1.0 - phase))
+            alpha = int(255 * alpha * intensity)
+            dot_color = (int(r), int(g), int(b), max(0, min(255, alpha)))
+
+            theta = math.radians(angle + (i * (360 / dot_count)))
+            x = center + math.cos(theta) * radius
+            y = center + math.sin(theta) * radius
+            bbox = [x - dot_radius, y - dot_radius, x + dot_radius, y + dot_radius]
+            draw.ellipse(bbox, fill=dot_color)
     
     def _draw_breathing_circle(self, draw, center, size, color, intensity):
         """Draw breathing circle for ready status."""

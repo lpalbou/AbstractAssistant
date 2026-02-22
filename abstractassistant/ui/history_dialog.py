@@ -5,6 +5,7 @@ This module provides an authentic iPhone Messages UI for displaying chat history
 """
 import re
 import time
+import warnings
 from datetime import datetime
 from typing import Dict, List, Callable, Optional
 import markdown
@@ -856,14 +857,20 @@ class iPhoneMessagesDialog:
 
         # Get screen geometry
         screen = QApplication.primaryScreen()
-        screen_geometry = screen.availableGeometry()
+        screen_geometry = screen.availableGeometry() if screen else None
+        if screen_geometry is None:
+            return
 
-        # Position dialog very close to top-right corner
+        # Position dialog directly below the menu bar (no padding)
         dialog_width = dialog.width()
         dialog_height = dialog.height()
 
-        x = screen_geometry.width() - dialog_width - 10  # Only 10px from right edge
-        y = screen_geometry.y() + 5  # Only 5px below the system tray/navbar
+        x = screen_geometry.x() + screen_geometry.width() - dialog_width
+        y = screen_geometry.y()
+        max_x = screen_geometry.x() + max(0, screen_geometry.width() - dialog_width)
+        max_y = screen_geometry.y() + max(0, screen_geometry.height() - dialog_height)
+        x = max(screen_geometry.x(), min(int(x), int(max_x)))
+        y = max(screen_geometry.y(), min(int(y), int(max_y)))
 
         dialog.move(x, y)
 
@@ -905,7 +912,7 @@ class iPhoneMessagesDialog:
                 background: transparent;
                 border: none;
                 text-align: left;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
         """)
         nav_layout.addWidget(back_btn)
@@ -919,7 +926,7 @@ class iPhoneMessagesDialog:
                 color: #ffffff;
                 font-size: 13px;
                 font-weight: 600;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
         """)
         nav_layout.addWidget(title)
@@ -937,7 +944,7 @@ class iPhoneMessagesDialog:
                 background: transparent;
                 border: none;
                 text-align: center;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QPushButton:hover {
                 background: rgba(255, 59, 48, 0.1);
@@ -959,7 +966,7 @@ class iPhoneMessagesDialog:
                 background: transparent;
                 border: none;
                 text-align: right;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
         """)
         dialog.edit_button = edit_btn  # Store reference
@@ -1083,7 +1090,7 @@ class iPhoneMessagesDialog:
                     font-weight: 700;
                     letter-spacing: 0.6px;
                     color: rgba(255, 255, 255, 0.85);
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }}
                 """
             )
@@ -1152,7 +1159,7 @@ class iPhoneMessagesDialog:
                     font-size: 14px;
                     font-weight: 400;
                     line-height: 18px;
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }
             """)
             # Right align - selection circle on the left of bubble (towards center)
@@ -1185,7 +1192,7 @@ class iPhoneMessagesDialog:
                     font-size: 14px;
                     font-weight: 400;
                     line-height: 18px;
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                 }
             """)
             # Left align - selection circle on the right of bubble (towards center)
@@ -1206,7 +1213,7 @@ class iPhoneMessagesDialog:
                     color: rgba(255, 255, 255, 0.7);
                     font-size: 11px;
                     font-weight: 500;
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                     padding: 2px 0px;
                     margin: 0px;
                 }
@@ -1252,7 +1259,7 @@ class iPhoneMessagesDialog:
                         color: rgba(255, 255, 255, 0.65);
                         font-size: 11px;
                         font-weight: 500;
-                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                        font-family: "Helvetica Neue", "Helvetica", Arial;
                         padding: 0px;
                         margin: 0px;
                     }
@@ -1288,7 +1295,7 @@ class iPhoneMessagesDialog:
                             padding: 2px 8px;
                             font-size: 11px;
                             color: rgba(255, 255, 255, 0.85);
-                            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                            font-family: "Helvetica Neue", "Helvetica", Arial;
                             text-align: left;
                         }
                         QPushButton:hover {
@@ -1321,7 +1328,7 @@ class iPhoneMessagesDialog:
                             padding: 2px 8px;
                             font-size: 11px;
                             color: rgba(255, 255, 255, 0.75);
-                            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                            font-family: "Helvetica Neue", "Helvetica", Arial;
                         }
                         QPushButton:hover {
                             background: rgba(255, 255, 255, 0.10);
@@ -1375,7 +1382,7 @@ class iPhoneMessagesDialog:
                         padding: 2px 10px;
                         font-size: 12px;
                         color: rgba(255, 255, 255, 0.75);
-                        font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                        font-family: "Helvetica Neue", "Helvetica", Arial;
                     }
                     QPushButton:hover {
                         background: rgba(255, 255, 255, 0.10);
@@ -1423,7 +1430,7 @@ class iPhoneMessagesDialog:
                 font-size: 13px;
                 font-weight: 400;
                 color: rgba(255, 255, 255, 0.6);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
                 padding: 0px;
             }
         """)
@@ -1469,7 +1476,7 @@ class iPhoneMessagesDialog:
         # Apply custom styling to the generated HTML
         # Style code blocks
         html = html.replace('<pre>', '<pre style="margin: 6px 0; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px; overflow-x: auto;">')
-        html = html.replace('<code>', '<code style="font-family: \'SF Mono\', \'Menlo\', \'Monaco\', \'Courier New\', monospace; font-size: 12px; line-height: 1.4; color: #e8e8e8;">')
+        html = html.replace('<code>', '<code style="font-family: \'Menlo\', \'Monaco\', \'Courier New\', monospace; font-size: 12px; line-height: 1.4; color: #e8e8e8;">')
 
         # Style tables
         html = html.replace('<table>', '<table style="margin: 6px 0; border-collapse: collapse; width: 100%; font-size: 12px;">')
@@ -1513,7 +1520,7 @@ class iPhoneMessagesDialog:
                 border-radius: 12px;
                 color: rgba(255, 255, 255, 0.75);
                 font-size: 20px;
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.10);
@@ -1662,8 +1669,8 @@ class iPhoneMessagesDialog:
         return data
 
     @staticmethod
-    def _open_tool_link(kind: str, target: str) -> None:
-        """Open a tool-produced resource (URL or file path) using the OS default handler."""
+    def _open_tool_link(kind: str, target: str, *, run_id: str = "", content_type: str = "", parent=None) -> None:
+        """Open a tool-produced resource (URL/file/artifact) using the OS default handler."""
         k = str(kind or "").strip().lower()
         t = str(target or "").strip()
         if not t:
@@ -1675,6 +1682,60 @@ class iPhoneMessagesDialog:
 
                 webbrowser.open(t)
                 return
+
+            if k == "artifact":
+                try:
+                    factory = getattr(parent, "_gateway_client_factory", None)
+                    if not callable(factory):
+                        warnings.warn("#FALLBACK: gateway client unavailable for artifact download")
+                        return
+                    gw = factory()
+                    if gw is None:
+                        warnings.warn("#FALLBACK: gateway client unavailable for artifact download")
+                        return
+                    rid = str(run_id or "").strip()
+                    if not rid:
+                        warnings.warn("#FALLBACK: artifact link missing run_id; cannot download")
+                        return
+
+                    meta = {}
+                    try:
+                        meta = gw.get_run_artifact_metadata(run_id=rid, artifact_id=t)
+                    except Exception:
+                        meta = {}
+                    filename = str(meta.get("filename") or "").strip() if isinstance(meta, dict) else ""
+                    ct = str(content_type or meta.get("content_type") or "").strip() if isinstance(meta, dict) else str(content_type or "")
+
+                    data, ct0 = gw.download_run_artifact_content(run_id=rid, artifact_id=t)
+                    if not ct:
+                        ct = ct0
+
+                    import mimetypes
+                    from pathlib import Path
+
+                    cache_dir = None
+                    try:
+                        base = getattr(parent, "_artifact_cache_dir", None)
+                        if isinstance(base, (str, Path)):
+                            cache_dir = Path(base).expanduser()
+                    except Exception:
+                        cache_dir = None
+                    if cache_dir is None:
+                        cache_dir = Path.home() / ".abstractassistant"
+                    cache_dir = cache_dir / "artifacts"
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+
+                    if not filename:
+                        ext = mimetypes.guess_extension(ct or "") or ".bin"
+                        filename = f"artifact-{t[:8]}{ext}"
+                    cache_path = cache_dir / filename
+                    tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
+                    tmp.write_bytes(data)
+                    tmp.replace(cache_path)
+                    t = str(cache_path)
+                except Exception as e:
+                    warnings.warn(f"#FALLBACK: artifact download failed: {e}")
+                    return
 
             # Default: treat as a file path (best-effort).
             from urllib.parse import unquote, urlparse
@@ -1716,7 +1777,12 @@ class iPhoneMessagesDialog:
             kind = str(link.get("kind") or "url")
             target = str(link.get("target") or "").strip()
             label = str(link.get("label") or target).strip() or target
-            icon = "🌐" if kind == "url" else "📄"
+            run_id = str(link.get("run_id") or "").strip()
+            content_type = str(link.get("content_type") or "").strip()
+            if kind == "artifact":
+                icon = "📦"
+            else:
+                icon = "🌐" if kind == "url" else "📄"
             btn = QPushButton(f"{icon} {label}")
             btn.setToolTip(target)
             btn.setStyleSheet("""
@@ -1727,7 +1793,7 @@ class iPhoneMessagesDialog:
                     padding: 6px 10px;
                     font-size: 12px;
                     color: rgba(255, 255, 255, 0.9);
-                    font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
                     text-align: left;
                 }
                 QPushButton:hover {
@@ -1735,7 +1801,11 @@ class iPhoneMessagesDialog:
                     border: 1px solid rgba(0, 122, 255, 0.6);
                 }
             """)
-            btn.clicked.connect(lambda _checked=False, k=kind, t=target: iPhoneMessagesDialog._open_tool_link(k, t))
+            btn.clicked.connect(
+                lambda _checked=False, k=kind, t=target, r=run_id, ct=content_type: iPhoneMessagesDialog._open_tool_link(
+                    k, t, run_id=r, content_type=ct, parent=dlg
+                )
+            )
             layout.addWidget(btn)
 
         close_btn = QPushButton("Close")
@@ -1748,7 +1818,7 @@ class iPhoneMessagesDialog:
                 padding: 8px 12px;
                 font-size: 12px;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
             }
             QPushButton:hover {
                 background: rgba(255, 255, 255, 0.14);

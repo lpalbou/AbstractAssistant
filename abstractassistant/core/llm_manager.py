@@ -10,13 +10,19 @@ powered by:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+import warnings
 
-from .agent_host import AgentHost, AgentHostConfig
 from .session_index import SessionIndex
-from .session_store import SessionStore
+from .session_store import SessionStore, SessionSnapshot
+from .gateway_selection_store import GatewaySelectionStore
+from ..gateway import GatewayClient, GatewayClientConfig
+
+if TYPE_CHECKING:
+    from .agent_host import AgentHost, AgentHostConfig
 
 
 @dataclass
@@ -60,6 +66,8 @@ class LLMManager:
 
         self.config = config
         self.debug = bool(debug)
+        self.use_gateway = bool(getattr(getattr(config, "gateway", None), "use_gateway", False))
+        self._gateway_client: Optional[GatewayClient] = None
 
         self.data_dir = (Path(data_dir).expanduser() if data_dir is not None else (Path.home() / ".abstractassistant"))
         self._session_index = SessionIndex(self.data_dir)
@@ -70,21 +78,112 @@ class LLMManager:
         self.current_model: str = str(getattr(config.llm, "default_model", "") or "qwen3:4b-instruct")
 
         self._tts_mode: bool = False
-        self._host = self._build_host_for_active_session()
+        self._host: Optional["AgentHost"] = None
+        self._gateway_snapshot: Optional[SessionSnapshot] = None
+        self._gateway_store: Optional[SessionStore] = None
+        if self.use_gateway:
+            self._gateway_snapshot = self._load_gateway_snapshot(self.active_session_id)
+        else:
+            self._host = self._build_host_for_active_session()
 
         # UI-facing compatibility fields.
         self.token_usage = TokenUsage()
         self.current_session: Optional[_SessionView] = None
-        self.llm = self._best_effort_llm_for_ui()
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
 
     @property
-    def agent_host(self) -> AgentHost:
+    def agent_host(self) -> Optional["AgentHost"]:
         return self._host
+
+    def gateway_client(self) -> Optional[GatewayClient]:
+        """Return a cached GatewayClient when gateway mode is enabled."""
+        if not self.use_gateway:
+            return None
+        gw = getattr(self.config, "gateway", None)
+        url = str(getattr(gw, "url", "") or "").strip()
+        if not url:
+            raise ValueError("Gateway URL is required in gateway mode")
+        token = str(getattr(gw, "auth_token", "") or "").strip()
+        if self._gateway_client is None:
+            self._gateway_client = GatewayClient(GatewayClientConfig(base_url=url, auth_token=token))
+        return self._gateway_client
 
     @property
     def active_session_id(self) -> str:
         return self._session_index.active_session_id
+
+    def get_last_run_id(self) -> Optional[str]:
+        """Return the last run id for the active session (gateway-first)."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                return snap.last_run_id
+            if self._host is None:
+                return None
+            return getattr(self._host, "last_run_id", None)
+        except Exception:
+            return None
+
+    def _gateway_store_for(self, session_id: str) -> SessionStore:
+        data_dir = self._session_index.data_dir_for(session_id)
+        return SessionStore(Path(data_dir) / "session.json")
+
+    def gateway_selection_store(self, *, session_id: Optional[str] = None) -> GatewaySelectionStore:
+        """Return a per-session store for gateway bundle/flow selection."""
+        sid = str(session_id or self.active_session_id).strip()
+        if not sid:
+            raise ValueError("session_id is required")
+        data_dir = self._session_index.data_dir_for(sid)
+        return GatewaySelectionStore(Path(data_dir) / "gateway.json")
+
+    def _load_gateway_snapshot(self, session_id: str) -> SessionSnapshot:
+        store = self._gateway_store_for(session_id)
+        snap = store.load()
+        if snap is None:
+            snap = SessionSnapshot(
+                session_id=str(session_id),
+                actor_id="gateway",
+                messages=[],
+                last_run_id=None,
+            )
+            store.save(snap)
+        self._gateway_store = store
+        return snap
+
+    def _save_gateway_snapshot(self, snapshot: SessionSnapshot) -> None:
+        store = self._gateway_store or self._gateway_store_for(snapshot.session_id)
+        self._gateway_store = store
+        store.save(snapshot)
+
+    def replace_gateway_messages(self, messages: List[Dict[str, Any]], *, last_run_id: Optional[str] = None) -> None:
+        """Replace gateway session messages with a provided history snapshot."""
+        if not self.use_gateway:
+            return
+        try:
+            snap = self._ensure_gateway_snapshot()
+            run_id = snap.last_run_id if last_run_id is None else str(last_run_id or "").strip() or None
+            cleaned: List[Dict[str, Any]] = []
+            for m in messages:
+                if isinstance(m, dict):
+                    cleaned.append(dict(m))
+            self._gateway_snapshot = SessionSnapshot(
+                session_id=snap.session_id,
+                actor_id=snap.actor_id,
+                messages=cleaned,
+                last_run_id=run_id,
+            )
+            self._save_gateway_snapshot(self._gateway_snapshot)
+            self._refresh_session_view()
+        except Exception:
+            return
+
+    def _ensure_gateway_snapshot(self) -> SessionSnapshot:
+        snap = self._gateway_snapshot
+        if snap is None:
+            snap = self._load_gateway_snapshot(self.active_session_id)
+            self._gateway_snapshot = snap
+        return snap
 
     def list_sessions(self) -> List[Dict[str, str]]:
         out: List[Dict[str, str]] = []
@@ -106,8 +205,12 @@ class LLMManager:
 
     def create_new_session(self) -> str:
         rec = self._session_index.create_session()
-        self._host = self._build_host_for_session(rec.session_id)
-        self.llm = self._best_effort_llm_for_ui()
+        if self.use_gateway:
+            self._host = None
+            self._gateway_snapshot = self._load_gateway_snapshot(rec.session_id)
+        else:
+            self._host = self._build_host_for_session(rec.session_id)
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
         return rec.session_id
 
@@ -118,8 +221,12 @@ class LLMManager:
         if sid == self.active_session_id:
             return
         self._session_index.set_active(sid)
-        self._host = self._build_host_for_session(sid)
-        self.llm = self._best_effort_llm_for_ui()
+        if self.use_gateway:
+            self._host = None
+            self._gateway_snapshot = self._load_gateway_snapshot(sid)
+        else:
+            self._host = self._build_host_for_session(sid)
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
 
     def refresh(self) -> None:
@@ -135,6 +242,9 @@ class LLMManager:
 
         Uses the active provider/model. Runs in a background thread.
         """
+        if self.use_gateway:
+            warnings.warn("#FALLBACK: session title generation disabled in gateway mode")
+            return
         try:
             messages = getattr(self._host.snapshot, "messages", None)
         except Exception:
@@ -252,10 +362,11 @@ class LLMManager:
         except Exception:
             return None
 
-    def _build_host_for_active_session(self) -> AgentHost:
+    def _build_host_for_active_session(self) -> "AgentHost":
         return self._build_host_for_session(self.active_session_id)
 
-    def _build_host_for_session(self, session_id: str) -> AgentHost:
+    def _build_host_for_session(self, session_id: str) -> "AgentHost":
+        from .agent_host import AgentHost, AgentHostConfig
         data_dir = self._session_index.data_dir_for(session_id)
         return AgentHost(
             AgentHostConfig(
@@ -269,6 +380,8 @@ class LLMManager:
     def _best_effort_llm_for_ui(self) -> Optional[Any]:
         """Return the underlying AbstractCore provider instance when available (best-effort)."""
         try:
+            if self._host is None:
+                return None
             rt = getattr(self._host, "_runtime", None)
             client = getattr(rt, "_abstractcore_llm_client", None)
             getter = getattr(client, "get_provider_instance", None)
@@ -279,31 +392,102 @@ class LLMManager:
         return None
 
     def _refresh_session_view(self) -> None:
-        snap = self._host.snapshot
+        snap = self._ensure_gateway_snapshot() if self.use_gateway else (self._host.snapshot if self._host else None)
         msgs: List[_SessionMessage] = []
-        for m in snap.messages:
-            if not isinstance(m, dict):
-                continue
-            role = str(m.get("role") or "")
-            content = str(m.get("content") or "")
-            if role == "system":
-                continue
-            msgs.append(_SessionMessage(role=role, content=content))
+        if snap is not None:
+            for m in snap.messages:
+                if not isinstance(m, dict):
+                    continue
+                role = str(m.get("role") or "")
+                content = str(m.get("content") or "")
+                if role == "system":
+                    continue
+                msgs.append(_SessionMessage(role=role, content=content))
         self.current_session = _SessionView(msgs)
         if self.current_session:
             self.token_usage.current_session = self.current_session.get_token_estimate()
 
-        # Best-effort max context from AbstractCore detection (when `llm` is present).
-        max_tokens = None
-        try:
-            max_tokens = getattr(self.llm, "max_tokens", None)
-        except Exception:
+        if not self.use_gateway:
+            # Best-effort max context from AbstractCore detection (when `llm` is present).
             max_tokens = None
-        if isinstance(max_tokens, int) and max_tokens > 0:
-            self.token_usage.max_context = max_tokens
+            try:
+                max_tokens = getattr(self.llm, "max_tokens", None)
+            except Exception:
+                max_tokens = None
+            if isinstance(max_tokens, int) and max_tokens > 0:
+                self.token_usage.max_context = max_tokens
+
+    def append_message(self, *, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Append a message to the current session transcript."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                messages = list(snap.messages)
+                msg: Dict[str, Any] = {"role": str(role), "content": str(content)}
+                if metadata:
+                    msg["metadata"] = dict(metadata)
+                messages.append(msg)
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=messages,
+                    last_run_id=snap.last_run_id,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                self._refresh_session_view()
+                return
+            if self._host is None:
+                return
+            self._host.append_message(role=role, content=content, metadata=metadata)
+            self._refresh_session_view()
+        except Exception:
+            return
+
+    def set_last_run_id(self, run_id: str) -> None:
+        """Persist last run id for the active session."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=list(snap.messages),
+                    last_run_id=str(run_id or "").strip() or None,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                return
+            if self._host is None:
+                return
+            self._host.set_last_run_id(run_id)
+        except Exception:
+            return
+
+    def session_messages(self) -> List[Dict[str, Any]]:
+        """Return the durable session messages (for gateway run input)."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+            else:
+                snap = self._host.snapshot if self._host else None
+            return [dict(m) for m in (snap.messages or []) if isinstance(m, dict)] if snap else []
+        except Exception:
+            return []
 
     def reset_active_session(self, tts_mode: bool = False) -> None:
         self._tts_mode = bool(tts_mode)
+        if self.use_gateway:
+            snap = self._ensure_gateway_snapshot()
+            self._gateway_snapshot = SessionSnapshot(
+                session_id=snap.session_id,
+                actor_id=snap.actor_id,
+                messages=[],
+                last_run_id=None,
+            )
+            self._save_gateway_snapshot(self._gateway_snapshot)
+            self._refresh_session_view()
+            return
+        if self._host is None:
+            return
         self._host.clear_messages()
         self._refresh_session_view()
 
@@ -315,6 +499,16 @@ class LLMManager:
 
     def save_session(self, filepath: str) -> bool:
         try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                payload = {"messages": list(snap.messages)}
+                Path(filepath).write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                return True
+            if self._host is None:
+                return False
             self._host.export_messages(Path(filepath))
             return True
         except Exception:
@@ -322,6 +516,26 @@ class LLMManager:
 
     def load_session(self, filepath: str) -> bool:
         try:
+            if self.use_gateway:
+                data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+                msgs_raw = data.get("messages") if isinstance(data, dict) else None
+                messages: List[Dict[str, Any]] = []
+                if isinstance(msgs_raw, list):
+                    for m in msgs_raw:
+                        if isinstance(m, dict):
+                            messages.append(dict(m))
+                snap = self._ensure_gateway_snapshot()
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=messages,
+                    last_run_id=None,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                self._refresh_session_view()
+                return True
+            if self._host is None:
+                return False
             self._host.import_messages(Path(filepath))
             self._refresh_session_view()
             return True
@@ -332,11 +546,11 @@ class LLMManager:
         self.current_provider = str(provider or "").strip() or self.current_provider
         if model is not None:
             self.current_model = str(model or "").strip() or self.current_model
-        self.llm = self._best_effort_llm_for_ui()
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
 
     def set_model(self, model: str):
         self.current_model = str(model or "").strip() or self.current_model
-        self.llm = self._best_effort_llm_for_ui()
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
 
     def generate_response(
         self,
@@ -351,6 +565,8 @@ class LLMManager:
         - safe/known read-only tools are auto-approved
         - dangerous/unknown tools are denied unless explicitly enabled in the UI layer
         """
+        if self.use_gateway:
+            raise RuntimeError("#FALLBACK: generate_response is not available in gateway mode")
         provider_eff = str(provider or "").strip() or self.current_provider
         model_eff = str(model or "").strip() or self.current_model
 

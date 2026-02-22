@@ -140,6 +140,16 @@ Evidence: `abstractassistant/config.py`
 The tray UI can load a TOML config file into `Config` and uses it for defaults
 (theme, default provider/model, token limits, shortcut, etc.).
 
+System tray tuning:
+- `system_tray.animation_fps` (int): tray icon animation FPS (10-30, default 30)
+
+Gateway settings (thin-client scaffolding):
+- `gateway.url` (string): base URL for AbstractGateway (e.g. `http://127.0.0.1:8080`)
+- `gateway.auth_token` (string): bearer token for the gateway (optional)
+- `gateway.use_gateway` (bool): opt-in flag for gateway-first mode (default false)
+- `gateway.bundle_id` (string): default bundle id (default `basic-agent`)
+- `gateway.flow_id` (string): optional flow id override (default empty; discovered)
+
 ## Related docs
 
 - [architecture.md](architecture.md) for the durability/tool boundary rationale

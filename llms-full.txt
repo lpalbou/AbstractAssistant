@@ -133,7 +133,7 @@ It is part of the **AbstractFramework** ecosystem:
 
 ## What it does
 
-- **Tray UI**: menu bar/system tray bubble with sessions, attachments, tool approvals, and optional voice.
+- **Tray UI**: menu bar/system tray bubble with sessions, attachments, tool approvals, and voice.
 - **CLI**: run a single agentic turn in the terminal.
 - **Durable tool boundary**: tool calls are surfaced as a resumable wait and executed only by the host after approval.
 
