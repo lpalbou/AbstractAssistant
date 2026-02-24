@@ -173,14 +173,37 @@ def _tool_name_from_message(message: Dict[str, Any]) -> str:
     if isinstance(metadata, dict):
         name = metadata.get("name")
         if isinstance(name, str) and name.strip():
-            return name.strip()
+            raw = name.strip()
+            if raw.lower().startswith("tool:"):
+                raw = raw.split(":", 1)[1].strip()
+            return raw or "tool"
 
     content = str(message.get("content") or "")
-    match = re.match(r"\s*\[([^\]]+)\]:", content)
-    if match:
-        name = match.group(1)
-        if isinstance(name, str) and name.strip():
-            return name.strip()
+
+    # Common gateway tool transcript format: "[tool:web_search] ok"
+    m = re.match(r"\s*\[\s*tool\s*:\s*([^\]\s]+)\s*\]", content, flags=re.I)
+    if m:
+        raw = str(m.group(1) or "").strip()
+        if raw.lower().startswith("tool:"):
+            raw = raw.split(":", 1)[1].strip()
+        return raw or "tool"
+
+    # Legacy/tool observation format: "[tool_name]:" (no "tool:" prefix).
+    m = re.match(r"\s*\[([^\]]+)\]:", content)
+    if m:
+        raw = str(m.group(1) or "").strip()
+        if raw.lower().startswith("tool:"):
+            raw = raw.split(":", 1)[1].strip()
+        return raw or "tool"
+
+    # Some tool logs omit the trailing ":".
+    m = re.match(r"\s*\[\s*([^\]\s:]+)\s*\]\s*(?:ok|error|done)?\b", content, flags=re.I)
+    if m:
+        raw = str(m.group(1) or "").strip()
+        if raw.lower().startswith("tool:"):
+            raw = raw.split(":", 1)[1].strip()
+        return raw or "tool"
+
     return "tool"
 
 
@@ -392,6 +415,21 @@ def _images_from_links(links: Sequence[Dict[str, str]], *, limit: int = 6) -> Li
 
 
 def _build_tool_summary(tool_events: Sequence[Dict[str, Any]]) -> str:
+    summaries: List[str] = []
+    for event in tool_events:
+        s = str(event.get("summary") or "").strip()
+        if s:
+            summaries.append(s)
+    summaries = _dedupe_preserve_order(summaries)
+    if summaries:
+        max_lines = 4
+        shown = summaries[:max_lines]
+        extra = max(0, len(summaries) - len(shown))
+        joined = "\n".join(shown)
+        if extra:
+            joined = f"{joined}\n…+{extra} more"
+        return joined.strip()
+
     order: List[str] = []
     counts: Dict[str, int] = {}
     for event in tool_events:
@@ -410,6 +448,126 @@ def _build_tool_summary(tool_events: Sequence[Dict[str, Any]]) -> str:
             parts.append(name)
     joined = " • ".join(parts).strip()
     return f"🛠 {joined}" if joined else "🛠 tools"
+
+
+def _collapse_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _truncate(text: str, *, max_len: int) -> str:
+    s = _collapse_ws(text)
+    if len(s) <= int(max_len):
+        return s
+    return s[: max(0, int(max_len) - 1)].rstrip() + "…"
+
+
+def _try_parse_json(text: str) -> Any:
+    raw_full = str(text or "")
+    if not raw_full:
+        return None
+
+    raw = raw_full.lstrip()
+    if raw.startswith("{") or raw.startswith("["):
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+
+    # Tool transcripts sometimes prefix the JSON with a status header, e.g.
+    # "[tool:web_search] ok\n{...}". Attempt to decode from the first JSON token.
+    # Keep this bounded to avoid expensive scans on large tool outputs.
+    if len(raw_full) > 12000:
+        raw_full = raw_full[:12000]
+    decoder = json.JSONDecoder()
+    hits = 0
+    for m in re.finditer(r"[\[{]", raw_full):
+        try:
+            obj, _end = decoder.raw_decode(raw_full, m.start())
+            return obj
+        except Exception:
+            pass
+        hits += 1
+        if hits >= 6:
+            break
+    return None
+
+
+def _format_tool_event_summary(*, name: str, status_label: str, output_preview: str, meta: Dict[str, Any]) -> str:
+    tool = str(name or "").strip() or "tool"
+    if tool.lower().startswith("tool:"):
+        tool = tool.split(":", 1)[1].strip() or "tool"
+    status = str(status_label or "").strip().lower()
+    status_icon = "✅" if status == "ok" else "⚠️" if status == "error" else "🛠"
+
+    raw = str(output_preview or "").strip()
+    obj = _try_parse_json(raw)
+
+    # web_search-like tools
+    if tool in {"web_search", "search_query", "web.search"} or tool.endswith("web_search"):
+        query = ""
+        engine = ""
+        region = ""
+        time_range = ""
+        if isinstance(obj, dict):
+            query = str(obj.get("query") or obj.get("q") or "").strip()
+            engine = str(obj.get("engine") or obj.get("backend") or "").strip()
+            params = obj.get("params")
+            if isinstance(params, dict):
+                region = str(params.get("region") or "").strip()
+                time_range = str(params.get("time_range") or params.get("timeRange") or "").strip()
+        if not query:
+            args = meta.get("input") or meta.get("args") or meta.get("params")
+            if isinstance(args, dict):
+                query = str(args.get("query") or args.get("q") or "").strip()
+        q = _truncate(query, max_len=72) if query else ""
+        parts = [p for p in (engine, region, time_range) if p]
+        suffix = f" ({', '.join(parts)})" if parts else ""
+        if q:
+            return f'{status_icon} 🔎 {tool}: “{q}”{suffix}'.strip()
+
+    # fetch_url-like tools
+    if tool in {"fetch_url", "web_fetch", "web.fetch"} or tool.endswith("fetch_url"):
+        url = ""
+        if isinstance(obj, dict):
+            url = str(obj.get("url") or obj.get("URL") or "").strip()
+        if not url:
+            urls = _extract_primary_url(raw)
+            url = urls[0] if urls else ""
+        label = _short_label_for_url(url) if url else ""
+        if label:
+            return f"{status_icon} 🌐 {tool}: {label}".strip()
+
+    # file tools
+    if tool in {"read_file", "write_file", "edit_file", "delete_file"} or tool.endswith("_file"):
+        icon = "📄"
+        if tool.startswith(("write_", "edit_")):
+            icon = "✍️"
+        elif tool.startswith("delete_"):
+            icon = "🗑️"
+        path = ""
+        paths = _extract_primary_file_path(raw)
+        if paths:
+            path = paths[0]
+        label = _short_label_for_path(path) if path else ""
+        if label:
+            return f"{status_icon} {icon} {tool}: {label}".strip()
+
+    # command tools
+    if tool in {"execute_command", "exec_command", "run_command", "shell"}:
+        cmd = ""
+        if isinstance(obj, dict):
+            cmd = str(obj.get("cmd") or obj.get("command") or obj.get("expression") or "").strip()
+        if not cmd:
+            cmd = raw.splitlines()[0] if raw else ""
+        if cmd:
+            return f"{status_icon} ⌨️ {tool}: {_truncate(cmd, max_len=90)}".strip()
+
+    # generic fallback
+    preview = raw.splitlines()[0] if raw else ""
+    snippet = _truncate(preview, max_len=96) if preview else ""
+    if snippet:
+        return f"{status_icon} {tool}: {snippet}".strip()
+    return f"{status_icon} {tool}".strip()
 
 
 def _build_tool_links(tool_events: Sequence[Dict[str, Any]], *, limit: int = 30) -> List[Dict[str, str]]:
@@ -508,7 +666,9 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
 
             success = meta.get("success") if isinstance(meta, dict) else None
             error = str(meta.get("error") or "").strip() if isinstance(meta, dict) else ""
-            output_preview = str(meta.get("output_preview") or content or "").strip() if isinstance(meta, dict) else content.strip()
+            output_preview = (
+                str(meta.get("output_preview") or content or "").strip() if isinstance(meta, dict) else content.strip()
+            )
             artifacts = []
             if isinstance(meta, dict):
                 arts = meta.get("artifacts")
@@ -530,16 +690,57 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
                         "Set ABSTRACTGATEWAY_WORKSPACE_DIR or ABSTRACTGATEWAY_WORKSPACE_MOUNTS on the gateway."
                     )
             status_label = "ok" if success is True else "error" if error or success is False else "done"
-            tool_header = f"[tool:{name}] {status_label}"
-            out.append(
-                {
-                    "role": "assistant",
-                    "content": f"{tool_header}\n{output_preview}".strip(),
-                    "ui_kind": "tool_result",
-                }
+
+            # Heuristic: gateway tool messages often embed a status header in the output.
+            tool_payload_preview = output_preview
+            try:
+                lines = output_preview.splitlines()
+            except Exception:
+                lines = []
+            if lines:
+                head = str(lines[0] or "")
+                # "[tool:name] ok" or "[name] ok"
+                m = re.match(r"^\s*\[\s*tool\s*:[^\]]+\]\s*(ok|error|done)?\s*$", head, flags=re.I)
+                if m:
+                    hint = str(m.group(1) or "").strip().lower()
+                    if status_label == "done" and hint in {"ok", "error"}:
+                        status_label = hint
+                    rest = "\n".join(lines[1:]).strip()
+                    if rest:
+                        tool_payload_preview = rest
+                else:
+                    m = re.match(r"^\s*\[\s*[^\]]+\s*\]\s*(ok|error)\b", head, flags=re.I)
+                    if m and status_label == "done":
+                        status_label = str(m.group(1) or "").strip().lower() or status_label
+                        rest = "\n".join(lines[1:]).strip()
+                        if rest:
+                            tool_payload_preview = rest
+                    elif status_label == "done":
+                        m = re.match(r"^\s*(ok|error)\s*$", head, flags=re.I)
+                        if m:
+                            status_label = str(m.group(1) or "").strip().lower() or status_label
+                            rest = "\n".join(lines[1:]).strip()
+                            if rest:
+                                tool_payload_preview = rest
+
+            summary = _format_tool_event_summary(
+                name=str(name),
+                status_label=str(status_label),
+                output_preview=str(tool_payload_preview),
+                meta=meta,
             )
             urls, paths = _extract_resources_for_tool(name, content)
-            pending_tools.append({"name": name, "urls": urls, "paths": paths, "artifacts": artifacts, "run_id": run_id})
+            pending_tools.append(
+                {
+                    "name": name,
+                    "status": status_label,
+                    "summary": summary,
+                    "urls": urls,
+                    "paths": paths,
+                    "artifacts": artifacts,
+                    "run_id": run_id,
+                }
+            )
             continue
 
         if role == "assistant":

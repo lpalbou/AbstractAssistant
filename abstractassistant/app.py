@@ -17,7 +17,7 @@ from enum import Enum
 faulthandler.enable()
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from .ui.qt_bubble import QtBubbleManager
 from .core.llm_manager import LLMManager
@@ -39,6 +39,10 @@ class EnhancedClickableIcon(pystray.Icon):
         self.click_count = 0
         self.click_timer = None
         self.DOUBLE_CLICK_TIMEOUT = 300  # milliseconds
+        # pystray can query `_menu` multiple times per click; debounce to avoid
+        # spurious "double clicks" and missed single-click actions.
+        self._last_click_ts = 0.0
+        self._CLICK_DEBOUNCE_MS = 60
 
         if self.debug:
             if hasattr(self, 'debug') and self.debug:
@@ -62,16 +66,25 @@ class EnhancedClickableIcon(pystray.Icon):
         """Handle single/double click timing logic."""
         import threading
 
+        now = time.monotonic()
+        if self._last_click_ts and ((now - self._last_click_ts) * 1000.0) < float(self._CLICK_DEBOUNCE_MS):
+            return
+        self._last_click_ts = now
+
         self.click_count += 1
 
         if self.click_count == 1:
-            # First click - start timer for single click
+            # First click — fire single-click immediately for responsiveness,
+            # but keep a short window where a second click triggers a "double click".
+            self._execute_single_click()
+
+            # Start/reset timer to clear the click state.
             if self.click_timer is not None:
                 self.click_timer.cancel()
 
             self.click_timer = threading.Timer(
                 self.DOUBLE_CLICK_TIMEOUT / 1000.0,  # Convert to seconds
-                self._execute_single_click
+                self._reset_click_state
             )
             self.click_timer.start()
 
@@ -92,10 +105,13 @@ class EnhancedClickableIcon(pystray.Icon):
                 if hasattr(self, 'debug') and self.debug:
                     print("🔄 Double click detected!")
 
-    def _execute_single_click(self):
-        """Execute single click handler after timeout."""
-        self.click_count = 0  # Reset click count
+    def _reset_click_state(self):
+        """Clear click state after the double-click window expires."""
+        self.click_count = 0
         self.click_timer = None
+
+    def _execute_single_click(self):
+        """Execute single click handler (immediately)."""
 
         if self.debug:
             if hasattr(self, 'debug') and self.debug:
@@ -232,8 +248,7 @@ class AbstractAssistantApp:
         icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, "ready")
 
         if self.debug:
-            if self.debug:
-                print("🔄 Creating enhanced system tray icon with single/double click detection")
+            print("🔄 Creating enhanced system tray icon with single/double click detection")
 
         # Use our enhanced ClickableIcon for single/double click handling
         return EnhancedClickableIcon(
@@ -253,30 +268,26 @@ class AbstractAssistantApp:
             app_bundle_icon = Path("/Applications/AbstractAssistant.app/Contents/Resources/icon.png")
             
             if self.debug:
-                if self.debug:
-                    print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
-                    print(f"   Exists: {app_bundle_icon.exists()}")
+                print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
+                print(f"   Exists: {app_bundle_icon.exists()}")
             
             if app_bundle_icon.exists():
                 base_icon = Image.open(app_bundle_icon)
                 
                 if self.debug:
-                    if self.debug:
-                        print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
+                    print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
                 
                 # Resize to system tray size if needed
                 target_size = (self.config.system_tray.icon_size, self.config.system_tray.icon_size)
                 if base_icon.size != target_size:
                     if self.debug:
-                        if self.debug:
-                            print(f"🔄 Resizing from {base_icon.size} to {target_size}")
+                        print(f"🔄 Resizing from {base_icon.size} to {target_size}")
                     base_icon = base_icon.resize(target_size, Image.Resampling.LANCZOS)
                 
                 return base_icon
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Could not load app bundle icon: {e}")
+                print(f"❌ Could not load app bundle icon: {e}")
         return None
     
     def update_icon_status(self, status: str):
@@ -309,6 +320,10 @@ class AbstractAssistantApp:
                 animation_status = "thinking"  # All working states use thinking animation
             elif status == "speaking":
                 animation_status = "speaking"
+            elif status == "listening":
+                animation_status = "listening"
+            elif status == "listening_paused":
+                animation_status = "listening_paused"
             else:
                 animation_status = "ready"  # Default to ready
 
@@ -487,43 +502,80 @@ class AbstractAssistantApp:
         if hasattr(self, 'animation_timer') and self.animation_timer:
             self.animation_timer.cancel()
             self.animation_timer = None
-    
 
-    
     # ── Application state machine ────────────────────────────────────
     #
     # States (derived from self.current_status set by update_icon_status):
-    #   "ready"    — idle, green icon
-    #   "thinking" — gateway run active, pulsing icon
-    #   "speaking" — TTS playing, animated icon
+    #   "ready"     — idle, green icon
+    #   "thinking"  — gateway run active, pulsing icon
+    #   "listening" — full voice mode listening (tray-first)
+    #   "speaking"  — TTS playing, animated icon
     #
     # Tray click rules:
-    #   READY    + click  → SHOW the app (always, unconditionally)
-    #   READY    + dblclk → SHOW the app (always, unconditionally)
-    #   RUNNING  + click  → ignore (run in progress)
-    #   RUNNING  + dblclk → ignore (run in progress)
-    #   SPEAKING + click  → PAUSE / RESUME voice (no UI change)
-    #   SPEAKING + dblclk → STOP voice, reset to READY
+    #   LISTENING + click  → PAUSE / RESUME listening (no UI change)
+    #   LISTENING + dblclk → STOP full voice mode
+    #   SPEAKING + click   → PAUSE / RESUME voice (no UI change)
+    #   SPEAKING + dblclk  → STOP voice, reset to READY
+    #   RUNNING + click    → no-op
+    #   READY + click      → SHOW app
     #
     # After STOP: state resets to "ready" so the next click shows the app.
+    # Clicks NEVER block the app from opening (except during active TTS).
 
     def _app_state(self) -> str:
-        """Return the canonical app state: 'ready', 'running', or 'speaking'."""
+        """Return the canonical app state: ready|running|listening|speaking."""
         s = str(self.current_status or "").strip().lower()
         if s == "speaking":
             return "speaking"
+        if s in {"listening", "listening_paused"}:
+            return "listening"
         if s in {"thinking", "running", "executing", "waiting"}:
             return "running"
         return "ready"
 
+    def _assistant_state(self) -> str:
+        """Return AbstractAssistant's state view: ready|running|listening|speaking."""
+        if self._voice_is_active():
+            return "speaking"
+        listening_state = self._full_voice_listening_state()
+        if listening_state in {"listening", "paused", "listening_paused"}:
+            return "listening"
+        if self._run_is_active():
+            return "running"
+        return "ready"
+
+    def _activate_app_foreground(self) -> None:
+        """Bring the application to the foreground on macOS (best-effort)."""
+        if sys.platform != "darwin":
+            return
+        try:
+            from AppKit import NSApp  # type: ignore[import]
+            NSApp.activateIgnoringOtherApps_(True)
+        except Exception:
+            pass
+
     def show_chat_bubble(self, icon=None, item=None):
         """Show / raise / focus the chat bubble.  Never refuses."""
         try:
+            self._activate_app_foreground()
             state = self._bubble_visibility_state()
             bubble = self._get_bubble()
 
+            if bubble is not None:
+                try:
+                    if hasattr(bubble, "_ensure_window_within_screen"):
+                        bubble._ensure_window_within_screen(bubble)
+                except Exception:
+                    pass
+
             if state == BubbleVisibility.VISIBLE:
                 if bubble is not None:
+                    try:
+                        if hasattr(bubble, "_activate_app"):
+                            bubble._activate_app()
+                    except Exception:
+                        pass
+                    bubble.show()
                     bubble.raise_()
                     bubble.activateWindow()
                 return
@@ -531,6 +583,12 @@ class AbstractAssistantApp:
             if state == BubbleVisibility.MINIMIZED:
                 if bubble is not None:
                     bubble.showNormal()
+                    try:
+                        if hasattr(bubble, "_activate_app"):
+                            bubble._activate_app()
+                    except Exception:
+                        pass
+                    bubble.show()
                     bubble.raise_()
                     bubble.activateWindow()
                 return
@@ -552,27 +610,170 @@ class AbstractAssistantApp:
                 self.bubble_manager.show()
 
         except Exception as e:
-            if self.debug:
-                print(f"❌ show_chat_bubble error: {e}")
+            sys.stderr.write(f"show_chat_bubble error: {e}\n")
+            sys.stderr.flush()
+
+    def _defer_ready_click_show(self) -> None:
+        """Defer ready-state show until the current tray event cycle completes."""
+        try:
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(0, self.handle_single_click)
+        except Exception:
+            self.handle_single_click()
 
     # ── Tray click handlers ───────────────────────────────────────────
 
+    def _voice_is_active(self) -> bool:
+        """Return True when TTS is actively speaking or paused (source of truth)."""
+        vm = self._get_voice_manager()
+        if vm is None:
+            return False
+        try:
+            paused = bool(getattr(vm, "is_paused", lambda: False)())
+            speaking = bool(getattr(vm, "is_speaking", lambda: False)())
+            return paused or speaking
+        except Exception:
+            return False
+
+    def _full_voice_listening_state(self) -> str:
+        """Return full voice listening state from the bubble (if available)."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return "inactive"
+        getter = getattr(bubble, "get_full_voice_listening_state", None)
+        if not callable(getter):
+            return "inactive"
+        try:
+            return str(getter() or "inactive").strip().lower()
+        except Exception:
+            return "inactive"
+
+    def _toggle_full_voice_listening_pause(self) -> bool:
+        """Toggle full voice listening pause/resume."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return False
+        toggle = getattr(bubble, "toggle_full_voice_listening_pause", None)
+        if not callable(toggle):
+            return False
+        try:
+            return bool(toggle())
+        except Exception:
+            return False
+
+    def _stop_full_voice_mode(self) -> bool:
+        """Stop full voice mode via the bubble API."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return False
+        stop_fn = getattr(bubble, "stop_full_voice_mode", None)
+        if not callable(stop_fn):
+            return False
+        try:
+            stop_fn()
+            return True
+        except Exception:
+            return False
+
+    def _run_is_active(self) -> bool:
+        """Return True when a run is in progress (best-effort)."""
+        bubble = self._get_bubble()
+        if bubble is not None:
+            try:
+                worker = getattr(bubble, "worker", None)
+                if worker is not None and hasattr(worker, "isRunning"):
+                    return bool(worker.isRunning())
+            except Exception:
+                pass
+            try:
+                rs = getattr(bubble, "_run_state", None)
+                if rs is not None and hasattr(rs, "is_run_active"):
+                    return bool(rs.is_run_active())
+            except Exception:
+                pass
+        return self._app_state() == "running"
+
+    def _cancel_current_run(self) -> bool:
+        """Cancel the current run (gateway-first) and stop local streaming."""
+        run_id = ""
+        try:
+            run_id = str(self.llm_manager.get_last_run_id() or "").strip()
+        except Exception:
+            run_id = ""
+
+        if not run_id:
+            # Fallback: try the bubble worker's root run id.
+            try:
+                bubble = self._get_bubble()
+                worker = getattr(bubble, "worker", None) if bubble is not None else None
+                run_id = str(getattr(worker, "_root_run_id", "") or "").strip()
+            except Exception:
+                run_id = ""
+
+        # Always request interruption so any streaming threads stop promptly.
+        try:
+            bubble = self._get_bubble()
+            worker = getattr(bubble, "worker", None) if bubble is not None else None
+            if worker is not None and hasattr(worker, "requestInterruption"):
+                worker.requestInterruption()
+        except Exception:
+            pass
+
+        if not run_id:
+            if self.debug:
+                print("#FALLBACK: cancel requested but no run_id available")
+            return False
+
+        # Gateway cancel command (durable + tree-wide).
+        try:
+            if bool(getattr(self.llm_manager, "use_gateway", False)) and hasattr(self.llm_manager, "gateway_client"):
+                gw = self.llm_manager.gateway_client()
+                if gw is not None:
+                    gw.submit_command(
+                        command={
+                            "command_id": f"cancel_{int(time.time() * 1000)}",
+                            "run_id": run_id,
+                            "type": "cancel",
+                            "payload": {"reason": "Cancelled via tray"},
+                            "client_id": "abstractassistant",
+                        }
+                    )
+                    return True
+        except Exception as e:
+            if self.debug:
+                print(f"#FALLBACK: failed to cancel run via gateway: {e}")
+            return False
+
+        # Local mode: best-effort interruption only.
+        return True
+
     def handle_single_click(self):
-        """Single click on tray icon."""
-        state = self._app_state()
+        """Single click on tray icon.
+
+        - ready     → open (always)
+        - running   → no-op
+        - listening → pause/resume listening
+        - speaking  → pause/resume voice
+        """
+        state = self._assistant_state()
         if self.debug:
-            print(f"🔄 Single click: state={state}")
+            try:
+                print(
+                    f"🔄 Single click: state={state} status={self.current_status} "
+                    f"voice_active={self._voice_is_active()} listening={self._full_voice_listening_state()}"
+                )
+            except Exception:
+                pass
+
+        if state == "listening":
+            self._toggle_full_voice_listening_pause()
+            return
 
         if state == "speaking":
             try:
                 vm = self._get_voice_manager()
                 if vm is not None:
-                    paused = False
-                    try:
-                        paused = bool(vm.is_paused())
-                    except Exception:
-                        pass
-                    if paused:
+                    if bool(vm.is_paused()):
                         vm.resume()
                     else:
                         vm.pause()
@@ -583,14 +784,30 @@ class AbstractAssistantApp:
         if state == "running":
             return
 
-        # ready → show
         self.show_chat_bubble()
 
     def handle_double_click(self):
-        """Double click on tray icon."""
-        state = self._app_state()
+        """Double click on tray icon.
+
+        - ready     → no-op
+        - running   → cancel run
+        - listening → stop full voice mode
+        - speaking  → stop voice
+        """
+        state = self._assistant_state()
         if self.debug:
-            print(f"🔄 Double click: state={state}")
+            try:
+                print(
+                    f"🔄 Double click: state={state} status={self.current_status} "
+                    f"voice_active={self._voice_is_active()} listening={self._full_voice_listening_state()}"
+                )
+            except Exception:
+                pass
+
+        if state == "listening":
+            self._stop_full_voice_mode()
+            self.update_icon_status("ready")
+            return
 
         if state == "speaking":
             try:
@@ -609,10 +826,10 @@ class AbstractAssistantApp:
             return
 
         if state == "running":
+            self._cancel_current_run()
             return
 
-        # ready → show
-        self.show_chat_bubble()
+        # ready → no-op
 
     def _get_voice_manager(self):
         """Return the voice manager if available, else None."""
@@ -635,45 +852,21 @@ class AbstractAssistantApp:
         if bubble is None:
             return BubbleVisibility.UNINITIALIZED
         try:
-            # Visible + minimized are distinct (minimized should restore).
             if not bubble.isVisible():
                 return BubbleVisibility.HIDDEN
-            try:
-                if hasattr(bubble, "isMinimized") and bubble.isMinimized():
-                    return BubbleVisibility.MINIMIZED
-            except Exception:
-                pass
-            try:
-                from PyQt5.QtCore import Qt
-
-                if bubble.windowState() & Qt.WindowMinimized:
-                    return BubbleVisibility.MINIMIZED
-            except Exception:
-                pass
+            if hasattr(bubble, "isMinimized") and bubble.isMinimized():
+                return BubbleVisibility.MINIMIZED
             return BubbleVisibility.VISIBLE
         except Exception:
             return BubbleVisibility.HIDDEN
-
-    def _bubble_is_visible(self) -> bool:
-        """Return True if the chat bubble is actually visible."""
-        return self._bubble_visibility_state() == BubbleVisibility.VISIBLE
 
     def _get_bubble(self):
         try:
             if self.bubble_manager and getattr(self.bubble_manager, "bubble", None):
                 return self.bubble_manager.bubble
         except Exception:
-            return None
+            pass
         return None
-
-    def _run_is_active(self) -> bool:
-        bubble = self._get_bubble()
-        if bubble is None:
-            return False
-        try:
-            return bool(getattr(bubble, "is_run_active", lambda: False)())
-        except Exception:
-            return False
 
     def _get_run_activity_summary(self) -> str:
         bubble = self._get_bubble()
@@ -693,6 +886,8 @@ class AbstractAssistantApp:
             state = str(status or "").strip().lower()
             if state in {"thinking", "running", "executing", "waiting"}:
                 tip = f"{base} — Running"
+            elif state in {"listening", "listening_paused"}:
+                tip = f"{base} — Listening"
             elif state in {"speaking"}:
                 tip = f"{base} — Speaking"
             else:
@@ -708,27 +903,6 @@ class AbstractAssistantApp:
         except Exception:
             pass
 
-    def _notify_run_active(self) -> None:
-        summary = self._get_run_activity_summary() or "A run is in progress."
-        try:
-            if hasattr(self, "qt_tray_icon") and self.qt_tray_icon is not None:
-                from PyQt5.QtWidgets import QSystemTrayIcon
-
-                self.qt_tray_icon.showMessage(
-                    "AbstractAssistant running",
-                    summary,
-                    QSystemTrayIcon.MessageIcon.Information,
-                    3000,
-                )
-                return
-        except Exception:
-            pass
-        try:
-            if self.icon is not None and hasattr(self.icon, "notify"):
-                self.icon.notify(summary, "AbstractAssistant running")
-        except Exception:
-            pass
-    
     def handle_bubble_response(self, response: str):
         """Handle AI response from bubble (informational only — never hide the UI)."""
         if self.debug:
@@ -741,13 +915,9 @@ class AbstractAssistantApp:
     
     def show_toast_notification(self, message: str, type: str = "info"):
         """Show a toast notification."""
-        icon = "✅" if type == "success" else "❌" if type == "error" else "ℹ️"
         if self.debug:
-            print(f"{icon} {message}")
-        
-        if self.debug:
-            if self.debug:
-                print(f"Toast notification: {type} - {message}")
+            icon = "✅" if type == "success" else "❌" if type == "error" else "ℹ️"
+            print(f"{icon} Toast: {message}")
         
         # Show a proper macOS notification
         try:
@@ -795,8 +965,7 @@ class AbstractAssistantApp:
         """Update application status."""
         # Status is now handled by the web interface
         if self.debug:
-            if self.debug:
-                print(f"Status update: {status}")
+            print(f"Status update: {status}")
     
     def clear_session(self, icon=None, item=None):
         """Clear the current session with user confirmation."""
@@ -937,6 +1106,10 @@ class AbstractAssistantApp:
             if self.bubble_manager:
                 self.bubble_manager.set_status_callback(self.update_icon_status)
                 self.bubble_manager.set_voice_meter_callback(self.update_voice_meter)
+                # Give the bubble a back-reference so it can access the tray icon
+                # for approval notifications.
+                if getattr(self.bubble_manager, "bubble", None) is not None:
+                    self.bubble_manager.bubble._app_ref = self
                 if self.debug:
                     print("✅ Status callback set after TTS initialization")
 
@@ -1096,9 +1269,7 @@ class AbstractAssistantApp:
     def _create_qt_system_tray_icon(self):
         """Create Qt-based system tray icon with smooth animations."""
         from PyQt5.QtWidgets import QSystemTrayIcon, QMenu, QAction
-        from PyQt5.QtCore import QTimer
         from PyQt5.QtGui import QIcon, QPixmap
-        from PIL import Image
         import io
 
         # Load base icon (same as pystray version)
@@ -1126,36 +1297,36 @@ class AbstractAssistantApp:
         tray_icon = QSystemTrayIcon(qt_icon)
         tray_icon.setToolTip("AbstractAssistant - AI at your fingertips")
 
-        # Click detection variables
-        self.click_timer = QTimer()
-        self.click_timer.setSingleShot(True)
-        self.click_timer.timeout.connect(self._qt_handle_single_click)
-        self.pending_single_click = False
-        self.DOUBLE_CLICK_TIMEOUT = 200  # milliseconds (short period to detect double click)
+        # Tray click detection (timestamp-based; avoids QTimer timing issues).
+        self._tray_last_click_ts = 0.0
+        self.TRAY_DOUBLE_CLICK_TIMEOUT_S = 0.30
+        self._tray_last_activation_ts = 0.0
 
-        # Connect click signal
+        # Connect click signal.
         tray_icon.activated.connect(self._qt_on_tray_activated)
 
-        # Create context menu (right-click)
-        context_menu = QMenu()
-
-        show_action = QAction("Show Chat", None)
-        show_action.triggered.connect(self.show_chat_bubble)
-        context_menu.addAction(show_action)
-
-        context_menu.addSeparator()
-
-        quit_action = QAction("Quit", None)
-        quit_action.triggered.connect(self._qt_quit_application)
-        context_menu.addAction(quit_action)
-
-        # macOS: some tray clicks only surface via the context menu.
-        try:
-            context_menu.aboutToShow.connect(self._qt_on_context_menu_show)
-        except Exception:
-            pass
-
-        tray_icon.setContextMenu(context_menu)
+        # On macOS, tray clicks can flow through context-menu lifecycle events.
+        # We keep a minimal attached menu to preserve activation behavior and
+        # add a ready-state fallback in `_qt_on_context_menu_show` when
+        # `activated` is not emitted for a click.
+        if sys.platform == "darwin":
+            _empty_menu = QMenu()
+            # Keep an attached menu so Qt reliably emits activation signals.
+            # If macOS opens this menu without emitting `activated`, we synthesize
+            # the ready-state open path in `_qt_on_context_menu_show`.
+            self._qt_context_menu = _empty_menu
+            _empty_menu.aboutToShow.connect(self._qt_on_context_menu_show)
+            tray_icon.setContextMenu(_empty_menu)
+        else:
+            context_menu = QMenu()
+            show_action = QAction("Show Chat", None)
+            show_action.triggered.connect(self.show_chat_bubble)
+            context_menu.addAction(show_action)
+            context_menu.addSeparator()
+            quit_action = QAction("Quit", None)
+            quit_action.triggered.connect(self._qt_quit_application)
+            context_menu.addAction(quit_action)
+            tray_icon.setContextMenu(context_menu)
 
         # Store reference for animations
         self.qt_tray_icon = tray_icon
@@ -1175,102 +1346,84 @@ class AbstractAssistantApp:
         return tray_icon
 
     def _qt_on_tray_activated(self, reason):
-        """Handle Qt system tray activation (clicks) with proper delay-based detection.
+        """Handle Qt tray activation (single-click + double-click).
 
-        Logic:
-        - Single click: reason == 3 only
-        - Double click: reason == 3 followed quickly by reason == 2
+        Rules:
+        - ready:    single click opens; double-click has no special action.
+        - listening: single click pauses/resumes listening; double-click stops full voice mode.
+        - running:  single click no-op; double-click cancels the run.
+        - speaking: single click pause/resume; double-click stops the voice.
 
-        Strategy:
-        - When reason == 3: Wait 200ms to see if reason == 2 follows
-        - If no reason == 2 within 200ms: Execute single click
-        - If reason == 2 arrives within 200ms: Execute ONLY double click
+        Double-click detection is timestamp-based so it works even when Qt emits
+        Trigger twice (no explicit DoubleClick reason).
         """
         if self.debug:
             print(f"🖱️  Click detected - reason: {reason}")
 
-        # Resolve ActivationReason enums (fallback to numeric codes).
         try:
             from PyQt5.QtWidgets import QSystemTrayIcon
-
-            Trigger = QSystemTrayIcon.ActivationReason.Trigger
             DoubleClick = QSystemTrayIcon.ActivationReason.DoubleClick
             Context = QSystemTrayIcon.ActivationReason.Context
-            MiddleClick = QSystemTrayIcon.ActivationReason.MiddleClick
-            Unknown = QSystemTrayIcon.ActivationReason.Unknown
         except Exception:
-            Trigger, DoubleClick, Context, MiddleClick, Unknown = 3, 2, 1, 4, 0
+            DoubleClick, Context = 2, 1
 
-        # Defensive: if timers aren't ready, just treat as a single click.
-        if not hasattr(self, "click_timer") or self.click_timer is None:
-            if self.debug:
-                print("#FALLBACK: click timer missing; treating as single click")
-            self._qt_handle_single_click()
+        # On non-macOS, a context click should open the context menu, not the chat bubble.
+        if sys.platform != "darwin" and reason == Context:
             return
 
-        if reason == Trigger:  # Single click (or first part of double click)
-            if self.pending_single_click:
-                # Already have a pending single click, ignore this one
-                if self.debug:
-                    print("⚠️  Ignoring additional reason=3 (already pending)")
-                return
+        now = time.monotonic()
+        self._tray_last_activation_ts = now
+        state = self._assistant_state()
 
-            # Mark that we have a pending single click
-            self.pending_single_click = True
+        # ready: open on single click; ignore double-click as a special action.
+        if state == "ready":
+            self._tray_last_click_ts = 0.0
+            if reason != DoubleClick:
+                if sys.platform == "darwin":
+                    self._defer_ready_click_show()
+                else:
+                    self.handle_single_click()
+            return
 
-            # Start timer to wait for possible reason=2 (double click confirmation)
-            self.click_timer.start(self.DOUBLE_CLICK_TIMEOUT)
+        last = float(getattr(self, "_tray_last_click_ts", 0.0) or 0.0)
+        window_s = float(getattr(self, "TRAY_DOUBLE_CLICK_TIMEOUT_S", 0.30) or 0.30)
+        if reason == DoubleClick or (last > 0.0 and (now - last) <= window_s):
+            self._tray_last_click_ts = 0.0
+            self._qt_handle_double_click()
+            return
 
-            if self.debug:
-                print(f"🔄 Qt: reason=3 detected, waiting {self.DOUBLE_CLICK_TIMEOUT}ms for possible reason=2...")
+        self._tray_last_click_ts = now
+        self._qt_handle_single_click()
 
-        elif reason == DoubleClick:  # Double click confirmation
-            if self.pending_single_click and self.click_timer.isActive():
-                # We have a pending single click and timer is still running
-                # This means reason=2 arrived within the timeout period
+    def _qt_on_context_menu_show(self):
+        """macOS tray fallback when context-menu show swallows activation."""
+        try:
+            menu = getattr(self, "_qt_context_menu", None)
+            if menu is not None:
+                menu.hide()
+        except Exception:
+            pass
 
-                # Cancel the pending single click
-                self.click_timer.stop()
-                self.pending_single_click = False
+        if sys.platform != "darwin":
+            return
 
-                if self.debug:
-                    print("✅ Qt: reason=2 detected - cancelling single click, executing double click!")
+        now = time.monotonic()
+        last_activation = float(getattr(self, "_tray_last_activation_ts", 0.0) or 0.0)
+        # Avoid duplicate handling when `activated` already fired for this click.
+        if last_activation > 0.0 and (now - last_activation) <= 0.20:
+            return
 
-                # Execute ONLY the double click
-                self._qt_handle_double_click()
-            else:
-                # Unexpected reason=2 without pending single click
-                if self.debug:
-                    print("⚠️  Unexpected reason=2 without pending single click")
+        # Only synthesize the click for ready state to preserve running/speaking rules.
+        if self._assistant_state() != "ready":
+            return
 
-                # Execute double click anyway (fallback)
-                self._qt_handle_double_click()
-
-        elif reason == Context:
-            # On macOS, some tray clicks arrive as "Context".
-            if sys.platform == "darwin":
-                if self.debug:
-                    print("🔄 Context activation on macOS; treating as single click")
-                self._qt_handle_single_click()
-            else:
-                if self.debug:
-                    print("ℹ️  Context activation; leaving to context menu")
-
-        elif reason in (MiddleClick, Unknown):
-            if self.debug:
-                print("#FALLBACK: Unknown/middle click; treating as single click")
-            self._qt_handle_single_click()
+        self.show_chat_bubble()
 
     def _qt_handle_single_click(self):
-        """Handle single click after timeout (no reason=2 detected) in Qt main thread."""
-        # Clear the pending flag
-        self.pending_single_click = False
-
+        """Handle single click in Qt main thread."""
         if self.debug:
-            print("✅ Qt: Single click confirmed (no reason=2 within 200ms) - executing action!")
+            print("✅ Qt: Single click action")
 
-        # This runs in Qt main thread, so it's safe to create Qt widgets
-        # Execute single click action (pause/resume voice or show bubble)
         self.handle_single_click()
 
     def _qt_handle_double_click(self):
@@ -1278,34 +1431,10 @@ class AbstractAssistantApp:
         if self.debug:
             print("✅ Qt: Double click detected!")
 
-        # This runs in Qt main thread, so it's safe to create Qt widgets
         self.handle_double_click()
 
     def _qt_quit_application(self):
         """Quit the Qt application."""
         if self.debug:
             print("🔄 Qt: Quit requested")
-
-        # Route through the same cleanup path (menu Quit should behave like Ctrl+C).
         self._request_qt_quit()
-
-    def _qt_on_context_menu_show(self):
-        """Best-effort: treat macOS context menu activation as a click.
-
-        On macOS a single tray click fires both reason=3 (Trigger) AND
-        aboutToShow.  If a Trigger-based pending click is already queued
-        we must not fire a second one — that would pause then immediately
-        resume the voice.
-        """
-        if sys.platform != "darwin":
-            return
-        if getattr(self, "pending_single_click", False):
-            if self.debug:
-                print("🖱️  Context menu on macOS; skipping (Trigger already pending)")
-            return
-        if self.debug:
-            print("🖱️  Context menu on macOS; treating as single click")
-        try:
-            self._qt_handle_single_click()
-        except Exception:
-            pass

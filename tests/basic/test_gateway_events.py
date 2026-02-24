@@ -38,19 +38,15 @@ def test_extract_flow_end_output() -> None:
 
 
 def test_extract_wait_and_tool_calls() -> None:
-    rec = {"wait": {"reason": "job", "details": {"tool_calls": [{"name": "read_file"}]}}}
+    rec = {"result": {"wait": {"reason": "job", "details": {"tool_calls": [{"name": "read_file"}]}}}}
     wait = extract_wait_from_record(rec)
     assert wait is not None
     calls = extract_tool_calls_from_wait(wait)
     assert len(calls) == 1
 
 
-def test_extract_wait_fallback_from_result() -> None:
-    import warnings
-
-    rec = {"result": {"wait": {"reason": "job", "details": {"tool_calls": [{"name": "read_file"}]}}}}
-    with warnings.catch_warnings(record=True) as captured:
-        warnings.simplefilter("always")
-        wait = extract_wait_from_record(rec)
-        assert wait is not None
-        assert any("#FALLBACK" in str(w.message) for w in captured)
+def test_extract_wait_ignores_top_level() -> None:
+    """Wait must be at result.wait (canonical StepRecord format); top-level is ignored."""
+    rec = {"wait": {"reason": "job", "details": {"tool_calls": [{"name": "read_file"}]}}}
+    wait = extract_wait_from_record(rec)
+    assert wait is None

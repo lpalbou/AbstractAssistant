@@ -429,6 +429,39 @@ class VoiceManager:
                     print("⚠️  Listening state check not available")
             return False
 
+    def pause_listening(self) -> bool:
+        """Pause STT listening while keeping voice mode active."""
+        fn = getattr(self._abstractvoice_manager, "pause_listening", None)
+        if not callable(fn):
+            warnings.warn("#FALLBACK: listening pause unsupported by voice backend")
+            return False
+        try:
+            fn()
+            return True
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to pause listening: {e}")
+            return False
+
+    def resume_listening(self) -> bool:
+        """Resume STT listening after pause."""
+        fn = getattr(self._abstractvoice_manager, "resume_listening", None)
+        if not callable(fn):
+            warnings.warn("#FALLBACK: listening resume unsupported by voice backend")
+            return False
+        try:
+            fn()
+            return True
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to resume listening: {e}")
+            return False
+
+    def is_listening_paused(self) -> bool:
+        """Return True when STT listening is paused."""
+        try:
+            return bool(getattr(self._abstractvoice_manager, "listening_paused", False))
+        except Exception:
+            return False
+
 
 # Alias for backward compatibility
 TTSManager = VoiceManager

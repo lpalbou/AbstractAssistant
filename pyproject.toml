@@ -45,6 +45,9 @@ dependencies = [
     # UX helpers
     "pyperclip>=1.8.2",
     "plyer>=2.1.0",
+    # webrtcvad (via abstractvoice) depends on pkg_resources at import time;
+    # setuptools >= 76 removed pkg_resources, so we cap below that.
+    "setuptools>=61.0,<76",
 ]
 
 [project.optional-dependencies]

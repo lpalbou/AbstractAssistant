@@ -1506,6 +1506,8 @@ class AgentWorker(QThread):
             )
 
             while True:
+                if self.isInterruptionRequested():
+                    return
                 try:
                     ev = next(gen)
                 except StopIteration:
@@ -1522,7 +1524,9 @@ class AgentWorker(QThread):
                         continue
                     self._tool_approval_decision = None
                     self._tool_approval_event.clear()
-                    self._tool_approval_event.wait()
+                    while not self._tool_approval_event.wait(timeout=0.1):
+                        if self.isInterruptionRequested():
+                            return
                     if self._tool_approval_decision is None:
                         self._tool_approval_decision = False
                     continue
@@ -1530,7 +1534,9 @@ class AgentWorker(QThread):
                 if typ == "ask_user":
                     self._ask_user_response = None
                     self._ask_user_event.clear()
-                    self._ask_user_event.wait()
+                    while not self._ask_user_event.wait(timeout=0.1):
+                        if self.isInterruptionRequested():
+                            return
                     if self._ask_user_response is None:
                         self._ask_user_response = ""
                     continue
@@ -2100,14 +2106,14 @@ class QtChatBubble(QWidget):
             except Exception:
                 pass
 
-        # Status (Cursor-style, enlarged to show full text including "Processing")
-        self.status_label = QLabel("READY")
+        # Status pill — clickable during SPEAKING (1 click = pause/resume, 2 clicks = stop).
+        self.status_label = QPushButton("READY")
         self.status_label.setFixedHeight(24)
         self.status_label.setMinimumWidth(92)
         self.status_label.setMaximumWidth(120)
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.status_label.setStyleSheet("""
-            QLabel {
+            QPushButton {
                 background: #22c55e;
                 border: none;
                 border-radius: 12px;
@@ -2118,6 +2124,11 @@ class QtChatBubble(QWidget):
             }
         """)
         self.status_label.setToolTip("Status")
+        self.status_label.clicked.connect(self._on_status_clicked)
+        self._status_click_timer = QTimer()
+        self._status_click_timer.setSingleShot(True)
+        self._status_click_timer.timeout.connect(self._on_status_single_click)
+        self._status_pending_click = False
 
         center_cluster = QWidget()
         center_row = QHBoxLayout(center_cluster)
@@ -2877,7 +2888,6 @@ class QtChatBubble(QWidget):
         self._position_window_top_right(self, y_offset=0, x_offset=0)
         
         if self.debug:
-            if self.debug:
                 try:
                     pos = self.pos()
                     print(f"Positioned bubble at ({pos.x()}, {pos.y()})")
@@ -2917,6 +2927,28 @@ class QtChatBubble(QWidget):
         max_x = int(screen_geom.x() + max(0, int(screen_geom.width()) - int(w)))
         max_y = int(screen_geom.y() + max(0, int(screen_geom.height()) - int(h)))
         return max(min_x, min(int(x), max_x)), max(min_y, min(int(y), max_y))
+
+    def _activate_app(self) -> None:
+        """Bring the application to the foreground on macOS."""
+        if sys.platform != "darwin":
+            return
+        try:
+            from AppKit import NSApp  # type: ignore[import]
+            NSApp.activateIgnoringOtherApps_(True)
+        except Exception:
+            pass
+
+    def _notify_approval_needed(self, summary: str) -> None:
+        """Fire a tray notification for a pending tool approval."""
+        try:
+            app_obj = getattr(self, "_app_ref", None)
+            tray = getattr(app_obj, "qt_tray_icon", None) if app_obj else None
+            if tray is not None:
+                from PyQt5.QtWidgets import QSystemTrayIcon
+                msg = str(summary or "A tool requires your approval.").strip()
+                tray.showMessage("Tool approval required", msg, QSystemTrayIcon.MessageIcon.Warning, 10000)
+        except Exception:
+            pass
 
     def _position_window_top_right(self, widget, *, y_offset: int = 0, x_offset: int = 0) -> None:
         """Position a window at the top-right of the available screen area, clamped."""
@@ -3094,15 +3126,13 @@ class QtChatBubble(QWidget):
                 available_providers = self.provider_manager.get_available_providers(exclude_mock=True)
 
                 if self.debug:
-                    if self.debug:
-                        print(f"🔍 ProviderManager found {len(available_providers)} available providers")
+                    print(f"🔍 ProviderManager found {len(available_providers)} available providers")
 
                 # Add providers to dropdown
                 for display_name, provider_key in available_providers:
                     self.provider_combo.addItem(display_name, provider_key)
                     if self.debug:
-                        if self.debug:
-                            print(f"    ✅ Added: {display_name} ({provider_key})")
+                        print(f"    ✅ Added: {display_name} ({provider_key})")
 
                 # Set preferred provider
                 preferred = self.provider_manager.get_preferred_provider(available_providers, 'lmstudio')
@@ -3139,16 +3169,14 @@ class QtChatBubble(QWidget):
                 )
 
             if self.debug:
-                if self.debug:
-                    print(f"🔍 Final selected provider: {self.current_provider}")
+                print(f"🔍 Final selected provider: {self.current_provider}")
 
             # Load models for current provider
             self.update_models()
 
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Error loading providers: {e}")
+                print(f"❌ Error loading providers: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -3158,8 +3186,7 @@ class QtChatBubble(QWidget):
                 self.provider_combo.addItem(prov, prov)
                 self.current_provider = prov
                 if self.debug:
-                    if self.debug:
-                        print("🔄 Using fallback provider list")
+                    print("🔄 Using fallback provider list")
     
     def _gateway_selection_store(self, session_id: Optional[str] = None):
         if not self.llm_manager or not hasattr(self.llm_manager, "gateway_selection_store"):
@@ -3349,8 +3376,7 @@ class QtChatBubble(QWidget):
                 models = self.provider_manager.get_models_for_provider(self.current_provider)
 
                 if self.debug:
-                    if self.debug:
-                        print(f"📋 ProviderManager loaded {len(models)} models for {self.current_provider}")
+                    print(f"📋 ProviderManager loaded {len(models)} models for {self.current_provider}")
 
                 # Add models to dropdown with display names
                 for model in models:
@@ -3393,15 +3419,13 @@ class QtChatBubble(QWidget):
                     self.model_combo.setCurrentIndex(0)
 
             if self.debug:
-                if self.debug:
-                    print(f"✅ Final selected model: {self.current_model}")
+                print(f"✅ Final selected model: {self.current_model}")
 
             self.update_token_limits()
 
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Error updating models: {e}")
+                print(f"❌ Error updating models: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -3412,8 +3436,7 @@ class QtChatBubble(QWidget):
                 self.current_model = fallback
                 self.model_combo.setCurrentIndex(0)
                 if self.debug:
-                    if self.debug:
-                        print(f"🔄 Using final fallback model: {self.current_model}")
+                    print(f"🔄 Using final fallback model: {self.current_model}")
     
     def update_token_limits(self):
         """Update token limits using AbstractCore's built-in detection."""
@@ -3516,8 +3539,7 @@ class QtChatBubble(QWidget):
         self.update_models()
         
         if self.debug:
-            if self.debug:
-                print(f"Provider changed to: {self.current_provider}")
+            print(f"Provider changed to: {self.current_provider}")
     
     def on_model_changed(self, model_name):
         """Handle model change."""
@@ -3908,8 +3930,7 @@ class QtChatBubble(QWidget):
                 if file_path not in self.attached_files:
                     self.attached_files.append(file_path)
                     if self.debug:
-                        if self.debug:
-                            print(f"📎 Attached file: {file_path}")
+                        print(f"📎 Attached file: {file_path}")
 
             self.update_attached_files_display()
 
@@ -4041,8 +4062,7 @@ class QtChatBubble(QWidget):
         if file_path in self.attached_files:
             self.attached_files.remove(file_path)
             if self.debug:
-                if self.debug:
-                    print(f"🗑️ Removed attached file: {file_path}")
+                print(f"🗑️ Removed attached file: {file_path}")
             self.update_attached_files_display()
 
     def send_message(self):
@@ -4094,11 +4114,22 @@ class QtChatBubble(QWidget):
 
         # 5. Start worker thread to send request with optional media files
         system_prompt_extra = None
-        if self._is_voice_mode_active():
+        try:
+            voice_prompt = bool(getattr(self, "tts_enabled", False))
+        except Exception:
+            voice_prompt = False
+        try:
+            voice_prompt = voice_prompt or bool(self.full_voice_toggle and self.full_voice_toggle.is_enabled())
+        except Exception:
+            pass
+        if voice_prompt:
             system_prompt_extra = (
                 "You are in voice mode.\n"
-                "- Keep responses concise and conversational.\n"
-                "- Avoid markdown and heavy formatting.\n"
+                "- Reply as natural spoken conversation (verbal, discussion-style).\n"
+                "- Keep it brief: 1-3 short sentences unless the user asks for detail.\n"
+                "- Avoid long monologues; ask a quick follow-up question when helpful.\n"
+                "- Avoid markdown, headings, and lists.\n"
+                "- Do not mention voice mode or these rules.\n"
             )
 
         if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
@@ -4321,6 +4352,14 @@ class QtChatBubble(QWidget):
 
     def _voice_recognizer(self):
         """Best-effort access to the active microphone recognizer."""
+        vm = getattr(self, "voice_manager", None)
+        if vm is None:
+            return None
+        # Gateway mode: recognizer lives directly on the voice manager.
+        rec = getattr(vm, "_recognizer", None)
+        if rec is not None:
+            return rec
+        # Local mode: recognizer lives on the underlying AbstractVoice manager.
         mgr = self._voice_underlying_manager()
         if mgr is None:
             return None
@@ -4454,6 +4493,21 @@ class QtChatBubble(QWidget):
         if typ == "status":
             status = str(event.get("status") or "")
             self._set_agent_status(status)
+
+            # In gateway mode, runs can terminate without producing a final assistant
+            # message (e.g. cancelled). Ensure the UI is always unblocked on terminal
+            # statuses.
+            st_norm = status.strip().lower()
+            if st_norm in {"completed", "ready", "done", "failed", "cancelled", "error"}:
+                try:
+                    self.send_button.setEnabled(True)
+                    self.send_button.setText("→")
+                except Exception:
+                    pass
+                try:
+                    self._set_session_controls_enabled(True)
+                except Exception:
+                    pass
             return
 
         if typ == "history_seeded":
@@ -4463,8 +4517,7 @@ class QtChatBubble(QWidget):
                 self._rebuild_chat_display()
             except Exception:
                 if self.debug:
-                    if self.debug:
-                        print("❌ Failed to rebuild UI after history seed")
+                    print("❌ Failed to rebuild UI after history seed")
             return
 
         if typ == "run_activity":
@@ -4484,8 +4537,7 @@ class QtChatBubble(QWidget):
                 self._rebuild_chat_display()
             except Exception:
                 if self.debug:
-                    if self.debug:
-                        print("❌ Failed to rebuild UI after tool result")
+                    print("❌ Failed to rebuild UI after tool result")
             try:
                 msg = event.get("message") if isinstance(event, dict) else None
                 if isinstance(msg, dict):
@@ -4560,6 +4612,12 @@ class QtChatBubble(QWidget):
             icon_state = "speaking"
         elif state == "error":
             icon_state = "ready"
+        elif icon_state == "ready" and self._is_full_voice_running():
+            full_state = self.get_full_voice_listening_state()
+            if full_state == "paused":
+                icon_state = "listening_paused"
+            else:
+                icon_state = "listening"
         self.status_callback(icon_state)
 
     def _set_run_activity(self, text: str, *, override: bool = True) -> None:
@@ -4623,8 +4681,7 @@ class QtChatBubble(QWidget):
             self._rebuild_chat_display()
         except Exception:
             if self.debug:
-                if self.debug:
-                    print("❌ Failed to refresh intermediate assistant message")
+                print("❌ Failed to refresh intermediate assistant message")
 
     def _handle_tool_request(self, event: Dict) -> None:
         """Prompt user for tool approval when required."""
@@ -4657,6 +4714,7 @@ class QtChatBubble(QWidget):
             requires = True
 
         tool_names: List[str] = []
+        seen_tool_names: set[str] = set()
         missing_name = False
         for tc in tool_calls:
             if not isinstance(tc, dict):
@@ -4665,6 +4723,9 @@ class QtChatBubble(QWidget):
             if not name:
                 missing_name = True
                 continue
+            if name in seen_tool_names:
+                continue
+            seen_tool_names.add(name)
             tool_names.append(name)
 
         if missing_name:
@@ -4694,6 +4755,7 @@ class QtChatBubble(QWidget):
                     self._set_run_activity("Executing tools", override=True)
             except Exception:
                 pass
+            self._announce_tool_execution(tool_calls)
             try:
                 self._run_state.mark_executing()
             except Exception:
@@ -4819,17 +4881,18 @@ class QtChatBubble(QWidget):
         if summary_text:
             self._set_run_activity(f"Tool approval: {summary_text}", override=True)
 
-        parent = None
+        # Tray notification so the user knows approval is needed even if on
+        # another desktop or the app is in the background.
         try:
-            active = QApplication.activeWindow()
-            if active is not None and active is not self:
-                parent = active
-            elif self.isVisible():
-                parent = self
+            if self.status_callback:
+                self.status_callback("waiting")
         except Exception:
-            parent = None
+            pass
+        self._notify_approval_needed(summary_text)
 
-        box = QMessageBox(parent)
+        # The bubble is hidden after send.  The dialog must be a standalone
+        # top-level window that activates the app on macOS.
+        box = QMessageBox()
         box.setWindowTitle("Tool approval required")
         box.setIcon(QMessageBox.Icon.Warning)
         if summary_text:
@@ -4847,23 +4910,23 @@ class QtChatBubble(QWidget):
         box.setDefaultButton(deny_btn)
 
         try:
-            flag = getattr(Qt, "WindowStaysOnTopHint", None)
-            if flag is None and hasattr(Qt, "WindowType"):
-                flag = getattr(Qt.WindowType, "WindowStaysOnTopHint", None)
-            if flag is not None:
-                box.setWindowFlag(flag, True)
+            flags = Qt.WindowStaysOnTopHint | Qt.WindowType.Dialog
+            box.setWindowFlags(flags)
         except Exception:
-            pass
+            try:
+                box.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            except Exception:
+                pass
         try:
             box.setWindowModality(Qt.ApplicationModal)
         except Exception:
             pass
         self._position_window_top_right(box, y_offset=0, x_offset=0)
-        try:
-            box.raise_()
-            box.activateWindow()
-        except Exception:
-            pass
+
+        # Force the app to the foreground on macOS.
+        self._activate_app()
+        box.raise_()
+        box.activateWindow()
         box.exec()
         clicked = box.clickedButton()
         approved = clicked == approve_btn
@@ -4886,12 +4949,61 @@ class QtChatBubble(QWidget):
                 pass
 
         if approved:
+            self._announce_tool_execution(tool_calls)
             try:
                 self._run_state.mark_executing()
             except Exception:
                 pass
         if hasattr(self.worker, "provide_tool_approval"):
             self.worker.provide_tool_approval(bool(approved))
+
+    def _announce_tool_execution(self, tool_calls: list) -> None:
+        """Speak a short announcement when tools execute (voice mode only)."""
+        if not self.tts_enabled or not self.voice_manager:
+            return
+        try:
+            summaries: Dict[str, str] = {}
+            total_calls = 0
+            for tc in (tool_calls or []):
+                if not isinstance(tc, dict):
+                    continue
+                name = str(tc.get("name") or "").strip()
+                if not name:
+                    continue
+                total_calls += 1
+                if name in summaries:
+                    continue
+                args = tc.get("arguments")
+                if isinstance(args, dict) and args:
+                    key_vals = []
+                    for k in list(args.keys())[:2]:
+                        v = args[k]
+                        if isinstance(v, str) and len(v) > 60:
+                            v = f"{len(v)} characters"
+                        elif isinstance(v, str):
+                            pass
+                        else:
+                            v = str(v)
+                        key_vals.append(f"{k}: {v}")
+                    summaries[name] = f"{name}, {', '.join(key_vals)}"
+                else:
+                    summaries[name] = name
+
+            if not summaries:
+                return
+
+            names = list(summaries.keys())
+            if len(names) == 1:
+                only = names[0]
+                if total_calls > 1:
+                    text = f"Executing {total_calls} calls of {only}. Please wait."
+                else:
+                    text = f"Executing {summaries[only]}. Please wait."
+            else:
+                text = f"Executing {len(names)} tools: {', '.join(names)}. Please wait."
+            self.voice_manager.speak(text)
+        except Exception:
+            pass
 
     def _handle_ask_user(self, event: Dict) -> None:
         """Prompt user for input required by the run."""
@@ -4921,24 +5033,30 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
 
-        try:
-            self.show()
-            self.raise_()
-            self.activateWindow()
-        except Exception:
-            pass
+        self._notify_approval_needed(f"Input needed: {prompt[:100]}")
+        self._activate_app()
+
         response = ""
         try:
-            dlg = QInputDialog(self)
+            dlg = QInputDialog()
             dlg.setWindowTitle("Assistant needs input")
             dlg.setLabelText(prompt)
+            try:
+                dlg.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.WindowType.Dialog)
+            except Exception:
+                try:
+                    dlg.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                except Exception:
+                    pass
             self._position_window_top_right(dlg, y_offset=0, x_offset=0)
+            dlg.raise_()
+            dlg.activateWindow()
             accepted_code = getattr(QDialog, "Accepted", 1)
             result = dlg.exec()
             if result == accepted_code:
                 response = str(dlg.textValue() or "")
         except Exception:
-            text, ok = QInputDialog.getText(self, "Assistant needs input", prompt)
+            text, ok = QInputDialog.getText(None, "Assistant needs input", prompt)
             response = str(text) if ok else ""
         if hasattr(self.worker, "provide_user_response"):
             self.worker.provide_user_response(response)
@@ -5035,8 +5153,7 @@ class QtChatBubble(QWidget):
         tts_allowed = bool(allow_tts and self.tts_enabled and tts_supported and self.voice_manager)
         if tts_allowed:
             if self.debug:
-                if self.debug:
-                    print("🔊 TTS enabled, speaking response...")
+                print("🔊 TTS enabled, speaking response...")
 
             try:
                 clean_response = self._clean_response_for_voice(response)
@@ -5064,8 +5181,7 @@ class QtChatBubble(QWidget):
                     self._pending_response = response
             except Exception as e:
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ TTS error: {e}")
+                    print(f"❌ TTS error: {e}")
                 if emit_response:
                     QTimer.singleShot(100, self._show_history_if_voice_mode_off)
                 if self._is_full_voice_running():
@@ -5115,8 +5231,7 @@ class QtChatBubble(QWidget):
         """Handle TTS toggle state change."""
         self.tts_enabled = enabled
         if self.debug:
-            if self.debug:
-                print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
+            print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
 
         if enabled and not self.voice_manager:
             warnings.warn("#FALLBACK: voice backend unavailable; disabling TTS")
@@ -5150,8 +5265,7 @@ class QtChatBubble(QWidget):
                     
             except Exception as e:
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ Error stopping TTS: {e}")
+                    print(f"❌ Error stopping TTS: {e}")
         elif enabled:
             # When enabling TTS, reset the toggle to the idle visual state.
             try:
@@ -5165,12 +5279,10 @@ class QtChatBubble(QWidget):
             try:
                 self.llm_manager.update_session_mode(tts_mode=enabled)
                 if self.debug:
-                    if self.debug:
-                        print(f"🔄 LLM session mode updated for {'TTS' if enabled else 'normal'} mode (history preserved)")
+                    print(f"🔄 LLM session mode updated for {'TTS' if enabled else 'normal'} mode (history preserved)")
             except Exception as e:
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ Error updating LLM session: {e}")
+                    print(f"❌ Error updating LLM session: {e}")
 
     def on_tts_single_click(self):
         """Handle single click on TTS toggle - pause/resume functionality."""
@@ -5201,16 +5313,14 @@ class QtChatBubble(QWidget):
             else:
                 # If idle, do nothing or could show a message
                 if self.debug:
-                    if self.debug:
-                        print("🔊 TTS single click - no active speech to pause/resume")
+                    print("🔊 TTS single click - no active speech to pause/resume")
 
             # Update visual state
             self._update_tts_toggle_state()
 
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Error handling TTS single click: {e}")
+                print(f"❌ Error handling TTS single click: {e}")
 
     def _attempt_pause_with_retry(self, max_attempts=5):
         """Attempt to pause with retry logic for timing issues.
@@ -5233,8 +5343,7 @@ class QtChatBubble(QWidget):
                 return True
 
             if self.debug:
-                if self.debug:
-                    print(f"🔊 Pause attempt {attempt + 1}/{max_attempts} failed, retrying...")
+                print(f"🔊 Pause attempt {attempt + 1}/{max_attempts} failed, retrying...")
 
             # Short delay before retry
             time.sleep(0.1)
@@ -5244,8 +5353,7 @@ class QtChatBubble(QWidget):
     def on_tts_double_click(self):
         """Handle double click on TTS toggle - stop TTS and open chat bubble."""
         if self.debug:
-            if self.debug:
-                print("🔊 TTS double click - stopping speech and showing chat")
+            print("🔊 TTS double click - stopping speech and showing chat")
 
         # Prevent double-free errors by checking if objects are still valid
         try:
@@ -5269,8 +5377,7 @@ class QtChatBubble(QWidget):
 
                 except Exception as e:
                     if self.debug:
-                        if self.debug:
-                            print(f"❌ Error stopping TTS on double click: {e}")
+                        print(f"❌ Error stopping TTS on double click: {e}")
 
             # Do not change visibility when stopping speech.
 
@@ -5311,20 +5418,16 @@ class QtChatBubble(QWidget):
                 return
 
             if self.debug:
-                if self.debug:
-                    print("🚀 Starting Full Voice Mode...")
+                print("🚀 Starting Full Voice Mode...")
 
-            # Keep the normal interface visible, but switch input actions to voice mode
-            # (attach + tools remain usable; send is hidden).
+            # Switch to voice-first controls and keep full voice tray-driven.
             self.hide_text_ui()
             try:
                 self._set_session_controls_enabled(False)
             except Exception:
                 pass
             try:
-                if self.history_dialog and self.history_dialog.isVisible():
-                    self.history_dialog.hide()
-                    self._update_history_button_appearance(False)
+                self.hide()
             except Exception:
                 pass
 
@@ -5365,13 +5468,11 @@ class QtChatBubble(QWidget):
             ).start()
 
             if self.debug:
-                if self.debug:
-                    print("✅ Full Voice Mode started successfully")
+                print("✅ Full Voice Mode started successfully")
 
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Error starting Full Voice Mode: {e}")
+                print(f"❌ Error starting Full Voice Mode: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -5456,32 +5557,27 @@ class QtChatBubble(QWidget):
                 pass
             return
 
-        is_gateway_voice = isinstance(self.voice_manager, GatewayVoiceManager)
-        if not is_gateway_voice:
-            # Make conversation snappy (short utterances + quicker silence endpointing).
-            self._tune_voice_recognizer_for_conversation()
-            # Catch common mic failures (permissions / device errors) quickly.
-            self._schedule_voice_listen_watchdog()
+        # Make conversation snappy (short utterances + quicker silence endpointing).
+        self._tune_voice_recognizer_for_conversation()
+        # Catch common mic failures (permissions / device errors) quickly.
+        self._schedule_voice_listen_watchdog()
 
-            # Sanity check: ensure STT backend looks initialized (model loaded).
-            try:
-                rec = self._voice_recognizer()
-                if rec is None:
-                    raise RuntimeError("Voice recognizer is not initialized")
-                stt = getattr(rec, "stt_adapter", None)
-                if stt is not None and hasattr(stt, "is_available") and not bool(stt.is_available()):
-                    raise RuntimeError("STT model not available (not loaded)")
-            except Exception as e:
-                self._abort_full_voice_mode_with_error(
-                    "Speech-to-text not ready",
-                    "Full voice mode started, but speech-to-text isn't ready.\n\n"
-                    f"Error: {e}\n\n"
-                    "Fix:\n"
-                    "1) Ensure `abstractassistant` is installed\n"
-                    "2) Restart AbstractAssistant\n"
-                    "3) If needed, re-install dependencies in a clean venv\n",
-                )
-                return
+        # Sanity check: ensure STT backend is initialized.
+        try:
+            rec = self._voice_recognizer()
+            if rec is None:
+                raise RuntimeError("Voice recognizer is not initialized")
+            stt = getattr(rec, "stt_adapter", None)
+            if stt is not None and hasattr(stt, "is_available") and not bool(stt.is_available()):
+                raise RuntimeError("STT backend not available")
+        except Exception as e:
+            self._abort_full_voice_mode_with_error(
+                "Speech-to-text not ready",
+                "Full voice mode started, but speech-to-text isn't ready.\n\n"
+                f"Error: {e}\n\n"
+                "Ensure AbstractVoice is installed and the gateway is running.",
+            )
+            return
 
         try:
             self.full_voice_toggle.set_listening_state("listening")
@@ -5515,7 +5611,7 @@ class QtChatBubble(QWidget):
                 if not bool(getattr(self, "_full_voice_running", False)):
                     return
                 if self.voice_manager:
-                    self.voice_manager.speak("Full voice mode activated. I'm listening...")
+                    self.voice_manager.speak("I am listening")
             except Exception:
                 pass
 
@@ -5528,12 +5624,70 @@ class QtChatBubble(QWidget):
         except Exception:
             return bool(getattr(self, "_full_voice_running", False))
 
+    def get_full_voice_listening_state(self) -> str:
+        """Return full voice listening state for tray controls."""
+        if not self._is_full_voice_running():
+            return "inactive"
+        vm = getattr(self, "voice_manager", None)
+        if vm is not None:
+            try:
+                if bool(getattr(vm, "is_listening_paused", lambda: False)()):
+                    return "paused"
+            except Exception:
+                pass
+            try:
+                if bool(getattr(vm, "is_listening", lambda: False)()):
+                    return "listening"
+            except Exception:
+                pass
+        if bool(getattr(self, "_voice_busy", False)):
+            return "processing"
+        return "listening"
+
+    def toggle_full_voice_listening_pause(self) -> bool:
+        """Pause/resume full voice listening from tray controls."""
+        if not self._is_full_voice_running():
+            return False
+        vm = getattr(self, "voice_manager", None)
+        if vm is None:
+            warnings.warn("#FALLBACK: full voice pause requested without voice manager")
+            return False
+
+        try:
+            paused = bool(getattr(vm, "is_listening_paused", lambda: False)())
+        except Exception:
+            paused = False
+
+        try:
+            if paused:
+                ok = bool(getattr(vm, "resume_listening", lambda: False)())
+                if ok:
+                    try:
+                        if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                            self.full_voice_toggle.set_listening_state("listening")
+                    except Exception:
+                        pass
+                    self.update_status("LISTENING")
+                return ok
+
+            ok = bool(getattr(vm, "pause_listening", lambda: False)())
+            if ok:
+                try:
+                    if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                        self.full_voice_toggle.set_listening_state("idle")
+                except Exception:
+                    pass
+                self.update_status("LISTENING PAUSED")
+            return ok
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: full voice listening pause/resume failed: {e}")
+            return False
+
     def stop_full_voice_mode(self):
         """Stop Full Voice Mode and return to normal text mode."""
         # IMPORTANT: make this robust. Even if voice backend stop throws, the UI must restore.
         if self.debug:
-            if self.debug:
-                print("🛑 Stopping Full Voice Mode...")
+            print("🛑 Stopping Full Voice Mode...")
 
         # Gate all future async 'LISTENING' updates immediately.
         self._full_voice_running = False
@@ -5601,8 +5755,7 @@ class QtChatBubble(QWidget):
             pass
 
         if self.debug:
-            if self.debug:
-                print("✅ Full Voice Mode stopped")
+            print("✅ Full Voice Mode stopped")
 
     def handle_voice_input(self, transcribed_text: str):
         """Handle speech-to-text input.
@@ -5748,7 +5901,8 @@ class QtChatBubble(QWidget):
         Centralized UI state switch for voice mode.
 
         Requirements:
-        - In voice mode, it's a pure spoken conversation: no typing, no Messages window.
+        - In voice mode, it's a pure spoken conversation: no typing.
+        - The Messages window must remain available at all times (including voice mode).
         """
         enabled = bool(enabled)
         try:
@@ -5797,38 +5951,107 @@ class QtChatBubble(QWidget):
                     return
             except Exception:
                 pass
-        if hasattr(self, 'status_label'):
-            self.status_label.setText(status_text.upper())
+        if not hasattr(self, "status_label"):
+            return
 
-            # Update status label style based on status
-            if status_text.lower() in ['ready', 'idle', 'completed']:
-                color = "#22c55e"  # Green
-            elif status_text.lower() in ['listening']:
-                color = "#ff6b35"  # Orange
-            elif status_text.lower() in ['processing', 'generating', 'running', 'compacting', 'reconnecting']:
-                color = "#ffa500"  # Yellow
-            elif status_text.lower() in ['waiting', 'approve']:
-                color = "#a855f7"  # Purple
-            elif status_text.lower() in ['executing']:
-                color = "#f97316"  # Orange
-            elif status_text.lower() in ['speaking']:
-                color = "#007acc"  # Blue
-            elif status_text.lower() in ['error', 'failed', 'offline', 'disconnected']:
-                color = "#ff3b30"  # Red
-            else:
-                color = "#007acc"  # Blue (default)
+        state = str(status_text or "").strip().lower().replace(" ", "_")
+        self.status_label.setText(status_text.upper())
 
-            self.status_label.setStyleSheet(f"""
-                QLabel {{
-                    background: {color};
-                    border: none;
-                    border-radius: 12px;
-                    font-size: 10px;
-                    font-weight: 600;
-                    color: #ffffff;
-                    font-family: "Helvetica Neue", "Helvetica", Arial;
-                }}
-            """)
+        if state in ("ready", "idle", "completed"):
+            color = "#22c55e"
+        elif state == "listening":
+            color = "#ff6b35"
+        elif state == "listening_paused":
+            color = "#fb923c"
+        elif state in ("processing", "generating", "running", "compacting", "reconnecting"):
+            color = "#ffa500"
+        elif state in ("waiting", "approve"):
+            color = "#a855f7"
+        elif state == "executing":
+            color = "#f97316"
+        elif state in ("speaking", "paused"):
+            color = "#007acc"
+        elif state in ("error", "failed", "offline", "disconnected"):
+            color = "#ff3b30"
+        else:
+            color = "#007acc"
+
+        interactive = state in ("speaking", "paused")
+        hover = f"QPushButton:hover {{ background: {'#0091ff' if interactive else color}; }}" if interactive else ""
+        cursor_css = "cursor: pointer;" if interactive else ""
+        tooltip = "Click: pause/resume · Double-click: stop" if interactive else "Status"
+
+        self.status_label.setStyleSheet(f"""
+            QPushButton {{
+                background: {color};
+                border: none;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 600;
+                color: #ffffff;
+                font-family: "Helvetica Neue", "Helvetica", Arial;
+                {cursor_css}
+            }}
+            {hover}
+        """)
+        try:
+            from PyQt5.QtCore import Qt as _Qt
+            self.status_label.setCursor(_Qt.PointingHandCursor if interactive else _Qt.ArrowCursor)
+        except Exception:
+            pass
+        self.status_label.setToolTip(tooltip)
+
+        # Full voice mode pushes explicit listening states that are outside
+        # run-state transitions; forward them to the tray icon here.
+        tray_state = None
+        if state in ("listening", "listening_paused"):
+            tray_state = state
+        elif state == "processing" and self._is_full_voice_running():
+            tray_state = "thinking"
+        if tray_state and self.status_callback:
+            try:
+                self.status_callback(tray_state)
+            except Exception:
+                pass
+
+    def _on_status_clicked(self) -> None:
+        """Handle click on the status pill — detect single vs double click."""
+        state = str(self.status_label.text() or "").strip().lower()
+        if state not in ("speaking", "paused"):
+            return
+        if self._status_pending_click:
+            self._status_click_timer.stop()
+            self._status_pending_click = False
+            self._on_status_double_click()
+        else:
+            self._status_pending_click = True
+            self._status_click_timer.start(250)
+
+    def _on_status_single_click(self) -> None:
+        """Single click on SPEAKING/PAUSED → pause or resume."""
+        self._status_pending_click = False
+        if not self.voice_manager:
+            return
+        try:
+            if self.voice_manager.is_paused():
+                self.voice_manager.resume()
+                self.update_status("speaking", force=True)
+            elif self.voice_manager.is_speaking():
+                self.voice_manager.pause()
+                self.update_status("paused", force=True)
+        except Exception:
+            pass
+
+    def _on_status_double_click(self) -> None:
+        """Double click on SPEAKING/PAUSED → stop voice."""
+        self._status_pending_click = False
+        if not self.voice_manager:
+            return
+        try:
+            self.voice_manager.stop()
+            self.notify_manual_voice_stop()
+        except Exception:
+            pass
 
     def _update_tts_toggle_state(self):
         """Update the TTS toggle visual state based on current TTS state."""
@@ -5845,8 +6068,7 @@ class QtChatBubble(QWidget):
                     pass
             except Exception as e:
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ Error updating TTS toggle state: {e}")
+                    print(f"❌ Error updating TTS toggle state: {e}")
 
     # Voice control panel methods removed - not needed
 
@@ -5865,13 +6087,11 @@ class QtChatBubble(QWidget):
             self.escape_shortcut.activated.connect(self.handle_escape_shortcut)
 
             if self.debug:
-                if self.debug:
-                    print("✅ Keyboard shortcuts setup: Space (pause/resume), Escape (stop)")
+                print("✅ Keyboard shortcuts setup: Space (pause/resume), Escape (stop)")
 
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Error setting up keyboard shortcuts: {e}")
+                print(f"❌ Error setting up keyboard shortcuts: {e}")
 
     def handle_space_shortcut(self):
         """Handle space bar shortcut for pause/resume."""
@@ -5880,16 +6100,14 @@ class QtChatBubble(QWidget):
             not self.input_text.hasFocus()):
             self.on_tts_single_click()
             if self.debug:
-                if self.debug:
-                    print("🔊 Space shortcut triggered pause/resume")
+                print("🔊 Space shortcut triggered pause/resume")
 
     def handle_escape_shortcut(self):
         """Handle escape key shortcut for stop."""
         if self.voice_manager and self.voice_manager.get_state() in ['speaking', 'paused']:
             self.on_tts_double_click()
             if self.debug:
-                if self.debug:
-                    print("🔊 Escape shortcut triggered stop")
+                print("🔊 Escape shortcut triggered stop")
     
     def _clean_response_for_voice(self, text: str) -> str:
         """Clean response text for voice synthesis - remove formatting and make conversational."""
@@ -5939,8 +6157,7 @@ class QtChatBubble(QWidget):
         # NO TRUNCATION - let the LLM decide response length based on system prompt
         
         if self.debug:
-            if self.debug:
-                print(f"🔊 Cleaned text for TTS: {text[:100]}{'...' if len(text) > 100 else ''}")
+            print(f"🔊 Cleaned text for TTS: {text[:100]}{'...' if len(text) > 100 else ''}")
         
         return text
     
@@ -5956,13 +6173,11 @@ class QtChatBubble(QWidget):
             pass
         
         if self.debug:
-            if self.debug:
-                print(f"Error occurred: {error}")
+            print(f"Error occurred: {error}")
         
         # Show chat history instead of error toast
         if self.debug:
-            if self.debug:
-                print(f"❌ AI Error: {error}")
+            print(f"❌ AI Error: {error}")
 
         # Surface the error immediately in a modal (like tool approval prompts).
         # In full voice mode, avoid modal UI (voice-only): just resume listening.
@@ -6042,7 +6257,6 @@ class QtChatBubble(QWidget):
             "clear_session_button",
             "import_session_button",
             "export_session_button",
-            "history_button",
         ):
             w = getattr(self, attr, None)
             if w is None:
@@ -6731,8 +6945,7 @@ Continue the conversation naturally, referring to the context above when relevan
                         )
 
                         if self.debug:
-                            if self.debug:
-                                print(f"📂 Loaded session via AbstractCore from {file_path}")
+                            print(f"📂 Loaded session via AbstractCore from {file_path}")
                     else:
                         raise Exception("Session loaded but not available in LLMManager")
                 else:
@@ -6744,8 +6957,7 @@ Continue the conversation naturally, referring to the context above when relevan
                     f"Failed to load session via AbstractCore:\n{str(e)}",
                 )
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ Failed to load session: {e}")
+                    print(f"❌ Failed to load session: {e}")
     
     def save_session(self):
         """Save the current session using AbstractCore via LLMManager."""
@@ -6779,8 +6991,7 @@ Continue the conversation naturally, referring to the context above when relevan
                     )
 
                     if self.debug:
-                        if self.debug:
-                            print(f"💾 Saved session via AbstractCore to {file_path}")
+                        print(f"💾 Saved session via AbstractCore to {file_path}")
                 else:
                     raise Exception("AbstractCore session saving failed")
 
@@ -6790,8 +7001,7 @@ Continue the conversation naturally, referring to the context above when relevan
                     f"Failed to save session via AbstractCore:\n{str(e)}",
                 )
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ Failed to save session: {e}")
+                    print(f"❌ Failed to save session: {e}")
     
     def _is_voice_mode_active(self):
         """Centralized source of truth: Check if ANY voice mode is active."""
@@ -6810,9 +7020,12 @@ Continue the conversation naturally, referring to the context above when relevan
         return False
 
     def _should_show_chat_history(self):
-        """Centralized source of truth: Should chat history be visible?"""
-        # chat_history_visible = is_voice_mode_off
-        return not self._is_voice_mode_active()
+        """Return True when the Messages window should be available.
+
+        Requirement: the Messages window must be openable at any time, including
+        full voice mode.
+        """
+        return True
 
     def _update_message_history_from_session(self):
         """Update local message history from the durable agent snapshot (preferred).
@@ -6917,22 +7130,42 @@ Continue the conversation naturally, referring to the context above when relevan
                 print(f"❌ Error rebuilding chat display: {e}")
 
     def _update_token_count_from_session(self):
-        """Update token count from AbstractCore session."""
+        """Update token count from session messages."""
         try:
             if self.use_gateway:
+                self._update_token_count_gateway()
                 return
             if self.llm_manager and self.llm_manager.current_session:
                 token_estimate = self.llm_manager.current_session.get_token_estimate()
                 self.token_count = token_estimate
                 self.update_token_display()
-
-                if self.debug:
-                    if self.debug:
-                        print(f"📊 Updated token count from AbstractCore: {self.token_count}")
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Error updating token count from session: {e}")
+                print(f"❌ Error updating token count from session: {e}")
+
+    def _update_token_count_gateway(self):
+        """Estimate token usage from gateway session messages."""
+        try:
+            msgs = self.llm_manager.session_messages() if self.llm_manager else []
+            if not isinstance(msgs, list):
+                msgs = []
+            total_chars = 0
+            for m in msgs:
+                if not isinstance(m, dict):
+                    continue
+                content = m.get("content")
+                if isinstance(content, str):
+                    total_chars += len(content)
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict):
+                            total_chars += len(str(part.get("text") or ""))
+                        elif isinstance(part, str):
+                            total_chars += len(part)
+            self.token_count = max(0, total_chars // 4)
+            self.update_token_display()
+        except Exception:
+            pass
 
     def show_trace(self):
         """Show a lightweight debug trace for the last run."""
@@ -7012,7 +7245,7 @@ Continue the conversation naturally, referring to the context above when relevan
 
     def _show_history_if_voice_mode_off(self):
         """Show chat history only if voice mode is OFF."""
-        if not self._should_show_chat_history():
+        if self._is_voice_mode_active():
             if self.debug:
                 print("🎙️ Chat history blocked - Voice mode is active")
             return
@@ -7028,19 +7261,18 @@ Continue the conversation naturally, referring to the context above when relevan
 
     def show_history(self, checked: Optional[bool] = None):
         """Toggle message history dialog visibility."""
+        # Best-effort: refresh history from the durable session so the dialog is accurate
+        # even when opened during full voice mode.
+        try:
+            self._update_message_history_from_session()
+        except Exception:
+            pass
+
         want_visible = None if checked is None else bool(checked)
         # Use centralized logic to check if chat history should be shown
         if not self._should_show_chat_history():
             if self.debug:
                 print("🎙️ Chat history blocked - Voice mode is active")
-            self._update_history_button_appearance(False)
-            return
-
-        if not self.message_history:
-            self._show_info(
-                "No History",
-                "No message history available. Start a conversation first.",
-            )
             self._update_history_button_appearance(False)
             return
 
@@ -7063,6 +7295,11 @@ Continue the conversation naturally, referring to the context above when relevan
             return
 
         try:
+            try:
+                self._activate_app()
+            except Exception:
+                pass
+
             if self.history_dialog is None:
                 self.history_dialog = iPhoneMessagesDialog.create_dialog(
                     self.message_history,
@@ -7094,6 +7331,11 @@ Continue the conversation naturally, referring to the context above when relevan
             self.history_dialog.set_hide_callback(lambda: self._update_history_button_appearance(False))
             self._position_window_top_right(self.history_dialog, y_offset=0, x_offset=0)
             self.history_dialog.show()
+            try:
+                self.history_dialog.raise_()
+                self.history_dialog.activateWindow()
+            except Exception:
+                pass
             self._update_history_button_appearance(True)
         except Exception as e:
             self._show_warning("History", f"Failed to open messages:\n{e}")
@@ -7274,8 +7516,7 @@ Continue the conversation naturally, referring to the context above when relevan
     def close_app(self):
         """Close the entire application completely."""
         if self.debug:
-            if self.debug:
-                print("🔄 Close button clicked - shutting down application")
+            print("🔄 Close button clicked - shutting down application")
 
         # Stop TTS if running
         if hasattr(self, 'voice_manager') and self.voice_manager:
@@ -7291,19 +7532,16 @@ Continue the conversation naturally, referring to the context above when relevan
         # ALWAYS try to call the app quit callback first
         if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
             if self.debug:
-                if self.debug:
-                    print("🔄 Calling app quit callback")
+                print("🔄 Calling app quit callback")
             try:
                 self.app_quit_callback()
             except Exception as e:
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ App callback failed: {e}")
+                    print(f"❌ App callback failed: {e}")
 
         # ALWAYS force quit as well to ensure the app terminates
         if self.debug:
-            if self.debug:
-                print("🔄 Force quitting application")
+            print("🔄 Force quitting application")
 
         # Get the QApplication instance
         app = QApplication.instance()
@@ -7317,8 +7555,7 @@ Continue the conversation naturally, referring to the context above when relevan
         import sys
         import os
         if self.debug:
-            if self.debug:
-                print("🔄 Force exit with sys.exit and os._exit")
+            print("🔄 Force exit with sys.exit and os._exit")
         try:
             sys.exit(0)
         except:
@@ -7445,8 +7682,7 @@ Continue the conversation naturally, referring to the context above when relevan
                 self.voice_manager.cleanup()
             except Exception as e:
                 if self.debug:
-                    if self.debug:
-                        print(f"❌ Error cleaning up voice manager: {e}")
+                    print(f"❌ Error cleaning up voice manager: {e}")
         
         event.accept()
 
@@ -7471,8 +7707,7 @@ class QtBubbleManager:
             raise RuntimeError("No Qt library available. Install PyQt5, PySide2, or PyQt6")
         
         if self.debug:
-            if self.debug:
-                print(f"✅ QtBubbleManager initialized with {QT_AVAILABLE}")
+            print(f"✅ QtBubbleManager initialized with {QT_AVAILABLE}")
 
     def _prepare_bubble(self):
         """Pre-initialize the bubble for instant display later."""
@@ -7484,8 +7719,7 @@ class QtBubbleManager:
 
         if not self.bubble:
             if self.debug:
-                if self.debug:
-                    print("🔄 Pre-creating QtChatBubble...")
+                print("🔄 Pre-creating QtChatBubble...")
 
             # Create the bubble but don't show it yet
             self.bubble = QtChatBubble(self.llm_manager, self.config, self.debug, self.listening_mode)
@@ -7501,8 +7735,7 @@ class QtBubbleManager:
                 self.bubble.set_voice_meter_callback(self.voice_meter_callback)
 
             if self.debug:
-                if self.debug:
-                    print("✅ QtChatBubble pre-created and ready")
+                print("✅ QtChatBubble pre-created and ready")
 
     def show(self):
         """Show the chat bubble (instantly if pre-initialized)."""
@@ -7514,14 +7747,47 @@ class QtBubbleManager:
         if hasattr(self, 'app_quit_callback') and self.app_quit_callback:
             if hasattr(self.bubble, 'set_app_quit_callback'):
                 self.bubble.set_app_quit_callback(self.app_quit_callback)
+
+        # Best-effort: bring app to foreground on macOS before focusing the bubble.
+        try:
+            if hasattr(self.bubble, "_activate_app"):
+                self.bubble._activate_app()
+        except Exception:
+            pass
+        try:
+            if hasattr(self.bubble, "_ensure_window_within_screen"):
+                self.bubble._ensure_window_within_screen(self.bubble)
+        except Exception:
+            pass
         
         self.bubble.show()
         self.bubble.raise_()
         self.bubble.activateWindow()
+
+        # macOS tray activation can race with focus/menu lifecycle on first click.
+        # Reassert visibility on the next event-loop tick.
+        try:
+            from PyQt5.QtCore import QTimer
+
+            def _reassert():
+                try:
+                    if self.bubble is None:
+                        return
+                    if not self.bubble.isVisible():
+                        self.bubble.show()
+                    if hasattr(self.bubble, "_ensure_window_within_screen"):
+                        self.bubble._ensure_window_within_screen(self.bubble)
+                    self.bubble.raise_()
+                    self.bubble.activateWindow()
+                except Exception:
+                    pass
+
+            QTimer.singleShot(0, _reassert)
+        except Exception:
+            pass
         
         if self.debug:
-            if self.debug:
-                print("💬 Qt chat bubble shown")
+            print("💬 Qt chat bubble shown")
     
     def hide(self):
         """Hide the chat bubble."""
@@ -7529,8 +7795,7 @@ class QtBubbleManager:
             self.bubble.hide()
             
             if self.debug:
-                if self.debug:
-                    print("💬 Qt chat bubble hidden")
+                print("💬 Qt chat bubble hidden")
     
     def destroy(self):
         """Destroy the chat bubble."""
@@ -7539,8 +7804,7 @@ class QtBubbleManager:
             self.bubble = None
             
             if self.debug:
-                if self.debug:
-                    print("💬 Qt chat bubble destroyed")
+                print("💬 Qt chat bubble destroyed")
     
     def set_response_callback(self, callback):
         """Set response callback."""

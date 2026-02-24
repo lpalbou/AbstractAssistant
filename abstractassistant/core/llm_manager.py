@@ -574,8 +574,11 @@ class LLMManager:
         if self._tts_mode:
             system_extra = (
                 "You are in voice mode.\n"
-                "- Keep responses concise and conversational.\n"
-                "- Avoid markdown and heavy formatting.\n"
+                "- Reply as natural spoken conversation (verbal, discussion-style).\n"
+                "- Keep it brief: 1-3 short sentences unless the user asks for detail.\n"
+                "- Avoid long monologues; ask a quick follow-up question when helpful.\n"
+                "- Avoid markdown, headings, and lists.\n"
+                "- Do not mention voice mode or these rules.\n"
             )
 
         final = ""

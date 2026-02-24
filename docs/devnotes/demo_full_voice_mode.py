@@ -41,7 +41,7 @@ def demo_full_voice_mode():
 
         # Create Qt system tray icon with enhanced click detection
         qt_icon = app._create_qt_system_tray_icon()
-        print("✅ Enhanced system tray icon created (200ms double-click detection)")
+        print("✅ Enhanced system tray icon created (timestamp-based double-click detection)")
 
         # Show chat bubble to demonstrate Full Voice Mode UI
         app.show_chat_bubble()
@@ -104,7 +104,7 @@ def demo_full_voice_mode():
         print("\n" + "=" * 60)
         print("🎯 FULL VOICE MODE IMPLEMENTATION SUMMARY")
         print("=" * 60)
-        print("✅ Enhanced System Tray: Single/double click detection (200ms)")
+        print("✅ Enhanced System Tray: Voice-aware click routing (timestamp-based double-click)")
         print("✅ Full Voice Mode Toggle: Microphone icon with visual states")
         print("✅ STT Integration: AbstractVoice speech-to-text with 'stop' mode")
         print("✅ TTS Integration: Voice responses with immediate controls")

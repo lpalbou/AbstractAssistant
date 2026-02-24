@@ -57,30 +57,23 @@ def test_reason_based_detection():
         app.handle_single_click = track_single
         app.handle_double_click = track_double
 
+        # Force voice-active path so we can validate single vs double routing.
+        app._voice_is_active = lambda: True  # type: ignore[method-assign]
+
         # Test 1: Single click scenario (reason=3 only)
         print("\n🖱️  Test 1: Single Click (reason=3)")
         print("   Simulating single click...")
 
         # Reset state
-        app.click_count = 0
-        app.click_timer.stop()
+        app._tray_last_click_ts = 0.0
         single_executed[0] = False
         double_executed[0] = False
 
         # Simulate single click (reason=3)
         app._qt_on_tray_activated(3)
 
-        # Wait less than timeout
-        time.sleep(0.3)
-        if single_executed[0] or double_executed[0]:
-            print("   ❌ Action executed too early!")
-            return False
-
-        # Wait for timeout to complete
-        time.sleep(0.3)  # Total 0.6s, should exceed 0.5s timeout
-
         if single_executed[0] and not double_executed[0]:
-            print("   ✅ Single click executed after timeout")
+            print("   ✅ Single click executed immediately")
         else:
             print(f"   ❌ Wrong execution: single={single_executed[0]}, double={double_executed[0]}")
             return False
@@ -90,8 +83,7 @@ def test_reason_based_detection():
         print("   Simulating double click...")
 
         # Reset state
-        app.click_count = 0
-        app.click_timer.stop()
+        app._tray_last_click_ts = 0.0
         single_executed[0] = False
         double_executed[0] = False
 
@@ -102,24 +94,15 @@ def test_reason_based_detection():
 
         # Check immediate execution
         time.sleep(0.05)  # Small delay for processing
-        if double_executed[0] and not single_executed[0]:
-            print("   ✅ Double click executed immediately")
+        if double_executed[0]:
+            print("   ✅ Double click executed (reason=2)")
         else:
             print(f"   ❌ Wrong execution: single={single_executed[0]}, double={double_executed[0]}")
             return False
 
-        # Wait to ensure single click doesn't execute later
-        time.sleep(0.6)
-        if single_executed[0]:
-            print("   ❌ Single click executed after double click (should be cancelled)")
-            return False
-        else:
-            print("   ✅ Single click correctly cancelled by double click")
-
         print("\n🎉 Click Detection Test PASSED!")
-        print("✅ Single click (reason=3): waits 500ms then executes")
-        print("✅ Double click (reason=3,2): executes immediately")
-        print("✅ Double click cancels pending single click")
+        print("✅ Single click (reason=3): executes immediately")
+        print("✅ Double click (reason=3,2): executes double-click handler")
 
         return True
 

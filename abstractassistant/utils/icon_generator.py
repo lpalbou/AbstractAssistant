@@ -166,7 +166,8 @@ class IconGenerator:
             'error': (255, 59, 48),      # Red
             'warning': (255, 204, 0),    # Yellow
             'thinking': (175, 82, 222),  # Purple
-            'speaking': (0, 122, 255)    # Blue
+            'speaking': (0, 122, 255),   # Blue
+            'listening': (255, 107, 53)  # Orange
         }
         
         color = colors.get(status, colors['ready'])
@@ -217,7 +218,9 @@ class IconGenerator:
             'ready': (0, 255, 80),        # Bright green
             'thinking': (255, 60, 100),   # Bright red
             'speaking': (60, 150, 255),   # Bright blue
-            'generating': (255, 160, 0)   # Bright orange
+            'generating': (255, 160, 0),  # Bright orange
+            'listening': (255, 107, 53),  # Mic-listening orange
+            'listening_paused': (251, 146, 60),  # Dimmer listening orange
         }
         
         # Create a new dramatic icon instead of modifying the base
@@ -286,6 +289,16 @@ class IconGenerator:
             
             # Draw breathing circle (no rotation)
             self._draw_breathing_circle(draw, center, draw_size, base_color, intensity)
+
+        elif status in {'listening', 'listening_paused'}:
+            # Listening uses a record-light style pulse to differentiate from speaking.
+            if status == "listening_paused":
+                pulse = 0.55 + (0.15 * math.sin(current_time * 0.6 * math.pi))
+                intensity = 0.45 + pulse * 0.25
+            else:
+                pulse = 0.6 + (0.4 * math.sin(current_time * 1.6 * math.pi))
+                intensity = 0.55 + pulse * 0.35
+            self._draw_listening_pulse(draw, center, draw_size, base_color, intensity, pulse)
             
         else:
             # print(f"❓ UNKNOWN STATUS: '{status}' - using default circle")  # Debug disabled
@@ -395,13 +408,26 @@ class IconGenerator:
     def _draw_spinner_dots(self, draw, center, size, angle, color, intensity):
         """Draw smooth rotating dots for thinking status."""
         dot_count = 8
-        radius = size * 0.32
-        dot_radius = size * 0.055
+        # Make the spinner more visible at small menu-bar sizes by using
+        # larger dots and a subtle ring.
+        radius = size * 0.36
+        dot_radius = size * 0.075
 
         r, g, b = color
+
+        # Subtle ring to increase contrast vs transparent background.
+        try:
+            ring_alpha = int(255 * 0.20 * intensity)
+            ring_color = (int(r), int(g), int(b), max(0, min(255, ring_alpha)))
+            ring_w = max(1, int(size * 0.035))
+            bbox = [center - radius, center - radius, center + radius, center + radius]
+            draw.ellipse(bbox, outline=ring_color, width=ring_w)
+        except Exception:
+            pass
+
         for i in range(dot_count):
             phase = i / dot_count
-            alpha = 0.25 + (0.75 * (1.0 - phase))
+            alpha = 0.35 + (0.65 * (1.0 - phase))
             alpha = int(255 * alpha * intensity)
             dot_color = (int(r), int(g), int(b), max(0, min(255, alpha)))
 
@@ -425,6 +451,28 @@ class IconGenerator:
         radius = base_radius * (0.8 + 0.4 * intensity)
         bbox = [center - radius, center - radius, center + radius, center + radius]
         draw.ellipse(bbox, fill=circle_color)
+
+    def _draw_listening_pulse(self, draw, center, size, color, intensity, pulse):
+        """Draw a pulsing recording light for listening mode."""
+        r, g, b = color
+        rr = int(min(255, r * intensity))
+        gg = int(min(255, g * intensity))
+        bb = int(min(255, b * intensity))
+
+        core_radius = size * (0.18 + 0.06 * pulse)
+        ring_radius = size * (0.34 + 0.08 * pulse)
+
+        # Outer ring
+        ring_alpha = int(120 + (80 * pulse))
+        ring_color = (rr, gg, bb, max(0, min(255, ring_alpha)))
+        ring_w = max(1, int(size * 0.05))
+        ring_bbox = [center - ring_radius, center - ring_radius, center + ring_radius, center + ring_radius]
+        draw.ellipse(ring_bbox, outline=ring_color, width=ring_w)
+
+        # Core dot
+        core_color = (rr, gg, bb, 255)
+        core_bbox = [center - core_radius, center - core_radius, center + core_radius, center + core_radius]
+        draw.ellipse(core_bbox, fill=core_color)
     
     def _draw_thick_line(self, draw, x1, y1, x2, y2, width, color):
         """Draw a thick line between two points."""

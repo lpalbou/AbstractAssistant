@@ -676,9 +676,7 @@ class iPhoneMessagesDialog:
     @staticmethod
     def create_dialog(message_history: List[Dict], parent=None, delete_callback: Optional[Callable] = None) -> QDialog:
         """Create AUTHENTIC iPhone Messages dialog with deletion support."""
-        # Safety check for empty message history
-        if not message_history:
-            return None
+        message_history = list(message_history or [])
         
         dialog = SafeDialog(parent)
         dialog.setObjectName("MessagesDialog")
@@ -769,7 +767,28 @@ class iPhoneMessagesDialog:
         dialog.messages_layout = messages_layout
 
         # Add messages with authentic iPhone styling and deletion support
-        iPhoneMessagesDialog._add_authentic_iphone_messages(messages_layout, message_history, dialog)
+        if message_history:
+            iPhoneMessagesDialog._add_authentic_iphone_messages(messages_layout, message_history, dialog)
+        else:
+            placeholder = QLabel("No messages yet")
+            try:
+                placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            except Exception:
+                try:
+                    placeholder.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            placeholder.setStyleSheet(
+                """
+                QLabel {
+                    color: rgba(255, 255, 255, 0.5);
+                    font-size: 16px;
+                    padding: 40px;
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
+                }
+                """
+            )
+            messages_layout.addWidget(placeholder)
 
         messages_layout.addStretch()
         scroll_area.setWidget(messages_widget)

@@ -5,7 +5,7 @@ These utilities mirror the parsing logic in `abstractcode/web`.
 """
 
 from typing import Any, Dict, Optional, Tuple, List
-import warnings
+
 
 from .types import StepRecord, WaitState, ToolCall
 
@@ -93,18 +93,19 @@ def extract_flow_end_output(rec: StepRecord | None) -> Optional[Dict[str, Any]]:
 
 
 def extract_wait_from_record(rec: StepRecord | None) -> Optional[WaitState]:
-    """Extract wait state from a ledger record result."""
+    """Extract wait state from a ledger record.
+
+    The runtime stores wait state at ``record.result.wait`` (see
+    ``StepRecord.finish_waiting`` in abstractruntime).  This is the
+    canonical location; we read it directly.
+    """
     if not rec or not isinstance(rec, dict):
         return None
-    wait = rec.get("wait")
-    if isinstance(wait, dict):
-        return wait  # type: ignore[return-value]
     result = rec.get("result")
     if not isinstance(result, dict):
         return None
     wait = result.get("wait")
     if isinstance(wait, dict):
-        warnings.warn("#FALLBACK: ledger wait found under result.wait; expected top-level wait")
         return wait  # type: ignore[return-value]
     return None
 

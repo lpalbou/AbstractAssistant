@@ -1,7 +1,8 @@
 """
 Gateway voice manager for AbstractAssistant.
 
-Provides TTS/STT via AbstractGateway with local OS playback/recording.
+TTS: gateway /voice/tts → download audio artifact → local OS playback.
+STT: AbstractVoice VoiceRecognizer (mic + VAD) → GatewaySTTAdapter → gateway /audio/transcribe.
 """
 
 from __future__ import annotations
@@ -23,17 +24,15 @@ from abstractruntime.integrations.abstractcore.session_attachments import sessio
 class GatewayVoiceManager:
     """Gateway-backed voice manager with a VoiceManager-compatible interface."""
 
-    def __init__(self, *, llm_manager, debug_mode: bool = False, chunk_s: float = 4.0) -> None:
+    def __init__(self, *, llm_manager, debug_mode: bool = False) -> None:
         self._llm_manager = llm_manager
         self.debug_mode = bool(debug_mode)
-        self._chunk_s = max(1.0, float(chunk_s))
 
         self.on_speech_start = None
         self.on_speech_end = None
 
         self._listening = False
-        self._listen_thread: Optional[threading.Thread] = None
-        self._listen_stop = threading.Event()
+        self._recognizer = None
 
         self._speaking = False
         self._paused = False
@@ -46,6 +45,23 @@ class GatewayVoiceManager:
         self._meter_stop = threading.Event()
         self._meter_pause = threading.Event()
         self._audio_meter_warned = False
+        # Voice-mode coordination with STT (mirrors AbstractVoice semantics).
+        self._voice_mode = "wait"
+        self._tts_gate_active = False
+        self._tts_gate_lock = threading.Lock()
+        self._full_mode_tts_gate_warned = False
+
+    def _default_stt_language(self) -> Optional[str]:
+        """Best-effort language hint for STT (improves accuracy vs autodetect)."""
+        try:
+            from abstractcore.config.manager import get_config_manager  # type: ignore
+
+            lang = getattr(getattr(get_config_manager().config, "audio", None), "stt_language", None)
+            if isinstance(lang, str) and lang.strip():
+                return lang.strip()
+        except Exception:
+            return None
+        return None
 
     def is_available(self) -> bool:
         """Return True if any gateway voice capability is available."""
@@ -56,41 +72,221 @@ class GatewayVoiceManager:
         return bool(self._audio_player_available())
 
     def supports_stt(self) -> bool:
-        """Return True when a local audio recorder is available."""
-        return bool(self._audio_recorder_available())
+        """Return True when AbstractVoice mic+VAD infrastructure is available."""
+        try:
+            from abstractvoice.recognition import VoiceRecognizer  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
     def set_voice_mode(self, mode: str) -> None:
-        """No-op for gateway voice (kept for interface parity)."""
-        _ = str(mode or "")
+        """Set listening profile and TTS/STT coordination mode.
+
+        Valid modes: stop | wait | full | ptt
+        """
+        m = str(mode or "").strip().lower()
+        if m not in ("stop", "wait", "full", "ptt"):
+            return
+        self._voice_mode = m
+        rec = self._recognizer
+        if rec is None or not hasattr(rec, "set_profile"):
+            return
+        try:
+            rec.set_profile(m)
+        except Exception:
+            pass
+
+    def _tts_gate_start(self) -> None:
+        """Apply STT gating for the current voice mode while TTS plays."""
+        rec = self._recognizer
+        if rec is None:
+            return
+
+        with self._tts_gate_lock:
+            if self._tts_gate_active:
+                return
+            self._tts_gate_active = True
+
+        mode = str(getattr(self, "_voice_mode", "wait") or "").strip().lower()
+        try:
+            if mode == "wait":
+                if hasattr(rec, "pause_listening"):
+                    rec.pause_listening()
+                return
+
+            # Gateway playback can't feed far-end audio (no AEC reference), so FULL mode
+            # would self-transcribe on speakers. Prefer STOP-style suppression.
+            if mode == "full" and not bool(getattr(self, "_full_mode_tts_gate_warned", False)):
+                warnings.warn(
+                    "#FALLBACK: gateway voice mode 'full' can't provide far-end audio; suppressing transcriptions during TTS"
+                )
+                self._full_mode_tts_gate_warned = True
+
+            if hasattr(rec, "pause_tts_interrupt"):
+                rec.pause_tts_interrupt()
+            if hasattr(rec, "pause_transcriptions"):
+                rec.pause_transcriptions()
+        except Exception:
+            pass
+
+    def _tts_gate_end(self) -> None:
+        """Undo STT gating after TTS stops/pauses."""
+        rec = self._recognizer
+
+        with self._tts_gate_lock:
+            if not self._tts_gate_active:
+                return
+            self._tts_gate_active = False
+
+        if rec is None:
+            return
+
+        mode = str(getattr(self, "_voice_mode", "wait") or "").strip().lower()
+        try:
+            if mode == "wait":
+                if hasattr(rec, "resume_listening"):
+                    rec.resume_listening()
+                return
+
+            if hasattr(rec, "resume_tts_interrupt"):
+                rec.resume_tts_interrupt()
+            if hasattr(rec, "resume_transcriptions"):
+                rec.resume_transcriptions()
+        except Exception:
+            pass
 
     def set_audio_meter_callback(self, callback: Optional[Callable[[float | list[float]], None]]) -> None:
         """Set a callback for audio meter updates (0..1 or per-band)."""
         self._audio_meter_callback = callback
 
     def listen(self, on_transcription: Callable[[str], None], on_stop: Callable[[], None] | None = None) -> bool:
-        """Start the STT listening loop on a background thread."""
+        """Start listening via AbstractVoice VoiceRecognizer + gateway STT."""
         if not self.supports_stt():
-            warnings.warn("#FALLBACK: gateway STT unavailable; missing local recorder")
-            raise RuntimeError("Gateway STT unavailable")
+            raise RuntimeError("Gateway STT unavailable (microphone not available)")
         if self._listening:
             return True
-        self._listening = True
-        self._listen_stop.clear()
-        self._listen_thread = threading.Thread(
-            target=self._listen_loop,
-            args=(on_transcription, on_stop),
-            daemon=True,
+
+        from abstractvoice.recognition import VoiceRecognizer
+        from .gateway_stt_adapter import GatewaySTTAdapter
+
+        adapter = GatewaySTTAdapter(
+            gateway_client_fn=self._gateway_client,
+            session_id_fn=self._session_id,
+            run_id_fn=self._session_run_id,
         )
-        self._listen_thread.start()
+        lang = None
+        try:
+            lang = self._default_stt_language()
+        except Exception:
+            lang = None
+
+        def _on_transcription(text: str) -> None:
+            try:
+                if on_transcription:
+                    on_transcription(text)
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: transcription callback error: {e}")
+
+        def _on_stop() -> None:
+            try:
+                self.stop_speaking()
+            except Exception:
+                pass
+            try:
+                if on_stop:
+                    on_stop()
+            except Exception:
+                pass
+
+        rec = VoiceRecognizer(
+            transcription_callback=_on_transcription,
+            stop_callback=_on_stop,
+            debug_mode=self.debug_mode,
+            stt_adapter=adapter,
+            language=lang,
+        )
+        try:
+            if hasattr(rec, "set_profile"):
+                rec.set_profile(str(getattr(self, "_voice_mode", "wait") or "wait"))
+        except Exception:
+            pass
+
+        self._recognizer = rec
+        self._listening = True
+        try:
+            started = rec.start()
+        except Exception as e:
+            self._listening = False
+            self._recognizer = None
+            raise RuntimeError(f"VoiceRecognizer failed to start: {e}") from e
+        if not started:
+            self._listening = False
+            self._recognizer = None
+            raise RuntimeError("VoiceRecognizer failed to start")
         return True
 
     def stop_listening(self) -> None:
         """Stop the STT listening loop."""
         self._listening = False
-        self._listen_stop.set()
+        rec = self._recognizer
+        if rec is not None:
+            try:
+                rec.stop()
+            except Exception:
+                pass
+        self._recognizer = None
 
     def is_listening(self) -> bool:
         return bool(self._listening)
+
+    def pause_listening(self) -> bool:
+        """Pause microphone listening while keeping full voice mode enabled."""
+        rec = self._recognizer
+        if rec is None or not bool(self._listening):
+            return False
+        fn = getattr(rec, "pause_listening", None)
+        if not callable(fn):
+            warnings.warn("#FALLBACK: listening pause unsupported by recognizer")
+            return False
+        try:
+            fn()
+            return True
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to pause listening: {e}")
+            return False
+
+    def resume_listening(self) -> bool:
+        """Resume microphone listening after a user pause."""
+        rec = self._recognizer
+        if rec is None or not bool(self._listening):
+            return False
+        fn = getattr(rec, "resume_listening", None)
+        if not callable(fn):
+            warnings.warn("#FALLBACK: listening resume unsupported by recognizer")
+            return False
+        try:
+            fn()
+            return True
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: failed to resume listening: {e}")
+            return False
+
+    def is_listening_paused(self) -> bool:
+        """Return True when microphone capture is paused."""
+        rec = self._recognizer
+        if rec is None:
+            return False
+        try:
+            return bool(getattr(rec, "listening_paused", False))
+        except Exception:
+            return False
+
+    def change_vad_aggressiveness(self, aggressiveness: int) -> bool:
+        """Forward VAD aggressiveness change to the recognizer."""
+        rec = self._recognizer
+        if rec is not None and hasattr(rec, "change_vad_aggressiveness"):
+            return bool(rec.change_vad_aggressiveness(aggressiveness))
+        return False
 
     def speak(self, text: str, speed: float = 1.0, callback: Optional[Callable] = None) -> bool:
         """Speak the given text via gateway TTS."""
@@ -141,6 +337,8 @@ class GatewayVoiceManager:
             self._paused = True
             self._speaking = False
         self._meter_pause.set()
+        # Audio is paused; resume STT for voice modes that support it.
+        self._tts_gate_end()
         return True
 
     def resume(self) -> bool:
@@ -156,6 +354,8 @@ class GatewayVoiceManager:
             self._paused = False
             self._speaking = True
         self._meter_pause.clear()
+        # Audio resumed; suppress STT again while speaking.
+        self._tts_gate_start()
         return True
 
     def is_paused(self) -> bool:
@@ -197,6 +397,7 @@ class GatewayVoiceManager:
             except Exception:
                 pass
             self._emit_audio_meter(0.0)
+            self._tts_gate_end()
             return
         try:
             if proc.poll() is None:
@@ -216,6 +417,7 @@ class GatewayVoiceManager:
             self._speaking = False
             self._paused = False
         self._emit_audio_meter(0.0)
+        self._tts_gate_end()
 
     def _sync_playback_state(self) -> None:
         proc = self._play_proc
@@ -249,95 +451,6 @@ class GatewayVoiceManager:
             self.stop_speaking()
         except Exception:
             pass
-
-    def _listen_loop(self, on_transcription: Callable[[str], None], on_stop: Optional[Callable[[], None]]) -> None:
-        while self._listening and not self._listen_stop.is_set():
-            try:
-                path = self._record_audio_chunk(self._chunk_s)
-                if path is None:
-                    time.sleep(0.2)
-                    continue
-                text = self._transcribe_audio_file(path)
-                if not text:
-                    continue
-                normalized = text.strip().lower()
-                if normalized in {"stop", "stop listening", "stop voice", "stop voice mode"}:
-                    if on_stop is not None:
-                        on_stop()
-                    continue
-                on_transcription(text)
-            except Exception as e:
-                warnings.warn(f"#FALLBACK: gateway STT failed: {e}")
-                time.sleep(0.4)
-
-    def _record_audio_chunk(self, duration_s: float) -> Optional[Path]:
-        if duration_s <= 0:
-            return None
-        if not self._audio_recorder_available():
-            raise RuntimeError("No audio recorder available for gateway STT")
-
-        path = self._audio_cache_dir() / f"stt_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.wav"
-        cmd = self._record_command(path, duration_s)
-        if not cmd:
-            raise RuntimeError("Gateway STT recording not supported on this platform")
-
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            warnings.warn(f"#FALLBACK: recording failed: {e}")
-            return None
-
-        try:
-            if path.exists() and path.stat().st_size > 512:
-                return path
-        except Exception:
-            return None
-        try:
-            if path.exists():
-                path.unlink()
-        except Exception:
-            pass
-        return None
-
-    def _transcribe_audio_file(self, path: Path) -> str:
-        gw = self._gateway_client()
-        run_id = self._session_run_id()
-        sid = self._session_id()
-        timeout_prev = None
-        try:
-            cfg = getattr(gw, "_cfg", None)
-            if cfg is not None:
-                timeout_prev = float(getattr(cfg, "timeout_s", 0) or 0)
-                if timeout_prev and timeout_prev < 120.0:
-                    cfg.timeout_s = 120.0
-        except Exception:
-            timeout_prev = None
-        try:
-            attachment = gw.attachments_upload(
-                session_id=sid,
-                file_path=str(path),
-                filename=path.name,
-                content_type="audio/wav",
-            )
-            audio_ref = attachment
-            if isinstance(attachment, dict) and isinstance(attachment.get("attachment"), dict):
-                audio_ref = attachment.get("attachment")
-            if not isinstance(audio_ref, dict) or not str(audio_ref.get("$artifact") or "").strip():
-                raise RuntimeError("audio_transcribe requires an artifact ref dict")
-            res = gw.audio_transcribe(run_id=run_id, audio_artifact=audio_ref, request_id=str(uuid.uuid4()))
-            return str(res.get("text") or "").strip() if isinstance(res, dict) else ""
-        finally:
-            try:
-                cfg = getattr(gw, "_cfg", None)
-                if cfg is not None and timeout_prev is not None:
-                    cfg.timeout_s = timeout_prev
-            except Exception:
-                pass
-            try:
-                if path.exists():
-                    path.unlink()
-            except Exception:
-                pass
 
     def _play_audio_bytes(self, audio_bytes: bytes, content_type: str, *, callback: Optional[Callable]) -> bool:
         if not isinstance(audio_bytes, (bytes, bytearray)) or not audio_bytes:
@@ -379,6 +492,7 @@ class GatewayVoiceManager:
                 with self._state_lock:
                     self._speaking = True
                     self._paused = False
+                self._tts_gate_start()
                 if self.on_speech_start:
                     self.on_speech_start()
                 self._start_meter(levels, step_s)
@@ -389,8 +503,8 @@ class GatewayVoiceManager:
                     self._play_ready.set()
                 except Exception:
                     pass
-                if isinstance(proc_or_cb, subprocess.Popen):
-                    proc_or_cb.wait()
+                if self._play_proc is not None:
+                    self._play_proc.wait()
                 elif callable(proc_or_cb):
                     proc_or_cb()
                 else:
@@ -408,6 +522,7 @@ class GatewayVoiceManager:
                 with self._state_lock:
                     self._speaking = False
                     self._paused = False
+                self._tts_gate_end()
                 if self.on_speech_end:
                     self.on_speech_end()
                 if callback:
@@ -459,18 +574,6 @@ class GatewayVoiceManager:
         except Exception:
             pass
 
-    def _sleep_meter(self, duration_s: float) -> None:
-        remaining = max(0.0, float(duration_s))
-        while remaining > 0:
-            if self._meter_stop.is_set():
-                return
-            if self._meter_pause.is_set():
-                time.sleep(0.05)
-                continue
-            chunk = min(0.05, remaining)
-            time.sleep(chunk)
-            remaining -= chunk
-
     def _start_meter(self, levels: list, step_s: float) -> None:
         self._stop_meter()
         if not self._audio_meter_callback or not levels or step_s <= 0:
@@ -487,7 +590,7 @@ class GatewayVoiceManager:
                 if self._meter_stop.is_set():
                     return
                 self._emit_audio_meter(lvl)
-                self._sleep_meter(step_s)
+                self._meter_stop.wait(timeout=step_s)
             self._emit_audio_meter(0.0)
 
         self._meter_thread = threading.Thread(target=_run, daemon=True)
@@ -679,35 +782,6 @@ class GatewayVoiceManager:
             except Exception:
                 return False
         return bool(shutil.which("paplay") or shutil.which("aplay") or shutil.which("ffplay") or shutil.which("mpg123"))
-
-    def _audio_recorder_available(self) -> bool:
-        if sys.platform == "darwin":
-            return bool(shutil.which("afrecord"))
-        if sys.platform.startswith("linux"):
-            return bool(shutil.which("arecord") or shutil.which("ffmpeg"))
-        return False
-
-    def _record_command(self, path: Path, duration_s: float) -> Tuple[str, ...] | None:
-        duration = str(max(1, float(duration_s)))
-        if sys.platform == "darwin":
-            return (
-                "afrecord",
-                "-q",
-                "-d",
-                duration,
-                "-f",
-                "WAVE",
-                "-r",
-                "16000",
-                "-c",
-                "1",
-                str(path),
-            )
-        if sys.platform.startswith("linux") and shutil.which("arecord"):
-            return ("arecord", "-q", "-t", "wav", "-d", duration, "-r", "16000", "-c", "1", str(path))
-        if sys.platform.startswith("linux") and shutil.which("ffmpeg"):
-            return ("ffmpeg", "-y", "-f", "alsa", "-i", "default", "-t", duration, "-ac", "1", "-ar", "16000", str(path))
-        return None
 
     def _audio_cache_dir(self) -> Path:
         base = Path(getattr(self._llm_manager, "data_dir", Path.home() / ".abstractassistant"))

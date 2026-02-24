@@ -194,6 +194,11 @@ class GatewayWorker(QThread):
                 return {"run_id": run_id, "wait": self._normalize_wait_dict(waiting)}
         return None
 
+    def _make_synthetic_wait_record(self, wait: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a synthetic ledger record with the wait at ``result.wait``
+        (the canonical location used by ``StepRecord.finish_waiting``)."""
+        return {"result": {"wait": self._normalize_wait_dict(wait)}}
+
     def _maybe_emit_pending_wait(self, *, run_id: str, bundle: Dict[str, Any]) -> None:
         if not isinstance(bundle, dict):
             return
@@ -203,12 +208,13 @@ class GatewayWorker(QThread):
             return
         waiting = run_info.get("waiting") if isinstance(run_info, dict) else None
         if isinstance(waiting, dict):
-            rec = {"wait": self._normalize_wait_dict(waiting)}
+            rec = self._make_synthetic_wait_record(waiting)
             self._handle_events(run_id=run_id, rec=rec)
             return
         fallback = self._find_latest_wait_from_ledgers(bundle)
         if isinstance(fallback, dict) and isinstance(fallback.get("wait"), dict):
-            self._handle_events(run_id=str(fallback.get("run_id") or run_id), rec={"wait": fallback["wait"]})
+            rec = self._make_synthetic_wait_record(fallback["wait"])
+            self._handle_events(run_id=str(fallback.get("run_id") or run_id), rec=rec)
             return
         fallback2 = self._find_wait_from_run_summaries(bundle=bundle)
         if isinstance(fallback2, dict) and isinstance(fallback2.get("wait"), dict):

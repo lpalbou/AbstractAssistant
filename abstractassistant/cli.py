@@ -27,17 +27,15 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=str, default=None, help="Assistant data dir (runtime stores + session)")
     parser.add_argument("--workspace-root", type=str, default=None, help="Workspace root for filesystem-ish tools")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    
-    sub = parser.add_subparsers(dest="command")
-    
-    tray = sub.add_parser("tray", help="Run the macOS tray app")
-    tray.add_argument(
+    parser.add_argument(
         "--listening-mode",
         type=str,
         choices=["none", "stop", "wait", "full", "ptt"],
         default="wait",
         help="Voice listening mode",
     )
+
+    sub = parser.add_subparsers(dest="command")
 
     run = sub.add_parser("run", help="Run one agentic turn in the terminal")
     run.add_argument("--prompt", type=str, required=True, help="User prompt text")
@@ -74,7 +72,7 @@ def main() -> int:
     args = parser.parse_args()
     
     try:
-        command = args.command or "tray"
+        command = args.command or "app"
 
         if command == "run":
             from .core.agent_host import AgentHost, AgentHostConfig
@@ -122,7 +120,7 @@ def main() -> int:
             print(final)
             return 0
 
-        # tray (default)
+        # app (default — tray UI)
         try:
             from .config import Config  # lightweight
 
@@ -147,7 +145,7 @@ def main() -> int:
         app = AbstractAssistantApp(
             config=config,
             debug=bool(args.debug),
-            listening_mode=str(getattr(args, "listening_mode", "wait")),
+            listening_mode=str(args.listening_mode or "wait"),
             data_dir=Path(args.data_dir).expanduser() if getattr(args, "data_dir", None) else None,
         )
         app.run()
