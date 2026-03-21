@@ -2,7 +2,7 @@
 
 import pytest
 
-from abstractassistant.gateway.templates import list_agent_entrypoints
+from abstractassistant.gateway.templates import list_agent_entrypoints, select_agent_template
 
 
 @pytest.mark.basic
@@ -22,3 +22,36 @@ def test_list_agent_entrypoints_filters_agent_interface() -> None:
     assert len(out) == 1
     assert out[0]["bundle_id"] == "b1"
     assert out[0]["flow_id"] == "f1"
+
+
+@pytest.mark.basic
+def test_select_agent_template_prefers_gateway_default_entrypoint() -> None:
+    bundles = {
+        "default_bundle_id": "b2",
+        "items": [
+            {
+                "bundle_id": "b1",
+                "default_entrypoint": "f1",
+                "entrypoints": [
+                    {"flow_id": "f1", "interfaces": ["abstractcode.agent.v1"], "name": "Agent 1"},
+                ],
+            },
+            {
+                "bundle_id": "b2",
+                "default_entrypoint": "f2",
+                "entrypoints": [
+                    {"flow_id": "f2", "interfaces": ["abstractcode.agent.v1"], "name": "Agent 2"},
+                ],
+            },
+        ],
+    }
+
+    selected = select_agent_template(bundles_response=bundles, bundle_id="", flow_id="")
+
+    assert selected == {"bundle_id": "b2", "flow_id": "f2"}
+
+
+@pytest.mark.basic
+def test_select_agent_template_reports_missing_agent_entrypoints_with_gateway_hint() -> None:
+    with pytest.raises(RuntimeError, match="ABSTRACTGATEWAY_FLOWS_DIR"):
+        select_agent_template(bundles_response={"items": []}, bundle_id="", flow_id="")

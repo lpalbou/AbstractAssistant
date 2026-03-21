@@ -32,7 +32,6 @@ INCLUDED_FILES: list[str] = [
     "LICENSE",
     "CHANGELOG.md",
     "pyproject.toml",
-    "config.toml",
     "abstractassistant/cli.py",
     "abstractassistant/config.py",
     "abstractassistant/app.py",

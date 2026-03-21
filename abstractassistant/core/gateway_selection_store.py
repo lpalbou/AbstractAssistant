@@ -14,11 +14,18 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class GatewaySelection:
-    bundle_id: str
-    flow_id: str
+    bundle_id: str = ""
+    flow_id: str = ""
+    provider: str = ""
+    model: str = ""
 
     def to_dict(self) -> dict:
-        return {"bundle_id": self.bundle_id, "flow_id": self.flow_id}
+        return {
+            "bundle_id": self.bundle_id,
+            "flow_id": self.flow_id,
+            "provider": self.provider,
+            "model": self.model,
+        }
 
     @classmethod
     def from_dict(cls, raw: dict) -> Optional["GatewaySelection"]:
@@ -26,9 +33,11 @@ class GatewaySelection:
             return None
         bundle_id = str(raw.get("bundle_id") or "").strip()
         flow_id = str(raw.get("flow_id") or "").strip()
-        if not bundle_id and not flow_id:
+        provider = str(raw.get("provider") or "").strip()
+        model = str(raw.get("model") or "").strip()
+        if not bundle_id and not flow_id and not provider and not model:
             return None
-        return cls(bundle_id=bundle_id, flow_id=flow_id)
+        return cls(bundle_id=bundle_id, flow_id=flow_id, provider=provider, model=model)
 
 
 class GatewaySelectionStore:

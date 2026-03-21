@@ -8,8 +8,7 @@ See also:
 
 ## What is AbstractAssistant?
 
-A macOS-first tray app and CLI that runs **gateway-first** by default (thin client).
-Local mode is still available for development. It uses:
+A macOS-first tray app and CLI that runs **gateway-first** (thin client). It uses:
 - **AbstractAgent** for agent loops
 - **AbstractRuntime** for durable runs and resumable waits
 - **AbstractCore** for provider/tool/media schemas
@@ -25,13 +24,13 @@ Yes. AbstractAssistant is a component in the AbstractFramework ecosystem:
 
 ## Does it run locally / offline?
 
-The host runs locally. Whether it works offline depends on the provider:
+The UI runs locally. Whether responses work offline depends on the provider behind the gateway:
 - local providers (Ollama / LMStudio): can be offline (no cloud call)
 - cloud providers (OpenAI / Anthropic): require network and API keys
 
 ## Where is my data stored?
 
-By default: `~/.abstractassistant/` (override with `--data-dir`).
+By default: `~/.abstractassistant/`.
 
 Evidence: `abstractassistant/core/agent_host.py`, `abstractassistant/core/session_index.py`
 
@@ -45,7 +44,6 @@ Evidence: `abstractassistant/core/tool_policy.py`
 
 CLI:
 - prompts in the terminal
-- `--approve-all-tools` disables the boundary (dangerous)
 
 Tray UI:
 - use “Tools” to set a per-session allowlist and default approval mode
@@ -71,8 +69,7 @@ The tray UI will surface a hint in the tool result bubble when this happens.
 
 Artifact downloads are cached under:
 
-- `~/.abstractassistant/artifacts/` by default
-- or `<data-dir>/artifacts/` when you launch with `--data-dir`
+- `~/.abstractassistant/artifacts/`
 
 ## How does voice work in gateway mode?
 
@@ -80,6 +77,59 @@ When `gateway.use_gateway=true`, TTS and STT are routed through the gateway
 audio endpoints (`/voice/tts`, `/audio/transcribe`). The client still needs a
 local recorder and player; if those are unavailable, the UI will emit a
 `#FALLBACK` warning and disable the affected control.
+
+## Why do I only see one provider or no LM Studio models?
+
+In gateway mode, provider and model lists come from the gateway discovery endpoints, not from the local tray app.
+
+If the assistant cannot authenticate to the gateway, discovery fails and provider/model discovery is rejected. Use the same shared token in both processes:
+
+```bash
+export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
+abstractgateway serve --host 127.0.0.1 --port 8080
+assistant
+```
+
+If you sent the wrong token repeatedly, the gateway will temporarily return `429 Too Many Requests (auth lockout)`. Wait for the lockout window to expire, then relaunch the assistant with the correct token.
+
+AbstractAssistant tray startup is environment-driven. Use:
+- `ABSTRACTGATEWAY_URL` when the gateway is not on `http://127.0.0.1:8080`
+- `ABSTRACTGATEWAY_AUTH_TOKEN` for the shared bearer token
+
+Equivalent optional CLI flags:
+- `--gateway-url`
+- `--gateway-token`
+
+There is no versioned tray `config.toml` for secrets.
+
+## Why do I see `Gateway exposes no abstractcode.agent.v1 entrypoints`?
+
+Because workflow discovery comes from the gateway too.
+
+If the gateway starts without any loaded `.flow` bundles, provider/model discovery can still work while workflow discovery fails. For local development in this monorepo, launch the gateway with:
+
+```bash
+export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
+abstractgateway serve --host 127.0.0.1 --port 8080
+```
+
+`abstractassistant` does not choose or load bundles itself. The gateway must expose at least one `abstractcode.agent.v1` entrypoint.
+
+## Where should provider settings like LM Studio live?
+
+On the gateway side.
+
+AbstractAssistant only needs:
+- the gateway URL
+- the shared gateway auth token
+
+Provider-specific settings such as LM Studio base URL, Ollama host, or cloud API keys belong to the gateway / AbstractCore environment, not the tray app.
+
+## Does the tray app keep a local provider/model default?
+
+No.
+
+The tray app uses gateway discovery to populate the provider/model lists and only caches the last selected provider/model in session state so it can restore your last choice.
 
 ## How do I select a gateway workflow?
 
@@ -110,9 +160,7 @@ Start with:
 
 ## Which agent loops are supported?
 
-The backend supports `react`, `codeact`, and `memact` (AbstractAgent).
-- CLI can select via `--agent`
-- tray UI currently drives `react`
+The gateway-backed workflows can use whatever agent loop the selected workflow defines.
 
 Evidence: `abstractassistant/core/agent_host.py`, `abstractassistant/cli.py`, `abstractassistant/core/llm_manager.py`
 

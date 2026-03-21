@@ -157,38 +157,38 @@ class TTSToggle(QPushButton):
 
 
 class FullVoiceToggle(QPushButton):
-    """Full Voice Mode toggle button with microphone icon."""
+    """Full Voice Mode start button with microphone icon."""
 
-    toggled = pyqtSignal(bool)
+    triggered = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(40, 24)  # Slightly wider for button
         self.setToolTip("Full Voice Mode: Continuous listening with speech-to-text and text-to-speech")
-        self._enabled = False
         self._listening_state = 'idle'  # 'idle', 'listening', 'processing'
-        self.setCheckable(True)
+        self.setCheckable(False)
         self.clicked.connect(self._on_clicked)
+        super().setEnabled(True)
         self._update_appearance()
 
     def is_enabled(self) -> bool:
-        """Check if Full Voice Mode is enabled."""
-        return self._enabled
+        """Check if Full Voice Mode start button is available."""
+        return bool(self.isEnabled())
 
     def _on_clicked(self):
-        """Handle button click."""
-        self._enabled = self.isChecked()
-        self.toggled.emit(self._enabled)
-        self._update_appearance()
+        """Handle start-button click."""
+        if not self.isEnabled():
+            return
+        self.triggered.emit()
 
     def set_enabled(self, enabled: bool):
-        """Set Full Voice Mode enabled state."""
-        if self._enabled != enabled:
-            self._enabled = enabled
-            self.setChecked(enabled)
-            self._update_appearance()
-            if not enabled:
-                self.toggled.emit(enabled)
+        """Set button availability (compat helper)."""
+        self.setEnabled(bool(enabled))
+
+    def setEnabled(self, enabled: bool):
+        """Keep custom appearance in sync with enabled/disabled availability."""
+        super().setEnabled(bool(enabled))
+        self._update_appearance()
 
     def set_listening_state(self, state: str):
         """Set listening state for visual feedback.
@@ -208,7 +208,7 @@ class FullVoiceToggle(QPushButton):
     def _update_appearance(self):
         """Update button appearance based on state."""
         # Set icon text based on state
-        if not self._enabled:
+        if not self.isEnabled():
             icon = "🎤"  # Microphone when disabled
             bg_color = "rgba(255, 255, 255, 0.06)"
             text_color = "rgba(255, 255, 255, 0.7)"
@@ -221,7 +221,7 @@ class FullVoiceToggle(QPushButton):
             bg_color = "rgba(255, 165, 0, 0.8)"  # Yellow
             text_color = "#ffffff"
         else:
-            icon = "🎙️"  # Studio microphone when enabled but idle
+            icon = "🎤"  # Start-full-voice action button
             bg_color = "rgba(0, 122, 204, 0.8)"  # Blue
             text_color = "#ffffff"
 
@@ -1677,13 +1677,13 @@ class QtChatBubble(QWidget):
         self.listening_mode = listening_mode
         gw = getattr(config, "gateway", None) if config is not None else None
         self.use_gateway = bool(getattr(gw, "use_gateway", False))
-        self.gateway_bundle_id = str(getattr(gw, "bundle_id", "basic-agent") or "basic-agent")
+        self.gateway_bundle_id = str(getattr(gw, "bundle_id", "") or "")
         self.gateway_flow_id = str(getattr(gw, "flow_id", "") or "")
         self._theme: Dict[str, Any] = {}
         
-        # State - default to LMStudio with qwen/qwen3-next-80b
-        self.current_provider = 'lmstudio'  # Default to LMStudio
-        self.current_model = 'qwen/qwen3-next-80b'  # Default to qwen/qwen3-next-80b
+        # State - gateway mode learns provider/model from gateway discovery.
+        self.current_provider = str(getattr(self.llm_manager, "current_provider", "") or "").strip()
+        self.current_model = str(getattr(self.llm_manager, "current_model", "") or "").strip()
         self.token_count = 0
         self.max_tokens = 128000
         
@@ -1781,17 +1781,15 @@ class QtChatBubble(QWidget):
         
         self.setup_ui()
         self.setup_styling()
-        self._gateway_default_provider = ""
-        self._gateway_default_model = ""
         self._gateway_cache: Dict[str, Dict[str, Any]] = {}
         self._gateway_cache_ttl_s = 30.0
         self._loading_workflows = False
         self._refresh_tool_inventory()
 
-        self.load_providers()
+        self.load_providers(session_id=self._active_session_id())
         if self.use_gateway:
             try:
-                self.load_workflows()
+                self.load_workflows(session_id=self._active_session_id())
             except Exception:
                 pass
 
@@ -2087,7 +2085,7 @@ class QtChatBubble(QWidget):
         self.tts_toggle = TTSToggle()
         self.tts_toggle.toggled.connect(self.on_tts_toggled)
         self.full_voice_toggle = FullVoiceToggle()
-        self.full_voice_toggle.toggled.connect(self.on_full_voice_toggled)
+        self.full_voice_toggle.triggered.connect(self.on_full_voice_clicked)
 
         tts_available = bool(self.voice_manager and getattr(self.voice_manager, "supports_tts", lambda: False)())
         stt_available = bool(self.voice_manager and getattr(self.voice_manager, "supports_stt", lambda: False)())
@@ -2324,7 +2322,7 @@ class QtChatBubble(QWidget):
 
         # Provider dropdown (rounded, clean)
         self.provider_combo = QComboBox()
-        self.provider_combo.currentTextChanged.connect(self.on_provider_changed)
+        self.provider_combo.currentIndexChanged.connect(self.on_provider_changed)
         self.provider_combo.setFixedHeight(28)
         self.provider_combo.setMinimumWidth(100)
         self.provider_combo.setStyleSheet("""
@@ -2354,7 +2352,7 @@ class QtChatBubble(QWidget):
         
         # Model dropdown (rounded, clean)
         self.model_combo = QComboBox()
-        self.model_combo.currentTextChanged.connect(self.on_model_changed)
+        self.model_combo.currentIndexChanged.connect(self.on_model_changed)
         self.model_combo.setFixedHeight(28)
         self.model_combo.setMinimumWidth(140)
         self.model_combo.view().setMinimumWidth(380)  # Wider dropdown to show full model names
@@ -3060,11 +3058,17 @@ class QtChatBubble(QWidget):
             default=default,
         )
     
-    def load_providers(self):
+    def load_providers(self, *, session_id: Optional[str] = None):
         """Load available providers using ProviderManager."""
+        combo = getattr(self, "provider_combo", None)
+        if combo is None:
+            return
+        previous_blocked = False
         try:
-            # Clear and populate provider combo
-            self.provider_combo.clear()
+            previous_blocked = bool(combo.blockSignals(True))
+            combo.clear()
+            selection = self._load_gateway_selection(session_id=session_id) if self.use_gateway else None
+            preferred_provider = str(selection.provider or "").strip() if selection else ""
             if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
                 try:
                     gw = self.llm_manager.gateway_client()
@@ -3073,23 +3077,11 @@ class QtChatBubble(QWidget):
                         res = gw.discovery_providers()
                         items = res.get("items") if isinstance(res, dict) else []
                         if isinstance(items, list):
-                            self._gateway_cache_set(
-                                "providers",
-                                {
-                                    "items": items,
-                                    "default_provider": res.get("default_provider") if isinstance(res, dict) else "",
-                                    "default_model": res.get("default_model") if isinstance(res, dict) else "",
-                                },
-                            )
+                            self._gateway_cache_set("providers", items)
                     else:
-                        res = cached if isinstance(cached, dict) else {}
-                        items = res.get("items") if isinstance(res, dict) else []
+                        items = cached
                     if not isinstance(items, list):
                         items = []
-                    default_provider = str(res.get("default_provider") or "") if isinstance(res, dict) else ""
-                    default_model = str(res.get("default_model") or "") if isinstance(res, dict) else ""
-                    self._gateway_default_provider = default_provider
-                    self._gateway_default_model = default_model
 
                     for it in items:
                         if not isinstance(it, dict):
@@ -3098,81 +3090,90 @@ class QtChatBubble(QWidget):
                         if not name:
                             continue
                         display = str(it.get("display_name") or "").strip() or name
-                        self.provider_combo.addItem(display, name)
+                        combo.addItem(display, name)
 
                     pick = ""
-                    if default_provider and any(self.provider_combo.itemData(i) == default_provider for i in range(self.provider_combo.count())):
-                        pick = default_provider
-                    elif self.current_provider and any(self.provider_combo.itemData(i) == self.current_provider for i in range(self.provider_combo.count())):
+                    if preferred_provider and any(combo.itemData(i) == preferred_provider for i in range(combo.count())):
+                        pick = preferred_provider
+                    elif self.current_provider and any(combo.itemData(i) == self.current_provider for i in range(combo.count())):
                         pick = self.current_provider
-                    elif self.provider_combo.count() > 0:
-                        pick = str(self.provider_combo.itemData(0) or "")
+                    elif combo.count() > 0:
+                        pick = str(combo.itemData(0) or "")
 
                     if pick:
-                        for i in range(self.provider_combo.count()):
-                            if self.provider_combo.itemData(i) == pick:
-                                self.provider_combo.setCurrentIndex(i)
+                        for i in range(combo.count()):
+                            if combo.itemData(i) == pick:
+                                combo.setCurrentIndex(i)
                                 self.current_provider = pick
                                 break
+                    else:
+                        self.current_provider = ""
 
                 except Exception as e:
-                    warnings.warn(f"#FALLBACK: gateway provider discovery failed; using configured provider only ({e})")
-                    prov = str(self.current_provider or self._gateway_default_provider or "openai").strip()
-                    self.provider_combo.addItem(prov, prov)
-                    self.current_provider = prov
+                    warnings.warn(f"#FALLBACK: gateway provider discovery failed; leaving provider list empty ({e})")
+                    self.current_provider = ""
 
             elif self.provider_manager:
-                # Use new ProviderManager
                 available_providers = self.provider_manager.get_available_providers(exclude_mock=True)
 
                 if self.debug:
                     print(f"🔍 ProviderManager found {len(available_providers)} available providers")
 
-                # Add providers to dropdown
                 for display_name, provider_key in available_providers:
-                    self.provider_combo.addItem(display_name, provider_key)
+                    combo.addItem(display_name, provider_key)
                     if self.debug:
                         print(f"    ✅ Added: {display_name} ({provider_key})")
 
-                # Set preferred provider
-                preferred = self.provider_manager.get_preferred_provider(available_providers, 'lmstudio')
+                preferred = self.provider_manager.get_preferred_provider(
+                    available_providers,
+                    preferred=self.current_provider or None,
+                )
                 if preferred:
-                    display_name, provider_key = preferred
-                    # Find and set the preferred provider
-                    for i in range(self.provider_combo.count()):
-                        if self.provider_combo.itemData(i) == provider_key:
-                            self.provider_combo.setCurrentIndex(i)
+                    _display_name, provider_key = preferred
+                    for i in range(combo.count()):
+                        if combo.itemData(i) == provider_key:
+                            combo.setCurrentIndex(i)
                             self.current_provider = provider_key
                             break
-                elif self.provider_combo.count() > 0:
-                    # Use first available
-                    self.current_provider = self.provider_combo.itemData(0)
-                    self.provider_combo.setCurrentIndex(0)
+                else:
+                    self.current_provider = ""
 
             else:
-                # Fallback: use old discovery method
                 from abstractcore.providers import list_available_providers
+
                 available_providers = list_available_providers()
 
-                provider_display_names = {
-                    'openai': 'OpenAI', 'anthropic': 'Anthropic', 'ollama': 'Ollama',
-                    'lmstudio': 'LMStudio', 'mlx': 'MLX', 'huggingface': 'HuggingFace'
-                }
-
                 for provider_name in available_providers:
-                    if provider_name != 'mock':  # Exclude mock
-                        display_name = provider_display_names.get(provider_name, provider_name.title())
-                        self.provider_combo.addItem(display_name, provider_name)
+                    if provider_name != 'mock':
+                        display_name = str(provider_name or "").replace("_", " ").title()
+                        combo.addItem(display_name, provider_name)
 
-                self.current_provider = 'lmstudio' if 'lmstudio' in available_providers else (
-                    available_providers[0] if available_providers else 'lmstudio'
-                )
+                if self.current_provider and any(combo.itemData(i) == self.current_provider for i in range(combo.count())):
+                    for i in range(combo.count()):
+                        if combo.itemData(i) == self.current_provider:
+                            combo.setCurrentIndex(i)
+                            break
+                elif combo.count() > 0:
+                    self.current_provider = str(combo.itemData(0) or "")
+                    combo.setCurrentIndex(0)
+                else:
+                    self.current_provider = ""
 
             if self.debug:
                 print(f"🔍 Final selected provider: {self.current_provider}")
 
-            # Load models for current provider
-            self.update_models()
+            self.update_models(session_id=session_id)
+            try:
+                if self.llm_manager and hasattr(self.llm_manager, "set_provider"):
+                    self.llm_manager.set_provider(self.current_provider, self.current_model)
+            except Exception:
+                pass
+            if self.use_gateway and (self.current_provider or self.current_model):
+                self._save_gateway_selection(
+                    provider=self.current_provider,
+                    model=self.current_model,
+                    session_id=session_id,
+                )
 
         except Exception as e:
             if self.debug:
@@ -3180,14 +3181,17 @@ class QtChatBubble(QWidget):
                 import traceback
                 traceback.print_exc()
 
-            # Final fallback
-            if self.provider_combo.count() == 0:
-                prov = "lmstudio" if not self.use_gateway else "openai"
-                self.provider_combo.addItem(prov, prov)
-                self.current_provider = prov
-                if self.debug:
-                    print("🔄 Using fallback provider list")
-    
+            self.current_provider = ""
+            try:
+                self.update_models(session_id=session_id)
+            except Exception:
+                pass
+        finally:
+            try:
+                combo.blockSignals(previous_blocked)
+            except Exception:
+                pass
+
     def _gateway_selection_store(self, session_id: Optional[str] = None):
         if not self.llm_manager or not hasattr(self.llm_manager, "gateway_selection_store"):
             return None
@@ -3207,12 +3211,43 @@ class QtChatBubble(QWidget):
             warnings.warn(f"#FALLBACK: failed to load gateway selection: {e}")
             return None
 
-    def _save_gateway_selection(self, *, bundle_id: str, flow_id: str, session_id: Optional[str] = None) -> None:
+    def _save_gateway_selection(
+        self,
+        *,
+        bundle_id: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> None:
         store = self._gateway_selection_store(session_id=session_id)
         if store is None:
             return
         try:
-            store.save(GatewaySelection(bundle_id=str(bundle_id or ""), flow_id=str(flow_id or "")))
+            existing = self._load_gateway_selection(session_id=session_id)
+            selection = GatewaySelection(
+                bundle_id=(
+                    str(existing.bundle_id or "")
+                    if existing is not None and bundle_id is None
+                    else str(bundle_id or "")
+                ),
+                flow_id=(
+                    str(existing.flow_id or "")
+                    if existing is not None and flow_id is None
+                    else str(flow_id or "")
+                ),
+                provider=(
+                    str(existing.provider or "")
+                    if existing is not None and provider is None
+                    else str(provider or "")
+                ),
+                model=(
+                    str(existing.model or "")
+                    if existing is not None and model is None
+                    else str(model or "")
+                ),
+            )
+            store.save(selection)
         except Exception as e:
             warnings.warn(f"#FALLBACK: failed to save gateway selection: {e}")
 
@@ -3238,7 +3273,7 @@ class QtChatBubble(QWidget):
                 else:
                     entrypoints = cached if isinstance(cached, list) else []
             except Exception as e:
-                warnings.warn(f"#FALLBACK: gateway bundle discovery failed; using configured workflow only ({e})")
+                warnings.warn(f"#FALLBACK: gateway bundle discovery failed; workflow list unavailable ({e})")
                 entrypoints = []
 
             if not entrypoints:
@@ -3260,11 +3295,32 @@ class QtChatBubble(QWidget):
                     continue
                 name = str(ep.get("name") or "").strip()
                 label = name or f"{bundle_id}:{flow_id}"
-                combo.addItem(label, {"bundle_id": bundle_id, "flow_id": flow_id, "name": label})
+                combo.addItem(
+                    label,
+                    {
+                        "bundle_id": bundle_id,
+                        "flow_id": flow_id,
+                        "name": label,
+                        "default_bundle": bool(ep.get("default_bundle")),
+                        "default_entrypoint": bool(ep.get("default_entrypoint")),
+                    },
+                )
 
             selection = self._load_gateway_selection(session_id=session_id)
             preferred_bundle = str(selection.bundle_id) if selection else str(self.gateway_bundle_id or "")
             preferred_flow = str(selection.flow_id) if selection else str(self.gateway_flow_id or "")
+            default_candidates: List[int] = []
+            single_default_bundle: Optional[int] = None
+            default_bundle_indexes = [
+                i for i in range(combo.count())
+                if isinstance(combo.itemData(i), dict) and bool(combo.itemData(i).get("default_bundle"))
+            ]
+            if len(default_bundle_indexes) == 1:
+                single_default_bundle = int(default_bundle_indexes[0])
+            for i in range(combo.count()):
+                data = combo.itemData(i)
+                if isinstance(data, dict) and bool(data.get("default_bundle")) and bool(data.get("default_entrypoint")):
+                    default_candidates.append(int(i))
 
             def _find_index(bundle_id: str, flow_id: str) -> Optional[int]:
                 try:
@@ -3285,11 +3341,13 @@ class QtChatBubble(QWidget):
                     data = combo.itemData(i)
                     if isinstance(data, dict) and str(data.get("bundle_id") or "") == preferred_bundle:
                         idx = i
-                        warnings.warn("#FALLBACK: gateway flow_id missing; using first entrypoint in bundle")
                         break
-            if idx is None and combo.count() > 0:
+            if idx is None and len(default_candidates) == 1:
+                idx = int(default_candidates[0])
+            if idx is None and single_default_bundle is not None:
+                idx = int(single_default_bundle)
+            if idx is None and combo.count() == 1:
                 idx = 0
-                warnings.warn("#FALLBACK: gateway workflow missing; using first entrypoint")
 
             if idx is not None:
                 combo.setCurrentIndex(int(idx))
@@ -3302,6 +3360,13 @@ class QtChatBubble(QWidget):
                         flow_id=self.gateway_flow_id,
                         session_id=session_id,
                     )
+            else:
+                try:
+                    combo.setCurrentIndex(-1)
+                except Exception:
+                    pass
+                self.gateway_bundle_id = ""
+                self.gateway_flow_id = ""
         finally:
             self._loading_workflows = False
 
@@ -3325,12 +3390,23 @@ class QtChatBubble(QWidget):
         self.gateway_flow_id = flow_id
         self._save_gateway_selection(bundle_id=bundle_id, flow_id=flow_id, session_id=self._active_session_id())
 
-    def update_models(self):
+    def update_models(self, *, session_id: Optional[str] = None):
         """Update model dropdown using ProviderManager."""
+        combo = getattr(self, "model_combo", None)
+        if combo is None:
+            return
+        previous_blocked = False
         try:
-            self.model_combo.clear()
+            previous_blocked = bool(combo.blockSignals(True))
+            combo.clear()
+            selection = self._load_gateway_selection(session_id=session_id) if self.use_gateway else None
+            preferred_model = str(selection.model or "").strip() if selection else ""
 
             if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
+                if not str(self.current_provider or "").strip():
+                    self.current_model = ""
+                    self.update_token_limits()
+                    return
                 try:
                     gw = self.llm_manager.gateway_client()
                     cache_key = f"models:{str(self.current_provider or '').strip()}"
@@ -3345,83 +3421,91 @@ class QtChatBubble(QWidget):
                     if not isinstance(models, list):
                         models = []
 
-                    if not models and self._gateway_default_model:
-                        warnings.warn("#FALLBACK: gateway returned no models; using gateway default model")
-                        models = [self._gateway_default_model]
-
                     for model in models:
                         display_name = str(model)
                         if len(display_name) > 55:
                             display_name = display_name[:52] + "..."
-                        self.model_combo.addItem(display_name, model)
+                        combo.addItem(display_name, model)
 
-                    preferred_model = self._gateway_default_model or self.current_model
-                    if preferred_model:
-                        for i in range(self.model_combo.count()):
-                            if self.model_combo.itemData(i) == preferred_model:
-                                self.model_combo.setCurrentIndex(i)
-                                self.current_model = preferred_model
+                    pick = ""
+                    if preferred_model and any(combo.itemData(i) == preferred_model for i in range(combo.count())):
+                        pick = preferred_model
+                    elif self.current_model and any(combo.itemData(i) == self.current_model for i in range(combo.count())):
+                        pick = self.current_model
+                    elif combo.count() > 0:
+                        pick = str(combo.itemData(0) or "")
+                    if pick:
+                        for i in range(combo.count()):
+                            if combo.itemData(i) == pick:
+                                combo.setCurrentIndex(i)
+                                self.current_model = pick
                                 break
-                    elif self.model_combo.count() > 0:
-                        self.current_model = self.model_combo.itemData(0)
-                        self.model_combo.setCurrentIndex(0)
+                    else:
+                        self.current_model = ""
                 except Exception as e:
-                    warnings.warn(f"#FALLBACK: gateway model discovery failed; using configured model only ({e})")
-                    model = str(self.current_model or self._gateway_default_model or "gpt-5-mini").strip()
-                    self.model_combo.addItem(model, model)
-                    self.current_model = model
+                    warnings.warn(f"#FALLBACK: gateway model discovery failed; leaving model list empty ({e})")
+                    self.current_model = ""
 
             elif self.provider_manager:
-                # Use ProviderManager with 3-tier fallback strategy
                 models = self.provider_manager.get_models_for_provider(self.current_provider)
 
                 if self.debug:
                     print(f"📋 ProviderManager loaded {len(models)} models for {self.current_provider}")
 
-                # Add models to dropdown with display names
                 for model in models:
                     display_name = self.provider_manager.create_model_display_name(model, max_length=55)
-                    self.model_combo.addItem(display_name, model)
+                    combo.addItem(display_name, model)
 
-                # Set preferred model
                 preferred_model = self.provider_manager.get_preferred_model(
                     models,
-                    preferred='qwen/qwen3-next-80b',
                     current=self.current_model
                 )
 
                 if preferred_model:
-                    # Find and set the preferred model
-                    for i in range(self.model_combo.count()):
-                        if self.model_combo.itemData(i) == preferred_model:
-                            self.model_combo.setCurrentIndex(i)
+                    for i in range(combo.count()):
+                        if combo.itemData(i) == preferred_model:
+                            combo.setCurrentIndex(i)
                             self.current_model = preferred_model
                             break
-                elif self.model_combo.count() > 0:
-                    # Use first available
-                    self.current_model = self.model_combo.itemData(0)
-                    self.model_combo.setCurrentIndex(0)
+                else:
+                    self.current_model = ""
 
             else:
-                # Fallback: use old method
                 from abstractcore.providers import get_available_models_for_provider
                 models = get_available_models_for_provider(self.current_provider)
 
                 for model in models:
-                    # Use full model name (preserving provider prefix)
                     display_name = model
                     if len(display_name) > 55:
                         display_name = display_name[:52] + "..."
-                    self.model_combo.addItem(display_name, model)
+                    combo.addItem(display_name, model)
 
-                if self.model_combo.count() > 0:
-                    self.current_model = self.model_combo.itemData(0)
-                    self.model_combo.setCurrentIndex(0)
+                if self.current_model and any(combo.itemData(i) == self.current_model for i in range(combo.count())):
+                    for i in range(combo.count()):
+                        if combo.itemData(i) == self.current_model:
+                            combo.setCurrentIndex(i)
+                            break
+                elif combo.count() > 0:
+                    self.current_model = combo.itemData(0)
+                    combo.setCurrentIndex(0)
+                else:
+                    self.current_model = ""
 
             if self.debug:
                 print(f"✅ Final selected model: {self.current_model}")
 
             self.update_token_limits()
+            try:
+                if self.llm_manager and hasattr(self.llm_manager, "set_model"):
+                    self.llm_manager.set_model(self.current_model)
+            except Exception:
+                pass
+            if self.use_gateway and (self.current_provider or self.current_model):
+                self._save_gateway_selection(
+                    provider=self.current_provider,
+                    model=self.current_model,
+                    session_id=session_id,
+                )
 
         except Exception as e:
             if self.debug:
@@ -3429,51 +3513,52 @@ class QtChatBubble(QWidget):
                 import traceback
                 traceback.print_exc()
 
-            # Final fallback: add default model
-            if self.model_combo.count() == 0:
-                fallback = "default-model" if not self.use_gateway else "gpt-5-mini"
-                self.model_combo.addItem(fallback, fallback)
-                self.current_model = fallback
-                self.model_combo.setCurrentIndex(0)
-                if self.debug:
-                    print(f"🔄 Using final fallback model: {self.current_model}")
+            self.current_model = ""
+        finally:
+            try:
+                combo.blockSignals(previous_blocked)
+            except Exception:
+                pass
     
     def update_token_limits(self):
         """Update token limits using AbstractCore's built-in detection."""
         max_tokens = None
         source = None
+        model_name = str(self.current_model or "").strip()
 
         if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
             try:
                 gw = self.llm_manager.gateway_client()
-                cache_key = f"caps:{str(self.current_model or '').strip()}"
-                cached = self._gateway_cache_get(cache_key)
-                if cached is None:
-                    res = gw.discovery_model_capabilities(model_name=str(self.current_model or ""))
-                    caps = res.get("capabilities") if isinstance(res, dict) else {}
-                    if isinstance(caps, dict):
-                        self._gateway_cache_set(cache_key, caps)
-                else:
-                    caps = cached
-                mt = caps.get("max_tokens") if isinstance(caps, dict) else None
-                if isinstance(mt, int) and mt > 0:
-                    max_tokens = int(mt)
-                    source = "gateway:model_capabilities"
+                if model_name:
+                    cache_key = f"caps:{model_name}"
+                    cached = self._gateway_cache_get(cache_key)
+                    if cached is None:
+                        res = gw.discovery_model_capabilities(model_name=model_name)
+                        caps = res.get("capabilities") if isinstance(res, dict) else {}
+                        if isinstance(caps, dict):
+                            self._gateway_cache_set(cache_key, caps)
+                    else:
+                        caps = cached
+                    mt = caps.get("max_tokens") if isinstance(caps, dict) else None
+                    if isinstance(mt, int) and mt > 0:
+                        max_tokens = int(mt)
+                        source = "gateway:model_capabilities"
             except Exception as e:
                 warnings.warn(f"#FALLBACK: gateway model capabilities unavailable; using defaults ({e})")
                 max_tokens = None
         else:
             # Preferred: AbstractCore model capabilities (model_capabilities.json).
-            try:
-                from abstractcore.architectures.detection import get_model_capabilities
+            if model_name:
+                try:
+                    from abstractcore.architectures.detection import get_model_capabilities
 
-                caps = get_model_capabilities(str(self.current_model or ""))
-                mt = caps.get("max_tokens") if isinstance(caps, dict) else None
-                if isinstance(mt, int) and mt > 0:
-                    max_tokens = int(mt)
-                    source = "abstractcore:model_capabilities"
-            except Exception:
-                max_tokens = None
+                    caps = get_model_capabilities(model_name)
+                    mt = caps.get("max_tokens") if isinstance(caps, dict) else None
+                    if isinstance(mt, int) and mt > 0:
+                        max_tokens = int(mt)
+                        source = "abstractcore:model_capabilities"
+                except Exception:
+                    max_tokens = None
 
             # Fallback: provider instance (best-effort; may be lazy/unavailable).
             if max_tokens is None:
@@ -3489,7 +3574,7 @@ class QtChatBubble(QWidget):
         # Final fallback: keep UI stable even for unknown models.
         if max_tokens is None:
             max_tokens = 128000
-            source = "fallback"
+            source = "selection_pending" if not model_name else "fallback"
 
         self.max_tokens = int(max_tokens)
 
@@ -3528,28 +3613,53 @@ class QtChatBubble(QWidget):
         # Call original keyPressEvent for all other keys
         QTextEdit.keyPressEvent(self.input_text, event)
     
-    def on_provider_changed(self, provider_name):
+    def on_provider_changed(self, index: int):
         """Handle provider change."""
-        # Find provider key by display name
-        for i in range(self.provider_combo.count()):
-            if self.provider_combo.itemText(i) == provider_name:
-                self.current_provider = self.provider_combo.itemData(i)
-                break
+        try:
+            idx = int(index)
+        except Exception:
+            return
+        if idx < 0 or idx >= self.provider_combo.count():
+            return
+        self.current_provider = str(self.provider_combo.itemData(idx) or "").strip()
+        if not self.current_provider:
+            return
         
-        self.update_models()
+        self.update_models(session_id=self._active_session_id())
+        if self.use_gateway:
+            self._save_gateway_selection(
+                provider=self.current_provider,
+                model=self.current_model,
+                session_id=self._active_session_id(),
+            )
         
         if self.debug:
             print(f"Provider changed to: {self.current_provider}")
     
-    def on_model_changed(self, model_name):
+    def on_model_changed(self, index: int):
         """Handle model change."""
-        # Find model key by display name
-        for i in range(self.model_combo.count()):
-            if self.model_combo.itemText(i) == model_name:
-                self.current_model = self.model_combo.itemData(i)
-                break
+        try:
+            idx = int(index)
+        except Exception:
+            return
+        if idx < 0 or idx >= self.model_combo.count():
+            return
+        self.current_model = str(self.model_combo.itemData(idx) or "").strip()
+        if not self.current_model:
+            return
         
         self.update_token_limits()
+        try:
+            if self.llm_manager and hasattr(self.llm_manager, "set_model"):
+                self.llm_manager.set_model(self.current_model)
+        except Exception:
+            pass
+        if self.use_gateway:
+            self._save_gateway_selection(
+                provider=self.current_provider,
+                model=self.current_model,
+                session_id=self._active_session_id(),
+            )
         
         if self.debug:
             print(f"Model changed to: {self.current_model}")
@@ -4028,7 +4138,7 @@ class QtChatBubble(QWidget):
         """Dynamically adjust window size based on file attachments presence."""
         # In full voice mode, the UI is compact and voice-only; don't resize for attachments.
         try:
-            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+            if self._is_full_voice_running():
                 return
         except Exception:
             pass
@@ -4119,7 +4229,7 @@ class QtChatBubble(QWidget):
         except Exception:
             voice_prompt = False
         try:
-            voice_prompt = voice_prompt or bool(self.full_voice_toggle and self.full_voice_toggle.is_enabled())
+            voice_prompt = voice_prompt or bool(self._is_full_voice_running())
         except Exception:
             pass
         if voice_prompt:
@@ -4306,8 +4416,7 @@ class QtChatBubble(QWidget):
             pass
         try:
             self._gateway_cache = {}
-            self.load_providers()
-            self.update_models()
+            self.load_providers(session_id=self._active_session_id())
             self.update_token_limits()
             self.load_workflows(session_id=self._active_session_id())
         except Exception as e:
@@ -4399,11 +4508,6 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
         try:
-            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
-                self.full_voice_toggle.set_enabled(False)
-        except Exception:
-            pass
-        try:
             self.show()
             self.raise_()
             self.activateWindow()
@@ -4470,7 +4574,7 @@ class QtChatBubble(QWidget):
             "1) macOS System Settings → Privacy & Security → Microphone\n"
             "2) Enable access for AbstractAssistant\n"
             "3) Restart AbstractAssistant\n\n"
-            "If you started the app from Terminal, you can re-run with `--debug` to see the capture error.",
+            "If you started the app from Terminal, check the terminal output for the capture error.",
         )
 
     @pyqtSlot(object)
@@ -4892,44 +4996,90 @@ class QtChatBubble(QWidget):
 
         # The bubble is hidden after send.  The dialog must be a standalone
         # top-level window that activates the app on macOS.
-        box = QMessageBox()
-        box.setWindowTitle("Tool approval required")
-        box.setIcon(QMessageBox.Icon.Warning)
-        if summary_text:
-            box.setText(f"Tool approval required: {summary_text}")
-        else:
-            box.setText("Tool approval required.")
-        box.setInformativeText("Review the tool calls and approve or deny this batch.")
-        box.setDetailedText(details)
-
-        allow_box = QCheckBox("Always allow these tools for this session")
-        box.setCheckBox(allow_box)
-
-        approve_btn = box.addButton("Approve", QMessageBox.ButtonRole.AcceptRole)
-        deny_btn = box.addButton("Deny", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(deny_btn)
-
+        # Use a custom Qt dialog (not native QMessageBox) for stability on macOS.
+        dlg = QDialog(None)
+        dlg.setWindowTitle("Tool approval required")
+        try:
+            attr = getattr(Qt, "WA_QuitOnClose", None)
+            if attr is None and hasattr(Qt, "WidgetAttribute"):
+                attr = Qt.WidgetAttribute.WA_QuitOnClose
+            if attr is not None:
+                dlg.setAttribute(attr, False)
+        except Exception:
+            pass
         try:
             flags = Qt.WindowStaysOnTopHint | Qt.WindowType.Dialog
-            box.setWindowFlags(flags)
+            dlg.setWindowFlags(flags)
         except Exception:
             try:
-                box.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                dlg.setWindowFlag(Qt.WindowStaysOnTopHint, True)
             except Exception:
                 pass
         try:
-            box.setWindowModality(Qt.ApplicationModal)
+            dlg.setWindowModality(Qt.ApplicationModal)
         except Exception:
             pass
-        self._position_window_top_right(box, y_offset=0, x_offset=0)
+
+        root = QVBoxLayout(dlg)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        head = QLabel(f"Tool approval required: {summary_text}" if summary_text else "Tool approval required.")
+        head.setWordWrap(True)
+        root.addWidget(head)
+
+        info = QLabel("Review the tool calls and approve or deny this batch.")
+        info.setWordWrap(True)
+        root.addWidget(info)
+
+        if details:
+            details_view = QTextEdit()
+            details_view.setReadOnly(True)
+            details_view.setPlainText(details)
+            details_view.setMinimumHeight(180)
+            root.addWidget(details_view)
+
+        allow_box = QCheckBox("Always allow these tools for this session")
+        root.addWidget(allow_box)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        deny_btn = QPushButton("Deny")
+        approve_btn = QPushButton("Approve")
+        row.addWidget(deny_btn)
+        row.addWidget(approve_btn)
+        root.addLayout(row)
+
+        decision = {"approved": False}
+
+        def _approve() -> None:
+            decision["approved"] = True
+            dlg.accept()
+
+        def _deny() -> None:
+            decision["approved"] = False
+            dlg.reject()
+
+        approve_btn.clicked.connect(_approve)
+        deny_btn.clicked.connect(_deny)
+        try:
+            deny_btn.setDefault(True)
+            deny_btn.setAutoDefault(True)
+        except Exception:
+            pass
+
+        try:
+            dlg.resize(640, 420)
+        except Exception:
+            pass
+        self._position_window_top_right(dlg, y_offset=0, x_offset=0)
 
         # Force the app to the foreground on macOS.
         self._activate_app()
-        box.raise_()
-        box.activateWindow()
-        box.exec()
-        clicked = box.clickedButton()
-        approved = clicked == approve_btn
+        dlg.raise_()
+        dlg.activateWindow()
+        dlg.exec()
+        approved = bool(decision.get("approved", False))
 
         if approved and allow_box.isChecked():
             try:
@@ -4949,7 +5099,11 @@ class QtChatBubble(QWidget):
                 pass
 
         if approved:
-            self._announce_tool_execution(tool_calls)
+            try:
+                _calls = list(tool_calls)
+                QTimer.singleShot(0, lambda calls=_calls: self._announce_tool_execution(calls))
+            except Exception:
+                self._announce_tool_execution(tool_calls)
             try:
                 self._run_state.mark_executing()
             except Exception:
@@ -5041,6 +5195,14 @@ class QtChatBubble(QWidget):
             dlg = QInputDialog()
             dlg.setWindowTitle("Assistant needs input")
             dlg.setLabelText(prompt)
+            try:
+                attr = getattr(Qt, "WA_QuitOnClose", None)
+                if attr is None and hasattr(Qt, "WidgetAttribute"):
+                    attr = Qt.WidgetAttribute.WA_QuitOnClose
+                if attr is not None:
+                    dlg.setAttribute(attr, False)
+            except Exception:
+                pass
             try:
                 dlg.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.WindowType.Dialog)
             except Exception:
@@ -5390,21 +5552,24 @@ class QtChatBubble(QWidget):
             except:
                 pass
 
-    def on_full_voice_toggled(self, enabled: bool):
-        """Handle Full Voice Mode toggle state change (always apply on Qt main thread)."""
+    def on_full_voice_clicked(self):
+        """Start Full Voice Mode from the mic button (main-thread safe)."""
         try:
-            QTimer.singleShot(0, lambda e=bool(enabled): self._apply_full_voice_toggled(e))
+            QTimer.singleShot(0, self._handle_full_voice_click_main_thread)
         except Exception:
-            self._apply_full_voice_toggled(bool(enabled))
+            self._handle_full_voice_click_main_thread()
 
-    def _apply_full_voice_toggled(self, enabled: bool) -> None:
+    def _handle_full_voice_click_main_thread(self) -> None:
+        if self._is_full_voice_running():
+            # Start button is one-way; while already running, just hide the UI.
+            try:
+                self.hide()
+            except Exception:
+                pass
+            return
         if self.debug:
-            print(f"🎙️  Full Voice Mode {'enabled' if enabled else 'disabled'}")
-
-        if enabled:
-            self.start_full_voice_mode()
-        else:
-            self.stop_full_voice_mode()
+            print("🎙️  Full Voice Mode start requested")
+        self.start_full_voice_mode()
 
     def start_full_voice_mode(self):
         """Start Full Voice Mode - continuous listening with STT + TTS."""
@@ -5414,7 +5579,7 @@ class QtChatBubble(QWidget):
                 warnings.warn("#FALLBACK: voice backend does not support STT; full voice mode disabled")
                 if self.debug:
                     print("❌ Voice backend not available for Full Voice Mode")
-                self.full_voice_toggle.set_enabled(False)
+                self.full_voice_toggle.setEnabled(False)
                 return
 
             if self.debug:
@@ -5478,7 +5643,11 @@ class QtChatBubble(QWidget):
 
             # Reset toggle state on error
             self._full_voice_running = False
-            self.full_voice_toggle.set_enabled(False)
+            try:
+                if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                    self.full_voice_toggle.set_listening_state("idle")
+            except Exception:
+                pass
             self.show_text_ui()
 
     def _start_full_voice_listen_background(self, token: int) -> None:
@@ -5488,10 +5657,20 @@ class QtChatBubble(QWidget):
         try:
             if not self.voice_manager:
                 raise RuntimeError("Voice backend not available")
-            started = self.voice_manager.listen(
-                on_transcription=self.handle_voice_input,
-                on_stop=self.handle_voice_stop,
-            )
+            try:
+                started = self.voice_manager.listen(
+                    on_transcription=self.handle_voice_input,
+                    on_stop=self.handle_voice_stop,
+                    on_audio_level=self._handle_voice_meter,
+                )
+            except TypeError:
+                warnings.warn(
+                    "#FALLBACK: voice manager listen() missing on_audio_level; listening icon may not reflect live mic levels"
+                )
+                started = self.voice_manager.listen(
+                    on_transcription=self.handle_voice_input,
+                    on_stop=self.handle_voice_stop,
+                )
             ok = bool(started)
             if not ok:
                 raise RuntimeError("Voice backend did not start listening.")
@@ -5544,7 +5723,7 @@ class QtChatBubble(QWidget):
                 "Voice mode failed",
                 "Full voice mode couldn't start listening.\n\n"
                 f"Error: {err or 'unknown'}\n\n"
-                "If this persists, run the tray app with `--debug` for details.",
+                "If this persists, check the terminal output for details.",
             )
             return
 
@@ -5619,10 +5798,7 @@ class QtChatBubble(QWidget):
 
     def _is_full_voice_running(self) -> bool:
         """Centralized guard for any 'LISTENING' UI updates from async callbacks."""
-        try:
-            return bool(self._full_voice_running) and bool(self.full_voice_toggle.is_enabled())
-        except Exception:
-            return bool(getattr(self, "_full_voice_running", False))
+        return bool(getattr(self, "_full_voice_running", False))
 
     def get_full_voice_listening_state(self) -> str:
         """Return full voice listening state for tray controls."""
@@ -5878,15 +6054,6 @@ class QtChatBubble(QWidget):
             self.stop_full_voice_mode()
         except Exception:
             pass
-        try:
-            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
-                self.full_voice_toggle.blockSignals(True)
-                try:
-                    self.full_voice_toggle.set_enabled(False)
-                finally:
-                    self.full_voice_toggle.blockSignals(False)
-        except Exception:
-            pass
 
     def hide_text_ui(self):
         """Enter Full Voice Mode UI (no typing, voice-only)."""
@@ -5934,12 +6101,9 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
 
-        # Compact window in voice mode; restore after.
+        # Keep a stable window size; voice mode must not mutate geometry.
         try:
-            if enabled:
-                self.setFixedSize(self.base_width, 120)
-            else:
-                self._adjust_window_size_for_attachments()
+            self._ensure_window_within_screen(self)
         except Exception:
             pass
 
@@ -5978,7 +6142,6 @@ class QtChatBubble(QWidget):
 
         interactive = state in ("speaking", "paused")
         hover = f"QPushButton:hover {{ background: {'#0091ff' if interactive else color}; }}" if interactive else ""
-        cursor_css = "cursor: pointer;" if interactive else ""
         tooltip = "Click: pause/resume · Double-click: stop" if interactive else "Status"
 
         self.status_label.setStyleSheet(f"""
@@ -5990,7 +6153,6 @@ class QtChatBubble(QWidget):
                 font-weight: 600;
                 color: #ffffff;
                 font-family: "Helvetica Neue", "Helvetica", Arial;
-                {cursor_css}
             }}
             {hover}
         """)
@@ -6493,6 +6655,10 @@ class QtChatBubble(QWidget):
         self._refresh_tool_inventory()
         if self.use_gateway:
             try:
+                self.load_providers(session_id=sid)
+            except Exception:
+                pass
+            try:
                 self.load_workflows(session_id=sid)
             except Exception:
                 pass
@@ -6535,6 +6701,10 @@ class QtChatBubble(QWidget):
         self._load_tool_prefs_for_session(new_id or None)
         self._refresh_tool_inventory()
         if self.use_gateway:
+            try:
+                self.load_providers(session_id=new_id or None)
+            except Exception:
+                pass
             try:
                 self.load_workflows(session_id=new_id or None)
             except Exception:
@@ -7006,7 +7176,7 @@ Continue the conversation naturally, referring to the context above when relevan
     def _is_voice_mode_active(self):
         """Centralized source of truth: Check if ANY voice mode is active."""
         # Check Full Voice Mode (listening/speaking conversations)
-        if hasattr(self, 'full_voice_toggle') and self.full_voice_toggle and self.full_voice_toggle.is_enabled():
+        if self._is_full_voice_running():
             return True
 
         # Check if TTS is currently speaking

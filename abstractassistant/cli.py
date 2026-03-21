@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -19,51 +20,194 @@ def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=prog, description="AbstractAssistant (agentic tray + CLI)")
     
     parser.add_argument("--version", action="version", version="abstractassistant (agentic) v1")
-    
-    parser.add_argument("--config", type=str, default=None, help="Path to config.toml (optional)")
-    parser.add_argument("--provider", type=str, default=None, help="LLM provider id (e.g. ollama, lmstudio, openai)")
-    parser.add_argument("--model", type=str, default=None, help="Model name/id for the provider")
-    parser.add_argument("--agent", type=str, default=None, choices=["react", "codeact", "memact"], help="Agent kind")
-    parser.add_argument("--data-dir", type=str, default=None, help="Assistant data dir (runtime stores + session)")
-    parser.add_argument("--workspace-root", type=str, default=None, help="Workspace root for filesystem-ish tools")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument(
-        "--listening-mode",
+        "--gateway-url",
         type=str,
-        choices=["none", "stop", "wait", "full", "ptt"],
-        default="wait",
-        help="Voice listening mode",
+        default=None,
+        help="Optional AbstractGateway base URL override",
+    )
+    parser.add_argument(
+        "--gateway-token",
+        type=str,
+        default=None,
+        help="Optional AbstractGateway bearer token override",
     )
 
     sub = parser.add_subparsers(dest="command")
 
     run = sub.add_parser("run", help="Run one agentic turn in the terminal")
     run.add_argument("--prompt", type=str, required=True, help="User prompt text")
-    run.add_argument("--approve-all-tools", action="store_true", help="Auto-approve all tool calls (dangerous)")
     
     return parser
 
 
-def find_config_file(config_path: Optional[str] = None) -> Optional[Path]:
-    """Find the configuration file."""
-    if config_path:
-        config_file = Path(config_path)
-        if config_file.exists():
-            return config_file
-        else:
-            print(f"Warning: Config file '{config_path}' not found.")
-            return None
-    
-    # Look for config.toml in current directory, then package directory
-    current_dir = Path.cwd()
-    package_dir = Path(__file__).parent.parent
-    
-    for directory in [current_dir, package_dir]:
-        config_file = directory / "config.toml"
-        if config_file.exists():
-            return config_file
-    
-    return None
+def _build_config_from_args(args: argparse.Namespace):
+    from .config import Config, resolve_gateway_connection
+
+    gateway_url, gateway_auth_token = resolve_gateway_connection(
+        url_override=getattr(args, "gateway_url", None),
+        auth_token_override=getattr(args, "gateway_token", None),
+        require_auth_token=True,
+    )
+    gateway_data: Dict[str, Any] = {"url": gateway_url, "auth_token": gateway_auth_token}
+    return Config.from_dict({"gateway": gateway_data})
+
+
+def _format_tool_arguments(arguments: Any) -> str:
+    return str(arguments if arguments is not None else "")
+
+
+def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
+    print("\nTool approval required:")
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        name = str(tc.get("name") or "").strip() or "<unknown>"
+        arguments = _format_tool_arguments(tc.get("arguments"))
+        print(f"- {name}({arguments})")
+    ans = input("Approve this batch? [y/N] ").strip().lower()
+    return ans in {"y", "yes"}
+
+
+def _run_gateway_command(args: argparse.Namespace) -> int:
+    from .core.gateway_selection_store import GatewaySelection
+    from .core.llm_manager import LLMManager
+    from .gateway import GatewayEventAdapter, build_run_input_data, select_agent_template
+    from .gateway.history_seed import seed_messages_from_history_bundle
+    from .gateway.run_controller import GatewayRunController
+
+    config = _build_config_from_args(args)
+    llm_manager = LLMManager(config=config, debug=False, data_dir=None)
+    gateway = llm_manager.gateway_client()
+    if gateway is None:
+        raise RuntimeError("Gateway client is not configured")
+
+    selection_store = llm_manager.gateway_selection_store()
+    selection = selection_store.load()
+
+    bundle_id = (selection.bundle_id if selection else "") or str(config.gateway.bundle_id or "").strip()
+    flow_id = (selection.flow_id if selection else "") or str(config.gateway.flow_id or "").strip()
+    provider = selection.provider if selection else ""
+    model = selection.model if selection else ""
+
+    llm_manager.append_message(role="user", content=args.prompt)
+    input_data = build_run_input_data(
+        prompt=args.prompt,
+        provider=provider,
+        model=model,
+        messages=llm_manager.session_messages(),
+    )
+
+    entry = select_agent_template(
+        bundles_response=gateway.list_bundles(),
+        bundle_id=bundle_id,
+        flow_id=flow_id,
+    )
+    run_id = gateway.start_run(
+        flow_id=entry["flow_id"],
+        input_data=input_data,
+        bundle_id=entry["bundle_id"],
+        session_id=llm_manager.active_session_id,
+    )
+    llm_manager.set_last_run_id(run_id)
+
+    adapter = GatewayEventAdapter()
+    controller = GatewayRunController(gateway=gateway, debug=False)
+    final = ""
+
+    def _submit_resume(*, active_run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
+        gateway.submit_command(
+            command={
+                "command_id": f"resume_{int(time.time() * 1000)}",
+                "run_id": str(active_run_id),
+                "type": "resume",
+                "payload": {"wait_key": wait_key, "payload": payload},
+                "client_id": "abstractassistant-cli",
+            }
+        )
+
+    def _on_record(active_run_id: str, rec: Dict[str, object]) -> None:
+        nonlocal final
+        for ev in adapter.handle_record(rec):
+            if not isinstance(ev, dict):
+                continue
+            typ = str(ev.get("type") or "").strip()
+            if typ == "assistant":
+                content = str(ev.get("content") or "")
+                if content.strip() and ev.get("final"):
+                    final = content
+                continue
+            if typ == "tool_request":
+                wait_key = str(ev.get("wait_key") or "").strip()
+                if not wait_key:
+                    continue
+                tool_calls = ev.get("tool_calls")
+                approved = _approve_tool_batch(tool_calls if isinstance(tool_calls, list) else [])
+                payload: Dict[str, Any] = {"approved": approved}
+                if not approved:
+                    payload["reason"] = "Denied by user"
+                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload=payload)
+                continue
+            if typ == "ask_user":
+                wait_key = str(ev.get("wait_key") or "").strip()
+                if not wait_key:
+                    continue
+                prompt = str(ev.get("prompt") or "Input required:").strip() or "Input required:"
+                response = input(f"\n{prompt}\n> ").strip()
+                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload={"response": response})
+                continue
+            if typ == "error":
+                raise RuntimeError(str(ev.get("error") or "Gateway run failed"))
+
+    controller.follow_run(
+        root_run_id=run_id,
+        on_record=_on_record,
+        should_stop=lambda: False,
+    )
+
+    status = str(controller.get_run_status(run_id=run_id) or "").strip().lower()
+    if status in {"failed", "cancelled"} and not final:
+        raise RuntimeError(f"Gateway run ended with status '{status}'")
+
+    try:
+        bundle = gateway.get_run_history_bundle(
+            run_id=run_id,
+            include_subruns=True,
+            include_session=True,
+            session_turn_limit=200,
+            ledger_mode="tail",
+            ledger_max_items=2000,
+        )
+        messages = seed_messages_from_history_bundle(
+            bundle,
+            include_tool_calls_for_run_id=run_id,
+        )
+        if messages:
+            llm_manager.replace_gateway_messages(messages, last_run_id=run_id)
+            if not final:
+                for msg in reversed(messages):
+                    if not isinstance(msg, dict):
+                        continue
+                    if str(msg.get("role") or "") != "assistant":
+                        continue
+                    content = str(msg.get("content") or "")
+                    if content.strip():
+                        final = content
+                        break
+    except Exception:
+        pass
+
+    selection_store.save(
+        GatewaySelection(
+            bundle_id=entry["bundle_id"],
+            flow_id=entry["flow_id"],
+            provider=provider,
+            model=model,
+        )
+    )
+
+    print(final)
+    return 0
 
 
 def main() -> int:
@@ -75,61 +219,11 @@ def main() -> int:
         command = args.command or "app"
 
         if command == "run":
-            from .core.agent_host import AgentHost, AgentHostConfig
-
-            provider = str(args.provider or "ollama")
-            model = str(args.model or "qwen3:4b-instruct")
-            agent_kind = str(args.agent or "react")
-            data_dir = Path(args.data_dir).expanduser() if args.data_dir else (Path.home() / ".abstractassistant")
-
-            host = AgentHost(
-                AgentHostConfig(
-                    provider=provider,
-                    model=model,
-                    agent_kind=agent_kind,
-                    data_dir=data_dir,
-                    workspace_root=args.workspace_root,
-                )
-            )
-
-            def _approve(tool_calls):
-                if args.approve_all_tools:
-                    return True
-                # Prompt for dangerous/unknown batches; safe-only batches auto-approve.
-                if not host.tool_policy.requires_approval(tool_calls):
-                    return True
-                print("\nTool approval required:")
-                for tc in tool_calls:
-                    name = tc.get("name")
-                    arguments = tc.get("arguments")
-                    print(f"- {name}({arguments})")
-                ans = input("Approve this batch? [y/N] ").strip().lower()
-                return ans in {"y", "yes"}
-
-            def _ask_user(wait):
-                prompt = str(getattr(wait, "prompt", "") or "Input required:")
-                return input(f"\n{prompt}\n> ").strip()
-
-            final = ""
-            for ev in host.run_turn(user_text=args.prompt, approve_tools=_approve, ask_user=_ask_user):
-                typ = ev.get("type")
-                if typ == "assistant":
-                    final = str(ev.get("content") or "")
-                if typ == "error":
-                    raise RuntimeError(str(ev.get("error") or "error"))
-            print(final)
-            return 0
+            return _run_gateway_command(args)
 
         # app (default — tray UI)
         try:
-            from .config import Config  # lightweight
-
-            config_file = find_config_file(args.config)
-            config = Config.from_file(config_file) if config_file else Config.default()
-            if args.provider:
-                config.llm.default_provider = str(args.provider)
-            if args.model:
-                config.llm.default_model = str(args.model)
+            config = _build_config_from_args(args)
         except Exception:
             config = None
 
@@ -144,9 +238,9 @@ def main() -> int:
 
         app = AbstractAssistantApp(
             config=config,
-            debug=bool(args.debug),
-            listening_mode=str(args.listening_mode or "wait"),
-            data_dir=Path(args.data_dir).expanduser() if getattr(args, "data_dir", None) else None,
+            debug=False,
+            listening_mode="wait",
+            data_dir=None,
         )
         app.run()
         return 0
@@ -154,12 +248,11 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n👋 AbstractAssistant stopped by user")
         return 0
+    except ValueError as e:
+        print(str(e))
+        return 2
     except Exception as e:
         print(f"❌ Error starting AbstractAssistant: {e}")
-        if getattr(args, "debug", False):
-            import traceback
-
-            traceback.print_exc()
         return 1
 
 

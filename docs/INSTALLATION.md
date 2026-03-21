@@ -8,9 +8,10 @@ See also:
 
 - **Python**: 3.10+
 - **Tray UI**: macOS is the primary target (menu bar app). Other OSes may work via `pystray`/Qt but are not the focus.
+- **Gateway**: an AbstractGateway instance must be available
 - **Providers**:
-  - local: LMStudio / Ollama must be running
-  - cloud: set API keys via environment variables (for example `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+  - local: LMStudio / Ollama must be configured on the gateway
+  - cloud: API keys belong on the gateway side
 
 ## Install (PyPI)
 
@@ -22,6 +23,14 @@ Verify:
 
 ```bash
 assistant --help
+```
+
+Gateway startup for local development:
+
+```bash
+export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
+export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
+abstractgateway serve --host 127.0.0.1 --port 8080
 ```
 
 ## macOS app bundle (optional)
@@ -46,6 +55,10 @@ assistant run --prompt "Hello"
 ```
 
 The CLI entrypoint is available as both `assistant` and `abstractassistant`.
+
+Optional assistant-side overrides:
+- `--gateway-url`
+- `--gateway-token`
 
 ## Notes
 

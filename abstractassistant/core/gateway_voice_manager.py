@@ -159,7 +159,12 @@ class GatewayVoiceManager:
         """Set a callback for audio meter updates (0..1 or per-band)."""
         self._audio_meter_callback = callback
 
-    def listen(self, on_transcription: Callable[[str], None], on_stop: Callable[[], None] | None = None) -> bool:
+    def listen(
+        self,
+        on_transcription: Callable[[str], None],
+        on_stop: Callable[[], None] | None = None,
+        on_audio_level: Callable[[float], None] | None = None,
+    ) -> bool:
         """Start listening via AbstractVoice VoiceRecognizer + gateway STT."""
         if not self.supports_stt():
             raise RuntimeError("Gateway STT unavailable (microphone not available)")
@@ -198,12 +203,20 @@ class GatewayVoiceManager:
             except Exception:
                 pass
 
+        def _on_audio_level(level: float) -> None:
+            try:
+                if on_audio_level is not None:
+                    on_audio_level(float(level))
+            except Exception:
+                pass
+
         rec = VoiceRecognizer(
             transcription_callback=_on_transcription,
             stop_callback=_on_stop,
             debug_mode=self.debug_mode,
             stt_adapter=adapter,
             language=lang,
+            audio_level_callback=_on_audio_level,
         )
         try:
             if hasattr(rec, "set_profile"):
@@ -297,8 +310,18 @@ class GatewayVoiceManager:
         if not self.supports_tts():
             warnings.warn("#FALLBACK: gateway TTS unavailable; missing local player")
             return False
+        gw = None
+        old_timeout = None
         try:
             gw = self._gateway_client()
+            try:
+                cfg = getattr(gw, "_cfg", None)
+                if cfg is not None:
+                    old_timeout = float(getattr(cfg, "timeout_s", 0) or 0)
+                    if old_timeout and old_timeout < 120.0:
+                        cfg.timeout_s = 120.0
+            except Exception:
+                old_timeout = None
             run_id = self._session_run_id()
             res = gw.voice_tts(run_id=run_id, text=raw, fmt="wav", request_id=str(uuid.uuid4()))
             audio = res.get("audio_artifact") if isinstance(res, dict) else None
@@ -314,6 +337,13 @@ class GatewayVoiceManager:
         except Exception as e:
             warnings.warn(f"#FALLBACK: gateway TTS failed: {e}")
             return False
+        finally:
+            try:
+                cfg = getattr(gw, "_cfg", None)
+                if cfg is not None and old_timeout is not None:
+                    cfg.timeout_s = old_timeout
+            except Exception:
+                pass
 
     def pause(self) -> bool:
         """Pause current speech when supported by the local player."""

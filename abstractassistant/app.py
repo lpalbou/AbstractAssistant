@@ -327,7 +327,7 @@ class AbstractAssistantApp:
             else:
                 animation_status = "ready"  # Default to ready
 
-            if animation_status != "speaking":
+            if animation_status not in {"speaking", "listening", "listening_paused"}:
                 self.update_voice_meter(0.0)
             
             # Update current status AFTER determining animation type
@@ -424,7 +424,7 @@ class AbstractAssistantApp:
                 try:
                     if self.base_icon and self.current_status == status and hasattr(self, 'qt_tray_icon'):
                         # Apply smooth heartbeat effect
-                        meter = self._get_voice_meter() if status == "speaking" else None
+                        meter = self._get_voice_meter() if status in {"speaking", "listening", "listening_paused"} else None
                         icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status, voice_meter=meter)
                         self._update_qt_icon(icon_image)
                     elif self.debug:
@@ -453,7 +453,7 @@ class AbstractAssistantApp:
             try:
                 if self.icon and self.base_icon and self.current_status == status:
                     # Apply smooth heartbeat effect
-                    meter = self._get_voice_meter() if status == "speaking" else None
+                    meter = self._get_voice_meter() if status in {"speaking", "listening", "listening_paused"} else None
                     icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status, voice_meter=meter)
                     self.icon.icon = icon_image
                     
@@ -1213,6 +1213,12 @@ class AbstractAssistantApp:
                 self.qt_app = QApplication(sys.argv)
             else:
                 self.qt_app = QApplication.instance()
+
+            # Tray apps should not quit when the last window closes.
+            try:
+                self.qt_app.setQuitOnLastWindowClosed(False)
+            except Exception:
+                pass
 
             # Check if system tray is available
             if not QSystemTrayIcon.isSystemTrayAvailable():

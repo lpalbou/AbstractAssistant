@@ -95,12 +95,14 @@ def build_run_input_data(
         "prompt": prompt_s,
         "context": ctx,
         "use_context": bool(use_context),
-        "provider": provider_s,
-        "model": model_s,
         "system": system_s,
         "_runtime": runtime_ns,
         "max_iterations": max(1, int(max_iterations)),
     }
+    if provider_s:
+        out["provider"] = provider_s
+    if model_s:
+        out["model"] = model_s
 
     if attachments_list:
         out["attachments"] = attachments_list

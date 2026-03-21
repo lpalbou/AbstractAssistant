@@ -11,7 +11,12 @@ from abstractassistant.core.gateway_selection_store import GatewaySelection, Gat
 def test_gateway_selection_store_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "gateway.json"
     store = GatewaySelectionStore(path)
-    sel = GatewaySelection(bundle_id="basic-agent", flow_id="main")
+    sel = GatewaySelection(
+        bundle_id="basic-agent",
+        flow_id="main",
+        provider="openai",
+        model="gpt-4.1-mini",
+    )
     store.save(sel)
 
     loaded = store.load()

@@ -362,7 +362,12 @@ class VoiceManager:
                 if self.debug_mode:
                     print(f"⚠️  Voice mode setting not available, simulating mode: {mode}")
 
-    def listen(self, on_transcription: Callable[[str], None], on_stop: Callable[[], None] = None):
+    def listen(
+        self,
+        on_transcription: Callable[[str], None],
+        on_stop: Callable[[], None] = None,
+        on_audio_level: Callable[[float], None] | None = None,
+    ):
         """Start listening for speech input.
 
         Args:
@@ -371,10 +376,21 @@ class VoiceManager:
         """
         if hasattr(self._abstractvoice_manager, 'listen'):
             try:
-                started = self._abstractvoice_manager.listen(
-                    on_transcription=on_transcription,
-                    on_stop=on_stop
-                )
+                try:
+                    started = self._abstractvoice_manager.listen(
+                        on_transcription=on_transcription,
+                        on_stop=on_stop,
+                        on_audio_level=on_audio_level,
+                    )
+                except TypeError:
+                    # Backward compatibility with older AbstractVoice listen() signatures.
+                    warnings.warn(
+                        "#FALLBACK: voice backend listen() has no on_audio_level parameter; listening meter may be degraded"
+                    )
+                    started = self._abstractvoice_manager.listen(
+                        on_transcription=on_transcription,
+                        on_stop=on_stop,
+                    )
                 if self.debug_mode:
                     if self.debug_mode:
                         print(f"🎤 Started listening for speech (started={bool(started)})")

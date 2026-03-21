@@ -15,37 +15,26 @@ Help:
 
 ```bash
 assistant --help
-assistant tray --help
 assistant run --help
 ```
 
 ### Global options
 
 Defined in `abstractassistant/cli.py`:
-- `--config PATH` (tray only): config file path (TOML)
-- `--provider ID`: provider id (examples: `ollama`, `lmstudio`, `openai`, `anthropic`)
-- `--model NAME`: model id/name for the provider
-- `--agent react|codeact|memact` (CLI only): agent kind
-- `--data-dir DIR`: where sessions/runtime are stored (default `~/.abstractassistant/`)
-- `--workspace-root DIR` (CLI only): workspace root for tool/attachment scoping
-- `--debug`: verbose logs
+- `--gateway-url URL`: optional gateway base URL override
+- `--gateway-token TOKEN`: optional gateway auth token override
 
-Note: these options must appear **before** the subcommand (for example `assistant --provider ollama run --prompt ...`).
+Run-specific options:
+- `--prompt TEXT`: user prompt text
+
+Note: global options appear before the subcommand.
 
 Examples:
 
 ```bash
-assistant --provider ollama --model qwen3:4b-instruct run --prompt "Summarize this repo"
-assistant --debug tray --listening-mode wait
-assistant --config ./config.toml tray
+assistant run --prompt "Summarize this repo"
+assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN" run --prompt "Summarize this repo"
 ```
-
-### `assistant tray`
-
-Runs the menu bar / system tray app.
-
-Options:
-- `--listening-mode none|stop|wait|full|ptt`
 
 ### `assistant run`
 
@@ -54,9 +43,13 @@ Runs a single agentic turn in the terminal.
 Required:
 - `--prompt TEXT`
 
+Gateway behavior:
+- provider/model come from gateway discovery or the cached session selection
+- workflow selection comes from the gateway bundle catalog
+- if the gateway exposes no `abstractcode.agent.v1` entrypoint, configure workflow bundles on the gateway side, typically via `ABSTRACTGATEWAY_FLOWS_DIR`
+
 Tool approvals:
-- prompts when a tool batch requires approval (see `abstractassistant/core/tool_policy.py`)
-- `--approve-all-tools` disables approvals (dangerous)
+- prompts when a tool batch requires approval
 
 ## Programmatic API (Python)
 
@@ -133,22 +126,21 @@ Files under the data dir:
 - `session.json`: transcript snapshot + ids (+ last run id)
 - `sessions.json`: registry of sessions + active session id
 
-### `Config` (`config.toml`)
+### Environment-driven tray config
 
 Evidence: `abstractassistant/config.py`
 
-The tray UI can load a TOML config file into `Config` and uses it for defaults
-(theme, default provider/model, token limits, shortcut, etc.).
+The tray UI is gateway-first and resolves connection settings from environment variables.
 
-System tray tuning:
-- `system_tray.animation_fps` (int): tray icon animation FPS (10-30, default 30)
+Gateway settings:
+- `ABSTRACTGATEWAY_URL` (default `http://127.0.0.1:8080`)
+- `ABSTRACTGATEWAY_AUTH_TOKEN`
 
-Gateway settings (thin-client scaffolding):
-- `gateway.url` (string): base URL for AbstractGateway (e.g. `http://127.0.0.1:8080`)
-- `gateway.auth_token` (string): bearer token for the gateway (optional)
-- `gateway.use_gateway` (bool): opt-in flag for gateway-first mode (default false)
-- `gateway.bundle_id` (string): default bundle id (default `basic-agent`)
-- `gateway.flow_id` (string): optional flow id override (default empty; discovered)
+Equivalent assistant CLI overrides:
+- `--gateway-url`
+- `--gateway-token`
+
+Provider/model/workflow inventory is discovered from the gateway. The tray app does not keep a built-in provider/model or workflow default; it only persists the last selected provider/model/workflow in session state.
 
 ## Related docs
 

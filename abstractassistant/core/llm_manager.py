@@ -74,8 +74,12 @@ class LLMManager:
         self._title_seeds: Dict[str, str] = {}
         self._title_lock = threading.Lock()
 
-        self.current_provider: str = str(getattr(config.llm, "default_provider", "") or "ollama")
-        self.current_model: str = str(getattr(config.llm, "default_model", "") or "qwen3:4b-instruct")
+        if self.use_gateway:
+            self.current_provider = ""
+            self.current_model = ""
+        else:
+            self.current_provider = str(getattr(config.llm, "default_provider", "") or "").strip()
+            self.current_model = str(getattr(config.llm, "default_model", "") or "").strip()
 
         self._tts_mode: bool = False
         self._host: Optional["AgentHost"] = None
@@ -84,7 +88,7 @@ class LLMManager:
         if self.use_gateway:
             self._gateway_snapshot = self._load_gateway_snapshot(self.active_session_id)
         else:
-            self._host = self._build_host_for_active_session()
+            self._host = self._build_host_for_active_session() if self.current_provider and self.current_model else None
 
         # UI-facing compatibility fields.
         self.token_usage = TokenUsage()
@@ -209,7 +213,7 @@ class LLMManager:
             self._host = None
             self._gateway_snapshot = self._load_gateway_snapshot(rec.session_id)
         else:
-            self._host = self._build_host_for_session(rec.session_id)
+            self._host = self._build_host_for_session(rec.session_id) if self.current_provider and self.current_model else None
         self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
         return rec.session_id
@@ -225,7 +229,7 @@ class LLMManager:
             self._host = None
             self._gateway_snapshot = self._load_gateway_snapshot(sid)
         else:
-            self._host = self._build_host_for_session(sid)
+            self._host = self._build_host_for_session(sid) if self.current_provider and self.current_model else None
         self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
 
@@ -364,6 +368,19 @@ class LLMManager:
 
     def _build_host_for_active_session(self) -> "AgentHost":
         return self._build_host_for_session(self.active_session_id)
+
+    def _ensure_local_host(self, *, provider: Optional[str] = None, model: Optional[str] = None) -> Optional["AgentHost"]:
+        if self.use_gateway:
+            return None
+        provider_eff = str(provider or self.current_provider or "").strip()
+        model_eff = str(model or self.current_model or "").strip()
+        if not provider_eff or not model_eff:
+            return None
+        self.current_provider = provider_eff
+        self.current_model = model_eff
+        if self._host is None:
+            self._host = self._build_host_for_active_session()
+        return self._host
 
     def _build_host_for_session(self, session_id: str) -> "AgentHost":
         from .agent_host import AgentHost, AgentHostConfig
@@ -546,10 +563,12 @@ class LLMManager:
         self.current_provider = str(provider or "").strip() or self.current_provider
         if model is not None:
             self.current_model = str(model or "").strip() or self.current_model
+        self._ensure_local_host()
         self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
 
     def set_model(self, model: str):
         self.current_model = str(model or "").strip() or self.current_model
+        self._ensure_local_host()
         self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
 
     def generate_response(
@@ -569,6 +588,9 @@ class LLMManager:
             raise RuntimeError("#FALLBACK: generate_response is not available in gateway mode")
         provider_eff = str(provider or "").strip() or self.current_provider
         model_eff = str(model or "").strip() or self.current_model
+        host = self._ensure_local_host(provider=provider_eff, model=model_eff)
+        if host is None:
+            raise RuntimeError("Provider and model must be selected")
 
         system_extra = None
         if self._tts_mode:
@@ -582,7 +604,7 @@ class LLMManager:
             )
 
         final = ""
-        for ev in self._host.run_turn(
+        for ev in host.run_turn(
             user_text=str(message),
             attachments=list(media) if media else None,
             provider=provider_eff,

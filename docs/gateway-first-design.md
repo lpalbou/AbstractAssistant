@@ -66,8 +66,9 @@ Tray UI (Qt) or Web UI (abstractuic)
 
 ## Default workflow
 
-- The tray defaults to the gateway’s `basic-agent` bundle entrypoint (interface `abstractcode.agent.v1`).
-- If `flow_id` is not provided, the client discovers the entrypoint from `list_bundles`.
+- The tray uses the gateway’s declared default agent entrypoint when one is exposed.
+- Workflow availability comes entirely from `list_bundles`.
+- The gateway, not the tray app, must be configured to load bundles (for local dev, typically via `ABSTRACTGATEWAY_FLOWS_DIR`).
 
 ## Open decisions
 

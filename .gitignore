@@ -61,6 +61,8 @@ Thumbs.db
 
 # Local test data or logs
 *.log
+config.toml
+config.local.toml
 
 # Pyright / Mypy
 .mypy_cache/

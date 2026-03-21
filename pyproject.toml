@@ -32,8 +32,6 @@ dependencies = [
     "abstractvoice>=0.6.3",
     # Provider/client extras (avoid GPU-only stacks like vLLM by default).
     "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.11.8",
-    "tomli>=2.0.0; python_version<'3.11'",
-    "tomli-w>=1.0.0",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
@@ -46,8 +44,8 @@ dependencies = [
     "pyperclip>=1.8.2",
     "plyer>=2.1.0",
     # webrtcvad (via abstractvoice) depends on pkg_resources at import time;
-    # setuptools >= 76 removed pkg_resources, so we cap below that.
-    "setuptools>=61.0,<76",
+    # pkg_resources remains available through setuptools 80.x and disappears in 81+.
+    "setuptools>=61.0,<81",
 ]
 
 [project.optional-dependencies]

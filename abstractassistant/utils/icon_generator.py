@@ -291,13 +291,25 @@ class IconGenerator:
             self._draw_breathing_circle(draw, center, draw_size, base_color, intensity)
 
         elif status in {'listening', 'listening_paused'}:
-            # Listening uses a record-light style pulse to differentiate from speaking.
+            # Listening uses live mic level when available (no synthetic stream).
             if status == "listening_paused":
-                pulse = 0.55 + (0.15 * math.sin(current_time * 0.6 * math.pi))
-                intensity = 0.45 + pulse * 0.25
+                pulse = 0.0
+                intensity = 0.35
             else:
-                pulse = 0.6 + (0.4 * math.sin(current_time * 1.6 * math.pi))
-                intensity = 0.55 + pulse * 0.35
+                meter_level = 0.0
+                if isinstance(voice_meter, (list, tuple)):
+                    vals = [max(0.0, min(1.0, float(v))) for v in voice_meter if v is not None]
+                    if vals:
+                        meter_level = sum(vals) / len(vals)
+                elif voice_meter is not None:
+                    try:
+                        meter_level = max(0.0, min(1.0, float(voice_meter)))
+                    except Exception:
+                        meter_level = 0.0
+
+                # Strictly mic-driven: no synthetic baseline vibration.
+                pulse = max(0.0, min(1.0, meter_level))
+                intensity = 0.32 + (0.88 * pulse)
             self._draw_listening_pulse(draw, center, draw_size, base_color, intensity, pulse)
             
         else:
@@ -455,9 +467,18 @@ class IconGenerator:
     def _draw_listening_pulse(self, draw, center, size, color, intensity, pulse):
         """Draw a pulsing recording light for listening mode."""
         r, g, b = color
-        rr = int(min(255, r * intensity))
-        gg = int(min(255, g * intensity))
-        bb = int(min(255, b * intensity))
+        vol = max(0.0, min(1.0, float(pulse)))
+
+        # Shift from base listening color toward blue as voice gets louder.
+        target_blue = (70, 165, 255)
+        mix = 0.55 * vol
+        cr = int((1.0 - mix) * r + mix * target_blue[0])
+        cg = int((1.0 - mix) * g + mix * target_blue[1])
+        cb = int((1.0 - mix) * b + mix * target_blue[2])
+
+        rr = int(min(255, cr * intensity))
+        gg = int(min(255, cg * intensity))
+        bb = int(min(255, cb * intensity))
 
         core_radius = size * (0.18 + 0.06 * pulse)
         ring_radius = size * (0.34 + 0.08 * pulse)
