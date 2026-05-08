@@ -35,6 +35,38 @@ Keep Assistant thin and Gateway-driven:
 - document local hardware setup as `pip install "abstractgateway[apple]"` or
   `pip install "abstractgateway[gpu]"`, not as an Assistant dependency.
 
+## Detailed Plan
+
+1. Add a Gateway capability service in the Assistant client layer.
+   - Fetch and cache `/api/gateway/discovery/capabilities`.
+   - Parse provider/model catalogs, workflow entrypoints, generated media, voice profiles/models,
+     music readiness, memory readiness, prompt-cache support, tool policy, and workspace policy.
+   - Keep stale/offline state explicit so reconnect UX can recover without local fallbacks.
+
+2. Rework voice UX around Gateway catalogs.
+   - Keep local microphone capture, VAD, playback, pause/resume, and meter rendering.
+   - Route STT and TTS through Gateway endpoints in gateway mode.
+   - Populate voice/profile/model choices from Gateway catalog routes.
+   - Treat missing Gateway TTS/STT as disabled UI state, not as permission to load local speech
+     models.
+
+3. Add generated-media handling.
+   - Render generated images/audio/music artifacts from run output and ledger events.
+   - Download/play audio artifacts through Gateway artifact routes.
+   - Keep generated resources such as cloned voices distinct from one-off audio files.
+   - Avoid duplicate final responses when media appears both in ledger events and final run output.
+
+4. Align session and workflow controls.
+   - Workflow picker should use Gateway entrypoint metadata and input schemas.
+   - Prompt-cache controls should call Gateway session prompt-cache endpoints only when advertised.
+   - Tool approval UI should use Gateway tool inventory/default approval policy.
+   - Memory status should be informational unless the selected workflow requires KG memory.
+
+5. Test the thin-client boundary.
+   - Gateway mode must not import or instantiate local Core/Vision/Voice/Music engines.
+   - Add fixture tests for lightweight, Apple, GPU, offline, and partially configured Gateway
+     capability payloads.
+
 ## Non-Goals
 
 - Do not make Assistant install Core, Runtime, Vision, Voice, Music, or Memory local engines by
@@ -46,6 +78,13 @@ Keep Assistant thin and Gateway-driven:
 
 Promote when Assistant needs to expose Gateway 0.2.4+ media/voice/music/memory capability selection
 in the tray UI.
+
+## Expected Outcomes
+
+- One Assistant binary can connect to lightweight, Apple-native, or GPU-native Gateway deployments.
+- Voice and generated media behavior follows the connected Gateway profile, not local Assistant
+  dependencies.
+- Gateway readiness errors are visible and actionable from the tray UI.
 
 ## Validation Ideas
 
