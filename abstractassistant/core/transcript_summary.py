@@ -394,7 +394,23 @@ def _images_from_links(links: Sequence[Dict[str, str]], *, limit: int = 6) -> Li
     for link in links or []:
         if not isinstance(link, dict):
             continue
+        kind0 = str(link.get("kind") or "").strip().lower()
+        content_type = str(link.get("content_type") or "").strip().lower()
         target = str(link.get("target") or "").strip()
+        if kind0 == "artifact" and target and content_type.startswith("image/"):
+            item = {
+                "kind": "artifact",
+                "target": target,
+                "label": str(link.get("label") or "").strip(),
+            }
+            for key in ("run_id", "content_type"):
+                value = str(link.get(key) or "").strip()
+                if value:
+                    item[key] = value
+            out.append(item)
+            if len(out) >= int(limit):
+                break
+            continue
         if not target or not _is_image_target(target):
             continue
         kind, norm = _normalize_image_target(target)
@@ -769,13 +785,38 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
             if ui_kind:
                 rendered["ui_kind"] = ui_kind
             images: List[Dict[str, str]] = list(content_images)
+            assistant_links: List[Dict[str, str]] = []
+            image_artifact = meta.get("image_artifact") if isinstance(meta, dict) else None
+            if isinstance(image_artifact, dict):
+                artifact_id = str(image_artifact.get("$artifact") or image_artifact.get("artifact_id") or "").strip()
+                if artifact_id:
+                    label = str(image_artifact.get("filename") or f"image:{artifact_id[:8]}").strip()
+                    link = {"kind": "artifact", "target": artifact_id, "label": label}
+                    run_id = str(msg.get("run_id") or meta.get("run_id") or "").strip()
+                    generated = meta.get("generated_media")
+                    if not run_id and isinstance(generated, dict):
+                        run_id = str(generated.get("run_id") or "").strip()
+                    if run_id:
+                        link["run_id"] = run_id
+                    content_type = str(image_artifact.get("content_type") or "").strip()
+                    if content_type:
+                        link["content_type"] = content_type
+                    assistant_links.append(link)
+                    images.extend(_images_from_links([link]))
             if pending_tools:
+                rendered.setdefault("ui_kind", "tool_result")
                 rendered["tool_summary"] = _build_tool_summary(pending_tools)
                 links = _build_tool_links(pending_tools)
                 if links:
                     rendered["tool_links"] = links
                     images.extend(_images_from_links(links))
                 pending_tools = []
+            if assistant_links:
+                existing_links = rendered.get("tool_links")
+                if isinstance(existing_links, list):
+                    rendered["tool_links"] = existing_links + assistant_links
+                else:
+                    rendered["tool_links"] = assistant_links
             if images:
                 # Dedupe by target.
                 seen_targets: set[str] = set()
@@ -787,7 +828,12 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
                     if not target or target in seen_targets:
                         continue
                     seen_targets.add(target)
-                    deduped.append({"kind": str(img.get("kind") or "url"), "target": target, "label": str(img.get("label") or "")})
+                    item = {"kind": str(img.get("kind") or "url"), "target": target, "label": str(img.get("label") or "")}
+                    for key in ("run_id", "content_type"):
+                        value = str(img.get(key) or "").strip()
+                        if value:
+                            item[key] = value
+                    deduped.append(item)
                 if deduped:
                     rendered["image_thumbnails"] = deduped
 

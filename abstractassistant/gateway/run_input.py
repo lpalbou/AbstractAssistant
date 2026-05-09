@@ -1,5 +1,5 @@
 """
-Build gateway run input data for `abstractcode.agent.v1` workflows.
+Build gateway run input data for assistant-compatible agent workflows.
 
 Ported from `abstractcode/web/src/lib/run_input.ts` (simplified).
 """

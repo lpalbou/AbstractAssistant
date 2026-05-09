@@ -355,6 +355,15 @@ class GatewayClient:
             label="list_bundles failed",
         )
 
+    def discovery_capabilities(self) -> Dict[str, Any]:
+        return _request_json(
+            method="GET",
+            url=self._url("/api/gateway/discovery/capabilities"),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="discovery_capabilities failed",
+        )
+
     def discovery_providers(self, *, include_models: bool = False) -> Dict[str, Any]:
         return _request_json(
             method="GET",
@@ -514,6 +523,283 @@ class GatewayClient:
             body=body,
             timeout_s=self._cfg.timeout_s,
             label="voice_tts failed",
+        )
+
+    def image_generate(
+        self,
+        *,
+        run_id: str,
+        prompt: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        size: Optional[str] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        fmt: str = "png",
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        steps: Optional[int] = None,
+        guidance_scale: Optional[float] = None,
+        quality: Optional[str] = None,
+        style: Optional[str] = None,
+        request_id: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("image_generate: run_id is required")
+        body: Dict[str, Any] = {"prompt": str(prompt or ""), "format": str(fmt or "png")}
+        optional: Dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+            "size": size,
+            "width": width,
+            "height": height,
+            "negative_prompt": negative_prompt,
+            "seed": seed,
+            "steps": steps,
+            "guidance_scale": guidance_scale,
+            "quality": quality,
+            "style": style,
+            "request_id": request_id,
+            "extra": extra,
+        }
+        for key, value in optional.items():
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            body[key] = value
+        return _request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/runs/{rid}/images/generate"),
+            headers=_auth_headers(self._cfg.auth_token),
+            body=body,
+            timeout_s=self._cfg.timeout_s,
+            label="image_generate failed",
+        )
+
+    def session_prompt_cache_status(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("session_prompt_cache_status: session_id is required")
+        query: Dict[str, Any] = {
+            "provider": str(provider or "").strip(),
+            "model": str(model or "").strip(),
+            "version": int(version or 1),
+        }
+        if not query["provider"] or not query["model"]:
+            raise ValueError("session_prompt_cache_status: provider and model are required")
+        for key, value in {
+            "bundle_id": bundle_id,
+            "bundle_version": bundle_version,
+            "flow_id": flow_id,
+            "template_id": template_id,
+        }.items():
+            if isinstance(value, str) and value.strip():
+                query[key] = value.strip()
+        return _request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/sessions/{sid}/prompt_cache/status", query=query),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="session_prompt_cache_status failed",
+        )
+
+    def session_prompt_cache_prepare(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        modules: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        workflow_instructions: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        pinned_attachments: Optional[List[Dict[str, Any]]] = None,
+        make_default: bool = False,
+        ttl_s: Optional[float] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body = self._session_prompt_cache_body(
+            provider=provider,
+            model=model,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            flow_id=flow_id,
+            template_id=template_id,
+            modules=modules,
+            system_prompt=system_prompt,
+            workflow_instructions=workflow_instructions,
+            tools=tools,
+            pinned_attachments=pinned_attachments,
+            make_default=make_default,
+            ttl_s=ttl_s,
+            version=version,
+        )
+        return self._session_prompt_cache_post(
+            session_id=session_id,
+            operation="prepare",
+            body=body,
+            label="session_prompt_cache_prepare failed",
+        )
+
+    def session_prompt_cache_clear(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body = self._session_prompt_cache_body(
+            provider=provider,
+            model=model,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            flow_id=flow_id,
+            template_id=template_id,
+            version=version,
+        )
+        return self._session_prompt_cache_post(
+            session_id=session_id,
+            operation="clear",
+            body=body,
+            label="session_prompt_cache_clear failed",
+        )
+
+    def session_prompt_cache_rebuild(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        modules: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        workflow_instructions: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        pinned_attachments: Optional[List[Dict[str, Any]]] = None,
+        make_default: bool = False,
+        ttl_s: Optional[float] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body = self._session_prompt_cache_body(
+            provider=provider,
+            model=model,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            flow_id=flow_id,
+            template_id=template_id,
+            modules=modules,
+            system_prompt=system_prompt,
+            workflow_instructions=workflow_instructions,
+            tools=tools,
+            pinned_attachments=pinned_attachments,
+            make_default=make_default,
+            ttl_s=ttl_s,
+            version=version,
+        )
+        return self._session_prompt_cache_post(
+            session_id=session_id,
+            operation="rebuild",
+            body=body,
+            label="session_prompt_cache_rebuild failed",
+        )
+
+    def _session_prompt_cache_body(
+        self,
+        *,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        modules: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        workflow_instructions: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        pinned_attachments: Optional[List[Dict[str, Any]]] = None,
+        make_default: bool = False,
+        ttl_s: Optional[float] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "provider": str(provider or "").strip(),
+            "model": str(model or "").strip(),
+            "version": int(version or 1),
+        }
+        if not body["provider"] or not body["model"]:
+            raise ValueError("session prompt-cache: provider and model are required")
+        optional: Dict[str, Any] = {
+            "bundle_id": bundle_id,
+            "bundle_version": bundle_version,
+            "flow_id": flow_id,
+            "template_id": template_id,
+            "modules": modules,
+            "system_prompt": system_prompt,
+            "workflow_instructions": workflow_instructions,
+            "tools": tools,
+            "pinned_attachments": pinned_attachments,
+            "make_default": bool(make_default),
+            "ttl_s": ttl_s,
+        }
+        for key, value in optional.items():
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            if isinstance(value, list) and not value:
+                continue
+            if key == "make_default" and value is False:
+                continue
+            body[key] = value
+        return body
+
+    def _session_prompt_cache_post(
+        self,
+        *,
+        session_id: str,
+        operation: str,
+        body: Dict[str, Any],
+        label: str,
+    ) -> Dict[str, Any]:
+        sid = str(session_id or "").strip()
+        op = str(operation or "").strip()
+        if not sid:
+            raise ValueError(f"{label}: session_id is required")
+        if op not in {"prepare", "clear", "rebuild"}:
+            raise ValueError(f"{label}: invalid operation")
+        return _request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/sessions/{sid}/prompt_cache/{op}"),
+            headers=_auth_headers(self._cfg.auth_token),
+            body=body,
+            timeout_s=self._cfg.timeout_s,
+            label=label,
         )
 
     def list_run_artifacts(self, *, run_id: str, limit: int = 200) -> Dict[str, Any]:

@@ -24,10 +24,20 @@ from abstractvoice.adapters.base import STTAdapter
 class GatewaySTTAdapter(STTAdapter):
     """STT adapter that delegates transcription to AbstractGateway."""
 
-    def __init__(self, *, gateway_client_fn: Callable, session_id_fn: Callable, run_id_fn: Callable) -> None:
+    def __init__(
+        self,
+        *,
+        gateway_client_fn: Callable,
+        session_id_fn: Callable,
+        run_id_fn: Callable,
+        content_type_fn: Optional[Callable[[], str]] = None,
+        max_upload_bytes_fn: Optional[Callable[[], int]] = None,
+    ) -> None:
         self._gateway_client_fn = gateway_client_fn
         self._session_id_fn = session_id_fn
         self._run_id_fn = run_id_fn
+        self._content_type_fn = content_type_fn
+        self._max_upload_bytes_fn = max_upload_bytes_fn
 
     def transcribe(self, audio_path: str, language: Optional[str] = None, **kwargs) -> str:
         with open(audio_path, "rb") as f:
@@ -41,13 +51,31 @@ class GatewaySTTAdapter(STTAdapter):
         if not run_id or not gw:
             return ""
 
+        content_type = "audio/wav"
+        if callable(self._content_type_fn):
+            try:
+                content_type = str(self._content_type_fn() or "").strip()
+            except Exception:
+                content_type = ""
+        if not content_type:
+            return ""
+
+        max_upload_bytes = 0
+        if callable(self._max_upload_bytes_fn):
+            try:
+                max_upload_bytes = int(self._max_upload_bytes_fn() or 0)
+            except Exception:
+                max_upload_bytes = 0
+        if max_upload_bytes > 0 and len(audio_bytes) > max_upload_bytes:
+            raise RuntimeError(f"Gateway STT audio exceeds upload limit ({len(audio_bytes)} > {max_upload_bytes} bytes)")
+
         old_timeout = None
         try:
             cfg = getattr(gw, "_cfg", None)
             if cfg is not None:
                 old_timeout = float(getattr(cfg, "timeout_s", 0) or 0)
                 if old_timeout and old_timeout < 120.0:
-                    cfg.timeout_s = 120.0
+                    object.__setattr__(cfg, "timeout_s", 120.0)
         except Exception:
             old_timeout = None
 
@@ -59,7 +87,7 @@ class GatewaySTTAdapter(STTAdapter):
                 session_id=sid,
                 file_path=str(tmp),
                 filename=tmp.name,
-                content_type="audio/wav",
+                content_type=content_type,
             )
             audio_ref = attachment
             if isinstance(attachment, dict) and isinstance(attachment.get("attachment"), dict):
@@ -82,7 +110,7 @@ class GatewaySTTAdapter(STTAdapter):
             try:
                 cfg = getattr(gw, "_cfg", None)
                 if cfg is not None and old_timeout is not None:
-                    cfg.timeout_s = old_timeout
+                    object.__setattr__(cfg, "timeout_s", old_timeout)
             except Exception:
                 pass
 

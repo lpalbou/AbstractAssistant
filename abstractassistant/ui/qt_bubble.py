@@ -3252,7 +3252,7 @@ class QtChatBubble(QWidget):
             warnings.warn(f"#FALLBACK: failed to save gateway selection: {e}")
 
     def load_workflows(self, *, session_id: Optional[str] = None) -> None:
-        """Load gateway workflows (abstractcode.agent.v1 entrypoints)."""
+        """Load gateway workflows (assistant-compatible agent entrypoints)."""
         combo = getattr(self, "workflow_combo", None)
         if combo is None or not self.use_gateway:
             return

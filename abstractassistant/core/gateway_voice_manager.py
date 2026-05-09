@@ -15,10 +15,13 @@ import threading
 import time
 import uuid
 import warnings
+import os
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 from abstractruntime.integrations.abstractcore.session_attachments import session_memory_owner_run_id
+
+from ..gateway import get_cached_assistant_capabilities
 
 
 class GatewayVoiceManager:
@@ -68,11 +71,15 @@ class GatewayVoiceManager:
         return bool(self.supports_tts() or self.supports_stt())
 
     def supports_tts(self) -> bool:
-        """Return True when a local audio player is available."""
-        return bool(self._audio_player_available())
+        """Return True when Gateway TTS and a local audio player are available."""
+        return bool(self._gateway_tts_available() and self._audio_player_available())
 
     def supports_stt(self) -> bool:
-        """Return True when AbstractVoice mic+VAD infrastructure is available."""
+        """Return True when Gateway STT and local mic/VAD infrastructure are available."""
+        if not self._gateway_stt_available():
+            return False
+        if not self._stt_upload_content_type():
+            return False
         try:
             from abstractvoice.recognition import VoiceRecognizer  # noqa: F401
             return True
@@ -178,6 +185,8 @@ class GatewayVoiceManager:
             gateway_client_fn=self._gateway_client,
             session_id_fn=self._session_id,
             run_id_fn=self._session_run_id,
+            content_type_fn=self._stt_upload_content_type,
+            max_upload_bytes_fn=self._stt_max_upload_bytes,
         )
         lang = None
         try:
@@ -308,7 +317,7 @@ class GatewayVoiceManager:
         if not raw:
             return False
         if not self.supports_tts():
-            warnings.warn("#FALLBACK: gateway TTS unavailable; missing local player")
+            warnings.warn("#FALLBACK: gateway TTS unavailable or no local audio player")
             return False
         gw = None
         old_timeout = None
@@ -319,11 +328,17 @@ class GatewayVoiceManager:
                 if cfg is not None:
                     old_timeout = float(getattr(cfg, "timeout_s", 0) or 0)
                     if old_timeout and old_timeout < 120.0:
-                        cfg.timeout_s = 120.0
+                        object.__setattr__(cfg, "timeout_s", 120.0)
             except Exception:
                 old_timeout = None
             run_id = self._session_run_id()
-            res = gw.voice_tts(run_id=run_id, text=raw, fmt="wav", request_id=str(uuid.uuid4()))
+            res = gw.voice_tts(
+                run_id=run_id,
+                text=raw,
+                voice=self._selected_tts_voice(),
+                fmt=self._preferred_tts_format(),
+                request_id=str(uuid.uuid4()),
+            )
             audio = res.get("audio_artifact") if isinstance(res, dict) else None
             aid = str(audio.get("$artifact") or "").strip() if isinstance(audio, dict) else ""
             if not aid:
@@ -341,7 +356,7 @@ class GatewayVoiceManager:
             try:
                 cfg = getattr(gw, "_cfg", None)
                 if cfg is not None and old_timeout is not None:
-                    cfg.timeout_s = old_timeout
+                    object.__setattr__(cfg, "timeout_s", old_timeout)
             except Exception:
                 pass
 
@@ -816,6 +831,64 @@ class GatewayVoiceManager:
     def _audio_cache_dir(self) -> Path:
         base = Path(getattr(self._llm_manager, "data_dir", Path.home() / ".abstractassistant"))
         return base / "gateway_audio"
+
+    def _assistant_capabilities(self):
+        try:
+            fn = getattr(self._llm_manager, "gateway_capabilities", None)
+            if callable(fn):
+                caps = fn()
+                if caps is not None:
+                    return caps
+        except Exception:
+            pass
+        return get_cached_assistant_capabilities(self._gateway_client())
+
+    def _gateway_tts_available(self) -> bool:
+        try:
+            return bool(self._assistant_capabilities().tts_available())
+        except Exception:
+            return False
+
+    def _gateway_stt_available(self) -> bool:
+        try:
+            return bool(self._assistant_capabilities().stt_available())
+        except Exception:
+            return False
+
+    def available_tts_voices(self) -> list[dict]:
+        try:
+            return self._assistant_capabilities().tts_voices()
+        except Exception:
+            return []
+
+    def _preferred_tts_format(self) -> str:
+        try:
+            return str(self._assistant_capabilities().preferred_tts_format() or "wav")
+        except Exception:
+            return "wav"
+
+    def _selected_tts_voice(self) -> Optional[str]:
+        try:
+            return self._assistant_capabilities().selected_tts_voice()
+        except Exception:
+            preferred = str(
+                os.getenv("ABSTRACTASSISTANT_GATEWAY_TTS_VOICE")
+                or os.getenv("ABSTRACTASSISTANT_TTS_VOICE")
+                or ""
+            ).strip()
+            return preferred or None
+
+    def _stt_upload_content_type(self) -> str:
+        try:
+            return str(self._assistant_capabilities().stt_upload_content_type_for_wav() or "")
+        except Exception:
+            return ""
+
+    def _stt_max_upload_bytes(self) -> int:
+        try:
+            return int(self._assistant_capabilities().stt_max_upload_bytes())
+        except Exception:
+            return 0
 
     def _gateway_client(self):
         if self._llm_manager is None:

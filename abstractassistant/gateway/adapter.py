@@ -57,6 +57,19 @@ class GatewayEventAdapter:
                 if text:
                     # For now, render messages as assistant content in the tray UI.
                     events.append({"type": "assistant", "content": text, "final": False})
+            elif name == "abstract.media.image.generated" and isinstance(payload, dict):
+                artifact = payload.get("image_artifact")
+                if isinstance(artifact, dict) and str(artifact.get("$artifact") or "").strip():
+                    prompt = str(payload.get("prompt") or "").strip()
+                    meta = {"image_artifact": dict(artifact), "generated_media": dict(payload)}
+                    events.append(
+                        {
+                            "type": "assistant",
+                            "content": "Generated image" + (f": {prompt}" if prompt else ""),
+                            "meta": meta,
+                            "final": False,
+                        }
+                    )
 
         wait = extract_wait_from_record(rec)
         if wait:

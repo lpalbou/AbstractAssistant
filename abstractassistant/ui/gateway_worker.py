@@ -19,7 +19,17 @@ except Exception:  # pragma: no cover - Qt binding fallback
     except Exception:
         from PyQt6.QtCore import QThread, pyqtSignal
 
-from ..gateway import GatewayEventAdapter, build_run_input_data, select_agent_template
+from ..gateway import (
+    GatewayEventAdapter,
+    build_generated_image_assistant_message,
+    build_run_input_data,
+    choose_generated_image_format,
+    get_cached_assistant_capabilities,
+    parse_image_generation_intent,
+    prepare_session_prompt_cache,
+    select_agent_template,
+    session_memory_run_id,
+)
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.run_controller import GatewayRunController
@@ -294,6 +304,115 @@ class GatewayWorker(QThread):
             }
         )
 
+    def _try_direct_image_generation_turn(self, *, session_id: str) -> bool:
+        """Handle explicit chat image-generation requests through Gateway's direct media route."""
+        if self._gateway is None or self._llm_manager is None:
+            return False
+        if self._attachments:
+            # The direct endpoint is text-to-image. Let the normal agent path handle
+            # attachment-aware requests instead of silently ignoring media.
+            return False
+
+        intent = parse_image_generation_intent(self._user_text)
+        if intent is None:
+            return False
+
+        try:
+            caps = None
+            getter = getattr(self._llm_manager, "gateway_capabilities", None)
+            if callable(getter):
+                caps = getter()
+            if caps is None:
+                caps = get_cached_assistant_capabilities(self._gateway)
+            if not caps.generated_image_direct_available():
+                return False
+            fmt = choose_generated_image_format(intent, caps.generated_image_formats())
+        except Exception:
+            return False
+
+        run_id = session_memory_run_id(session_id)
+        self._root_run_id = str(run_id)
+        self._follow_run_id = ""
+        try:
+            self._llm_manager.append_message(role="user", content=self._user_text)
+            self._llm_manager.set_last_run_id(run_id)
+        except Exception:
+            pass
+
+        self.event_emitted.emit({"type": "status", "status": "generating", "run_id": run_id})
+        self.event_emitted.emit({"type": "run_activity", "summary": "Generating image", "run_id": run_id})
+
+        try:
+            response = self._gateway.image_generate(
+                run_id=run_id,
+                prompt=intent.prompt,
+                provider=self._provider or None,
+                model=self._model or None,
+                size=intent.size,
+                width=intent.width,
+                height=intent.height,
+                fmt=fmt,
+            )
+        except Exception as e:
+            response = {
+                "ok": False,
+                "supported": False,
+                "run_id": run_id,
+                "error": str(e),
+                "code": "generated_image_error",
+            }
+
+        if not isinstance(response, dict):
+            response = {"ok": False, "supported": False, "run_id": run_id, "error": "Gateway returned an invalid image-generation response."}
+
+        message = None
+        if bool(response.get("ok", True)):
+            message = build_generated_image_assistant_message(
+                run_id=run_id,
+                prompt=intent.prompt,
+                response=response,
+                provider=self._provider,
+                model=self._model,
+                fmt=fmt,
+            )
+
+        if message is None:
+            err = str(response.get("error") or response.get("code") or "Image generation is unavailable.").strip()
+            content = f"Image generation failed: {err}" if err else "Image generation failed."
+            metadata = {
+                "kind": "generated_image_error",
+                "run_id": run_id,
+                "generated_media": {
+                    "run_id": run_id,
+                    "prompt": intent.prompt,
+                    "provider": self._provider,
+                    "model": self._model,
+                    "format": fmt,
+                    "ok": False,
+                    "error": err,
+                },
+            }
+        else:
+            content = str(message.get("content") or "")
+            metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+
+        try:
+            self._llm_manager.append_message(role="assistant", content=content, metadata=metadata)
+        except Exception:
+            pass
+
+        self.event_emitted.emit(
+            {
+                "type": "assistant",
+                "content": content,
+                "meta": metadata,
+                "final": True,
+                "run_id": run_id,
+            }
+        )
+        self.event_emitted.emit({"type": "status", "status": "completed", "run_id": run_id})
+        return True
+
     def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
         self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
         events = self._adapter.handle_record(rec)
@@ -307,7 +426,8 @@ class GatewayWorker(QThread):
                 try:
                     content = str(ev.get("content") or "")
                     if self._should_append_assistant(content):
-                        self._llm_manager.append_message(role="assistant", content=content)
+                        meta = ev.get("meta") if isinstance(ev.get("meta"), dict) else None
+                        self._llm_manager.append_message(role="assistant", content=content, metadata=meta)
                 except Exception:
                     pass
                 self.event_emitted.emit(ev)
@@ -450,6 +570,9 @@ class GatewayWorker(QThread):
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
+                if self._try_direct_image_generation_turn(session_id=session_id):
+                    return
+
                 try:
                     self._llm_manager.append_message(role="user", content=self._user_text)
                 except Exception:
@@ -468,6 +591,18 @@ class GatewayWorker(QThread):
                 )
 
                 entry = self._resolve_entrypoint()
+                prepare_session_prompt_cache(
+                    gateway=self._gateway,
+                    session_id=session_id,
+                    provider=self._provider,
+                    model=self._model,
+                    bundle_id=str(entry.get("bundle_id") or ""),
+                    flow_id=str(entry.get("flow_id") or ""),
+                    template_id=f"{entry.get('bundle_id') or ''}:{entry.get('flow_id') or ''}".strip(":"),
+                    input_data=input_data,
+                    system_prompt=self._system_prompt_extra,
+                    attachments=attachments,
+                )
                 run_id = self._gateway.start_run(
                     flow_id=entry["flow_id"],
                     input_data=input_data,

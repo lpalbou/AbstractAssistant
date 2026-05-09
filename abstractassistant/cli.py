@@ -72,7 +72,7 @@ def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
 def _run_gateway_command(args: argparse.Namespace) -> int:
     from .core.gateway_selection_store import GatewaySelection
     from .core.llm_manager import LLMManager
-    from .gateway import GatewayEventAdapter, build_run_input_data, select_agent_template
+    from .gateway import GatewayEventAdapter, build_run_input_data, prepare_session_prompt_cache, select_agent_template
     from .gateway.history_seed import seed_messages_from_history_bundle
     from .gateway.run_controller import GatewayRunController
 
@@ -102,6 +102,16 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         bundles_response=gateway.list_bundles(),
         bundle_id=bundle_id,
         flow_id=flow_id,
+    )
+    prepare_session_prompt_cache(
+        gateway=gateway,
+        session_id=llm_manager.active_session_id,
+        provider=provider,
+        model=model,
+        bundle_id=entry["bundle_id"],
+        flow_id=entry["flow_id"],
+        template_id=f"{entry['bundle_id']}:{entry['flow_id']}",
+        input_data=input_data,
     )
     run_id = gateway.start_run(
         flow_id=entry["flow_id"],
