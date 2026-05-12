@@ -18,6 +18,12 @@ class GatewaySelection:
     flow_id: str = ""
     provider: str = ""
     model: str = ""
+    tts_voice: str = ""
+    tts_voice_mode: str = ""
+    tts_model: str = ""
+    stt_model: str = ""
+    image_provider: str = ""
+    image_model: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -25,6 +31,12 @@ class GatewaySelection:
             "flow_id": self.flow_id,
             "provider": self.provider,
             "model": self.model,
+            "tts_voice": self.tts_voice,
+            "tts_voice_mode": self.tts_voice_mode,
+            "tts_model": self.tts_model,
+            "stt_model": self.stt_model,
+            "image_provider": self.image_provider,
+            "image_model": self.image_model,
         }
 
     @classmethod
@@ -35,9 +47,26 @@ class GatewaySelection:
         flow_id = str(raw.get("flow_id") or "").strip()
         provider = str(raw.get("provider") or "").strip()
         model = str(raw.get("model") or "").strip()
-        if not bundle_id and not flow_id and not provider and not model:
+        tts_voice = str(raw.get("tts_voice") or "").strip()
+        tts_voice_mode = str(raw.get("tts_voice_mode") or "").strip()
+        tts_model = str(raw.get("tts_model") or "").strip()
+        stt_model = str(raw.get("stt_model") or "").strip()
+        image_provider = str(raw.get("image_provider") or "").strip()
+        image_model = str(raw.get("image_model") or "").strip()
+        if not bundle_id and not flow_id and not provider and not model and not tts_voice and not tts_voice_mode and not tts_model and not stt_model and not image_provider and not image_model:
             return None
-        return cls(bundle_id=bundle_id, flow_id=flow_id, provider=provider, model=model)
+        return cls(
+            bundle_id=bundle_id,
+            flow_id=flow_id,
+            provider=provider,
+            model=model,
+            tts_voice=tts_voice,
+            tts_voice_mode=tts_voice_mode,
+            tts_model=tts_model,
+            stt_model=stt_model,
+            image_provider=image_provider,
+            image_model=image_model,
+        )
 
 
 class GatewaySelectionStore:

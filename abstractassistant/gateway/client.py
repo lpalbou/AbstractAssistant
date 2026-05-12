@@ -355,6 +355,15 @@ class GatewayClient:
             label="list_bundles failed",
         )
 
+    def discovery_capabilities(self) -> Dict[str, Any]:
+        return _request_json(
+            method="GET",
+            url=self._url("/api/gateway/discovery/capabilities"),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="discovery_capabilities failed",
+        )
+
     def discovery_providers(self, *, include_models: bool = False) -> Dict[str, Any]:
         return _request_json(
             method="GET",
@@ -374,6 +383,65 @@ class GatewayClient:
             headers=_auth_headers(self._cfg.auth_token),
             timeout_s=self._cfg.timeout_s,
             label="discovery_provider_models failed",
+        )
+
+    def voice_voices(self, *, base_url: Optional[str] = None) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if base_url:
+            query["base_url"] = str(base_url)
+        return _request_json(
+            method="GET",
+            url=self._url("/api/gateway/voice/voices", query=query or None),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="voice_voices failed",
+        )
+
+    def audio_speech_models(self, *, base_url: Optional[str] = None) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if base_url:
+            query["base_url"] = str(base_url)
+        return _request_json(
+            method="GET",
+            url=self._url("/api/gateway/audio/speech/models", query=query or None),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="audio_speech_models failed",
+        )
+
+    def audio_transcription_models(self, *, base_url: Optional[str] = None) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if base_url:
+            query["base_url"] = str(base_url)
+        return _request_json(
+            method="GET",
+            url=self._url("/api/gateway/audio/transcriptions/models", query=query or None),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="audio_transcription_models failed",
+        )
+
+    def vision_provider_models(self, *, task: Optional[str] = None, base_url: Optional[str] = None) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if task:
+            query["task"] = str(task)
+        if base_url:
+            query["base_url"] = str(base_url)
+        return _request_json(
+            method="GET",
+            url=self._url("/api/gateway/vision/provider_models", query=query or None),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="vision_provider_models failed",
+        )
+
+    def vision_models(self) -> Dict[str, Any]:
+        return _request_json(
+            method="GET",
+            url=self._url("/api/gateway/vision/models"),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="vision_models failed",
         )
 
     def discovery_model_capabilities(self, *, model_name: str) -> Dict[str, Any]:
@@ -445,6 +513,7 @@ class GatewayClient:
         file_path: str,
         filename: Optional[str] = None,
         content_type: Optional[str] = None,
+        timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         sid = str(session_id or "").strip()
         if not sid:
@@ -464,8 +533,9 @@ class GatewayClient:
         )
         headers = {"Content-Type": content_type_header, **_auth_headers(self._cfg.auth_token)}
         req = urllib.request.Request(self._url("/api/gateway/attachments/upload"), data=body, method="POST", headers=headers)
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
         try:
-            with urllib.request.urlopen(req, timeout=self._cfg.timeout_s) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read() or b""
                 text = _decode_bytes(raw, label="attachments_upload")
                 return _parse_json(text, label="attachments_upload")
@@ -478,7 +548,16 @@ class GatewayClient:
                 body_text=body_text,
             )
 
-    def audio_transcribe(self, *, run_id: str, audio_artifact: Dict[str, Any], request_id: Optional[str] = None, language: Optional[str] = None) -> Dict[str, Any]:
+    def audio_transcribe(
+        self,
+        *,
+        run_id: str,
+        audio_artifact: Dict[str, Any],
+        request_id: Optional[str] = None,
+        language: Optional[str] = None,
+        model: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("audio_transcribe: run_id is required")
@@ -487,16 +566,29 @@ class GatewayClient:
             body["request_id"] = str(request_id)
         if language:
             body["language"] = str(language)
+        if model:
+            body["model"] = str(model)
         return _request_json(
             method="POST",
             url=self._url(f"/api/gateway/runs/{rid}/audio/transcribe"),
             headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s,
+            timeout_s=self._cfg.timeout_s if timeout_s is None else float(timeout_s),
             label="audio_transcribe failed",
         )
 
-    def voice_tts(self, *, run_id: str, text: str, voice: Optional[str] = None, fmt: Optional[str] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+    def voice_tts(
+        self,
+        *,
+        run_id: str,
+        text: str,
+        voice: Optional[str] = None,
+        fmt: Optional[str] = None,
+        request_id: Optional[str] = None,
+        model: Optional[str] = None,
+        profile: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("voice_tts: run_id is required")
@@ -507,13 +599,299 @@ class GatewayClient:
             body["format"] = str(fmt)
         if request_id:
             body["request_id"] = str(request_id)
+        if model:
+            body["model"] = str(model)
+        if profile:
+            body["profile"] = str(profile)
         return _request_json(
             method="POST",
             url=self._url(f"/api/gateway/runs/{rid}/voice/tts"),
             headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s,
+            timeout_s=self._cfg.timeout_s if timeout_s is None else float(timeout_s),
             label="voice_tts failed",
+        )
+
+    def image_generate(
+        self,
+        *,
+        run_id: str,
+        prompt: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        image_provider: Optional[str] = None,
+        image_model: Optional[str] = None,
+        size: Optional[str] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        fmt: str = "png",
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        steps: Optional[int] = None,
+        guidance_scale: Optional[float] = None,
+        quality: Optional[str] = None,
+        style: Optional[str] = None,
+        request_id: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("image_generate: run_id is required")
+        body: Dict[str, Any] = {"prompt": str(prompt or ""), "format": str(fmt or "png")}
+        optional: Dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+            "image_provider": image_provider,
+            "image_model": image_model,
+            "size": size,
+            "width": width,
+            "height": height,
+            "negative_prompt": negative_prompt,
+            "seed": seed,
+            "steps": steps,
+            "guidance_scale": guidance_scale,
+            "quality": quality,
+            "style": style,
+            "request_id": request_id,
+            "extra": extra,
+        }
+        for key, value in optional.items():
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            body[key] = value
+        return _request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/runs/{rid}/images/generate"),
+            headers=_auth_headers(self._cfg.auth_token),
+            body=body,
+            timeout_s=max(float(self._cfg.timeout_s), 180.0) if timeout_s is None else float(timeout_s),
+            label="image_generate failed",
+        )
+
+    def session_prompt_cache_status(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("session_prompt_cache_status: session_id is required")
+        query: Dict[str, Any] = {
+            "provider": str(provider or "").strip(),
+            "model": str(model or "").strip(),
+            "version": int(version or 1),
+        }
+        if not query["provider"] or not query["model"]:
+            raise ValueError("session_prompt_cache_status: provider and model are required")
+        for key, value in {
+            "bundle_id": bundle_id,
+            "bundle_version": bundle_version,
+            "flow_id": flow_id,
+            "template_id": template_id,
+        }.items():
+            if isinstance(value, str) and value.strip():
+                query[key] = value.strip()
+        return _request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/sessions/{sid}/prompt_cache/status", query=query),
+            headers=_auth_headers(self._cfg.auth_token),
+            timeout_s=self._cfg.timeout_s,
+            label="session_prompt_cache_status failed",
+        )
+
+    def session_prompt_cache_prepare(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        modules: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        workflow_instructions: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        pinned_attachments: Optional[List[Dict[str, Any]]] = None,
+        make_default: bool = False,
+        ttl_s: Optional[float] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body = self._session_prompt_cache_body(
+            provider=provider,
+            model=model,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            flow_id=flow_id,
+            template_id=template_id,
+            modules=modules,
+            system_prompt=system_prompt,
+            workflow_instructions=workflow_instructions,
+            tools=tools,
+            pinned_attachments=pinned_attachments,
+            make_default=make_default,
+            ttl_s=ttl_s,
+            version=version,
+        )
+        return self._session_prompt_cache_post(
+            session_id=session_id,
+            operation="prepare",
+            body=body,
+            label="session_prompt_cache_prepare failed",
+        )
+
+    def session_prompt_cache_clear(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body = self._session_prompt_cache_body(
+            provider=provider,
+            model=model,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            flow_id=flow_id,
+            template_id=template_id,
+            version=version,
+        )
+        return self._session_prompt_cache_post(
+            session_id=session_id,
+            operation="clear",
+            body=body,
+            label="session_prompt_cache_clear failed",
+        )
+
+    def session_prompt_cache_rebuild(
+        self,
+        *,
+        session_id: str,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        modules: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        workflow_instructions: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        pinned_attachments: Optional[List[Dict[str, Any]]] = None,
+        make_default: bool = False,
+        ttl_s: Optional[float] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body = self._session_prompt_cache_body(
+            provider=provider,
+            model=model,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            flow_id=flow_id,
+            template_id=template_id,
+            modules=modules,
+            system_prompt=system_prompt,
+            workflow_instructions=workflow_instructions,
+            tools=tools,
+            pinned_attachments=pinned_attachments,
+            make_default=make_default,
+            ttl_s=ttl_s,
+            version=version,
+        )
+        return self._session_prompt_cache_post(
+            session_id=session_id,
+            operation="rebuild",
+            body=body,
+            label="session_prompt_cache_rebuild failed",
+        )
+
+    def _session_prompt_cache_body(
+        self,
+        *,
+        provider: str,
+        model: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        flow_id: Optional[str] = None,
+        template_id: Optional[str] = None,
+        modules: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        workflow_instructions: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        pinned_attachments: Optional[List[Dict[str, Any]]] = None,
+        make_default: bool = False,
+        ttl_s: Optional[float] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "provider": str(provider or "").strip(),
+            "model": str(model or "").strip(),
+            "version": int(version or 1),
+        }
+        if not body["provider"] or not body["model"]:
+            raise ValueError("session prompt-cache: provider and model are required")
+        optional: Dict[str, Any] = {
+            "bundle_id": bundle_id,
+            "bundle_version": bundle_version,
+            "flow_id": flow_id,
+            "template_id": template_id,
+            "modules": modules,
+            "system_prompt": system_prompt,
+            "workflow_instructions": workflow_instructions,
+            "tools": tools,
+            "pinned_attachments": pinned_attachments,
+            "make_default": bool(make_default),
+            "ttl_s": ttl_s,
+        }
+        for key, value in optional.items():
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            if isinstance(value, list) and not value:
+                continue
+            if key == "make_default" and value is False:
+                continue
+            body[key] = value
+        return body
+
+    def _session_prompt_cache_post(
+        self,
+        *,
+        session_id: str,
+        operation: str,
+        body: Dict[str, Any],
+        label: str,
+    ) -> Dict[str, Any]:
+        sid = str(session_id or "").strip()
+        op = str(operation or "").strip()
+        if not sid:
+            raise ValueError(f"{label}: session_id is required")
+        if op not in {"prepare", "clear", "rebuild"}:
+            raise ValueError(f"{label}: invalid operation")
+        return _request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/sessions/{sid}/prompt_cache/{op}"),
+            headers=_auth_headers(self._cfg.auth_token),
+            body=body,
+            timeout_s=self._cfg.timeout_s,
+            label=label,
         )
 
     def list_run_artifacts(self, *, run_id: str, limit: int = 200) -> Dict[str, Any]:
@@ -550,6 +928,7 @@ class GatewayClient:
         run_id: str,
         artifact_id: str,
         max_bytes: int = 25_000_000,
+        timeout_s: Optional[float] = None,
     ) -> Tuple[bytes, str]:
         rid = str(run_id or "").strip()
         aid = str(artifact_id or "").strip()
@@ -559,8 +938,9 @@ class GatewayClient:
             raise ValueError("download_run_artifact_content: artifact_id is required")
         url = self._url(f"/api/gateway/runs/{rid}/artifacts/{aid}/content")
         req = urllib.request.Request(url, headers=_auth_headers(self._cfg.auth_token), method="GET")
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
         try:
-            with urllib.request.urlopen(req, timeout=self._cfg.timeout_s) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read() or b""
                 if int(max_bytes) > 0 and len(raw) > int(max_bytes):
                     raise RuntimeError(f"Artifact too large ({len(raw)} bytes > {int(max_bytes)} bytes)")

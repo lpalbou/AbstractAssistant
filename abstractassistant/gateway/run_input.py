@@ -1,5 +1,5 @@
 """
-Build gateway run input data for `abstractcode.agent.v1` workflows.
+Build gateway run input data for assistant-compatible agent workflows.
 
 Ported from `abstractcode/web/src/lib/run_input.ts` (simplified).
 """
@@ -36,7 +36,7 @@ def build_run_input_data(
     tool_policy: Optional[Dict[str, Any]] = None,
     temperature: Optional[float] = None,
     seed: Optional[int] = None,
-    max_iterations: int = 20,
+    max_iterations: int = 50,
     use_context: bool = True,
 ) -> Dict[str, Any]:
     prompt_s = str(prompt or "")

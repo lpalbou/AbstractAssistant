@@ -2,6 +2,19 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.4.4] - 2026-05-12
+
+### Added
+- Media settings now include separate Voice, TTS, STT, and Image selectors populated from Gateway catalog routes.
+- Gateway client support for `/api/gateway/audio/transcriptions/models`.
+
+### Fixed
+- Generated image messages now render real thumbnails in chat history instead of placeholder icons when the gateway returns image artifacts.
+- Media selector parsing now accepts Gateway/Core catalog shapes (`models`, `data`, `tts_models`, `stt_models`, active model fields, voice profiles, and cached/provider image models) and preserves persisted selections.
+
+### Changed
+- Dependency floors now require Core `>=2.13.13` and Voice `>=0.9.3`.
+
 ## [0.4.0]
 
 ### Added

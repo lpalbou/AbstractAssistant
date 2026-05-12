@@ -13,6 +13,7 @@ It is part of the **AbstractFramework** ecosystem:
 ## What it does
 
 - **Tray UI**: menu bar/system tray bubble with sessions, attachments, tool approvals, and voice.
+- **Media settings**: Gateway-backed Voice, TTS, STT, and Image selectors for generated speech, transcription, and image generation.
 - **CLI**: run a single agentic turn in the terminal.
 - **Durable tool boundary**: tool calls are surfaced as a resumable wait and executed only through the gateway after approval.
 
@@ -61,6 +62,12 @@ Optional assistant-side overrides:
 ```bash
 assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
+
+The Media settings dialog is populated from Gateway catalog routes:
+`/api/gateway/voice/voices`, `/api/gateway/audio/speech/models`,
+`/api/gateway/audio/transcriptions/models`, `/api/gateway/vision/provider_models`,
+and `/api/gateway/vision/models`. If it only shows `default`, verify that the
+running Gateway is the current package version and not an older server process.
 
 ## Data & durability
 

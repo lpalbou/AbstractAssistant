@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.4.2"
+version = "0.4.4"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,10 +28,10 @@ classifiers = [
 
 dependencies = [
     # Base install is fully-featured (voice + media + provider/tool integrations).
-    "abstractagent>=0.3.1",
-    "abstractvoice>=0.6.3",
+    "abstractagent>=0.3.7",
+    "abstractvoice>=0.9.3",
     # Provider/client extras (avoid GPU-only stacks like vLLM by default).
-    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.11.8",
+    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.13.13",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
@@ -50,7 +50,20 @@ dependencies = [
 
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
-all = []  # Back-compat alias (base install already includes everything).
+voice = [
+    "abstractvoice[audio-io,stt]>=0.9.3",
+]
+apple = [
+    "abstractcore[all-apple]>=2.13.13",
+    "abstractvoice[all-apple]>=0.9.3",
+]
+gpu = [
+    "abstractcore[all-gpu]>=2.13.13",
+    "abstractvoice[all-gpu]>=0.9.3",
+]
+all = [
+    "abstractvoice[audio-io,stt]>=0.9.3",
+]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
     "black>=23.0.0",

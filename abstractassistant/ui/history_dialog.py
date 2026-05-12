@@ -263,6 +263,12 @@ class ClickableBubble(QFrame):
         """)
 
 
+class ThumbnailButton(QPushButton):
+    """Thumbnail button with a thread-safe image-bytes signal."""
+
+    image_bytes_ready = pyqtSignal(bytes)
+
+
 class SafeDialog(QDialog):
     """Dialog that only hides instead of closing to prevent app termination."""
 
@@ -1302,7 +1308,12 @@ class iPhoneMessagesDialog:
                     kind = str(link.get("kind") or "url")
                     target = str(link.get("target") or "").strip()
                     label = str(link.get("label") or target).strip() or target
-                    icon = "🌐" if kind == "url" else "📄"
+                    run_id = str(link.get("run_id") or "").strip()
+                    content_type = str(link.get("content_type") or "").strip()
+                    if kind == "artifact":
+                        icon = "📦"
+                    else:
+                        icon = "🌐" if kind == "url" else "📄"
                     btn = QPushButton(f"{icon} {label}")
                     btn.setToolTip(target)
                     btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -1324,7 +1335,9 @@ class iPhoneMessagesDialog:
                         }
                     """)
                     btn.clicked.connect(
-                        lambda _checked=False, k=kind, t=target: iPhoneMessagesDialog._open_tool_link(k, t)
+                        lambda _checked=False, k=kind, t=target, r=run_id, ct=content_type: iPhoneMessagesDialog._open_tool_link(
+                            k, t, run_id=r, content_type=ct, parent=dialog
+                        )
                     )
                     return btn
 
@@ -1384,6 +1397,8 @@ class iPhoneMessagesDialog:
                         kind=kind,
                         target=target,
                         label=label,
+                        run_id=str(th.get("run_id") or ""),
+                        content_type=str(th.get("content_type") or ""),
                         parent=dialog,
                     )
                 )
@@ -1520,13 +1535,21 @@ class iPhoneMessagesDialog:
         return html
 
     @staticmethod
-    def _make_thumbnail_button(*, kind: str, target: str, label: str, parent=None) -> QPushButton:
+    def _make_thumbnail_button(
+        *,
+        kind: str,
+        target: str,
+        label: str,
+        run_id: str = "",
+        content_type: str = "",
+        parent=None,
+    ) -> QPushButton:
         """Create a clickable thumbnail button for a local file or remote image URL."""
         k = str(kind or "").strip().lower()
         t = str(target or "").strip()
         lbl = str(label or "").strip()
 
-        btn = QPushButton("🖼")
+        btn = ThumbnailButton("🖼")
         btn.setToolTip(t or lbl)
         btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         thumb_w, thumb_h = 150, 94
@@ -1547,7 +1570,15 @@ class iPhoneMessagesDialog:
                 color: rgba(255, 255, 255, 0.9);
             }
         """)
-        btn.clicked.connect(lambda _checked=False: iPhoneMessagesDialog._open_tool_link(k, t))
+        btn.clicked.connect(
+            lambda _checked=False: iPhoneMessagesDialog._open_tool_link(
+                k,
+                t,
+                run_id=str(run_id or ""),
+                content_type=str(content_type or ""),
+                parent=parent,
+            )
+        )
 
         def _apply_pixmap(pix: QPixmap) -> None:
             if pix.isNull():
@@ -1573,6 +1604,47 @@ class iPhoneMessagesDialog:
                     _apply_pixmap(pix)
             except Exception:
                 pass
+            return btn
+
+        if k == "artifact" and t:
+            rid = str(run_id or "").strip()
+            if not rid:
+                return btn
+
+            import threading
+
+            try:
+                btn.image_bytes_ready.connect(
+                    lambda data: (lambda pix: _apply_pixmap(pix) if pix.loadFromData(data) else None)(QPixmap())
+                )
+            except Exception:
+                pass
+
+            def _download_artifact() -> None:
+                try:
+                    factory = getattr(parent, "_gateway_client_factory", None)
+                    if not callable(factory):
+                        return
+                    gw = factory()
+                    if gw is None or not iPhoneMessagesDialog._artifact_content_available(gw):
+                        return
+                    data, _ct = gw.download_run_artifact_content(run_id=rid, artifact_id=t)
+                    if not data:
+                        return
+                except Exception as e:
+                    warnings.warn(f"#FALLBACK: artifact thumbnail download failed: {e}")
+                    return
+                try:
+                    btn.image_bytes_ready.emit(bytes(data))
+                except Exception:
+                    try:
+                        pix = QPixmap()
+                        if pix.loadFromData(data):
+                            _apply_pixmap(pix)
+                    except Exception:
+                        return
+
+            threading.Thread(target=_download_artifact, daemon=True).start()
             return btn
 
         # Remote image thumbnail (download + cache).
@@ -1712,6 +1784,9 @@ class iPhoneMessagesDialog:
                     if gw is None:
                         warnings.warn("#FALLBACK: gateway client unavailable for artifact download")
                         return
+                    if not iPhoneMessagesDialog._artifact_content_available(gw):
+                        warnings.warn("#FALLBACK: gateway artifact content endpoint is not advertised")
+                        return
                     rid = str(run_id or "").strip()
                     if not rid:
                         warnings.warn("#FALLBACK: artifact link missing run_id; cannot download")
@@ -1777,6 +1852,15 @@ class iPhoneMessagesDialog:
             return
 
     @staticmethod
+    def _artifact_content_available(gw) -> bool:
+        try:
+            from ..gateway import get_cached_assistant_capabilities
+
+            return bool(get_cached_assistant_capabilities(gw).artifact_content_available())
+        except Exception:
+            return False
+
+    @staticmethod
     def _show_tool_links_dialog(tool_links: List[Dict], parent=None) -> None:
         """Show a small dialog listing all tool links for quick access."""
         links: List[Dict] = [dict(x) for x in (tool_links or []) if isinstance(x, dict)]
@@ -1787,6 +1871,11 @@ class iPhoneMessagesDialog:
         dlg.setWindowTitle("Tool Links")
         dlg.setModal(True)
         dlg.resize(560, 320)
+        try:
+            dlg._gateway_client_factory = getattr(parent, "_gateway_client_factory", None)
+            dlg._artifact_cache_dir = getattr(parent, "_artifact_cache_dir", None)
+        except Exception:
+            pass
 
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(12, 12, 12, 12)

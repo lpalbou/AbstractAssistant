@@ -19,7 +19,7 @@ import warnings
 from .session_index import SessionIndex
 from .session_store import SessionStore, SessionSnapshot
 from .gateway_selection_store import GatewaySelectionStore
-from ..gateway import GatewayClient, GatewayClientConfig
+from ..gateway import GatewayClient, GatewayClientConfig, get_cached_assistant_capabilities
 
 if TYPE_CHECKING:
     from .agent_host import AgentHost, AgentHostConfig
@@ -112,6 +112,13 @@ class LLMManager:
         if self._gateway_client is None:
             self._gateway_client = GatewayClient(GatewayClientConfig(base_url=url, auth_token=token))
         return self._gateway_client
+
+    def gateway_capabilities(self, *, force: bool = False):
+        """Return cached assistant-facing Gateway capabilities."""
+        gw = self.gateway_client()
+        if gw is None:
+            return None
+        return get_cached_assistant_capabilities(gw, force=bool(force))
 
     @property
     def active_session_id(self) -> str:

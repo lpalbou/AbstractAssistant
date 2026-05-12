@@ -1684,6 +1684,24 @@ class QtChatBubble(QWidget):
         # State - gateway mode learns provider/model from gateway discovery.
         self.current_provider = str(getattr(self.llm_manager, "current_provider", "") or "").strip()
         self.current_model = str(getattr(self.llm_manager, "current_model", "") or "").strip()
+        self.current_tts_voice = ""
+        self.current_tts_voice_mode = "profile"
+        self.current_tts_model = ""
+        self.current_stt_model = ""
+        self.current_image_provider = ""
+        self.current_image_model = ""
+        for attr, value in (
+            ("current_tts_voice", self.current_tts_voice),
+            ("current_tts_voice_mode", self.current_tts_voice_mode),
+            ("current_tts_model", self.current_tts_model),
+            ("current_stt_model", self.current_stt_model),
+            ("current_image_provider", self.current_image_provider),
+            ("current_image_model", self.current_image_model),
+        ):
+            try:
+                setattr(self.llm_manager, attr, value)
+            except Exception:
+                pass
         self.token_count = 0
         self.max_tokens = 128000
         
@@ -1790,6 +1808,10 @@ class QtChatBubble(QWidget):
         if self.use_gateway:
             try:
                 self.load_workflows(session_id=self._active_session_id())
+            except Exception:
+                pass
+            try:
+                self.load_media_catalogs(session_id=self._active_session_id())
             except Exception:
                 pass
 
@@ -2380,6 +2402,88 @@ class QtChatBubble(QWidget):
             }
         """)
         controls_layout.addWidget(self.model_combo)
+
+        if self.use_gateway:
+            media_combo_style = """
+                QComboBox {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: none;
+                    border-radius: 14px;
+                    padding: 0 8px;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
+                }
+                QComboBox:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                }
+                QComboBox::drop-down {
+                    border: none;
+                    width: 20px;
+                }
+                QComboBox::down-arrow {
+                    image: none;
+                    border: none;
+                    width: 0px;
+                }
+            """
+
+            self.tts_voice_combo = QComboBox()
+            self.tts_voice_combo.currentIndexChanged.connect(self.on_tts_voice_changed)
+            self.tts_voice_combo.setFixedHeight(28)
+            self.tts_voice_combo.setMinimumWidth(104)
+            self.tts_voice_combo.setToolTip("Voice / cloned voice for gateway TTS")
+            self.tts_voice_combo.setStyleSheet(media_combo_style)
+            self.tts_voice_combo.hide()
+
+            self.tts_model_combo = QComboBox()
+            self.tts_model_combo.currentIndexChanged.connect(self.on_tts_model_changed)
+            self.tts_model_combo.setFixedHeight(28)
+            self.tts_model_combo.setMinimumWidth(118)
+            self.tts_model_combo.setToolTip("TTS model for gateway voice generation")
+            self.tts_model_combo.setStyleSheet(media_combo_style)
+            self.tts_model_combo.hide()
+
+            self.stt_model_combo = QComboBox()
+            self.stt_model_combo.currentIndexChanged.connect(self.on_stt_model_changed)
+            self.stt_model_combo.setFixedHeight(28)
+            self.stt_model_combo.setMinimumWidth(118)
+            self.stt_model_combo.setToolTip("STT model for gateway voice transcription")
+            self.stt_model_combo.setStyleSheet(media_combo_style)
+            self.stt_model_combo.hide()
+
+            self.image_model_combo = QComboBox()
+            self.image_model_combo.currentIndexChanged.connect(self.on_image_model_changed)
+            self.image_model_combo.setFixedHeight(28)
+            self.image_model_combo.setMinimumWidth(136)
+            self.image_model_combo.setToolTip("Image generation model")
+            self.image_model_combo.setStyleSheet(media_combo_style)
+            try:
+                self.image_model_combo.view().setMinimumWidth(420)
+            except Exception:
+                pass
+            self.image_model_combo.hide()
+
+            self.media_button = QPushButton("Media")
+            self.media_button.clicked.connect(self.open_media_selector)
+            self.media_button.setFixedHeight(28)
+            self.media_button.setMinimumWidth(82)
+            self.media_button.setToolTip("Voice, TTS, and image generation settings")
+            self.media_button.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: none;
+                    border-radius: 14px;
+                    padding: 0 10px;
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-family: "Helvetica Neue", "Helvetica", Arial;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                }
+            """)
+            controls_layout.addWidget(self.media_button)
         
         controls_layout.addStretch()
         
@@ -3073,13 +3177,28 @@ class QtChatBubble(QWidget):
                 try:
                     gw = self.llm_manager.gateway_client()
                     cached = self._gateway_cache_get("providers")
+                    gateway_default_provider = ""
+                    gateway_default_model = ""
                     if cached is None:
                         res = gw.discovery_providers()
                         items = res.get("items") if isinstance(res, dict) else []
+                        gateway_default_provider = str(res.get("default_provider") or "").strip() if isinstance(res, dict) else ""
+                        gateway_default_model = str(res.get("default_model") or "").strip() if isinstance(res, dict) else ""
+                        self._gateway_cache_set(
+                            "provider_defaults",
+                            {
+                                "default_provider": gateway_default_provider,
+                                "default_model": gateway_default_model,
+                            },
+                        )
                         if isinstance(items, list):
                             self._gateway_cache_set("providers", items)
                     else:
                         items = cached
+                        defaults = self._gateway_cache_get("provider_defaults")
+                        if isinstance(defaults, dict):
+                            gateway_default_provider = str(defaults.get("default_provider") or "").strip()
+                            gateway_default_model = str(defaults.get("default_model") or "").strip()
                     if not isinstance(items, list):
                         items = []
 
@@ -3095,6 +3214,8 @@ class QtChatBubble(QWidget):
                     pick = ""
                     if preferred_provider and any(combo.itemData(i) == preferred_provider for i in range(combo.count())):
                         pick = preferred_provider
+                    elif gateway_default_provider and any(combo.itemData(i) == gateway_default_provider for i in range(combo.count())):
+                        pick = gateway_default_provider
                     elif self.current_provider and any(combo.itemData(i) == self.current_provider for i in range(combo.count())):
                         pick = self.current_provider
                     elif combo.count() > 0:
@@ -3218,6 +3339,12 @@ class QtChatBubble(QWidget):
         flow_id: Optional[str] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        tts_voice: Optional[str] = None,
+        tts_voice_mode: Optional[str] = None,
+        tts_model: Optional[str] = None,
+        stt_model: Optional[str] = None,
+        image_provider: Optional[str] = None,
+        image_model: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> None:
         store = self._gateway_selection_store(session_id=session_id)
@@ -3246,13 +3373,43 @@ class QtChatBubble(QWidget):
                     if existing is not None and model is None
                     else str(model or "")
                 ),
+                tts_voice=(
+                    str(existing.tts_voice or "")
+                    if existing is not None and tts_voice is None
+                    else str(tts_voice or "")
+                ),
+                tts_voice_mode=(
+                    str(existing.tts_voice_mode or "")
+                    if existing is not None and tts_voice_mode is None
+                    else str(tts_voice_mode or "")
+                ),
+                tts_model=(
+                    str(existing.tts_model or "")
+                    if existing is not None and tts_model is None
+                    else str(tts_model or "")
+                ),
+                stt_model=(
+                    str(existing.stt_model or "")
+                    if existing is not None and stt_model is None
+                    else str(stt_model or "")
+                ),
+                image_provider=(
+                    str(existing.image_provider or "")
+                    if existing is not None and image_provider is None
+                    else str(image_provider or "")
+                ),
+                image_model=(
+                    str(existing.image_model or "")
+                    if existing is not None and image_model is None
+                    else str(image_model or "")
+                ),
             )
             store.save(selection)
         except Exception as e:
             warnings.warn(f"#FALLBACK: failed to save gateway selection: {e}")
 
     def load_workflows(self, *, session_id: Optional[str] = None) -> None:
-        """Load gateway workflows (abstractcode.agent.v1 entrypoints)."""
+        """Load gateway workflows (assistant-compatible agent entrypoints)."""
         combo = getattr(self, "workflow_combo", None)
         if combo is None or not self.use_gateway:
             return
@@ -3427,9 +3584,16 @@ class QtChatBubble(QWidget):
                             display_name = display_name[:52] + "..."
                         combo.addItem(display_name, model)
 
+                    gateway_default_model = ""
+                    defaults = self._gateway_cache_get("provider_defaults")
+                    if isinstance(defaults, dict) and str(defaults.get("default_provider") or "").strip() == str(self.current_provider or "").strip():
+                        gateway_default_model = str(defaults.get("default_model") or "").strip()
+
                     pick = ""
                     if preferred_model and any(combo.itemData(i) == preferred_model for i in range(combo.count())):
                         pick = preferred_model
+                    elif gateway_default_model and any(combo.itemData(i) == gateway_default_model for i in range(combo.count())):
+                        pick = gateway_default_model
                     elif self.current_model and any(combo.itemData(i) == self.current_model for i in range(combo.count())):
                         pick = self.current_model
                     elif combo.count() > 0:
@@ -3519,6 +3683,284 @@ class QtChatBubble(QWidget):
                 combo.blockSignals(previous_blocked)
             except Exception:
                 pass
+
+    def _set_combo_data(self, combo: QComboBox, value: Any) -> None:
+        wanted = value
+        for i in range(combo.count()):
+            if combo.itemData(i) == wanted:
+                combo.setCurrentIndex(i)
+                return
+        if combo.count() > 0:
+            combo.setCurrentIndex(0)
+
+    @staticmethod
+    def _model_id_from_catalog_item(item: Any) -> str:
+        if isinstance(item, str):
+            return item.strip()
+        if not isinstance(item, dict):
+            return ""
+        for key in ("id", "model", "model_id", "name"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _voice_id_from_catalog_item(item: Any) -> str:
+        if not isinstance(item, dict):
+            return ""
+        for key in ("qualified_id", "id", "profile_id", "voice_id", "name"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _voice_mode_from_catalog_item(item: Any) -> str:
+        if not isinstance(item, dict):
+            return "profile"
+        text = " ".join(
+            str(item.get(key) or "")
+            for key in ("kind", "type", "voice_type", "mode")
+            if item.get(key) is not None
+        ).strip().lower()
+        tags = item.get("tags")
+        if isinstance(tags, dict):
+            text = f"{text} " + " ".join(str(v or "") for v in tags.values()).strip().lower()
+        if bool(item.get("cloned")) or "clone" in text:
+            return "clone"
+        return "profile"
+
+    @staticmethod
+    def _image_pair_from_catalog_item(item: Any) -> Dict[str, str]:
+        if isinstance(item, str):
+            return {"provider": "", "model": item.strip(), "display": item.strip()}
+        if not isinstance(item, dict):
+            return {"provider": "", "model": "", "display": ""}
+        provider = ""
+        for key in ("provider", "provider_id", "provider_name"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                provider = value.strip()
+                break
+        model = ""
+        for key in ("model", "model_id", "id", "name"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                model = value.strip()
+                break
+        label = str(item.get("label") or item.get("display_name") or "").strip()
+        display = label or (f"{provider} / {model}" if provider and model else model or provider)
+        return {"provider": provider, "model": model, "display": display}
+
+    def load_media_catalogs(self, *, session_id: Optional[str] = None) -> None:
+        """Load Gateway voice/image catalogs into compact media selectors."""
+        if not self.use_gateway or not self.llm_manager or not hasattr(self.llm_manager, "gateway_client"):
+            return
+
+        voice_combo = getattr(self, "tts_voice_combo", None)
+        tts_model_combo = getattr(self, "tts_model_combo", None)
+        stt_model_combo = getattr(self, "stt_model_combo", None)
+        image_combo = getattr(self, "image_model_combo", None)
+        if voice_combo is None or tts_model_combo is None or stt_model_combo is None or image_combo is None:
+            return
+
+        selection = self._load_gateway_selection(session_id=session_id)
+        preferred_voice = str(getattr(selection, "tts_voice", "") or "").strip() if selection else ""
+        preferred_voice_mode = str(getattr(selection, "tts_voice_mode", "") or "").strip() if selection else ""
+        if preferred_voice_mode not in {"clone", "profile"}:
+            preferred_voice_mode = "profile"
+        preferred_tts_model = str(getattr(selection, "tts_model", "") or "").strip() if selection else ""
+        preferred_stt_model = str(getattr(selection, "stt_model", "") or "").strip() if selection else ""
+        preferred_image_provider = str(getattr(selection, "image_provider", "") or "").strip() if selection else ""
+        preferred_image_model = str(getattr(selection, "image_model", "") or "").strip() if selection else ""
+
+        try:
+            gw = self.llm_manager.gateway_client()
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: gateway media catalogs unavailable ({e})")
+            return
+
+        def _reload_combo(combo: QComboBox, fill_fn: Callable[[], Any], pick: Any) -> None:
+            blocked = False
+            try:
+                blocked = bool(combo.blockSignals(True))
+                combo.clear()
+                fill_fn()
+                self._set_combo_data(combo, pick)
+            finally:
+                try:
+                    combo.blockSignals(blocked)
+                except Exception:
+                    pass
+
+        def _fill_voices() -> None:
+            voice_combo.addItem("Voice: default", {"id": "", "mode": "profile"})
+            try:
+                cached = self._gateway_cache_get("voice_voices")
+                res = cached if isinstance(cached, dict) else gw.voice_voices()
+                if cached is None:
+                    self._gateway_cache_set("voice_voices", res)
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: voice catalog unavailable ({e})")
+                if preferred_voice:
+                    voice_combo.addItem(f"Voice: {preferred_voice}", {"id": preferred_voice, "mode": preferred_voice_mode})
+                return
+            items: List[Any] = []
+            for key in ("profiles", "voices"):
+                values = res.get(key) if isinstance(res, dict) else None
+                if isinstance(values, list):
+                    items.extend(values)
+            seen: set[str] = set()
+            for item in items:
+                voice_id = self._voice_id_from_catalog_item(item)
+                if not voice_id or voice_id in seen:
+                    continue
+                seen.add(voice_id)
+                mode = self._voice_mode_from_catalog_item(item)
+                label = voice_id
+                if isinstance(item, dict):
+                    label = str(item.get("label") or item.get("display_name") or voice_id).strip() or voice_id
+                voice_combo.addItem(f"Voice: {label}", {"id": voice_id, "mode": mode})
+
+        def _fill_tts_models() -> None:
+            tts_model_combo.addItem("TTS: default", "")
+            try:
+                cached = self._gateway_cache_get("audio_speech_models")
+                res = cached if isinstance(cached, dict) else gw.audio_speech_models()
+                if cached is None:
+                    self._gateway_cache_set("audio_speech_models", res)
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: TTS model catalog unavailable ({e})")
+                if preferred_tts_model:
+                    tts_model_combo.addItem(f"TTS: {preferred_tts_model}", preferred_tts_model)
+                return
+            models = res.get("models") if isinstance(res, dict) else []
+            if not isinstance(models, list):
+                models = []
+            if isinstance(res, dict):
+                for key in ("data", "tts_models"):
+                    values = res.get(key)
+                    if isinstance(values, list):
+                        models.extend(values)
+                active = res.get("active_model")
+                if isinstance(active, str) and active.strip():
+                    models.insert(0, active.strip())
+            seen: set[str] = set()
+            for item in models:
+                model_id = self._model_id_from_catalog_item(item)
+                if not model_id or model_id in seen:
+                    continue
+                seen.add(model_id)
+                label = model_id if len(model_id) <= 36 else model_id[:33] + "..."
+                tts_model_combo.addItem(f"TTS: {label}", model_id)
+            if preferred_tts_model and preferred_tts_model not in seen:
+                tts_model_combo.addItem(f"TTS: {preferred_tts_model}", preferred_tts_model)
+
+        def _fill_stt_models() -> None:
+            stt_model_combo.addItem("STT: default", "")
+            try:
+                cached = self._gateway_cache_get("audio_transcription_models")
+                res = cached if isinstance(cached, dict) else gw.audio_transcription_models()
+                if cached is None:
+                    self._gateway_cache_set("audio_transcription_models", res)
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: STT model catalog unavailable ({e})")
+                res = {}
+            models: List[Any] = []
+            if isinstance(res, dict):
+                for key in ("models", "data", "stt_models"):
+                    values = res.get(key)
+                    if isinstance(values, list):
+                        models.extend(values)
+                active = res.get("active_model")
+                if isinstance(active, str) and active.strip():
+                    models.insert(0, active.strip())
+            seen: set[str] = set()
+            for item in models:
+                model_id = self._model_id_from_catalog_item(item)
+                if not model_id or model_id in seen:
+                    continue
+                seen.add(model_id)
+                label = model_id if len(model_id) <= 36 else model_id[:33] + "..."
+                stt_model_combo.addItem(f"STT: {label}", model_id)
+            if preferred_stt_model and preferred_stt_model not in seen:
+                stt_model_combo.addItem(f"STT: {preferred_stt_model}", preferred_stt_model)
+
+        def _fill_image_models() -> None:
+            image_combo.addItem("Image: default", {"provider": "", "model": ""})
+            try:
+                cached = self._gateway_cache_get("vision_provider_models:text_to_image")
+                res = cached if isinstance(cached, dict) else gw.vision_provider_models(task="text_to_image")
+                if cached is None:
+                    self._gateway_cache_set("vision_provider_models:text_to_image", res)
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: image model catalog unavailable ({e})")
+                res = {}
+            try:
+                cached_local = self._gateway_cache_get("vision_models")
+                local_res = cached_local if isinstance(cached_local, dict) else gw.vision_models()
+                if cached_local is None:
+                    self._gateway_cache_set("vision_models", local_res)
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: local image model catalog unavailable ({e})")
+                local_res = {}
+            if not isinstance(res, dict):
+                res = {}
+            if not isinstance(local_res, dict):
+                local_res = {}
+            if not res and not local_res:
+                if preferred_image_model:
+                    image_combo.addItem(
+                        f"Image: {preferred_image_model}",
+                        {"provider": preferred_image_provider, "model": preferred_image_model},
+                    )
+                return
+            models = res.get("models") if isinstance(res, dict) else []
+            if not isinstance(models, list):
+                models = []
+            local_models = local_res.get("models") if isinstance(local_res, dict) else []
+            if isinstance(local_models, list):
+                models = [*models, *local_models]
+            seen: set[Tuple[str, str]] = set()
+            for item in models:
+                pair = self._image_pair_from_catalog_item(item)
+                provider = pair.get("provider", "")
+                model = pair.get("model", "")
+                if not model:
+                    continue
+                key = (provider, model)
+                if key in seen:
+                    continue
+                seen.add(key)
+                display = pair.get("display") or model
+                if len(display) > 42:
+                    display = display[:39] + "..."
+                image_combo.addItem(f"Image: {display}", {"provider": provider, "model": model})
+            if preferred_image_model and (preferred_image_provider, preferred_image_model) not in seen:
+                image_combo.addItem(
+                    f"Image: {preferred_image_model}",
+                    {"provider": preferred_image_provider, "model": preferred_image_model},
+                )
+
+        previous_loading = bool(getattr(self, "_loading_media_catalogs", False))
+        self._loading_media_catalogs = True
+        try:
+            _reload_combo(voice_combo, _fill_voices, {"id": preferred_voice, "mode": preferred_voice_mode})
+            _reload_combo(tts_model_combo, _fill_tts_models, preferred_tts_model)
+            _reload_combo(stt_model_combo, _fill_stt_models, preferred_stt_model)
+            _reload_combo(image_combo, _fill_image_models, {"provider": preferred_image_provider, "model": preferred_image_model})
+
+            try:
+                self.on_tts_voice_changed(voice_combo.currentIndex())
+                self.on_tts_model_changed(tts_model_combo.currentIndex())
+                self.on_stt_model_changed(stt_model_combo.currentIndex())
+                self.on_image_model_changed(image_combo.currentIndex())
+            except Exception:
+                pass
+            self._sync_media_button_label()
+        finally:
+            self._loading_media_catalogs = previous_loading
     
     def update_token_limits(self):
         """Update token limits using AbstractCore's built-in detection."""
@@ -3663,6 +4105,195 @@ class QtChatBubble(QWidget):
         
         if self.debug:
             print(f"Model changed to: {self.current_model}")
+
+    def on_tts_voice_changed(self, index: int):
+        try:
+            idx = int(index)
+            combo = getattr(self, "tts_voice_combo", None)
+            if combo is None or idx < 0 or idx >= combo.count():
+                return
+            data = combo.itemData(idx)
+            if isinstance(data, dict):
+                self.current_tts_voice = str(data.get("id") or "").strip()
+                mode = str(data.get("mode") or "").strip().lower()
+                self.current_tts_voice_mode = mode if mode in {"clone", "profile"} else "profile"
+            else:
+                self.current_tts_voice = str(data or "").strip()
+                self.current_tts_voice_mode = "profile"
+            if self.llm_manager is not None:
+                setattr(self.llm_manager, "current_tts_voice", self.current_tts_voice)
+                setattr(self.llm_manager, "current_tts_voice_mode", self.current_tts_voice_mode)
+            if self.use_gateway and not bool(getattr(self, "_loading_media_catalogs", False)):
+                self._save_gateway_selection(
+                    tts_voice=self.current_tts_voice,
+                    tts_voice_mode=self.current_tts_voice_mode,
+                    session_id=self._active_session_id(),
+                )
+            self._sync_media_button_label()
+        except Exception:
+            pass
+
+    def on_tts_model_changed(self, index: int):
+        try:
+            idx = int(index)
+            combo = getattr(self, "tts_model_combo", None)
+            if combo is None or idx < 0 or idx >= combo.count():
+                return
+            self.current_tts_model = str(combo.itemData(idx) or "").strip()
+            if self.llm_manager is not None:
+                setattr(self.llm_manager, "current_tts_model", self.current_tts_model)
+            if self.use_gateway and not bool(getattr(self, "_loading_media_catalogs", False)):
+                self._save_gateway_selection(tts_model=self.current_tts_model, session_id=self._active_session_id())
+            self._sync_media_button_label()
+        except Exception:
+            pass
+
+    def on_stt_model_changed(self, index: int):
+        try:
+            idx = int(index)
+            combo = getattr(self, "stt_model_combo", None)
+            if combo is None or idx < 0 or idx >= combo.count():
+                return
+            self.current_stt_model = str(combo.itemData(idx) or "").strip()
+            if self.llm_manager is not None:
+                setattr(self.llm_manager, "current_stt_model", self.current_stt_model)
+            if self.use_gateway and not bool(getattr(self, "_loading_media_catalogs", False)):
+                self._save_gateway_selection(stt_model=self.current_stt_model, session_id=self._active_session_id())
+            self._sync_media_button_label()
+        except Exception:
+            pass
+
+    def on_image_model_changed(self, index: int):
+        try:
+            idx = int(index)
+            combo = getattr(self, "image_model_combo", None)
+            if combo is None or idx < 0 or idx >= combo.count():
+                return
+            data = combo.itemData(idx)
+            if isinstance(data, dict):
+                self.current_image_provider = str(data.get("provider") or "").strip()
+                self.current_image_model = str(data.get("model") or "").strip()
+            else:
+                self.current_image_provider = ""
+                self.current_image_model = str(data or "").strip()
+            if self.llm_manager is not None:
+                setattr(self.llm_manager, "current_image_provider", self.current_image_provider)
+                setattr(self.llm_manager, "current_image_model", self.current_image_model)
+            if self.use_gateway and not bool(getattr(self, "_loading_media_catalogs", False)):
+                self._save_gateway_selection(
+                    image_provider=self.current_image_provider,
+                    image_model=self.current_image_model,
+                    session_id=self._active_session_id(),
+                )
+            self._sync_media_button_label()
+        except Exception:
+            pass
+
+    def _sync_media_button_label(self) -> None:
+        btn = getattr(self, "media_button", None)
+        if btn is None:
+            return
+        voice = str(getattr(self, "current_tts_voice", "") or "").strip()
+        tts = str(getattr(self, "current_tts_model", "") or "").strip()
+        stt = str(getattr(self, "current_stt_model", "") or "").strip()
+        image = str(getattr(self, "current_image_model", "") or "").strip()
+        custom = sum(1 for value in (voice, tts, stt, image) if value)
+        try:
+            btn.setText("Media" if custom <= 0 else f"Media ({custom})")
+            tooltip = [
+                f"Voice: {voice or 'default'}",
+                f"TTS: {tts or 'default'}",
+                f"STT: {stt or 'default'}",
+                f"Image: {image or 'default'}",
+            ]
+            btn.setToolTip("\n".join(tooltip))
+        except Exception:
+            pass
+
+    def open_media_selector(self) -> None:
+        if not self.use_gateway:
+            return
+        source_voice = getattr(self, "tts_voice_combo", None)
+        source_tts = getattr(self, "tts_model_combo", None)
+        source_stt = getattr(self, "stt_model_combo", None)
+        source_image = getattr(self, "image_model_combo", None)
+        if source_voice is None or source_tts is None or source_stt is None or source_image is None:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Media settings")
+        try:
+            dlg.setModal(True)
+            dlg.resize(500, 270)
+        except Exception:
+            pass
+        root = QVBoxLayout(dlg)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(10)
+
+        def _clone_combo(src: QComboBox) -> QComboBox:
+            combo = QComboBox(dlg)
+            try:
+                combo.setMinimumWidth(380)
+                combo.view().setMinimumWidth(460)
+            except Exception:
+                pass
+            for i in range(src.count()):
+                combo.addItem(src.itemText(i), src.itemData(i))
+            try:
+                combo.setCurrentIndex(max(0, src.currentIndex()))
+            except Exception:
+                pass
+            return combo
+
+        def _row(label: str, combo: QComboBox) -> None:
+            line = QHBoxLayout()
+            lbl = QLabel(label)
+            try:
+                lbl.setMinimumWidth(70)
+            except Exception:
+                pass
+            line.addWidget(lbl)
+            line.addWidget(combo)
+            root.addLayout(line)
+
+        voice_combo = _clone_combo(source_voice)
+        tts_combo = _clone_combo(source_tts)
+        stt_combo = _clone_combo(source_stt)
+        image_combo = _clone_combo(source_image)
+        _row("Voice", voice_combo)
+        _row("TTS", tts_combo)
+        _row("STT", stt_combo)
+        _row("Image", image_combo)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        apply_btn = QPushButton("Apply")
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(apply_btn)
+        root.addLayout(buttons)
+
+        cancel_btn.clicked.connect(dlg.reject)
+
+        def _apply() -> None:
+            try:
+                source_voice.setCurrentIndex(voice_combo.currentIndex())
+                source_tts.setCurrentIndex(tts_combo.currentIndex())
+                source_stt.setCurrentIndex(stt_combo.currentIndex())
+                source_image.setCurrentIndex(image_combo.currentIndex())
+                self.on_tts_voice_changed(source_voice.currentIndex())
+                self.on_tts_model_changed(source_tts.currentIndex())
+                self.on_stt_model_changed(source_stt.currentIndex())
+                self.on_image_model_changed(source_image.currentIndex())
+                self._sync_media_button_label()
+            finally:
+                dlg.accept()
+
+        apply_btn.clicked.connect(_apply)
+        exec_fn = getattr(dlg, "exec", None) or getattr(dlg, "exec_", None)
+        if callable(exec_fn):
+            exec_fn()
     
 
     def _refresh_tool_inventory(self) -> None:
@@ -3961,6 +4592,12 @@ class QtChatBubble(QWidget):
             "require_approval_tools": sorted(require),
         }
 
+    def _gateway_allowed_tools_for_run(self) -> Optional[List[str]]:
+        """Return an explicit allowlist only when the user changed it."""
+        if not getattr(self, "_enabled_external_tools_user_set", False):
+            return None
+        return sorted(self._enabled_external_tools or set())
+
     def open_tool_selector(self) -> None:
         """Open the tool selector dialog (controls per-run tool allowlist)."""
         self._refresh_tool_inventory()
@@ -4251,10 +4888,12 @@ class QtChatBubble(QWidget):
                 model=self.current_model,
                 attachments=media_files if media_files else None,
                 system_prompt_extra=system_prompt_extra,
-                allowed_tools=sorted(self._enabled_external_tools),
+                allowed_tools=self._gateway_allowed_tools_for_run(),
                 tool_policy=tool_policy,
                 bundle_id=self.gateway_bundle_id,
                 flow_id=self.gateway_flow_id,
+                image_provider=self.current_image_provider,
+                image_model=self.current_image_model,
                 debug=bool(self.debug),
             )
             self.worker.event_emitted.connect(self.on_agent_event)
@@ -4322,9 +4961,11 @@ class QtChatBubble(QWidget):
             model=self.current_model,
             attachments=None,
             system_prompt_extra=None,
-            allowed_tools=sorted(self._enabled_external_tools),
+            allowed_tools=self._gateway_allowed_tools_for_run(),
             bundle_id=self.gateway_bundle_id,
             flow_id=self.gateway_flow_id,
+            image_provider=self.current_image_provider,
+            image_model=self.current_image_model,
             attach_run_id=run_id,
             debug=bool(self.debug),
         )
@@ -4419,6 +5060,7 @@ class QtChatBubble(QWidget):
             self.load_providers(session_id=self._active_session_id())
             self.update_token_limits()
             self.load_workflows(session_id=self._active_session_id())
+            self.load_media_catalogs(session_id=self._active_session_id())
         except Exception as e:
             warnings.warn(f"#FALLBACK: gateway reconnect refresh failed: {e}")
         try:
@@ -4668,7 +5310,8 @@ class QtChatBubble(QWidget):
                 pass
             content = str(event.get("content") or "")
             if event.get("final", True) is False:
-                self._handle_intermediate_assistant(content)
+                meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
+                self._handle_intermediate_assistant(content, meta=meta)
             else:
                 run_id = str(event.get("run_id") or "")
                 if not self._should_emit_final(content, run_id):
@@ -4768,10 +5411,26 @@ class QtChatBubble(QWidget):
         except Exception:
             self._show_history_if_voice_mode_off()
 
-    def _handle_intermediate_assistant(self, content: str) -> None:
+    def _handle_intermediate_assistant(self, content: str, meta: Optional[Dict[str, Any]] = None) -> None:
         """Render a non-final assistant message without ending the run."""
         try:
             self._run_state.mark_intermediate_output()
+        except Exception:
+            pass
+        try:
+            if isinstance(meta, dict) and isinstance(meta.get("image_artifact"), dict):
+                artifact = meta.get("image_artifact") or {}
+                generated = meta.get("generated_media") if isinstance(meta.get("generated_media"), dict) else {}
+                key = str(generated.get("request_id") or artifact.get("$artifact") or artifact.get("artifact_id") or "").strip()
+                if key:
+                    seen = getattr(self, "_seen_generated_media_event_ids", None)
+                    if not isinstance(seen, set):
+                        seen = set()
+                        setattr(self, "_seen_generated_media_event_ids", seen)
+                    if key not in seen:
+                        seen.add(key)
+                        if self.llm_manager:
+                            self.llm_manager.append_message(role="assistant", content=content, metadata=dict(meta))
         except Exception:
             pass
         try:
@@ -6662,6 +7321,10 @@ class QtChatBubble(QWidget):
                 self.load_workflows(session_id=sid)
             except Exception:
                 pass
+            try:
+                self.load_media_catalogs(session_id=sid)
+            except Exception:
+                pass
 
         # Reset per-session UI caches.
         self.attached_files.clear()
@@ -6707,6 +7370,10 @@ class QtChatBubble(QWidget):
                 pass
             try:
                 self.load_workflows(session_id=new_id or None)
+            except Exception:
+                pass
+            try:
+                self.load_media_catalogs(session_id=new_id or None)
             except Exception:
                 pass
 
