@@ -39,6 +39,7 @@ jobs:
       - name: Pytest
         env:
           QT_QPA_PLATFORM: offscreen
+          PYSTRAY_BACKEND: dummy
         run: python -m pytest tests/basic -q
 
   build:
