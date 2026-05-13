@@ -847,6 +847,31 @@ class GatewayVoiceManager:
             return False
 
     def available_tts_voices(self) -> list[dict]:
+        voices: list[dict] = []
+        seen: set[str] = set()
+        try:
+            catalog = self._gateway_client().voice_voices()
+            if isinstance(catalog, dict):
+                for key in ("profiles", "voices", "cloned_voices"):
+                    values = catalog.get(key)
+                    if isinstance(values, list):
+                        for item in values:
+                            if not isinstance(item, dict):
+                                continue
+                            voice_id = ""
+                            for id_key in ("qualified_id", "id", "profile_id", "voice_id", "name"):
+                                value = item.get(id_key)
+                                if isinstance(value, str) and value.strip():
+                                    voice_id = value.strip()
+                                    break
+                            if not voice_id or voice_id in seen:
+                                continue
+                            seen.add(voice_id)
+                            voices.append(item)
+        except Exception:
+            voices = []
+        if voices:
+            return voices
         try:
             return self._assistant_capabilities().tts_voices()
         except Exception:

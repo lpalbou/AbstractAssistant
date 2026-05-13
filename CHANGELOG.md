@@ -2,6 +2,17 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.4.5] - 2026-05-13
+
+### Fixed
+- Media settings now force-refresh Gateway catalogs when opened and include cloned voices alongside provider profiles in the Voice selector.
+- Gateway voice discovery now reads the concrete voice catalog route first, deduping profiles, hosted voices, and cloned voices before falling back to capability contracts.
+- The media selector now shows a visible catalog error note instead of silently presenting only defaults when Gateway media discovery fails.
+
+### Changed
+- Dependency floors now require Core `>=2.13.14` and Voice `>=0.9.4`.
+
+
 ## [0.4.4] - 2026-05-12
 
 ### Added

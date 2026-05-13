@@ -3753,7 +3753,7 @@ class QtChatBubble(QWidget):
         display = label or (f"{provider} / {model}" if provider and model else model or provider)
         return {"provider": provider, "model": model, "display": display}
 
-    def load_media_catalogs(self, *, session_id: Optional[str] = None) -> None:
+    def load_media_catalogs(self, *, session_id: Optional[str] = None, force: bool = False) -> None:
         """Load Gateway voice/image catalogs into compact media selectors."""
         if not self.use_gateway or not self.llm_manager or not hasattr(self.llm_manager, "gateway_client"):
             return
@@ -3780,6 +3780,7 @@ class QtChatBubble(QWidget):
         except Exception as e:
             warnings.warn(f"#FALLBACK: gateway media catalogs unavailable ({e})")
             return
+        self._media_catalog_error = ""
 
         def _reload_combo(combo: QComboBox, fill_fn: Callable[[], Any], pick: Any) -> None:
             blocked = False
@@ -3797,17 +3798,18 @@ class QtChatBubble(QWidget):
         def _fill_voices() -> None:
             voice_combo.addItem("Voice: default", {"id": "", "mode": "profile"})
             try:
-                cached = self._gateway_cache_get("voice_voices")
+                cached = None if force else self._gateway_cache_get("voice_voices")
                 res = cached if isinstance(cached, dict) else gw.voice_voices()
                 if cached is None:
                     self._gateway_cache_set("voice_voices", res)
             except Exception as e:
+                self._media_catalog_error = f"Voice catalog unavailable: {e}"
                 warnings.warn(f"#FALLBACK: voice catalog unavailable ({e})")
                 if preferred_voice:
                     voice_combo.addItem(f"Voice: {preferred_voice}", {"id": preferred_voice, "mode": preferred_voice_mode})
                 return
             items: List[Any] = []
-            for key in ("profiles", "voices"):
+            for key in ("profiles", "voices", "cloned_voices"):
                 values = res.get(key) if isinstance(res, dict) else None
                 if isinstance(values, list):
                     items.extend(values)
@@ -3826,11 +3828,12 @@ class QtChatBubble(QWidget):
         def _fill_tts_models() -> None:
             tts_model_combo.addItem("TTS: default", "")
             try:
-                cached = self._gateway_cache_get("audio_speech_models")
+                cached = None if force else self._gateway_cache_get("audio_speech_models")
                 res = cached if isinstance(cached, dict) else gw.audio_speech_models()
                 if cached is None:
                     self._gateway_cache_set("audio_speech_models", res)
             except Exception as e:
+                self._media_catalog_error = f"TTS model catalog unavailable: {e}"
                 warnings.warn(f"#FALLBACK: TTS model catalog unavailable ({e})")
                 if preferred_tts_model:
                     tts_model_combo.addItem(f"TTS: {preferred_tts_model}", preferred_tts_model)
@@ -3860,11 +3863,12 @@ class QtChatBubble(QWidget):
         def _fill_stt_models() -> None:
             stt_model_combo.addItem("STT: default", "")
             try:
-                cached = self._gateway_cache_get("audio_transcription_models")
+                cached = None if force else self._gateway_cache_get("audio_transcription_models")
                 res = cached if isinstance(cached, dict) else gw.audio_transcription_models()
                 if cached is None:
                     self._gateway_cache_set("audio_transcription_models", res)
             except Exception as e:
+                self._media_catalog_error = f"STT model catalog unavailable: {e}"
                 warnings.warn(f"#FALLBACK: STT model catalog unavailable ({e})")
                 res = {}
             models: List[Any] = []
@@ -3890,19 +3894,22 @@ class QtChatBubble(QWidget):
         def _fill_image_models() -> None:
             image_combo.addItem("Image: default", {"provider": "", "model": ""})
             try:
-                cached = self._gateway_cache_get("vision_provider_models:text_to_image")
+                cached = None if force else self._gateway_cache_get("vision_provider_models:text_to_image")
                 res = cached if isinstance(cached, dict) else gw.vision_provider_models(task="text_to_image")
                 if cached is None:
                     self._gateway_cache_set("vision_provider_models:text_to_image", res)
             except Exception as e:
+                self._media_catalog_error = f"Image model catalog unavailable: {e}"
                 warnings.warn(f"#FALLBACK: image model catalog unavailable ({e})")
                 res = {}
             try:
-                cached_local = self._gateway_cache_get("vision_models")
+                cached_local = None if force else self._gateway_cache_get("vision_models")
                 local_res = cached_local if isinstance(cached_local, dict) else gw.vision_models()
                 if cached_local is None:
                     self._gateway_cache_set("vision_models", local_res)
             except Exception as e:
+                if not self._media_catalog_error:
+                    self._media_catalog_error = f"Local image model catalog unavailable: {e}"
                 warnings.warn(f"#FALLBACK: local image model catalog unavailable ({e})")
                 local_res = {}
             if not isinstance(res, dict):
@@ -4213,6 +4220,10 @@ class QtChatBubble(QWidget):
     def open_media_selector(self) -> None:
         if not self.use_gateway:
             return
+        try:
+            self.load_media_catalogs(session_id=self._active_session_id(), force=True)
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: gateway media catalog refresh failed ({e})")
         source_voice = getattr(self, "tts_voice_combo", None)
         source_tts = getattr(self, "tts_model_combo", None)
         source_stt = getattr(self, "stt_model_combo", None)
@@ -4265,6 +4276,14 @@ class QtChatBubble(QWidget):
         _row("TTS", tts_combo)
         _row("STT", stt_combo)
         _row("Image", image_combo)
+        if max(source_voice.count(), source_tts.count(), source_stt.count(), source_image.count()) <= 1:
+            note = QLabel(str(getattr(self, "_media_catalog_error", "") or "Gateway returned no media catalog options. Check the Gateway URL, token, and installed media capabilities."))
+            try:
+                note.setWordWrap(True)
+                note.setStyleSheet("color: #d0a85c;")
+            except Exception:
+                pass
+            root.addWidget(note)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
