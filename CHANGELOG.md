@@ -2,6 +2,11 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.4.6] - 2026-05-26
+
+### Changed
+- Raised dependency floors to Agent `>=0.3.8`, Core `>=2.13.28`, and Voice `>=0.10.16` so Gateway-mode media settings inherit the latest provider/model/voice catalog contracts.
+
 ## [0.4.5] - 2026-05-13
 
 ### Fixed

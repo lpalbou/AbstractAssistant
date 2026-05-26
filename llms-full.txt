@@ -21,7 +21,6 @@ Included files (in order):
 - LICENSE
 - CHANGELOG.md
 - pyproject.toml
-- config.toml
 - abstractassistant/cli.py
 - abstractassistant/config.py
 - abstractassistant/app.py
@@ -123,7 +122,9 @@ Format reference: https://llmstxt.org/
 --- README.md ---
 # AbstractAssistant
 
-AbstractAssistant is a macOS-first tray app and CLI that hosts a **local, durable agent**.
+AbstractAssistant is a macOS-first tray app and CLI.
+
+The tray app is gateway-first: it connects to AbstractGateway, discovers available providers/models there, and keeps only local UI/session state.
 
 It is part of the **AbstractFramework** ecosystem:
 - https://github.com/lpalbou/AbstractFramework
@@ -134,13 +135,14 @@ It is part of the **AbstractFramework** ecosystem:
 ## What it does
 
 - **Tray UI**: menu bar/system tray bubble with sessions, attachments, tool approvals, and voice.
+- **Media settings**: Gateway-backed Voice, TTS, STT, and Image selectors for generated speech, transcription, and image generation.
 - **CLI**: run a single agentic turn in the terminal.
-- **Durable tool boundary**: tool calls are surfaced as a resumable wait and executed only by the host after approval.
+- **Durable tool boundary**: tool calls are surfaced as a resumable wait and executed only through the gateway after approval.
 
-High-level flow (evidence: `abstractassistant/core/agent_host.py`):
+High-level flow:
 
 ```
-Tray UI / CLI -> AgentHost -> AbstractAgent -> AbstractRuntime -> AbstractCore -> Provider(s)
+Tray UI / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Provider(s)
 ```
 
 ## Install
@@ -152,14 +154,14 @@ pip install "abstractassistant"
 Requirements (summary):
 - Python 3.10+
 - Tray UI is macOS-first (menu bar/system tray); CLI/backend may work elsewhere but macOS is the primary target.
-- A provider must be available (for example LMStudio/Ollama running locally, or cloud API keys set via env vars).
+- For tray mode, an AbstractGateway instance must be available.
 
 ## Quick start
 
 Tray UI:
 
 ```bash
-assistant tray
+assistant
 ```
 
 CLI (one turn):
@@ -168,15 +170,30 @@ CLI (one turn):
 assistant run --prompt "What is in this repo and where do I start?"
 ```
 
-Provider/model override:
+Gateway startup (local dev):
 
 ```bash
-assistant --provider ollama --model qwen3:4b-instruct run --prompt "Summarize my changes"
+export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
+export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
+abstractgateway serve --host 127.0.0.1 --port 8080
+assistant
 ```
+
+Optional assistant-side overrides:
+
+```bash
+assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
+```
+
+The Media settings dialog is populated from Gateway catalog routes:
+`/api/gateway/voice/voices`, `/api/gateway/audio/speech/models`,
+`/api/gateway/audio/transcriptions/models`, `/api/gateway/vision/provider_models`,
+and `/api/gateway/vision/models`. If it only shows `default`, verify that the
+running Gateway is the current package version and not an older server process.
 
 ## Data & durability
 
-Default data directory: `~/.abstractassistant/` (override with `--data-dir`).
+Default data directory: `~/.abstractassistant/`.
 
 Contents (evidence: `abstractassistant/core/session_index.py`):
 - `session.json`: transcript snapshot + last run id (fast UX state)
@@ -199,7 +216,6 @@ Core guides:
 ```bash
 pip install -e ".[dev]"
 python -m pytest -q
-assistant --debug tray
 ```
 
 ## Contributing / Security / License
@@ -227,6 +243,7 @@ AbstractFramework ecosystem:
 
 - **API & CLI reference**: [api.md](api.md)
 - **Architecture & durability model** (includes diagrams): [architecture.md](architecture.md)
+- **Gateway-first design draft** (thin-client plan): [gateway-first-design.md](gateway-first-design.md)
 - **FAQ / troubleshooting**: [faq.md](faq.md)
 
 ## Development notes (internal)
@@ -253,9 +270,10 @@ See also:
 
 - **Python**: 3.10+
 - **Tray UI**: macOS is the primary target (menu bar app). Other OSes may work via `pystray`/Qt but are not the focus.
+- **Gateway**: an AbstractGateway instance must be available
 - **Providers**:
-  - local: LMStudio / Ollama must be running
-  - cloud: set API keys via environment variables (for example `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+  - local: LMStudio / Ollama must be configured on the gateway
+  - cloud: API keys belong on the gateway side
 
 ## Install (PyPI)
 
@@ -267,6 +285,14 @@ Verify:
 
 ```bash
 assistant --help
+```
+
+Gateway startup for local development:
+
+```bash
+export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
+export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
+abstractgateway serve --host 127.0.0.1 --port 8080
 ```
 
 ## macOS app bundle (optional)
@@ -292,6 +318,10 @@ assistant run --prompt "Hello"
 
 The CLI entrypoint is available as both `assistant` and `abstractassistant`.
 
+Optional assistant-side overrides:
+- `--gateway-url`
+- `--gateway-token`
+
 ## Notes
 
 - AbstractAssistant does not bundle `ffmpeg`. If your provider/media pipeline relies on `ffmpeg` for video frame extraction, ensure it is on your PATH.
@@ -304,7 +334,9 @@ The CLI entrypoint is available as both `assistant` and `abstractassistant`.
 --- docs/getting-started.md ---
 # Getting started
 
-AbstractAssistant is a macOS-first tray app and CLI that hosts a **local, durable agent**:
+AbstractAssistant is a macOS-first tray app and CLI.
+
+The tray app is a **gateway-first thin client**:
 - agent loop: `abstractagent` (ReAct / CodeAct / MemAct)
 - durability: `abstractruntime` (runs + waits + ledger + artifacts)
 - providers/tools/media: `abstractcore`
@@ -320,23 +352,23 @@ See also:
 pip install "abstractassistant"
 ```
 
+AbstractVoice is installed by default so voice features work out of the box.
+
 ## Run
 
 ### Tray UI (macOS)
 
 ```bash
-assistant tray
+assistant
 ```
 
-Running `assistant` with no subcommand also starts the tray UI.
+Running `assistant` starts the tray UI.
 
-Voice listening mode (tray):
+Optional connection overrides:
 
 ```bash
-assistant tray --listening-mode wait
+assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
-
-Valid modes: `none`, `stop`, `wait`, `full`, `ptt`.
 
 ### CLI (single agentic turn)
 
@@ -344,33 +376,40 @@ Valid modes: `none`, `stop`, `wait`, `full`, `ptt`.
 assistant run --prompt "What is in this repo and where do I start?"
 ```
 
-Override provider/model:
-
-```bash
-assistant --provider ollama --model qwen3:4b-instruct run --prompt "Summarize my last changes"
-```
-
-Select agent kind (CLI only):
-
-```bash
-assistant --agent codeact run --prompt "Refactor this function safely"
-```
-
 Defaults:
-- Tray UI defaults come from `config.toml` (or built-in defaults). By default: provider `lmstudio`, model `qwen/qwen3-next-80b`.
-- CLI `run` defaults to provider `ollama`, model `qwen3:4b-instruct`, agent `react`.
+- Tray UI defaults to gateway mode at `http://127.0.0.1:8080`.
+- Provider and model lists in the tray UI are discovered from the gateway.
+- The tray remembers the last selected provider/model in session state.
+- Workflow selection comes from the gateway bundle catalog.
 
-Tip: global flags (like `--provider`, `--model`, `--agent`, `--data-dir`) go **before** the subcommand.
+### Gateway mode
+
+AbstractAssistant talks to AbstractGateway by default at `http://127.0.0.1:8080`.
+
+Use the same bearer token for both processes, and make sure the gateway loads workflow bundles:
+
+```bash
+export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
+export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
+abstractgateway serve --host 127.0.0.1 --port 8080
+assistant
+```
+
+Optional gateway URL override:
+
+```bash
+export ABSTRACTGATEWAY_URL="http://127.0.0.1:9090"
+assistant
+```
+
+If `ABSTRACTGATEWAY_URL` is unset, AbstractAssistant defaults to `http://127.0.0.1:8080`.
+If `ABSTRACTGATEWAY_AUTH_TOKEN` is unset, startup fails with a clear error telling you to export it or pass `--gateway-token`.
+
+If you launch `abstractgateway` from the monorepo root without setting `ABSTRACTGATEWAY_FLOWS_DIR`, its default `./flows` may be empty. In that case provider/model discovery can work while workflow discovery still fails because the gateway has no loaded agent bundles.
 
 ## Providers (local vs cloud)
 
-AbstractAssistant delegates provider access to **AbstractCore**.
-
-- Local providers:
-  - **Ollama**: ensure the daemon is running, then use `--provider ollama`
-  - **LMStudio**: enable the local server, then use `--provider lmstudio`
-- Cloud providers:
-  - set API keys via environment variables (for example `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
+In gateway mode, provider and model discovery come from the gateway. Configure LM Studio, Ollama, OpenAI, Anthropic, and any other providers on the gateway side; the tray app only needs to reach the gateway itself.
 
 ## Tool approvals (safety boundary)
 
@@ -384,7 +423,6 @@ Evidence in code:
 
 CLI:
 - prompts interactively when a tool batch requires approval
-- `--approve-all-tools` auto-approves all tool calls (dangerous)
 
 Tray UI:
 - “Tools” lets you choose **All tools** vs a **Custom allowlist**
@@ -416,23 +454,20 @@ The tray UI supports multiple sessions and persists them under your data directo
 
 Evidence: `abstractassistant/core/session_index.py`, `abstractassistant/core/session_store.py`
 
-## Configuration
+## Environment
 
-Tray mode can load an optional `config.toml`:
-- pass explicitly: `assistant --config /path/to/config.toml tray`
-- auto-discovery: `config.toml` in current directory, then in the package directory
+Tray mode is environment-driven:
+- `ABSTRACTGATEWAY_URL` for the gateway base URL
+- `ABSTRACTGATEWAY_AUTH_TOKEN` for gateway auth
 
-Common keys (evidence: `abstractassistant/config.py`):
+Optional assistant CLI overrides:
+- `--gateway-url`
+- `--gateway-token`
 
-```toml
-[llm]
-default_provider = "lmstudio"
-default_model = "qwen/qwen3-next-80b"
-max_tokens = 32000
-temperature = 0.7
-```
+Provider settings stay on the gateway side:
+- provider-specific credentials and base URLs belong to the gateway process, not the tray app
 
-Note: `assistant run` currently uses CLI defaults and flags; it does not read `config.toml`.
+There is no versioned `config.toml` in the repo for tray startup anymore.
 
 ## Data directory
 
@@ -441,18 +476,18 @@ By default, state is stored in `~/.abstractassistant/`:
 - `sessions.json`: session registry + active session id
 - `runtime/`: AbstractRuntime stores (durability source of truth)
 
-Override with:
-
-```bash
-assistant --data-dir /path/to/dir tray
-```
-
 ## Troubleshooting
 
 - Tray fails to start: reinstall: `pip install --upgrade "abstractassistant"`.
+- Gateway discovery shows only one provider or a single configured model:
+  - ensure `assistant` and `abstractgateway` were launched with the same `ABSTRACTGATEWAY_AUTH_TOKEN`
+  - if you previously sent the wrong token, wait for the gateway auth lockout to expire, then relaunch the assistant
+- Gateway reports no agent entrypoints:
+  - ensure the gateway loads bundles via `ABSTRACTGATEWAY_FLOWS_DIR`
+  - for this monorepo checkout, `export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"` is the expected local-dev setting
 - Provider errors:
-  - local: ensure LMStudio/Ollama is running
-  - cloud: ensure API keys are set
+  - verify gateway-side provider configuration and credentials
+  - verify the gateway itself can reach the provider
 - Microphone hears nothing (macOS): System Settings → Privacy & Security → Microphone → enable access for AbstractAssistant, then restart.
 - Reset state: use “Clear” in the UI, or delete your data dir (`~/.abstractassistant/` by default).
 
@@ -480,37 +515,26 @@ Help:
 
 ```bash
 assistant --help
-assistant tray --help
 assistant run --help
 ```
 
 ### Global options
 
 Defined in `abstractassistant/cli.py`:
-- `--config PATH` (tray only): config file path (TOML)
-- `--provider ID`: provider id (examples: `ollama`, `lmstudio`, `openai`, `anthropic`)
-- `--model NAME`: model id/name for the provider
-- `--agent react|codeact|memact` (CLI only): agent kind
-- `--data-dir DIR`: where sessions/runtime are stored (default `~/.abstractassistant/`)
-- `--workspace-root DIR` (CLI only): workspace root for tool/attachment scoping
-- `--debug`: verbose logs
+- `--gateway-url URL`: optional gateway base URL override
+- `--gateway-token TOKEN`: optional gateway auth token override
 
-Note: these options must appear **before** the subcommand (for example `assistant --provider ollama run --prompt ...`).
+Run-specific options:
+- `--prompt TEXT`: user prompt text
+
+Note: global options appear before the subcommand.
 
 Examples:
 
 ```bash
-assistant --provider ollama --model qwen3:4b-instruct run --prompt "Summarize this repo"
-assistant --debug tray --listening-mode wait
-assistant --config ./config.toml tray
+assistant run --prompt "Summarize this repo"
+assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN" run --prompt "Summarize this repo"
 ```
-
-### `assistant tray`
-
-Runs the menu bar / system tray app.
-
-Options:
-- `--listening-mode none|stop|wait|full|ptt`
 
 ### `assistant run`
 
@@ -519,9 +543,13 @@ Runs a single agentic turn in the terminal.
 Required:
 - `--prompt TEXT`
 
+Gateway behavior:
+- provider/model come from gateway discovery or the cached session selection
+- workflow selection comes from the gateway bundle catalog
+- if the gateway exposes no `abstractcode.agent.v1` entrypoint, configure workflow bundles on the gateway side, typically via `ABSTRACTGATEWAY_FLOWS_DIR`
+
 Tool approvals:
-- prompts when a tool batch requires approval (see `abstractassistant/core/tool_policy.py`)
-- `--approve-all-tools` disables approvals (dangerous)
+- prompts when a tool batch requires approval
 
 ## Programmatic API (Python)
 
@@ -598,12 +626,21 @@ Files under the data dir:
 - `session.json`: transcript snapshot + ids (+ last run id)
 - `sessions.json`: registry of sessions + active session id
 
-### `Config` (`config.toml`)
+### Environment-driven tray config
 
 Evidence: `abstractassistant/config.py`
 
-The tray UI can load a TOML config file into `Config` and uses it for defaults
-(theme, default provider/model, token limits, shortcut, etc.).
+The tray UI is gateway-first and resolves connection settings from environment variables.
+
+Gateway settings:
+- `ABSTRACTGATEWAY_URL` (default `http://127.0.0.1:8080`)
+- `ABSTRACTGATEWAY_AUTH_TOKEN`
+
+Equivalent assistant CLI overrides:
+- `--gateway-url`
+- `--gateway-token`
+
+Provider/model/workflow inventory is discovered from the gateway. The tray app does not keep a built-in provider/model or workflow default; it only persists the last selected provider/model/workflow in session state.
 
 ## Related docs
 
@@ -613,216 +650,86 @@ The tray UI can load a TOML config file into `Config` and uses it for defaults
 --- docs/architecture.md ---
 # Architecture
 
-AbstractAssistant is a local **agent host**: it exposes a tray UI and a CLI and runs
-**AbstractAgent + AbstractRuntime locally**, using **AbstractCore** for provider/tool/media schemas.
+AbstractAssistant is a gateway-first thin client. It renders tray/CLI UX locally, but workflow execution, provider access, and durable run state live in AbstractGateway.
 
 See also:
-- [README.md](README.md) (docs hub)
-- [api.md](api.md) (CLI + programmatic API)
-- [getting-started.md](getting-started.md) (user guide)
+- [README.md](README.md)
+- [getting-started.md](getting-started.md)
+- [api.md](api.md)
 
 ## High-level diagram
 
 ```mermaid
 flowchart LR
   subgraph Frontends
-    Tray[Tray UI\\npystray + Qt bubble]
-    CLI[CLI\\nassistant run / tray]
+    Tray[Tray UI\\nQt + pystray]
+    CLI[CLI\\nassistant / assistant run]
   end
 
-  Tray --> Host
-  CLI --> Host
+  Tray --> Client
+  CLI --> Client
 
-  Host[AgentHost\\nabstractassistant/core/agent_host.py] --> Agent[AbstractAgent\\nReact / CodeAct / MemAct]
-  Agent --> RT[AbstractRuntime\\nfile-backed stores]
-  RT --> Core[AbstractCore integration\\nproviders + tool/media schemas]
-
-  RT --> Wait[Durable wait\\nTOOL_CALLS / ASK_USER]
-  Wait --> HostExec[Host-held tool executor\\nMappingToolExecutor]
-  HostExec --> RT
-
-  Core --> Providers[Providers\\nOllama / LMStudio / OpenAI / Anthropic / ...]
+  Client[Gateway client\\nHTTP + SSE] --> Gateway[AbstractGateway]
+  Gateway --> Runtime[AbstractRuntime\\ndurable runs + ledger + waits]
+  Runtime --> Core[AbstractCore\\nproviders + tool/media schemas]
+  Core --> Providers[LM Studio / Ollama / OpenAI / Anthropic / ...]
 ```
 
-## Goals
+## Responsibilities
 
-- One-click access (tray) to a capable agent.
-- Durable execution (runs survive restarts; waits are explicit).
-- Safe tool execution: tools are never persisted as callables in run state; the host executes them only after approval.
-- Optional voice (STT/TTS) at runtime (voice dependencies are included in the default install).
+- AbstractAssistant:
+  - connects to the gateway
+  - renders providers/models/workflows discovered from the gateway
+  - persists only local session UI state, cached selections, and downloaded artifacts
+  - surfaces approval and ask-user waits, then resumes them through gateway commands
 
-## What “durable tool execution” means here
+- AbstractGateway:
+  - loads workflow bundles
+  - exposes workflow/provider/model/tool discovery
+  - starts and resumes durable runs
+  - talks to providers through AbstractCore
 
-Durability requires that tool calls are:
-1) written to durable state as **JSON tool-call specs** (name + arguments),
-2) surfaced as a **durable wait** (`TOOL_CALLS`),
-3) executed by a host-held executor **outside** of the provider call,
-4) and then resumed into the runtime with **JSON tool results**.
+## Workflow discovery
 
-AbstractAssistant follows this rule. It **does not** use AbstractCore’s legacy provider-side tool execution (`execute_tools=True`, deprecated).
+AbstractAssistant does not ship or choose workflow bundles itself.
 
-## Core modules
+Workflow availability comes from `GET /api/gateway/bundles`. For local development, the gateway must be started with a bundle directory such as:
 
-### Agent host (backend)
-
-`abstractassistant/core/agent_host.py` is the main backend. It:
-- creates a local runtime with file-backed stores (runs + ledger + artifacts)
-- constructs an agent (`ReactAgent`, `CodeActAgent`, or `MemActAgent`)
-- drives the agent tick loop until terminal state
-- handles waits:
-  - TOOL_CALLS waits: emits a `tool_request` event, executes approved tools via a host-held executor, then resumes the run
-  - ASK_USER waits: emits an `ask_user` event and resumes with user input
-
-Events are plain dicts intended to be consumed by any UI:
-- `status` (`thinking`, `executing_tools`, `ready`, …)
-- `tool_request` / `tool_result`
-- `ask_user`
-- `assistant` (final answer)
-- `error`
-
-### Runtime wiring (local, file-backed)
-
-`AgentHost` builds a local runtime via `abstractruntime.integrations.abstractcore.create_local_runtime(...)` with file-backed stores:
-- Run store (`JsonFileRunStore`)
-- Ledger store (`JsonlLedgerStore`)
-- Artifact store (`FileArtifactStore`)
-
-The runtime is configured with:
-- `PassthroughToolExecutor(mode="approval_required")` so `TOOL_CALLS` produces a **durable wait**.
-- A host-held `MappingToolExecutor.from_tools(...)` that executes approved tool calls and returns tool results.
-
-### Session snapshot (fast UI state)
-
-`abstractassistant/core/session_store.py` persists a small `session.json` snapshot:
-- `session_id` / `actor_id`
-- transcript messages
-- `last_run_id`
-
-This is a UX optimization only: the runtime stores remain the durability source of truth.
-
-### Tool approval policy
-
-`abstractassistant/core/tool_policy.py` defines the default “safe auto-approve” vs “requires approval” sets. UIs can:
-- auto-approve safe/read-only batches,
-- prompt for approval on destructive/unknown batches,
-- optionally maintain a session-scoped allowlist.
-
-## Durability model
-
-By default, state is stored under `~/.abstractassistant/`.
-
-Notes:
-- Both `assistant` and `abstractassistant` accept `--data-dir` (as a global flag, before the subcommand).
-  - `assistant --data-dir ~/.abstractassistant tray`
-  - `assistant --data-dir ~/.abstractassistant run --prompt "Hello"`
-- Default remains `~/.abstractassistant/`.
-
-```
-~/.abstractassistant/
-  sessions.json
-  session.json
-  runtime/
-    *.json   (run store)
-    *.jsonl  (ledger)
-    ...      (artifacts)
-  sessions/
-    <session_id>/
-      session.json
-      runtime/
-        *.json
-        *.jsonl
-        ...
+```bash
+export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
 ```
 
-Durability is provided by AbstractRuntime:
-- every run has a durable state machine (`RUNNING` → `WAITING` → `COMPLETED`/`FAILED`)
-- waits are explicit (`TOOL_CALLS`, `ASK_USER`, …) and resumable
-- a ledger records effect execution for replay/observability
+If the gateway exposes no `abstractcode.agent.v1` entrypoints, the assistant cannot start a run.
 
-## Tool execution boundary
+## Session state
 
-AbstractAssistant follows the framework’s “durable tool execution” rule:
+Local state is stored under `~/.abstractassistant/` and is limited to client-side concerns:
+- session transcript snapshots
+- last selected provider/model/workflow per session
+- last seen run id
+- downloaded artifacts and local UI cache
 
-- The runtime is configured with a `PassthroughToolExecutor(mode="approval_required")`.
-  - Result: a TOOL_CALLS effect produces a durable wait that contains only JSON tool-call specs.
-- The host holds the real callables via `MappingToolExecutor.from_tools(...)`.
-- After approval, the host executes the tool batch and resumes the run with tool results:
-  - `Runtime.resume(workflow=..., run_id=..., wait_key=..., payload=tool_results)`
-
-This ensures:
-- no Python callables end up persisted in `RunState.vars`
-- pending tool work can be resumed after restarts
-- the UI can always show “what is about to happen” before it happens
-
-### Why you might see “tool execution disabled” logs
-
-AbstractCore providers have a legacy mode where the **provider** executes tools (`execute_tools=True`, deprecated). In agentic/runtime hosts (AbstractAssistant), provider-side tool execution is intentionally disabled:
-- the provider still receives tool *schemas* (so the model can emit tool calls),
-- but it returns tool calls without executing them,
-- and the runtime/host executes them durably (as described above).
-
-So “tool execution disabled” refers to **provider-side** tool execution, not “tools are off”.
-
-## UI integration (Qt/tray)
-
-The tray UI uses a worker thread to keep Qt responsive:
-- `abstractassistant/ui/qt_bubble.py` uses `AgentWorker` (a `QThread`) to drive `AgentHost.run_turn(...)`
-- tool approvals are handled on the main thread via a modal approval dialog
-- ASK_USER waits are handled via a simple input prompt
-
-## Voice integration
-
-Voice features are included in the default install (`pip install abstractassistant`):
-- `abstractassistant/core/tts_manager.py` wraps `abstractvoice.VoiceManager`
-- the tray UI can run:
-  - TTS for assistant outputs
-  - Full Voice Mode: STT transcriptions routed into the same agentic send pipeline
-
-Voice is still optional at runtime: users can keep it off, and `assistant --help` / headless usage should avoid importing GUI/audio stacks for fast startup.
+The durability source of truth for execution remains the gateway ledger and run stores.
 
 ## Entry points
 
-- CLI: `abstractassistant/cli.py`
-  - `assistant tray`
-  - `assistant run --prompt ...` (interactive tool approvals in terminal)
-- Tray app: `abstractassistant/app.py` (pystray + Qt)
+- `assistant`
+- `abstractassistant`
+- `assistant run --prompt "..."`
 
-## Ecosystem positioning
+Optional assistant-side overrides:
+- `--gateway-url`
+- `--gateway-token`
 
-AbstractAssistant is part of the **AbstractFramework** ecosystem:
-- https://github.com/lpalbou/AbstractFramework
-- core components used directly in this repo:
-  - **AbstractCore**: https://github.com/lpalbou/abstractcore
-  - **AbstractRuntime**: https://github.com/lpalbou/abstractruntime
+## Tool approval path
 
-## Notes / current boundaries
+Tool execution is gateway-driven and wait-based:
+1. a workflow emits a tool-approval wait on the gateway
+2. AbstractAssistant shows the approval UI
+3. AbstractAssistant submits a durable `resume` command
+4. the gateway continues the run
 
-- The tray UI currently drives `ReactAgent` via `abstractassistant/core/llm_manager.py`.
-- CLI can select `--agent react|codeact|memact` (see `abstractassistant/cli.py`).
-
-## Install
-
-`pip install abstractassistant` installs the tray UI plus voice/media/provider/tool integrations by default.
-
-## Comparison: AbstractAssistant vs AbstractCode Web (thin client)
-
-AbstractAssistant is a **local host** (runs agent + runtime locally).
-AbstractCode Web is a **gateway-first thin client** (browser UI only) in the AbstractFramework repository:
-https://github.com/lpalbou/AbstractFramework (see `abstractcode/web/` there).
-
-| Concern | AbstractAssistant (this repo) | AbstractCode Web (in AbstractFramework) |
-|---|---|---|
-| Agent execution | Local process (`abstractagent`) | Remote (behind `abstractgateway`) |
-| Runtime execution | Local (`abstractruntime`, file-backed stores) | Remote (gateway exposes run APIs + ledger) |
-| Tool execution | Local host executes tools after a durable `TOOL_CALLS` wait | Browser does not execute tools; it submits approvals/commands to gateway |
-| Durability location | Local disk (`~/.abstractassistant/runtime/`) | Gateway stores (server-side) |
-| UI rendering | Events from `AgentHost.run_turn(...)` | Ledger replay/stream (SSE) from gateway |
-| Offline/local-model | Possible (e.g. LMStudio/Ollama) | Not by itself; requires gateway connectivity |
-
-Code references:
-- AbstractAssistant local host: `abstractassistant/core/agent_host.py`
-- AbstractCode Web thin client:
-  - repository: https://github.com/lpalbou/AbstractFramework
+The assistant never bypasses gateway durability for tool execution.
 
 --- docs/faq.md ---
 # FAQ
@@ -835,7 +742,7 @@ See also:
 
 ## What is AbstractAssistant?
 
-A macOS-first tray app and CLI that hosts a **local, durable agent**. It uses:
+A macOS-first tray app and CLI that runs **gateway-first** (thin client). It uses:
 - **AbstractAgent** for agent loops
 - **AbstractRuntime** for durable runs and resumable waits
 - **AbstractCore** for provider/tool/media schemas
@@ -851,13 +758,13 @@ Yes. AbstractAssistant is a component in the AbstractFramework ecosystem:
 
 ## Does it run locally / offline?
 
-The host runs locally. Whether it works offline depends on the provider:
+The UI runs locally. Whether responses work offline depends on the provider behind the gateway:
 - local providers (Ollama / LMStudio): can be offline (no cloud call)
 - cloud providers (OpenAI / Anthropic): require network and API keys
 
 ## Where is my data stored?
 
-By default: `~/.abstractassistant/` (override with `--data-dir`).
+By default: `~/.abstractassistant/`.
 
 Evidence: `abstractassistant/core/agent_host.py`, `abstractassistant/core/session_index.py`
 
@@ -871,7 +778,6 @@ Evidence: `abstractassistant/core/tool_policy.py`
 
 CLI:
 - prompts in the terminal
-- `--approve-all-tools` disables the boundary (dangerous)
 
 Tray UI:
 - use “Tools” to set a per-session allowlist and default approval mode
@@ -881,6 +787,93 @@ Tray UI:
 Yes:
 - tray UI: switch to a custom tool allowlist and select none (or only safe tools)
 - programmatic: pass `allowed_tools=[]` to `AgentHost.run_turn(...)`
+
+## Why was a file write blocked in gateway mode?
+
+Gateway workspace policies limit where tools can write. If you see a tool result
+error mentioning the workspace/root path, ensure your target path is inside the
+gateway workspace, or configure:
+
+- `ABSTRACTGATEWAY_WORKSPACE_DIR`
+- `ABSTRACTGATEWAY_WORKSPACE_MOUNTS`
+
+The tray UI will surface a hint in the tool result bubble when this happens.
+
+## Where do artifact downloads go?
+
+Artifact downloads are cached under:
+
+- `~/.abstractassistant/artifacts/`
+
+## How does voice work in gateway mode?
+
+When `gateway.use_gateway=true`, TTS and STT are routed through the gateway
+audio endpoints (`/voice/tts`, `/audio/transcribe`). The client still needs a
+local recorder and player; if those are unavailable, the UI will emit a
+`#FALLBACK` warning and disable the affected control.
+
+## Why do I only see one provider or no LM Studio models?
+
+In gateway mode, provider and model lists come from the gateway discovery endpoints, not from the local tray app.
+
+If the assistant cannot authenticate to the gateway, discovery fails and provider/model discovery is rejected. Use the same shared token in both processes:
+
+```bash
+export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
+abstractgateway serve --host 127.0.0.1 --port 8080
+assistant
+```
+
+If you sent the wrong token repeatedly, the gateway will temporarily return `429 Too Many Requests (auth lockout)`. Wait for the lockout window to expire, then relaunch the assistant with the correct token.
+
+AbstractAssistant tray startup is environment-driven. Use:
+- `ABSTRACTGATEWAY_URL` when the gateway is not on `http://127.0.0.1:8080`
+- `ABSTRACTGATEWAY_AUTH_TOKEN` for the shared bearer token
+
+Equivalent optional CLI flags:
+- `--gateway-url`
+- `--gateway-token`
+
+There is no versioned tray `config.toml` for secrets.
+
+## Why do I see `Gateway exposes no abstractcode.agent.v1 entrypoints`?
+
+Because workflow discovery comes from the gateway too.
+
+If the gateway starts without any loaded `.flow` bundles, provider/model discovery can still work while workflow discovery fails. For local development in this monorepo, launch the gateway with:
+
+```bash
+export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
+abstractgateway serve --host 127.0.0.1 --port 8080
+```
+
+`abstractassistant` does not choose or load bundles itself. The gateway must expose at least one `abstractcode.agent.v1` entrypoint.
+
+## Where should provider settings like LM Studio live?
+
+On the gateway side.
+
+AbstractAssistant only needs:
+- the gateway URL
+- the shared gateway auth token
+
+Provider-specific settings such as LM Studio base URL, Ollama host, or cloud API keys belong to the gateway / AbstractCore environment, not the tray app.
+
+## Does the tray app keep a local provider/model default?
+
+No.
+
+The tray app uses gateway discovery to populate the provider/model lists and only caches the last selected provider/model in session state so it can restore your last choice.
+
+## How do I select a gateway workflow?
+
+Use the **Workflow** dropdown in the tray UI. Selection is saved per session
+and sent with each run via `bundle_id` + `flow_id`.
+
+## Why does the status show OFFLINE?
+
+The gateway is unreachable or restarting. The UI will retry with backoff and
+you can use **Reconnect gateway** from the menu to force a refresh.
 
 ## How do attachments work?
 
@@ -901,9 +894,7 @@ Start with:
 
 ## Which agent loops are supported?
 
-The backend supports `react`, `codeact`, and `memact` (AbstractAgent).
-- CLI can select via `--agent`
-- tray UI currently drives `react`
+The gateway-backed workflows can use whatever agent loop the selected workflow defines.
 
 Evidence: `abstractassistant/core/agent_host.py`, `abstractassistant/cli.py`, `abstractassistant/core/llm_manager.py`
 
@@ -1106,6 +1097,35 @@ SOFTWARE.
 # Changelog
 
 All notable changes to AbstractAssistant will be documented in this file.
+
+## [0.4.6] - 2026-05-26
+
+### Changed
+- Raised dependency floors to Agent `>=0.3.8`, Core `>=2.13.28`, and Voice `>=0.10.16` so Gateway-mode media settings inherit the latest provider/model/voice catalog contracts.
+
+## [0.4.5] - 2026-05-13
+
+### Fixed
+- Media settings now force-refresh Gateway catalogs when opened and include cloned voices alongside provider profiles in the Voice selector.
+- Gateway voice discovery now reads the concrete voice catalog route first, deduping profiles, hosted voices, and cloned voices before falling back to capability contracts.
+- The media selector now shows a visible catalog error note instead of silently presenting only defaults when Gateway media discovery fails.
+
+### Changed
+- Dependency floors now require Core `>=2.13.14` and Voice `>=0.9.4`.
+
+
+## [0.4.4] - 2026-05-12
+
+### Added
+- Media settings now include separate Voice, TTS, STT, and Image selectors populated from Gateway catalog routes.
+- Gateway client support for `/api/gateway/audio/transcriptions/models`.
+
+### Fixed
+- Generated image messages now render real thumbnails in chat history instead of placeholder icons when the gateway returns image artifacts.
+- Media selector parsing now accepts Gateway/Core catalog shapes (`models`, `data`, `tts_models`, `stt_models`, active model fields, voice profiles, and cached/provider image models) and preserves persisted selections.
+
+### Changed
+- Dependency floors now require Core `>=2.13.13` and Voice `>=0.9.3`.
 
 ## [0.4.0]
 
@@ -1365,7 +1385,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.4.2"
+version = "0.4.6"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -1389,12 +1409,10 @@ classifiers = [
 
 dependencies = [
     # Base install is fully-featured (voice + media + provider/tool integrations).
-    "abstractagent>=0.3.1",
-    "abstractvoice>=0.6.3",
+    "abstractagent>=0.3.8",
+    "abstractvoice>=0.10.16",
     # Provider/client extras (avoid GPU-only stacks like vLLM by default).
-    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.11.8",
-    "tomli>=2.0.0; python_version<'3.11'",
-    "tomli-w>=1.0.0",
+    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.13.28",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
@@ -1406,11 +1424,27 @@ dependencies = [
     # UX helpers
     "pyperclip>=1.8.2",
     "plyer>=2.1.0",
+    # webrtcvad (via abstractvoice) depends on pkg_resources at import time;
+    # pkg_resources remains available through setuptools 80.x and disappears in 81+.
+    "setuptools>=61.0,<81",
 ]
 
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
-all = []  # Back-compat alias (base install already includes everything).
+voice = [
+    "abstractvoice[audio-io,stt]>=0.10.16",
+]
+apple = [
+    "abstractcore[all-apple]>=2.13.28",
+    "abstractvoice[all-apple]>=0.10.16",
+]
+gpu = [
+    "abstractcore[all-gpu]>=2.13.28",
+    "abstractvoice[all-gpu]>=0.10.16",
+]
+all = [
+    "abstractvoice[audio-io,stt]>=0.10.16",
+]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
     "black>=23.0.0",
@@ -1455,32 +1489,6 @@ markers = [
     "e2e: Level C (end-to-end/real infra) tests (opt-in)",
 ]
 
---- config.toml ---
-# AbstractAssistant Configuration
-
-[ui]
-theme = "dark"  # dark, light, system
-bubble_size_ratio = 0.167  # 1/6th of screen
-auto_hide_delay = 8  # seconds for toast notifications
-always_on_top = true
-
-[llm]
-default_provider = "lmstudio"
-default_model = "qwen/qwen3-next-80b"
-max_tokens = 128000
-temperature = 0.7
-
-[system_tray]
-icon_size = 64  # pixels
-show_notifications = true
-
-[shortcuts]
-show_bubble = "cmd+shift+a"  # Global hotkey to show chat bubble
-
-# API Keys should be set via environment variables:
-# OPENAI_API_KEY=your_key_here
-# ANTHROPIC_API_KEY=your_key_here
-
 --- abstractassistant/cli.py ---
 #!/usr/bin/env python3
 """CLI entry point for AbstractAssistant.
@@ -1493,8 +1501,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -1503,53 +1512,204 @@ def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=prog, description="AbstractAssistant (agentic tray + CLI)")
     
     parser.add_argument("--version", action="version", version="abstractassistant (agentic) v1")
-    
-    parser.add_argument("--config", type=str, default=None, help="Path to config.toml (optional)")
-    parser.add_argument("--provider", type=str, default=None, help="LLM provider id (e.g. ollama, lmstudio, openai)")
-    parser.add_argument("--model", type=str, default=None, help="Model name/id for the provider")
-    parser.add_argument("--agent", type=str, default=None, choices=["react", "codeact", "memact"], help="Agent kind")
-    parser.add_argument("--data-dir", type=str, default=None, help="Assistant data dir (runtime stores + session)")
-    parser.add_argument("--workspace-root", type=str, default=None, help="Workspace root for filesystem-ish tools")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    
-    sub = parser.add_subparsers(dest="command")
-    
-    tray = sub.add_parser("tray", help="Run the macOS tray app")
-    tray.add_argument(
-        "--listening-mode",
+    parser.add_argument(
+        "--gateway-url",
         type=str,
-        choices=["none", "stop", "wait", "full", "ptt"],
-        default="wait",
-        help="Voice listening mode",
+        default=None,
+        help="Optional AbstractGateway base URL override",
     )
+    parser.add_argument(
+        "--gateway-token",
+        type=str,
+        default=None,
+        help="Optional AbstractGateway bearer token override",
+    )
+
+    sub = parser.add_subparsers(dest="command")
 
     run = sub.add_parser("run", help="Run one agentic turn in the terminal")
     run.add_argument("--prompt", type=str, required=True, help="User prompt text")
-    run.add_argument("--approve-all-tools", action="store_true", help="Auto-approve all tool calls (dangerous)")
     
     return parser
 
 
-def find_config_file(config_path: Optional[str] = None) -> Optional[Path]:
-    """Find the configuration file."""
-    if config_path:
-        config_file = Path(config_path)
-        if config_file.exists():
-            return config_file
-        else:
-            print(f"Warning: Config file '{config_path}' not found.")
-            return None
-    
-    # Look for config.toml in current directory, then package directory
-    current_dir = Path.cwd()
-    package_dir = Path(__file__).parent.parent
-    
-    for directory in [current_dir, package_dir]:
-        config_file = directory / "config.toml"
-        if config_file.exists():
-            return config_file
-    
-    return None
+def _build_config_from_args(args: argparse.Namespace):
+    from .config import Config, resolve_gateway_connection
+
+    gateway_url, gateway_auth_token = resolve_gateway_connection(
+        url_override=getattr(args, "gateway_url", None),
+        auth_token_override=getattr(args, "gateway_token", None),
+        require_auth_token=True,
+    )
+    gateway_data: Dict[str, Any] = {"url": gateway_url, "auth_token": gateway_auth_token}
+    return Config.from_dict({"gateway": gateway_data})
+
+
+def _format_tool_arguments(arguments: Any) -> str:
+    return str(arguments if arguments is not None else "")
+
+
+def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
+    print("\nTool approval required:")
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        name = str(tc.get("name") or "").strip() or "<unknown>"
+        arguments = _format_tool_arguments(tc.get("arguments"))
+        print(f"- {name}({arguments})")
+    ans = input("Approve this batch? [y/N] ").strip().lower()
+    return ans in {"y", "yes"}
+
+
+def _run_gateway_command(args: argparse.Namespace) -> int:
+    from .core.gateway_selection_store import GatewaySelection
+    from .core.llm_manager import LLMManager
+    from .gateway import GatewayEventAdapter, build_run_input_data, prepare_session_prompt_cache, select_agent_template
+    from .gateway.history_seed import seed_messages_from_history_bundle
+    from .gateway.run_controller import GatewayRunController
+
+    config = _build_config_from_args(args)
+    llm_manager = LLMManager(config=config, debug=False, data_dir=None)
+    gateway = llm_manager.gateway_client()
+    if gateway is None:
+        raise RuntimeError("Gateway client is not configured")
+
+    selection_store = llm_manager.gateway_selection_store()
+    selection = selection_store.load()
+
+    bundle_id = (selection.bundle_id if selection else "") or str(config.gateway.bundle_id or "").strip()
+    flow_id = (selection.flow_id if selection else "") or str(config.gateway.flow_id or "").strip()
+    provider = selection.provider if selection else ""
+    model = selection.model if selection else ""
+
+    llm_manager.append_message(role="user", content=args.prompt)
+    input_data = build_run_input_data(
+        prompt=args.prompt,
+        provider=provider,
+        model=model,
+        messages=llm_manager.session_messages(),
+    )
+
+    entry = select_agent_template(
+        bundles_response=gateway.list_bundles(),
+        bundle_id=bundle_id,
+        flow_id=flow_id,
+    )
+    prepare_session_prompt_cache(
+        gateway=gateway,
+        session_id=llm_manager.active_session_id,
+        provider=provider,
+        model=model,
+        bundle_id=entry["bundle_id"],
+        flow_id=entry["flow_id"],
+        template_id=f"{entry['bundle_id']}:{entry['flow_id']}",
+        input_data=input_data,
+    )
+    run_id = gateway.start_run(
+        flow_id=entry["flow_id"],
+        input_data=input_data,
+        bundle_id=entry["bundle_id"],
+        session_id=llm_manager.active_session_id,
+    )
+    llm_manager.set_last_run_id(run_id)
+
+    adapter = GatewayEventAdapter()
+    controller = GatewayRunController(gateway=gateway, debug=False)
+    final = ""
+
+    def _submit_resume(*, active_run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
+        gateway.submit_command(
+            command={
+                "command_id": f"resume_{int(time.time() * 1000)}",
+                "run_id": str(active_run_id),
+                "type": "resume",
+                "payload": {"wait_key": wait_key, "payload": payload},
+                "client_id": "abstractassistant-cli",
+            }
+        )
+
+    def _on_record(active_run_id: str, rec: Dict[str, object]) -> None:
+        nonlocal final
+        for ev in adapter.handle_record(rec):
+            if not isinstance(ev, dict):
+                continue
+            typ = str(ev.get("type") or "").strip()
+            if typ == "assistant":
+                content = str(ev.get("content") or "")
+                if content.strip() and ev.get("final"):
+                    final = content
+                continue
+            if typ == "tool_request":
+                wait_key = str(ev.get("wait_key") or "").strip()
+                if not wait_key:
+                    continue
+                tool_calls = ev.get("tool_calls")
+                approved = _approve_tool_batch(tool_calls if isinstance(tool_calls, list) else [])
+                payload: Dict[str, Any] = {"approved": approved}
+                if not approved:
+                    payload["reason"] = "Denied by user"
+                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload=payload)
+                continue
+            if typ == "ask_user":
+                wait_key = str(ev.get("wait_key") or "").strip()
+                if not wait_key:
+                    continue
+                prompt = str(ev.get("prompt") or "Input required:").strip() or "Input required:"
+                response = input(f"\n{prompt}\n> ").strip()
+                _submit_resume(active_run_id=active_run_id, wait_key=wait_key, payload={"response": response})
+                continue
+            if typ == "error":
+                raise RuntimeError(str(ev.get("error") or "Gateway run failed"))
+
+    controller.follow_run(
+        root_run_id=run_id,
+        on_record=_on_record,
+        should_stop=lambda: False,
+    )
+
+    status = str(controller.get_run_status(run_id=run_id) or "").strip().lower()
+    if status in {"failed", "cancelled"} and not final:
+        raise RuntimeError(f"Gateway run ended with status '{status}'")
+
+    try:
+        bundle = gateway.get_run_history_bundle(
+            run_id=run_id,
+            include_subruns=True,
+            include_session=True,
+            session_turn_limit=200,
+            ledger_mode="tail",
+            ledger_max_items=2000,
+        )
+        messages = seed_messages_from_history_bundle(
+            bundle,
+            include_tool_calls_for_run_id=run_id,
+        )
+        if messages:
+            llm_manager.replace_gateway_messages(messages, last_run_id=run_id)
+            if not final:
+                for msg in reversed(messages):
+                    if not isinstance(msg, dict):
+                        continue
+                    if str(msg.get("role") or "") != "assistant":
+                        continue
+                    content = str(msg.get("content") or "")
+                    if content.strip():
+                        final = content
+                        break
+    except Exception:
+        pass
+
+    selection_store.save(
+        GatewaySelection(
+            bundle_id=entry["bundle_id"],
+            flow_id=entry["flow_id"],
+            provider=provider,
+            model=model,
+        )
+    )
+
+    print(final)
+    return 0
 
 
 def main() -> int:
@@ -1558,64 +1718,14 @@ def main() -> int:
     args = parser.parse_args()
     
     try:
-        command = args.command or "tray"
+        command = args.command or "app"
 
         if command == "run":
-            from .core.agent_host import AgentHost, AgentHostConfig
+            return _run_gateway_command(args)
 
-            provider = str(args.provider or "ollama")
-            model = str(args.model or "qwen3:4b-instruct")
-            agent_kind = str(args.agent or "react")
-            data_dir = Path(args.data_dir).expanduser() if args.data_dir else (Path.home() / ".abstractassistant")
-
-            host = AgentHost(
-                AgentHostConfig(
-                    provider=provider,
-                    model=model,
-                    agent_kind=agent_kind,
-                    data_dir=data_dir,
-                    workspace_root=args.workspace_root,
-                )
-            )
-
-            def _approve(tool_calls):
-                if args.approve_all_tools:
-                    return True
-                # Prompt for dangerous/unknown batches; safe-only batches auto-approve.
-                if not host.tool_policy.requires_approval(tool_calls):
-                    return True
-                print("\nTool approval required:")
-                for tc in tool_calls:
-                    name = tc.get("name")
-                    arguments = tc.get("arguments")
-                    print(f"- {name}({arguments})")
-                ans = input("Approve this batch? [y/N] ").strip().lower()
-                return ans in {"y", "yes"}
-
-            def _ask_user(wait):
-                prompt = str(getattr(wait, "prompt", "") or "Input required:")
-                return input(f"\n{prompt}\n> ").strip()
-
-            final = ""
-            for ev in host.run_turn(user_text=args.prompt, approve_tools=_approve, ask_user=_ask_user):
-                typ = ev.get("type")
-                if typ == "assistant":
-                    final = str(ev.get("content") or "")
-                if typ == "error":
-                    raise RuntimeError(str(ev.get("error") or "error"))
-            print(final)
-            return 0
-
-        # tray (default)
+        # app (default — tray UI)
         try:
-            from .config import Config  # lightweight
-
-            config_file = find_config_file(args.config)
-            config = Config.from_file(config_file) if config_file else Config.default()
-            if args.provider:
-                config.llm.default_provider = str(args.provider)
-            if args.model:
-                config.llm.default_model = str(args.model)
+            config = _build_config_from_args(args)
         except Exception:
             config = None
 
@@ -1630,9 +1740,9 @@ def main() -> int:
 
         app = AbstractAssistantApp(
             config=config,
-            debug=bool(args.debug),
-            listening_mode=str(getattr(args, "listening_mode", "wait")),
-            data_dir=Path(args.data_dir).expanduser() if getattr(args, "data_dir", None) else None,
+            debug=False,
+            listening_mode="wait",
+            data_dir=None,
         )
         app.run()
         return 0
@@ -1640,12 +1750,11 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n👋 AbstractAssistant stopped by user")
         return 0
+    except ValueError as e:
+        print(str(e))
+        return 2
     except Exception as e:
         print(f"❌ Error starting AbstractAssistant: {e}")
-        if getattr(args, "debug", False):
-            import traceback
-
-            traceback.print_exc()
         return 1
 
 
@@ -1654,28 +1763,61 @@ if __name__ == "__main__":
 
 --- abstractassistant/config.py ---
 """
-Configuration management for AbstractAssistant.
+Runtime configuration for AbstractAssistant.
 
-Handles loading and managing TOML configuration files with proper defaults
-and validation.
+Tray mode is gateway-first and resolves gateway connection settings from the
+environment. File-based `config.toml` loading is intentionally unsupported.
 """
 
-import sys
+from __future__ import annotations
+
+import os
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Tuple
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
-import tomli_w
+DEFAULT_GATEWAY_URL = "http://127.0.0.1:8080"
+
+
+def _env_first(*names: str) -> str:
+    for name in names:
+        value = str(os.getenv(name, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _gateway_url_from_env() -> str:
+    """Return the configured gateway URL, or the local default."""
+    return _env_first("ABSTRACTGATEWAY_URL", "ABSTRACTFLOW_GATEWAY_URL") or DEFAULT_GATEWAY_URL
+
+
+def _gateway_auth_token_from_env() -> str:
+    """Return the shared gateway auth token from the environment."""
+    return _env_first("ABSTRACTGATEWAY_AUTH_TOKEN", "ABSTRACTFLOW_GATEWAY_AUTH_TOKEN")
+
+
+def resolve_gateway_connection(
+    *,
+    url_override: str | None = None,
+    auth_token_override: str | None = None,
+    require_auth_token: bool = False,
+) -> Tuple[str, str]:
+    """Resolve gateway URL/token using CLI overrides first, then environment."""
+    gateway_url = str(url_override or "").strip().rstrip("/") or _gateway_url_from_env()
+    gateway_auth_token = str(auth_token_override or "").strip() or _gateway_auth_token_from_env()
+    if require_auth_token and not gateway_auth_token:
+        raise ValueError(
+            "AbstractAssistant requires gateway authentication. "
+            "Export ABSTRACTGATEWAY_AUTH_TOKEN or pass --gateway-token <token>."
+        )
+    return gateway_url or DEFAULT_GATEWAY_URL, gateway_auth_token
 
 
 @dataclass
 class UIConfig:
     """UI configuration settings."""
+
     theme: str = "dark"
     bubble_size_ratio: float = 0.167
     auto_hide_delay: int = 8
@@ -1684,47 +1826,95 @@ class UIConfig:
 
 @dataclass
 class LLMConfig:
-    """LLM configuration settings."""
-    default_provider: str = "lmstudio"
-    default_model: str = "qwen/qwen3-next-80b"
+    """Local-mode configuration settings."""
+
+    default_provider: str = ""
+    default_model: str = ""
     max_tokens: int = 32000
     temperature: float = 0.7
 
 
 @dataclass
+class GatewayConfig:
+    """Gateway configuration settings (thin-client mode)."""
+
+    url: str = field(default_factory=_gateway_url_from_env)
+    auth_token: str = field(default_factory=_gateway_auth_token_from_env)
+    use_gateway: bool = True
+    bundle_id: str = ""
+    flow_id: str = ""
+
+
+@dataclass
 class SystemTrayConfig:
     """System tray configuration settings."""
+
     icon_size: int = 64
     show_notifications: bool = True
+    animation_fps: int = 30
 
 
 @dataclass
 class ShortcutsConfig:
     """Keyboard shortcuts configuration."""
+
     show_bubble: str = "cmd+shift+a"
 
 
 @dataclass
 class Config:
-    """Main configuration class."""
+    """Main runtime configuration."""
+
     ui: UIConfig = field(default_factory=UIConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    gateway: GatewayConfig = field(default_factory=GatewayConfig)
     system_tray: SystemTrayConfig = field(default_factory=SystemTrayConfig)
     shortcuts: ShortcutsConfig = field(default_factory=ShortcutsConfig)
-    
+
     @classmethod
     def default(cls) -> "Config":
-        """Create a default configuration."""
-        return cls()
-    
+        """Create the default runtime configuration."""
+        return cls.from_dict({})
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Config":
-        """Create configuration from dictionary."""
+        """Create configuration from a dictionary."""
         ui_data = data.get("ui", {})
         llm_data = data.get("llm", {})
+        gateway_data = data.get("gateway", {})
         system_tray_data = data.get("system_tray", {})
+        animation_fps_raw = system_tray_data.get("animation_fps", 30)
+        animation_fps = 30
+        try:
+            animation_fps = int(animation_fps_raw)
+        except Exception:
+            print(f"#FALLBACK: invalid system_tray.animation_fps={animation_fps_raw}; using 30")
+            animation_fps = 30
+        if animation_fps < 10:
+            print(f"#FALLBACK: system_tray.animation_fps={animation_fps} too low; using 10")
+            animation_fps = 10
+        if animation_fps > 30:
+            print(f"#FALLBACK: system_tray.animation_fps={animation_fps} too high; using 30")
+            animation_fps = 30
         shortcuts_data = data.get("shortcuts", {})
-        
+
+        env_gateway_url = _env_first("ABSTRACTGATEWAY_URL", "ABSTRACTFLOW_GATEWAY_URL")
+        configured_gateway_url = str(gateway_data.get("url", "") or "").strip()
+        gateway_url, gateway_auth_token = resolve_gateway_connection(
+            url_override=configured_gateway_url or env_gateway_url,
+            auth_token_override=str(gateway_data.get("auth_token", "") or "").strip() or None,
+        )
+        raw_use_gateway = gateway_data.get("use_gateway", True)
+        use_gateway = bool(raw_use_gateway)
+        if isinstance(raw_use_gateway, str):
+            raw = raw_use_gateway.strip().lower()
+            if raw in {"true", "1", "yes", "y"}:
+                use_gateway = True
+            elif raw in {"false", "0", "no", "n"}:
+                use_gateway = False
+        if (env_gateway_url or configured_gateway_url) and not use_gateway:
+            print("#FALLBACK: gateway.url is set but use_gateway=false; enabling gateway mode")
+            use_gateway = True
         return cls(
             ui=UIConfig(
                 theme=ui_data.get("theme", "dark"),
@@ -1733,34 +1923,33 @@ class Config:
                 always_on_top=ui_data.get("always_on_top", True),
             ),
             llm=LLMConfig(
-                default_provider=llm_data.get("default_provider", "lmstudio"),
-                default_model=llm_data.get("default_model", "qwen/qwen3-next-80b"),
+                default_provider=str(llm_data.get("default_provider", "") or "").strip(),
+                default_model=str(llm_data.get("default_model", "") or "").strip(),
                 max_tokens=llm_data.get("max_tokens", 32000),
                 temperature=llm_data.get("temperature", 0.7),
+            ),
+            gateway=GatewayConfig(
+                url=gateway_url or DEFAULT_GATEWAY_URL,
+                auth_token=gateway_auth_token,
+                use_gateway=use_gateway,
+                bundle_id=str(gateway_data.get("bundle_id", "") or ""),
+                flow_id=str(gateway_data.get("flow_id", "") or ""),
             ),
             system_tray=SystemTrayConfig(
                 icon_size=system_tray_data.get("icon_size", 64),
                 show_notifications=system_tray_data.get("show_notifications", True),
+                animation_fps=animation_fps,
             ),
             shortcuts=ShortcutsConfig(
                 show_bubble=shortcuts_data.get("show_bubble", "cmd+shift+a"),
             ),
         )
-    
-    @classmethod
-    def from_file(cls, config_path: Path) -> "Config":
-        """Load configuration from TOML file."""
-        try:
-            with open(config_path, "rb") as f:
-                data = tomllib.load(f)
-            return cls.from_dict(data)
-        except Exception as e:
-            print(f"Warning: Failed to load config from {config_path}: {e}")
-            print("Using default configuration.")
-            return cls.default()
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert configuration to dictionary."""
+
+    def to_dict(self, *, redact_secrets: bool = True) -> Dict[str, Any]:
+        """Convert configuration to a dictionary."""
+        auth_token = str(self.gateway.auth_token or "")
+        if redact_secrets and auth_token:
+            auth_token = "<redacted>"
         return {
             "ui": {
                 "theme": self.ui.theme,
@@ -1774,56 +1963,56 @@ class Config:
                 "max_tokens": self.llm.max_tokens,
                 "temperature": self.llm.temperature,
             },
+            "gateway": {
+                "url": self.gateway.url,
+                "auth_token": auth_token,
+                "use_gateway": self.gateway.use_gateway,
+                "bundle_id": self.gateway.bundle_id,
+                "flow_id": self.gateway.flow_id,
+            },
             "system_tray": {
                 "icon_size": self.system_tray.icon_size,
                 "show_notifications": self.system_tray.show_notifications,
+                "animation_fps": self.system_tray.animation_fps,
             },
             "shortcuts": {
                 "show_bubble": self.shortcuts.show_bubble,
             },
         }
-    
-    def save_to_file(self, config_path: Path) -> None:
-        """Save configuration to TOML file."""
-        try:
-            with open(config_path, "wb") as f:
-                tomli_w.dump(self.to_dict(), f)
-        except Exception as e:
-            print(f"Warning: Failed to save config to {config_path}: {e}")
-    
+
     def validate(self) -> bool:
         """Validate configuration values."""
         errors = []
-        
-        # Validate UI settings
+
         if self.ui.theme not in ["dark", "light", "system"]:
             errors.append(f"Invalid theme: {self.ui.theme}")
-        
+
         if not 0.1 <= self.ui.bubble_size_ratio <= 0.5:
             errors.append(f"Invalid bubble_size_ratio: {self.ui.bubble_size_ratio}")
-        
+
         if self.ui.auto_hide_delay < 0:
             errors.append(f"Invalid auto_hide_delay: {self.ui.auto_hide_delay}")
-        
-        # Validate LLM settings
-        # Provider validation is handled by AbstractCore's provider discovery system
-        # No need to hardcode valid providers here
-        
+
         if not 0.0 <= self.llm.temperature <= 2.0:
             errors.append(f"Invalid temperature: {self.llm.temperature}")
-        
+
         if self.llm.max_tokens < 1000:
             errors.append(f"Invalid max_tokens: {self.llm.max_tokens}")
-        
-        # Validate system tray settings
+
+        if self.gateway.use_gateway and not str(self.gateway.url or "").strip():
+            errors.append("Gateway URL is required when use_gateway=true")
+
         if not 16 <= self.system_tray.icon_size <= 128:
             errors.append(f"Invalid icon_size: {self.system_tray.icon_size}")
-        
+
+        if not 10 <= int(self.system_tray.animation_fps) <= 30:
+            errors.append(f"Invalid animation_fps: {self.system_tray.animation_fps} (expected 10-30)")
+
         if errors:
             for error in errors:
                 print(f"Config validation error: {error}")
             return False
-        
+
         return True
 
 --- abstractassistant/app.py ---
@@ -1833,14 +2022,20 @@ Main application class for AbstractAssistant.
 Handles system tray integration, UI coordination, and application lifecycle.
 """
 
+import faulthandler
 import threading
 import time
 import signal
+import sys
+import traceback
 from pathlib import Path
 from typing import Optional
+from enum import Enum
+
+faulthandler.enable()
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from .ui.qt_bubble import QtBubbleManager
 from .core.llm_manager import LLMManager
@@ -1862,6 +2057,10 @@ class EnhancedClickableIcon(pystray.Icon):
         self.click_count = 0
         self.click_timer = None
         self.DOUBLE_CLICK_TIMEOUT = 300  # milliseconds
+        # pystray can query `_menu` multiple times per click; debounce to avoid
+        # spurious "double clicks" and missed single-click actions.
+        self._last_click_ts = 0.0
+        self._CLICK_DEBOUNCE_MS = 60
 
         if self.debug:
             if hasattr(self, 'debug') and self.debug:
@@ -1885,16 +2084,25 @@ class EnhancedClickableIcon(pystray.Icon):
         """Handle single/double click timing logic."""
         import threading
 
+        now = time.monotonic()
+        if self._last_click_ts and ((now - self._last_click_ts) * 1000.0) < float(self._CLICK_DEBOUNCE_MS):
+            return
+        self._last_click_ts = now
+
         self.click_count += 1
 
         if self.click_count == 1:
-            # First click - start timer for single click
+            # First click — fire single-click immediately for responsiveness,
+            # but keep a short window where a second click triggers a "double click".
+            self._execute_single_click()
+
+            # Start/reset timer to clear the click state.
             if self.click_timer is not None:
                 self.click_timer.cancel()
 
             self.click_timer = threading.Timer(
                 self.DOUBLE_CLICK_TIMEOUT / 1000.0,  # Convert to seconds
-                self._execute_single_click
+                self._reset_click_state
             )
             self.click_timer.start()
 
@@ -1915,10 +2123,13 @@ class EnhancedClickableIcon(pystray.Icon):
                 if hasattr(self, 'debug') and self.debug:
                     print("🔄 Double click detected!")
 
-    def _execute_single_click(self):
-        """Execute single click handler after timeout."""
-        self.click_count = 0  # Reset click count
+    def _reset_click_state(self):
+        """Clear click state after the double-click window expires."""
+        self.click_count = 0
         self.click_timer = None
+
+    def _execute_single_click(self):
+        """Execute single click handler (immediately)."""
 
         if self.debug:
             if hasattr(self, 'debug') and self.debug:
@@ -1950,6 +2161,7 @@ class EnhancedClickableIcon(pystray.Icon):
                     import traceback
                     traceback.print_exc()
 
+
     @_menu.setter
     def _menu(self, value):
         """Allow setting _menu during initialization."""
@@ -1957,6 +2169,15 @@ class EnhancedClickableIcon(pystray.Icon):
             if hasattr(self, 'debug') and self.debug:
                 print(f"🔍 _menu property set to: {value}")
         self._stored_menu = value
+
+
+class BubbleVisibility(str, Enum):
+    """Actual bubble visibility state (derived from Qt widget state)."""
+
+    UNINITIALIZED = "uninitialized"
+    HIDDEN = "hidden"
+    VISIBLE = "visible"
+    MINIMIZED = "minimized"
 
 
 class AbstractAssistantApp:
@@ -1994,18 +2215,41 @@ class AbstractAssistantApp:
         self.bubble_manager: Optional[QtBubbleManager] = None
         self.llm_manager: LLMManager = LLMManager(config=self.config, debug=self.debug, data_dir=self.data_dir)
         self.icon_generator: IconGenerator = IconGenerator(size=self.config.system_tray.icon_size)
+        self.animation_fps: int = self._resolve_animation_fps()
+        self.animation_interval_ms: int = max(1, int(1000 / self.animation_fps))
+        self.animation_interval_s: float = self.animation_interval_ms / 1000.0
         
         # Application state
         self.is_running: bool = False
-        self.bubble_visible: bool = False
         
         # Icon animation state
         self.base_icon: Optional[Image.Image] = None
         self.animation_timer: Optional[threading.Timer] = None
         self.current_status: str = "ready"
+        self._voice_meter: float | list[float] = 0.0
+        self._voice_meter_ts: float = 0.0
+        self._voice_meter_decay_s: float = 0.35
+        self._voice_meter_lock = threading.Lock()
         
         if self.debug:
             print(f"AbstractAssistant initialized with config: {self.config.to_dict()}")
+            print(f"🎛️  Tray animation: {self.animation_fps} FPS ({self.animation_interval_ms} ms)")
+
+    def _resolve_animation_fps(self) -> int:
+        """Resolve tray animation FPS with safe clamping."""
+        fps_raw = getattr(getattr(self.config, "system_tray", None), "animation_fps", 30)
+        try:
+            fps = int(fps_raw)
+        except Exception:
+            print(f"#FALLBACK: invalid animation_fps={fps_raw}; using 30")
+            fps = 30
+        if fps < 10:
+            print(f"#FALLBACK: animation_fps={fps} too low; using 10")
+            fps = 10
+        if fps > 30:
+            print(f"#FALLBACK: animation_fps={fps} too high; using 30")
+            fps = 30
+        return fps
         
     def create_system_tray_icon(self) -> pystray.Icon:
         """Create and configure the system tray icon."""
@@ -2022,8 +2266,7 @@ class AbstractAssistantApp:
         icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, "ready")
 
         if self.debug:
-            if self.debug:
-                print("🔄 Creating enhanced system tray icon with single/double click detection")
+            print("🔄 Creating enhanced system tray icon with single/double click detection")
 
         # Use our enhanced ClickableIcon for single/double click handling
         return EnhancedClickableIcon(
@@ -2043,30 +2286,26 @@ class AbstractAssistantApp:
             app_bundle_icon = Path("/Applications/AbstractAssistant.app/Contents/Resources/icon.png")
             
             if self.debug:
-                if self.debug:
-                    print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
-                    print(f"   Exists: {app_bundle_icon.exists()}")
+                print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
+                print(f"   Exists: {app_bundle_icon.exists()}")
             
             if app_bundle_icon.exists():
                 base_icon = Image.open(app_bundle_icon)
                 
                 if self.debug:
-                    if self.debug:
-                        print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
+                    print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
                 
                 # Resize to system tray size if needed
                 target_size = (self.config.system_tray.icon_size, self.config.system_tray.icon_size)
                 if base_icon.size != target_size:
                     if self.debug:
-                        if self.debug:
-                            print(f"🔄 Resizing from {base_icon.size} to {target_size}")
+                        print(f"🔄 Resizing from {base_icon.size} to {target_size}")
                     base_icon = base_icon.resize(target_size, Image.Resampling.LANCZOS)
                 
                 return base_icon
         except Exception as e:
             if self.debug:
-                if self.debug:
-                    print(f"❌ Could not load app bundle icon: {e}")
+                print(f"❌ Could not load app bundle icon: {e}")
         return None
     
     def update_icon_status(self, status: str):
@@ -2095,18 +2334,29 @@ class AbstractAssistantApp:
             
             # Map status to animation type
             animation_status = status
-            if status in ["thinking", "generating", "executing"]:
+            if status in ["thinking", "generating", "executing", "offline", "reconnecting"]:
                 animation_status = "thinking"  # All working states use thinking animation
             elif status == "speaking":
                 animation_status = "speaking"
+            elif status == "listening":
+                animation_status = "listening"
+            elif status == "listening_paused":
+                animation_status = "listening_paused"
             else:
                 animation_status = "ready"  # Default to ready
+
+            if animation_status not in {"speaking", "listening", "listening_paused"}:
+                self.update_voice_meter(0.0)
             
             # Update current status AFTER determining animation type
             self.current_status = animation_status
             
             # Start appropriate animation
             self._start_heartbeat_animation(animation_status)
+            try:
+                self._update_tray_tooltip(status=animation_status)
+            except Exception:
+                pass
             
             if self.debug:
                 print(f"🎨 Updated icon status: {status} -> animation: {animation_status}")
@@ -2114,6 +2364,57 @@ class AbstractAssistantApp:
         except Exception as e:
             if self.debug:
                 print(f"❌ Error updating icon status: {e}")
+
+    def update_voice_meter(self, level: float | list[float]) -> None:
+        """Update the live voice meter (0..1) for speaking animation."""
+        if isinstance(level, (list, tuple)):
+            try:
+                vals = [max(0.0, min(1.0, float(v))) for v in level]
+            except Exception:
+                return
+            with self._voice_meter_lock:
+                self._voice_meter = vals
+                self._voice_meter_ts = time.monotonic()
+            return
+        try:
+            val = float(level)
+        except Exception:
+            return
+        val = max(0.0, min(1.0, val))
+        with self._voice_meter_lock:
+            self._voice_meter = val
+            self._voice_meter_ts = time.monotonic()
+
+    def _get_voice_meter(self) -> float | list[float]:
+        """Return a decayed voice meter value."""
+        with self._voice_meter_lock:
+            level = self._voice_meter
+            ts = float(self._voice_meter_ts)
+        if ts <= 0.0:
+            return 0.0
+        dt = max(0.0, time.monotonic() - ts)
+        decay = max(0.1, float(self._voice_meter_decay_s))
+        if isinstance(level, list):
+            if not level:
+                return 0.0
+            if dt <= 0.0:
+                return level
+            if dt >= decay:
+                return [0.0 for _ in level]
+            scale = max(0.0, 1.0 - (dt / decay))
+            return [max(0.0, float(v) * scale) for v in level]
+        try:
+            val = float(level)
+        except Exception:
+            return 0.0
+        if val <= 0.0:
+            return 0.0
+        if dt <= 0.0:
+            return val
+        if dt >= decay:
+            return 0.0
+        # Linear decay for a crisp falloff.
+        return max(0.0, val * (1.0 - (dt / decay)))
     
     def _start_heartbeat_animation(self, status: str):
         """Start smooth heartbeat animation for the given status."""
@@ -2141,7 +2442,8 @@ class AbstractAssistantApp:
                 try:
                     if self.base_icon and self.current_status == status and hasattr(self, 'qt_tray_icon'):
                         # Apply smooth heartbeat effect
-                        icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status)
+                        meter = self._get_voice_meter() if status in {"speaking", "listening", "listening_paused"} else None
+                        icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status, voice_meter=meter)
                         self._update_qt_icon(icon_image)
                     elif self.debug:
                         print(f"⚠️  Qt animation stopped - status_match:{self.current_status == status}")
@@ -2154,7 +2456,7 @@ class AbstractAssistantApp:
             # Create Qt timer for smooth animation
             self.qt_animation_timer = QTimer()
             self.qt_animation_timer.timeout.connect(update_icon)
-            self.qt_animation_timer.start(50)  # 20 FPS (50ms intervals)
+            self.qt_animation_timer.start(self.animation_interval_ms)
             
             if self.debug:
                 print("✅ Qt animation timer started")
@@ -2169,11 +2471,12 @@ class AbstractAssistantApp:
             try:
                 if self.icon and self.base_icon and self.current_status == status:
                     # Apply smooth heartbeat effect
-                    icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status)
+                    meter = self._get_voice_meter() if status in {"speaking", "listening", "listening_paused"} else None
+                    icon_image = self.icon_generator.apply_heartbeat_effect(self.base_icon, status, voice_meter=meter)
                     self.icon.icon = icon_image
                     
-                    # Schedule next update at 20 FPS for smooth animation
-                    self.animation_timer = threading.Timer(0.05, update_icon)
+                    # Schedule next update at configured FPS
+                    self.animation_timer = threading.Timer(self.animation_interval_s, update_icon)
                     self.animation_timer.start()
                 elif self.debug:
                     print(f"⚠️  Threading animation stopped - status_match:{self.current_status == status}")
@@ -2217,220 +2520,422 @@ class AbstractAssistantApp:
         if hasattr(self, 'animation_timer') and self.animation_timer:
             self.animation_timer.cancel()
             self.animation_timer = None
-    
 
-    
-    def show_chat_bubble(self, icon=None, item=None):
-        """Show the Qt chat bubble interface."""
+    # ── Application state machine ────────────────────────────────────
+    #
+    # States (derived from self.current_status set by update_icon_status):
+    #   "ready"     — idle, green icon
+    #   "thinking"  — gateway run active, pulsing icon
+    #   "listening" — full voice mode listening (tray-first)
+    #   "speaking"  — TTS playing, animated icon
+    #
+    # Tray click rules:
+    #   LISTENING + click  → PAUSE / RESUME listening (no UI change)
+    #   LISTENING + dblclk → STOP full voice mode
+    #   SPEAKING + click   → PAUSE / RESUME voice (no UI change)
+    #   SPEAKING + dblclk  → STOP voice, reset to READY
+    #   RUNNING + click    → no-op
+    #   READY + click      → SHOW app
+    #
+    # After STOP: state resets to "ready" so the next click shows the app.
+    # Clicks NEVER block the app from opening (except during active TTS).
+
+    def _app_state(self) -> str:
+        """Return the canonical app state: ready|running|listening|speaking."""
+        s = str(self.current_status or "").strip().lower()
+        if s == "speaking":
+            return "speaking"
+        if s in {"listening", "listening_paused"}:
+            return "listening"
+        if s in {"thinking", "running", "executing", "waiting"}:
+            return "running"
+        return "ready"
+
+    def _assistant_state(self) -> str:
+        """Return AbstractAssistant's state view: ready|running|listening|speaking."""
+        if self._voice_is_active():
+            return "speaking"
+        listening_state = self._full_voice_listening_state()
+        if listening_state in {"listening", "paused", "listening_paused"}:
+            return "listening"
+        if self._run_is_active():
+            return "running"
+        return "ready"
+
+    def _activate_app_foreground(self) -> None:
+        """Bring the application to the foreground on macOS (best-effort)."""
+        if sys.platform != "darwin":
+            return
         try:
-            if self.debug:
-                print("🔄 show_chat_bubble called")
+            from AppKit import NSApp  # type: ignore[import]
+            NSApp.activateIgnoringOtherApps_(True)
+        except Exception:
+            pass
 
-            # Check if TTS is currently speaking and stop it
-            if self.bubble_manager and hasattr(self.bubble_manager, 'bubble') and self.bubble_manager.bubble:
-                bubble = self.bubble_manager.bubble
-                if (hasattr(bubble, 'voice_manager') and bubble.voice_manager and
-                    bubble.voice_manager.is_speaking()):
-                    if self.debug:
-                        print("🔊 TTS is speaking, stopping voice...")
-                    bubble.voice_manager.stop()
+    def show_chat_bubble(self, icon=None, item=None):
+        """Show / raise / focus the chat bubble.  Never refuses."""
+        try:
+            self._activate_app_foreground()
+            state = self._bubble_visibility_state()
+            bubble = self._get_bubble()
 
-                    # Always show bubble after stopping TTS
-                    if not self.bubble_visible:
-                        if self.debug:
-                            print("🔄 Showing bubble after stopping TTS...")
-                        self.bubble_manager.show()
-                        self.bubble_visible = True
-                        if self.debug:
-                            print("💬 Qt chat bubble opened after TTS stop")
-                    return
-            
-            # Show the bubble (should be instant due to preflight initialization)
+            if bubble is not None:
+                try:
+                    if hasattr(bubble, "_ensure_window_within_screen"):
+                        bubble._ensure_window_within_screen(bubble)
+                except Exception:
+                    pass
+
+            if state == BubbleVisibility.VISIBLE:
+                if bubble is not None:
+                    try:
+                        if hasattr(bubble, "_activate_app"):
+                            bubble._activate_app()
+                    except Exception:
+                        pass
+                    bubble.show()
+                    bubble.raise_()
+                    bubble.activateWindow()
+                return
+
+            if state == BubbleVisibility.MINIMIZED:
+                if bubble is not None:
+                    bubble.showNormal()
+                    try:
+                        if hasattr(bubble, "_activate_app"):
+                            bubble._activate_app()
+                    except Exception:
+                        pass
+                    bubble.show()
+                    bubble.raise_()
+                    bubble.activateWindow()
+                return
+
             if self.bubble_manager:
-                if self.debug:
-                    print("🔄 Showing pre-initialized bubble...")
                 self.bubble_manager.show()
             else:
-                if self.debug:
-                    print("⚠️  Bubble manager not pre-initialized, creating now...")
-                # Fallback: create bubble manager if preflight failed
-                try:
-                    self.bubble_manager = QtBubbleManager(
-                        llm_manager=self.llm_manager,
-                        config=self.config,
-                        debug=self.debug,
-                        listening_mode=self.listening_mode
-                    )
-                    self.bubble_manager.set_response_callback(self.handle_bubble_response)
-                    self.bubble_manager.set_error_callback(self.handle_bubble_error)
-                    self.bubble_manager.set_status_callback(self.update_icon_status)
-                    self.bubble_manager.set_app_quit_callback(self.quit_application)
-                    self.bubble_manager.show()
-                except Exception as e:
-                    if self.debug:
-                        print(f"❌ Failed to create bubble manager: {e}")
-                    print("💬 AbstractAssistant: Error creating chat bubble")
-                    return
+                self.bubble_manager = QtBubbleManager(
+                    llm_manager=self.llm_manager,
+                    config=self.config,
+                    debug=self.debug,
+                    listening_mode=self.listening_mode,
+                )
+                self.bubble_manager.set_response_callback(self.handle_bubble_response)
+                self.bubble_manager.set_error_callback(self.handle_bubble_error)
+                self.bubble_manager.set_status_callback(self.update_icon_status)
+                self.bubble_manager.set_voice_meter_callback(self.update_voice_meter)
+                self.bubble_manager.set_app_quit_callback(self.quit_application)
+                self.bubble_manager.show()
 
-            # Mark bubble as visible
-            self.bubble_visible = True
+        except Exception as e:
+            sys.stderr.write(f"show_chat_bubble error: {e}\n")
+            sys.stderr.flush()
 
+    def _defer_ready_click_show(self) -> None:
+        """Defer ready-state show until the current tray event cycle completes."""
+        try:
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(0, self.handle_single_click)
+        except Exception:
+            self.handle_single_click()
+
+    # ── Tray click handlers ───────────────────────────────────────────
+
+    def _voice_is_active(self) -> bool:
+        """Return True when TTS is actively speaking or paused (source of truth)."""
+        vm = self._get_voice_manager()
+        if vm is None:
+            return False
+        try:
+            paused = bool(getattr(vm, "is_paused", lambda: False)())
+            speaking = bool(getattr(vm, "is_speaking", lambda: False)())
+            return paused or speaking
+        except Exception:
+            return False
+
+    def _full_voice_listening_state(self) -> str:
+        """Return full voice listening state from the bubble (if available)."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return "inactive"
+        getter = getattr(bubble, "get_full_voice_listening_state", None)
+        if not callable(getter):
+            return "inactive"
+        try:
+            return str(getter() or "inactive").strip().lower()
+        except Exception:
+            return "inactive"
+
+    def _toggle_full_voice_listening_pause(self) -> bool:
+        """Toggle full voice listening pause/resume."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return False
+        toggle = getattr(bubble, "toggle_full_voice_listening_pause", None)
+        if not callable(toggle):
+            return False
+        try:
+            return bool(toggle())
+        except Exception:
+            return False
+
+    def _stop_full_voice_mode(self) -> bool:
+        """Stop full voice mode via the bubble API."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return False
+        stop_fn = getattr(bubble, "stop_full_voice_mode", None)
+        if not callable(stop_fn):
+            return False
+        try:
+            stop_fn()
+            return True
+        except Exception:
+            return False
+
+    def _run_is_active(self) -> bool:
+        """Return True when a run is in progress (best-effort)."""
+        bubble = self._get_bubble()
+        if bubble is not None:
+            try:
+                worker = getattr(bubble, "worker", None)
+                if worker is not None and hasattr(worker, "isRunning"):
+                    return bool(worker.isRunning())
+            except Exception:
+                pass
+            try:
+                rs = getattr(bubble, "_run_state", None)
+                if rs is not None and hasattr(rs, "is_run_active"):
+                    return bool(rs.is_run_active())
+            except Exception:
+                pass
+        return self._app_state() == "running"
+
+    def _cancel_current_run(self) -> bool:
+        """Cancel the current run (gateway-first) and stop local streaming."""
+        run_id = ""
+        try:
+            run_id = str(self.llm_manager.get_last_run_id() or "").strip()
+        except Exception:
+            run_id = ""
+
+        if not run_id:
+            # Fallback: try the bubble worker's root run id.
+            try:
+                bubble = self._get_bubble()
+                worker = getattr(bubble, "worker", None) if bubble is not None else None
+                run_id = str(getattr(worker, "_root_run_id", "") or "").strip()
+            except Exception:
+                run_id = ""
+
+        # Always request interruption so any streaming threads stop promptly.
+        try:
+            bubble = self._get_bubble()
+            worker = getattr(bubble, "worker", None) if bubble is not None else None
+            if worker is not None and hasattr(worker, "requestInterruption"):
+                worker.requestInterruption()
+        except Exception:
+            pass
+
+        if not run_id:
             if self.debug:
-                print("💬 Qt chat bubble opened")
-                    
+                print("#FALLBACK: cancel requested but no run_id available")
+            return False
+
+        # Gateway cancel command (durable + tree-wide).
+        try:
+            if bool(getattr(self.llm_manager, "use_gateway", False)) and hasattr(self.llm_manager, "gateway_client"):
+                gw = self.llm_manager.gateway_client()
+                if gw is not None:
+                    gw.submit_command(
+                        command={
+                            "command_id": f"cancel_{int(time.time() * 1000)}",
+                            "run_id": run_id,
+                            "type": "cancel",
+                            "payload": {"reason": "Cancelled via tray"},
+                            "client_id": "abstractassistant",
+                        }
+                    )
+                    return True
         except Exception as e:
             if self.debug:
-                print(f"❌ Error in show_chat_bubble: {e}")
-                import traceback
-                traceback.print_exc()
-            print("💬 AbstractAssistant: Error opening chat bubble")
+                print(f"#FALLBACK: failed to cancel run via gateway: {e}")
+            return False
+
+        # Local mode: best-effort interruption only.
+        return True
 
     def handle_single_click(self):
-        """Handle single click on system tray icon.
+        """Single click on tray icon.
 
-        Behavior:
-        - If voice is speaking → pause voice (stay hidden)
-        - If voice is paused → resume voice (stay hidden)
-        - If voice is idle → show chat bubble
+        - ready     → open (always)
+        - running   → no-op
+        - listening → pause/resume listening
+        - speaking  → pause/resume voice
         """
-        try:
-            if self.debug:
-                print("🔄 Single click handler called")
+        state = self._assistant_state()
+        if self.debug:
+            try:
+                print(
+                    f"🔄 Single click: state={state} status={self.current_status} "
+                    f"voice_active={self._voice_is_active()} listening={self._full_voice_listening_state()}"
+                )
+            except Exception:
+                pass
 
-            # Check if we have voice manager available
-            if (self.bubble_manager and
-                hasattr(self.bubble_manager, 'bubble') and
-                self.bubble_manager.bubble and
-                hasattr(self.bubble_manager.bubble, 'voice_manager') and
-                self.bubble_manager.bubble.voice_manager):
+        if state == "listening":
+            self._toggle_full_voice_listening_pause()
+            return
 
-                voice_manager = self.bubble_manager.bubble.voice_manager
-                voice_state = voice_manager.get_state()
+        if state == "speaking":
+            try:
+                vm = self._get_voice_manager()
+                if vm is not None:
+                    if bool(vm.is_paused()):
+                        vm.resume()
+                    else:
+                        vm.pause()
+            except Exception:
+                pass
+            return
 
-                if self.debug:
-                    print(f"🔊 Voice state: {voice_state}")
+        if state == "running":
+            return
 
-                if voice_state == 'speaking':
-                    # Pause voice, don't show bubble
-                    success = voice_manager.pause()
-                    if self.debug:
-                        print(f"⏸ Voice pause: {'success' if success else 'failed'}")
-                    return
-
-                elif voice_state == 'paused':
-                    # Resume voice, don't show bubble
-                    success = voice_manager.resume()
-                    if self.debug:
-                        print(f"▶ Voice resume: {'success' if success else 'failed'}")
-                    return
-
-            # Voice is idle or not available - show chat bubble
-            if self.debug:
-                print("💬 Voice idle or unavailable, showing chat bubble")
-            self.show_chat_bubble()
-
-        except Exception as e:
-            if self.debug:
-                print(f"❌ Error in handle_single_click: {e}")
-                import traceback
-                traceback.print_exc()
-            # Fallback - just show chat bubble
-            self.show_chat_bubble()
+        self.show_chat_bubble()
 
     def handle_double_click(self):
-        """Handle double click on system tray icon.
+        """Double click on tray icon.
 
-        Behavior:
-        - If voice is speaking/paused → stop voice + show chat bubble
-        - If voice is idle → show chat bubble
+        - ready     → no-op
+        - running   → cancel run
+        - listening → stop full voice mode
+        - speaking  → stop voice
         """
-        try:
-            if self.debug:
-                print("🔄 Double click handler called")
+        state = self._assistant_state()
+        if self.debug:
+            try:
+                print(
+                    f"🔄 Double click: state={state} status={self.current_status} "
+                    f"voice_active={self._voice_is_active()} listening={self._full_voice_listening_state()}"
+                )
+            except Exception:
+                pass
 
-            # Check if we have voice manager available
-            if (self.bubble_manager and
-                hasattr(self.bubble_manager, 'bubble') and
-                self.bubble_manager.bubble and
-                hasattr(self.bubble_manager.bubble, 'voice_manager') and
-                self.bubble_manager.bubble.voice_manager):
+        if state == "listening":
+            self._stop_full_voice_mode()
+            self.update_icon_status("ready")
+            return
 
-                voice_manager = self.bubble_manager.bubble.voice_manager
-                voice_state = voice_manager.get_state()
+        if state == "speaking":
+            try:
+                vm = self._get_voice_manager()
+                if vm is not None:
+                    vm.stop()
+                bubble = self._get_bubble()
+                if bubble is not None:
+                    try:
+                        bubble.notify_manual_voice_stop()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            self.update_icon_status("ready")
+            return
 
-                if self.debug:
-                    print(f"🔊 Voice state: {voice_state}")
+        if state == "running":
+            self._cancel_current_run()
+            return
 
-                if voice_state in ['speaking', 'paused']:
-                    # Stop voice
-                    voice_manager.stop()
-                    if self.debug:
-                        print("⏹ Voice stopped")
-                    
-                    # Update icon status to ready since v0.5.1 callback won't fire for manual stops
-                    self.update_icon_status("ready")
-                    if self.debug:
-                        print("🔄 Icon status set to ready after manual voice stop")
+        # ready → no-op
 
-            # Always show chat bubble on double click
-            if self.debug:
-                print("💬 Showing chat bubble after double click")
-            self.show_chat_bubble()
-
-        except Exception as e:
-            if self.debug:
-                print(f"❌ Error in handle_double_click: {e}")
-                import traceback
-                traceback.print_exc()
-            # Fallback - just show chat bubble
-            self.show_chat_bubble()
+    def _get_voice_manager(self):
+        """Return the voice manager if available, else None."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return None
+        return getattr(bubble, "voice_manager", None)
 
     def hide_chat_bubble(self):
         """Hide the chat bubble interface."""
-        self.bubble_visible = False
         if self.bubble_manager:
             self.bubble_manager.hide()
             
             if self.debug:
                 print("💬 Chat bubble hidden")
-    
-    def handle_bubble_response(self, response: str):
-        """Handle AI response from bubble."""
-        if self.debug:
-            print(f"🔄 App: handle_bubble_response called with: {response[:100]}...")
-        
-        # Update icon back to ready state (steady green)
-        self.update_icon_status("ready")
-        
-        # Show toast notification with response
-        self.show_toast_notification(response, "success")
-        
-        # Hide bubble after response
-        self.hide_chat_bubble()
-    
-    def handle_bubble_error(self, error: str):
-        """Handle error from bubble."""
-        # Always reset tray icon animation on errors.
+
+    def _bubble_visibility_state(self) -> BubbleVisibility:
+        """Derive the bubble visibility from the actual Qt widget state."""
+        bubble = self._get_bubble()
+        if bubble is None:
+            return BubbleVisibility.UNINITIALIZED
         try:
-            self.update_icon_status("ready")
+            if not bubble.isVisible():
+                return BubbleVisibility.HIDDEN
+            if hasattr(bubble, "isMinimized") and bubble.isMinimized():
+                return BubbleVisibility.MINIMIZED
+            return BubbleVisibility.VISIBLE
+        except Exception:
+            return BubbleVisibility.HIDDEN
+
+    def _get_bubble(self):
+        try:
+            if self.bubble_manager and getattr(self.bubble_manager, "bubble", None):
+                return self.bubble_manager.bubble
+        except Exception:
+            pass
+        return None
+
+    def _get_run_activity_summary(self) -> str:
+        bubble = self._get_bubble()
+        if bubble is None:
+            return ""
+        try:
+            return str(getattr(bubble, "get_run_activity_summary", lambda: "")() or "").strip()
+        except Exception:
+            return ""
+
+    def _update_tray_tooltip(self, *, status: Optional[str] = None) -> None:
+        base = "AbstractAssistant"
+        summary = self._get_run_activity_summary()
+        if summary:
+            tip = f"{base} — {summary}"
+        else:
+            state = str(status or "").strip().lower()
+            if state in {"thinking", "running", "executing", "waiting"}:
+                tip = f"{base} — Running"
+            elif state in {"listening", "listening_paused"}:
+                tip = f"{base} — Listening"
+            elif state in {"speaking"}:
+                tip = f"{base} — Speaking"
+            else:
+                tip = f"{base} — Ready"
+        try:
+            if hasattr(self, "qt_tray_icon") and self.qt_tray_icon is not None:
+                self.qt_tray_icon.setToolTip(tip)
+        except Exception:
+            pass
+        try:
+            if self.icon is not None:
+                self.icon.title = tip
         except Exception:
             pass
 
-        # Show error toast notification
-        self.show_toast_notification(error, "error")
-        
-        # Hide bubble after error
-        self.hide_chat_bubble()
+    def handle_bubble_response(self, response: str):
+        """Handle AI response from bubble (informational only — never hide the UI)."""
+        if self.debug:
+            print(f"🔄 App: handle_bubble_response called with: {response[:100]}...")
+
+    def handle_bubble_error(self, error: str):
+        """Handle error from bubble (informational only — never hide the UI)."""
+        if self.debug:
+            print(f"❌ App: handle_bubble_error: {error}")
     
     def show_toast_notification(self, message: str, type: str = "info"):
         """Show a toast notification."""
-        icon = "✅" if type == "success" else "❌" if type == "error" else "ℹ️"
         if self.debug:
-            print(f"{icon} {message}")
-        
-        if self.debug:
-            if self.debug:
-                print(f"Toast notification: {type} - {message}")
+            icon = "✅" if type == "success" else "❌" if type == "error" else "ℹ️"
+            print(f"{icon} Toast: {message}")
         
         # Show a proper macOS notification
         try:
@@ -2478,8 +2983,7 @@ class AbstractAssistantApp:
         """Update application status."""
         # Status is now handled by the web interface
         if self.debug:
-            if self.debug:
-                print(f"Status update: {status}")
+            print(f"Status update: {status}")
     
     def clear_session(self, icon=None, item=None):
         """Clear the current session with user confirmation."""
@@ -2619,6 +3123,11 @@ class AbstractAssistantApp:
             # Now set the status callback after TTS initialization is complete
             if self.bubble_manager:
                 self.bubble_manager.set_status_callback(self.update_icon_status)
+                self.bubble_manager.set_voice_meter_callback(self.update_voice_meter)
+                # Give the bubble a back-reference so it can access the tray icon
+                # for approval notifications.
+                if getattr(self.bubble_manager, "bubble", None) is not None:
+                    self.bubble_manager.bubble._app_ref = self
                 if self.debug:
                     print("✅ Status callback set after TTS initialization")
 
@@ -2633,6 +3142,7 @@ class AbstractAssistantApp:
             # Still set status callback even if preflight failed
             if self.bubble_manager:
                 self.bubble_manager.set_status_callback(self.update_icon_status)
+                self.bubble_manager.set_voice_meter_callback(self.update_voice_meter)
 
     def quit_application(self, icon=None, item=None):
         """Quit the application gracefully."""
@@ -2685,23 +3195,48 @@ class AbstractAssistantApp:
                 self.qt_app.quit()
         except Exception:
             pass
-    
+
     def run(self):
         """Start the application using Qt event loop for proper threading."""
         self.is_running = True
+
+        # Global exception hooks so crashes are never silent.
+        _orig_excepthook = sys.excepthook
+
+        def _excepthook(exc_type, exc_value, exc_tb):
+            sys.stderr.write("\n=== UNCAUGHT EXCEPTION ===\n")
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=sys.stderr)
+            sys.stderr.write("=== END UNCAUGHT EXCEPTION ===\n")
+            sys.stderr.flush()
+            _orig_excepthook(exc_type, exc_value, exc_tb)
+
+        sys.excepthook = _excepthook
+
+        def _thread_excepthook(args):
+            sys.stderr.write(f"\n=== UNCAUGHT THREAD EXCEPTION ({args.thread}) ===\n")
+            traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback, file=sys.stderr)
+            sys.stderr.write("=== END UNCAUGHT THREAD EXCEPTION ===\n")
+            sys.stderr.flush()
+
+        threading.excepthook = _thread_excepthook
 
         try:
             # Import Qt here to avoid conflicts
             from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
             from PyQt5.QtCore import QTimer
             from PyQt5.QtGui import QIcon
-            import sys
 
             # Create Qt application in main thread
             if not QApplication.instance():
                 self.qt_app = QApplication(sys.argv)
             else:
                 self.qt_app = QApplication.instance()
+
+            # Tray apps should not quit when the last window closes.
+            try:
+                self.qt_app.setQuitOnLastWindowClosed(False)
+            except Exception:
+                pass
 
             # Check if system tray is available
             if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -2758,9 +3293,7 @@ class AbstractAssistantApp:
     def _create_qt_system_tray_icon(self):
         """Create Qt-based system tray icon with smooth animations."""
         from PyQt5.QtWidgets import QSystemTrayIcon, QMenu, QAction
-        from PyQt5.QtCore import QTimer
         from PyQt5.QtGui import QIcon, QPixmap
-        from PIL import Image
         import io
 
         # Load base icon (same as pystray version)
@@ -2788,30 +3321,36 @@ class AbstractAssistantApp:
         tray_icon = QSystemTrayIcon(qt_icon)
         tray_icon.setToolTip("AbstractAssistant - AI at your fingertips")
 
-        # Click detection variables
-        self.click_timer = QTimer()
-        self.click_timer.setSingleShot(True)
-        self.click_timer.timeout.connect(self._qt_handle_single_click)
-        self.pending_single_click = False
-        self.DOUBLE_CLICK_TIMEOUT = 200  # milliseconds (short period to detect double click)
+        # Tray click detection (timestamp-based; avoids QTimer timing issues).
+        self._tray_last_click_ts = 0.0
+        self.TRAY_DOUBLE_CLICK_TIMEOUT_S = 0.30
+        self._tray_last_activation_ts = 0.0
 
-        # Connect click signal
+        # Connect click signal.
         tray_icon.activated.connect(self._qt_on_tray_activated)
 
-        # Create context menu (right-click)
-        context_menu = QMenu()
-
-        show_action = QAction("Show Chat", None)
-        show_action.triggered.connect(self.show_chat_bubble)
-        context_menu.addAction(show_action)
-
-        context_menu.addSeparator()
-
-        quit_action = QAction("Quit", None)
-        quit_action.triggered.connect(self._qt_quit_application)
-        context_menu.addAction(quit_action)
-
-        tray_icon.setContextMenu(context_menu)
+        # On macOS, tray clicks can flow through context-menu lifecycle events.
+        # We keep a minimal attached menu to preserve activation behavior and
+        # add a ready-state fallback in `_qt_on_context_menu_show` when
+        # `activated` is not emitted for a click.
+        if sys.platform == "darwin":
+            _empty_menu = QMenu()
+            # Keep an attached menu so Qt reliably emits activation signals.
+            # If macOS opens this menu without emitting `activated`, we synthesize
+            # the ready-state open path in `_qt_on_context_menu_show`.
+            self._qt_context_menu = _empty_menu
+            _empty_menu.aboutToShow.connect(self._qt_on_context_menu_show)
+            tray_icon.setContextMenu(_empty_menu)
+        else:
+            context_menu = QMenu()
+            show_action = QAction("Show Chat", None)
+            show_action.triggered.connect(self.show_chat_bubble)
+            context_menu.addAction(show_action)
+            context_menu.addSeparator()
+            quit_action = QAction("Quit", None)
+            quit_action.triggered.connect(self._qt_quit_application)
+            context_menu.addAction(quit_action)
+            tray_icon.setContextMenu(context_menu)
 
         # Store reference for animations
         self.qt_tray_icon = tray_icon
@@ -2831,68 +3370,84 @@ class AbstractAssistantApp:
         return tray_icon
 
     def _qt_on_tray_activated(self, reason):
-        """Handle Qt system tray activation (clicks) with proper delay-based detection.
+        """Handle Qt tray activation (single-click + double-click).
 
-        Logic:
-        - Single click: reason == 3 only
-        - Double click: reason == 3 followed quickly by reason == 2
+        Rules:
+        - ready:    single click opens; double-click has no special action.
+        - listening: single click pauses/resumes listening; double-click stops full voice mode.
+        - running:  single click no-op; double-click cancels the run.
+        - speaking: single click pause/resume; double-click stops the voice.
 
-        Strategy:
-        - When reason == 3: Wait 200ms to see if reason == 2 follows
-        - If no reason == 2 within 200ms: Execute single click
-        - If reason == 2 arrives within 200ms: Execute ONLY double click
+        Double-click detection is timestamp-based so it works even when Qt emits
+        Trigger twice (no explicit DoubleClick reason).
         """
         if self.debug:
             print(f"🖱️  Click detected - reason: {reason}")
 
-        if reason == 3:  # Single click (or first part of double click)
-            if self.pending_single_click:
-                # Already have a pending single click, ignore this one
-                if self.debug:
-                    print("⚠️  Ignoring additional reason=3 (already pending)")
-                return
+        try:
+            from PyQt5.QtWidgets import QSystemTrayIcon
+            DoubleClick = QSystemTrayIcon.ActivationReason.DoubleClick
+            Context = QSystemTrayIcon.ActivationReason.Context
+        except Exception:
+            DoubleClick, Context = 2, 1
 
-            # Mark that we have a pending single click
-            self.pending_single_click = True
+        # On non-macOS, a context click should open the context menu, not the chat bubble.
+        if sys.platform != "darwin" and reason == Context:
+            return
 
-            # Start timer to wait for possible reason=2 (double click confirmation)
-            self.click_timer.start(self.DOUBLE_CLICK_TIMEOUT)
+        now = time.monotonic()
+        self._tray_last_activation_ts = now
+        state = self._assistant_state()
 
-            if self.debug:
-                print(f"🔄 Qt: reason=3 detected, waiting {self.DOUBLE_CLICK_TIMEOUT}ms for possible reason=2...")
+        # ready: open on single click; ignore double-click as a special action.
+        if state == "ready":
+            self._tray_last_click_ts = 0.0
+            if reason != DoubleClick:
+                if sys.platform == "darwin":
+                    self._defer_ready_click_show()
+                else:
+                    self.handle_single_click()
+            return
 
-        elif reason == 2:  # Double click confirmation
-            if self.pending_single_click and self.click_timer.isActive():
-                # We have a pending single click and timer is still running
-                # This means reason=2 arrived within the timeout period
+        last = float(getattr(self, "_tray_last_click_ts", 0.0) or 0.0)
+        window_s = float(getattr(self, "TRAY_DOUBLE_CLICK_TIMEOUT_S", 0.30) or 0.30)
+        if reason == DoubleClick or (last > 0.0 and (now - last) <= window_s):
+            self._tray_last_click_ts = 0.0
+            self._qt_handle_double_click()
+            return
 
-                # Cancel the pending single click
-                self.click_timer.stop()
-                self.pending_single_click = False
+        self._tray_last_click_ts = now
+        self._qt_handle_single_click()
 
-                if self.debug:
-                    print("✅ Qt: reason=2 detected - cancelling single click, executing double click!")
+    def _qt_on_context_menu_show(self):
+        """macOS tray fallback when context-menu show swallows activation."""
+        try:
+            menu = getattr(self, "_qt_context_menu", None)
+            if menu is not None:
+                menu.hide()
+        except Exception:
+            pass
 
-                # Execute ONLY the double click
-                self._qt_handle_double_click()
-            else:
-                # Unexpected reason=2 without pending single click
-                if self.debug:
-                    print("⚠️  Unexpected reason=2 without pending single click")
+        if sys.platform != "darwin":
+            return
 
-                # Execute double click anyway (fallback)
-                self._qt_handle_double_click()
+        now = time.monotonic()
+        last_activation = float(getattr(self, "_tray_last_activation_ts", 0.0) or 0.0)
+        # Avoid duplicate handling when `activated` already fired for this click.
+        if last_activation > 0.0 and (now - last_activation) <= 0.20:
+            return
+
+        # Only synthesize the click for ready state to preserve running/speaking rules.
+        if self._assistant_state() != "ready":
+            return
+
+        self.show_chat_bubble()
 
     def _qt_handle_single_click(self):
-        """Handle single click after timeout (no reason=2 detected) in Qt main thread."""
-        # Clear the pending flag
-        self.pending_single_click = False
-
+        """Handle single click in Qt main thread."""
         if self.debug:
-            print("✅ Qt: Single click confirmed (no reason=2 within 200ms) - executing action!")
+            print("✅ Qt: Single click action")
 
-        # This runs in Qt main thread, so it's safe to create Qt widgets
-        # Execute single click action (pause/resume voice or show bubble)
         self.handle_single_click()
 
     def _qt_handle_double_click(self):
@@ -2900,15 +3455,12 @@ class AbstractAssistantApp:
         if self.debug:
             print("✅ Qt: Double click detected!")
 
-        # This runs in Qt main thread, so it's safe to create Qt widgets
         self.handle_double_click()
 
     def _qt_quit_application(self):
         """Quit the Qt application."""
         if self.debug:
             print("🔄 Qt: Quit requested")
-
-        # Route through the same cleanup path (menu Quit should behave like Ctrl+C).
         self._request_qt_quit()
 
 --- abstractassistant/create_app_bundle.py ---
@@ -3924,6 +4476,23 @@ class AgentHost:
         """Clear the persisted transcript for the current session."""
         self._set_agent_session_messages([])
 
+    def append_message(self, *, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Append a message to the session transcript (gateway-friendly)."""
+        messages = self._agent_session_messages()
+        messages.append(_new_message(role=str(role), content=str(content), metadata=metadata))
+        self._set_agent_session_messages(messages)
+
+    def set_last_run_id(self, run_id: str) -> None:
+        """Persist the last gateway run id for this session."""
+        rid = str(run_id or "").strip()
+        self._snapshot = SessionSnapshot(
+            session_id=self._snapshot.session_id,
+            actor_id=self._snapshot.actor_id,
+            messages=self._snapshot.messages,
+            last_run_id=rid or self._snapshot.last_run_id,
+        )
+        self._persist_snapshot()
+
     def export_messages(self, path: Path) -> None:
         """Export the current transcript snapshot to a JSON file."""
         p = Path(path)
@@ -4347,11 +4916,22 @@ _DEFAULT_SAFE_AUTO_APPROVE: Set[str] = {
     "read_file",
     "skim_files",
     "search_files",
+    "open_attachment",
     # Network read-only
     "web_search",
     "skim_websearch",
     "skim_url",
     "fetch_url",
+    # Comms (delivery + read-only)
+    "list_email_accounts",
+    "list_emails",
+    "read_email",
+    "list_whatsapp_messages",
+    "read_whatsapp_message",
+    "send_email",
+    "send_whatsapp_message",
+    "send_telegram_message",
+    "send_telegram_artifact",
 }
 
 _DEFAULT_REQUIRE_APPROVAL: Set[str] = {
@@ -4777,13 +5357,19 @@ powered by:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+import warnings
 
-from .agent_host import AgentHost, AgentHostConfig
 from .session_index import SessionIndex
-from .session_store import SessionStore
+from .session_store import SessionStore, SessionSnapshot
+from .gateway_selection_store import GatewaySelectionStore
+from ..gateway import GatewayClient, GatewayClientConfig, get_cached_assistant_capabilities
+
+if TYPE_CHECKING:
+    from .agent_host import AgentHost, AgentHostConfig
 
 
 @dataclass
@@ -4827,31 +5413,135 @@ class LLMManager:
 
         self.config = config
         self.debug = bool(debug)
+        self.use_gateway = bool(getattr(getattr(config, "gateway", None), "use_gateway", False))
+        self._gateway_client: Optional[GatewayClient] = None
 
         self.data_dir = (Path(data_dir).expanduser() if data_dir is not None else (Path.home() / ".abstractassistant"))
         self._session_index = SessionIndex(self.data_dir)
         self._title_seeds: Dict[str, str] = {}
         self._title_lock = threading.Lock()
 
-        self.current_provider: str = str(getattr(config.llm, "default_provider", "") or "ollama")
-        self.current_model: str = str(getattr(config.llm, "default_model", "") or "qwen3:4b-instruct")
+        if self.use_gateway:
+            self.current_provider = ""
+            self.current_model = ""
+        else:
+            self.current_provider = str(getattr(config.llm, "default_provider", "") or "").strip()
+            self.current_model = str(getattr(config.llm, "default_model", "") or "").strip()
 
         self._tts_mode: bool = False
-        self._host = self._build_host_for_active_session()
+        self._host: Optional["AgentHost"] = None
+        self._gateway_snapshot: Optional[SessionSnapshot] = None
+        self._gateway_store: Optional[SessionStore] = None
+        if self.use_gateway:
+            self._gateway_snapshot = self._load_gateway_snapshot(self.active_session_id)
+        else:
+            self._host = self._build_host_for_active_session() if self.current_provider and self.current_model else None
 
         # UI-facing compatibility fields.
         self.token_usage = TokenUsage()
         self.current_session: Optional[_SessionView] = None
-        self.llm = self._best_effort_llm_for_ui()
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
 
     @property
-    def agent_host(self) -> AgentHost:
+    def agent_host(self) -> Optional["AgentHost"]:
         return self._host
+
+    def gateway_client(self) -> Optional[GatewayClient]:
+        """Return a cached GatewayClient when gateway mode is enabled."""
+        if not self.use_gateway:
+            return None
+        gw = getattr(self.config, "gateway", None)
+        url = str(getattr(gw, "url", "") or "").strip()
+        if not url:
+            raise ValueError("Gateway URL is required in gateway mode")
+        token = str(getattr(gw, "auth_token", "") or "").strip()
+        if self._gateway_client is None:
+            self._gateway_client = GatewayClient(GatewayClientConfig(base_url=url, auth_token=token))
+        return self._gateway_client
+
+    def gateway_capabilities(self, *, force: bool = False):
+        """Return cached assistant-facing Gateway capabilities."""
+        gw = self.gateway_client()
+        if gw is None:
+            return None
+        return get_cached_assistant_capabilities(gw, force=bool(force))
 
     @property
     def active_session_id(self) -> str:
         return self._session_index.active_session_id
+
+    def get_last_run_id(self) -> Optional[str]:
+        """Return the last run id for the active session (gateway-first)."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                return snap.last_run_id
+            if self._host is None:
+                return None
+            return getattr(self._host, "last_run_id", None)
+        except Exception:
+            return None
+
+    def _gateway_store_for(self, session_id: str) -> SessionStore:
+        data_dir = self._session_index.data_dir_for(session_id)
+        return SessionStore(Path(data_dir) / "session.json")
+
+    def gateway_selection_store(self, *, session_id: Optional[str] = None) -> GatewaySelectionStore:
+        """Return a per-session store for gateway bundle/flow selection."""
+        sid = str(session_id or self.active_session_id).strip()
+        if not sid:
+            raise ValueError("session_id is required")
+        data_dir = self._session_index.data_dir_for(sid)
+        return GatewaySelectionStore(Path(data_dir) / "gateway.json")
+
+    def _load_gateway_snapshot(self, session_id: str) -> SessionSnapshot:
+        store = self._gateway_store_for(session_id)
+        snap = store.load()
+        if snap is None:
+            snap = SessionSnapshot(
+                session_id=str(session_id),
+                actor_id="gateway",
+                messages=[],
+                last_run_id=None,
+            )
+            store.save(snap)
+        self._gateway_store = store
+        return snap
+
+    def _save_gateway_snapshot(self, snapshot: SessionSnapshot) -> None:
+        store = self._gateway_store or self._gateway_store_for(snapshot.session_id)
+        self._gateway_store = store
+        store.save(snapshot)
+
+    def replace_gateway_messages(self, messages: List[Dict[str, Any]], *, last_run_id: Optional[str] = None) -> None:
+        """Replace gateway session messages with a provided history snapshot."""
+        if not self.use_gateway:
+            return
+        try:
+            snap = self._ensure_gateway_snapshot()
+            run_id = snap.last_run_id if last_run_id is None else str(last_run_id or "").strip() or None
+            cleaned: List[Dict[str, Any]] = []
+            for m in messages:
+                if isinstance(m, dict):
+                    cleaned.append(dict(m))
+            self._gateway_snapshot = SessionSnapshot(
+                session_id=snap.session_id,
+                actor_id=snap.actor_id,
+                messages=cleaned,
+                last_run_id=run_id,
+            )
+            self._save_gateway_snapshot(self._gateway_snapshot)
+            self._refresh_session_view()
+        except Exception:
+            return
+
+    def _ensure_gateway_snapshot(self) -> SessionSnapshot:
+        snap = self._gateway_snapshot
+        if snap is None:
+            snap = self._load_gateway_snapshot(self.active_session_id)
+            self._gateway_snapshot = snap
+        return snap
 
     def list_sessions(self) -> List[Dict[str, str]]:
         out: List[Dict[str, str]] = []
@@ -4873,8 +5563,12 @@ class LLMManager:
 
     def create_new_session(self) -> str:
         rec = self._session_index.create_session()
-        self._host = self._build_host_for_session(rec.session_id)
-        self.llm = self._best_effort_llm_for_ui()
+        if self.use_gateway:
+            self._host = None
+            self._gateway_snapshot = self._load_gateway_snapshot(rec.session_id)
+        else:
+            self._host = self._build_host_for_session(rec.session_id) if self.current_provider and self.current_model else None
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
         return rec.session_id
 
@@ -4885,8 +5579,12 @@ class LLMManager:
         if sid == self.active_session_id:
             return
         self._session_index.set_active(sid)
-        self._host = self._build_host_for_session(sid)
-        self.llm = self._best_effort_llm_for_ui()
+        if self.use_gateway:
+            self._host = None
+            self._gateway_snapshot = self._load_gateway_snapshot(sid)
+        else:
+            self._host = self._build_host_for_session(sid) if self.current_provider and self.current_model else None
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
 
     def refresh(self) -> None:
@@ -4902,6 +5600,9 @@ class LLMManager:
 
         Uses the active provider/model. Runs in a background thread.
         """
+        if self.use_gateway:
+            warnings.warn("#FALLBACK: session title generation disabled in gateway mode")
+            return
         try:
             messages = getattr(self._host.snapshot, "messages", None)
         except Exception:
@@ -5019,10 +5720,24 @@ class LLMManager:
         except Exception:
             return None
 
-    def _build_host_for_active_session(self) -> AgentHost:
+    def _build_host_for_active_session(self) -> "AgentHost":
         return self._build_host_for_session(self.active_session_id)
 
-    def _build_host_for_session(self, session_id: str) -> AgentHost:
+    def _ensure_local_host(self, *, provider: Optional[str] = None, model: Optional[str] = None) -> Optional["AgentHost"]:
+        if self.use_gateway:
+            return None
+        provider_eff = str(provider or self.current_provider or "").strip()
+        model_eff = str(model or self.current_model or "").strip()
+        if not provider_eff or not model_eff:
+            return None
+        self.current_provider = provider_eff
+        self.current_model = model_eff
+        if self._host is None:
+            self._host = self._build_host_for_active_session()
+        return self._host
+
+    def _build_host_for_session(self, session_id: str) -> "AgentHost":
+        from .agent_host import AgentHost, AgentHostConfig
         data_dir = self._session_index.data_dir_for(session_id)
         return AgentHost(
             AgentHostConfig(
@@ -5036,6 +5751,8 @@ class LLMManager:
     def _best_effort_llm_for_ui(self) -> Optional[Any]:
         """Return the underlying AbstractCore provider instance when available (best-effort)."""
         try:
+            if self._host is None:
+                return None
             rt = getattr(self._host, "_runtime", None)
             client = getattr(rt, "_abstractcore_llm_client", None)
             getter = getattr(client, "get_provider_instance", None)
@@ -5046,31 +5763,102 @@ class LLMManager:
         return None
 
     def _refresh_session_view(self) -> None:
-        snap = self._host.snapshot
+        snap = self._ensure_gateway_snapshot() if self.use_gateway else (self._host.snapshot if self._host else None)
         msgs: List[_SessionMessage] = []
-        for m in snap.messages:
-            if not isinstance(m, dict):
-                continue
-            role = str(m.get("role") or "")
-            content = str(m.get("content") or "")
-            if role == "system":
-                continue
-            msgs.append(_SessionMessage(role=role, content=content))
+        if snap is not None:
+            for m in snap.messages:
+                if not isinstance(m, dict):
+                    continue
+                role = str(m.get("role") or "")
+                content = str(m.get("content") or "")
+                if role == "system":
+                    continue
+                msgs.append(_SessionMessage(role=role, content=content))
         self.current_session = _SessionView(msgs)
         if self.current_session:
             self.token_usage.current_session = self.current_session.get_token_estimate()
 
-        # Best-effort max context from AbstractCore detection (when `llm` is present).
-        max_tokens = None
-        try:
-            max_tokens = getattr(self.llm, "max_tokens", None)
-        except Exception:
+        if not self.use_gateway:
+            # Best-effort max context from AbstractCore detection (when `llm` is present).
             max_tokens = None
-        if isinstance(max_tokens, int) and max_tokens > 0:
-            self.token_usage.max_context = max_tokens
+            try:
+                max_tokens = getattr(self.llm, "max_tokens", None)
+            except Exception:
+                max_tokens = None
+            if isinstance(max_tokens, int) and max_tokens > 0:
+                self.token_usage.max_context = max_tokens
+
+    def append_message(self, *, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Append a message to the current session transcript."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                messages = list(snap.messages)
+                msg: Dict[str, Any] = {"role": str(role), "content": str(content)}
+                if metadata:
+                    msg["metadata"] = dict(metadata)
+                messages.append(msg)
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=messages,
+                    last_run_id=snap.last_run_id,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                self._refresh_session_view()
+                return
+            if self._host is None:
+                return
+            self._host.append_message(role=role, content=content, metadata=metadata)
+            self._refresh_session_view()
+        except Exception:
+            return
+
+    def set_last_run_id(self, run_id: str) -> None:
+        """Persist last run id for the active session."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=list(snap.messages),
+                    last_run_id=str(run_id or "").strip() or None,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                return
+            if self._host is None:
+                return
+            self._host.set_last_run_id(run_id)
+        except Exception:
+            return
+
+    def session_messages(self) -> List[Dict[str, Any]]:
+        """Return the durable session messages (for gateway run input)."""
+        try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+            else:
+                snap = self._host.snapshot if self._host else None
+            return [dict(m) for m in (snap.messages or []) if isinstance(m, dict)] if snap else []
+        except Exception:
+            return []
 
     def reset_active_session(self, tts_mode: bool = False) -> None:
         self._tts_mode = bool(tts_mode)
+        if self.use_gateway:
+            snap = self._ensure_gateway_snapshot()
+            self._gateway_snapshot = SessionSnapshot(
+                session_id=snap.session_id,
+                actor_id=snap.actor_id,
+                messages=[],
+                last_run_id=None,
+            )
+            self._save_gateway_snapshot(self._gateway_snapshot)
+            self._refresh_session_view()
+            return
+        if self._host is None:
+            return
         self._host.clear_messages()
         self._refresh_session_view()
 
@@ -5082,6 +5870,16 @@ class LLMManager:
 
     def save_session(self, filepath: str) -> bool:
         try:
+            if self.use_gateway:
+                snap = self._ensure_gateway_snapshot()
+                payload = {"messages": list(snap.messages)}
+                Path(filepath).write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                return True
+            if self._host is None:
+                return False
             self._host.export_messages(Path(filepath))
             return True
         except Exception:
@@ -5089,6 +5887,26 @@ class LLMManager:
 
     def load_session(self, filepath: str) -> bool:
         try:
+            if self.use_gateway:
+                data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+                msgs_raw = data.get("messages") if isinstance(data, dict) else None
+                messages: List[Dict[str, Any]] = []
+                if isinstance(msgs_raw, list):
+                    for m in msgs_raw:
+                        if isinstance(m, dict):
+                            messages.append(dict(m))
+                snap = self._ensure_gateway_snapshot()
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=messages,
+                    last_run_id=None,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                self._refresh_session_view()
+                return True
+            if self._host is None:
+                return False
             self._host.import_messages(Path(filepath))
             self._refresh_session_view()
             return True
@@ -5099,11 +5917,13 @@ class LLMManager:
         self.current_provider = str(provider or "").strip() or self.current_provider
         if model is not None:
             self.current_model = str(model or "").strip() or self.current_model
-        self.llm = self._best_effort_llm_for_ui()
+        self._ensure_local_host()
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
 
     def set_model(self, model: str):
         self.current_model = str(model or "").strip() or self.current_model
-        self.llm = self._best_effort_llm_for_ui()
+        self._ensure_local_host()
+        self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
 
     def generate_response(
         self,
@@ -5118,19 +5938,27 @@ class LLMManager:
         - safe/known read-only tools are auto-approved
         - dangerous/unknown tools are denied unless explicitly enabled in the UI layer
         """
+        if self.use_gateway:
+            raise RuntimeError("#FALLBACK: generate_response is not available in gateway mode")
         provider_eff = str(provider or "").strip() or self.current_provider
         model_eff = str(model or "").strip() or self.current_model
+        host = self._ensure_local_host(provider=provider_eff, model=model_eff)
+        if host is None:
+            raise RuntimeError("Provider and model must be selected")
 
         system_extra = None
         if self._tts_mode:
             system_extra = (
                 "You are in voice mode.\n"
-                "- Keep responses concise and conversational.\n"
-                "- Avoid markdown and heavy formatting.\n"
+                "- Reply as natural spoken conversation (verbal, discussion-style).\n"
+                "- Keep it brief: 1-3 short sentences unless the user asks for detail.\n"
+                "- Avoid long monologues; ask a quick follow-up question when helpful.\n"
+                "- Avoid markdown, headings, and lists.\n"
+                "- Do not mention voice mode or these rules.\n"
             )
 
         final = ""
-        for ev in self._host.run_turn(
+        for ev in host.run_turn(
             user_text=str(message),
             attachments=list(media) if media else None,
             provider=provider_eff,
@@ -5197,7 +6025,6 @@ INCLUDED_FILES: list[str] = [
     "LICENSE",
     "CHANGELOG.md",
     "pyproject.toml",
-    "config.toml",
     "abstractassistant/cli.py",
     "abstractassistant/config.py",
     "abstractassistant/app.py",
@@ -5372,9 +6199,10 @@ def test_build_display_messages_hides_tool_messages_and_attaches_summary() -> No
     ]
 
     out = build_display_messages(raw)
-    assert [m.get("role") for m in out] == ["user", "assistant"]
+    assert out and out[0].get("role") == "user"
+    assert any(m.get("ui_kind") == "tool_result" for m in out)
 
-    assistant = out[1]
+    assistant = out[-1]
     summary = str(assistant.get("tool_summary") or "")
     assert "fetch_url" in summary
     assert "remember_note" in summary
@@ -5412,9 +6240,10 @@ def test_build_display_messages_groups_multiple_tool_cycles_and_prefers_primary_
     ]
 
     out = build_display_messages(raw)
-    assert [m.get("role") for m in out] == ["user", "assistant"]
+    assert out and out[0].get("role") == "user"
+    assert any(m.get("ui_kind") == "tool_result" for m in out)
 
-    assistant = out[1]
+    assistant = out[-1]
     summary = str(assistant.get("tool_summary") or "")
     assert "fetch_url" in summary
     assert "read_file" in summary
@@ -5473,13 +6302,36 @@ def test_build_display_messages_promotes_image_tool_links_to_thumbnails() -> Non
     ]
 
     out = build_display_messages(raw)
-    assistant = out[1]
+    assistant = out[-1]
     thumbs = assistant.get("image_thumbnails") or []
     assert any(
         isinstance(th, dict)
         and th.get("kind") == "url"
         and th.get("target") == "https://example.com/pic.jpg"
         for th in thumbs
+    )
+
+
+@pytest.mark.basic
+def test_build_display_messages_includes_artifact_links() -> None:
+    raw = [
+        {"role": "user", "content": "make file", "timestamp": "2026-02-04T12:00:00+00:00"},
+        {
+            "role": "tool",
+            "content": "{\"$artifact\":\"art_123\",\"filename\":\"report.md\",\"content_type\":\"text/markdown\"}",
+            "metadata": {"name": "write_file", "success": True, "run_id": "run_1"},
+        },
+        {"role": "assistant", "content": "Saved.", "metadata": {"kind": "final_answer"}},
+    ]
+    out = build_display_messages(raw)
+    assistant = out[-1]
+    links = assistant.get("tool_links") or []
+    assert any(
+        isinstance(link, dict)
+        and link.get("kind") == "artifact"
+        and link.get("target") == "art_123"
+        and link.get("run_id") == "run_1"
+        for link in links
     )
 
 --- tests/integration/test_agent_host_tool_wait_resume.py ---
