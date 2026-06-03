@@ -2,6 +2,11 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.4.9] - 2026-06-03
+
+### Changed
+- Raised dependency floors to Agent `>=0.3.11` and Core `>=2.13.32` so Gateway-mode media, provider-profile, and capability-default configuration inherit the latest framework release boundary.
+
 ## [0.4.8] - 2026-05-31
 
 ### Changed

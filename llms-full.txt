@@ -1098,6 +1098,11 @@ SOFTWARE.
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [0.4.9] - 2026-06-03
+
+### Changed
+- Raised dependency floors to Agent `>=0.3.11` and Core `>=2.13.32` so Gateway-mode media, provider-profile, and capability-default configuration inherit the latest framework release boundary.
+
 ## [0.4.8] - 2026-05-31
 
 ### Changed
@@ -1395,7 +1400,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.4.8"
+version = "0.4.9"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -1419,10 +1424,10 @@ classifiers = [
 
 dependencies = [
     # Base install is fully-featured (voice + media + provider/tool integrations).
-    "abstractagent>=0.3.10",
+    "abstractagent>=0.3.11",
     "abstractvoice>=0.10.17",
     # Provider/client extras (avoid GPU-only stacks like vLLM by default).
-    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.13.31",
+    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.13.32",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
@@ -1445,11 +1450,11 @@ voice = [
     "abstractvoice[audio-io,stt]>=0.10.17",
 ]
 apple = [
-    "abstractcore[all-apple]>=2.13.31",
+    "abstractcore[all-apple]>=2.13.32",
     "abstractvoice[all-apple]>=0.10.17",
 ]
 gpu = [
-    "abstractcore[all-gpu]>=2.13.31",
+    "abstractcore[all-gpu]>=2.13.32",
     "abstractvoice[all-gpu]>=0.10.17",
 ]
 all = [
