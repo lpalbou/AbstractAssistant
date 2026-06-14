@@ -10,6 +10,7 @@ powered by:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import threading
 from pathlib import Path
@@ -109,8 +110,23 @@ class LLMManager:
         if not url:
             raise ValueError("Gateway URL is required in gateway mode")
         token = str(getattr(gw, "auth_token", "") or "").strip()
+        auth_mode = str(getattr(gw, "auth_mode", "bearer") or "bearer").strip() or "bearer"
+        user_id = str(getattr(gw, "user_id", "") or "").strip()
+        session_id = str(getattr(gw, "session_id", "") or "").strip()
+        csrf_token = str(getattr(gw, "csrf_token", "") or "").strip()
+        session_expires_at = str(getattr(gw, "session_expires_at", "") or "").strip()
         if self._gateway_client is None:
-            self._gateway_client = GatewayClient(GatewayClientConfig(base_url=url, auth_token=token))
+            self._gateway_client = GatewayClient(
+                GatewayClientConfig(
+                    base_url=url,
+                    auth_token=token,
+                    auth_mode=auth_mode,
+                    user_id=user_id,
+                    session_id=session_id,
+                    csrf_token=csrf_token,
+                    session_expires_at=session_expires_at,
+                )
+            )
         return self._gateway_client
 
     def gateway_capabilities(self, *, force: bool = False):
@@ -167,17 +183,25 @@ class LLMManager:
         self._gateway_store = store
         store.save(snapshot)
 
-    def replace_gateway_messages(self, messages: List[Dict[str, Any]], *, last_run_id: Optional[str] = None) -> None:
+    def replace_gateway_messages(self, messages: List[Dict[str, Any]], *, last_run_id: Optional[str] = None) -> bool:
         """Replace gateway session messages with a provided history snapshot."""
         if not self.use_gateway:
-            return
+            return False
         try:
             snap = self._ensure_gateway_snapshot()
             run_id = snap.last_run_id if last_run_id is None else str(last_run_id or "").strip() or None
+            existing: List[Dict[str, Any]] = [dict(m) for m in (snap.messages or []) if isinstance(m, dict)]
             cleaned: List[Dict[str, Any]] = []
             for m in messages:
                 if isinstance(m, dict):
                     cleaned.append(dict(m))
+            history_changed = cleaned != existing
+            if existing and len(cleaned) < len(existing):
+                warnings.warn(
+                    "#FALLBACK: gateway history replay was shorter than the local session snapshot; preserving the fuller local history"
+                )
+                cleaned = existing
+                history_changed = False
             self._gateway_snapshot = SessionSnapshot(
                 session_id=snap.session_id,
                 actor_id=snap.actor_id,
@@ -186,8 +210,9 @@ class LLMManager:
             )
             self._save_gateway_snapshot(self._gateway_snapshot)
             self._refresh_session_view()
+            return history_changed
         except Exception:
-            return
+            return False
 
     def _ensure_gateway_snapshot(self) -> SessionSnapshot:
         snap = self._gateway_snapshot
@@ -441,13 +466,24 @@ class LLMManager:
             if isinstance(max_tokens, int) and max_tokens > 0:
                 self.token_usage.max_context = max_tokens
 
-    def append_message(self, *, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def append_message(
+        self,
+        *,
+        role: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        ts: Optional[str] = None,
+    ) -> None:
         """Append a message to the current session transcript."""
         try:
             if self.use_gateway:
                 snap = self._ensure_gateway_snapshot()
                 messages = list(snap.messages)
-                msg: Dict[str, Any] = {"role": str(role), "content": str(content)}
+                msg: Dict[str, Any] = {
+                    "role": str(role),
+                    "content": str(content),
+                    "ts": str(ts or "").strip() or datetime.now(timezone.utc).isoformat(),
+                }
                 if metadata:
                     msg["metadata"] = dict(metadata)
                 messages.append(msg)

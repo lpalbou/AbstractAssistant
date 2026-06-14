@@ -38,6 +38,7 @@ def build_run_input_data(
     seed: Optional[int] = None,
     max_iterations: int = 50,
     use_context: bool = True,
+    primary_image_artifact: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     prompt_s = str(prompt or "")
     provider_s = str(provider or "").strip()
@@ -46,11 +47,18 @@ def build_run_input_data(
 
     attachments_list = [dict(a) for a in attachments or [] if isinstance(a, dict) and a.get("$artifact")]
     messages_list = _to_chat_messages(messages or [], keep=200) if use_context else []
+    primary_image = (
+        dict(primary_image_artifact)
+        if isinstance(primary_image_artifact, dict) and str(primary_image_artifact.get("$artifact") or "").strip()
+        else None
+    )
 
     ctx: Dict[str, Any] = {"task": prompt_s, "messages": messages_list}
     if attachments_list:
         ctx["attachments"] = attachments_list
         ctx["media"] = attachments_list
+    if primary_image is not None:
+        ctx["primary_image_artifact"] = primary_image
 
     runtime_ns: Dict[str, Any] = {}
     if provider_s:
@@ -95,10 +103,12 @@ def build_run_input_data(
         "prompt": prompt_s,
         "context": ctx,
         "use_context": bool(use_context),
-        "system": system_s,
         "_runtime": runtime_ns,
         "max_iterations": max(1, int(max_iterations)),
+        "has_primary_image_context": primary_image is not None,
     }
+    if system_s:
+        out["system"] = system_s
     if provider_s:
         out["provider"] = provider_s
     if model_s:
@@ -106,6 +116,8 @@ def build_run_input_data(
 
     if attachments_list:
         out["attachments"] = attachments_list
+    if primary_image is not None:
+        out["primary_image_artifact"] = primary_image
 
     if allowed_tools is not None:
         out["tools"] = runtime_ns.get("allowed_tools", [])

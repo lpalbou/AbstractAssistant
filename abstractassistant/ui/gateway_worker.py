@@ -21,18 +21,57 @@ except Exception:  # pragma: no cover - Qt binding fallback
 
 from ..gateway import (
     GatewayEventAdapter,
-    build_generated_image_assistant_message,
     build_run_input_data,
-    choose_generated_image_format,
-    get_cached_assistant_capabilities,
-    parse_image_generation_intent,
-    prepare_session_prompt_cache,
-    select_agent_template,
-    session_memory_run_id,
 )
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.run_controller import GatewayRunController
+
+
+def _parse_iso_ms(raw: Any) -> Optional[int]:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        from datetime import datetime
+
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    return int(dt.timestamp() * 1000)
+
+
+def _parse_usage_summary(value: Any) -> Optional[Dict[str, int]]:
+    if not isinstance(value, dict):
+        return None
+
+    def _num(*keys: str) -> Optional[int]:
+        for key in keys:
+            try:
+                raw = value.get(key)
+            except Exception:
+                raw = None
+            if raw in {None, ""}:
+                continue
+            try:
+                return max(0, int(raw))
+            except Exception:
+                continue
+        return None
+
+    input_tokens = _num("input_tokens", "prompt_tokens", "prompt", "input", "in")
+    output_tokens = _num("output_tokens", "completion_tokens", "completion", "output", "out")
+    total_tokens = _num("total_tokens", "total")
+    if total_tokens is None and (input_tokens is not None or output_tokens is not None):
+        total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
+    parsed = {
+        "input_tokens": int(input_tokens or 0),
+        "output_tokens": int(output_tokens or 0),
+        "total_tokens": int(total_tokens or 0),
+    }
+    if parsed["input_tokens"] == 0 and parsed["output_tokens"] == 0 and parsed["total_tokens"] == 0:
+        return None
+    return parsed
 
 
 class GatewayWorker(QThread):
@@ -52,11 +91,13 @@ class GatewayWorker(QThread):
         system_prompt_extra: Optional[str] = None,
         allowed_tools: Optional[List[str]] = None,
         tool_policy: Optional[Dict[str, Any]] = None,
+        append_user_message: bool = True,
         bundle_id: str,
         flow_id: str,
-        image_provider: Optional[str] = None,
-        image_model: Optional[str] = None,
+        bundle_version: str = "",
+        registry_scope: str = "",
         attach_run_id: Optional[str] = None,
+        primary_image_artifact: Optional[Dict[str, Any]] = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
@@ -66,16 +107,22 @@ class GatewayWorker(QThread):
         self._user_text = str(user_text or "")
         self._provider = str(provider or "")
         self._model = str(model or "")
-        self._image_provider = str(image_provider or "").strip()
-        self._image_model = str(image_model or "").strip()
         self._attachments = list(attachments or [])
         self._system_prompt_extra = str(system_prompt_extra) if system_prompt_extra else ""
         self._allowed_tools = list(allowed_tools) if allowed_tools is not None else None
         self._tool_policy = dict(tool_policy) if isinstance(tool_policy, dict) else None
+        self._append_user_message = bool(append_user_message)
         self._bundle_id = str(bundle_id or "").strip()
         self._flow_id = str(flow_id or "").strip()
+        self._bundle_version = str(bundle_version or "").strip()
+        self._registry_scope = str(registry_scope or "").strip()
         self._debug = bool(debug)
         self._attach_run_id = str(attach_run_id or "").strip()
+        self._primary_image_artifact = (
+            dict(primary_image_artifact)
+            if isinstance(primary_image_artifact, dict) and str(primary_image_artifact.get("$artifact") or "").strip()
+            else None
+        )
 
         self._tool_approval_event = threading.Event()
         self._tool_approval_decision: Optional[bool] = None
@@ -84,6 +131,7 @@ class GatewayWorker(QThread):
         self._offline = False
         self._root_run_id = ""
         self._follow_run_id = ""
+        self._stats_by_run: Dict[str, Dict[str, Any]] = {}
 
     def provide_tool_approval(self, approved: bool) -> None:
         self._tool_approval_decision = bool(approved)
@@ -105,9 +153,30 @@ class GatewayWorker(QThread):
             out.append(dict(attachment))
         return out
 
+    def _pick_primary_image_artifact(self, attachments: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            content_type = str(attachment.get("content_type") or "").strip().lower()
+            modality = str(attachment.get("modality") or "").strip().lower()
+            if content_type.startswith("image/") or modality == "image":
+                return dict(attachment)
+        if isinstance(self._primary_image_artifact, dict):
+            return dict(self._primary_image_artifact)
+        return None
+
     def _resolve_entrypoint(self) -> Dict[str, str]:
-        res = self._gateway.list_bundles()
-        return select_agent_template(bundles_response=res, bundle_id=self._bundle_id, flow_id=self._flow_id)
+        if not self._bundle_id or not self._flow_id or not self._bundle_version:
+            raise RuntimeError("Published assistant workflow selection is incomplete.")
+        scope = str(self._registry_scope or "").strip() or "tenant_catalog"
+        if scope != "tenant_catalog":
+            raise RuntimeError(f"Unsupported workflow registry_scope for AbstractAssistant: {scope}")
+        return {
+            "bundle_id": self._bundle_id,
+            "flow_id": self._flow_id,
+            "bundle_version": self._bundle_version,
+            "registry_scope": scope,
+        }
 
     def _seed_history_from_gateway(self, *, run_id: str) -> None:
         if self._gateway is None or self._llm_manager is None:
@@ -136,8 +205,8 @@ class GatewayWorker(QThread):
             except Exception:
                 pass
             if messages:
-                self._llm_manager.replace_gateway_messages(messages, last_run_id=run_id)
-                self.event_emitted.emit({"type": "history_seeded"})
+                changed = bool(self._llm_manager.replace_gateway_messages(messages, last_run_id=run_id))
+                self.event_emitted.emit({"type": "history_seeded", "changed": changed})
             else:
                 warnings.warn("#FALLBACK: history bundle produced no messages; keeping local snapshot")
         except Exception as e:
@@ -311,119 +380,9 @@ class GatewayWorker(QThread):
             }
         )
 
-    def _try_direct_image_generation_turn(self, *, session_id: str) -> bool:
-        """Handle explicit chat image-generation requests through Gateway's direct media route."""
-        if self._gateway is None or self._llm_manager is None:
-            return False
-        if self._attachments:
-            # The direct endpoint is text-to-image. Let the normal agent path handle
-            # attachment-aware requests instead of silently ignoring media.
-            return False
-
-        intent = parse_image_generation_intent(self._user_text)
-        if intent is None:
-            return False
-
-        try:
-            caps = None
-            getter = getattr(self._llm_manager, "gateway_capabilities", None)
-            if callable(getter):
-                caps = getter()
-            if caps is None:
-                caps = get_cached_assistant_capabilities(self._gateway)
-            if not caps.generated_image_direct_available():
-                return False
-            fmt = choose_generated_image_format(intent, caps.generated_image_formats())
-        except Exception:
-            return False
-
-        run_id = session_memory_run_id(session_id)
-        self._root_run_id = str(run_id)
-        self._follow_run_id = ""
-        try:
-            self._llm_manager.append_message(role="user", content=self._user_text)
-            self._llm_manager.set_last_run_id(run_id)
-        except Exception:
-            pass
-
-        self.event_emitted.emit({"type": "status", "status": "generating", "run_id": run_id})
-        self.event_emitted.emit({"type": "run_activity", "summary": "Generating image", "run_id": run_id})
-
-        try:
-            response = self._gateway.image_generate(
-                run_id=run_id,
-                prompt=intent.prompt,
-                provider=self._provider or None,
-                model=self._model or None,
-                image_provider=self._image_provider or None,
-                image_model=self._image_model or None,
-                size=intent.size,
-                width=intent.width,
-                height=intent.height,
-                fmt=fmt,
-            )
-        except Exception as e:
-            response = {
-                "ok": False,
-                "supported": False,
-                "run_id": run_id,
-                "error": str(e),
-                "code": "generated_image_error",
-            }
-
-        if not isinstance(response, dict):
-            response = {"ok": False, "supported": False, "run_id": run_id, "error": "Gateway returned an invalid image-generation response."}
-
-        message = None
-        if bool(response.get("ok", True)):
-            message = build_generated_image_assistant_message(
-                run_id=run_id,
-                prompt=intent.prompt,
-                response=response,
-                provider=self._image_provider,
-                model=self._image_model,
-                fmt=fmt,
-            )
-
-        if message is None:
-            err = str(response.get("error") or response.get("code") or "Image generation is unavailable.").strip()
-            content = f"Image generation failed: {err}" if err else "Image generation failed."
-            metadata = {
-                "kind": "generated_image_error",
-                "run_id": run_id,
-                "generated_media": {
-                    "run_id": run_id,
-                    "prompt": intent.prompt,
-                    "provider": self._image_provider,
-                    "model": self._image_model,
-                    "format": fmt,
-                    "ok": False,
-                    "error": err,
-                },
-            }
-        else:
-            content = str(message.get("content") or "")
-            metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
-
-        try:
-            self._llm_manager.append_message(role="assistant", content=content, metadata=metadata)
-        except Exception:
-            pass
-
-        self.event_emitted.emit(
-            {
-                "type": "assistant",
-                "content": content,
-                "meta": metadata,
-                "final": True,
-                "run_id": run_id,
-            }
-        )
-        self.event_emitted.emit({"type": "status", "status": "completed", "run_id": run_id})
-        return True
-
     def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
         self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
+        self._record_run_stats(run_id=run_id, rec=rec)
         events = self._adapter.handle_record(rec)
         for ev in events:
             if isinstance(ev, dict) and run_id:
@@ -432,13 +391,24 @@ class GatewayWorker(QThread):
             if typ == "assistant":
                 if not self._is_foreground_run(run_id):
                     continue
+                history_changed = False
                 try:
                     content = str(ev.get("content") or "")
                     if self._should_append_assistant(content):
-                        meta = ev.get("meta") if isinstance(ev.get("meta"), dict) else None
-                        self._llm_manager.append_message(role="assistant", content=content, metadata=meta)
+                        meta = ev.get("meta") if isinstance(ev.get("meta"), dict) else {}
+                        if bool(ev.get("final")):
+                            meta = self._meta_with_run_stats(meta, run_id=run_id)
+                            ev["meta"] = meta
+                        self._llm_manager.append_message(
+                            role="assistant",
+                            content=content,
+                            metadata=meta or None,
+                            ts=str(ev.get("ts") or ""),
+                        )
+                        history_changed = True
                 except Exception:
                     pass
+                ev["history_changed"] = history_changed
                 self.event_emitted.emit(ev)
                 continue
 
@@ -477,6 +447,7 @@ class GatewayWorker(QThread):
                             role="tool",
                             content=str(msg.get("content") or ""),
                             metadata=msg.get("metadata") if isinstance(msg.get("metadata"), dict) else None,
+                            ts=str(msg.get("ts") or ""),
                         )
                     except Exception:
                         pass
@@ -553,6 +524,71 @@ class GatewayWorker(QThread):
         self._offline = False
         self.event_emitted.emit({"type": "status", "status": "thinking"})
 
+    def _record_run_stats(self, *, run_id: str, rec: Dict[str, Any]) -> None:
+        rid = str(run_id or "").strip()
+        if not rid or not isinstance(rec, dict):
+            return
+        stats = self._stats_by_run.setdefault(
+            rid,
+            {
+                "duration_ms": 0,
+                "llm_calls": 0,
+                "tool_calls": 0,
+                "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+                "_min_ms": None,
+                "_max_ms": None,
+            },
+        )
+        started_ms = _parse_iso_ms(rec.get("started_at"))
+        ended_ms = _parse_iso_ms(rec.get("ended_at"))
+        at_ms = ended_ms if ended_ms is not None else started_ms
+        if at_ms is not None:
+            min_ms = stats.get("_min_ms")
+            max_ms = stats.get("_max_ms")
+            stats["_min_ms"] = at_ms if min_ms is None else min(min_ms, at_ms)
+            stats["_max_ms"] = at_ms if max_ms is None else max(max_ms, at_ms)
+            stats["duration_ms"] = max(0, int(stats["_max_ms"]) - int(stats["_min_ms"]))
+
+        if str(rec.get("status") or "").strip().lower() != "completed":
+            return
+        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+        effect_type = str(effect.get("type") or "").strip()
+        result = rec.get("result") if isinstance(rec.get("result"), dict) else {}
+        if effect_type == "llm_call":
+            stats["llm_calls"] = int(stats.get("llm_calls") or 0) + 1
+            usage = result.get("usage") or result.get("token_usage") or result.get("tokens")
+            if not isinstance(usage, dict):
+                output = result.get("output")
+                if isinstance(output, dict):
+                    usage = output.get("usage") or output.get("token_usage") or output.get("tokens")
+            parsed = _parse_usage_summary(usage)
+            if parsed is not None:
+                bucket = stats["usage"]
+                bucket["input_tokens"] += parsed["input_tokens"]
+                bucket["output_tokens"] += parsed["output_tokens"]
+                bucket["total_tokens"] += parsed["total_tokens"] or (parsed["input_tokens"] + parsed["output_tokens"])
+        elif effect_type == "tool_calls":
+            payload = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
+            calls = payload.get("tool_calls")
+            if isinstance(calls, list):
+                stats["tool_calls"] = int(stats.get("tool_calls") or 0) + len(calls)
+
+    def _meta_with_run_stats(self, meta: Dict[str, Any], *, run_id: str) -> Dict[str, Any]:
+        merged = dict(meta or {})
+        stats = self._stats_by_run.get(str(run_id or "").strip())
+        if isinstance(stats, dict):
+            merged["_assistant_stats"] = {
+                "duration_ms": int(stats.get("duration_ms") or 0),
+                "llm_calls": int(stats.get("llm_calls") or 0),
+                "tool_calls": int(stats.get("tool_calls") or 0),
+                "usage": dict(stats.get("usage") or {}),
+            }
+        if self._provider and "provider" not in merged:
+            merged["provider"] = self._provider
+        if self._model and "model" not in merged:
+            merged["model"] = self._model
+        return merged
+
     def run(self) -> None:
         try:
             if self._gateway is None:
@@ -579,15 +615,31 @@ class GatewayWorker(QThread):
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
             else:
-                if self._try_direct_image_generation_turn(session_id=session_id):
-                    return
-
-                try:
-                    self._llm_manager.append_message(role="user", content=self._user_text)
-                except Exception:
-                    pass
-
                 attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
+                if self._append_user_message:
+                    try:
+                        metadata = None
+                        if attachments:
+                            preview_items: List[Dict[str, Any]] = []
+                            for index, attachment in enumerate(attachments):
+                                item = dict(attachment) if isinstance(attachment, dict) else {}
+                                if 0 <= index < len(self._attachments):
+                                    item["local_path"] = str(self._attachments[index])
+                                preview_items.append(item)
+                            metadata = {
+                                "attachments": preview_items,
+                                "media": preview_items,
+                            }
+                        self._llm_manager.append_message(
+                            role="user",
+                            content=self._user_text,
+                            metadata=metadata,
+                        )
+                        self.event_emitted.emit({"type": "user_message_appended", "content": self._user_text})
+                    except Exception:
+                        pass
+
+                primary_image_artifact = self._pick_primary_image_artifact(attachments)
                 input_data = build_run_input_data(
                     prompt=self._user_text,
                     provider=self._provider,
@@ -597,26 +649,17 @@ class GatewayWorker(QThread):
                     attachments=attachments,
                     allowed_tools=self._allowed_tools,
                     tool_policy=self._tool_policy,
+                    primary_image_artifact=primary_image_artifact,
                 )
 
                 entry = self._resolve_entrypoint()
-                prepare_session_prompt_cache(
-                    gateway=self._gateway,
-                    session_id=session_id,
-                    provider=self._provider,
-                    model=self._model,
-                    bundle_id=str(entry.get("bundle_id") or ""),
-                    flow_id=str(entry.get("flow_id") or ""),
-                    template_id=f"{entry.get('bundle_id') or ''}:{entry.get('flow_id') or ''}".strip(":"),
-                    input_data=input_data,
-                    system_prompt=self._system_prompt_extra,
-                    attachments=attachments,
-                )
                 run_id = self._gateway.start_run(
                     flow_id=entry["flow_id"],
                     input_data=input_data,
                     bundle_id=entry["bundle_id"],
+                    bundle_version=str(entry.get("bundle_version") or "") or None,
                     session_id=session_id,
+                    registry_scope=str(entry.get("registry_scope") or "") or None,
                 )
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)

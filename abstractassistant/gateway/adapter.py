@@ -38,6 +38,9 @@ class GatewayEventAdapter:
     def handle_record(self, rec: StepRecord | None) -> List[Dict[str, Any]]:
         """Return UI events derived from a single ledger record."""
         events: List[Dict[str, Any]] = []
+        record_ts = ""
+        if isinstance(rec, dict):
+            record_ts = str(rec.get("ended_at") or rec.get("started_at") or "").strip()
 
         emit = extract_emit_event(rec)
         if emit:
@@ -56,7 +59,7 @@ class GatewayEventAdapter:
                 text = text.strip()
                 if text:
                     # For now, render messages as assistant content in the tray UI.
-                    events.append({"type": "assistant", "content": text, "final": False})
+                    events.append({"type": "assistant", "content": text, "final": False, "ts": record_ts})
             elif name == "abstract.media.image.generated" and isinstance(payload, dict):
                 artifact = payload.get("image_artifact")
                 if isinstance(artifact, dict) and str(artifact.get("$artifact") or "").strip():
@@ -68,6 +71,7 @@ class GatewayEventAdapter:
                             "content": "Generated image" + (f": {prompt}" if prompt else ""),
                             "meta": meta,
                             "final": False,
+                            "ts": record_ts,
                         }
                     )
 
@@ -86,7 +90,15 @@ class GatewayEventAdapter:
 
         out = extract_flow_end_output(rec)
         if out:
-            events.append({"type": "assistant", "content": out.get("response", ""), "meta": out.get("meta"), "final": True})
+            events.append(
+                {
+                    "type": "assistant",
+                    "content": out.get("response", ""),
+                    "meta": out.get("meta"),
+                    "final": True,
+                    "ts": record_ts,
+                }
+            )
 
         if rec and isinstance(rec, dict):
             status = str(rec.get("status") or "").strip().lower()

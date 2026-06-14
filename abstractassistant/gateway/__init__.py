@@ -22,7 +22,6 @@ from .capabilities import (
     AssistantCapabilities,
     get_cached_assistant_capabilities,
 )
-from .session_cache import merge_prompt_cache_runtime_hint, prepare_session_prompt_cache
 from .generated_media import (
     ImageGenerationIntent,
     build_generated_image_assistant_message,
@@ -42,8 +41,6 @@ __all__ = [
     "AGENT_INTERFACE_PREFERENCE",
     "AssistantCapabilities",
     "get_cached_assistant_capabilities",
-    "merge_prompt_cache_runtime_hint",
-    "prepare_session_prompt_cache",
     "ImageGenerationIntent",
     "build_generated_image_assistant_message",
     "choose_generated_image_format",

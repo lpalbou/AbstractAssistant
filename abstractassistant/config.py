@@ -76,6 +76,11 @@ class GatewayConfig:
 
     url: str = field(default_factory=_gateway_url_from_env)
     auth_token: str = field(default_factory=_gateway_auth_token_from_env)
+    auth_mode: str = "bearer"
+    user_id: str = ""
+    session_id: str = ""
+    csrf_token: str = ""
+    session_expires_at: str = ""
     use_gateway: bool = True
     bundle_id: str = ""
     flow_id: str = ""
@@ -167,6 +172,11 @@ class Config:
             gateway=GatewayConfig(
                 url=gateway_url or DEFAULT_GATEWAY_URL,
                 auth_token=gateway_auth_token,
+                auth_mode=str(gateway_data.get("auth_mode", "bearer") or "bearer").strip() or "bearer",
+                user_id=str(gateway_data.get("user_id", "") or "").strip(),
+                session_id=str(gateway_data.get("session_id", "") or "").strip(),
+                csrf_token=str(gateway_data.get("csrf_token", "") or "").strip(),
+                session_expires_at=str(gateway_data.get("session_expires_at", "") or "").strip(),
                 use_gateway=use_gateway,
                 bundle_id=str(gateway_data.get("bundle_id", "") or ""),
                 flow_id=str(gateway_data.get("flow_id", "") or ""),
@@ -186,6 +196,12 @@ class Config:
         auth_token = str(self.gateway.auth_token or "")
         if redact_secrets and auth_token:
             auth_token = "<redacted>"
+        session_id = str(self.gateway.session_id or "")
+        csrf_token = str(self.gateway.csrf_token or "")
+        if redact_secrets and session_id:
+            session_id = "<redacted>"
+        if redact_secrets and csrf_token:
+            csrf_token = "<redacted>"
         return {
             "ui": {
                 "theme": self.ui.theme,
@@ -202,6 +218,11 @@ class Config:
             "gateway": {
                 "url": self.gateway.url,
                 "auth_token": auth_token,
+                "auth_mode": self.gateway.auth_mode,
+                "user_id": self.gateway.user_id,
+                "session_id": session_id,
+                "csrf_token": csrf_token,
+                "session_expires_at": self.gateway.session_expires_at,
                 "use_gateway": self.gateway.use_gateway,
                 "bundle_id": self.gateway.bundle_id,
                 "flow_id": self.gateway.flow_id,
@@ -237,6 +258,9 @@ class Config:
 
         if self.gateway.use_gateway and not str(self.gateway.url or "").strip():
             errors.append("Gateway URL is required when use_gateway=true")
+
+        if str(self.gateway.auth_mode or "bearer").strip() not in {"bearer", "session"}:
+            errors.append(f"Invalid gateway auth_mode: {self.gateway.auth_mode}")
 
         if not 16 <= self.system_tray.icon_size <= 128:
             errors.append(f"Invalid icon_size: {self.system_tray.icon_size}")

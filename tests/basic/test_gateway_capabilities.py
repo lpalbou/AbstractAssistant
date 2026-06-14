@@ -43,6 +43,19 @@ def _discovery_response() -> dict:
                                 "formats": ["png", "webp"],
                                 "provider_models_endpoint": "/api/gateway/vision/provider_models",
                                 "provider_models_task": "text_to_image",
+                                "adapter_catalog_endpoint": "/api/gateway/vision/adapters",
+                                "supports_batch": True,
+                                "batch_count_field": "count",
+                                "batch_seed_field": "seeds",
+                                "supports_lora_adapters": True,
+                            }
+                        },
+                        "generated_video": {
+                            "direct_endpoint": {
+                                "available": True,
+                                "route_available": True,
+                                "provider_models_task": "text_to_video",
+                                "supports_flow_shift": True,
                             }
                         }
                     },
@@ -104,6 +117,12 @@ def test_assistant_capabilities_parse_and_cache_gateway_contract(monkeypatch: py
     assert first.generated_image_formats() == ["png", "webp"]
     assert first.generated_image_provider_models_endpoint() == "/api/gateway/vision/provider_models"
     assert first.generated_image_provider_models_task() == "text_to_image"
+    assert first.direct_media_adapter_catalog_endpoint("generated_image") == "/api/gateway/vision/adapters"
+    assert first.direct_media_supports_batch("generated_image") is True
+    assert first.direct_media_batch_count_field("generated_image") == "count"
+    assert first.direct_media_batch_seed_field("generated_image") == "seeds"
+    assert first.direct_media_supports_lora_adapters("generated_image") is True
+    assert first.direct_media_supports_flow_shift("generated_video") is True
     assert first.session_prompt_cache_available() is True
     assert first.artifact_content_available() is True
 

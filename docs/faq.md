@@ -1,169 +1,81 @@
 # FAQ
 
 See also:
-- [README.md](README.md) (docs hub)
-- [getting-started.md](getting-started.md) (first run)
-- [api.md](api.md) (CLI + programmatic API)
-- [architecture.md](architecture.md) (durability + tool boundary)
+
+- [getting-started.md](getting-started.md)
+- [architecture.md](architecture.md)
+- [troubleshooting.md](troubleshooting.md)
 
 ## What is AbstractAssistant?
 
-A macOS-first tray app and CLI that runs **gateway-first** (thin client). It uses:
-- **AbstractAgent** for agent loops
-- **AbstractRuntime** for durable runs and resumable waits
-- **AbstractCore** for provider/tool/media schemas
+It is a desktop assistant for AbstractGateway. It runs as a tray app with a compact top-right
+palette and a matching CLI. The assistant is thin by design: the gateway owns workflows, defaults,
+and durable execution.
 
-Evidence: `abstractassistant/core/agent_host.py`, `abstractassistant/app.py`, `abstractassistant/cli.py`
+## Does it run locally?
 
-## Is it part of AbstractFramework?
+The desktop shell runs locally. Whether requests work offline depends on the gateway deployment and
+its providers. A gateway backed by local providers can stay local; a gateway backed by cloud
+providers still needs network access.
 
-Yes. AbstractAssistant is a component in the AbstractFramework ecosystem:
-- https://github.com/lpalbou/AbstractFramework
-- https://github.com/lpalbou/abstractcore
-- https://github.com/lpalbou/abstractruntime
-
-## Does it run locally / offline?
-
-The UI runs locally. Whether responses work offline depends on the provider behind the gateway:
-- local providers (Ollama / LMStudio): can be offline (no cloud call)
-- cloud providers (OpenAI / Anthropic): require network and API keys
-
-## Where is my data stored?
-
-By default: `~/.abstractassistant/`.
-
-Evidence: `abstractassistant/core/agent_host.py`, `abstractassistant/core/session_index.py`
-
-## Why do I keep seeing tool approval prompts?
-
-Because AbstractAssistant enforces an explicit tool boundary:
-- read-only tools may auto-run
-- writes, shell execution, and unknown tools require approval
-
-Evidence: `abstractassistant/core/tool_policy.py`
-
-CLI:
-- prompts in the terminal
-
-Tray UI:
-- use “Tools” to set a per-session allowlist and default approval mode
-
-## Can I disable tools entirely?
-
-Yes:
-- tray UI: switch to a custom tool allowlist and select none (or only safe tools)
-- programmatic: pass `allowed_tools=[]` to `AgentHost.run_turn(...)`
-
-## Why was a file write blocked in gateway mode?
-
-Gateway workspace policies limit where tools can write. If you see a tool result
-error mentioning the workspace/root path, ensure your target path is inside the
-gateway workspace, or configure:
-
-- `ABSTRACTGATEWAY_WORKSPACE_DIR`
-- `ABSTRACTGATEWAY_WORKSPACE_MOUNTS`
-
-The tray UI will surface a hint in the tool result bubble when this happens.
-
-## Where do artifact downloads go?
-
-Artifact downloads are cached under:
-
-- `~/.abstractassistant/artifacts/`
-
-## How does voice work in gateway mode?
-
-When `gateway.use_gateway=true`, TTS and STT are routed through the gateway
-audio endpoints (`/voice/tts`, `/audio/transcribe`). The client still needs a
-local recorder and player; if those are unavailable, the UI will emit a
-`#FALLBACK` warning and disable the affected control.
-
-## Why do I only see one provider or no LM Studio models?
-
-In gateway mode, provider and model lists come from the gateway discovery endpoints, not from the local tray app.
-
-If the assistant cannot authenticate to the gateway, discovery fails and provider/model discovery is rejected. Use the same shared token in both processes:
-
-```bash
-export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
-abstractgateway serve --host 127.0.0.1 --port 8080
-assistant
-```
-
-If you sent the wrong token repeatedly, the gateway will temporarily return `429 Too Many Requests (auth lockout)`. Wait for the lockout window to expire, then relaunch the assistant with the correct token.
-
-AbstractAssistant tray startup is environment-driven. Use:
-- `ABSTRACTGATEWAY_URL` when the gateway is not on `http://127.0.0.1:8080`
-- `ABSTRACTGATEWAY_AUTH_TOKEN` for the shared bearer token
-
-Equivalent optional CLI flags:
-- `--gateway-url`
-- `--gateway-token`
-
-There is no versioned tray `config.toml` for secrets.
-
-## Why do I see `Gateway exposes no abstractcode.agent.v1 entrypoints`?
-
-Because workflow discovery comes from the gateway too.
-
-If the gateway starts without any loaded `.flow` bundles, provider/model discovery can still work while workflow discovery fails. For local development in this monorepo, launch the gateway with:
-
-```bash
-export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
-abstractgateway serve --host 127.0.0.1 --port 8080
-```
-
-`abstractassistant` does not choose or load bundles itself. The gateway must expose at least one `abstractcode.agent.v1` entrypoint.
-
-## Where should provider settings like LM Studio live?
+## Where do provider and model defaults live?
 
 On the gateway side.
 
-AbstractAssistant only needs:
-- the gateway URL
-- the shared gateway auth token
+The assistant Settings window edits gateway capability-default routes. The desktop app only keeps
+local UX preferences and session convenience state.
 
-Provider-specific settings such as LM Studio base URL, Ollama host, or cloud API keys belong to the gateway / AbstractCore environment, not the tray app.
+## Does the assistant still remember a local provider/model default?
 
-## Does the tray app keep a local provider/model default?
+No. Gateway defaults are authoritative. The assistant remembers local preferences, but the default
+multimodal routing policy belongs to the gateway.
 
-No.
+## Which workflow does the assistant use?
 
-The tray app uses gateway discovery to populate the provider/model lists and only caches the last selected provider/model in session state so it can restore your last choice.
+AbstractAssistant uses the published gateway workflow bundle `abstractassistant-orchestrator`. The
+tray app and the CLI both run through that published catalog workflow.
 
-## How do I select a gateway workflow?
+## Can I choose a different workflow?
 
-Use the **Workflow** dropdown in the tray UI. Selection is saved per session
-and sent with each run via `bundle_id` + `flow_id`.
+Not in the normal desktop path.
 
-## Why does the status show OFFLINE?
+The assistant expects exactly one published assistant workflow from the gateway catalog. If that
+workflow is missing or ambiguous, the app blocks and tells you to fix the gateway side.
 
-The gateway is unreachable or restarting. The UI will retry with backoff and
-you can use **Reconnect gateway** from the menu to force a refresh.
+## Why are some requests unavailable?
 
-## How do attachments work?
+Image, video, sound, music, voice, and tool behavior depend on configured gateway routes and a
+published assistant workflow. If those gateway surfaces are missing, the assistant asks you to fix
+them in Settings or on the gateway instead of silently guessing.
 
-In the tray UI, attached files are registered as runtime artifacts when possible and passed to the
-provider/media pipeline. The default attachment size limit is 25 MiB (override via
-`ABSTRACTGATEWAY_MAX_ATTACHMENT_BYTES`).
+## How does voice work?
 
-Evidence: `abstractassistant/core/agent_host.py`
+The desktop app captures microphone audio locally and plays audio locally. STT and TTS execution go
+through the gateway.
 
-## Why is voice not working?
+If the gateway does not advertise voice routes, the assistant disables the mic or auto-speak
+controls.
 
-Common causes:
-- microphone permission not granted on macOS
-- STT backend unavailable or model weights not downloaded yet
+## Where are downloads stored?
 
-Start with:
-- macOS System Settings → Privacy & Security → Microphone → enable AbstractAssistant
+Downloaded artifacts are cached under `~/.abstractassistant/`.
 
-## Which agent loops are supported?
+## Why do I keep seeing tool approval prompts?
 
-The gateway-backed workflows can use whatever agent loop the selected workflow defines.
+Because tool execution remains gateway-driven and explicit. When a workflow emits a tool-approval
+wait, the assistant surfaces it and resumes the run only after your decision.
 
-Evidence: `abstractassistant/core/agent_host.py`, `abstractassistant/cli.py`, `abstractassistant/core/llm_manager.py`
+## Which auth model does the desktop app use?
+
+The tray app supports both gateway bearer tokens and hosted gateway sessions. In Settings you
+can either save a shared bearer token or exchange a gateway user token for an opaque gateway
+session plus CSRF token. The CLI remains bearer-token oriented.
+
+## Can I use it outside macOS?
+
+macOS is the primary tray target. Linux and Windows may work, especially for the CLI, but they are
+not yet validated to the same standard as the macOS tray path.
 
 ## How do I report a security issue?
 
-Please follow [../SECURITY.md](../SECURITY.md).
+Use the process in [../SECURITY.md](../SECURITY.md).

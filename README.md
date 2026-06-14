@@ -1,27 +1,29 @@
 # AbstractAssistant
 
-AbstractAssistant is a macOS-first tray app and CLI.
+AbstractAssistant is a gateway-native desktop assistant for the AbstractFramework ecosystem.
 
-The tray app is gateway-first: it connects to AbstractGateway, discovers available providers/models there, and keeps only local UI/session state.
-
-It is part of the **AbstractFramework** ecosystem:
-- https://github.com/lpalbou/AbstractFramework
-- key components used directly here:
-  - AbstractCore: https://github.com/lpalbou/abstractcore
-  - AbstractRuntime: https://github.com/lpalbou/abstractruntime
-
-## What it does
-
-- **Tray UI**: menu bar/system tray bubble with sessions, attachments, tool approvals, and voice.
-- **Media settings**: Gateway-backed Voice, TTS, STT, and Image selectors for generated speech, transcription, and image generation.
-- **CLI**: run a single agentic turn in the terminal.
-- **Durable tool boundary**: tool calls are surfaced as a resumable wait and executed only through the gateway after approval.
+It ships as a macOS-first tray app with a compact top-right palette and a small CLI. The desktop
+client stays thin: AbstractGateway owns workflow discovery, durable runs, multimodal capability
+defaults, provider connections, and media routing. The assistant keeps only local UX state such as
+sessions, window placement, downloads, and optional hotkey preferences.
 
 High-level flow:
 
+```text
+Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Providers
 ```
-Tray UI / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Provider(s)
-```
+
+## What You Get
+
+- A tray-first desktop assistant with a compact top-right query palette.
+- One published gateway assistant workflow, `abstractassistant-orchestrator`, as the runtime path
+  for tray and CLI turns.
+- Gateway-backed multimodal defaults for text, voice, image, video, sound, and music routes.
+- Local microphone capture and local playback while STT/TTS execution stays on the gateway.
+- Workflow-routed image, video, sound, and music generation through gateway defaults.
+- Durable tool approvals through gateway waits instead of local side channels.
+- Gateway-backed capability-default editing, including advanced route options where the selected
+  route supports them.
 
 ## Install
 
@@ -29,76 +31,92 @@ Tray UI / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Provider(
 pip install "abstractassistant"
 ```
 
-Requirements (summary):
+Practical requirements:
+
 - Python 3.10+
-- Tray UI is macOS-first (menu bar/system tray); CLI/backend may work elsewhere but macOS is the primary target.
-- For tray mode, an AbstractGateway instance must be available.
+- An AbstractGateway instance the assistant can reach
+- macOS is the primary tray target; Linux and Windows may work but are not yet packaged to the same standard
 
-## Quick start
+## Quick Start
 
-Tray UI:
-
-```bash
-assistant
-```
-
-CLI (one turn):
-
-```bash
-assistant run --prompt "What is in this repo and where do I start?"
-```
-
-Gateway startup (local dev):
+Start a local gateway for development:
 
 ```bash
 export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
 export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
 abstractgateway serve --host 127.0.0.1 --port 8080
+```
+
+Launch the tray assistant:
+
+```bash
 assistant
 ```
 
-Optional assistant-side overrides:
+Run a single terminal turn:
+
+```bash
+assistant run --prompt "Search the web for the latest OpenAI news and summarize it with sources."
+```
+
+Optional connection overrides:
 
 ```bash
 assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
 
-The Media settings dialog is populated from Gateway catalog routes:
-`/api/gateway/voice/voices`, `/api/gateway/audio/speech/models`,
-`/api/gateway/audio/transcriptions/models`, `/api/gateway/vision/provider_models`,
-and `/api/gateway/vision/models`. If it only shows `default`, verify that the
-running Gateway is the current package version and not an older server process.
+The tray app does not ask you to choose a workflow. It uses the published
+`abstractassistant-orchestrator` workflow from the gateway tenant catalog.
 
-## Data & durability
+## Defaults And Durability
 
-Default data directory: `~/.abstractassistant/`.
+Gateway is the source of truth for:
 
-Contents (evidence: `abstractassistant/core/session_index.py`):
-- `session.json`: transcript snapshot + last run id (fast UX state)
-- `sessions.json`: session registry + active session id
-- `runtime/`: AbstractRuntime stores (run state, ledger, artifacts)
+- the published `abstractassistant-orchestrator` workflow and its catalog entrypoint
+- provider/model defaults for multimodal routes
+- media routing and execution
+- durable run history, waits, and artifacts
+
+The desktop client stores only local state under `~/.abstractassistant/`, including:
+
+- `sessions.json`: session registry and active session
+- session transcript snapshots and last run ids
+- `gateway_connection.json`: gateway URL plus bearer-token or session auth state
+- local downloads and tray/palette preferences
+
+The desktop assistant stays intentionally thinner than Flow. Settings exposes
+gateway capability-default routes plus a bounded advanced `options` JSON
+surface. That JSON is passed through unchanged for route features such as
+`count`, `seeds`, `lora_adapters`, `guidance_2`, and `flow_shift` when the
+selected route supports them.
 
 ## Documentation
 
-Start here: [docs/README.md](docs/README.md)
+Start with [docs/README.md](docs/README.md).
 
 Core guides:
+
 - [docs/INSTALLATION.md](docs/INSTALLATION.md)
 - [docs/getting-started.md](docs/getting-started.md)
 - [docs/api.md](docs/api.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/faq.md](docs/faq.md)
+- [docs/troubleshooting.md](docs/troubleshooting.md)
+
+Architecture records:
+
+- [docs/adr/README.md](docs/adr/README.md)
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q
+python -m pytest tests/basic tests/integration -q
 ```
 
-## Contributing / Security / License
+## Project Links
 
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Security reporting: [SECURITY.md](SECURITY.md)
+- Security: [SECURITY.md](SECURITY.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 - License: [LICENSE](LICENSE)
-- Acknowledgments: [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)

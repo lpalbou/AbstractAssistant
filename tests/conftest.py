@@ -16,6 +16,9 @@ REPO_ROOT = ROOT.parent
 VOICE_PKG_ROOT = REPO_ROOT / "abstractvoice"
 if VOICE_PKG_ROOT.exists() and str(VOICE_PKG_ROOT) not in sys.path:
     sys.path.insert(0, str(VOICE_PKG_ROOT))
+RUNTIME_SRC_ROOT = REPO_ROOT / "abstractruntime" / "src"
+if RUNTIME_SRC_ROOT.exists() and str(RUNTIME_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_SRC_ROOT))
 
 from abstractassistant.config import Config
 from abstractassistant.core.llm_manager import LLMManager

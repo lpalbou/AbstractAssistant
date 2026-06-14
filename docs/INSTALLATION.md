@@ -7,8 +7,10 @@ See also:
 ## Requirements (practical)
 
 - **Python**: 3.10+
-- **Tray UI**: macOS is the primary target (menu bar app). Other OSes may work via `pystray`/Qt but are not the focus.
+- **Tray UI**: macOS is the primary target. Other OSes may work through the Qt shell, but are not yet packaged to the same standard.
 - **Gateway**: an AbstractGateway instance must be available
+- **Published workflow**: the gateway must expose the `abstractassistant-orchestrator` workflow in
+  the tenant catalog
 - **Providers**:
   - local: LMStudio / Ollama must be configured on the gateway
   - cloud: API keys belong on the gateway side
@@ -62,6 +64,8 @@ Optional assistant-side overrides:
 
 ## Notes
 
+- Gateway owns workflow discovery and multimodal capability defaults. The assistant does not need
+  provider API keys or local model configuration files.
 - AbstractAssistant does not bundle `ffmpeg`. If your provider/media pipeline relies on `ffmpeg` for video frame extraction, ensure it is on your PATH.
 
 ## Next

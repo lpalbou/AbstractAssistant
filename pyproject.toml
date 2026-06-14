@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.4.9"
+version = "0.4.10"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,14 +28,15 @@ classifiers = [
 
 dependencies = [
     # Base install is fully-featured (voice + media + provider/tool integrations).
-    "abstractagent>=0.3.11",
-    "abstractvoice>=0.10.17",
+    "abstractagent>=0.3.12",
+    "abstractvoice>=0.10.18",
     # Provider/client extras (avoid GPU-only stacks like vLLM by default).
-    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.13.32",
+    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.13.38",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "pystray>=0.19.4",
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",
+    "pynput>=1.7.7",
     # Markdown rendering in UI
     "markdown>=3.5.0",
     "pygments>=2.16.0",
@@ -51,18 +52,18 @@ dependencies = [
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.10.17",
+    "abstractvoice[audio-io,stt]>=0.10.18",
 ]
 apple = [
-    "abstractcore[all-apple]>=2.13.32",
-    "abstractvoice[all-apple]>=0.10.17",
+    "abstractcore[all-apple]>=2.13.38",
+    "abstractvoice[all-apple]>=0.10.18",
 ]
 gpu = [
-    "abstractcore[all-gpu]>=2.13.32",
-    "abstractvoice[all-gpu]>=0.10.17",
+    "abstractcore[all-gpu]>=2.13.38",
+    "abstractvoice[all-gpu]>=0.10.18",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.10.17",
+    "abstractvoice[audio-io,stt]>=0.10.18",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",

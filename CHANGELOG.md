@@ -2,6 +2,16 @@
 
 All notable changes to AbstractAssistant will be documented in this file.
 
+## [Unreleased]
+
+## [0.4.10] - 2026-06-14
+
+### Changed
+- The tray app and `assistant run` now use one published gateway workflow, `abstractassistant-orchestrator`, as the runtime path for chat, tools, and media requests.
+- Gateway capability-default editing now carries the newer vision route fields end to end, including `count` / `n`, ordered `seeds`, stacked `lora_adapters`, `guidance_2`, and `flow_shift`.
+- Public documentation now explains the published assistant workflow and gateway-owned defaults directly, with release history kept in the changelog and only limited compatibility guidance in the FAQ.
+- Raised dependency floors to Agent `>=0.3.12`, Voice `>=0.10.18`, and Core `>=2.13.38` so the assistant inherits the published Gateway/Core vision and voice capability surface.
+
 ## [0.4.9] - 2026-06-03
 
 ### Changed

@@ -16,6 +16,7 @@ import time
 import uuid
 import warnings
 import os
+import io
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
@@ -40,6 +41,8 @@ class GatewayVoiceManager:
         self._speaking = False
         self._paused = False
         self._play_proc: Optional[subprocess.Popen] = None
+        self._inprocess_player = None
+        self._playback_backend = "none"
         # Playback readiness (pause waits until a player spawns or fails).
         self._play_ready = threading.Event()
         self._state_lock = threading.Lock()
@@ -324,11 +327,13 @@ class GatewayVoiceManager:
         try:
             gw = self._gateway_client()
             run_id = self._session_run_id()
+            selected_provider = self._selected_tts_provider()
             selected_voice = self._selected_tts_voice()
             selected_voice_mode = self._selected_tts_voice_mode()
             res = gw.voice_tts(
                 run_id=run_id,
                 text=raw,
+                provider=selected_provider,
                 voice=selected_voice if selected_voice_mode == "clone" else None,
                 profile=selected_voice if selected_voice_mode != "clone" else None,
                 fmt=self._preferred_tts_format(),
@@ -356,6 +361,17 @@ class GatewayVoiceManager:
         with self._state_lock:
             if self._paused:
                 return True
+        player = self._inprocess_player
+        if self._playback_backend == "inprocess" and player is not None:
+            try:
+                if bool(player.pause()):
+                    with self._state_lock:
+                        self._paused = True
+                        self._speaking = False
+                    self._tts_gate_end()
+                    return True
+            except Exception:
+                pass
         proc = self._play_proc
         if proc is None:
             with self._state_lock:
@@ -382,6 +398,17 @@ class GatewayVoiceManager:
         with self._state_lock:
             if not self._paused:
                 return False
+        player = self._inprocess_player
+        if self._playback_backend == "inprocess" and player is not None:
+            try:
+                if bool(player.resume()):
+                    with self._state_lock:
+                        self._paused = False
+                        self._speaking = True
+                    self._tts_gate_start()
+                    return True
+            except Exception:
+                pass
         proc = self._play_proc
         if not self._resume_playback_proc(proc):
             warnings.warn("#FALLBACK: gateway TTS resume not supported; no paused playback")
@@ -419,11 +446,34 @@ class GatewayVoiceManager:
     def stop_speaking(self) -> None:
         """Stop any active playback."""
         self._stop_meter()
+        player = self._inprocess_player
+        if self._playback_backend == "inprocess" and player is not None:
+            try:
+                player.stop_stream()
+            except Exception:
+                pass
+            self._play_proc = None
+            self._playback_backend = "none"
+            try:
+                self._play_ready.set()
+            except Exception:
+                pass
+            with self._state_lock:
+                self._speaking = False
+                self._paused = False
+            try:
+                self._meter_pause.clear()
+            except Exception:
+                pass
+            self._emit_audio_meter(0.0)
+            self._tts_gate_end()
+            return
         proc = self._play_proc
         if proc is None:
             with self._state_lock:
                 self._speaking = False
                 self._paused = False
+            self._playback_backend = "none"
             try:
                 self._play_ready.set()
             except Exception:
@@ -445,6 +495,7 @@ class GatewayVoiceManager:
         except Exception:
             pass
         self._play_proc = None
+        self._playback_backend = "none"
         try:
             self._play_ready.set()
         except Exception:
@@ -456,6 +507,26 @@ class GatewayVoiceManager:
         self._tts_gate_end()
 
     def _sync_playback_state(self) -> None:
+        player = self._inprocess_player
+        if self._playback_backend == "inprocess" and player is not None:
+            try:
+                active = bool(getattr(player, "is_playing", False))
+            except Exception:
+                active = False
+            if active:
+                return
+            with self._state_lock:
+                self._speaking = False
+                self._paused = False
+            try:
+                self._meter_pause.clear()
+            except Exception:
+                pass
+            try:
+                self._play_ready.set()
+            except Exception:
+                pass
+            return
         proc = self._play_proc
         if proc is None:
             return
@@ -465,6 +536,7 @@ class GatewayVoiceManager:
         except Exception:
             return
         self._play_proc = None
+        self._playback_backend = "none"
         with self._state_lock:
             self._speaking = False
             self._paused = False
@@ -491,6 +563,12 @@ class GatewayVoiceManager:
     def _play_audio_bytes(self, audio_bytes: bytes, content_type: str, *, callback: Optional[Callable]) -> bool:
         if not isinstance(audio_bytes, (bytes, bytearray)) or not audio_bytes:
             return False
+        if "wav" in str(content_type or "").lower():
+            try:
+                if self._play_audio_bytes_inprocess(audio_bytes, callback=callback):
+                    return True
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: in-process gateway audio playback failed: {e}")
         cache_dir = self._audio_cache_dir()
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -528,6 +606,7 @@ class GatewayVoiceManager:
                 with self._state_lock:
                     self._speaking = True
                     self._paused = False
+                self._playback_backend = "external"
                 self._tts_gate_start()
                 if self.on_speech_start:
                     self.on_speech_start()
@@ -549,6 +628,7 @@ class GatewayVoiceManager:
                 warnings.warn(f"#FALLBACK: audio playback failed: {e}")
             finally:
                 self._play_proc = None
+                self._playback_backend = "none"
                 try:
                     self._play_ready.set()
                 except Exception:
@@ -574,6 +654,153 @@ class GatewayVoiceManager:
 
         threading.Thread(target=_play, daemon=True).start()
         return True
+
+    def _play_audio_bytes_inprocess(self, audio_bytes: bytes, *, callback: Optional[Callable]) -> bool:
+        player = self._ensure_inprocess_audio_player()
+        if player is None:
+            return False
+        decoded = self._decode_wav_audio_bytes(audio_bytes)
+        if decoded is None:
+            return False
+        samples, sample_rate = decoded
+        self.stop_speaking()
+        try:
+            self._meter_pause.clear()
+        except Exception:
+            pass
+        try:
+            self._play_ready.set()
+        except Exception:
+            pass
+        with self._state_lock:
+            self._speaking = True
+            self._paused = False
+        self._playback_backend = "inprocess"
+        self._tts_gate_start()
+
+        def _on_audio_start() -> None:
+            try:
+                if self.on_speech_start:
+                    self.on_speech_start()
+            except Exception:
+                pass
+
+        def _on_audio_end() -> None:
+            self._emit_audio_meter(0.0)
+            with self._state_lock:
+                self._speaking = False
+                self._paused = False
+            self._playback_backend = "none"
+            self._tts_gate_end()
+            try:
+                if self.on_speech_end:
+                    self.on_speech_end()
+            except Exception:
+                pass
+            if callback:
+                try:
+                    callback()
+                except Exception:
+                    pass
+
+        player.on_audio_start = _on_audio_start
+        player.on_audio_end = _on_audio_end
+        player.playback_complete_callback = None
+        player.play_audio(samples, sample_rate=sample_rate)
+        return True
+
+    def _ensure_inprocess_audio_player(self):
+        if self._inprocess_player is not None:
+            return self._inprocess_player
+        if not self._supports_inprocess_audio_player():
+            return None
+        try:
+            from abstractvoice.tts import NonBlockingAudioPlayer
+        except Exception:
+            return None
+        player = NonBlockingAudioPlayer(debug_mode=self.debug_mode)
+        prev = getattr(player, "on_audio_chunk", None)
+
+        def _on_chunk(chunk, sample_rate: int) -> None:
+            if callable(prev):
+                try:
+                    prev(chunk, sample_rate)
+                except Exception:
+                    pass
+            self._emit_audio_meter_from_chunk(chunk, sample_rate)
+
+        player.on_audio_chunk = _on_chunk
+        self._inprocess_player = player
+        return player
+
+    def _supports_inprocess_audio_player(self) -> bool:
+        try:
+            from abstractvoice.tts import NonBlockingAudioPlayer  # noqa: F401
+            import sounddevice  # noqa: F401
+            return True
+        except Exception:
+            return False
+
+    def _decode_wav_audio_bytes(self, audio_bytes: bytes):
+        try:
+            import wave
+            import numpy as np
+        except Exception:
+            return None
+        try:
+            with wave.open(io.BytesIO(bytes(audio_bytes)), "rb") as wf:
+                sample_rate = int(wf.getframerate() or 0)
+                channels = int(wf.getnchannels() or 1)
+                sampwidth = int(wf.getsampwidth() or 0)
+                frames = wf.readframes(int(wf.getnframes() or 0))
+        except Exception:
+            return None
+        if sample_rate <= 0 or not frames:
+            return None
+        if sampwidth == 1:
+            data = np.frombuffer(frames, dtype=np.uint8).astype(np.float32)
+            data = (data - 128.0) / 128.0
+        elif sampwidth == 2:
+            data = np.frombuffer(frames, dtype=np.int16).astype(np.float32)
+            data = data / 32768.0
+        elif sampwidth == 4:
+            data = np.frombuffer(frames, dtype=np.int32).astype(np.float32)
+            data = data / 2147483648.0
+        else:
+            return None
+        if channels > 1:
+            try:
+                data = data.reshape(-1, channels).mean(axis=1)
+            except Exception:
+                return None
+        return data.reshape(-1), sample_rate
+
+    def _emit_audio_meter_from_chunk(self, chunk, sample_rate: int | None = None) -> None:
+        cb = self._audio_meter_callback
+        if cb is None:
+            return
+        try:
+            import numpy as np
+
+            arr = np.asarray(chunk, dtype=np.float32)
+            if arr.size <= 0:
+                return
+            if arr.ndim > 1:
+                arr = np.mean(arr, axis=1)
+            if arr.size <= 0:
+                return
+            arr = arr - float(np.mean(arr))
+            rms = float(np.sqrt(np.mean(np.square(arr))))
+            level = min(1.0, max(0.0, rms * 3.0))
+            bands = []
+            if sample_rate and sample_rate > 0:
+                bands = self._compute_band_levels(arr, int(sample_rate), rms)
+            if bands:
+                cb(bands)
+            else:
+                cb(level)
+        except Exception:
+            pass
 
     def _spawn_player(self, path: Path):
         if sys.platform == "darwin":
@@ -809,6 +1036,8 @@ class GatewayVoiceManager:
         return [min(1.0, lvl * (0.4 + 0.6 * amp)) for lvl in shaped]
 
     def _audio_player_available(self) -> bool:
+        if self._supports_inprocess_audio_player():
+            return True
         if sys.platform == "darwin":
             return bool(shutil.which("afplay"))
         if sys.platform.startswith("win"):
@@ -878,6 +1107,8 @@ class GatewayVoiceManager:
             return []
 
     def _preferred_tts_format(self) -> str:
+        if sys.platform == "darwin" and self._supports_inprocess_audio_player():
+            return "wav"
         try:
             return str(self._assistant_capabilities().preferred_tts_format() or "wav")
         except Exception:
@@ -916,6 +1147,17 @@ class GatewayVoiceManager:
                 or ""
             ).strip()
             return preferred or None
+
+    def _selected_tts_provider(self) -> Optional[str]:
+        selected = str(getattr(self._llm_manager, "current_tts_provider", "") or "").strip()
+        if selected:
+            return selected
+        preferred = str(
+            os.getenv("ABSTRACTASSISTANT_GATEWAY_TTS_PROVIDER")
+            or os.getenv("ABSTRACTASSISTANT_TTS_PROVIDER")
+            or ""
+        ).strip()
+        return preferred or None
 
     def _selected_stt_model(self) -> Optional[str]:
         selected = str(getattr(self._llm_manager, "current_stt_model", "") or "").strip()

@@ -1,164 +1,137 @@
-# Getting started
+# Getting Started
 
-AbstractAssistant is a macOS-first tray app and CLI.
-
-The tray app is a **gateway-first thin client**:
-- agent loop: `abstractagent` (ReAct / CodeAct / MemAct)
-- durability: `abstractruntime` (runs + waits + ledger + artifacts)
-- providers/tools/media: `abstractcore`
+AbstractAssistant is a tray-first gateway client. It does not host providers or durable workflows
+locally. Instead, it connects to AbstractGateway, runs each turn through the published
+`abstractassistant-orchestrator` assistant workflow in the gateway catalog, and uses gateway
+capability defaults.
 
 See also:
-- [README.md](README.md) (docs hub)
-- [architecture.md](architecture.md) (durability + tool boundary, diagrams)
-- [api.md](api.md) (CLI + programmatic API)
 
-## Install
+- [INSTALLATION.md](INSTALLATION.md)
+- [architecture.md](architecture.md)
+- [troubleshooting.md](troubleshooting.md)
+
+## 1. Install
 
 ```bash
 pip install "abstractassistant"
 ```
 
-AbstractVoice is installed by default so voice features work out of the box.
+## 2. Start A Gateway
 
-## Run
-
-### Tray UI (macOS)
-
-```bash
-assistant
-```
-
-Running `assistant` starts the tray UI.
-
-Optional connection overrides:
-
-```bash
-assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
-```
-
-### CLI (single agentic turn)
-
-```bash
-assistant run --prompt "What is in this repo and where do I start?"
-```
-
-Defaults:
-- Tray UI defaults to gateway mode at `http://127.0.0.1:8080`.
-- Provider and model lists in the tray UI are discovered from the gateway.
-- The tray remembers the last selected provider/model in session state.
-- Workflow selection comes from the gateway bundle catalog.
-
-### Gateway mode
-
-AbstractAssistant talks to AbstractGateway by default at `http://127.0.0.1:8080`.
-
-Use the same bearer token for both processes, and make sure the gateway loads workflow bundles:
+For local development, make sure the gateway loads workflow bundles and exposes an auth token the
+assistant can use:
 
 ```bash
 export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
 export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
 abstractgateway serve --host 127.0.0.1 --port 8080
-assistant
 ```
 
-Optional gateway URL override:
+If the gateway cannot expose a published assistant workflow, the assistant fails closed instead of
+falling back to a different runtime path.
+
+## 3. Launch The Assistant
+
+Tray app:
 
 ```bash
-export ABSTRACTGATEWAY_URL="http://127.0.0.1:9090"
 assistant
 ```
 
-If `ABSTRACTGATEWAY_URL` is unset, AbstractAssistant defaults to `http://127.0.0.1:8080`.
-If `ABSTRACTGATEWAY_AUTH_TOKEN` is unset, startup fails with a clear error telling you to export it or pass `--gateway-token`.
+Terminal turn:
 
-If you launch `abstractgateway` from the monorepo root without setting `ABSTRACTGATEWAY_FLOWS_DIR`, its default `./flows` may be empty. In that case provider/model discovery can work while workflow discovery still fails because the gateway has no loaded agent bundles.
+```bash
+assistant run --prompt "Search the web for the latest OpenAI news and summarize it with sources."
+```
 
-## Providers (local vs cloud)
+Optional overrides:
 
-In gateway mode, provider and model discovery come from the gateway. Configure LM Studio, Ollama, OpenAI, Anthropic, and any other providers on the gateway side; the tray app only needs to reach the gateway itself.
+```bash
+assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
+```
 
-## Tool approvals (safety boundary)
+## 4. Use The Tray And Palette
 
-Tool calls are surfaced as a **durable wait** and require explicit approval by default:
-- safe/read-only tools can be auto-approved
-- writes, shell execution, and unknown tools require approval
+The desktop shell is a compact top-right palette with a tray icon.
 
-Evidence in code:
-- default policy: `abstractassistant/core/tool_policy.py`
-- durable wait/resume: `abstractassistant/core/agent_host.py`
+For hosted gateways with user auth enabled, open **Settings** and use the `Gateway connection`
+section to sign in with a gateway user token. For local/shared setups, a bearer token remains fine.
 
-CLI:
-- prompts interactively when a tool batch requires approval
+Typical flow:
 
-Tray UI:
-- “Tools” lets you choose **All tools** vs a **Custom allowlist**
-- per-tool default approval mode for the current session
+1. Open the palette from the tray, or use the global summon hotkey when available.
+2. Ask a question or attach files.
+3. Let the published `abstractassistant-orchestrator` workflow decide whether the turn needs normal
+   chat, tools, or media generation.
+4. Approve tool batches when the workflow requests them.
 
-## Attachments (tray UI)
+You do not choose a workflow in the normal tray path. The gateway publishes the assistant workflow,
+and the desktop app uses that workflow directly.
 
-Use the paperclip button to attach local files.
+The default summon hotkey is `cmd+shift+space` when global hotkey support is available on your
+machine. If your platform or permissions do not allow global hooks, the assistant still works from
+the tray icon.
 
-What happens (evidence: `abstractassistant/core/agent_host.py`):
-- attachments are stored as **runtime artifacts** when possible
-- file “handles” are kept model-safe (relative to `workspace_root` when configured, otherwise filename)
-- default max attachment size is **25 MiB** (override via `ABSTRACTGATEWAY_MAX_ATTACHMENT_BYTES`)
+## 5. Configure Defaults In The Right Place
 
-Audio notes:
-- common containers like `.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`, `.aac`, `.webm`
-- audio attachments are **pre-transcribed** via AbstractVoice when available, and the transcript is attached as text
+Gateway owns multimodal provider/model defaults. The assistant Settings window edits those gateway
+defaults through capability-default routes.
 
-Video notes:
-- common containers like `.mp4`, `.mov`, `.mkv`, `.webm`, `.avi`, `.wmv`, `.m4v`
-- AbstractAssistant does not bundle `ffmpeg`. If your provider/media pipeline relies on `ffmpeg` for frame extraction, ensure it is on your PATH.
+Use Settings for three different kinds of state:
 
-## Sessions (tray UI)
+- `Gateway connection`: gateway URL plus either a bearer token or a hosted gateway session
+- `Gateway-owned defaults`: text understanding, voice output, STT, image/video/music routes
+- `Local preferences`: hotkey enablement, auto-speak, palette size, bottom gap
 
-The tray UI supports multiple sessions and persists them under your data directory:
-- index: `sessions.json`
-- legacy/base session: `session.json`
-- additional sessions: `sessions/<session_id>/...`
+Local provider/model selections are not the source of truth. Gateway defaults are.
 
-Evidence: `abstractassistant/core/session_index.py`, `abstractassistant/core/session_store.py`
+For gateway image/video routes, Settings keeps the provider/model selectors
+typed and keeps advanced route parameters in the `options` JSON field. Supported
+Gateway/Core vision options include:
 
-## Environment
+- `count`
+- `seeds`
+- `lora_adapters`
+- `guidance_2`
+- `flow_shift` on compatible video routes
 
-Tray mode is environment-driven:
-- `ABSTRACTGATEWAY_URL` for the gateway base URL
-- `ABSTRACTGATEWAY_AUTH_TOKEN` for gateway auth
+## 6. Sessions And Requests
 
-Optional assistant CLI overrides:
-- `--gateway-url`
-- `--gateway-token`
+The desktop app remembers:
 
-Provider settings stay on the gateway side:
-- provider-specific credentials and base URLs belong to the gateway process, not the tray app
+- transcript snapshots
+- the last run id
 
-There is no versioned `config.toml` in the repo for tray startup anymore.
+Attachments can be added with the file picker or drag-and-drop.
 
-## Data directory
+When the assistant workflow returns media artifacts, the desktop client keeps
+the full response payload and opens downloaded artifacts locally.
 
-By default, state is stored in `~/.abstractassistant/`:
-- `session.json`: transcript snapshot + last run id (fast UX state)
-- `sessions.json`: session registry + active session id
-- `runtime/`: AbstractRuntime stores (durability source of truth)
+## 7. Voice
 
-## Troubleshooting
+Microphone capture and playback happen locally on the desktop. STT and TTS requests are sent to
+gateway routes.
 
-- Tray fails to start: reinstall: `pip install --upgrade "abstractassistant"`.
-- Gateway discovery shows only one provider or a single configured model:
-  - ensure `assistant` and `abstractgateway` were launched with the same `ABSTRACTGATEWAY_AUTH_TOKEN`
-  - if you previously sent the wrong token, wait for the gateway auth lockout to expire, then relaunch the assistant
-- Gateway reports no agent entrypoints:
-  - ensure the gateway loads bundles via `ABSTRACTGATEWAY_FLOWS_DIR`
-  - for this monorepo checkout, `export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"` is the expected local-dev setting
-- Provider errors:
-  - verify gateway-side provider configuration and credentials
-  - verify the gateway itself can reach the provider
-- Microphone hears nothing (macOS): System Settings → Privacy & Security → Microphone → enable access for AbstractAssistant, then restart.
-- Reset state: use “Clear” in the UI, or delete your data dir (`~/.abstractassistant/` by default).
+If gateway voice routes are not configured, the assistant disables the affected controls instead of
+quietly falling back to a local speech model.
+
+## 8. Local Data
+
+By default, local state is stored under `~/.abstractassistant/`.
+
+That data includes:
+
+- session registry and snapshots
+- gateway connection state
+- local downloads
+- palette/tray preferences
+
+Gateway remains the durability source of truth for run history, waits, and generated artifacts.
 
 ## Next
 
 - [api.md](api.md)
 - [architecture.md](architecture.md)
 - [faq.md](faq.md)
+- [troubleshooting.md](troubleshooting.md)

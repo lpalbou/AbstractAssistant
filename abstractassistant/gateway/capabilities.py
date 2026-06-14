@@ -216,24 +216,89 @@ class AssistantCapabilities:
         pc = _as_dict(self.assistant.get("prompt_cache"))
         return bool(pc.get("session_lifecycle"))
 
-    def generated_image_direct_available(self) -> bool:
-        direct = _as_dict(_dig(self.assistant, "media", "generated_image", "direct_endpoint"))
+    def _media_entry(self, key: str) -> Dict[str, Any]:
+        return _as_dict(_dig(self.assistant, "media", key))
+
+    def _direct_media_entry(self, key: str) -> Dict[str, Any]:
+        return _as_dict(_dig(self.assistant, "media", key, "direct_endpoint"))
+
+    def direct_media_available(self, key: str) -> bool:
+        direct = self._direct_media_entry(key)
         return bool(direct.get("available") and direct.get("route_available", True))
 
+    def direct_media_route_available(self, key: str) -> bool:
+        direct = self._direct_media_entry(key)
+        if "route_available" in direct:
+            return bool(direct.get("route_available"))
+        return bool(direct.get("available"))
+
+    def direct_media_config_hint(self, key: str) -> str:
+        direct = self._direct_media_entry(key)
+        hint = direct.get("config_hint")
+        return str(hint or "").strip() if isinstance(hint, str) else ""
+
+    def generated_image_direct_available(self) -> bool:
+        return self.direct_media_available("generated_image")
+
     def generated_image_formats(self) -> List[str]:
-        direct = _as_dict(_dig(self.assistant, "media", "generated_image", "direct_endpoint"))
+        direct = self._direct_media_entry("generated_image")
         formats = _as_list_of_strings(direct.get("formats"))
         return formats or ["png"]
 
     def generated_image_provider_models_endpoint(self) -> str:
-        direct = _as_dict(_dig(self.assistant, "media", "generated_image", "direct_endpoint"))
+        direct = self._direct_media_entry("generated_image")
         endpoint = direct.get("provider_models_endpoint")
         return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
 
     def generated_image_provider_models_task(self) -> str:
-        direct = _as_dict(_dig(self.assistant, "media", "generated_image", "direct_endpoint"))
+        direct = self._direct_media_entry("generated_image")
         task = direct.get("provider_models_task")
         return str(task or "").strip() if isinstance(task, str) and task.strip() else "text_to_image"
+
+    def direct_media_adapter_catalog_endpoint(self, key: str) -> str:
+        direct = self._direct_media_entry(key)
+        endpoint = direct.get("adapter_catalog_endpoint")
+        return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
+
+    def direct_media_supports_batch(self, key: str) -> bool:
+        direct = self._direct_media_entry(key)
+        return bool(direct.get("supports_batch"))
+
+    def direct_media_batch_count_field(self, key: str) -> str:
+        direct = self._direct_media_entry(key)
+        field = direct.get("batch_count_field")
+        return str(field or "").strip() if isinstance(field, str) else ""
+
+    def direct_media_batch_seed_field(self, key: str) -> str:
+        direct = self._direct_media_entry(key)
+        field = direct.get("batch_seed_field")
+        return str(field or "").strip() if isinstance(field, str) else ""
+
+    def direct_media_supports_lora_adapters(self, key: str) -> bool:
+        direct = self._direct_media_entry(key)
+        return bool(direct.get("supports_lora_adapters"))
+
+    def direct_media_supports_flow_shift(self, key: str) -> bool:
+        direct = self._direct_media_entry(key)
+        return bool(direct.get("supports_flow_shift"))
+
+    def edited_image_direct_available(self) -> bool:
+        return self.direct_media_available("edited_image")
+
+    def upscaled_image_direct_available(self) -> bool:
+        return self.direct_media_available("upscaled_image")
+
+    def generated_video_direct_available(self) -> bool:
+        return self.direct_media_available("generated_video")
+
+    def image_to_video_direct_available(self) -> bool:
+        return self.direct_media_available("image_to_video")
+
+    def generated_voice_direct_available(self) -> bool:
+        return self.direct_media_available("generated_voice")
+
+    def generated_music_direct_available(self) -> bool:
+        return self.direct_media_available("generated_music")
 
 
 def get_cached_assistant_capabilities(

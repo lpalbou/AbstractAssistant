@@ -8,6 +8,7 @@ surface so the tray UI can drive runs via the gateway control plane.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http.cookies import SimpleCookie
 import json
 import mimetypes
 import os
@@ -30,6 +31,11 @@ class GatewayClientConfig:
 
     base_url: str
     auth_token: str = ""
+    auth_mode: str = "bearer"
+    user_id: str = ""
+    session_id: str = ""
+    csrf_token: str = ""
+    session_expires_at: str = ""
     timeout_s: float = 30.0
 
 
@@ -136,6 +142,31 @@ def _request_json(
         raise GatewayHttpError(f"{label}: {body_text}", status=int(getattr(e, "code", 0) or 0), retry_after_s=_retry_after_s(dict(e.headers)), body_text=body_text)
 
 
+def _apply_optional_fields(body: Dict[str, Any], optional: Dict[str, Any]) -> None:
+    for key, value in optional.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        body[key] = value
+
+
+def _merge_media_options(body: Dict[str, Any], options: Optional[Dict[str, Any]], *, allowed_keys: Tuple[str, ...]) -> None:
+    if not isinstance(options, dict):
+        return
+    for key in allowed_keys:
+        if key not in options:
+            continue
+        value = options.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                continue
+        body[key] = value
+
+
 def _encode_multipart(
     *,
     fields: Dict[str, str],
@@ -170,6 +201,11 @@ class GatewayClient:
         self._cfg = GatewayClientConfig(
             base_url=str(cfg.base_url or "").strip(),
             auth_token=str(cfg.auth_token or "").strip(),
+            auth_mode=str(cfg.auth_mode or "bearer").strip() or "bearer",
+            user_id=str(cfg.user_id or "").strip(),
+            session_id=str(cfg.session_id or "").strip(),
+            csrf_token=str(cfg.csrf_token or "").strip(),
+            session_expires_at=str(cfg.session_expires_at or "").strip(),
             timeout_s=float(cfg.timeout_s),
         )
 
@@ -179,27 +215,180 @@ class GatewayClient:
             url = f"{url}?{urlencode(query)}"
         return url
 
+    @property
+    def config(self) -> GatewayClientConfig:
+        return self._cfg
+
+    def _session_auth_active(self) -> bool:
+        return str(self._cfg.auth_mode or "bearer").strip() == "session" and bool(str(self._cfg.session_id or "").strip())
+
+    def _headers(self, *, mutating: bool = False, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        headers: Dict[str, str] = {}
+        if self._session_auth_active():
+            headers["X-AbstractGateway-Session"] = str(self._cfg.session_id or "").strip()
+            if mutating:
+                csrf_token = str(self._cfg.csrf_token or "").strip()
+                if not csrf_token:
+                    raise ValueError("Gateway session auth requires csrf_token for mutating requests")
+                headers["X-AbstractGateway-CSRF"] = csrf_token
+        token = str(self._cfg.auth_token or "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        if extra:
+            headers.update(extra)
+        return headers
+
+    def _request_json(
+        self,
+        *,
+        method: str,
+        url: str,
+        body: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+        label: str,
+    ) -> Dict[str, Any]:
+        method_s = str(method or "GET").upper()
+        return _request_json(
+            method=method_s,
+            url=url,
+            headers=self._headers(mutating=method_s not in {"GET", "HEAD", "OPTIONS"}),
+            body=body,
+            timeout_s=self._cfg.timeout_s if timeout_s is None else float(timeout_s),
+            label=label,
+        )
+
+    def gateway_me(self) -> Dict[str, Any]:
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/me"),
+            label="gateway_me failed",
+        )
+
+    def openapi_document(self) -> Dict[str, Any]:
+        return self._request_json(
+            method="GET",
+            url=self._url("/openapi.json"),
+            label="openapi_document failed",
+        )
+
+    def session_login(
+        self,
+        *,
+        user_id: str,
+        token: str,
+        remember: bool = True,
+        forwarded_proto: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        user_id_s = str(user_id or "").strip()
+        token_s = str(token or "").strip()
+        if not user_id_s:
+            raise ValueError("session_login: user_id is required")
+        if not token_s:
+            raise ValueError("session_login: token is required")
+        data = json.dumps({"user_id": user_id_s, "token": token_s, "remember": bool(remember)}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        proto = str(forwarded_proto or "").strip()
+        if proto:
+            headers["X-Forwarded-Proto"] = proto
+        req = urllib.request.Request(
+            self._url("/api/gateway/session/login"),
+            data=data,
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self._cfg.timeout_s) as resp:
+                raw = resp.read() or b""
+                payload = _parse_json(_decode_bytes(raw, label="session_login"), label="session_login")
+                session_id, csrf_token = self._extract_session_tokens(resp.headers)
+        except urllib.error.HTTPError as e:
+            body_text = _read_error(e, label="session_login failed")
+            raise GatewayHttpError(
+                f"session_login failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+        if not session_id or not csrf_token:
+            raise RuntimeError("session_login failed: gateway did not return session cookies")
+        self._cfg = GatewayClientConfig(
+            base_url=self._cfg.base_url,
+            auth_token="",
+            auth_mode="session",
+            user_id=user_id_s,
+            session_id=session_id,
+            csrf_token=csrf_token,
+            session_expires_at=str(payload.get("session", {}).get("expires_at") or "").strip() if isinstance(payload.get("session"), dict) else "",
+            timeout_s=self._cfg.timeout_s,
+        )
+        return payload
+
+    def session_logout(self) -> Dict[str, Any]:
+        payload = self._request_json(
+            method="POST",
+            url=self._url("/api/gateway/session/logout"),
+            label="session_logout failed",
+        )
+        self._cfg = GatewayClientConfig(
+            base_url=self._cfg.base_url,
+            auth_token="",
+            auth_mode="session",
+            user_id=str(self._cfg.user_id or "").strip(),
+            session_id="",
+            csrf_token="",
+            session_expires_at="",
+            timeout_s=self._cfg.timeout_s,
+        )
+        return payload
+
+    def _extract_session_tokens(self, headers: Any) -> Tuple[str, str]:
+        cookie_headers: List[str] = []
+        get_all = getattr(headers, "get_all", None)
+        if callable(get_all):
+            cookie_headers = [str(item) for item in get_all("Set-Cookie") or []]
+        if not cookie_headers:
+            get_list = getattr(headers, "get_list", None)
+            if callable(get_list):
+                cookie_headers = [str(item) for item in get_list("set-cookie") or []]
+        if not cookie_headers:
+            raw = headers.get("Set-Cookie") if hasattr(headers, "get") else None
+            if raw:
+                cookie_headers = [str(raw)]
+        cookie = SimpleCookie()
+        for item in cookie_headers:
+            try:
+                cookie.load(item)
+            except Exception:
+                continue
+        session_id = str(cookie.get("abstractgateway_session").value if cookie.get("abstractgateway_session") else "").strip()
+        csrf_token = str(cookie.get("abstractgateway_csrf").value if cookie.get("abstractgateway_csrf") else "").strip()
+        return session_id, csrf_token
+
     def start_run(
         self,
         *,
         flow_id: Optional[str],
         input_data: Dict[str, Any],
         bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
         session_id: Optional[str] = None,
+        registry_scope: Optional[str] = None,
     ) -> str:
         body: Dict[str, Any] = {"input_data": input_data or {}}
         if bundle_id:
             body["bundle_id"] = str(bundle_id)
+        if bundle_version:
+            body["bundle_version"] = str(bundle_version)
         if flow_id:
             body["flow_id"] = str(flow_id)
         if session_id:
             body["session_id"] = str(session_id)
-        out = _request_json(
+        if registry_scope:
+            body["registry_scope"] = str(registry_scope)
+        out = self._request_json(
             method="POST",
             url=self._url("/api/gateway/runs/start"),
-            headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s,
             label="start_run failed",
         )
         run_id = out.get("run_id")
@@ -211,23 +400,15 @@ class GatewayClient:
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("get_run: run_id is required")
-        return _request_json(
-            method="GET",
-            url=self._url(f"/api/gateway/runs/{rid}"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
-            label="get_run failed",
-        )
+        return self._request_json(method="GET", url=self._url(f"/api/gateway/runs/{rid}"), label="get_run failed")
 
     def get_run_input_data(self, *, run_id: str) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("get_run_input_data: run_id is required")
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/input_data"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="get_run_input_data failed",
         )
 
@@ -239,13 +420,7 @@ class GatewayClient:
             query["session_id"] = session_id
         if root_only:
             query["root_only"] = "true"
-        return _request_json(
-            method="GET",
-            url=self._url("/api/gateway/runs", query=query),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
-            label="list_runs failed",
-        )
+        return self._request_json(method="GET", url=self._url("/api/gateway/runs", query=query), label="list_runs failed")
 
     def get_run_history_bundle(
         self,
@@ -270,11 +445,9 @@ class GatewayClient:
             query["ledger_mode"] = str(ledger_mode)
         if ledger_max_items:
             query["ledger_max_items"] = max(1, int(ledger_max_items))
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/history_bundle", query=query),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="get_run_history_bundle failed",
         )
 
@@ -283,11 +456,9 @@ class GatewayClient:
         if not rid:
             raise ValueError("get_ledger: run_id is required")
         query = {"after": int(after), "limit": int(limit)}
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/ledger", query=query),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="get_ledger failed",
         )
 
@@ -305,7 +476,7 @@ class GatewayClient:
         if not rid:
             raise ValueError("stream_ledger: run_id is required")
         url = self._url(f"/api/gateway/runs/{rid}/ledger/stream", query={"after": int(after)})
-        headers = {"Accept": "text/event-stream", **_auth_headers(self._cfg.auth_token)}
+        headers = self._headers(extra={"Accept": "text/event-stream"})
         req = urllib.request.Request(url, headers=headers, method="GET")
         timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
         last_step_at = time.monotonic()
@@ -347,122 +518,443 @@ class GatewayClient:
             raise
 
     def list_bundles(self) -> Dict[str, Any]:
-        return _request_json(
+        return self._request_json(method="GET", url=self._url("/api/gateway/bundles"), label="list_bundles failed")
+
+    def workflow_catalog(self, *, scope: str = "tenant_catalog") -> Dict[str, Any]:
+        return self._request_json(
             method="GET",
-            url=self._url("/api/gateway/bundles"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
-            label="list_bundles failed",
+            url=self._url("/api/gateway/workflow-catalog", query={"scope": str(scope or "tenant_catalog")}),
+            label="workflow_catalog failed",
+        )
+
+    def promote_workflow_catalog_bundle(
+        self,
+        *,
+        bundle_id: str,
+        bundle_version: Optional[str] = None,
+        scope: str = "tenant_catalog",
+        tenant_id: Optional[str] = None,
+        make_default: bool = False,
+        acl: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        bundle_id_s = str(bundle_id or "").strip()
+        if not bundle_id_s:
+            raise ValueError("promote_workflow_catalog_bundle: bundle_id is required")
+        body: Dict[str, Any] = {
+            "bundle_id": bundle_id_s,
+            "scope": str(scope or "tenant_catalog").strip() or "tenant_catalog",
+            "make_default": bool(make_default),
+        }
+        if bundle_version is not None and str(bundle_version).strip():
+            body["bundle_version"] = str(bundle_version).strip()
+        if tenant_id is not None and str(tenant_id).strip():
+            body["tenant_id"] = str(tenant_id).strip()
+        if isinstance(acl, dict) and acl:
+            body["acl"] = dict(acl)
+        return self._request_json(
+            method="POST",
+            url=self._url("/api/gateway/admin/workflow-catalog/promote"),
+            body=body,
+            label="promote_workflow_catalog_bundle failed",
+        )
+
+    def list_visualflows(self) -> List[Dict[str, Any]]:
+        payload = self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/visualflows"),
+            label="list_visualflows failed",
+        )
+        return payload if isinstance(payload, list) else []
+
+    def create_visualflow(
+        self,
+        *,
+        name: str,
+        description: str = "",
+        interfaces: Optional[List[str]] = None,
+        nodes: Optional[List[Dict[str, Any]]] = None,
+        edges: Optional[List[Dict[str, Any]]] = None,
+        entry_node: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "name": str(name or "").strip(),
+            "description": str(description or "").strip(),
+            "interfaces": list(interfaces or []),
+            "nodes": list(nodes or []),
+            "edges": list(edges or []),
+            "entryNode": str(entry_node or "").strip() or None,
+        }
+        if not body["name"]:
+            raise ValueError("create_visualflow: name is required")
+        return self._request_json(
+            method="POST",
+            url=self._url("/api/gateway/visualflows"),
+            body=body,
+            label="create_visualflow failed",
+        )
+
+    def get_visualflow(self, *, flow_id: str) -> Dict[str, Any]:
+        flow_id_s = str(flow_id or "").strip()
+        if not flow_id_s:
+            raise ValueError("get_visualflow: flow_id is required")
+        return self._request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/visualflows/{flow_id_s}"),
+            label="get_visualflow failed",
+        )
+
+    def update_visualflow(
+        self,
+        *,
+        flow_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        interfaces: Optional[List[str]] = None,
+        nodes: Optional[List[Dict[str, Any]]] = None,
+        edges: Optional[List[Dict[str, Any]]] = None,
+        entry_node: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        flow_id_s = str(flow_id or "").strip()
+        if not flow_id_s:
+            raise ValueError("update_visualflow: flow_id is required")
+        body: Dict[str, Any] = {}
+        if name is not None:
+            body["name"] = str(name).strip()
+        if description is not None:
+            body["description"] = str(description).strip()
+        if interfaces is not None:
+            body["interfaces"] = list(interfaces or [])
+        if nodes is not None:
+            body["nodes"] = list(nodes or [])
+        if edges is not None:
+            body["edges"] = list(edges or [])
+        if entry_node is not None:
+            body["entryNode"] = str(entry_node).strip() or None
+        return self._request_json(
+            method="PUT",
+            url=self._url(f"/api/gateway/visualflows/{flow_id_s}"),
+            body=body,
+            label="update_visualflow failed",
+        )
+
+    def publish_visualflow(
+        self,
+        *,
+        flow_id: str,
+        bundle_id: Optional[str] = None,
+        bundle_version: Optional[str] = None,
+        overwrite: bool = False,
+        reload_gateway: bool = True,
+    ) -> Dict[str, Any]:
+        flow_id_s = str(flow_id or "").strip()
+        if not flow_id_s:
+            raise ValueError("publish_visualflow: flow_id is required")
+        body: Dict[str, Any] = {
+            "bundle_id": str(bundle_id or "").strip() or None,
+            "bundle_version": str(bundle_version or "").strip() or None,
+            "overwrite": bool(overwrite),
+            "reload_gateway": bool(reload_gateway),
+        }
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/visualflows/{flow_id_s}/publish"),
+            body=body,
+            label="publish_visualflow failed",
         )
 
     def discovery_capabilities(self) -> Dict[str, Any]:
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url("/api/gateway/discovery/capabilities"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="discovery_capabilities failed",
         )
 
     def discovery_providers(self, *, include_models: bool = False) -> Dict[str, Any]:
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url("/api/gateway/discovery/providers", query={"include_models": "true" if include_models else "false"}),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="discovery_providers failed",
         )
 
-    def discovery_provider_models(self, *, provider_name: str) -> Dict[str, Any]:
+    def discovery_provider_models(
+        self,
+        *,
+        provider_name: str,
+        capability_route: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         prov = str(provider_name or "").strip()
         if not prov:
             raise ValueError("discovery_provider_models: provider_name is required")
-        return _request_json(
+        query: Dict[str, Any] = {}
+        if capability_route:
+            query["capability_route"] = str(capability_route)
+        if base_url:
+            query["base_url"] = str(base_url)
+        return self._request_json(
             method="GET",
-            url=self._url(f"/api/gateway/discovery/providers/{prov}/models"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
+            url=self._url(f"/api/gateway/discovery/providers/{prov}/models", query=query or None),
             label="discovery_provider_models failed",
         )
 
-    def voice_voices(self, *, base_url: Optional[str] = None) -> Dict[str, Any]:
+    def voice_voices(
+        self,
+        *,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        compact: bool = False,
+        providers_only: bool = False,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         query: Dict[str, Any] = {}
+        if provider:
+            query["provider"] = str(provider)
+        if model:
+            query["model"] = str(model)
+        if compact:
+            query["compact"] = "true"
+        if providers_only:
+            query["providers_only"] = "true"
         if base_url:
             query["base_url"] = str(base_url)
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url("/api/gateway/voice/voices", query=query or None),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="voice_voices failed",
         )
 
-    def audio_speech_models(self, *, base_url: Optional[str] = None) -> Dict[str, Any]:
+    def audio_speech_models(
+        self,
+        *,
+        provider: Optional[str] = None,
+        providers_only: bool = False,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         query: Dict[str, Any] = {}
+        if provider:
+            query["provider"] = str(provider)
+        if providers_only:
+            query["providers_only"] = "true"
         if base_url:
             query["base_url"] = str(base_url)
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url("/api/gateway/audio/speech/models", query=query or None),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="audio_speech_models failed",
         )
 
-    def audio_transcription_models(self, *, base_url: Optional[str] = None) -> Dict[str, Any]:
+    def audio_transcription_models(
+        self,
+        *,
+        provider: Optional[str] = None,
+        providers_only: bool = False,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         query: Dict[str, Any] = {}
+        if provider:
+            query["provider"] = str(provider)
+        if providers_only:
+            query["providers_only"] = "true"
         if base_url:
             query["base_url"] = str(base_url)
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url("/api/gateway/audio/transcriptions/models", query=query or None),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="audio_transcription_models failed",
         )
 
-    def vision_provider_models(self, *, task: Optional[str] = None, base_url: Optional[str] = None) -> Dict[str, Any]:
+    def audio_music_providers(
+        self,
+        *,
+        task: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         query: Dict[str, Any] = {}
         if task:
             query["task"] = str(task)
         if base_url:
             query["base_url"] = str(base_url)
-        return _request_json(
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/audio/music/providers", query=query or None),
+            label="audio_music_providers failed",
+        )
+
+    def audio_music_models(
+        self,
+        *,
+        task: Optional[str] = None,
+        provider: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if task:
+            query["task"] = str(task)
+        if provider:
+            query["provider"] = str(provider)
+        if base_url:
+            query["base_url"] = str(base_url)
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/audio/music/models", query=query or None),
+            label="audio_music_models failed",
+        )
+
+    def vision_provider_models(
+        self,
+        *,
+        task: Optional[str] = None,
+        provider: Optional[str] = None,
+        providers_only: bool = False,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if task:
+            query["task"] = str(task)
+        if provider:
+            query["provider"] = str(provider)
+        if providers_only:
+            query["providers_only"] = "true"
+        if base_url:
+            query["base_url"] = str(base_url)
+        return self._request_json(
             method="GET",
             url=self._url("/api/gateway/vision/provider_models", query=query or None),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="vision_provider_models failed",
         )
 
-    def vision_models(self) -> Dict[str, Any]:
-        return _request_json(
+    def vision_adapters(
+        self,
+        *,
+        model: Optional[str] = None,
+        task: Optional[str] = None,
+        provider: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        query: Dict[str, Any] = {}
+        if model:
+            query["model"] = str(model)
+        if task:
+            query["task"] = str(task)
+        if provider:
+            query["provider"] = str(provider)
+        if base_url:
+            query["base_url"] = str(base_url)
+        return self._request_json(
             method="GET",
-            url=self._url("/api/gateway/vision/models"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
-            label="vision_models failed",
+            url=self._url("/api/gateway/vision/adapters", query=query or None),
+            label="vision_adapters failed",
         )
+
+    def vision_models(self) -> Dict[str, Any]:
+        return self._request_json(method="GET", url=self._url("/api/gateway/vision/models"), label="vision_models failed")
 
     def discovery_model_capabilities(self, *, model_name: str) -> Dict[str, Any]:
         name = str(model_name or "").strip()
         if not name:
             raise ValueError("discovery_model_capabilities: model_name is required")
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url("/api/gateway/discovery/models/capabilities", query={"model_name": name}),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="discovery_model_capabilities failed",
         )
 
     def discovery_tools(self) -> Dict[str, Any]:
-        return _request_json(
+        return self._request_json(method="GET", url=self._url("/api/gateway/discovery/tools"), label="discovery_tools failed")
+
+    def get_capability_defaults(self) -> Dict[str, Any]:
+        return self._request_json(
             method="GET",
-            url=self._url("/api/gateway/discovery/tools"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
-            label="discovery_tools failed",
+            url=self._url("/api/gateway/config/capability-defaults"),
+            label="get_capability_defaults failed",
+        )
+
+    def set_capability_default(
+        self,
+        *,
+        route_key: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        key = str(route_key or "").strip()
+        if not key:
+            raise ValueError("set_capability_default: route_key is required")
+        parts = [part.strip() for part in key.split(".") if part.strip()]
+        if len(parts) not in {2, 3}:
+            raise ValueError("set_capability_default: route_key must be kind.modality or kind.modality.task")
+        body = {
+            "provider": str(provider or "").strip() or None,
+            "model": str(model or "").strip() or None,
+            "base_url": str(base_url or "").strip() or None,
+            "options": dict(options or {}) if isinstance(options, dict) else {},
+        }
+        suffix = f"/{parts[2]}" if len(parts) == 3 else ""
+        return self._request_json(
+            method="PUT",
+            url=self._url(f"/api/gateway/config/capability-defaults/{parts[0]}/{parts[1]}{suffix}"),
+            body=body,
+            label="set_capability_default failed",
+        )
+
+    def clear_capability_default(self, *, route_key: str) -> Dict[str, Any]:
+        key = str(route_key or "").strip()
+        if not key:
+            raise ValueError("clear_capability_default: route_key is required")
+        parts = [part.strip() for part in key.split(".") if part.strip()]
+        if len(parts) not in {2, 3}:
+            raise ValueError("clear_capability_default: route_key must be kind.modality or kind.modality.task")
+        suffix = f"/{parts[2]}" if len(parts) == 3 else ""
+        return self._request_json(
+            method="DELETE",
+            url=self._url(f"/api/gateway/config/capability-defaults/{parts[0]}/{parts[1]}{suffix}"),
+            label="clear_capability_default failed",
+        )
+
+    def sandbox_generate(
+        self,
+        *,
+        provider: str,
+        model: str,
+        prompt: str,
+        capability: str = "output.text",
+        system_prompt: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        provider_s = str(provider or "").strip()
+        model_s = str(model or "").strip()
+        prompt_s = str(prompt or "").strip()
+        if not provider_s or not model_s:
+            raise ValueError("sandbox_generate: provider and model are required")
+        if not prompt_s:
+            raise ValueError("sandbox_generate: prompt is required")
+        body: Dict[str, Any] = {
+            "capability": str(capability or "output.text").strip() or "output.text",
+            "provider": provider_s,
+            "model": model_s,
+            "prompt": prompt_s,
+        }
+        if system_prompt:
+            body["system_prompt"] = str(system_prompt)
+        if isinstance(messages, list) and messages:
+            body["messages"] = [dict(item) for item in messages if isinstance(item, dict)]
+        if isinstance(attachments, list) and attachments:
+            body["attachments"] = [dict(item) for item in attachments if isinstance(item, dict)]
+        if temperature is not None:
+            body["temperature"] = float(temperature)
+        if max_tokens is not None:
+            body["max_tokens"] = int(max_tokens)
+        return self._request_json(
+            method="POST",
+            url=self._url("/api/gateway/sandbox/generate"),
+            body=body,
+            timeout_s=timeout_s,
+            label="sandbox_generate failed",
         )
 
     def submit_command(self, *, command: Dict[str, Any]) -> Dict[str, Any]:
@@ -478,12 +970,10 @@ class GatewayClient:
             v = command.get(k)
             if isinstance(v, str) and v.strip():
                 body[k] = v.strip()
-        return _request_json(
+        return self._request_json(
             method="POST",
             url=self._url("/api/gateway/commands"),
-            headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s,
             label="submit_command failed",
         )
 
@@ -497,12 +987,10 @@ class GatewayClient:
         body: Dict[str, Any] = {"session_id": sid, "path": p}
         if scope and isinstance(scope, dict):
             body.update({k: v for k, v in scope.items() if isinstance(v, str) and v.strip()})
-        return _request_json(
+        return self._request_json(
             method="POST",
             url=self._url("/api/gateway/attachments/ingest"),
-            headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s,
             label="attachments_ingest failed",
         )
 
@@ -531,7 +1019,7 @@ class GatewayClient:
             fields={"session_id": sid},
             files=[("file", name, ctype, data)],
         )
-        headers = {"Content-Type": content_type_header, **_auth_headers(self._cfg.auth_token)}
+        headers = self._headers(mutating=True, extra={"Content-Type": content_type_header})
         req = urllib.request.Request(self._url("/api/gateway/attachments/upload"), data=body, method="POST", headers=headers)
         timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
         try:
@@ -568,12 +1056,11 @@ class GatewayClient:
             body["language"] = str(language)
         if model:
             body["model"] = str(model)
-        return _request_json(
+        return self._request_json(
             method="POST",
             url=self._url(f"/api/gateway/runs/{rid}/audio/transcribe"),
-            headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s if timeout_s is None else float(timeout_s),
+            timeout_s=timeout_s,
             label="audio_transcribe failed",
         )
 
@@ -582,6 +1069,7 @@ class GatewayClient:
         *,
         run_id: str,
         text: str,
+        provider: Optional[str] = None,
         voice: Optional[str] = None,
         fmt: Optional[str] = None,
         request_id: Optional[str] = None,
@@ -593,6 +1081,8 @@ class GatewayClient:
         if not rid:
             raise ValueError("voice_tts: run_id is required")
         body: Dict[str, Any] = {"text": str(text or "")}
+        if provider:
+            body["provider"] = str(provider)
         if voice:
             body["voice"] = str(voice)
         if fmt:
@@ -603,12 +1093,11 @@ class GatewayClient:
             body["model"] = str(model)
         if profile:
             body["profile"] = str(profile)
-        return _request_json(
+        return self._request_json(
             method="POST",
             url=self._url(f"/api/gateway/runs/{rid}/voice/tts"),
-            headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s if timeout_s is None else float(timeout_s),
+            timeout_s=timeout_s,
             label="voice_tts failed",
         )
 
@@ -624,21 +1113,27 @@ class GatewayClient:
         size: Optional[str] = None,
         width: Optional[int] = None,
         height: Optional[int] = None,
-        fmt: str = "png",
+        fmt: Optional[str] = None,
         negative_prompt: Optional[str] = None,
         seed: Optional[int] = None,
         steps: Optional[int] = None,
         guidance_scale: Optional[float] = None,
+        guidance_2: Optional[float] = None,
+        count: Optional[int] = None,
+        n: Optional[int] = None,
+        seeds: Optional[List[int]] = None,
+        lora_adapters: Optional[List[Dict[str, Any]]] = None,
         quality: Optional[str] = None,
         style: Optional[str] = None,
         request_id: Optional[str] = None,
         extra: Optional[Dict[str, Any]] = None,
+        options: Optional[Dict[str, Any]] = None,
         timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("image_generate: run_id is required")
-        body: Dict[str, Any] = {"prompt": str(prompt or ""), "format": str(fmt or "png")}
+        body: Dict[str, Any] = {"prompt": str(prompt or "")}
         optional: Dict[str, Any] = {
             "provider": provider,
             "model": model,
@@ -651,10 +1146,387 @@ class GatewayClient:
             "seed": seed,
             "steps": steps,
             "guidance_scale": guidance_scale,
+            "guidance_2": guidance_2,
+            "count": count,
+            "n": n,
+            "seeds": seeds,
+            "lora_adapters": lora_adapters,
             "quality": quality,
             "style": style,
             "request_id": request_id,
             "extra": extra,
+        }
+        _apply_optional_fields(body, optional)
+        _merge_media_options(
+            body,
+            options,
+            allowed_keys=(
+                "size",
+                "width",
+                "height",
+                "format",
+                "negative_prompt",
+                "seed",
+                "steps",
+                "guidance_scale",
+                "guidance_2",
+                "count",
+                "n",
+                "seeds",
+                "lora_adapters",
+                "quality",
+                "style",
+                "extra",
+            ),
+        )
+        if fmt is not None:
+            body["format"] = str(fmt)
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/runs/{rid}/images/generate"),
+            body=body,
+            timeout_s=max(float(self._cfg.timeout_s), 180.0) if timeout_s is None else float(timeout_s),
+            label="image_generate failed",
+        )
+
+    def image_edit(
+        self,
+        *,
+        run_id: str,
+        prompt: str,
+        image_artifact: Dict[str, Any],
+        mask_artifact: Optional[Dict[str, Any]] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        image_provider: Optional[str] = None,
+        image_model: Optional[str] = None,
+        strength: Optional[float] = None,
+        fmt: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        steps: Optional[int] = None,
+        guidance_scale: Optional[float] = None,
+        guidance_2: Optional[float] = None,
+        count: Optional[int] = None,
+        n: Optional[int] = None,
+        seeds: Optional[List[int]] = None,
+        lora_adapters: Optional[List[Dict[str, Any]]] = None,
+        request_id: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+        options: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("image_edit: run_id is required")
+        body: Dict[str, Any] = {
+            "prompt": str(prompt or ""),
+            "image_artifact": dict(image_artifact or {}),
+        }
+        optional: Dict[str, Any] = {
+            "mask_artifact": dict(mask_artifact or {}) if isinstance(mask_artifact, dict) else None,
+            "provider": provider,
+            "model": model,
+            "image_provider": image_provider,
+            "image_model": image_model,
+            "strength": strength,
+            "negative_prompt": negative_prompt,
+            "seed": seed,
+            "steps": steps,
+            "guidance_scale": guidance_scale,
+            "guidance_2": guidance_2,
+            "count": count,
+            "n": n,
+            "seeds": seeds,
+            "lora_adapters": lora_adapters,
+            "request_id": request_id,
+            "extra": extra,
+        }
+        _apply_optional_fields(body, optional)
+        _merge_media_options(
+            body,
+            options,
+            allowed_keys=(
+                "format",
+                "strength",
+                "negative_prompt",
+                "seed",
+                "steps",
+                "guidance_scale",
+                "guidance_2",
+                "count",
+                "n",
+                "seeds",
+                "lora_adapters",
+                "extra",
+            ),
+        )
+        if fmt is not None:
+            body["format"] = str(fmt)
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/runs/{rid}/images/edit"),
+            body=body,
+            timeout_s=max(float(self._cfg.timeout_s), 180.0) if timeout_s is None else float(timeout_s),
+            label="image_edit failed",
+        )
+
+    def image_upscale(
+        self,
+        *,
+        run_id: str,
+        image_artifact: Dict[str, Any],
+        image_provider: Optional[str] = None,
+        image_model: Optional[str] = None,
+        resolution: Optional[str] = None,
+        softness: Optional[float] = None,
+        quantize: Optional[int] = None,
+        vae_tiling: Optional[bool] = None,
+        fmt: Optional[str] = None,
+        request_id: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("image_upscale: run_id is required")
+        body: Dict[str, Any] = {
+            "image_artifact": dict(image_artifact or {}),
+        }
+        optional: Dict[str, Any] = {
+            "image_provider": image_provider,
+            "image_model": image_model,
+            "resolution": resolution,
+            "softness": softness,
+            "quantize": quantize,
+            "vae_tiling": vae_tiling,
+            "request_id": request_id,
+        }
+        _apply_optional_fields(body, optional)
+        _merge_media_options(
+            body,
+            options,
+            allowed_keys=("format", "resolution", "softness", "quantize", "vae_tiling"),
+        )
+        if fmt is not None:
+            body["format"] = str(fmt)
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/runs/{rid}/images/upscale"),
+            body=body,
+            timeout_s=max(float(self._cfg.timeout_s), 180.0) if timeout_s is None else float(timeout_s),
+            label="image_upscale failed",
+        )
+
+    def video_generate(
+        self,
+        *,
+        run_id: str,
+        prompt: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        video_provider: Optional[str] = None,
+        video_model: Optional[str] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        frames: Optional[int] = None,
+        fps: Optional[int] = None,
+        fmt: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        steps: Optional[int] = None,
+        guidance_scale: Optional[float] = None,
+        guidance_2: Optional[float] = None,
+        flow_shift: Optional[float] = None,
+        count: Optional[int] = None,
+        n: Optional[int] = None,
+        seeds: Optional[List[int]] = None,
+        lora_adapters: Optional[List[Dict[str, Any]]] = None,
+        request_id: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+        options: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("video_generate: run_id is required")
+        body: Dict[str, Any] = {"prompt": str(prompt or "")}
+        optional: Dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+            "video_provider": video_provider,
+            "video_model": video_model,
+            "width": width,
+            "height": height,
+            "frames": frames,
+            "fps": fps,
+            "negative_prompt": negative_prompt,
+            "seed": seed,
+            "steps": steps,
+            "guidance_scale": guidance_scale,
+            "guidance_2": guidance_2,
+            "flow_shift": flow_shift,
+            "count": count,
+            "n": n,
+            "seeds": seeds,
+            "lora_adapters": lora_adapters,
+            "request_id": request_id,
+            "extra": extra,
+        }
+        _apply_optional_fields(body, optional)
+        _merge_media_options(
+            body,
+            options,
+            allowed_keys=(
+                "width",
+                "height",
+                "frames",
+                "fps",
+                "format",
+                "negative_prompt",
+                "seed",
+                "steps",
+                "guidance_scale",
+                "guidance_2",
+                "flow_shift",
+                "count",
+                "n",
+                "seeds",
+                "lora_adapters",
+                "extra",
+            ),
+        )
+        if fmt is not None:
+            body["format"] = str(fmt)
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/runs/{rid}/videos/generate"),
+            body=body,
+            timeout_s=max(float(self._cfg.timeout_s), 180.0) if timeout_s is None else float(timeout_s),
+            label="video_generate failed",
+        )
+
+    def video_from_image(
+        self,
+        *,
+        run_id: str,
+        prompt: str,
+        image_artifact: Dict[str, Any],
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        video_provider: Optional[str] = None,
+        video_model: Optional[str] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        frames: Optional[int] = None,
+        fps: Optional[int] = None,
+        fmt: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        steps: Optional[int] = None,
+        guidance_scale: Optional[float] = None,
+        guidance_2: Optional[float] = None,
+        flow_shift: Optional[float] = None,
+        strength: Optional[float] = None,
+        count: Optional[int] = None,
+        n: Optional[int] = None,
+        seeds: Optional[List[int]] = None,
+        lora_adapters: Optional[List[Dict[str, Any]]] = None,
+        request_id: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+        options: Optional[Dict[str, Any]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("video_from_image: run_id is required")
+        body: Dict[str, Any] = {
+            "prompt": str(prompt or ""),
+            "image_artifact": dict(image_artifact or {}),
+        }
+        optional: Dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+            "video_provider": video_provider,
+            "video_model": video_model,
+            "width": width,
+            "height": height,
+            "frames": frames,
+            "fps": fps,
+            "negative_prompt": negative_prompt,
+            "seed": seed,
+            "steps": steps,
+            "guidance_scale": guidance_scale,
+            "guidance_2": guidance_2,
+            "flow_shift": flow_shift,
+            "strength": strength,
+            "count": count,
+            "n": n,
+            "seeds": seeds,
+            "lora_adapters": lora_adapters,
+            "request_id": request_id,
+            "extra": extra,
+        }
+        _apply_optional_fields(body, optional)
+        _merge_media_options(
+            body,
+            options,
+            allowed_keys=(
+                "width",
+                "height",
+                "frames",
+                "fps",
+                "format",
+                "negative_prompt",
+                "seed",
+                "steps",
+                "guidance_scale",
+                "guidance_2",
+                "flow_shift",
+                "strength",
+                "count",
+                "n",
+                "seeds",
+                "lora_adapters",
+                "extra",
+            ),
+        )
+        if fmt is not None:
+            body["format"] = str(fmt)
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/runs/{rid}/videos/from_image"),
+            body=body,
+            timeout_s=max(float(self._cfg.timeout_s), 180.0) if timeout_s is None else float(timeout_s),
+            label="video_from_image failed",
+        )
+
+    def music_generate(
+        self,
+        *,
+        run_id: str,
+        prompt: str,
+        task: str = "text_to_music",
+        music_provider: Optional[str] = None,
+        music_model: Optional[str] = None,
+        fmt: str = "wav",
+        request_id: Optional[str] = None,
+        lyrics: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("music_generate: run_id is required")
+        body: Dict[str, Any] = {
+            "prompt": str(prompt or ""),
+            "task": str(task or "text_to_music"),
+            "format": str(fmt or "wav"),
+        }
+        optional: Dict[str, Any] = {
+            "music_provider": music_provider,
+            "music_model": music_model,
+            "request_id": request_id,
+            "lyrics": lyrics,
         }
         for key, value in optional.items():
             if value is None:
@@ -662,13 +1534,12 @@ class GatewayClient:
             if isinstance(value, str) and not value.strip():
                 continue
             body[key] = value
-        return _request_json(
+        return self._request_json(
             method="POST",
-            url=self._url(f"/api/gateway/runs/{rid}/images/generate"),
-            headers=_auth_headers(self._cfg.auth_token),
+            url=self._url(f"/api/gateway/runs/{rid}/music/generate"),
             body=body,
             timeout_s=max(float(self._cfg.timeout_s), 180.0) if timeout_s is None else float(timeout_s),
-            label="image_generate failed",
+            label="music_generate failed",
         )
 
     def session_prompt_cache_status(
@@ -701,11 +1572,9 @@ class GatewayClient:
         }.items():
             if isinstance(value, str) and value.strip():
                 query[key] = value.strip()
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/sessions/{sid}/prompt_cache/status", query=query),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="session_prompt_cache_status failed",
         )
 
@@ -885,12 +1754,10 @@ class GatewayClient:
             raise ValueError(f"{label}: session_id is required")
         if op not in {"prepare", "clear", "rebuild"}:
             raise ValueError(f"{label}: invalid operation")
-        return _request_json(
+        return self._request_json(
             method="POST",
             url=self._url(f"/api/gateway/sessions/{sid}/prompt_cache/{op}"),
-            headers=_auth_headers(self._cfg.auth_token),
             body=body,
-            timeout_s=self._cfg.timeout_s,
             label=label,
         )
 
@@ -899,11 +1766,9 @@ class GatewayClient:
         if not rid:
             raise ValueError("list_run_artifacts: run_id is required")
         query = {"limit": max(1, int(limit))}
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/artifacts", query=query),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="list_run_artifacts failed",
         )
 
@@ -914,11 +1779,9 @@ class GatewayClient:
             raise ValueError("get_run_artifact_metadata: run_id is required")
         if not aid:
             raise ValueError("get_run_artifact_metadata: artifact_id is required")
-        return _request_json(
+        return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/artifacts/{aid}"),
-            headers=_auth_headers(self._cfg.auth_token),
-            timeout_s=self._cfg.timeout_s,
             label="get_run_artifact_metadata failed",
         )
 
@@ -937,7 +1800,7 @@ class GatewayClient:
         if not aid:
             raise ValueError("download_run_artifact_content: artifact_id is required")
         url = self._url(f"/api/gateway/runs/{rid}/artifacts/{aid}/content")
-        req = urllib.request.Request(url, headers=_auth_headers(self._cfg.auth_token), method="GET")
+        req = urllib.request.Request(url, headers=self._headers(), method="GET")
         timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:

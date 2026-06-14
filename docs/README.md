@@ -1,32 +1,30 @@
 # Documentation
 
-AbstractAssistant is a macOS-first tray app and CLI that hosts a **local, durable agent** built on the
-AbstractFramework ecosystem:
-- **AbstractFramework**: https://github.com/lpalbou/AbstractFramework
-- **AbstractCore** (providers, tools/media schemas): https://github.com/lpalbou/abstractcore
-- **AbstractRuntime** (durable runs, waits, ledger): https://github.com/lpalbou/abstractruntime
+AbstractAssistant is a gateway-native desktop assistant. The desktop app is a tray and top-right
+palette client; AbstractGateway owns workflows, multimodal defaults, durable runs, and provider
+access.
 
-## Start here
+## Start Here
 
-- **Install**: [INSTALLATION.md](INSTALLATION.md)
-- **First run + core concepts**: [getting-started.md](getting-started.md)
+- [INSTALLATION.md](INSTALLATION.md): install requirements and macOS bundle helper
+- [getting-started.md](getting-started.md): first launch, the published assistant workflow,
+  gateway-owned defaults, sessions, and voice/tool behavior
 
 ## Reference
 
-- **API & CLI reference**: [api.md](api.md)
-- **Architecture & durability model** (includes diagrams): [architecture.md](architecture.md)
-- **Gateway-first design draft** (thin-client plan): [gateway-first-design.md](gateway-first-design.md)
-- **FAQ / troubleshooting**: [faq.md](faq.md)
+- [api.md](api.md): CLI surface and gateway-facing desktop contract
+- [architecture.md](architecture.md): component boundaries, source-of-truth rules, and the
+  published workflow contract
+- [faq.md](faq.md): common conceptual questions
+- [troubleshooting.md](troubleshooting.md): symptom-oriented fixes
 
-## Development notes (internal)
+## Architecture Decisions
 
-Developer notes and experiments live under `devnotes/`. They are not part of the stable public docs:
-- [devnotes/README.md](devnotes/README.md)
+- [adr/README.md](adr/README.md): accepted assistant architecture decisions
 
-## Project info
+## Project Info
 
-- Contributing: [../CONTRIBUTING.md](../CONTRIBUTING.md)
-- Security: [../SECURITY.md](../SECURITY.md)
-- Changelog: [../CHANGELOG.md](../CHANGELOG.md)
-- License: [../LICENSE](../LICENSE)
-- Acknowledgments: [../ACKNOWLEDGMENTS.md](../ACKNOWLEDGMENTS.md)
+- [../README.md](../README.md): top-level overview
+- [../CONTRIBUTING.md](../CONTRIBUTING.md): contributor workflow
+- [../SECURITY.md](../SECURITY.md): security reporting
+- [../CHANGELOG.md](../CHANGELOG.md): release history

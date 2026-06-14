@@ -8,6 +8,7 @@ Packaging invariant:
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 import time
 from pathlib import Path
@@ -69,55 +70,53 @@ def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
     return ans in {"y", "yes"}
 
 
+def _import_v2_module(name: str):
+    try:
+        return importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"abstractassistantv2", name}:
+            raise
+        repo_root = Path(__file__).resolve().parent.parent
+        repo_root_s = str(repo_root)
+        if repo_root_s not in sys.path:
+            sys.path.insert(0, repo_root_s)
+        return importlib.import_module(name)
+
+
 def _run_gateway_command(args: argparse.Namespace) -> int:
-    from .core.gateway_selection_store import GatewaySelection
-    from .core.llm_manager import LLMManager
-    from .gateway import GatewayEventAdapter, build_run_input_data, prepare_session_prompt_cache, select_agent_template
+    from .gateway import GatewayEventAdapter, build_run_input_data
     from .gateway.history_seed import seed_messages_from_history_bundle
     from .gateway.run_controller import GatewayRunController
+    AssistantV2Controller = _import_v2_module("abstractassistantv2.controller").AssistantV2Controller
 
     config = _build_config_from_args(args)
-    llm_manager = LLMManager(config=config, debug=False, data_dir=None)
-    gateway = llm_manager.gateway_client()
-    if gateway is None:
-        raise RuntimeError("Gateway client is not configured")
-
-    selection_store = llm_manager.gateway_selection_store()
-    selection = selection_store.load()
-
-    bundle_id = (selection.bundle_id if selection else "") or str(config.gateway.bundle_id or "").strip()
-    flow_id = (selection.flow_id if selection else "") or str(config.gateway.flow_id or "").strip()
-    provider = selection.provider if selection else ""
-    model = selection.model if selection else ""
+    controller = AssistantV2Controller(config=config, debug=False, data_dir=None)
+    gateway = controller.gateway
+    llm_manager = controller.llm_manager
+    selected_workflow = controller.current_workflow()
+    if selected_workflow is None:
+        detail = controller.workflow_status().error or "Gateway exposes no runnable workflows for the assistant"
+        raise RuntimeError(detail)
 
     llm_manager.append_message(role="user", content=args.prompt)
+    provider, model = controller.chat_defaults()
     input_data = build_run_input_data(
         prompt=args.prompt,
         provider=provider,
         model=model,
         messages=llm_manager.session_messages(),
+        allowed_tools=controller.allowed_tools_for_run(),
+        tool_policy=controller.tool_policy_for_run(),
+        primary_image_artifact=controller.latest_image_artifact(),
     )
 
-    entry = select_agent_template(
-        bundles_response=gateway.list_bundles(),
-        bundle_id=bundle_id,
-        flow_id=flow_id,
-    )
-    prepare_session_prompt_cache(
-        gateway=gateway,
-        session_id=llm_manager.active_session_id,
-        provider=provider,
-        model=model,
-        bundle_id=entry["bundle_id"],
-        flow_id=entry["flow_id"],
-        template_id=f"{entry['bundle_id']}:{entry['flow_id']}",
-        input_data=input_data,
-    )
     run_id = gateway.start_run(
-        flow_id=entry["flow_id"],
+        flow_id=selected_workflow.flow_id,
         input_data=input_data,
-        bundle_id=entry["bundle_id"],
+        bundle_id=selected_workflow.bundle_id,
+        bundle_version=selected_workflow.bundle_version or None,
         session_id=llm_manager.active_session_id,
+        registry_scope=selected_workflow.registry_scope or None,
     )
     llm_manager.set_last_run_id(run_id)
 
@@ -207,15 +206,6 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
     except Exception:
         pass
 
-    selection_store.save(
-        GatewaySelection(
-            bundle_id=entry["bundle_id"],
-            flow_id=entry["flow_id"],
-            provider=provider,
-            model=model,
-        )
-    )
-
     print(final)
     return 0
 
@@ -238,7 +228,7 @@ def main() -> int:
             config = None
 
         try:
-            from .app import AbstractAssistantApp
+            launch_tray_app = _import_v2_module("abstractassistantv2").launch_tray_app
         except Exception as e:
             print("AbstractAssistant tray mode requires GUI dependencies.")
             print('Install (tray): pip install -U "abstractassistant"')
@@ -246,14 +236,11 @@ def main() -> int:
             print(f"Import error: {e}")
             return 2
 
-        app = AbstractAssistantApp(
+        return launch_tray_app(
             config=config,
             debug=False,
-            listening_mode="wait",
             data_dir=None,
         )
-        app.run()
-        return 0
         
     except KeyboardInterrupt:
         print("\n👋 AbstractAssistant stopped by user")

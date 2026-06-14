@@ -1,82 +1,122 @@
 # Architecture
 
-AbstractAssistant is a gateway-first thin client. It renders tray/CLI UX locally, but workflow execution, provider access, and durable run state live in AbstractGateway.
+AbstractAssistant is a gateway-native desktop shell. The assistant owns tray and palette UX,
+session-oriented local convenience state, microphone capture, playback, and artifact opening. The
+gateway owns workflows, durable execution, multimodal capability defaults, media routing, and
+provider access.
 
 See also:
-- [README.md](README.md)
+
 - [getting-started.md](getting-started.md)
 - [api.md](api.md)
+- [adr/README.md](adr/README.md)
 
-## High-level diagram
+## High-Level Diagram
 
 ```mermaid
 flowchart LR
-  subgraph Frontends
-    Tray[Tray UI\\nQt + pystray]
-    CLI[CLI\\nassistant / assistant run]
+  subgraph Desktop
+    Tray[Tray + Palette\\nQt shell]
+    Voice[Local mic capture\\nlocal playback]
+    State[Local sessions\\npreferences\\ndownloads]
   end
 
   Tray --> Client
-  CLI --> Client
+  Voice --> Client
+  State --> Client
 
-  Client[Gateway client\\nHTTP + SSE] --> Gateway[AbstractGateway]
-  Gateway --> Runtime[AbstractRuntime\\ndurable runs + ledger + waits]
-  Runtime --> Core[AbstractCore\\nproviders + tool/media schemas]
-  Core --> Providers[LM Studio / Ollama / OpenAI / Anthropic / ...]
+  Client[Gateway-native client\\nHTTP + SSE + artifact download] --> Gateway[AbstractGateway]
+  Gateway --> Runtime[AbstractRuntime\\ndurable runs + waits + artifacts]
+  Runtime --> Core[AbstractCore\\nproviders + schemas + capability plugins]
+  Core --> Providers[Local and cloud providers]
 ```
 
-## Responsibilities
+## Source Of Truth
 
-- AbstractAssistant:
-  - connects to the gateway
-  - renders providers/models/workflows discovered from the gateway
-  - persists only local session UI state, cached selections, and downloaded artifacts
-  - surfaces approval and ask-user waits, then resumes them through gateway commands
+Gateway is authoritative for:
 
-- AbstractGateway:
-  - loads workflow bundles
-  - exposes workflow/provider/model/tool discovery
-  - starts and resumes durable runs
-  - talks to providers through AbstractCore
+- workflow catalog and default entrypoints
+- provider/model defaults for multimodal routes
+- durable run state, history bundles, ledger streaming, and waits
+- direct image, video, voice, sound, and music execution
 
-## Workflow discovery
+The assistant is authoritative only for:
 
-AbstractAssistant does not ship or choose workflow bundles itself.
+- local tray and palette preferences
+- local session continuity for the desktop experience
+- downloaded artifact cache
+- local mic capture and local audio playback
 
-Workflow availability comes from `GET /api/gateway/bundles`. For local development, the gateway must be started with a bundle directory such as:
+## Desktop Shell
 
-```bash
-export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
-```
+The Qt tray shell lives in `abstractassistantv2/` and provides:
 
-If the gateway exposes no `abstractcode.agent.v1` entrypoints, the assistant cannot start a run.
+- a compact top-right palette
+- one canonical assistant workflow from the gateway tenant catalog
+- durable gateway sign-in state for bearer-token or hosted user-session deployments
+- a gateway capability-default editor
+- workflow-routed tool and media requests
+- optional global hotkey support when the platform/runtime allows it
 
-## Session state
+## Published Workflow
 
-Local state is stored under `~/.abstractassistant/` and is limited to client-side concerns:
-- session transcript snapshots
-- last selected provider/model/workflow per session
-- last seen run id
-- downloaded artifacts and local UI cache
+The assistant uses the published gateway workflow bundle `abstractassistant-orchestrator`.
 
-The durability source of truth for execution remains the gateway ledger and run stores.
+Launch flow:
 
-## Entry points
+1. Reconcile the managed `abstractassistant-orchestrator` workflow when needed.
+2. Read the gateway tenant catalog and resolve the published assistant workflow entrypoint.
+3. Start a run through `/api/gateway/runs/start`.
+4. Replay history and follow ledger SSE.
+5. Surface waits locally and resume them through gateway commands.
 
-- `assistant`
-- `abstractassistant`
-- `assistant run --prompt "..."`
+The assistant does not use private bundle execution, sandbox chat, or client-side direct media
+execution.
 
-Optional assistant-side overrides:
-- `--gateway-url`
-- `--gateway-token`
+## Capability Defaults
 
-## Tool approval path
+The assistant does not treat local provider/model choices as the default routing policy.
 
-Tool execution is gateway-driven and wait-based:
-1. a workflow emits a tool-approval wait on the gateway
-2. AbstractAssistant shows the approval UI
-3. AbstractAssistant submits a durable `resume` command
-4. the gateway continues the run
+Instead:
 
-The assistant never bypasses gateway durability for tool execution.
+- the Settings dialog edits gateway capability-default routes
+- the desktop client keeps only local UI preferences durable
+- the published assistant workflow consumes the configured gateway routes for chat, tools, voice,
+  image, video, sound, and music behavior
+
+For newer multimodal route features, the assistant intentionally stays a thin
+client:
+
+- Gateway/Core own task compatibility, model compatibility, adapter
+  compatibility, and request validation.
+- The assistant owns only the local shell and passes advanced route options through unchanged.
+- Typed provider/model selectors remain in the Settings UI, while advanced
+  route-specific fields such as `count`, `seeds`, `lora_adapters`,
+  `guidance_2`, and `flow_shift` live in the bounded `options` JSON
+  surface.
+
+This boundary is documented in [ADR 0001](adr/0001_gateway_native_assistant_v2.md).
+
+## Voice Boundary
+
+Voice responsibilities are split intentionally:
+
+- desktop: microphone capture, VAD, playback, pause/resume, meter rendering
+- gateway: STT, TTS, and provider/model resolution
+
+If gateway voice routes are unavailable, the assistant disables the voice controls rather than
+silently loading a local speech model.
+
+## Gateway Auth Boundary
+
+The desktop assistant supports both gateway bearer tokens and hosted gateway user sessions.
+Bearer tokens remain useful for local and operator-controlled setups. Hosted user-session mode
+exchanges a gateway user token for an opaque gateway session plus CSRF token and stores only that
+session state locally for later reconnects.
+
+## Validation
+
+The repository validates the gateway-native shell through:
+
+- `abstractassistant/tests/basic`
+- `abstractassistant/tests/integration`

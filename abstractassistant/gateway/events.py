@@ -86,9 +86,37 @@ def extract_flow_end_output(rec: StepRecord | None) -> Optional[Dict[str, Any]]:
             or pick_textish(out0.get("text"))
             or pick_textish(out0.get("content"))
         )
-        if msg:
-            meta = out0.get("meta")
-            return {"response": msg, "meta": meta if isinstance(meta, dict) else None}
+        meta = dict(out0.get("meta")) if isinstance(out0.get("meta"), dict) else {}
+        for key in (
+            "artifact",
+            "image_artifact",
+            "video_artifact",
+            "audio_artifact",
+            "music_artifact",
+            "artifact_ref",
+            "artifact_id",
+            "content_type",
+            "outputs",
+            "resources",
+            "success",
+            "scratchpad",
+        ):
+            if key in out0 and out0.get(key) is not None:
+                meta[key] = out0.get(key)
+        artifact = meta.get("artifact")
+        if not isinstance(artifact, dict):
+            artifact = out0.get("artifact_ref")
+            if isinstance(artifact, dict):
+                meta["artifact"] = artifact
+        content_type = str((artifact or {}).get("content_type") or meta.get("content_type") or "").strip().lower()
+        if isinstance(artifact, dict) and content_type.startswith("image/") and "image_artifact" not in meta:
+            meta["image_artifact"] = artifact
+        if isinstance(artifact, dict) and content_type.startswith("video/") and "video_artifact" not in meta:
+            meta["video_artifact"] = artifact
+        if isinstance(artifact, dict) and content_type.startswith("audio/") and "audio_artifact" not in meta:
+            meta["audio_artifact"] = artifact
+        if msg or meta:
+            return {"response": msg, "meta": meta or None}
     return None
 
 

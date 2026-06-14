@@ -1,13 +1,18 @@
-# API & CLI reference
+# API And CLI Reference
+
+AbstractAssistant is primarily a desktop app and CLI. Its stable public surface is the user
+entrypoints plus the gateway-facing behavior they rely on.
 
 See also:
-- [README.md](README.md) (docs hub)
-- [getting-started.md](getting-started.md) (user guide)
-- [architecture.md](architecture.md) (durability + tool boundary)
 
-## CLI
+- [getting-started.md](getting-started.md)
+- [architecture.md](architecture.md)
+- [troubleshooting.md](troubleshooting.md)
 
-Entry points (evidence: `pyproject.toml`):
+## CLI Entry Points
+
+From `pyproject.toml`:
+
 - `assistant`
 - `abstractassistant`
 
@@ -18,131 +23,100 @@ assistant --help
 assistant run --help
 ```
 
-### Global options
+## Global Flags
 
-Defined in `abstractassistant/cli.py`:
-- `--gateway-url URL`: optional gateway base URL override
-- `--gateway-token TOKEN`: optional gateway auth token override
+The assistant resolves gateway connection settings from global flags first, then environment:
 
-Run-specific options:
-- `--prompt TEXT`: user prompt text
+- `--gateway-url URL`
+- `--gateway-token TOKEN`
 
-Note: global options appear before the subcommand.
+Global flags must appear before a subcommand.
 
-Examples:
+Example:
 
 ```bash
-assistant run --prompt "Summarize this repo"
-assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN" run --prompt "Summarize this repo"
+assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN" run --prompt "Search the web for the latest AI news and summarize it with sources."
 ```
 
-### `assistant run`
+## `assistant`
 
-Runs a single agentic turn in the terminal.
+With no subcommand, `assistant` starts the tray and palette UI.
 
-Required:
-- `--prompt TEXT`
+Behavior:
 
-Gateway behavior:
-- provider/model come from gateway discovery or the cached session selection
-- workflow selection comes from the gateway bundle catalog
-- if the gateway exposes no `abstractcode.agent.v1` entrypoint, configure workflow bundles on the gateway side, typically via `ABSTRACTGATEWAY_FLOWS_DIR`
+- loads local session state from `~/.abstractassistant/`
+- connects to the configured gateway
+- resolves the published `abstractassistant-orchestrator` workflow from the gateway workflow catalog
+- reads and edits gateway capability defaults for multimodal routes
 
-Tool approvals:
-- prompts when a tool batch requires approval
+## `assistant run`
 
-## Programmatic API (Python)
+`assistant run --prompt TEXT` executes one terminal turn through the gateway.
 
-Most users will use the CLI/tray UI. If you embed AbstractAssistant as a host component,
-the stable surface is the backend:
+Example:
 
-### `AgentHost` (durable agent backend)
-
-Defined in `abstractassistant/core/agent_host.py`.
-
-Create a host:
-
-```python
-from pathlib import Path
-from abstractassistant.core.agent_host import AgentHost, AgentHostConfig
-
-host = AgentHost(
-    AgentHostConfig(
-        provider="ollama",
-        model="qwen3:4b-instruct",
-        agent_kind="react",
-        data_dir=Path.home() / ".abstractassistant",
-    )
-)
+```bash
+assistant run --prompt "Search the web for the latest OpenAI news and summarize it with sources."
 ```
 
-Run a turn (generator of structured events):
+Behavior:
 
-```python
-final = ""
-for ev in host.run_turn(user_text="Hello"):
-    if ev.get("type") == "assistant":
-        final = ev.get("content", "")
-```
+- the assistant run path comes from the published `abstractassistant-orchestrator` workflow
+- provider/model defaults are left to the gateway unless you change them on the gateway side
+- tool approvals are surfaced interactively in the terminal
 
-Events (evidence: `AgentHost.run_turn` docstring):
-- `status` (`thinking`, `executing_tools`, `tools_denied`, `ready`, …)
-- `tool_request` / `tool_result`
-- `ask_user`
-- `assistant` (final answer)
-- `error`
+## Environment Variables
 
-Tool approvals:
-- pass `approve_tools(tool_calls)->bool`
-- by default, the host auto-approves only the safe/read-only tool set in `ToolApprovalPolicy`
+The desktop client uses these connection settings:
 
-Allowlist tool schemas sent to the model:
-- `run_turn(..., allowed_tools=[...])`
-- when provided, only those tools (plus built-ins like `ask_user`) are exposed to the model
-
-Resume after restart:
-- `AgentHost.resume_run(run_id=...)` resumes WAITING runs (tool approvals / user input)
-
-### Attachments
-
-`AgentHost.run_turn(..., attachments=[...])` accepts:
-- strings (local file paths)
-- dicts that reference runtime artifacts (advanced / UI-internal)
-
-Default size limit:
-- 25 MiB (evidence: `AgentHost._max_attachment_bytes()`)
-- override with `ABSTRACTGATEWAY_MAX_ATTACHMENT_BYTES`
-
-Audio handling:
-- audio files are transcribed via AbstractVoice when available and the transcript is attached as text
-
-### `SessionStore` / `SessionIndex` (tray UX state)
-
-Evidence:
-- `abstractassistant/core/session_store.py`
-- `abstractassistant/core/session_index.py`
-
-Files under the data dir:
-- `session.json`: transcript snapshot + ids (+ last run id)
-- `sessions.json`: registry of sessions + active session id
-
-### Environment-driven tray config
-
-Evidence: `abstractassistant/config.py`
-
-The tray UI is gateway-first and resolves connection settings from environment variables.
-
-Gateway settings:
-- `ABSTRACTGATEWAY_URL` (default `http://127.0.0.1:8080`)
+- `ABSTRACTGATEWAY_URL`
+- `ABSTRACTFLOW_GATEWAY_URL`
 - `ABSTRACTGATEWAY_AUTH_TOKEN`
+- `ABSTRACTFLOW_GATEWAY_AUTH_TOKEN`
 
-Equivalent assistant CLI overrides:
-- `--gateway-url`
-- `--gateway-token`
+If no URL is provided, the assistant defaults to `http://127.0.0.1:8080`.
 
-Provider/model/workflow inventory is discovered from the gateway. The tray app does not keep a built-in provider/model or workflow default; it only persists the last selected provider/model/workflow in session state.
+## Gateway Routes Used By The Assistant
 
-## Related docs
+The assistant is a thin client over these gateway surfaces:
 
-- [architecture.md](architecture.md) for the durability/tool boundary rationale
-- [faq.md](faq.md) for common questions and troubleshooting
+- `/api/gateway/workflow-catalog`
+- `/api/gateway/visualflows`
+- `/api/gateway/visualflows/{flow_id}/publish`
+- `/api/gateway/admin/workflow-catalog/promote`
+- `/api/gateway/config/capability-defaults`
+- `/api/gateway/discovery/capabilities`
+- `/api/gateway/discovery/providers`
+- `/api/gateway/discovery/providers/{provider}/models`
+- `/api/gateway/audio/speech/models`
+- `/api/gateway/audio/transcriptions/models`
+- `/api/gateway/voice/voices`
+- `/api/gateway/vision/provider_models`
+- `/api/gateway/vision/adapters`
+- `/api/gateway/audio/music/providers`
+- `/api/gateway/audio/music/models`
+- `/api/gateway/runs/start`
+- `/api/gateway/runs/{run_id}/history_bundle`
+- `/api/gateway/runs/{run_id}/ledger/stream`
+- run-scoped media execution used by the published assistant workflow
+
+For multimodal routes, the assistant client forwards Gateway/Core
+fields such as `count`, `n`, `seeds`, `lora_adapters`, `guidance_2`, and
+`flow_shift` instead of inventing a separate assistant-only request shape.
+
+## Python API Status
+
+This repository still contains internal Python modules such as the gateway client, session stores,
+voice manager, and worker threads. They are implementation surfaces for the desktop app, not yet a
+committed public embedding API.
+
+If you want to automate the assistant, prefer:
+
+- the CLI for user-style invocation
+- AbstractGateway directly for durable workflow execution
+
+## Related Docs
+
+- [architecture.md](architecture.md)
+- [faq.md](faq.md)
+- [troubleshooting.md](troubleshooting.md)
