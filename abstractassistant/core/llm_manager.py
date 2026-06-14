@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
+import uuid
 import warnings
 
 from .session_index import SessionIndex
@@ -183,6 +185,50 @@ class LLMManager:
         self._gateway_store = store
         store.save(snapshot)
 
+    def _fresh_message_id(self) -> str:
+        return uuid.uuid4().hex
+
+    def _message_id_from_dict(
+        self,
+        message: Dict[str, Any],
+        *,
+        fallback_index: int = 0,
+        session_id: str = "",
+    ) -> str:
+        if not isinstance(message, dict):
+            return self._fresh_message_id()
+        direct = str(message.get("message_id") or "").strip()
+        if direct:
+            return direct
+        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        meta_id = str((metadata or {}).get("message_id") or "").strip()
+        if meta_id:
+            return meta_id
+        payload = {
+            "session_id": str(session_id or "").strip(),
+            "role": str(message.get("role") or ""),
+            "ts": str(message.get("ts") or message.get("timestamp") or ""),
+            "content": str(message.get("content") or ""),
+            "index": max(0, int(fallback_index)),
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha1(encoded).hexdigest()[:24]
+
+    def _normalize_message_dict(
+        self,
+        message: Dict[str, Any],
+        *,
+        fallback_index: int = 0,
+        session_id: str = "",
+    ) -> Dict[str, Any]:
+        normalized = dict(message or {})
+        normalized["message_id"] = self._message_id_from_dict(
+            normalized,
+            fallback_index=fallback_index,
+            session_id=session_id,
+        )
+        return normalized
+
     def replace_gateway_messages(self, messages: List[Dict[str, Any]], *, last_run_id: Optional[str] = None) -> bool:
         """Replace gateway session messages with a provided history snapshot."""
         if not self.use_gateway:
@@ -192,9 +238,15 @@ class LLMManager:
             run_id = snap.last_run_id if last_run_id is None else str(last_run_id or "").strip() or None
             existing: List[Dict[str, Any]] = [dict(m) for m in (snap.messages or []) if isinstance(m, dict)]
             cleaned: List[Dict[str, Any]] = []
-            for m in messages:
+            for index, m in enumerate(messages):
                 if isinstance(m, dict):
-                    cleaned.append(dict(m))
+                    cleaned.append(
+                        self._normalize_message_dict(
+                            m,
+                            fallback_index=index,
+                            session_id=snap.session_id,
+                        )
+                    )
             history_changed = cleaned != existing
             if existing and len(cleaned) < len(existing):
                 warnings.warn(
@@ -483,6 +535,7 @@ class LLMManager:
                     "role": str(role),
                     "content": str(content),
                     "ts": str(ts or "").strip() or datetime.now(timezone.utc).isoformat(),
+                    "message_id": self._fresh_message_id(),
                 }
                 if metadata:
                     msg["metadata"] = dict(metadata)

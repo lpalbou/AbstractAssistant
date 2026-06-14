@@ -911,6 +911,12 @@ def _local_attachment_preview_items(paths: List[str]) -> List[Dict[str, Any]]:
 
 
 def _message_key(message: Dict[str, Any]) -> str:
+    message_id = str(message.get("message_id") or "").strip()
+    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    if not message_id and isinstance(metadata, dict):
+        message_id = str(metadata.get("message_id") or "").strip()
+    if message_id:
+        return f"id:{message_id}"
     role = str(message.get("role") or "").strip()
     ts = str(message.get("ts") or message.get("timestamp") or "").strip()
     content = str(message.get("content") or "")
@@ -3491,7 +3497,6 @@ class AssistantPalette(QMainWindow):
         history_host = state.get("history_host")
         if obj is history_host and event is not None:
             if event.type() in {QEvent.LayoutRequest, QEvent.Resize, QEvent.Show}:
-                self._sync_history_viewport()
                 self._schedule_history_scroll_apply()
         return False
 
@@ -3790,6 +3795,7 @@ class AssistantPalette(QMainWindow):
 
     def _apply_pending_history_scroll(self) -> None:
         request = getattr(self, "__dict__", {}).get("_pending_history_scroll", HistoryScrollRequest())
+        self._sync_history_viewport()
         self._pending_history_scroll = self._history_scroll_request()
         self._apply_history_scroll_request(request)
 

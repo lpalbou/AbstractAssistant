@@ -1241,6 +1241,12 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-06-14
+
+### Fixed
+- Gateway-backed conversation snapshots now assign stable `message_id` values when persisting or replacing messages, so later UI reconciliation can key history entries deterministically instead of falling back to role/timestamp/content heuristics.
+- Assistant v2 history replay now prefers those explicit message ids for deduplication, and the history viewport sync moved to the deferred scroll-apply path so early layout/show events no longer force an extra synchronous viewport pass.
+
 ## [0.4.10] - 2026-06-14
 
 ### Changed
@@ -1551,7 +1557,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.4.10"
+version = "0.4.11"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -7196,6 +7202,12 @@ def _local_attachment_preview_items(paths: List[str]) -> List[Dict[str, Any]]:
 
 
 def _message_key(message: Dict[str, Any]) -> str:
+    message_id = str(message.get("message_id") or "").strip()
+    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    if not message_id and isinstance(metadata, dict):
+        message_id = str(metadata.get("message_id") or "").strip()
+    if message_id:
+        return f"id:{message_id}"
     role = str(message.get("role") or "").strip()
     ts = str(message.get("ts") or message.get("timestamp") or "").strip()
     content = str(message.get("content") or "")
@@ -9776,7 +9788,6 @@ class AssistantPalette(QMainWindow):
         history_host = state.get("history_host")
         if obj is history_host and event is not None:
             if event.type() in {QEvent.LayoutRequest, QEvent.Resize, QEvent.Show}:
-                self._sync_history_viewport()
                 self._schedule_history_scroll_apply()
         return False
 
@@ -10075,6 +10086,7 @@ class AssistantPalette(QMainWindow):
 
     def _apply_pending_history_scroll(self) -> None:
         request = getattr(self, "__dict__", {}).get("_pending_history_scroll", HistoryScrollRequest())
+        self._sync_history_viewport()
         self._pending_history_scroll = self._history_scroll_request()
         self._apply_history_scroll_request(request)
 
@@ -13508,13 +13520,12 @@ def test_assistant_v2_event_filter_tolerates_preinit_history_events() -> None:
 
     palette = AssistantPalette.__new__(AssistantPalette)
     palette.history_host = history_host
-    palette._sync_history_viewport = lambda: events.append("sync")
     palette._schedule_history_scroll_apply = lambda: events.append("schedule")
 
     handled = AssistantPalette.eventFilter(palette, history_host, QEvent(QEvent.Show))
 
     assert handled is False
-    assert events == ["sync", "schedule"]
+    assert events == ["schedule"]
 
 
 @pytest.mark.basic

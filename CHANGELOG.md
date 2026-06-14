@@ -4,6 +4,12 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-06-14
+
+### Fixed
+- Gateway-backed conversation snapshots now assign stable `message_id` values when persisting or replacing messages, so later UI reconciliation can key history entries deterministically instead of falling back to role/timestamp/content heuristics.
+- Assistant v2 history replay now prefers those explicit message ids for deduplication, and the history viewport sync moved to the deferred scroll-apply path so early layout/show events no longer force an extra synchronous viewport pass.
+
 ## [0.4.10] - 2026-06-14
 
 ### Changed

@@ -821,13 +821,12 @@ def test_assistant_v2_event_filter_tolerates_preinit_history_events() -> None:
 
     palette = AssistantPalette.__new__(AssistantPalette)
     palette.history_host = history_host
-    palette._sync_history_viewport = lambda: events.append("sync")
     palette._schedule_history_scroll_apply = lambda: events.append("schedule")
 
     handled = AssistantPalette.eventFilter(palette, history_host, QEvent(QEvent.Show))
 
     assert handled is False
-    assert events == ["sync", "schedule"]
+    assert events == ["schedule"]
 
 
 @pytest.mark.basic
