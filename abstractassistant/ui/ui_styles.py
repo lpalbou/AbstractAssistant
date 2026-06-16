@@ -9,162 +9,167 @@ provide consistent styling across the application.
 class UIStyles:
     """Centralized UI styling constants for AbstractAssistant."""
 
-    # Color palette
+    # Color palette - Obsidian Dark with Indigo Accent
     COLORS = {
-        'primary': '#007AFF',
-        'secondary': '#8E8E93',
-        'success': '#34C759',
-        'warning': '#FF9500',
-        'error': '#FF3B30',
-        'background': '#F2F2F7',
-        'surface': '#FFFFFF',
-        'text_primary': '#000000',
-        'text_secondary': '#6D6D70',
-        'border': '#C6C6C8'
+        'primary': '#6366f1',       # Indigo
+        'secondary': '#4b5563',     # Cool Grey
+        'success': '#10b981',       # Emerald
+        'warning': '#f59e0b',       # Amber
+        'error': '#ef4444',         # Rose Red
+        'background': '#090d16',    # Deep Space Obsidian
+        'surface': '#111827',       # Dark Charcoal Surface
+        'text_primary': '#f3f4f6',  # Soft Off-white
+        'text_secondary': '#9ca3af',# Cool Muted Grey
+        'border': 'rgba(255, 255, 255, 0.08)' # Premium Transparent Border
     }
 
     # Button styles
     BUTTON_STYLES = {
         'primary': f"""
             QPushButton {{
-                background: {COLORS['primary']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['primary']}, stop:1 #4f46e5);
                 color: white;
-                border: none;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
+                border-radius: 8px;
+                font-weight: 600;
                 font-size: 13px;
             }}
             QPushButton:hover {{
-                background: #0051D0;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f46e5, stop:1 #4338ca);
             }}
             QPushButton:pressed {{
-                background: #003D99;
+                background: #3730a3;
             }}
             QPushButton:disabled {{
-                background: {COLORS['secondary']};
-                color: #FFFFFF80;
+                background: #1f2937;
+                color: #4b5563;
+                border-color: rgba(255, 255, 255, 0.03);
             }}
         """,
 
         'secondary': f"""
             QPushButton {{
-                background: {COLORS['secondary']};
-                color: white;
-                border: none;
+                background: rgba(255, 255, 255, 0.05);
+                color: {COLORS['text_primary']};
+                border: 1px solid {COLORS['border']};
                 padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
+                border-radius: 8px;
+                font-weight: 600;
                 font-size: 13px;
             }}
             QPushButton:hover {{
-                background: #6D6D70;
+                background: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.15);
             }}
             QPushButton:pressed {{
-                background: #48484A;
+                background: rgba(255, 255, 255, 0.03);
             }}
             QPushButton:disabled {{
-                background: #C6C6C8;
-                color: #FFFFFF80;
+                background: #1f2937;
+                color: #4b5563;
             }}
         """,
 
         'success': f"""
             QPushButton {{
-                background: {COLORS['success']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['success']}, stop:1 #059669);
                 color: white;
-                border: none;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
+                border-radius: 8px;
+                font-weight: 600;
                 font-size: 13px;
             }}
             QPushButton:hover {{
-                background: #28A745;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #059669, stop:1 #047857);
             }}
             QPushButton:pressed {{
-                background: #1E7E34;
+                background: #065f46;
             }}
         """,
 
         'warning': f"""
             QPushButton {{
-                background: {COLORS['warning']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['warning']}, stop:1 #d97706);
                 color: white;
-                border: none;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
+                border-radius: 8px;
+                font-weight: 600;
                 font-size: 13px;
             }}
             QPushButton:hover {{
-                background: #E68900;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #d97706, stop:1 #b45309);
             }}
             QPushButton:pressed {{
-                background: #CC7A00;
+                background: #78350f;
             }}
         """,
 
         'error': f"""
             QPushButton {{
-                background: {COLORS['error']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['error']}, stop:1 #dc2626);
                 color: white;
-                border: none;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
+                border-radius: 8px;
+                font-weight: 600;
                 font-size: 13px;
             }}
             QPushButton:hover {{
-                background: #E6342A;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #dc2626, stop:1 #b91c1c);
             }}
             QPushButton:pressed {{
-                background: #CC2E24;
+                background: #991b1b;
             }}
         """,
 
         'icon': """
             QPushButton {
-                background: transparent;
-                border: none;
-                padding: 4px;
-                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                padding: 6px;
+                border-radius: 6px;
+                color: #d1d5db;
             }
             QPushButton:hover {
-                background: rgba(0, 0, 0, 0.1);
+                background: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.15);
             }
             QPushButton:pressed {
-                background: rgba(0, 0, 0, 0.2);
+                background: rgba(255, 255, 255, 0.03);
             }
         """,
 
         'icon_active': f"""
             QPushButton {{
-                background: {COLORS['primary']};
+                background: rgba(99, 102, 241, 0.2);
+                border: 1px solid rgba(99, 102, 241, 0.4);
                 color: white;
-                border: none;
-                padding: 4px;
-                border-radius: 4px;
+                padding: 6px;
+                border-radius: 6px;
             }}
             QPushButton:hover {{
-                background: #0051D0;
+                background: rgba(99, 102, 241, 0.3);
             }}
             QPushButton:pressed {{
-                background: #003D99;
+                background: rgba(99, 102, 241, 0.15);
             }}
         """
     }
 
-    # Status label styles
+    # Status label styles with radial glowing gradient effect
     STATUS_LABEL_STYLES = {
         'ready': f"""
             QLabel {{
                 color: {COLORS['success']};
                 font-weight: bold;
                 font-size: 12px;
-                padding: 4px 8px;
-                background: rgba(52, 199, 89, 0.1);
-                border-radius: 4px;
+                padding: 6px 10px;
+                background: rgba(16, 185, 129, 0.12);
+                border: 1px solid rgba(16, 185, 129, 0.25);
+                border-radius: 6px;
             }}
         """,
 
@@ -173,9 +178,10 @@ class UIStyles:
                 color: {COLORS['warning']};
                 font-weight: bold;
                 font-size: 12px;
-                padding: 4px 8px;
-                background: rgba(255, 149, 0, 0.1);
-                border-radius: 4px;
+                padding: 6px 10px;
+                background: rgba(245, 158, 11, 0.12);
+                border: 1px solid rgba(245, 158, 11, 0.25);
+                border-radius: 6px;
             }}
         """,
 
@@ -184,9 +190,10 @@ class UIStyles:
                 color: {COLORS['error']};
                 font-weight: bold;
                 font-size: 12px;
-                padding: 4px 8px;
-                background: rgba(255, 59, 48, 0.1);
-                border-radius: 4px;
+                padding: 6px 10px;
+                background: rgba(239, 68, 68, 0.12);
+                border: 1px solid rgba(239, 68, 68, 0.25);
+                border-radius: 6px;
             }}
         """,
 
@@ -195,9 +202,10 @@ class UIStyles:
                 color: {COLORS['text_secondary']};
                 font-weight: normal;
                 font-size: 12px;
-                padding: 4px 8px;
-                background: rgba(109, 109, 112, 0.1);
-                border-radius: 4px;
+                padding: 6px 10px;
+                background: rgba(156, 163, 175, 0.12);
+                border: 1px solid rgba(156, 163, 175, 0.2);
+                border-radius: 6px;
             }}
         """
     }
@@ -207,14 +215,15 @@ class UIStyles:
         'default': f"""
             QComboBox {{
                 border: 1px solid {COLORS['border']};
-                border-radius: 6px;
+                border-radius: 8px;
                 padding: 6px 12px;
-                background: {COLORS['surface']};
+                background: rgba(255, 255, 255, 0.04);
+                color: {COLORS['text_primary']};
                 font-size: 13px;
                 min-width: 120px;
             }}
             QComboBox:hover {{
-                border-color: {COLORS['primary']};
+                border-color: rgba(99, 102, 241, 0.3);
             }}
             QComboBox:focus {{
                 border-color: {COLORS['primary']};
@@ -222,7 +231,7 @@ class UIStyles:
             }}
             QComboBox::drop-down {{
                 border: none;
-                width: 20px;
+                width: 24px;
             }}
             QComboBox::down-arrow {{
                 image: none;
@@ -232,10 +241,10 @@ class UIStyles:
                 margin-right: 8px;
             }}
             QComboBox QAbstractItemView {{
-                border: 1px solid {COLORS['border']};
-                border-radius: 6px;
-                background: {COLORS['surface']};
-                selection-background-color: {COLORS['primary']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                background: #1e293b;
+                selection-background-color: #312e81;
                 selection-color: white;
                 padding: 4px;
             }}
@@ -244,14 +253,15 @@ class UIStyles:
         'compact': f"""
             QComboBox {{
                 border: 1px solid {COLORS['border']};
-                border-radius: 4px;
+                border-radius: 6px;
                 padding: 4px 8px;
-                background: {COLORS['surface']};
+                background: rgba(255, 255, 255, 0.03);
+                color: {COLORS['text_primary']};
                 font-size: 12px;
                 min-width: 80px;
             }}
             QComboBox:hover {{
-                border-color: {COLORS['primary']};
+                border-color: rgba(99, 102, 241, 0.25);
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -272,14 +282,16 @@ class UIStyles:
         'default': f"""
             QTextEdit {{
                 border: 1px solid {COLORS['border']};
-                border-radius: 6px;
+                border-radius: 8px;
                 padding: 8px;
-                background: {COLORS['surface']};
+                background: rgba(255, 255, 255, 0.03);
+                color: {COLORS['text_primary']};
                 font-size: 13px;
-                font-family: 'Helvetica Neue', "Helvetica", Arial;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto;
             }}
             QTextEdit:focus {{
                 border-color: {COLORS['primary']};
+                background: rgba(255, 255, 255, 0.05);
                 outline: none;
             }}
         """,
@@ -289,14 +301,16 @@ class UIStyles:
                 border: 1px solid {COLORS['border']};
                 border-radius: 12px;
                 padding: 12px 16px;
-                background: {COLORS['surface']};
+                background: rgba(255, 255, 255, 0.04);
+                color: {COLORS['text_primary']};
                 font-size: 14px;
-                font-family: 'Helvetica Neue', "Helvetica", Arial;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto;
                 max-height: 120px;
                 min-height: 40px;
             }}
             QTextEdit:focus {{
                 border-color: {COLORS['primary']};
+                background: rgba(255, 255, 255, 0.06);
                 outline: none;
             }}
         """
@@ -306,23 +320,24 @@ class UIStyles:
     PANEL_STYLES = {
         'main': f"""
             QWidget {{
-                background: {COLORS['surface']};
-                border-radius: 12px;
+                background: {COLORS['background']};
+                color: {COLORS['text_primary']};
+                border-radius: 14px;
             }}
         """,
 
         'settings': f"""
             QWidget {{
-                background: {COLORS['background']};
+                background: rgba(255, 255, 255, 0.02);
                 border: 1px solid {COLORS['border']};
-                border-radius: 8px;
+                border-radius: 10px;
                 padding: 12px;
             }}
         """,
 
         'toolbar': f"""
             QWidget {{
-                background: {COLORS['background']};
+                background: rgba(0, 0, 0, 0.2);
                 border-bottom: 1px solid {COLORS['border']};
                 padding: 8px 12px;
             }}
@@ -330,9 +345,9 @@ class UIStyles:
 
         'voice_control': f"""
             QWidget {{
-                background: rgba(0, 122, 255, 0.1);
-                border: 1px solid {COLORS['primary']};
-                border-radius: 8px;
+                background: rgba(99, 102, 241, 0.12);
+                border: 1px solid rgba(99, 102, 241, 0.25);
+                border-radius: 10px;
                 padding: 8px 12px;
             }}
         """
@@ -342,7 +357,7 @@ class UIStyles:
     VOICE_STYLES = {
         'speaking': f"""
             QPushButton {{
-                background: {COLORS['success']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['success']}, stop:1 #059669);
                 color: white;
                 border: none;
                 padding: 6px;
@@ -354,7 +369,7 @@ class UIStyles:
 
         'paused': f"""
             QPushButton {{
-                background: {COLORS['warning']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['warning']}, stop:1 #d97706);
                 color: white;
                 border: none;
                 padding: 6px;
@@ -366,9 +381,9 @@ class UIStyles:
 
         'idle': f"""
             QPushButton {{
-                background: {COLORS['secondary']};
+                background: rgba(255, 255, 255, 0.08);
                 color: white;
-                border: none;
+                border: 1px solid {COLORS['border']};
                 padding: 6px;
                 border-radius: 12px;
                 font-size: 14px;
@@ -378,8 +393,8 @@ class UIStyles:
 
         'disabled': f"""
             QPushButton {{
-                background: {COLORS['border']};
-                color: {COLORS['text_secondary']};
+                background: #1f2937;
+                color: #4b5563;
                 border: none;
                 padding: 6px;
                 border-radius: 12px;
@@ -392,40 +407,40 @@ class UIStyles:
     TOAST_STYLES = {
         'success': f"""
             QWidget {{
-                background: {COLORS['success']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['success']}, stop:1 #059669);
                 color: white;
-                border-radius: 8px;
+                border-radius: 10px;
                 padding: 12px 16px;
             }}
             QLabel {{
                 color: white;
-                font-weight: 500;
+                font-weight: 600;
             }}
         """,
 
         'error': f"""
             QWidget {{
-                background: {COLORS['error']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['error']}, stop:1 #dc2626);
                 color: white;
-                border-radius: 8px;
+                border-radius: 10px;
                 padding: 12px 16px;
             }}
             QLabel {{
                 color: white;
-                font-weight: 500;
+                font-weight: 600;
             }}
         """,
 
         'info': f"""
             QWidget {{
-                background: {COLORS['primary']};
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {COLORS['primary']}, stop:1 #4f46e5);
                 color: white;
-                border-radius: 8px;
+                border-radius: 10px;
                 padding: 12px 16px;
             }}
             QLabel {{
                 color: white;
-                font-weight: 500;
+                font-weight: 600;
             }}
         """
     }

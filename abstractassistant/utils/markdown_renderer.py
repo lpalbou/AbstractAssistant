@@ -143,7 +143,7 @@ class MarkdownRenderer:
     def _get_base_css(self) -> str:
         return """
         .markdown-content {
-            font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
+            font-family: "Helvetica Neue", "Helvetica", Arial;
             font-size: 14px;
             line-height: 1.6;
             color: #e2e8f0;

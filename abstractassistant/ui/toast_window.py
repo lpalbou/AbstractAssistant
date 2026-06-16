@@ -28,7 +28,8 @@ print(f"🔍 Toast Window: MARKDOWN_AVAILABLE = {MARKDOWN_AVAILABLE}")
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-        QTextEdit, QTextBrowser, QPushButton, QLabel, QFrame, QScrollArea
+        QTextEdit, QTextBrowser, QPushButton, QLabel, QFrame, QScrollArea,
+        QGraphicsDropShadowEffect
     )
     from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QEasingCurve
     from PyQt5.QtGui import QFont, QPalette, QColor, QTextCursor
@@ -37,7 +38,8 @@ except ImportError:
     try:
         from PySide2.QtWidgets import (
             QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-            QTextEdit, QTextBrowser, QPushButton, QLabel, QFrame, QScrollArea
+            QTextEdit, QTextBrowser, QPushButton, QLabel, QFrame, QScrollArea,
+            QGraphicsDropShadowEffect
         )
         from PySide2.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QEasingCurve
         from PySide2.QtGui import QFont, QPalette, QColor, QTextCursor
@@ -79,6 +81,7 @@ class ToastWindow(QWidget):
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool
         )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         
         # Start collapsed
         self.resize(self.window_width, self.collapsed_height)
@@ -89,13 +92,23 @@ class ToastWindow(QWidget):
     
     def setup_ui(self):
         """Set up the user interface."""
-        layout = QVBoxLayout()
-        layout.setContentsMargins(8, 6, 8, 8)  # Reduced margins
-        layout.setSpacing(6)  # Reduced spacing
+        # Main layout of the widget
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 12, 12, 12)  # Margin for drop shadow
+        
+        # Container frame
+        self.main_container = QFrame()
+        self.main_container.setObjectName("toastMainFrame")
+        main_layout.addWidget(self.main_container)
+        
+        # Layout inside the container
+        layout = QVBoxLayout(self.main_container)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(6)
         
         # Header with title and buttons - Cursor style
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(12, 8, 12, 8)
+        header_layout.setContentsMargins(4, 4, 4, 4)
         header_layout.setSpacing(8)
         
         # Title (clean, minimal)
@@ -103,11 +116,11 @@ class ToastWindow(QWidget):
         title_label.setStyleSheet("""
             QLabel {
                 font-size: 12px;
-                font-weight: 500;
-                color: rgba(255, 255, 255, 0.9);
+                font-weight: 600;
+                color: #ffffff;
                 background: transparent;
                 border: none;
-                font-family: "Helvetica Neue", "Helvetica", Arial;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
             }
         """)
         header_layout.addWidget(title_label)
@@ -123,16 +136,16 @@ class ToastWindow(QWidget):
             self.pause_play_button.clicked.connect(self.toggle_pause_resume)
             self.pause_play_button.setStyleSheet("""
                 QPushButton {
-                    background: rgba(255, 255, 255, 0.08);
-                    border: none;
+                    background: rgba(255, 255, 255, 0.05);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
                     border-radius: 12px;
                     font-size: 11px;
-                    color: rgba(255, 255, 255, 0.7);
-                    font-family: "Helvetica Neue", "Helvetica", Arial;
+                    color: rgba(255, 255, 255, 0.8);
                 }
                 QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.15);
-                    color: rgba(255, 255, 255, 0.9);
+                    background: rgba(255, 255, 255, 0.12);
+                    border-color: rgba(255, 255, 255, 0.15);
+                    color: #ffffff;
                 }
             """)
             header_layout.addWidget(self.pause_play_button)
@@ -144,16 +157,16 @@ class ToastWindow(QWidget):
             self.stop_button.clicked.connect(self.stop_tts)
             self.stop_button.setStyleSheet("""
                 QPushButton {
-                    background: rgba(255, 255, 255, 0.08);
-                    border: none;
+                    background: rgba(255, 255, 255, 0.05);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
                     border-radius: 12px;
                     font-size: 11px;
-                    color: rgba(255, 255, 255, 0.7);
-                    font-family: "Helvetica Neue", "Helvetica", Arial;
+                    color: rgba(255, 255, 255, 0.8);
                 }
                 QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.15);
-                    color: rgba(255, 255, 255, 0.9);
+                    background: rgba(255, 255, 255, 0.12);
+                    border-color: rgba(255, 255, 255, 0.15);
+                    color: #ffffff;
                 }
             """)
             header_layout.addWidget(self.stop_button)
@@ -168,16 +181,16 @@ class ToastWindow(QWidget):
         self.copy_button.clicked.connect(self.copy_to_clipboard)
         self.copy_button.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
                 font-size: 11px;
-                color: rgba(255, 255, 255, 0.7);
-                font-family: "Helvetica Neue", "Helvetica", Arial;
+                color: rgba(255, 255, 255, 0.8);
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.15);
-                color: rgba(255, 255, 255, 0.9);
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.15);
+                color: #ffffff;
             }
         """)
         header_layout.addWidget(self.copy_button)
@@ -189,16 +202,16 @@ class ToastWindow(QWidget):
         self.close_button.clicked.connect(self.hide_toast)
         self.close_button.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
                 font-size: 11px;
-                color: rgba(255, 255, 255, 0.7);
-                font-family: "Helvetica Neue", "Helvetica", Arial;
+                color: rgba(255, 255, 255, 0.8);
             }
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.15);
-                color: rgba(255, 255, 255, 0.9);
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.15);
+                color: #ffffff;
             }
         """)
         header_layout.addWidget(self.close_button)
@@ -210,10 +223,9 @@ class ToastWindow(QWidget):
         self.content_area.setReadOnly(True)
         self.content_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.content_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # Font styling handled by CSS stylesheet
         
         # Configure QTextBrowser for proper HTML rendering
-        self.content_area.setOpenExternalLinks(False)  # Don't open external links
+        self.content_area.setOpenExternalLinks(False)
         self.content_area.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
         
         # Set the message content with markdown rendering
@@ -223,8 +235,6 @@ class ToastWindow(QWidget):
                 self.content_area.setHtml(html_content)
                 if self.debug:
                     print(f"🎨 Markdown rendered successfully, HTML length: {len(html_content)}")
-                    print(f"🎨 HTML preview: {html_content[:200]}...")
-                    print(f"🎨 Message preview: {self.message[:100]}...")
             except Exception as e:
                 if self.debug:
                     print(f"❌ Markdown rendering failed: {e}")
@@ -234,87 +244,102 @@ class ToastWindow(QWidget):
                 print("❌ Markdown not available, using plain text")
             self.content_area.setPlainText(self.message)
         
-        # Content area is read-only, no click-to-expand (only close button closes)
-        
         layout.addWidget(self.content_area)
         
-        # No reply panel - use main chat bubble for new messages
-        
-        self.setLayout(layout)
-    
-    # Reply panel functionality removed - use main chat bubble for new messages
-    
+        # Add drop shadow effect to the container
+        try:
+            self.shadow = QGraphicsDropShadowEffect(self.main_container)
+            self.shadow.setBlurRadius(16)
+            self.shadow.setColor(QColor(0, 0, 0, 140))
+            self.shadow.setOffset(0, 5)
+            self.main_container.setGraphicsEffect(self.shadow)
+        except Exception:
+            pass
+            
     def setup_styling(self):
-        """Apply Cursor-style clean theme to match the chat bubble."""
+        """Apply Obsidian/Indigo theme to toast window."""
         self.setStyleSheet("""
-            /* Main Window - Cursor Style */
             QWidget {
-                background: #1e1e1e;
-                border: none;
+                background: transparent;
+                color: #f3f4f6;
+            }
+            
+            QFrame#toastMainFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(24, 28, 38, 0.96), stop:1 rgba(15, 18, 23, 0.98));
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 12px;
-                color: #ffffff;
             }
             
             /* Labels - Clean Typography */
             QLabel {
-                color: rgba(255, 255, 255, 0.9);
+                color: #ffffff;
                 background: transparent;
                 border: none;
-                font-family: "Helvetica Neue", "Helvetica", Arial;
-                font-size: 11px;
-                font-weight: 500;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 0.3px;
             }
             
-            /* Buttons - Cursor Style */
+            /* Buttons */
             QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: none;
-                border-radius: 11px;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
                 padding: 6px 12px;
-                font-size: 10px;
-                font-weight: 500;
-                color: rgba(255, 255, 255, 0.8);
-                font-family: "Helvetica Neue", "Helvetica", Arial;
+                font-size: 11px;
+                font-weight: 600;
+                color: #f3f4f6;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
             }
             
             QPushButton:hover {
-                background: rgba(255, 255, 255, 0.15);
-                color: rgba(255, 255, 255, 1.0);
+                background: rgba(255, 255, 255, 0.1);
+                border-color: rgba(255, 255, 255, 0.15);
             }
             
             QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.06);
+                background: rgba(255, 255, 255, 0.03);
             }
             
-            /* Content Area - Cursor Style */
+            /* Content Area */
             QTextBrowser {
-                background: rgba(255, 255, 255, 0.03);
-                border: none;
-                border-radius: 8px;
+                background: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.04);
+                border-radius: 10px;
                 padding: 16px 20px;
                 font-size: 13px;
                 font-weight: 400;
-                color: rgba(255, 255, 255, 0.95);
-                font-family: "Helvetica Neue", "Helvetica", Arial;
-                selection-background-color: rgba(34, 197, 94, 0.3);
+                color: #f3f4f6;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
+                selection-background-color: rgba(99, 102, 241, 0.3);
                 line-height: 1.5;
             }
             
             QTextBrowser:focus {
-                background: rgba(255, 255, 255, 0.05);
+                background: rgba(255, 255, 255, 0.04);
+                border-color: rgba(99, 102, 241, 0.3);
             }
             
-            /* Scrollbar - Hidden like iOS */
+            /* Scrollbar - Thin & Elegant vertical scrollbar */
             QScrollBar:vertical {
-                width: 0px;
+                width: 6px;
                 background: transparent;
+                margin: 4px 0 4px 0;
             }
             
             QScrollBar::handle:vertical {
-                background: transparent;
+                background: rgba(255, 255, 255, 0.12);
+                border-radius: 3px;
+                min-height: 20px;
             }
             
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 border: none;
                 background: transparent;
             }

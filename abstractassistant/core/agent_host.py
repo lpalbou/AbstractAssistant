@@ -77,7 +77,11 @@ _BUILTIN_TOOL_NAMES: set[str] = {
 
 
 def _new_message(*, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    msg: Dict[str, Any] = {"role": str(role), "content": str(content)}
+    msg: Dict[str, Any] = {
+        "role": str(role),
+        "content": str(content),
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
     if metadata:
         msg["metadata"] = dict(metadata)
     return msg

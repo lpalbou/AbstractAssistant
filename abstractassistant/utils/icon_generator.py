@@ -108,49 +108,57 @@ class IconGenerator:
             draw.ellipse([center-i, center-i, center+i, center+i], fill=circle_color)
     
     def _draw_neural_nodes(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
-        """Draw neural network nodes around the circle."""
+        """Draw neural network nodes around the circle in a clean constellation shape."""
         node_positions = [
-            (center + radius * 0.6, center - radius * 0.3),
-            (center + radius * 0.3, center + radius * 0.6),
-            (center - radius * 0.4, center + radius * 0.4),
-            (center - radius * 0.6, center - radius * 0.2),
-            (center - radius * 0.1, center - radius * 0.7)
+            (center, center),  # Center core
+            (center - int(radius * 0.52), center - int(radius * 0.52)),  # Top-left
+            (center + int(radius * 0.52), center - int(radius * 0.44)),  # Top-right
+            (center + int(radius * 0.44), center + int(radius * 0.52)),  # Bottom-right
+            (center - int(radius * 0.52), center + int(radius * 0.44))   # Bottom-left
         ]
         
         for i, (x, y) in enumerate(node_positions):
-            node_radius = 3 + (i % 2)  # Varying sizes
+            if i == 0:
+                node_radius = 5
+                fill_color = (255, 255, 255, 255)
+            else:
+                node_radius = 3
+                fill_color = (255, 255, 255, 200)
+
             if animated:
                 import time
-                # Subtle pulsing
-                pulse = 1 + 0.3 * math.sin(time.time() * 2 + i)
-                node_radius *= pulse
+                pulse = 1.0 + 0.25 * math.sin(time.time() * 3.5 + i)
+                node_radius = max(2, int(node_radius * pulse))
             
-            draw.ellipse([x-node_radius, y-node_radius, x+node_radius, y+node_radius], 
-                        fill=(255, 255, 255, 180))
+            draw.ellipse([x - node_radius - 1, y - node_radius - 1, x + node_radius + 1, y + node_radius + 1], 
+                         fill=(255, 255, 255, 45))
+            draw.ellipse([x - node_radius, y - node_radius, x + node_radius, y + node_radius], 
+                         fill=fill_color)
     
     def _draw_neural_connections(self, draw: ImageDraw.Draw, center: int, radius: int, animated: bool = False):
-        """Draw connecting lines between nodes."""
+        """Draw connecting lines between nodes forming a constellation network."""
+        n_center = (center, center)
+        n_tl = (center - int(radius * 0.52), center - int(radius * 0.52))
+        n_tr = (center + int(radius * 0.52), center - int(radius * 0.44))
+        n_br = (center + int(radius * 0.44), center + int(radius * 0.52))
+        n_bl = (center - int(radius * 0.52), center + int(radius * 0.44))
+
         connections = [
-            ((center + radius * 0.6, center - radius * 0.3), (center + radius * 0.3, center + radius * 0.6)),
-            ((center + radius * 0.3, center + radius * 0.6), (center - radius * 0.4, center + radius * 0.4)),
-            ((center - radius * 0.4, center + radius * 0.4), (center - radius * 0.6, center - radius * 0.2)),
-            ((center - radius * 0.1, center - radius * 0.7), (center + radius * 0.6, center - radius * 0.3))
+            (n_center, n_tl), (n_center, n_tr), (n_center, n_br), (n_center, n_bl),
+            (n_tl, n_tr), (n_tr, n_br), (n_br, n_bl), (n_bl, n_tl)
         ]
         
         for (x1, y1), (x2, y2) in connections:
-            draw.line([(x1, y1), (x2, y2)], fill=(255, 255, 255, 120), width=2)
+            draw.line([(x1, y1), (x2, y2)], fill=(255, 255, 255, 110), width=2)
     
     def _add_glow_effect(self, img: Image.Image, color_scheme: str) -> Image.Image:
         """Add a subtle glow effect around the icon."""
-        # Create glow layer
         glow = img.filter(ImageFilter.GaussianBlur(radius=3))
-        
-        # Composite original on top of glow
         result = Image.alpha_composite(glow, img)
         return result
     
     def create_status_icon(self, status: str) -> Image.Image:
-        """Create a simple status indicator icon.
+        """Create a simple status indicator icon with a premium glowing led orb design.
         
         Args:
             status: Status type ('ready', 'working', 'error', 'warning')
@@ -159,7 +167,6 @@ class IconGenerator:
         img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         
-        # Status colors
         colors = {
             'ready': (52, 199, 89),      # Green
             'working': (255, 149, 0),    # Orange
@@ -172,8 +179,11 @@ class IconGenerator:
         
         color = colors.get(status, colors['ready'])
         
-        # Draw status circle
-        draw.ellipse([2, 2, size-2, size-2], fill=color)
+        draw.ellipse([1, 1, size-1, size-1], outline=color + (60,), width=2)
+        draw.ellipse([3, 3, size-3, size-3], fill=color + (235,))
+        
+        glow_radius = max(2, size // 5)
+        draw.ellipse([size // 3, size // 3, size // 3 + glow_radius, size // 3 + glow_radius], fill=(255, 255, 255, 160))
         
         return img
     
@@ -450,19 +460,27 @@ class IconGenerator:
             draw.ellipse(bbox, fill=dot_color)
     
     def _draw_breathing_circle(self, draw, center, size, color, intensity):
-        """Draw breathing circle for ready status."""
-        # Adjust color intensity
+        """Draw a premium glowing breathing circle for ready status."""
         r, g, b = color
-        r = int(min(255, r * intensity))
-        g = int(min(255, g * intensity))
-        b = int(min(255, b * intensity))
-        circle_color = (r, g, b, 255)
+        base_radius = size * 0.35
         
-        # Draw MUCH LARGER pulsing circle to match menu bar icon size
-        base_radius = size * 0.35  # Much larger base size
-        radius = base_radius * (0.8 + 0.4 * intensity)
-        bbox = [center - radius, center - radius, center + radius, center + radius]
-        draw.ellipse(bbox, fill=circle_color)
+        # Outer soft pulsing halo
+        halo_radius = base_radius * (0.8 + 0.45 * intensity)
+        halo_alpha = int(90 * intensity)
+        halo_color = (r, g, b, max(0, min(255, halo_alpha)))
+        draw.ellipse([center - halo_radius, center - halo_radius, center + halo_radius, center + halo_radius], fill=halo_color)
+        
+        # Solid core orb
+        core_radius = base_radius * 0.60
+        core_color = (r, g, b, 255)
+        draw.ellipse([center - core_radius, center - core_radius, center + core_radius, center + core_radius], fill=core_color)
+        
+        # Specular 3D highlight reflection
+        spec_radius = max(2, int(core_radius * 0.35))
+        spec_offset = int(core_radius * 0.3)
+        draw.ellipse([center - spec_offset - spec_radius, center - spec_offset - spec_radius, 
+                      center - spec_offset + spec_radius, center - spec_offset + spec_radius], 
+                     fill=(255, 255, 255, 175))
 
     def _draw_listening_pulse(self, draw, center, size, color, intensity, pulse):
         """Draw a pulsing recording light for listening mode."""

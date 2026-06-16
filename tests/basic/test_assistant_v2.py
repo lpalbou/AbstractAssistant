@@ -579,8 +579,8 @@ def test_assistant_v2_thinking_indicator_stops_after_final_output() -> None:
 
 @pytest.mark.basic
 def test_assistant_v2_message_bubble_width_uses_role_ratios() -> None:
-    assert _message_bubble_width(1000, role="user") == 400
-    assert _message_bubble_width(1000, role="assistant") == 700
+    assert _message_bubble_width(1000, role="user") == 800
+    assert _message_bubble_width(1000, role="assistant") == 800
 
 
 @pytest.mark.basic

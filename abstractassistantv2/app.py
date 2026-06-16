@@ -41,6 +41,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QFileDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -279,9 +280,26 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     .markdown-content blockquote,
     .markdown-content td,
     .markdown-content th {
-        color: #e8edf4 !important;
-        font-size: 12px !important;
-        line-height: 1.34 !important;
+        color: #edf2f8 !important;
+        font-size: 13px !important;
+        line-height: 1.45 !important;
+    }
+    .markdown-content p {
+        margin: 0 0 8px 0 !important;
+    }
+    .markdown-content p:last-child {
+        margin-bottom: 0 !important;
+    }
+    .markdown-content ul,
+    .markdown-content ol {
+        margin: 0 0 8px 0 !important;
+        padding-left: 20px !important;
+    }
+    .markdown-content li {
+        margin-bottom: 4px !important;
+    }
+    .markdown-content li p {
+        margin: 0 !important;
     }
     .markdown-content code {
         background: #20262f !important;
@@ -290,8 +308,8 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     .markdown-content pre,
     .highlight {
         background: #161b23 !important;
-        color: #e8edf4 !important;
-        border-color: rgba(232, 237, 244, 0.12) !important;
+        color: #edf2f8 !important;
+        border-color: rgba(255, 255, 255, 0.08) !important;
     }
     .markdown-content a {
         color: #79c7ff !important;
@@ -310,28 +328,28 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         border-spacing: 0 !important;
         margin: 4px 0 2px 0 !important;
         background: rgba(255, 255, 255, 0.02) !important;
-        border: 1px solid rgba(166, 187, 214, 0.14) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
         border-radius: 10px !important;
         overflow: hidden !important;
     }
     .markdown-content td,
     .markdown-content th {
-        padding: 3px 5px !important;
+        padding: 6px 10px !important;
         overflow-wrap: anywhere !important;
         word-break: break-word !important;
         white-space: normal !important;
         vertical-align: top !important;
-        border: 1px solid rgba(166, 187, 214, 0.12) !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
     }
     .markdown-content th {
-        font-size: 10px !important;
+        font-size: 11px !important;
         font-weight: 700 !important;
-        line-height: 1.18 !important;
-        background: rgba(121, 136, 164, 0.18) !important;
+        line-height: 1.3 !important;
+        background: rgba(255, 255, 255, 0.04) !important;
     }
     .markdown-content td {
-        font-size: 10px !important;
-        line-height: 1.2 !important;
+        font-size: 11px !important;
+        line-height: 1.3 !important;
     }
     .markdown-content tr:nth-child(even) td {
         background: rgba(255, 255, 255, 0.02) !important;
@@ -349,6 +367,26 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     </style>
     """
     return themed_override + base
+
+
+def _user_html(content: str) -> str:
+    import html
+    escaped = html.escape(content.strip())
+    themed_override = (
+        "<style>"
+        ".user-content {"
+        "  color: #ffffff !important;"
+        "  font-size: 13px !important;"
+        "  line-height: 1.45 !important;"
+        "  white-space: pre-wrap !important;"
+        "  text-align: left !important;"
+        "  margin: 0px !important;"
+        "  padding: 0px !important;"
+        "}"
+        "</style>"
+        "<div class=\"user-content\" align=\"left\">"
+    )
+    return themed_override + escaped + "</div>"
 
 
 def _assistant_action_href_allowed(href: Any) -> bool:
@@ -470,194 +508,198 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
     painter.setRenderHint(QPainter.Antialiasing)
     tint = QColor(color)
     pen = QPen(tint)
-    pen.setWidthF(max(1.6, size * 0.10))
+    pen.setWidthF(max(1.5, size * 0.085))
     pen.setCapStyle(Qt.RoundCap)
     pen.setJoinStyle(Qt.RoundJoin)
     painter.setPen(pen)
     painter.setBrush(Qt.NoBrush)
 
+    # Translucent tint color for modern dual-tone fills
+    translucent_brush = QBrush(QColor(tint.red(), tint.green(), tint.blue(), 25))
+
     def _line(x1: float, y1: float, x2: float, y2: float) -> None:
         painter.drawLine(QPointF(x1 * size, y1 * size), QPointF(x2 * size, y2 * size))
 
     if key[0] == "plus":
-        _line(0.50, 0.18, 0.50, 0.82)
-        _line(0.18, 0.50, 0.82, 0.50)
+        _line(0.50, 0.22, 0.50, 0.78)
+        _line(0.22, 0.50, 0.78, 0.50)
     elif key[0] == "sliders":
-        for y, knob_x in ((0.25, 0.70), (0.50, 0.34), (0.75, 0.58)):
+        for y, knob_x in ((0.28, 0.66), (0.50, 0.34), (0.72, 0.58)):
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
             _line(0.18, y, 0.82, y)
+            painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(tint))
             painter.drawEllipse(QPointF(knob_x * size, y * size), size * 0.08, size * 0.08)
-            painter.setBrush(Qt.NoBrush)
     elif key[0] == "paperclip":
-        path = QPainterPath(QPointF(size * 0.63, size * 0.30))
-        path.cubicTo(size * 0.80, size * 0.45, size * 0.77, size * 0.78, size * 0.50, size * 0.78)
-        path.cubicTo(size * 0.29, size * 0.78, size * 0.24, size * 0.55, size * 0.37, size * 0.44)
-        path.lineTo(size * 0.58, size * 0.23)
-        path.cubicTo(size * 0.66, size * 0.16, size * 0.77, size * 0.18, size * 0.82, size * 0.26)
-        path.cubicTo(size * 0.88, size * 0.34, size * 0.86, size * 0.46, size * 0.78, size * 0.52)
-        path.lineTo(size * 0.49, size * 0.81)
+        path = QPainterPath()
+        path.moveTo(size * 0.48, size * 0.48)
+        path.lineTo(size * 0.48, size * 0.34)
+        path.arcTo(QRectF(size * 0.38, size * 0.24, size * 0.20, size * 0.20), 0, 180)
+        path.lineTo(size * 0.38, size * 0.64)
+        path.arcTo(QRectF(size * 0.38, size * 0.54, size * 0.32, size * 0.24), 180, 180)
+        path.lineTo(size * 0.70, size * 0.32)
+        path.arcTo(QRectF(size * 0.50, size * 0.16, size * 0.20, size * 0.20), 0, 180)
+        path.lineTo(size * 0.50, size * 0.52)
         painter.drawPath(path)
     elif key[0] == "mic":
-        painter.drawRoundedRect(QRectF(size * 0.34, size * 0.16, size * 0.32, size * 0.40), size * 0.12, size * 0.12)
-        _line(0.50, 0.56, 0.50, 0.77)
-        _line(0.34, 0.80, 0.66, 0.80)
+        painter.setBrush(translucent_brush)
+        painter.drawRoundedRect(QRectF(size * 0.35, size * 0.15, size * 0.30, size * 0.42), size * 0.15, size * 0.15)
+        painter.setBrush(Qt.NoBrush)
+        _line(0.50, 0.62, 0.50, 0.82)
+        _line(0.34, 0.82, 0.66, 0.82)
         path = QPainterPath()
-        path.moveTo(size * 0.24, size * 0.48)
-        path.cubicTo(size * 0.24, size * 0.68, size * 0.36, size * 0.76, size * 0.50, size * 0.76)
-        path.cubicTo(size * 0.64, size * 0.76, size * 0.76, size * 0.68, size * 0.76, size * 0.48)
+        path.moveTo(size * 0.22, size * 0.42)
+        path.arcTo(QRectF(size * 0.22, size * 0.28, size * 0.56, size * 0.34), 180, 180)
         painter.drawPath(path)
     elif key[0] == "send":
+        path = QPainterPath()
+        path.moveTo(size * 0.88, size * 0.12)
+        path.lineTo(size * 0.16, size * 0.48)
+        path.lineTo(size * 0.48, size * 0.52)
+        path.lineTo(size * 0.52, size * 0.84)
+        path.closeSubpath()
+        painter.setBrush(translucent_brush)
+        painter.drawPath(path)
         painter.setBrush(Qt.NoBrush)
-        trail_tint = QColor(tint)
-        trail_tint.setAlpha(150)
-        trail_pen = QPen(trail_tint)
-        trail_pen.setWidthF(max(1.4, size * 0.09))
-        trail_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(trail_pen)
-        _line(0.16, 0.50, 0.37, 0.50)
-        _line(0.20, 0.35, 0.40, 0.35)
-        _line(0.20, 0.65, 0.40, 0.65)
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(tint))
-        dart = QPainterPath()
-        dart.moveTo(size * 0.38, size * 0.34)
-        dart.lineTo(size * 0.38, size * 0.45)
-        dart.lineTo(size * 0.64, size * 0.45)
-        dart.lineTo(size * 0.64, size * 0.24)
-        dart.lineTo(size * 0.88, size * 0.50)
-        dart.lineTo(size * 0.64, size * 0.76)
-        dart.lineTo(size * 0.64, size * 0.55)
-        dart.lineTo(size * 0.38, size * 0.55)
-        dart.lineTo(size * 0.38, size * 0.66)
-        dart.lineTo(size * 0.16, size * 0.50)
-        dart.closeSubpath()
-        painter.drawPath(dart)
+        painter.drawPath(path)
+        _line(0.48, 0.52, 0.88, 0.12)
     elif key[0] == "gear":
-        outer = QRectF(size * 0.22, size * 0.22, size * 0.56, size * 0.56)
-        painter.drawEllipse(outer)
-        painter.drawEllipse(QRectF(size * 0.40, size * 0.40, size * 0.20, size * 0.20))
-        for x1, y1, x2, y2 in (
-            (0.50, 0.08, 0.50, 0.20),
-            (0.50, 0.80, 0.50, 0.92),
-            (0.08, 0.50, 0.20, 0.50),
-            (0.80, 0.50, 0.92, 0.50),
-            (0.21, 0.21, 0.30, 0.30),
-            (0.70, 0.70, 0.79, 0.79),
-            (0.21, 0.79, 0.30, 0.70),
-            (0.70, 0.30, 0.79, 0.21),
-        ):
+        painter.drawEllipse(QRectF(size * 0.38, size * 0.38, size * 0.24, size * 0.24))
+        painter.drawEllipse(QRectF(size * 0.26, size * 0.26, size * 0.48, size * 0.48))
+        teeth_pen = QPen(tint)
+        teeth_pen.setWidthF(size * 0.11)
+        teeth_pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(teeth_pen)
+        for idx in range(8):
+            angle = idx * 45 * 3.14159265 / 180
+            x1 = 0.50 + math.cos(angle) * 0.22
+            y1 = 0.50 + math.sin(angle) * 0.22
+            x2 = 0.50 + math.cos(angle) * 0.35
+            y2 = 0.50 + math.sin(angle) * 0.35
             _line(x1, y1, x2, y2)
     elif key[0] == "copy":
-        painter.drawRoundedRect(QRectF(size * 0.22, size * 0.30, size * 0.40, size * 0.42), size * 0.08, size * 0.08)
-        painter.drawRoundedRect(QRectF(size * 0.38, size * 0.16, size * 0.40, size * 0.42), size * 0.08, size * 0.08)
+        painter.drawRoundedRect(QRectF(size * 0.36, size * 0.20, size * 0.42, size * 0.48), size * 0.08, size * 0.08)
+        painter.setBrush(QBrush(QColor(9, 13, 22, 255)))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(QRectF(size * 0.20, size * 0.32, size * 0.42, size * 0.48), size * 0.08, size * 0.08)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(pen)
+        painter.drawRoundedRect(QRectF(size * 0.20, size * 0.32, size * 0.42, size * 0.48), size * 0.08, size * 0.08)
     elif key[0] == "close":
-        _line(0.28, 0.28, 0.72, 0.72)
-        _line(0.72, 0.28, 0.28, 0.72)
+        _line(0.30, 0.30, 0.70, 0.70)
+        _line(0.70, 0.30, 0.30, 0.70)
     elif key[0] == "external":
-        painter.drawRoundedRect(QRectF(size * 0.20, size * 0.28, size * 0.42, size * 0.42), size * 0.07, size * 0.07)
-        _line(0.46, 0.24, 0.78, 0.24)
-        _line(0.78, 0.24, 0.78, 0.56)
-        _line(0.44, 0.58, 0.78, 0.24)
+        box_path = QPainterPath()
+        box_path.moveTo(size * 0.44, size * 0.24)
+        box_path.lineTo(size * 0.24, size * 0.24)
+        box_path.lineTo(size * 0.24, size * 0.76)
+        box_path.lineTo(size * 0.76, size * 0.76)
+        box_path.lineTo(size * 0.76, size * 0.56)
+        painter.drawPath(box_path)
+        _line(0.48, 0.52, 0.76, 0.24)
+        _line(0.60, 0.24, 0.76, 0.24)
+        _line(0.76, 0.24, 0.76, 0.40)
     elif key[0].startswith("file"):
         kind = "generic"
         if "-" in key[0]:
             kind = key[0].split("-", 1)[1] or "generic"
         page = QPainterPath()
-        page.moveTo(size * 0.28, size * 0.16)
-        page.lineTo(size * 0.58, size * 0.16)
-        page.lineTo(size * 0.74, size * 0.32)
-        page.lineTo(size * 0.74, size * 0.82)
-        page.lineTo(size * 0.28, size * 0.82)
+        page.moveTo(size * 0.24, size * 0.16)
+        page.lineTo(size * 0.56, size * 0.16)
+        page.lineTo(size * 0.76, size * 0.36)
+        page.lineTo(size * 0.76, size * 0.84)
+        page.lineTo(size * 0.24, size * 0.84)
         page.closeSubpath()
+        painter.setBrush(translucent_brush)
         painter.drawPath(page)
-        _line(0.58, 0.16, 0.58, 0.32)
-        _line(0.58, 0.32, 0.74, 0.32)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(page)
+        _line(0.56, 0.16, 0.56, 0.36)
+        _line(0.56, 0.36, 0.76, 0.36)
+
         if kind == "image":
-            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.42, size * 0.34, size * 0.20), size * 0.04, size * 0.04)
-            painter.drawEllipse(QPointF(size * 0.40, size * 0.47), size * 0.025, size * 0.025)
-            _line(0.37, 0.58, 0.46, 0.49)
-            _line(0.46, 0.49, 0.56, 0.58)
-            _line(0.49, 0.58, 0.58, 0.52)
+            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.46, size * 0.32, size * 0.22), size * 0.04, size * 0.04)
+            painter.drawEllipse(QPointF(size * 0.42, size * 0.51), size * 0.03, size * 0.03)
+            peak = QPainterPath()
+            peak.moveTo(size * 0.36, size * 0.66)
+            peak.lineTo(size * 0.46, size * 0.54)
+            peak.lineTo(size * 0.52, size * 0.60)
+            peak.lineTo(size * 0.58, size * 0.50)
+            peak.lineTo(size * 0.64, size * 0.66)
+            painter.drawPath(peak)
         elif kind == "audio":
-            _line(0.42, 0.42, 0.42, 0.62)
-            _line(0.42, 0.42, 0.58, 0.38)
-            painter.drawEllipse(QPointF(size * 0.39, size * 0.66), size * 0.05, size * 0.05)
-            painter.drawEllipse(QPointF(size * 0.57, size * 0.62), size * 0.05, size * 0.05)
-            _line(0.58, 0.38, 0.58, 0.58)
-        elif kind == "video":
-            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.43, size * 0.34, size * 0.20), size * 0.04, size * 0.04)
+            _line(0.44, 0.44, 0.44, 0.66)
+            _line(0.44, 0.44, 0.62, 0.40)
+            _line(0.62, 0.40, 0.62, 0.62)
+            _line(0.44, 0.48, 0.62, 0.44)
             painter.setBrush(QBrush(tint))
-            painter.setPen(Qt.NoPen)
-            painter.drawPolygon(
-                QPolygonF(
-                    [
-                        QPointF(size * 0.46, size * 0.47),
-                        QPointF(size * 0.56, size * 0.53),
-                        QPointF(size * 0.46, size * 0.59),
-                    ]
-                )
-            )
+            painter.drawEllipse(QPointF(size * 0.39, size * 0.66), size * 0.05, size * 0.04)
+            painter.drawEllipse(QPointF(size * 0.57, size * 0.62), size * 0.05, size * 0.04)
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(pen)
+        elif kind == "video":
+            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.44, size * 0.32, size * 0.22), size * 0.04, size * 0.04)
+            path = QPainterPath()
+            path.moveTo(size * 0.46, size * 0.50)
+            path.lineTo(size * 0.56, size * 0.55)
+            path.lineTo(size * 0.46, size * 0.60)
+            path.closeSubpath()
+            painter.setBrush(QBrush(tint))
+            painter.drawPath(path)
+            painter.setBrush(Qt.NoBrush)
         elif kind == "code":
-            _line(0.38, 0.54, 0.46, 0.46)
-            _line(0.38, 0.54, 0.46, 0.62)
-            _line(0.64, 0.54, 0.56, 0.46)
-            _line(0.64, 0.54, 0.56, 0.62)
+            _line(0.38, 0.54, 0.44, 0.48)
+            _line(0.38, 0.54, 0.44, 0.60)
+            _line(0.62, 0.54, 0.56, 0.48)
+            _line(0.62, 0.54, 0.56, 0.60)
             _line(0.52, 0.44, 0.48, 0.64)
         elif kind == "archive":
-            painter.drawRoundedRect(QRectF(size * 0.36, size * 0.42, size * 0.28, size * 0.24), size * 0.03, size * 0.03)
-            _line(0.50, 0.44, 0.50, 0.64)
-            _line(0.44, 0.50, 0.56, 0.50)
+            painter.drawRoundedRect(QRectF(size * 0.36, size * 0.44, size * 0.28, size * 0.24), size * 0.03, size * 0.03)
+            _line(0.36, 0.50, 0.64, 0.50)
+            _line(0.36, 0.56, 0.64, 0.56)
+            _line(0.36, 0.62, 0.64, 0.62)
         elif kind == "data":
-            painter.drawRoundedRect(QRectF(size * 0.35, size * 0.42, size * 0.30, size * 0.22), size * 0.03, size * 0.03)
-            _line(0.35, 0.49, 0.65, 0.49)
-            _line(0.35, 0.56, 0.65, 0.56)
-            _line(0.45, 0.42, 0.45, 0.64)
-            _line(0.55, 0.42, 0.55, 0.64)
+            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.42, size * 0.32, size * 0.12), size * 0.06, size * 0.06)
+            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.56, size * 0.32, size * 0.12), size * 0.06, size * 0.06)
         else:
-            _line(0.36, 0.46, 0.64, 0.46)
-            _line(0.36, 0.54, 0.64, 0.54)
-            _line(0.36, 0.62, 0.56, 0.62)
+            _line(0.36, 0.48, 0.64, 0.48)
+            _line(0.36, 0.58, 0.64, 0.58)
+            _line(0.36, 0.68, 0.54, 0.68)
     elif key[0] == "speaker":
-        painter.drawPolygon(
-            QPolygonF(
-                [
-                    QPointF(size * 0.18, size * 0.42),
-                    QPointF(size * 0.34, size * 0.42),
-                    QPointF(size * 0.50, size * 0.30),
-                    QPointF(size * 0.50, size * 0.70),
-                    QPointF(size * 0.34, size * 0.58),
-                    QPointF(size * 0.18, size * 0.58),
-                ]
-            )
-        )
-        outer = QPainterPath()
-        outer.moveTo(size * 0.60, size * 0.34)
-        outer.quadTo(size * 0.82, size * 0.50, size * 0.60, size * 0.66)
-        inner = QPainterPath()
-        inner.moveTo(size * 0.56, size * 0.42)
-        inner.quadTo(size * 0.68, size * 0.50, size * 0.56, size * 0.58)
-        painter.drawPath(inner)
-        painter.drawPath(outer)
+        path = QPainterPath()
+        path.moveTo(size * 0.22, size * 0.38)
+        path.lineTo(size * 0.36, size * 0.38)
+        path.lineTo(size * 0.54, size * 0.22)
+        path.lineTo(size * 0.54, size * 0.78)
+        path.lineTo(size * 0.36, size * 0.62)
+        path.lineTo(size * 0.22, size * 0.62)
+        path.closeSubpath()
+        painter.setBrush(translucent_brush)
+        painter.drawPath(path)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(path)
+        wave1 = QPainterPath()
+        wave1.moveTo(size * 0.64, size * 0.40)
+        wave1.quadTo(size * 0.72, size * 0.50, size * 0.64, size * 0.60)
+        painter.drawPath(wave1)
+        wave2 = QPainterPath()
+        wave2.moveTo(size * 0.72, size * 0.30)
+        wave2.quadTo(size * 0.84, size * 0.50, size * 0.72, size * 0.70)
+        painter.drawPath(wave2)
     elif key[0] == "pause":
         painter.setBrush(QBrush(tint))
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(QRectF(size * 0.28, size * 0.20, size * 0.14, size * 0.60), size * 0.04, size * 0.04)
-        painter.drawRoundedRect(QRectF(size * 0.58, size * 0.20, size * 0.14, size * 0.60), size * 0.04, size * 0.04)
+        painter.drawRoundedRect(QRectF(size * 0.30, size * 0.24, size * 0.12, size * 0.52), size * 0.05, size * 0.05)
+        painter.drawRoundedRect(QRectF(size * 0.58, size * 0.24, size * 0.12, size * 0.52), size * 0.05, size * 0.05)
     elif key[0] == "play":
+        path = QPainterPath()
+        path.moveTo(size * 0.34, size * 0.24)
+        path.lineTo(size * 0.76, size * 0.50)
+        path.lineTo(size * 0.34, size * 0.76)
+        path.closeSubpath()
         painter.setBrush(QBrush(tint))
         painter.setPen(Qt.NoPen)
-        painter.drawPolygon(
-            QPolygonF(
-                [
-                    QPointF(size * 0.34, size * 0.24),
-                    QPointF(size * 0.72, size * 0.50),
-                    QPointF(size * 0.34, size * 0.76),
-                ]
-            )
-        )
+        painter.drawPath(path)
     elif key[0].startswith("spinner"):
         try:
             frame = int(key[0][7:] or "0")
@@ -679,17 +721,19 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
                 dot_radius,
             )
     elif key[0] == "spark":
-        _line(0.50, 0.12, 0.50, 0.40)
-        _line(0.50, 0.60, 0.50, 0.88)
-        _line(0.12, 0.50, 0.40, 0.50)
-        _line(0.60, 0.50, 0.88, 0.50)
-        _line(0.24, 0.24, 0.38, 0.38)
-        _line(0.62, 0.62, 0.76, 0.76)
-        _line(0.24, 0.76, 0.38, 0.62)
-        _line(0.62, 0.38, 0.76, 0.24)
+        path = QPainterPath()
+        path.moveTo(size * 0.50, size * 0.15)
+        path.quadTo(size * 0.50, size * 0.50, size * 0.85, size * 0.50)
+        path.quadTo(size * 0.50, size * 0.50, size * 0.50, size * 0.85)
+        path.quadTo(size * 0.50, size * 0.50, size * 0.15, size * 0.50)
+        path.quadTo(size * 0.50, size * 0.50, size * 0.50, size * 0.15)
+        painter.setBrush(translucent_brush)
+        painter.drawPath(path)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(path)
     elif key[0] == "check":
-        _line(0.20, 0.55, 0.42, 0.76)
-        _line(0.42, 0.76, 0.82, 0.24)
+        _line(0.24, 0.54, 0.44, 0.74)
+        _line(0.44, 0.74, 0.78, 0.30)
     else:
         painter.setBrush(QBrush(tint))
         painter.setPen(Qt.NoPen)
@@ -815,17 +859,16 @@ def _format_message_timestamp(raw: Any) -> str:
         return text
     now = datetime.now(dt.tzinfo)
     if dt.date() == now.date():
-        return dt.strftime("%H:%M")
+        return dt.strftime("%I:%M %p")
     if (now.date() - dt.date()).days == 1:
-        return f"Yesterday {dt.strftime('%H:%M')}"
-    return dt.strftime("%b %d · %H:%M")
+        return f"Yesterday {dt.strftime('%I:%M %p')}"
+    return dt.strftime("%b %d · %I:%M %p")
 
 
 def _message_bubble_width(viewport_width: int, *, role: str) -> int:
     width = max(0, int(viewport_width or 0))
-    normalized_role = str(role or "").strip().lower()
-    ratio = 0.40 if normalized_role == "user" else 0.70
-    return max(96, int(width * ratio))
+    # Both assistant and user bubbles set to 80% of the available panel width
+    return max(96, int(width * 0.80))
 
 
 def _normalize_attachment_path(raw_path: Any) -> str:
@@ -1165,11 +1208,13 @@ class AutoSizingTextBrowser(QTextBrowser):
         except Exception:
             pass
 
-    def refresh_height(self) -> None:
-        width = max(280, self.viewport().width() - 6)
+    def refresh_height(self, width: Optional[int] = None) -> None:
+        if width is None:
+            width = max(280, self.width() - 6)
+        else:
+            width = max(280, width)
         self.document().setTextWidth(width)
-        self.document().adjustSize()
-        height = int(self.document().size().height()) + 12
+        height = int(self.document().size().height()) + 4
         bounded = max(self._min_height, height)
         if self._max_height is not None:
             bounded = min(self._max_height, bounded)
@@ -1565,7 +1610,7 @@ class MessageCard(QFrame):
         except Exception:
             pass
         bubble_layout = QVBoxLayout(bubble)
-        bubble_layout.setContentsMargins(10, 7, 10, 7)
+        bubble_layout.setContentsMargins(12, 10, 12, 10)
         bubble_layout.setSpacing(4)
 
         if not is_user:
@@ -1581,6 +1626,7 @@ class MessageCard(QFrame):
                 voice_button.setCheckable(True)
                 voice_button.setIconSize(QSize(15, 15))
                 voice_button.setFixedSize(24, 24)
+                voice_button.setToolTip("Listen to this response / Toggle voice output")
                 voice_button.clicked.connect(lambda: on_toggle_voice(message))
                 header_row.addWidget(voice_button)
                 self._voice_button = voice_button
@@ -1598,15 +1644,16 @@ class MessageCard(QFrame):
 
         if self._rendered_content.strip():
             if is_user:
-                label = QLabel(self._rendered_content)
-                label.setObjectName("userMessageText")
-                label.setWordWrap(True)
-                label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-                bubble_layout.addWidget(label)
+                browser = AutoSizingTextBrowser(min_height=20, max_height=None)
+                browser.setObjectName("userMessageText")
+                browser.setStyleSheet("background: transparent; border: none; color: #ffffff; padding: 0px; margin: 0px;")
+                browser.setHtml(_user_html(self._content))
+                browser.refresh_height()
+                bubble_layout.addWidget(browser)
             else:
                 browser = AutoSizingTextBrowser(min_height=28, max_height=None)
                 browser.setObjectName("assistantMessageText")
-                browser.setStyleSheet("background: transparent; border: none; color: #e8edf4;")
+                browser.setStyleSheet("background: transparent; border: none; color: #e8edf4; padding: 0px; margin: 0px;")
                 browser.setHtml(_assistant_html(renderer, self._rendered_content))
                 browser.refresh_height()
                 bubble_layout.addWidget(browser)
@@ -1649,6 +1696,21 @@ class MessageCard(QFrame):
                 footer_row.addStretch(1)
                 bubble_layout.addLayout(footer_row)
 
+        ts_val = message.get("ts") or message.get("timestamp")
+        if not ts_val:
+            import datetime as dt_module
+            ts_val = dt_module.datetime.now(dt_module.timezone.utc).isoformat()
+        timestamp = _format_message_timestamp(ts_val)
+        if timestamp:
+            stamp_row = QHBoxLayout()
+            stamp_row.setContentsMargins(0, 2, 2, 0)
+            stamp_row.setSpacing(0)
+            stamp_row.addStretch(1)
+            stamp = QLabel(timestamp)
+            stamp.setObjectName("messageTimestamp")
+            stamp_row.addWidget(stamp)
+            bubble_layout.addLayout(stamp_row)
+
         if is_user:
             bubble_row.addStretch(1)
             bubble_row.addWidget(bubble)
@@ -1656,22 +1718,14 @@ class MessageCard(QFrame):
             bubble_row.addWidget(bubble)
             bubble_row.addStretch(1)
 
-        timestamp = _format_message_timestamp(message.get("ts") or message.get("timestamp"))
-        if timestamp and not is_user:
-            stamp_row = QHBoxLayout()
-            stamp_row.setContentsMargins(4, 0, 4, 0)
-            stamp_row.setSpacing(0)
-            stamp = QLabel(timestamp)
-            stamp.setObjectName("messageTimestamp")
-            stamp_row.addWidget(stamp)
-            stamp_row.addStretch(1)
-            root.addLayout(stamp_row)
-
     def set_bubble_width(self, bubble_width: int) -> None:
         bubble = getattr(self, "_bubble", None)
         if bubble is None:
             return
-        bubble.setFixedWidth(max(96, int(bubble_width or 0)))
+        width_val = max(96, int(bubble_width or 0))
+        bubble.setFixedWidth(width_val)
+        for browser in self.findChildren(AutoSizingTextBrowser):
+            browser.refresh_height(width_val - 24)
 
     def sync_to_viewport_width(self, viewport_width: int) -> None:
         self.set_bubble_width(_message_bubble_width(viewport_width, role=self._role))
@@ -1907,6 +1961,7 @@ class InlineMediaPlayer(QFrame):
         self._play_button.setObjectName("mediaTransportButton")
         self._play_button.setIconSize(QSize(14, 14))
         self._play_button.setFixedSize(28, 28)
+        self._play_button.setToolTip("Play/Pause audio or video playback")
         self._play_button.clicked.connect(self._toggle_playback)
         controls.addWidget(self._play_button, 0)
 
@@ -2291,41 +2346,72 @@ class ArtifactPreviewCard(QFrame):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._local_path)))
 
 
+class ThinkingDotsWidget(QWidget):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(40, 18)
+        self._tick = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._update_tick)
+        self._timer.start(16)  # ~60 FPS
+
+    def _update_tick(self) -> None:
+        self._tick += 0.14
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        
+        dot_radius = 3.0
+        spacing = 9.0
+        center_x = self.width() / 2.0
+        center_y = self.height() / 2.0
+        
+        for i in range(3):
+            # Sequence phase delay to create the wave-like motion
+            phase = i * 0.95
+            offset = math.sin(self._tick - phase)
+            
+            # Snap shape: bounce up snappily during positive phase, rest at bottom during negative phase
+            if offset > 0:
+                y_shift = -offset * 4.5
+                dot_color = QColor(99, 102, 241, 235)  # Vibrant Indigo when rising
+            else:
+                y_shift = 0.0
+                dot_color = QColor(156, 163, 175, 140)  # Muted grey at rest
+                
+            painter.setBrush(QBrush(dot_color))
+            x = center_x + (i - 1) * spacing
+            y = center_y + y_shift
+            painter.drawEllipse(QPointF(x, y), dot_radius, dot_radius)
+
+
 class ThinkingIndicatorCard(QFrame):
-    def __init__(self, *, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("thinkingIndicator")
-        self._frames = ("● ○ ○", "○ ● ○", "○ ○ ●")
-        self._frame_index = 0
+        self.setFrameShape(QFrame.NoFrame)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         bubble = QFrame()
-        bubble.setObjectName("assistantBubble")
-        bubble.setMaximumWidth(96)
-        bubble.setMinimumWidth(72)
-        bubble.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        bubble_layout = QVBoxLayout(bubble)
-        bubble_layout.setContentsMargins(14, 10, 14, 10)
-        bubble_layout.setSpacing(0)
+        bubble.setObjectName("thinkingBubble")
+        bubble.setFixedSize(60, 28)
 
-        self._label = QLabel(self._frames[0])
-        self._label.setObjectName("thinkingDots")
-        self._label.setAlignment(Qt.AlignCenter)
-        bubble_layout.addWidget(self._label)
+        bubble_layout = QHBoxLayout(bubble)
+        bubble_layout.setContentsMargins(10, 5, 10, 5)
+        bubble_layout.setSpacing(0)
+        bubble_layout.setAlignment(Qt.AlignCenter)
+
+        self._dots = ThinkingDotsWidget(bubble)
+        bubble_layout.addWidget(self._dots)
 
         root.addWidget(bubble)
         root.addStretch(1)
-
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._advance)
-        self._timer.start(240)
-
-    def _advance(self) -> None:
-        self._frame_index = (self._frame_index + 1) % len(self._frames)
-        self._label.setText(self._frames[self._frame_index])
 
 
 class ToolApprovalCallCard(QFrame):
@@ -2434,6 +2520,13 @@ class ToolApprovalDialog(QDialog):
         batch_note.setWordWrap(True)
         root.addWidget(batch_note)
 
+        # Add horizontal separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;")
+        root.addWidget(sep)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -2447,7 +2540,14 @@ class ToolApprovalDialog(QDialog):
 
         if calls:
             for index, call in enumerate(calls):
-                host_layout.addWidget(ToolApprovalCallCard(call=call, index=index, parent=host))
+                card = ToolApprovalCallCard(call=call, index=index, parent=host)
+                # Apply premium drop shadow to tool approval cards
+                shadow = QGraphicsDropShadowEffect(card)
+                shadow.setBlurRadius(12)
+                shadow.setColor(QColor(0, 0, 0, 80))
+                shadow.setOffset(0, 3)
+                card.setGraphicsEffect(shadow)
+                host_layout.addWidget(card)
         else:
             fallback = QPlainTextEdit()
             fallback.setObjectName("toolApprovalRawPanel")
@@ -2471,81 +2571,119 @@ class ToolApprovalDialog(QDialog):
         self.setStyleSheet(
             """
             QDialog {
-                background: #12181f;
-                color: #e8edf4;
-                font-family: "SF Pro Text", "Helvetica Neue", Arial;
+                background: #090d16;
+                color: #f3f4f6;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
             }
             QLabel#dialogTitle {
-                color: #f6f8fb;
-                font-size: 22px;
+                color: #ffffff;
+                font-size: 20px;
                 font-weight: 700;
             }
-            QLabel#toolApprovalHint, QLabel#toolApprovalBatchNote {
-                color: #9fb0c4;
+            QLabel#toolApprovalHint {
+                color: #9ca3af;
+                font-size: 13px;
+            }
+            QLabel#toolApprovalBatchNote {
+                color: #818cf8;
                 font-size: 12px;
+                font-weight: 600;
             }
             QScrollArea {
                 border: none;
                 background: transparent;
             }
             QFrame#toolApprovalCallCard {
-                background: #171d25;
-                border: 1px solid rgba(166, 187, 214, 0.14);
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 rgba(22, 28, 38, 0.6), stop: 1 rgba(14, 18, 24, 0.7));
+                border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 14px;
             }
+            QFrame#toolApprovalCallCard:hover {
+                border-color: rgba(99, 102, 241, 0.35);
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 rgba(26, 33, 44, 0.7), stop: 1 rgba(18, 23, 31, 0.8));
+            }
             QLabel#toolApprovalName {
-                color: #eef4fb;
-                font-size: 13px;
+                color: #ffffff;
+                font-size: 14px;
                 font-weight: 700;
             }
             QLabel#toolApprovalReason {
-                color: #c7d5e5;
+                color: #d1d5db;
                 font-size: 12px;
             }
             QFrame#toolApprovalParams {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(166, 187, 214, 0.10);
+                background: rgba(0, 0, 0, 0.25);
+                border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 10px;
             }
             QLabel#toolApprovalParamKey {
-                color: #89a0b8;
+                color: #a5b4fc;
                 font-size: 11px;
                 font-weight: 700;
             }
             QLabel#toolApprovalParamValue {
-                color: #e8edf4;
+                color: #f3f4f6;
                 font-size: 11px;
             }
             QPushButton#toolApprovalRawToggle, QPushButton#toolApprovalSecondaryButton, QPushButton#toolApprovalPrimaryButton {
-                min-height: 34px;
+                min-height: 36px;
                 border-radius: 10px;
-                padding: 0 12px;
-                font-weight: 700;
+                padding: 0 16px;
+                font-weight: 600;
+                font-size: 13px;
             }
             QPushButton#toolApprovalRawToggle, QPushButton#toolApprovalSecondaryButton {
-                border: 1px solid rgba(166, 187, 214, 0.18);
-                background: #1b2430;
-                color: #e8edf4;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.04);
+                color: #f3f4f6;
             }
             QPushButton#toolApprovalRawToggle:hover, QPushButton#toolApprovalSecondaryButton:hover {
-                background: #243141;
+                background: rgba(255, 255, 255, 0.09);
+                border-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton#toolApprovalRawToggle:pressed, QPushButton#toolApprovalSecondaryButton:pressed {
+                background: rgba(255, 255, 255, 0.02);
             }
             QPushButton#toolApprovalPrimaryButton {
-                border: 1px solid rgba(93, 206, 149, 0.32);
-                background: #245e45;
-                color: #f6fffb;
+                border: 1px solid rgba(16, 185, 129, 0.25);
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #10b981, stop: 1 #059669);
+                color: #ffffff;
             }
             QPushButton#toolApprovalPrimaryButton:hover {
-                background: #2f7758;
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #34d399, stop: 1 #10b981);
+                border-color: rgba(52, 211, 153, 0.4);
+            }
+            QPushButton#toolApprovalPrimaryButton:pressed {
+                background: #047857;
             }
             QPlainTextEdit#toolApprovalRawPanel {
-                background: #111720;
-                color: #dfe8f2;
-                border: 1px solid rgba(166, 187, 214, 0.14);
+                background: #0b0f17;
+                color: #f3f4f6;
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 10px;
                 padding: 8px;
-                font-family: Menlo, Monaco, Consolas;
+                font-family: "SF Mono", Menlo, Monaco, Consolas;
                 font-size: 11px;
+            }
+            QScrollBar:vertical {
+                width: 6px;
+                background: transparent;
+                margin: 4px 0 4px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.12);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+                border: none;
+                height: 0px;
             }
             """
         )
@@ -2576,6 +2714,13 @@ class ToolSettingsDialog(QDialog):
         subtitle.setObjectName("dialogSubtitle")
         subtitle.setWordWrap(True)
         root.addWidget(subtitle)
+
+        # Add horizontal separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;")
+        root.addWidget(sep)
 
         self.mode_note = QLabel("")
         self.mode_note.setObjectName("statusNote")
@@ -2625,82 +2770,139 @@ class ToolSettingsDialog(QDialog):
         self.setStyleSheet(
             """
             QDialog {
-                background: #0f141b;
-                color: #e8edf4;
-                font-family: "SF Pro Text", "Helvetica Neue", Arial;
+                background: #090d16;
+                color: #f3f4f6;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
             }
             QLabel#dialogTitle {
-                color: #f6f8fb;
-                font-size: 22px;
+                color: #ffffff;
+                font-size: 20px;
                 font-weight: 700;
             }
             QLabel#dialogSubtitle {
-                color: #9aabbf;
+                color: #9ca3af;
                 font-size: 13px;
             }
             QLabel#statusNote {
-                color: #b8c9dc;
-                background: rgba(121, 199, 255, 0.08);
-                border: 1px solid rgba(121, 199, 255, 0.18);
+                color: #e0e7ff;
+                background: rgba(99, 102, 241, 0.08);
+                border: 1px solid rgba(99, 102, 241, 0.18);
                 border-radius: 10px;
-                padding: 8px 10px;
+                padding: 10px 14px;
+                font-size: 12px;
+                line-height: 1.4;
             }
             QLabel#feedbackNote {
-                color: #8bd8b1;
+                color: #34d399;
                 font-size: 12px;
                 font-weight: 600;
             }
             QLineEdit, QComboBox {
-                min-height: 34px;
+                min-height: 36px;
                 border-radius: 10px;
-                border: 1px solid rgba(166, 187, 214, 0.18);
-                background: #171d25;
-                color: #e8edf4;
-                padding: 6px 10px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.03);
+                color: #f3f4f6;
+                padding: 6px 12px;
+                font-size: 13px;
+            }
+            QLineEdit:hover, QComboBox:hover {
+                border-color: rgba(99, 102, 241, 0.3);
+                background: rgba(255, 255, 255, 0.05);
             }
             QLineEdit:focus, QComboBox:focus {
-                border-color: rgba(121, 199, 255, 0.45);
+                border-color: #6366f1;
+                background: rgba(255, 255, 255, 0.06);
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background: #1e293b;
+                color: #f3f4f6;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                selection-background-color: #312e81;
+                selection-color: #ffffff;
+                border-radius: 8px;
+                padding: 4px;
             }
             QScrollArea {
                 border: none;
                 background: transparent;
             }
             QFrame#toolRow {
-                background: #151b23;
-                border: 1px solid rgba(166, 187, 214, 0.14);
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 rgba(22, 28, 38, 0.5), stop: 1 rgba(14, 18, 24, 0.6));
+                border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 12px;
+            }
+            QFrame#toolRow:hover {
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 rgba(26, 33, 44, 0.7), stop: 1 rgba(18, 23, 31, 0.8));
+                border-color: rgba(99, 102, 241, 0.35);
             }
             QLabel#toolIcon {
                 min-width: 28px;
-                color: #7ec6ff;
+                color: #818cf8;
                 font-size: 17px;
                 font-weight: 700;
             }
             QLabel#toolName {
-                color: #edf2f8;
+                color: #ffffff;
                 font-size: 13px;
                 font-weight: 700;
             }
             QLabel#toolMeta {
-                color: #89a0b8;
+                color: #9ca3af;
                 font-size: 11px;
             }
             QPushButton {
-                min-height: 34px;
+                min-height: 38px;
                 border-radius: 10px;
-                padding: 7px 13px;
-                border: 1px solid rgba(166, 187, 214, 0.18);
-                background: #1c2430;
-                color: #f3f7fb;
-                font-weight: 700;
+                padding: 7px 16px;
+                border: 1px solid rgba(16, 185, 129, 0.25);
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #10b981, stop: 1 #059669);
+                color: #ffffff;
+                font-weight: 600;
+                font-size: 13px;
             }
             QPushButton:hover {
-                background: #243041;
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #34d399, stop: 1 #10b981);
+                border-color: rgba(52, 211, 153, 0.4);
+            }
+            QPushButton:pressed {
+                background: #047857;
             }
             QPushButton#secondaryButton {
-                background: #171d25;
-                color: #dfe8f3;
-                border-color: rgba(166, 187, 214, 0.16);
+                background: rgba(255, 255, 255, 0.04);
+                color: #f3f4f6;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+            }
+            QPushButton#secondaryButton:hover {
+                background: rgba(255, 255, 255, 0.09);
+                border-color: rgba(255, 255, 255, 0.15);
+            }
+            QPushButton#secondaryButton:pressed {
+                background: rgba(255, 255, 255, 0.02);
+            }
+            QScrollBar:vertical {
+                width: 6px;
+                background: transparent;
+                margin: 4px 0 4px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.12);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+                border: none;
+                height: 0px;
             }
             """
         )
@@ -2848,6 +3050,13 @@ class SettingsDialog(QDialog):
         subtitle.setWordWrap(True)
         root.addWidget(subtitle)
 
+        # Add horizontal separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;")
+        root.addWidget(sep)
+
         self.settings_tabs = QTabWidget()
         self.settings_tabs.setObjectName("settingsTabs")
         root.addWidget(self.settings_tabs, 1)
@@ -2863,12 +3072,12 @@ class SettingsDialog(QDialog):
         connection_intro.setWordWrap(True)
         connection_root.addWidget(connection_intro)
 
-        connection_card = QFrame()
-        connection_card.setObjectName("settingsCard")
-        connection_stack = QVBoxLayout(connection_card)
+        self.connection_card = QFrame()
+        self.connection_card.setObjectName("settingsCard")
+        connection_stack = QVBoxLayout(self.connection_card)
         connection_stack.setContentsMargins(18, 18, 18, 18)
         connection_stack.setSpacing(14)
-        connection_root.addWidget(connection_card)
+        connection_root.addWidget(self.connection_card)
 
         connection_form = QGridLayout()
         connection_form.setHorizontalSpacing(12)
@@ -2972,12 +3181,12 @@ class SettingsDialog(QDialog):
         voice_shortcut_layout.addWidget(self.voice_shortcut_button, 0, Qt.AlignTop)
         routes_root.addWidget(self.voice_shortcut_card)
 
-        route_card = QFrame()
-        route_card.setObjectName("settingsCard")
-        route_stack = QVBoxLayout(route_card)
+        self.route_card = QFrame()
+        self.route_card.setObjectName("settingsCard")
+        route_stack = QVBoxLayout(self.route_card)
         route_stack.setContentsMargins(18, 18, 18, 18)
         route_stack.setSpacing(14)
-        routes_root.addWidget(route_card, 1)
+        routes_root.addWidget(self.route_card, 1)
 
         panel = QHBoxLayout()
         panel.setSpacing(16)
@@ -3074,7 +3283,6 @@ class SettingsDialog(QDialog):
         self.save_button = QPushButton("Save On Gateway")
         self.save_button.clicked.connect(self._save_route)
         buttons.addWidget(self.save_button)
-        buttons.addStretch(1)
         right.addLayout(buttons)
         routes_root.addStretch(1)
 
@@ -3089,12 +3297,12 @@ class SettingsDialog(QDialog):
         prefs_help.setWordWrap(True)
         prefs_root.addWidget(prefs_help)
 
-        prefs_card = QFrame()
-        prefs_card.setObjectName("settingsCard")
-        prefs_stack = QVBoxLayout(prefs_card)
+        self.prefs_card = QFrame()
+        self.prefs_card.setObjectName("settingsCard")
+        prefs_stack = QVBoxLayout(self.prefs_card)
         prefs_stack.setContentsMargins(18, 18, 18, 18)
         prefs_stack.setSpacing(14)
-        prefs_root.addWidget(prefs_card)
+        prefs_root.addWidget(self.prefs_card)
 
         prefs_layout = QGridLayout()
         prefs_layout.setHorizontalSpacing(12)
@@ -3141,6 +3349,15 @@ class SettingsDialog(QDialog):
         prefs_root.addStretch(1)
 
         self._apply_styles()
+
+        # Add drop shadows to settings cards
+        for card in (self.connection_card, self.voice_shortcut_card, self.route_card, self.prefs_card):
+            shadow = QGraphicsDropShadowEffect(card)
+            shadow.setBlurRadius(16)
+            shadow.setColor(QColor(0, 0, 0, 100))
+            shadow.setOffset(0, 4)
+            card.setGraphicsEffect(shadow)
+
         self.refresh()
 
     def refresh(self) -> None:
@@ -3185,49 +3402,57 @@ class SettingsDialog(QDialog):
         self.setStyleSheet(
             """
             QDialog {
-                background: #0f141c;
-                color: #e8edf4;
-                font-family: "SF Pro Text", "Helvetica Neue", Arial;
+                background: #090d16;
+                color: #f3f4f6;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
             }
             QLabel#dialogTitle {
-                font-size: 24px;
+                font-size: 20px;
                 font-weight: 700;
-                color: #f6f8fb;
+                color: #ffffff;
             }
             QLabel#dialogSubtitle, QLabel#sectionHelp, QLabel#routeHelp {
-                color: #9aa8bb;
+                color: #9ca3af;
                 font-size: 13px;
             }
             QFrame#settingsCard {
-                background: #161c25;
-                border: 1px solid rgba(166, 187, 214, 0.14);
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 rgba(22, 28, 38, 0.5), stop: 1 rgba(14, 18, 24, 0.6));
+                border: 1px solid rgba(255, 255, 255, 0.06);
                 border-radius: 18px;
+            }
+            QFrame#settingsCard:hover {
+                border-color: rgba(99, 102, 241, 0.2);
             }
             QTabWidget::pane {
                 border: none;
                 margin-top: 10px;
             }
             QTabBar::tab {
-                background: rgba(255, 255, 255, 0.05);
-                color: #9aa8bb;
-                border: 1px solid transparent;
-                border-radius: 12px;
-                padding: 9px 14px;
+                background: rgba(255, 255, 255, 0.03);
+                color: #9ca3af;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 10px;
+                padding: 8px 16px;
                 margin-right: 8px;
-                min-width: 120px;
+                min-width: 110px;
                 font-weight: 600;
             }
+            QTabBar::tab:hover {
+                background: rgba(255, 255, 255, 0.08);
+                color: #ffffff;
+            }
             QTabBar::tab:selected {
-                background: #1d2632;
-                color: #f6f8fb;
-                border-color: rgba(166, 187, 214, 0.18);
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 rgba(99, 102, 241, 0.25), stop: 1 rgba(79, 70, 229, 0.3));
+                color: #ffffff;
+                border: 1px solid rgba(99, 102, 241, 0.5);
             }
             QLineEdit, QComboBox, QPlainTextEdit, QListWidget, QSpinBox {
-                background: #111821;
-                color: #e8edf4;
-                border: 1px solid rgba(166, 187, 214, 0.18);
-                border-radius: 12px;
-                padding: 8px 10px;
+                background: rgba(255, 255, 255, 0.03);
+                color: #f3f4f6;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                padding: 8px 12px;
+                font-size: 13px;
             }
             QLineEdit, QComboBox, QSpinBox {
                 min-height: 38px;
@@ -3235,63 +3460,118 @@ class SettingsDialog(QDialog):
             QPlainTextEdit {
                 padding: 10px 12px;
             }
+            QLineEdit:hover, QComboBox:hover, QPlainTextEdit:hover, QListWidget:hover, QSpinBox:hover {
+                border-color: rgba(99, 102, 241, 0.35);
+                background: rgba(255, 255, 255, 0.05);
+            }
             QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus, QListWidget:focus, QSpinBox:focus {
-                border-color: rgba(83, 198, 145, 0.52);
+                border-color: #6366f1;
+                background: rgba(255, 255, 255, 0.07);
             }
             QComboBox::drop-down {
                 border: none;
                 width: 24px;
             }
-            QComboBox QAbstractItemView, QListWidget {
-                background: #111821;
-                selection-background-color: #243041;
-                selection-color: #f6f8fb;
+            QComboBox QAbstractItemView {
+                background: #1e293b;
+                color: #f3f4f6;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                selection-background-color: #312e81;
+                selection-color: #ffffff;
+                border-radius: 8px;
+                padding: 4px;
             }
             QPushButton {
                 min-height: 38px;
-                border-radius: 12px;
-                padding: 7px 14px;
-                border: 1px solid rgba(83, 198, 145, 0.28);
-                background: #2e8b63;
-                color: #f9fffc;
-                font-weight: 700;
+                border-radius: 10px;
+                padding: 7px 16px;
+                border: 1px solid rgba(16, 185, 129, 0.25);
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #10b981, stop: 1 #059669);
+                color: #ffffff;
+                font-weight: 600;
+                font-size: 13px;
             }
             QPushButton:hover {
-                background: #37a272;
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #34d399, stop: 1 #10b981);
+                border-color: rgba(52, 211, 153, 0.4);
             }
             QPushButton:pressed {
-                background: #236749;
+                background: #047857;
             }
             QPushButton#secondaryButton {
-                background: #141b24;
-                color: #dfe7f2;
-                border-color: rgba(166, 187, 214, 0.16);
+                background: rgba(255, 255, 255, 0.04);
+                color: #f3f4f6;
+                border: 1px solid rgba(255, 255, 255, 0.08);
             }
             QPushButton#secondaryButton:hover {
-                background: #1d2632;
+                background: rgba(255, 255, 255, 0.09);
+                border-color: rgba(255, 255, 255, 0.15);
             }
             QPushButton#secondaryButton:pressed {
-                background: #121922;
+                background: rgba(255, 255, 255, 0.02);
             }
             QListWidget {
                 padding: 8px;
             }
+            QListWidget::item {
+                background: rgba(255, 255, 255, 0.01);
+                border: 1px solid rgba(255, 255, 255, 0.04);
+                border-radius: 8px;
+                padding: 8px 12px;
+                margin-bottom: 6px;
+                color: #d1d5db;
+            }
+            QListWidget::item:hover {
+                background: rgba(255, 255, 255, 0.05);
+                border-color: rgba(99, 102, 241, 0.2);
+                color: #ffffff;
+            }
+            QListWidget::item:selected {
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 rgba(99, 102, 241, 0.25), stop: 1 rgba(79, 70, 229, 0.3));
+                border-color: rgba(99, 102, 241, 0.5);
+                color: #ffffff;
+            }
             QLabel#routeLabel {
-                font-size: 22px;
+                font-size: 20px;
                 font-weight: 700;
-                color: #f6f8fb;
+                color: #ffffff;
             }
             QLabel#statusNote {
-                color: #9aa8bb;
+                color: #e0e7ff;
+                background: rgba(99, 102, 241, 0.08);
+                border: 1px solid rgba(99, 102, 241, 0.18);
+                border-radius: 10px;
+                padding: 10px 14px;
                 font-size: 12px;
+                line-height: 1.4;
             }
             QLabel#feedbackNote {
-                color: #73d3a8;
+                color: #34d399;
                 font-size: 12px;
                 font-weight: 600;
             }
             QCheckBox {
                 spacing: 8px;
+            }
+            QScrollBar:vertical {
+                width: 6px;
+                background: transparent;
+                margin: 4px 0 4px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.12);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+                border: none;
+                height: 0px;
             }
             """
         )
@@ -3768,7 +4048,7 @@ class AssistantPalette(QMainWindow):
         new_session.setIcon(_symbol_icon("plus"))
         new_session.setIconSize(QSize(14, 14))
         new_session.setFixedSize(24, 24)
-        new_session.setToolTip("Start a fresh conversation")
+        new_session.setToolTip("Start a fresh conversation / Clear history")
         new_session.clicked.connect(self._create_session)
         header_actions.addWidget(new_session)
 
@@ -3777,7 +4057,7 @@ class AssistantPalette(QMainWindow):
         tools.setIcon(_symbol_icon("spark"))
         tools.setIconSize(QSize(14, 14))
         tools.setFixedSize(24, 24)
-        tools.setToolTip("Choose which tools the workflow-backed assistant may use")
+        tools.setToolTip("Configure active agent capabilities & tool permissions")
         tools.clicked.connect(self._open_tool_settings)
         header_actions.addWidget(tools)
 
@@ -3789,7 +4069,7 @@ class AssistantPalette(QMainWindow):
         self.auto_speak.setFixedSize(24, 24)
         self.auto_speak.setChecked(bool(self._controller.preferences.auto_speak))
         self.auto_speak.clicked.connect(self._persist_auto_speak)
-        self.auto_speak.setToolTip("Speak replies automatically")
+        self.auto_speak.setToolTip("Toggle automatic voice output (Text-to-Speech)")
         header_actions.addWidget(self.auto_speak)
 
         settings = QPushButton()
@@ -3797,7 +4077,7 @@ class AssistantPalette(QMainWindow):
         settings.setIcon(_symbol_icon("gear"))
         settings.setIconSize(QSize(14, 14))
         settings.setFixedSize(24, 24)
-        settings.setToolTip("Preferences")
+        settings.setToolTip("Open assistant preferences & gateway connection settings")
         settings.clicked.connect(self._open_settings)
         header_actions.addWidget(settings)
 
@@ -3868,7 +4148,7 @@ class AssistantPalette(QMainWindow):
         self.attach_button.setIcon(_symbol_icon("paperclip"))
         self.attach_button.setIconSize(QSize(16, 16))
         self.attach_button.setFixedSize(36, 36)
-        self.attach_button.setToolTip("Attach files")
+        self.attach_button.setToolTip("Attach files, photos, or documents (Drag & Drop supported)")
         self.attach_button.clicked.connect(self._pick_attachments)
         composer.addWidget(self.attach_button)
 
@@ -3877,7 +4157,7 @@ class AssistantPalette(QMainWindow):
         self.mic_button.setIcon(_symbol_icon("mic"))
         self.mic_button.setIconSize(QSize(16, 16))
         self.mic_button.setFixedSize(36, 36)
-        self.mic_button.setToolTip("Speak your question")
+        self.mic_button.setToolTip("Use voice input / Speak your query")
         self.mic_button.clicked.connect(self._toggle_listening)
         composer.addWidget(self.mic_button)
 
@@ -3897,7 +4177,7 @@ class AssistantPalette(QMainWindow):
         self.send_button.setIcon(_symbol_icon("send", color="#f8fffc"))
         self.send_button.setIconSize(QSize(18, 18))
         self.send_button.setFixedSize(38, 38)
-        self.send_button.setToolTip("Send")
+        self.send_button.setToolTip("Send message")
         self.send_button.clicked.connect(self._submit)
         composer.addWidget(self.send_button)
 
@@ -4297,18 +4577,19 @@ class AssistantPalette(QMainWindow):
         if timer is not None:
             timer.stop()
         self._pending_history_scroll = request
-        if not self.isVisible() and request.mode in {"bottom", "message_top"}:
-            self._deferred_history_scroll_on_show = request
+        if not self.isVisible():
+            if request.mode in {"bottom", "message_top"}:
+                self._deferred_history_scroll_on_show = request
+            elif getattr(self, "_deferred_history_scroll_on_show", None) is None:
+                self._deferred_history_scroll_on_show = self._history_scroll_request(mode="bottom")
             return
         self._deferred_history_scroll_on_show = self._history_scroll_request()
         self._schedule_history_scroll_apply()
 
     def _restore_deferred_history_scroll_on_show(self) -> None:
-        request = getattr(self, "__dict__", {}).get("_deferred_history_scroll_on_show", HistoryScrollRequest())
-        if not isinstance(request, HistoryScrollRequest):
-            request = self._history_scroll_request()
-        if request.mode not in {"bottom", "message_top"}:
-            return
+        request = getattr(self, "_deferred_history_scroll_on_show", None)
+        if request is None or request.mode not in {"bottom", "message_top"}:
+            request = self._history_scroll_request(mode="bottom")
         self._deferred_history_scroll_on_show = self._history_scroll_request()
         self._commit_history_scroll_request(request)
 
@@ -4341,6 +4622,9 @@ class AssistantPalette(QMainWindow):
         normalized = str(getattr(request, "mode", "preserve") or "preserve").strip().lower()
         if normalized == "bottom":
             bar.setValue(bar.maximum())
+            # Asynchronous text browser reflow safety timers
+            QTimer.singleShot(50, lambda: bar.setValue(bar.maximum()))
+            QTimer.singleShot(150, lambda: bar.setValue(bar.maximum()))
             return
         target_key = str(getattr(request, "message_key", "") or "").strip()
         if normalized == "message_top" and not target_key:
@@ -4458,6 +4742,12 @@ class AssistantPalette(QMainWindow):
 
         attachments = list(self._attachments)
         append_user_now = bool(prompt or attachments)
+
+        # Clear text input, clear attachments queue, and reflow layout first
+        self.prompt_edit.clear()
+        self._attachments = []
+        self._render_attachments()
+
         if append_user_now:
             metadata = None
             preview_items = _local_attachment_preview_items(attachments)
@@ -4467,7 +4757,7 @@ class AssistantPalette(QMainWindow):
                     "media": preview_items,
                 }
             self._controller.append_user_message(prompt, metadata=metadata)
-            self.refresh_history(request=self._history_scroll_request(mode="bottom"))
+
         self._run_busy = True
         self._run_has_final_output = False
         self._set_status("Running assistant workflow...", tone="busy")
@@ -4486,10 +4776,9 @@ class AssistantPalette(QMainWindow):
         worker.error_occurred.connect(self._on_worker_error)
         worker.finished.connect(self._on_worker_finished)
         worker.start()
+
+        # Refresh history and scroll to bottom at the very end
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
-        self.prompt_edit.clear()
-        self._attachments = []
-        self._render_attachments()
 
     def _on_worker_event(self, payload: Any) -> None:
         if not isinstance(payload, dict):
@@ -4824,12 +5113,12 @@ class AssistantPalette(QMainWindow):
             self._hotkey.stop()
             return
         ok = self._hotkey.start(sequence=prefs.hotkey_sequence, callback=self.hotkey_activated.emit)
-        if not ok and self._hotkey.error:
-            self.history_card.setToolTip("Summon shortcut unavailable. Use the tray icon or reinstall hotkey support.")
-            if self._status_tone not in {"error", "busy"}:
-                self._set_status("Ready")
-        elif self._status_tone not in {"error", "busy"}:
-            self.history_card.setToolTip("")
+        msg = "Summon shortcut unavailable. Use the tray icon or reinstall hotkey support." if (not ok and self._hotkey.error) else ""
+        if self._tray is not None:
+            self._tray.setToolTip(f"AbstractAssistant\n({msg})" if msg else "AbstractAssistant")
+        self.connection_led.setToolTip(f"Checking gateway connection\n({msg})" if msg else "Checking gateway connection")
+        self.history_card.setToolTip("")
+        if self._status_tone not in {"error", "busy"}:
             self._set_status("Ready")
 
     def _refresh_capability_state(self) -> None:
@@ -4947,16 +5236,25 @@ class AssistantPalette(QMainWindow):
             }
             QFrame#assistantBubble, QFrame#userBubble {
                 border-radius: 16px;
-                border: 1px solid rgba(166, 187, 214, 0.14);
-                background: #1b2430;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(22, 28, 38, 0.65);
             }
             QFrame#userBubble {
-                background: #245f8f;
-                border-color: rgba(151, 214, 255, 0.34);
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 rgba(99, 102, 241, 0.2), stop: 1 rgba(79, 70, 229, 0.3));
+                border-color: rgba(99, 102, 241, 0.4);
+            }
+            QFrame#thinkingIndicator {
+                border: none;
+                background: transparent;
+            }
+            QFrame#thinkingBubble {
+                border-radius: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(22, 28, 38, 0.65);
             }
             QFrame#userBubble QLabel#messageRole,
             QFrame#userBubble QLabel#userMessageText {
-                color: #f6fbff;
+                color: #ffffff;
             }
             QLabel#messageRole {
                 font-size: 10px;
@@ -4965,8 +5263,9 @@ class AssistantPalette(QMainWindow):
                 color: #9bb0c6;
             }
             QLabel#messageTimestamp {
-                color: rgba(183, 196, 210, 0.72);
+                color: rgba(255, 255, 255, 0.42);
                 font-size: 10px;
+                margin-top: 2px;
             }
             QLabel#thinkingDots {
                 color: #9bb0c6;
