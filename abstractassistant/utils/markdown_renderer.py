@@ -1,85 +1,130 @@
-"""
-Markdown renderer for AbstractAssistant with syntax highlighting support.
+"""Markdown rendering helpers for AbstractAssistant."""
 
-Provides lightweight markdown processing with support for:
-- Headings (H1-H6)
-- Lists (ordered and unordered)
-- Code blocks with syntax highlighting
-- Inline code
-- Bold and italic text
-- Links
-- Tables
-"""
+from __future__ import annotations
+
+import html
+import json
+import re
 
 import markdown
-from markdown.extensions import codehilite, fenced_code, tables, toc
 from pygments.formatters import HtmlFormatter
-from pygments import highlight
-from pygments.lexers import get_lexer_by_name, guess_lexer
-from pygments.util import ClassNotFound
+
+
+_MARKDOWNISH_RE = re.compile(
+    r"(^#{1,6}\s|^>\s|```|`[^`]+`|"
+    r"\[[^\]]+\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*[^*\n]+\*\*|"
+    r"__[^_\n]+__|^\|.*\|.*$|^(-{3,}|\*{3,}|_{3,})\s*$)",
+    flags=re.M,
+)
+_YAML_KEY_RE = re.compile(r"^[A-Za-z0-9_.\"'/-]+\s*:\s*(?:.*)?$")
+_YAML_LIST_RE = re.compile(r"^-\s+.+$")
+
+
+def _try_parse_json_block(text: str) -> str | None:
+    trimmed = str(text or "").strip()
+    if not trimmed or trimmed.startswith("```"):
+        return None
+    if not (
+        (trimmed.startswith("{") and trimmed.endswith("}"))
+        or (trimmed.startswith("[") and trimmed.endswith("]"))
+    ):
+        return None
+    try:
+        parsed = json.loads(trimmed)
+    except Exception:
+        return None
+    return json.dumps(parsed, indent=2, ensure_ascii=False)
+
+
+def _looks_like_yaml_block(text: str) -> bool:
+    trimmed = str(text or "").strip()
+    if not trimmed or trimmed.startswith("```") or _MARKDOWNISH_RE.search(trimmed):
+        return False
+
+    lines = [line.rstrip() for line in trimmed.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return False
+
+    structured_lines = 0
+    key_lines = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped in {"---", "..."}:
+            structured_lines += 1
+            continue
+        if stripped.startswith("#"):
+            continue
+        if _YAML_KEY_RE.match(stripped):
+            key_lines += 1
+            structured_lines += 1
+            continue
+        if _YAML_LIST_RE.match(stripped):
+            structured_lines += 1
+            continue
+        if line[:1].isspace() and stripped:
+            structured_lines += 1
+            continue
+        return False
+    return key_lines > 0 and structured_lines > 1
+
+
+def _prepare_markdown_source(text: str) -> str:
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized.strip():
+        return ""
+
+    parsed_json = _try_parse_json_block(normalized)
+    if parsed_json is not None:
+        return f"```json\n{parsed_json}\n```"
+
+    if _looks_like_yaml_block(normalized):
+        return f"```yaml\n{normalized.strip()}\n```"
+
+    return normalized
 
 
 class MarkdownRenderer:
-    """Lightweight markdown renderer with syntax highlighting."""
-    
+    """Markdown renderer with fenced-code and table support."""
+
     def __init__(self, theme: str = "monokai"):
-        """Initialize the markdown renderer.
-        
-        Args:
-            theme: Pygments theme for syntax highlighting
-        """
         self.theme = theme
         self.formatter = HtmlFormatter(
             style=theme,
             cssclass="codehilite",
-            noclasses=False,  # Use CSS classes, we'll provide the CSS
-            linenos=False
+            noclasses=False,
+            linenos=False,
         )
-        
-        # Configure markdown extensions
         self.extensions = [
-            'fenced_code',  # Triple backtick code blocks
-            'codehilite',   # Syntax highlighting
-            'tables',       # Table support
-            'toc',          # Table of contents
-            'nl2br',        # Newline to <br>
+            "fenced_code",
+            "tables",
+            "nl2br",
+            "sane_lists",
+            "pymdownx.highlight",
+            "pymdownx.inlinehilite",
+            "pymdownx.superfences",
         ]
-        
         self.extension_configs = {
-            'codehilite': {
-                'css_class': 'codehilite',
-                'use_pygments': True,
-                'linenums': False,
+            "pymdownx.highlight": {
+                "css_class": "codehilite",
+                "pygments_style": theme,
+                "linenums": False,
+                "guess_lang": False,
             },
-            'toc': {
-                'permalink': True,
-                'permalink_class': 'toc-link',
-            }
+            "pymdownx.superfences": {
+                "preserve_tabs": True,
+            },
         }
-        
-        # Initialize markdown processor
-        self.md = markdown.Markdown(
-            extensions=self.extensions,
-            extension_configs=self.extension_configs
-        )
-    
+
     def render(self, markdown_text: str) -> str:
-        """Render markdown text to HTML with syntax highlighting.
-        
-        Args:
-            markdown_text: The markdown text to render
-            
-        Returns:
-            HTML string with embedded CSS for styling
-        """
         try:
-            # Convert markdown to HTML
-            html_content = self.md.convert(markdown_text)
-            
-            # Get CSS for syntax highlighting from Pygments
-            pygments_css = self.formatter.get_style_defs('.codehilite')
-            
-            # Create complete HTML with embedded styles
+            prepared = _prepare_markdown_source(markdown_text)
+            md = markdown.Markdown(
+                extensions=self.extensions,
+                extension_configs=self.extension_configs,
+                output_format="html5",
+            )
+            html_content = md.convert(prepared)
+            pygments_css = self.formatter.get_style_defs(".codehilite")
             full_html = f"""
             <style>
             {self._get_base_css()}
@@ -89,22 +134,17 @@ class MarkdownRenderer:
             {html_content}
             </div>
             """
-            
-            # Reset markdown processor for next use
-            self.md.reset()
-            
             return full_html
-            
         except Exception as e:
-            # Fallback to plain text if markdown processing fails
-            return f"<pre>{markdown_text}</pre><p><em>Markdown rendering error: {str(e)}</em></p>"
-    
+            safe_text = html.escape(str(markdown_text or ""))
+            safe_error = html.escape(str(e))
+            return f"<pre>{safe_text}</pre><p><em>Markdown rendering error: {safe_error}</em></p>"
+
     def _get_base_css(self) -> str:
-        """Get base CSS styles for markdown content."""
         return """
         .markdown-content {
             font-family: "Helvetica Neue", "Helvetica", Arial, sans-serif;
-            font-size: 14px;  /* Base font size */
+            font-size: 14px;
             line-height: 1.6;
             color: #e2e8f0;
             background: transparent;
@@ -119,21 +159,21 @@ class MarkdownRenderer:
             font-weight: 600;
             line-height: 1.25;
         }
-        
+
         .markdown-content h1 {
-            font-size: 2.2em;  /* Increased from 2em */
+            font-size: 2.2em;
             border-bottom: 2px solid #4a5568;
             padding-bottom: 8px;
         }
-        
+
         .markdown-content h2 {
-            font-size: 1.7em;  /* Increased from 1.5em */
+            font-size: 1.7em;
             border-bottom: 1px solid #4a5568;
             padding-bottom: 4px;
         }
-        
+
         .markdown-content h3 {
-            font-size: 1.4em;  /* Increased from 1.25em */
+            font-size: 1.4em;
             color: #cbd5e0;
         }
         
@@ -154,7 +194,15 @@ class MarkdownRenderer:
         .markdown-content li {
             margin-bottom: 4px;
         }
-        
+
+        .markdown-content img {
+            max-width: 100%;
+            width: auto;
+            height: auto;
+            max-height: 180px;
+            border-radius: 8px;
+        }
+
         .markdown-content code {
             background: #2d3748;
             color: #e2e8f0;
@@ -169,17 +217,20 @@ class MarkdownRenderer:
             color: #e2e8f0;
             padding: 16px;
             border-radius: 8px;
-            overflow-x: auto;
             margin-bottom: 16px;
             border: 1px solid #4a5568;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
-        
+
         .markdown-content pre code {
             background: transparent;
             padding: 0;
             border-radius: 0;
+            white-space: inherit;
         }
-        
+
         .markdown-content blockquote {
             border-left: 4px solid #4299e1;
             padding-left: 16px;
@@ -193,7 +244,7 @@ class MarkdownRenderer:
             width: 100%;
             margin-bottom: 16px;
         }
-        
+
         .markdown-content th, .markdown-content td {
             border: 1px solid #4a5568;
             padding: 8px 12px;
@@ -242,93 +293,20 @@ class MarkdownRenderer:
             padding: 16px;
             margin-bottom: 16px;
             border: 1px solid #4a5568;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
         }
-        
+
         .highlight pre {
             background: transparent !important;
             border: none !important;
             padding: 0 !important;
             margin: 0 !important;
+            white-space: inherit !important;
         }
         """
-    
-    def _get_syntax_css(self) -> str:
-        """Get syntax highlighting CSS for code blocks."""
-        return """
-        /* Monokai syntax highlighting for code blocks */
-        .codehilite { background: #272822; color: #f8f8f2; padding: 16px; border-radius: 8px; overflow-x: auto; }
-        .codehilite .hll { background-color: #49483e }
-        .codehilite .c { color: #75715e } /* Comment */
-        .codehilite .err { color: #960050; background-color: #1e0010 } /* Error */
-        .codehilite .k { color: #66d9ef } /* Keyword */
-        .codehilite .l { color: #ae81ff } /* Literal */
-        .codehilite .n { color: #f8f8f2 } /* Name */
-        .codehilite .o { color: #f92672 } /* Operator */
-        .codehilite .p { color: #f8f8f2 } /* Punctuation */
-        .codehilite .ch { color: #75715e } /* Comment.Hashbang */
-        .codehilite .cm { color: #75715e } /* Comment.Multiline */
-        .codehilite .cp { color: #75715e } /* Comment.Preproc */
-        .codehilite .cpf { color: #75715e } /* Comment.PreprocFile */
-        .codehilite .c1 { color: #75715e } /* Comment.Single */
-        .codehilite .cs { color: #75715e } /* Comment.Special */
-        .codehilite .gd { color: #f92672 } /* Generic.Deleted */
-        .codehilite .ge { font-style: italic } /* Generic.Emph */
-        .codehilite .gi { color: #a6e22e } /* Generic.Inserted */
-        .codehilite .gs { font-weight: bold } /* Generic.Strong */
-        .codehilite .gu { color: #75715e } /* Generic.Subheading */
-        .codehilite .kc { color: #66d9ef } /* Keyword.Constant */
-        .codehilite .kd { color: #66d9ef } /* Keyword.Declaration */
-        .codehilite .kn { color: #f92672 } /* Keyword.Namespace */
-        .codehilite .kp { color: #66d9ef } /* Keyword.Pseudo */
-        .codehilite .kr { color: #66d9ef } /* Keyword.Reserved */
-        .codehilite .kt { color: #66d9ef } /* Keyword.Type */
-        .codehilite .ld { color: #e6db74 } /* Literal.Date */
-        .codehilite .m { color: #ae81ff } /* Literal.Number */
-        .codehilite .s { color: #e6db74 } /* Literal.String */
-        .codehilite .na { color: #a6e22e } /* Name.Attribute */
-        .codehilite .nb { color: #f8f8f2 } /* Name.Builtin */
-        .codehilite .nc { color: #a6e22e } /* Name.Class */
-        .codehilite .no { color: #66d9ef } /* Name.Constant */
-        .codehilite .nd { color: #a6e22e } /* Name.Decorator */
-        .codehilite .ni { color: #f8f8f2 } /* Name.Entity */
-        .codehilite .ne { color: #a6e22e } /* Name.Exception */
-        .codehilite .nf { color: #a6e22e } /* Name.Function */
-        .codehilite .nl { color: #f8f8f2 } /* Name.Label */
-        .codehilite .nn { color: #f8f8f2 } /* Name.Namespace */
-        .codehilite .nx { color: #a6e22e } /* Name.Other */
-        .codehilite .py { color: #f8f8f2 } /* Name.Property */
-        .codehilite .nt { color: #f92672 } /* Name.Tag */
-        .codehilite .nv { color: #f8f8f2 } /* Name.Variable */
-        .codehilite .ow { color: #f92672 } /* Operator.Word */
-        .codehilite .w { color: #f8f8f2 } /* Text.Whitespace */
-        .codehilite .mb { color: #ae81ff } /* Literal.Number.Bin */
-        .codehilite .mf { color: #ae81ff } /* Literal.Number.Float */
-        .codehilite .mh { color: #ae81ff } /* Literal.Number.Hex */
-        .codehilite .mi { color: #ae81ff } /* Literal.Number.Integer */
-        .codehilite .mo { color: #ae81ff } /* Literal.Number.Oct */
-        .codehilite .sa { color: #e6db74 } /* Literal.String.Affix */
-        .codehilite .sb { color: #e6db74 } /* Literal.String.Backtick */
-        .codehilite .sc { color: #e6db74 } /* Literal.String.Char */
-        .codehilite .dl { color: #e6db74 } /* Literal.String.Delimiter */
-        .codehilite .sd { color: #e6db74 } /* Literal.String.Doc */
-        .codehilite .s2 { color: #e6db74 } /* Literal.String.Double */
-        .codehilite .se { color: #ae81ff } /* Literal.String.Escape */
-        .codehilite .sh { color: #e6db74 } /* Literal.String.Heredoc */
-        .codehilite .si { color: #e6db74 } /* Literal.String.Interpol */
-        .codehilite .sx { color: #e6db74 } /* Literal.String.Other */
-        .codehilite .sr { color: #e6db74 } /* Literal.String.Regex */
-        .codehilite .s1 { color: #e6db74 } /* Literal.String.Single */
-        .codehilite .ss { color: #e6db74 } /* Literal.String.Symbol */
-        .codehilite .bp { color: #f8f8f2 } /* Name.Builtin.Pseudo */
-        .codehilite .fm { color: #a6e22e } /* Name.Function.Magic */
-        .codehilite .vc { color: #f8f8f2 } /* Name.Variable.Class */
-        .codehilite .vg { color: #f8f8f2 } /* Name.Variable.Global */
-        .codehilite .vi { color: #f8f8f2 } /* Name.Variable.Instance */
-        .codehilite .vm { color: #f8f8f2 } /* Name.Variable.Magic */
-        .codehilite .il { color: #ae81ff } /* Literal.Number.Integer.Long */
-        """
-        
-        
+
+
 # Global instance for easy access
 markdown_renderer = MarkdownRenderer(theme="monokai")
 

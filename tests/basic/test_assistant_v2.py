@@ -24,6 +24,7 @@ from abstractassistantv2.app import (
     _merge_attachment_paths,
     _message_bubble_width,
     _message_media_artifacts,
+    _tool_call_summary,
     _visible_history_messages,
 )
 from abstractassistantv2.controller import AssistantV2Controller
@@ -483,6 +484,44 @@ def test_assistant_v2_footer_items_parse_history_seed_repl_stats() -> None:
 
 
 @pytest.mark.basic
+def test_assistant_v2_tool_call_summary_humanizes_large_write_file_payload() -> None:
+    content = "<!DOCTYPE html>\n<html><body>Hello</body></html>" * 40
+    summary = _tool_call_summary(
+        {
+            "name": "write_file",
+            "arguments": {
+                "filepath": "/tmp/fantasy-comic.html",
+                "content": content,
+            },
+        }
+    )
+
+    assert summary.name == "write_file"
+    assert summary.reason == "Create or replace `/tmp/fantasy-comic.html`."
+    assert summary.parameters == [
+        ("filepath", "/tmp/fantasy-comic.html"),
+        ("content", f"HTML content, {len(content):,} chars"),
+    ]
+    assert summary.raw_text.startswith("write_file\n{")
+    assert '"filepath": "/tmp/fantasy-comic.html"' in summary.raw_text
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_call_summary_parses_json_argument_text() -> None:
+    summary = _tool_call_summary(
+        {
+            "name": "execute_command",
+            "arguments": '{"cmd":"npm test","timeout":120}'
+        }
+    )
+
+    assert summary.name == "execute_command"
+    assert summary.reason == "Run `npm test`."
+    assert ("cmd", "npm test") in summary.parameters
+    assert ("timeout", "120") in summary.parameters
+
+
+@pytest.mark.basic
 def test_assistant_v2_visible_history_messages_prioritizes_latest_user_turn_while_busy() -> None:
     messages = [
         {"role": "assistant", "content": "Previous reply"},
@@ -757,6 +796,64 @@ def test_assistant_v2_capture_history_scroll_request_preserves_top_visible_messa
     request = AssistantPalette._capture_history_scroll_request(palette)
 
     assert request == HistoryScrollRequest(mode="preserve", message_key="assistant-1", offset=22)
+
+
+@pytest.mark.basic
+def test_assistant_v2_default_history_refresh_request_uses_bottom_for_first_hydration() -> None:
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._history_cards_by_key = {}
+    palette._latest_visible_message_key = lambda role="": "assistant-2"
+    palette._capture_history_scroll_request = lambda: HistoryScrollRequest(
+        mode="preserve",
+        message_key="assistant-1",
+        offset=18,
+    )
+
+    request = AssistantPalette._default_history_refresh_request(palette)
+
+    assert request == HistoryScrollRequest(mode="bottom", message_key="", offset=0)
+
+
+@pytest.mark.basic
+def test_assistant_v2_commit_history_scroll_request_defers_bottom_mode_while_hidden() -> None:
+    class _Timer:
+        def __init__(self) -> None:
+            self.stop_calls = 0
+
+        def stop(self) -> None:
+            self.stop_calls += 1
+
+    events: list[str] = []
+    request = HistoryScrollRequest(mode="bottom")
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._history_settle_timer = _Timer()
+    palette._pending_history_scroll = HistoryScrollRequest()
+    palette._deferred_history_scroll_on_show = HistoryScrollRequest()
+    palette.isVisible = lambda: False
+    palette._schedule_history_scroll_apply = lambda: events.append("schedule")
+
+    AssistantPalette._commit_history_scroll_request(palette, request)
+
+    assert palette._history_settle_timer.stop_calls == 1
+    assert palette._pending_history_scroll == request
+    assert palette._deferred_history_scroll_on_show == request
+    assert events == []
+
+
+@pytest.mark.basic
+def test_assistant_v2_restore_deferred_history_scroll_on_show_replays_saved_request() -> None:
+    events: list[HistoryScrollRequest] = []
+    request = HistoryScrollRequest(mode="bottom")
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._deferred_history_scroll_on_show = request
+    palette._commit_history_scroll_request = lambda value: events.append(value)
+
+    AssistantPalette._restore_deferred_history_scroll_on_show(palette)
+
+    assert events == [request]
+    assert palette._deferred_history_scroll_on_show == HistoryScrollRequest()
 
 
 @pytest.mark.basic

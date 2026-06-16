@@ -19,7 +19,7 @@ import wave
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from PyQt5.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import (
     QBrush,
     QColor,
@@ -81,6 +81,18 @@ try:
 except Exception:  # pragma: no cover - optional at runtime
     _soundfile = None
 
+try:
+    import AppKit
+    import objc
+    from Foundation import NSObject
+
+    _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE = sys.platform == "darwin"
+except Exception:  # pragma: no cover - macOS-only enhancement
+    AppKit = None  # type: ignore[assignment]
+    objc = None  # type: ignore[assignment]
+    NSObject = object  # type: ignore[misc,assignment]
+    _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE = False
+
 from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
 from abstractassistant.utils.icon_generator import IconGenerator
 from abstractassistant.utils.markdown_renderer import MarkdownRenderer
@@ -90,7 +102,6 @@ from .gateway import ROUTE_SPECS, CapabilityRouteRow
 from .hotkey import GlobalHotkeyManager
 from .preferences import AssistantPreferences
 
-_MARKDOWNISH_RE = re.compile(r"(^\s*[-*]\s+|^\s*\d+\.\s+|```|`[^`]+`|\[[^\]]+\]\([^)]+\)|\|.+\||^#)", flags=re.M)
 _HTML_ACTION_FENCE_RE = re.compile(r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S)
 
 
@@ -105,6 +116,14 @@ class HistoryScrollRequest:
 class AssistantHtmlAction:
     label: str
     href: str
+
+
+@dataclass(frozen=True)
+class ToolCallSummary:
+    name: str
+    reason: str
+    parameters: List[tuple[str, str]]
+    raw_text: str
 
 
 def _tool_calls_text(tool_calls: Any) -> str:
@@ -122,6 +141,124 @@ def _tool_calls_text(tool_calls: Any) -> str:
             rendered = str(arguments or "")
         blocks.append(f"{name}\n{rendered}".strip())
     return "\n\n".join(blocks) or "No tool details were provided by the workflow."
+
+
+def _tool_call_arguments(arguments: Any) -> Dict[str, Any]:
+    if isinstance(arguments, dict):
+        return dict(arguments)
+    text = str(arguments or "").strip()
+    if not text:
+        return {}
+    if not text.startswith("{"):
+        return {}
+    try:
+        import json
+
+        parsed = json.loads(text)
+    except Exception:
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _tool_call_value_summary(name: str, value: Any) -> str:
+    key = str(name or "").strip().lower()
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        count = len(value)
+        label = "entry" if count == 1 else "entries"
+        return f"object with {count} {label}"
+    if isinstance(value, list):
+        count = len(value)
+        label = "item" if count == 1 else "items"
+        return f"list with {count} {label}"
+
+    text = str(value or "").strip()
+    if not text:
+        return "empty"
+
+    lowered = text.lower()
+    looks_like_html = "<html" in lowered or lowered.startswith("<!doctype html") or lowered.startswith("<div")
+    has_newlines = "\n" in text or "\r" in text
+    if key in {"content", "body", "text", "html", "script"} or has_newlines or len(text) > 120:
+        kind = "HTML content" if looks_like_html else "text content"
+        return f"{kind}, {len(text):,} chars"
+    if len(text) > 96:
+        return f"{text[:93]}..."
+    return text
+
+
+def _tool_call_reason(name: str, arguments: Dict[str, Any]) -> str:
+    tool = str(name or "").strip()
+    normalized = tool.lower()
+    path = str(
+        arguments.get("filepath")
+        or arguments.get("path")
+        or arguments.get("file")
+        or arguments.get("target")
+        or ""
+    ).strip()
+    cmd = str(arguments.get("cmd") or arguments.get("command") or "").strip()
+    url = str(arguments.get("url") or arguments.get("href") or "").strip()
+    query = str(arguments.get("q") or arguments.get("query") or arguments.get("prompt") or "").strip()
+
+    if normalized == "write_file" and path:
+        return f"Create or replace `{path}`."
+    if normalized in {"read_file", "open_file"} and path:
+        return f"Read `{path}`."
+    if normalized in {"edit_file", "update_file"} and path:
+        return f"Modify `{path}`."
+    if normalized == "apply_patch":
+        return "Apply a patch to one or more local files."
+    if normalized in {"execute_command", "run_command"} and cmd:
+        return f"Run `{cmd}`."
+    if normalized in {"list_files", "search_files"} and path:
+        return f"Inspect files under `{path}`."
+    if normalized in {"fetch_url", "open_url", "open_browser"} and url:
+        return f"Open or fetch `{url}`."
+    if normalized in {"web_search", "search_web"} and query:
+        return f"Search the web for `{query}`."
+    if normalized.startswith("write"):
+        return "Write or create local content."
+    if normalized.startswith("read"):
+        return "Read local content."
+    if normalized.startswith("list") or normalized.startswith("search"):
+        return "Inspect available resources."
+    if normalized.startswith("execute") or normalized.startswith("run"):
+        return "Run a command."
+    return f"Call `{tool or '<unknown>'}` with the parameters below."
+
+
+def _tool_call_summary(call: Any) -> ToolCallSummary:
+    if not isinstance(call, dict):
+        return ToolCallSummary(
+            name="<unknown>",
+            reason="The workflow requested a tool call, but the payload was not structured.",
+            parameters=[],
+            raw_text=str(call or ""),
+        )
+    name = str(call.get("name") or "<unknown>").strip() or "<unknown>"
+    arguments = _tool_call_arguments(call.get("arguments"))
+    raw_text = _tool_calls_text([call]).strip()
+    parameter_rows: List[tuple[str, str]] = []
+    if arguments:
+        for key, value in arguments.items():
+            label = str(key or "").strip()
+            if not label:
+                continue
+            parameter_rows.append((label, _tool_call_value_summary(label, value)))
+    elif call.get("arguments") not in {None, "", {}}:
+        parameter_rows.append(("arguments", _tool_call_value_summary("arguments", call.get("arguments"))))
+    return ToolCallSummary(
+        name=name,
+        reason=_tool_call_reason(name, arguments),
+        parameters=parameter_rows,
+        raw_text=raw_text,
+    )
 
 
 def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
@@ -159,9 +296,16 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     .markdown-content a {
         color: #79c7ff !important;
     }
+    .markdown-content img {
+        max-width: 100% !important;
+        width: auto !important;
+        height: auto !important;
+        max-height: 168px !important;
+        border-radius: 10px !important;
+    }
     .markdown-content table {
         width: 100% !important;
-        table-layout: fixed !important;
+        table-layout: auto !important;
         border-collapse: collapse !important;
         border-spacing: 0 !important;
         margin: 4px 0 2px 0 !important;
@@ -205,17 +349,6 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     </style>
     """
     return themed_override + base
-
-
-def _render_assistant_as_plain_label(content: str) -> bool:
-    text = str(content or "")
-    if not text.strip():
-        return True
-    if _MARKDOWNISH_RE.search(text):
-        return False
-    if "\n\n" in text:
-        return False
-    return True
 
 
 def _assistant_action_href_allowed(href: Any) -> bool:
@@ -910,6 +1043,19 @@ def _local_attachment_preview_items(paths: List[str]) -> List[Dict[str, Any]]:
     return items
 
 
+_IMAGE_PREVIEW_HEIGHT = 50
+_IMAGE_PREVIEW_MAX_WIDTH = 220
+
+
+def _image_thumbnail_size(size: QSize, *, height: int = _IMAGE_PREVIEW_HEIGHT, max_width: int = _IMAGE_PREVIEW_MAX_WIDTH) -> QSize:
+    width = max(1, int(size.width() or 0))
+    source_height = max(1, int(size.height() or 0))
+    bounded_height = max(1, int(height or _IMAGE_PREVIEW_HEIGHT))
+    bounded_width = max(1, int(max_width or _IMAGE_PREVIEW_MAX_WIDTH))
+    scaled = QSize(width, source_height).scaled(bounded_width, bounded_height, Qt.KeepAspectRatio)
+    return QSize(max(1, scaled.width()), max(1, scaled.height()))
+
+
 def _message_key(message: Dict[str, Any]) -> str:
     message_id = str(message.get("message_id") or "").strip()
     metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
@@ -1199,6 +1345,156 @@ class AttachmentIconChip(QFrame):
         super().leaveEvent(event)
 
 
+if _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE:
+
+    class _MacTrafficLightTarget(NSObject):
+        def initWithCallbacks_(self, callbacks):  # type: ignore[no-untyped-def]
+            self = objc.super(_MacTrafficLightTarget, self).init()
+            if self is None:
+                return None
+            self._callbacks = dict(callbacks or {})
+            return self
+
+        def onClose_(self, _sender) -> None:
+            callback = self._callbacks.get("close")
+            if callable(callback):
+                callback()
+
+        def onMinimize_(self, _sender) -> None:
+            callback = self._callbacks.get("minimize")
+            if callable(callback):
+                callback()
+
+        def onZoom_(self, _sender) -> None:
+            callback = self._callbacks.get("zoom")
+            if callable(callback):
+                callback()
+
+else:
+    _MacTrafficLightTarget = None  # type: ignore[assignment]
+
+
+class MacTrafficLightButtonsBridge:
+    def __init__(
+        self,
+        *,
+        owner: QWidget,
+        anchor: QWidget,
+        on_close: Callable[[], None],
+        on_minimize: Callable[[], None],
+        on_zoom: Callable[[], None],
+    ) -> None:
+        self._owner = owner
+        self._anchor = anchor
+        self._callbacks = {
+            "close": on_close,
+            "minimize": on_minimize,
+            "zoom": on_zoom,
+        }
+        self._buttons: List[Any] = []
+        self._host_view = None
+        self._source_window = None
+        self._target = None
+
+    def available(self) -> bool:
+        return bool(_MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE and AppKit is not None and objc is not None)
+
+    def sync_geometry(self) -> bool:
+        if not self.available():
+            return False
+        if not self._anchor.isVisible():
+            return False
+        if not self._ensure_attached():
+            return False
+        if self._host_view is None or not self._buttons:
+            return False
+
+        central = self._owner.centralWidget() or self._owner
+        top_left = self._anchor.mapTo(central, QPoint(0, 0))
+        host_height = float(self._host_view.frame().size.height)
+        host_flipped = bool(self._host_view.isFlipped())
+        current_x = float(top_left.x())
+        spacing = 6.0
+        anchor_height = max(1, self._anchor.height())
+
+        for button in self._buttons:
+            frame = button.frame()
+            button_height = float(frame.size.height)
+            qt_y = float(top_left.y() + max(0, int(round((anchor_height - button_height) / 2.0))))
+            frame.origin.x = current_x
+            if host_flipped:
+                frame.origin.y = max(0.0, qt_y)
+            else:
+                frame.origin.y = max(0.0, host_height - qt_y - button_height)
+            button.setFrame_(frame)
+            button.setHidden_(False)
+            current_x += float(frame.size.width) + spacing
+        return True
+
+    def _ensure_attached(self) -> bool:
+        if not self.available():
+            return False
+        try:
+            host_view = objc.objc_object(c_void_p=int(self._owner.winId()))
+        except Exception:
+            return False
+        if host_view is None:
+            return False
+        if not self._buttons and not self._create_buttons():
+            return False
+        for button in self._buttons:
+            try:
+                button.removeFromSuperview()
+            except Exception:
+                pass
+            try:
+                host_view.addSubview_(button)
+            except Exception:
+                return False
+        self._host_view = host_view
+        return True
+
+    def _create_buttons(self) -> bool:
+        if not self.available() or AppKit is None or _MacTrafficLightTarget is None:
+            return False
+        try:
+            _app = AppKit.NSApp() or AppKit.NSApplication.sharedApplication()
+            del _app
+            titled = int(getattr(AppKit, "NSWindowStyleMaskTitled", 1 << 0))
+            closable = int(getattr(AppKit, "NSWindowStyleMaskClosable", 1 << 1))
+            minimizable = int(getattr(AppKit, "NSWindowStyleMaskMiniaturizable", 1 << 2))
+            resizable = int(getattr(AppKit, "NSWindowStyleMaskResizable", 1 << 3))
+            style_mask = titled | closable | minimizable | resizable
+            source_window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                AppKit.NSMakeRect(0, 0, 120, 64),
+                style_mask,
+                AppKit.NSBackingStoreBuffered,
+                False,
+            )
+            source_window.setReleasedWhenClosed_(False)
+            target = _MacTrafficLightTarget.alloc().initWithCallbacks_(self._callbacks)
+            buttons = [
+                source_window.standardWindowButton_(AppKit.NSWindowCloseButton),
+                source_window.standardWindowButton_(AppKit.NSWindowMiniaturizeButton),
+                source_window.standardWindowButton_(AppKit.NSWindowZoomButton),
+            ]
+            selectors = (b"onClose:", b"onMinimize:", b"onZoom:")
+            for button, selector in zip(buttons, selectors):
+                if button is None:
+                    return False
+                button.setTarget_(target)
+                button.setAction_(selector)
+            self._source_window = source_window
+            self._target = target
+            self._buttons = list(buttons)
+            return True
+        except Exception:
+            self._source_window = None
+            self._target = None
+            self._buttons = []
+            return False
+
+
 class AssistantHtmlActionBar(QFrame):
     def __init__(self, *, actions: List[AssistantHtmlAction], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -1308,19 +1604,12 @@ class MessageCard(QFrame):
                 label.setTextInteractionFlags(Qt.TextSelectableByMouse)
                 bubble_layout.addWidget(label)
             else:
-                if _render_assistant_as_plain_label(self._rendered_content):
-                    label = QLabel(self._rendered_content)
-                    label.setObjectName("assistantMessageTextLabel")
-                    label.setWordWrap(True)
-                    label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-                    bubble_layout.addWidget(label)
-                else:
-                    browser = AutoSizingTextBrowser(min_height=28, max_height=None)
-                    browser.setObjectName("assistantMessageText")
-                    browser.setStyleSheet("background: transparent; border: none; color: #e8edf4;")
-                    browser.setHtml(_assistant_html(renderer, self._rendered_content))
-                    browser.refresh_height()
-                    bubble_layout.addWidget(browser)
+                browser = AutoSizingTextBrowser(min_height=28, max_height=None)
+                browser.setObjectName("assistantMessageText")
+                browser.setStyleSheet("background: transparent; border: none; color: #e8edf4;")
+                browser.setHtml(_assistant_html(renderer, self._rendered_content))
+                browser.refresh_height()
+                bubble_layout.addWidget(browser)
 
         if self._html_actions:
             bubble_layout.addWidget(AssistantHtmlActionBar(actions=self._html_actions, parent=bubble))
@@ -1969,12 +2258,14 @@ class ArtifactPreviewCard(QFrame):
             button.setObjectName("mediaImageButton")
             button.setToolTip(str(path))
             button.clicked.connect(self._open_external)
-            button.setMinimumHeight(112)
-            button.setMaximumHeight(156)
-            scaled = pixmap.scaled(256, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            button.setCursor(QCursor(Qt.PointingHandCursor))
+            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            scaled_size = _image_thumbnail_size(pixmap.size())
+            scaled = pixmap.scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            button.setFixedSize(scaled.size())
             button.setIcon(QIcon(scaled))
             button.setIconSize(scaled.size())
-            self._content_layout.addWidget(button)
+            self._content_layout.addWidget(button, 0, Qt.AlignLeft)
             return
 
         if self._media_kind in {"audio", "video"}:
@@ -2037,11 +2328,87 @@ class ThinkingIndicatorCard(QFrame):
         self._label.setText(self._frames[self._frame_index])
 
 
+class ToolApprovalCallCard(QFrame):
+    def __init__(self, *, call: Any, index: int, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        summary = _tool_call_summary(call)
+        self.setObjectName("toolApprovalCallCard")
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(10)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(8)
+        root.addLayout(header)
+
+        icon = QLabel()
+        icon.setObjectName("toolApprovalIcon")
+        icon.setPixmap(_symbol_icon("spark", color="#8fd0ff", size=16).pixmap(16, 16))
+        header.addWidget(icon, 0, Qt.AlignTop)
+
+        title_wrap = QVBoxLayout()
+        title_wrap.setContentsMargins(0, 0, 0, 0)
+        title_wrap.setSpacing(2)
+        header.addLayout(title_wrap, 1)
+
+        title = QLabel(f"Tool {index + 1}: {summary.name}")
+        title.setObjectName("toolApprovalName")
+        title_wrap.addWidget(title)
+
+        reason = QLabel(summary.reason)
+        reason.setObjectName("toolApprovalReason")
+        reason.setWordWrap(True)
+        title_wrap.addWidget(reason)
+
+        if summary.parameters:
+            params_frame = QFrame()
+            params_frame.setObjectName("toolApprovalParams")
+            params_layout = QGridLayout(params_frame)
+            params_layout.setContentsMargins(10, 10, 10, 10)
+            params_layout.setHorizontalSpacing(10)
+            params_layout.setVerticalSpacing(6)
+            for row, (key, value) in enumerate(summary.parameters):
+                key_label = QLabel(str(key))
+                key_label.setObjectName("toolApprovalParamKey")
+                key_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+                params_layout.addWidget(key_label, row, 0)
+
+                value_label = QLabel(str(value))
+                value_label.setObjectName("toolApprovalParamValue")
+                value_label.setWordWrap(True)
+                value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                value_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+                params_layout.addWidget(value_label, row, 1)
+            root.addWidget(params_frame)
+
+        raw_toggle = QPushButton("Show full tool call")
+        raw_toggle.setObjectName("toolApprovalRawToggle")
+        raw_toggle.setCheckable(True)
+        root.addWidget(raw_toggle, 0, Qt.AlignLeft)
+
+        raw_panel = QPlainTextEdit()
+        raw_panel.setObjectName("toolApprovalRawPanel")
+        raw_panel.setReadOnly(True)
+        raw_panel.setPlainText(summary.raw_text or "No raw tool call payload was provided.")
+        raw_panel.setMinimumHeight(132)
+        raw_panel.setMaximumHeight(220)
+        raw_panel.hide()
+        root.addWidget(raw_panel)
+
+        def _toggle_raw(checked: bool) -> None:
+            raw_panel.setVisible(bool(checked))
+            raw_toggle.setText("Hide full tool call" if checked else "Show full tool call")
+
+        raw_toggle.toggled.connect(_toggle_raw)
+
+
 class ToolApprovalDialog(QDialog):
     def __init__(self, *, tool_calls: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Approve tools")
-        self.resize(620, 420)
+        self.resize(680, 520)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
@@ -2054,22 +2421,134 @@ class ToolApprovalDialog(QDialog):
 
         hint = QLabel("Review this batch. Allow or deny applies only to the current request.")
         hint.setWordWrap(True)
+        hint.setObjectName("toolApprovalHint")
         root.addWidget(hint)
 
-        details = QPlainTextEdit()
-        details.setReadOnly(True)
-        details.setPlainText(_tool_calls_text(tool_calls))
-        root.addWidget(details, 1)
+        calls = [call for call in list(tool_calls or []) if isinstance(call, dict)] if isinstance(tool_calls, list) else []
+        batch_note = QLabel(
+            f"{len(calls)} tool request{'s' if len(calls) != 1 else ''} in this approval batch."
+            if calls
+            else "The workflow did not provide structured tool details for this batch."
+        )
+        batch_note.setObjectName("toolApprovalBatchNote")
+        batch_note.setWordWrap(True)
+        root.addWidget(batch_note)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        root.addWidget(scroll, 1)
+
+        host = QWidget()
+        host_layout = QVBoxLayout(host)
+        host_layout.setContentsMargins(0, 0, 0, 0)
+        host_layout.setSpacing(10)
+        scroll.setWidget(host)
+
+        if calls:
+            for index, call in enumerate(calls):
+                host_layout.addWidget(ToolApprovalCallCard(call=call, index=index, parent=host))
+        else:
+            fallback = QPlainTextEdit()
+            fallback.setObjectName("toolApprovalRawPanel")
+            fallback.setReadOnly(True)
+            fallback.setPlainText(_tool_calls_text(tool_calls))
+            host_layout.addWidget(fallback)
+        host_layout.addStretch(1)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         deny = QPushButton("Deny")
+        deny.setObjectName("toolApprovalSecondaryButton")
         deny.clicked.connect(self.reject)
         buttons.addWidget(deny)
         allow = QPushButton("Allow")
+        allow.setObjectName("toolApprovalPrimaryButton")
         allow.clicked.connect(self.accept)
         buttons.addWidget(allow)
         root.addLayout(buttons)
+
+        self.setStyleSheet(
+            """
+            QDialog {
+                background: #12181f;
+                color: #e8edf4;
+                font-family: "SF Pro Text", "Helvetica Neue", Arial;
+            }
+            QLabel#dialogTitle {
+                color: #f6f8fb;
+                font-size: 22px;
+                font-weight: 700;
+            }
+            QLabel#toolApprovalHint, QLabel#toolApprovalBatchNote {
+                color: #9fb0c4;
+                font-size: 12px;
+            }
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QFrame#toolApprovalCallCard {
+                background: #171d25;
+                border: 1px solid rgba(166, 187, 214, 0.14);
+                border-radius: 14px;
+            }
+            QLabel#toolApprovalName {
+                color: #eef4fb;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QLabel#toolApprovalReason {
+                color: #c7d5e5;
+                font-size: 12px;
+            }
+            QFrame#toolApprovalParams {
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(166, 187, 214, 0.10);
+                border-radius: 10px;
+            }
+            QLabel#toolApprovalParamKey {
+                color: #89a0b8;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QLabel#toolApprovalParamValue {
+                color: #e8edf4;
+                font-size: 11px;
+            }
+            QPushButton#toolApprovalRawToggle, QPushButton#toolApprovalSecondaryButton, QPushButton#toolApprovalPrimaryButton {
+                min-height: 34px;
+                border-radius: 10px;
+                padding: 0 12px;
+                font-weight: 700;
+            }
+            QPushButton#toolApprovalRawToggle, QPushButton#toolApprovalSecondaryButton {
+                border: 1px solid rgba(166, 187, 214, 0.18);
+                background: #1b2430;
+                color: #e8edf4;
+            }
+            QPushButton#toolApprovalRawToggle:hover, QPushButton#toolApprovalSecondaryButton:hover {
+                background: #243141;
+            }
+            QPushButton#toolApprovalPrimaryButton {
+                border: 1px solid rgba(93, 206, 149, 0.32);
+                background: #245e45;
+                color: #f6fffb;
+            }
+            QPushButton#toolApprovalPrimaryButton:hover {
+                background: #2f7758;
+            }
+            QPlainTextEdit#toolApprovalRawPanel {
+                background: #111720;
+                color: #dfe8f2;
+                border: 1px solid rgba(166, 187, 214, 0.14);
+                border-radius: 10px;
+                padding: 8px;
+                font-family: Menlo, Monaco, Consolas;
+                font-size: 11px;
+            }
+            """
+        )
 
 
 class ToolSettingsDialog(QDialog):
@@ -3175,6 +3654,7 @@ class AssistantPalette(QMainWindow):
         self._zoomed = False
         self._composer_drop_active = False
         self._pending_history_scroll = HistoryScrollRequest()
+        self._deferred_history_scroll_on_show = HistoryScrollRequest()
         self._history_cards_by_key: Dict[str, QWidget] = {}
         self._history_refreshing = False
         self._status_text = "Ready"
@@ -3213,42 +3693,58 @@ class AssistantPalette(QMainWindow):
         header_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.header_card = header_card
         header_shell = QVBoxLayout(header_card)
-        header_shell.setContentsMargins(4, 4, 4, 4)
+        header_shell.setContentsMargins(14, 4, 4, 4)
         header_shell.setSpacing(0)
 
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(6)
+        title_row.setSpacing(8)
         header_shell.addLayout(title_row)
 
-        traffic_group = QHBoxLayout()
-        traffic_group.setContentsMargins(0, 0, 0, 0)
-        traffic_group.setSpacing(5)
-        title_row.addLayout(traffic_group, 0)
+        traffic_host = QWidget()
+        traffic_host.setObjectName("trafficHost")
+        traffic_host.setFixedSize(62, 14)
+        title_row.addWidget(traffic_host, 0, Qt.AlignVCenter)
+        self._traffic_host = traffic_host
+        self._native_traffic_lights = None
 
-        close_button = QPushButton()
-        close_button.setObjectName("trafficButton")
-        close_button.setProperty("tone", "close")
-        close_button.setFixedSize(12, 12)
-        close_button.setToolTip("Quit AbstractAssistant")
-        close_button.clicked.connect(self._quit_application)
-        traffic_group.addWidget(close_button, 0, Qt.AlignVCenter)
+        if _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE:
+            traffic_host.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            self._native_traffic_lights = MacTrafficLightButtonsBridge(
+                owner=self,
+                anchor=traffic_host,
+                on_close=self._quit_application,
+                on_minimize=self.hide,
+                on_zoom=self._toggle_zoom,
+            )
+        else:
+            traffic_group = QHBoxLayout(traffic_host)
+            traffic_group.setContentsMargins(0, 0, 0, 0)
+            traffic_group.setSpacing(5)
 
-        minimize_button = QPushButton()
-        minimize_button.setObjectName("trafficButton")
-        minimize_button.setProperty("tone", "minimize")
-        minimize_button.setFixedSize(12, 12)
-        minimize_button.setToolTip("Hide assistant")
-        minimize_button.clicked.connect(self.hide)
-        traffic_group.addWidget(minimize_button, 0, Qt.AlignVCenter)
+            close_button = QPushButton()
+            close_button.setObjectName("trafficButton")
+            close_button.setProperty("tone", "close")
+            close_button.setFixedSize(12, 12)
+            close_button.setToolTip("Quit AbstractAssistant")
+            close_button.clicked.connect(self._quit_application)
+            traffic_group.addWidget(close_button, 0, Qt.AlignVCenter)
 
-        zoom_button = QPushButton()
-        zoom_button.setObjectName("trafficButton")
-        zoom_button.setProperty("tone", "zoom")
-        zoom_button.setFixedSize(12, 12)
-        zoom_button.setToolTip("Maximize chat")
-        zoom_button.clicked.connect(self._toggle_zoom)
-        traffic_group.addWidget(zoom_button, 0, Qt.AlignVCenter)
+            minimize_button = QPushButton()
+            minimize_button.setObjectName("trafficButton")
+            minimize_button.setProperty("tone", "minimize")
+            minimize_button.setFixedSize(12, 12)
+            minimize_button.setToolTip("Hide assistant")
+            minimize_button.clicked.connect(self.hide)
+            traffic_group.addWidget(minimize_button, 0, Qt.AlignVCenter)
+
+            zoom_button = QPushButton()
+            zoom_button.setObjectName("trafficButton")
+            zoom_button.setProperty("tone", "zoom")
+            zoom_button.setFixedSize(12, 12)
+            zoom_button.setToolTip("Maximize chat")
+            zoom_button.clicked.connect(self._toggle_zoom)
+            traffic_group.addWidget(zoom_button, 0, Qt.AlignVCenter)
 
         title = QLabel("AbstractAssistant")
         title.setObjectName("windowTitle")
@@ -3415,6 +3911,7 @@ class AssistantPalette(QMainWindow):
         self._render_attachments()
         self._apply_hotkey()
         QTimer.singleShot(0, self._reflow_shell)
+        QTimer.singleShot(0, self._sync_native_traffic_lights)
 
     def _labeled_control(self, title: str, control: QWidget) -> QWidget:
         host = QFrame()
@@ -3466,14 +3963,26 @@ class AssistantPalette(QMainWindow):
         self.hide()
         event.ignore()
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        QTimer.singleShot(0, self._sync_native_traffic_lights)
+        QTimer.singleShot(0, self._restore_deferred_history_scroll_on_show)
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         preserve_request = None
         if not bool(getattr(self, "_history_refreshing", False)):
             preserve_request = self._capture_history_scroll_request()
         super().resizeEvent(event)
         QTimer.singleShot(0, self._resize_visible_history_cards)
+        QTimer.singleShot(0, self._sync_native_traffic_lights)
         if preserve_request is not None:
             self._commit_history_scroll_request(preserve_request)
+
+    def _sync_native_traffic_lights(self) -> None:
+        bridge = getattr(self, "_native_traffic_lights", None)
+        if bridge is None:
+            return
+        bridge.sync_geometry()
 
     def _quit_application(self) -> None:
         app = QApplication.instance()
@@ -3596,6 +4105,7 @@ class AssistantPalette(QMainWindow):
             x = int(screen_geom.x() + max(0, (screen_geom.width() - width) / 2))
             y = int(screen_geom.y() + max(0, (screen_geom.height() - target_height) / 2))
             self.setGeometry(x, y, width, target_height)
+            QTimer.singleShot(0, self._sync_native_traffic_lights)
             return
         width = normal_width
         expanded_height = normal_height
@@ -3611,6 +4121,7 @@ class AssistantPalette(QMainWindow):
         target_height = int(composer_y + composer_height + bottom_gap)
         self.resize(width, target_height)
         self.position_near_tray()
+        QTimer.singleShot(0, self._sync_native_traffic_lights)
 
     def _toggle_zoom(self) -> None:
         self._zoomed = not bool(self._zoomed)
@@ -3633,7 +4144,7 @@ class AssistantPalette(QMainWindow):
         event.ignore()
 
     def refresh_history(self, request: Optional[HistoryScrollRequest] = None) -> None:
-        scroll_request = request if isinstance(request, HistoryScrollRequest) else self._capture_history_scroll_request()
+        scroll_request = request if isinstance(request, HistoryScrollRequest) else self._default_history_refresh_request()
         state = getattr(self, "__dict__", {})
         timer = state.get("_history_settle_timer")
         if timer is not None:
@@ -3720,6 +4231,14 @@ class AssistantPalette(QMainWindow):
             offset=max(0, int(offset or 0)),
         )
 
+    def _default_history_refresh_request(self) -> HistoryScrollRequest:
+        cards_by_key = getattr(self, "__dict__", {}).get("_history_cards_by_key", {})
+        if isinstance(cards_by_key, dict) and cards_by_key:
+            return self._capture_history_scroll_request()
+        if self._latest_visible_message_key():
+            return self._history_scroll_request(mode="bottom")
+        return self._history_scroll_request()
+
     def _capture_history_scroll_request(self) -> HistoryScrollRequest:
         state = getattr(self, "__dict__", {})
         scroll = state.get("history_scroll")
@@ -3778,7 +4297,20 @@ class AssistantPalette(QMainWindow):
         if timer is not None:
             timer.stop()
         self._pending_history_scroll = request
+        if not self.isVisible() and request.mode in {"bottom", "message_top"}:
+            self._deferred_history_scroll_on_show = request
+            return
+        self._deferred_history_scroll_on_show = self._history_scroll_request()
         self._schedule_history_scroll_apply()
+
+    def _restore_deferred_history_scroll_on_show(self) -> None:
+        request = getattr(self, "__dict__", {}).get("_deferred_history_scroll_on_show", HistoryScrollRequest())
+        if not isinstance(request, HistoryScrollRequest):
+            request = self._history_scroll_request()
+        if request.mode not in {"bottom", "message_top"}:
+            return
+        self._deferred_history_scroll_on_show = self._history_scroll_request()
+        self._commit_history_scroll_request(request)
 
     def _schedule_history_scroll_apply(self) -> None:
         state = getattr(self, "__dict__", {})
@@ -4442,6 +4974,10 @@ class AssistantPalette(QMainWindow):
                 font-weight: 700;
                 letter-spacing: 0.18em;
             }
+            QWidget#trafficHost {
+                background: transparent;
+                border: none;
+            }
             QTextBrowser#assistantMessageText, QLabel#assistantMessageTextLabel, QLabel#userMessageText {
                 color: #edf2f8;
                 font-size: 13px;
@@ -4526,10 +5062,8 @@ class AssistantPalette(QMainWindow):
                 min-width: 66px;
             }
             QPushButton#mediaImageButton {
-                min-height: 112px;
-                max-height: 156px;
                 padding: 0px;
-                border-radius: 10px;
+                border-radius: 8px;
                 background: rgba(255, 255, 255, 0.03);
                 border: 1px solid rgba(166, 187, 214, 0.10);
             }
