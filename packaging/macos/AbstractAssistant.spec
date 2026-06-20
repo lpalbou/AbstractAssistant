@@ -18,6 +18,7 @@ for candidate in (
     ROOT.parent / "abstractruntime" / "src",
     ROOT.parent / "abstractgateway" / "src",
     ROOT.parent / "abstractcore" / "src",
+    ROOT.parent / "abstractcore",
 ):
     if candidate.exists():
         PATHEX.append(str(candidate.resolve()))
@@ -32,6 +33,7 @@ HIDDENIMPORTS = [
     "abstractassistant.ui.gateway_worker",
 ]
 HIDDENIMPORTS += collect_submodules("pymdownx")
+HIDDENIMPORTS += collect_submodules("abstractcore")
 
 a = Analysis(
     [str(ENTRY)],

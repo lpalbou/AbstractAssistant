@@ -513,7 +513,7 @@ def _format_tool_event_summary(*, name: str, status_label: str, output_preview: 
     if tool.lower().startswith("tool:"):
         tool = tool.split(":", 1)[1].strip() or "tool"
     status = str(status_label or "").strip().lower()
-    status_icon = "✅" if status == "ok" else "⚠️" if status == "error" else "🛠"
+    status_icon = "✅" if status == "ok" else "⚠️" if status in {"error", "warning"} else "🛠"
 
     raw = str(output_preview or "").strip()
     obj = _try_parse_json(raw)
@@ -526,13 +526,13 @@ def _format_tool_event_summary(*, name: str, status_label: str, output_preview: 
         time_range = ""
         if isinstance(obj, dict):
             query = str(obj.get("query") or obj.get("q") or "").strip()
-            engine = str(obj.get("engine") or obj.get("backend") or "").strip()
+            engine = str(obj.get("backend_used") or obj.get("engine") or obj.get("backend") or "").strip()
             params = obj.get("params")
             if isinstance(params, dict):
-                region = str(params.get("region") or "").strip()
+                region = str(params.get("backend") or params.get("region") or "").strip()
                 time_range = str(params.get("time_range") or params.get("timeRange") or "").strip()
         if not query:
-            args = meta.get("input") or meta.get("args") or meta.get("params")
+            args = meta.get("input") or meta.get("args") or meta.get("params") or meta.get("arguments")
             if isinstance(args, dict):
                 query = str(args.get("query") or args.get("q") or "").strip()
         q = _truncate(query, max_len=72) if query else ""
@@ -705,7 +705,18 @@ def build_display_messages(raw_messages: Sequence[Dict[str, Any]]) -> List[Dict[
                         "Hint: Gateway workspace restrictions blocked this path. "
                         "Set ABSTRACTGATEWAY_WORKSPACE_DIR or ABSTRACTGATEWAY_WORKSPACE_MOUNTS on the gateway."
                     )
-            status_label = "ok" if success is True else "error" if error or success is False else "done"
+            status_hint = str(meta.get("status_hint") or "").strip().lower() if isinstance(meta, dict) else ""
+            parsed_preview = _try_parse_json(output_preview)
+            preview_status = str(parsed_preview.get("status_hint") or "").strip().lower() if isinstance(parsed_preview, dict) else ""
+            degraded = bool(meta.get("degraded")) if isinstance(meta, dict) else False
+            if isinstance(parsed_preview, dict):
+                degraded = degraded or bool(parsed_preview.get("degraded"))
+            if error or success is False or status_hint == "error" or preview_status == "error":
+                status_label = "error"
+            elif status_hint == "warning" or preview_status == "warning" or degraded:
+                status_label = "warning"
+            else:
+                status_label = "ok" if success is True else "done"
 
             # Heuristic: gateway tool messages often embed a status header in the output.
             tool_payload_preview = output_preview

@@ -32,7 +32,7 @@ class IconGenerator:
         
         # Calculate dimensions
         center = self.size // 2
-        radius = int(self.size * 0.35)
+        radius = int(self.size * 0.44)
         
         # Create gradient background circle (neural network inspired)
         self._draw_gradient_circle(draw, center, radius, color_scheme, animated)
@@ -408,15 +408,15 @@ class IconGenerator:
             bar_vibration = math.sin(current_time * bar_freq * 2 * math.pi)
 
             # Bar height varies with vibration (like audio visualizer)
-            base_height = size * 0.22
+            base_height = size * 0.35
             if meter is None:
-                vibration_height = size * 0.33 * abs(bar_vibration)
+                vibration_height = size * 0.53 * abs(bar_vibration)
                 total_height = base_height + vibration_height
             else:
                 # Real meter drives height, with a subtle per-bar shape
                 shape = 0.75 + (0.25 * abs(bar_vibration))
                 band_level = meter_levels[i] if meter_levels is not None else float(meter)
-                total_height = base_height + (size * 0.45 * band_level * shape)
+                total_height = base_height + (size * 0.53 * band_level * shape)
             
             # Position bars horizontally across the icon
             x = center - (bar_count - 1) * bar_spacing / 2 + i * bar_spacing
@@ -432,8 +432,8 @@ class IconGenerator:
         dot_count = 8
         # Make the spinner more visible at small menu-bar sizes by using
         # larger dots and a subtle ring.
-        radius = size * 0.36
-        dot_radius = size * 0.075
+        radius = size * 0.40
+        dot_radius = size * 0.08
 
         r, g, b = color
 
@@ -462,16 +462,16 @@ class IconGenerator:
     def _draw_breathing_circle(self, draw, center, size, color, intensity):
         """Draw a premium glowing breathing circle for ready status."""
         r, g, b = color
-        base_radius = size * 0.35
+        base_radius = size * 0.44
         
         # Outer soft pulsing halo
-        halo_radius = base_radius * (0.8 + 0.45 * intensity)
+        halo_radius = base_radius * (0.75 + 0.35 * intensity)
         halo_alpha = int(90 * intensity)
         halo_color = (r, g, b, max(0, min(255, halo_alpha)))
         draw.ellipse([center - halo_radius, center - halo_radius, center + halo_radius, center + halo_radius], fill=halo_color)
         
         # Solid core orb
-        core_radius = base_radius * 0.60
+        core_radius = base_radius * 0.80
         core_color = (r, g, b, 255)
         draw.ellipse([center - core_radius, center - core_radius, center + core_radius, center + core_radius], fill=core_color)
         
@@ -498,8 +498,8 @@ class IconGenerator:
         gg = int(min(255, cg * intensity))
         bb = int(min(255, cb * intensity))
 
-        core_radius = size * (0.18 + 0.06 * pulse)
-        ring_radius = size * (0.34 + 0.08 * pulse)
+        core_radius = size * (0.24 + 0.08 * pulse)
+        ring_radius = size * (0.38 + 0.08 * pulse)
 
         # Outer ring
         ring_alpha = int(120 + (80 * pulse))

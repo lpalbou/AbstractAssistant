@@ -6,6 +6,7 @@ Runs gateway ledger replay + streaming in a background QThread.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import warnings
@@ -132,6 +133,9 @@ class GatewayWorker(QThread):
         self._root_run_id = ""
         self._follow_run_id = ""
         self._stats_by_run: Dict[str, Dict[str, Any]] = {}
+        self._run_activity_by_run: Dict[str, str] = {}
+        self._output_artifact_candidates: List[tuple[str, str]] = []
+        self._seen_output_artifacts: set[tuple[str, str]] = set()
 
     def provide_tool_approval(self, approved: bool) -> None:
         self._tool_approval_decision = bool(approved)
@@ -194,6 +198,7 @@ class GatewayWorker(QThread):
             messages = seed_messages_from_history_bundle(
                 bundle,
                 include_tool_calls_for_run_id=run_id,
+                artifact_loader=lambda rid, aid: self._gateway.download_run_artifact_content(run_id=rid, artifact_id=aid),
             )
             try:
                 tool_ids = [
@@ -205,7 +210,23 @@ class GatewayWorker(QThread):
             except Exception:
                 pass
             if messages:
+                had_assistant_before = self._session_has_assistant_for_run(run_id)
                 changed = bool(self._llm_manager.replace_gateway_messages(messages, last_run_id=run_id))
+                if not self._session_has_assistant_for_run(run_id):
+                    recovered = self._latest_assistant_seed_for_run(messages, run_id=run_id)
+                    if isinstance(recovered, dict) and self._should_append_assistant(
+                        str(recovered.get("content") or ""),
+                        meta=recovered.get("metadata") if isinstance(recovered.get("metadata"), dict) else None,
+                    ):
+                        self._llm_manager.append_message(
+                            role="assistant",
+                            content=str(recovered.get("content") or ""),
+                            metadata=recovered.get("metadata") if isinstance(recovered.get("metadata"), dict) else None,
+                            ts=str(recovered.get("ts") or ""),
+                        )
+                        changed = True
+                elif not had_assistant_before:
+                    changed = True
                 self.event_emitted.emit({"type": "history_seeded", "changed": changed})
             else:
                 warnings.warn("#FALLBACK: history bundle produced no messages; keeping local snapshot")
@@ -367,7 +388,186 @@ class GatewayWorker(QThread):
     def _emit_run_activity(self, *, run_id: str, fallback_prompt: str = "") -> None:
         summary = self._build_run_activity_summary(run_id=run_id, fallback_prompt=fallback_prompt)
         if summary:
+            self._run_activity_by_run[str(run_id or "").strip()] = summary
             self.event_emitted.emit({"type": "run_activity", "summary": summary, "run_id": run_id})
+
+    @staticmethod
+    def _artifact_id_from_value(value: Any) -> str:
+        if not isinstance(value, dict):
+            return ""
+        return str(value.get("$artifact") or value.get("artifact_id") or "").strip()
+
+    def _remember_output_artifact(self, *, run_id: str, artifact_id: str) -> None:
+        rid = str(run_id or "").strip()
+        aid = str(artifact_id or "").strip()
+        if not rid or not aid:
+            return
+        key = (rid, aid)
+        if key in self._seen_output_artifacts:
+            return
+        self._seen_output_artifacts.add(key)
+        self._output_artifact_candidates.append(key)
+
+    def _record_output_artifact_candidates(self, *, run_id: str, rec: Dict[str, Any]) -> None:
+        if not isinstance(rec, dict):
+            return
+
+        def _remember(value: Any, *, candidate_run_id: str) -> None:
+            artifact_id = self._artifact_id_from_value(value)
+            if artifact_id:
+                self._remember_output_artifact(run_id=candidate_run_id, artifact_id=artifact_id)
+
+        result = rec.get("result")
+        if isinstance(result, dict):
+            output = result.get("output")
+            if output is not None:
+                _remember(output, candidate_run_id=run_id)
+                if isinstance(output, dict):
+                    for key in (
+                        "artifact",
+                        "artifact_ref",
+                        "image_artifact",
+                        "video_artifact",
+                        "audio_artifact",
+                        "music_artifact",
+                    ):
+                        _remember(output.get(key), candidate_run_id=run_id)
+
+        effect = rec.get("effect")
+        payload = effect.get("payload") if isinstance(effect, dict) else None
+        resume_payload = payload.get("payload") if isinstance(payload, dict) else None
+        if isinstance(resume_payload, dict):
+            candidate_run_id = str(resume_payload.get("sub_run_id") or run_id).strip() or run_id
+            _remember(resume_payload.get("output"), candidate_run_id=candidate_run_id)
+
+    @staticmethod
+    def _text_from_output_payload(payload: Any) -> str:
+        if isinstance(payload, str):
+            return payload.strip()
+        if isinstance(payload, dict):
+            for key in ("answer", "response", "message", "text", "content"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            messages = payload.get("messages")
+            if isinstance(messages, list):
+                for message in reversed(messages):
+                    if not isinstance(message, dict):
+                        continue
+                    if str(message.get("role") or "").strip() != "assistant":
+                        continue
+                    text = str(message.get("content") or "").strip()
+                    if text:
+                        return text
+        return ""
+
+    def _resolve_output_artifact_text(self, *, run_id: str, meta: Dict[str, Any]) -> str:
+        if self._gateway is None:
+            return ""
+
+        preferred_run_ids: List[str] = []
+        for candidate in (
+            str(meta.get("sub_run_id") or "").strip(),
+            str(meta.get("artifact_run_id") or "").strip(),
+            str(run_id or "").strip(),
+        ):
+            if candidate and candidate not in preferred_run_ids:
+                preferred_run_ids.append(candidate)
+
+        ordered: List[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for preferred_run_id in preferred_run_ids:
+            for key in reversed(self._output_artifact_candidates):
+                if key in seen or key[0] != preferred_run_id:
+                    continue
+                ordered.append(key)
+                seen.add(key)
+        for key in reversed(self._output_artifact_candidates):
+            if key in seen:
+                continue
+            ordered.append(key)
+            seen.add(key)
+
+        for artifact_run_id, artifact_id in ordered:
+            try:
+                raw, content_type = self._gateway.download_run_artifact_content(
+                    run_id=artifact_run_id,
+                    artifact_id=artifact_id,
+                    max_bytes=5_000_000,
+                    timeout_s=60.0,
+                )
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: failed to load output artifact {artifact_id}: {e}")
+                continue
+
+            decoded = raw.decode("utf-8", errors="replace").strip()
+            payload: Any = None
+            if "json" in str(content_type or "").lower() or decoded.startswith(("{", "[")):
+                try:
+                    payload = json.loads(decoded)
+                except Exception:
+                    payload = None
+
+            text = self._text_from_output_payload(payload)
+            if not text and decoded and not decoded.startswith(("{", "[")):
+                text = decoded
+            if not text:
+                continue
+
+            meta.setdefault("artifact_run_id", artifact_run_id)
+            meta.setdefault("artifact_id", artifact_id)
+            meta.setdefault("artifact_content_type", str(content_type or "").strip())
+            meta["kind"] = "recovered_output_artifact"
+            return text
+        return ""
+
+    def _materialize_assistant_content(
+        self,
+        *,
+        run_id: str,
+        content: str,
+        meta: Optional[Dict[str, Any]],
+        final: bool,
+    ) -> tuple[str, Dict[str, Any]]:
+        text = str(content or "")
+        merged_meta = dict(meta or {})
+        rid = str(run_id or "").strip()
+        if rid:
+            merged_meta.setdefault("run_id", rid)
+        if text.strip() or not final:
+            return text, merged_meta
+
+        recovered = self._resolve_output_artifact_text(run_id=rid, meta=merged_meta)
+        if recovered:
+            return recovered, merged_meta
+
+        artifact = merged_meta.get("artifact") if isinstance(merged_meta.get("artifact"), dict) else None
+        image_artifact = merged_meta.get("image_artifact") if isinstance(merged_meta.get("image_artifact"), dict) else None
+        video_artifact = merged_meta.get("video_artifact") if isinstance(merged_meta.get("video_artifact"), dict) else None
+        audio_artifact = merged_meta.get("audio_artifact") if isinstance(merged_meta.get("audio_artifact"), dict) else None
+        content_type = ""
+        for candidate in (image_artifact, video_artifact, audio_artifact, artifact):
+            if not isinstance(candidate, dict):
+                continue
+            content_type = str(candidate.get("content_type") or "").strip().lower()
+            if content_type:
+                break
+
+        if content_type.startswith("image/") or image_artifact:
+            fallback = "Generated image ready."
+        elif content_type.startswith("video/") or video_artifact:
+            fallback = "Generated video ready."
+        elif content_type.startswith("audio/") or audio_artifact:
+            fallback = "Generated audio ready."
+        else:
+            fallback = "The workflow completed, but it returned no written reply."
+
+        activity = str(self._run_activity_by_run.get(rid) or "").strip()
+        if activity:
+            merged_meta.setdefault("run_activity", activity)
+        merged_meta["kind"] = "fallback_completion"
+        merged_meta["empty_response"] = True
+        return fallback, merged_meta
 
     def _submit_resume(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
         self._gateway.submit_command(
@@ -382,6 +582,7 @@ class GatewayWorker(QThread):
 
     def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
         self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
+        self._record_output_artifact_candidates(run_id=run_id, rec=rec)
         self._record_run_stats(run_id=run_id, rec=rec)
         events = self._adapter.handle_record(rec)
         for ev in events:
@@ -393,9 +594,15 @@ class GatewayWorker(QThread):
                     continue
                 history_changed = False
                 try:
-                    content = str(ev.get("content") or "")
-                    if self._should_append_assistant(content):
-                        meta = ev.get("meta") if isinstance(ev.get("meta"), dict) else {}
+                    meta = ev.get("meta") if isinstance(ev.get("meta"), dict) else {}
+                    content, meta = self._materialize_assistant_content(
+                        run_id=run_id,
+                        content=str(ev.get("content") or ""),
+                        meta=meta,
+                        final=bool(ev.get("final")),
+                    )
+                    ev["content"] = content
+                    if self._should_append_assistant(content, meta=meta):
                         if bool(ev.get("final")):
                             meta = self._meta_with_run_stats(meta, run_id=run_id)
                             ev["meta"] = meta
@@ -456,10 +663,13 @@ class GatewayWorker(QThread):
 
             self.event_emitted.emit(ev)
 
-    def _should_append_assistant(self, content: str) -> bool:
+    def _should_append_assistant(self, content: str, *, meta: Optional[Dict[str, Any]] = None) -> bool:
         text = str(content or "").strip()
         if not text:
             return False
+        candidate_meta = dict(meta or {})
+        candidate_kind = str(candidate_meta.get("kind") or "").strip().lower()
+        candidate_run_id = str(candidate_meta.get("run_id") or "").strip()
         try:
             if not self._llm_manager:
                 return True
@@ -474,10 +684,53 @@ class GatewayWorker(QThread):
                 last_text = str(msg.get("content") or "").strip()
                 if not last_text:
                     continue
-                return last_text != text
+                if last_text != text:
+                    return True
+                last_meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+                last_kind = str((last_meta or {}).get("kind") or "").strip().lower()
+                last_run_id = str((last_meta or {}).get("run_id") or "").strip()
+                if candidate_kind == "fallback_completion" and last_kind == "fallback_completion":
+                    return candidate_run_id != last_run_id
+                return False
         except Exception:
             return True
         return True
+
+    def _session_has_assistant_for_run(self, run_id: str) -> bool:
+        rid = str(run_id or "").strip()
+        if not rid or self._llm_manager is None:
+            return False
+        try:
+            messages = self._llm_manager.session_messages()
+        except Exception:
+            return False
+        if not isinstance(messages, list):
+            return False
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            if str(msg.get("role") or "") != "assistant":
+                continue
+            if str(msg.get("run_id") or "").strip() == rid and str(msg.get("content") or "").strip():
+                return True
+            meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+            if str((meta or {}).get("run_id") or "").strip() == rid and str(msg.get("content") or "").strip():
+                return True
+        return False
+
+    @staticmethod
+    def _latest_assistant_seed_for_run(messages: List[Dict[str, Any]], *, run_id: str) -> Optional[Dict[str, Any]]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            return None
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            if str(msg.get("role") or "") != "assistant":
+                continue
+            if str(msg.get("content") or "").strip() and str(msg.get("run_id") or "").strip() == rid:
+                return dict(msg)
+        return None
 
     def _is_foreground_run(self, run_id: str) -> bool:
         """Return True when events should surface to the UI."""

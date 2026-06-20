@@ -108,7 +108,7 @@ from .preferences import AssistantPreferences
 _HTML_ACTION_FENCE_RE = re.compile(r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S)
 _TRAY_BUSY_FRAME_COUNT = 24
 _TRAY_BUSY_FRAME_INTERVAL_MS = 90
-_TRAY_FEEDBACK_ICON_SIZE = 56
+_TRAY_FEEDBACK_ICON_SIZE = 44
 _TRAY_VISIBILITY_RETRY_DELAYS_MS = (0, 180, 720, 1600)
 _ZOOMED_SHELL_GROWTH = 1.4
 
@@ -536,12 +536,14 @@ def _open_external_href(href: str) -> bool:
 
 
 def _qt_icon() -> QIcon:
-    generator = IconGenerator(size=96)
+    generator = IconGenerator(size=44)
     image = generator.create_app_icon(color_scheme="green", animated=False)
     path = Path.home() / ".abstractassistant" / "v2_tray_icon.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path)
-    return QIcon(str(path))
+    pixmap = QPixmap(str(path))
+    pixmap.setDevicePixelRatio(2.0)
+    return QIcon(pixmap)
 
 
 _ICON_CACHE: Dict[tuple[str, str, int], QIcon] = {}
@@ -590,38 +592,44 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
         painter.setBrush(QColor(color.red(), color.green(), color.blue(), alpha))
         painter.drawEllipse(center, radius, radius)
 
+    def _state_disc(*, fill: QColor, ring: QColor, ring_alpha: int = 150) -> None:
+        _orb(radius=size * 0.39, color=fill, alpha=240)
+        _ring(radius=size * 0.425, width=size * 0.092, color=ring, alpha=ring_alpha)
+
     if normalized_state == "busy":
         phase = float(normalized_frame) / float(_TRAY_BUSY_FRAME_COUNT)
-        pulse = 0.82 + 0.18 * math.sin(phase * math.tau)
-        core = QColor("#3aa8ff")
-        halo = QColor("#7cd7ff")
-        _ring(radius=size * 0.34, width=size * 0.072, color=core, alpha=66)
-        _ring(radius=size * 0.25, width=size * 0.056, color=halo, alpha=54)
+        sweep = phase * 360.0
+        _state_disc(fill=QColor("#2497ff"), ring=QColor("#89ddff"), ring_alpha=118)
         for radius_factor, width_factor, span_deg, offset_deg, speed, tint in (
-            (0.36, 0.092, 148, 10, 1.0, QColor("#6ee7ff")),
-            (0.27, 0.076, 122, 150, -1.35, QColor("#4aa8ff")),
-            (0.18, 0.060, 98, 260, 1.8, QColor("#9ce4ff")),
+            (0.415, 0.095, 124, 10, 1.0, QColor("#f2fbff")),
+            (0.290, 0.070, 92, 185, -1.2, QColor("#d4f2ff")),
         ):
             painter.save()
             radius = size * radius_factor
             rect = QRectF(center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0)
-            start_deg = offset_deg + (phase * 360.0 * speed)
-            pen = QPen(QColor(tint.red(), tint.green(), tint.blue(), int(190 * pulse)))
+            start_deg = offset_deg + (sweep * speed)
+            pen = QPen(QColor(tint.red(), tint.green(), tint.blue(), 240))
             pen.setWidthF(size * width_factor)
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
             painter.drawArc(rect, int(-start_deg * 16), int(-span_deg * 16))
             painter.restore()
-        _orb(radius=size * (0.102 + 0.020 * pulse), color=QColor("#d9f4ff"), alpha=255)
-        _orb(radius=size * (0.050 + 0.012 * pulse), color=QColor("#ffffff"), alpha=255)
+        _orb(radius=size * 0.072, color=QColor("#ffffff"), alpha=255)
+        orbit_theta = math.radians((sweep * 1.4) - 45.0)
+        orbit_center = QPointF(
+            center.x() + (math.cos(orbit_theta) * size * 0.19),
+            center.y() + (math.sin(orbit_theta) * size * 0.19),
+        )
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#d8f4ff"))
+        painter.drawEllipse(orbit_center, size * 0.050, size * 0.050)
     elif normalized_state == "complete":
-        mint = QColor("#2ed8a3")
+        mint = QColor("#2ccf9b")
         gold = QColor("#ffd36c")
-        _orb(radius=size * 0.28, color=mint, alpha=235)
-        _ring(radius=size * 0.36, width=size * 0.078, color=QColor("#76f2c7"), alpha=120)
+        _state_disc(fill=mint, ring=QColor("#81f0c8"), ring_alpha=140)
         pen = QPen(gold)
-        pen.setWidthF(size * 0.07)
+        pen.setWidthF(size * 0.074)
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
         for dx1, dy1, dx2, dy2 in (
@@ -636,17 +644,21 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
             )
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#fff4cf"))
-        painter.drawEllipse(QPointF(center.x() + (size * 0.18), center.y() - (size * 0.18)), size * 0.05, size * 0.05)
+        painter.drawEllipse(QPointF(center.x() + (size * 0.19), center.y() - (size * 0.19)), size * 0.050, size * 0.050)
     else:
-        emerald = QColor("#34c86d")
-        _orb(radius=size * 0.28, color=emerald, alpha=235)
-        _ring(radius=size * 0.36, width=size * 0.078, color=QColor("#70e79a"), alpha=102)
+        _state_disc(fill=QColor("#34c86d"), ring=QColor("#9af0b3"), ring_alpha=148)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#f6fff9"))
-        for dx, dy, radius in ((0.0, 0.0, 0.076), (-0.16, -0.12, 0.046), (0.16, -0.10, 0.042), (0.12, 0.16, 0.044)):
+        for dx, dy, radius in (
+            (0.0, 0.0, 0.078),
+            (-0.20, -0.15, 0.050),
+            (0.20, -0.13, 0.046),
+            (0.14, 0.20, 0.048),
+        ):
             painter.drawEllipse(QPointF(center.x() + (dx * size), center.y() + (dy * size)), size * radius, size * radius)
 
     painter.end()
+    pixmap.setDevicePixelRatio(2.0)
     icon = QIcon(pixmap)
     _TRAY_ICON_CACHE[key] = icon
     return icon
@@ -4487,8 +4499,10 @@ class AssistantPalette(QMainWindow):
         history_wrap.setSpacing(4)
         self.chat_status_label = QLabel("Ready")
         self.chat_status_label.setObjectName("historyStatusLabel")
+        self.chat_status_label.setWordWrap(True)
         self.chat_status_label.hide()
         history_wrap.addWidget(self.banner_label)
+        history_wrap.addWidget(self.chat_status_label)
         history_wrap.addWidget(self.history_scroll, 1)
 
         self.composer_card = AttachmentDropFrame(central)
@@ -4599,6 +4613,19 @@ class AssistantPalette(QMainWindow):
     def _set_status(self, text: str, tone: str = "neutral") -> None:
         self._status_text = str(text or "").strip() or "Ready"
         self._status_tone = str(tone or "neutral").strip() or "neutral"
+
+    def _set_history_status(self, text: str = "", *, tone: str = "neutral") -> None:
+        message = str(text or "").strip()
+        if not message:
+            self.chat_status_label.clear()
+            self.chat_status_label.hide()
+            return
+        display = message if len(message) <= 160 else f"{message[:157].rstrip()}..."
+        self.chat_status_label.setText(display)
+        self.chat_status_label.setProperty("tone", str(tone or "neutral").strip() or "neutral")
+        self.chat_status_label.setToolTip(message)
+        self._refresh_widget_style(self.chat_status_label)
+        self.chat_status_label.show()
 
     def _set_banner(self, text: str = "", tone: str = "info") -> None:
         message = str(text or "").strip()
@@ -5142,6 +5169,7 @@ class AssistantPalette(QMainWindow):
         self._run_has_final_output = False
         self._tray_completion_unread = False
         self._set_status("Running assistant workflow...", tone="busy")
+        self._set_history_status("Running assistant workflow...", tone="busy")
         self._refresh_tray_feedback()
         try:
             worker = self._controller.build_chat_worker(
@@ -5172,7 +5200,18 @@ class AssistantPalette(QMainWindow):
             inactive_statuses = {"completed", "complete", "ready", "idle", "offline", "error", "failed", "cancelled"}
             self._run_busy = status_lower not in inactive_statuses and not self._run_has_final_output
             self._set_status(status_text, tone="busy" if self._run_busy else "neutral")
+            if self._run_busy:
+                if not str(self.chat_status_label.text() or "").strip():
+                    self._set_history_status(status_text, tone="busy")
+            elif status_lower in {"offline", "error", "failed", "cancelled"}:
+                tone = "error" if status_lower in {"error", "failed"} else "info"
+                self._set_history_status(status_text, tone=tone)
             self._refresh_tray_feedback()
+            return
+        if typ == "run_activity":
+            summary = str(payload.get("summary") or "").strip()
+            if summary:
+                self._set_history_status(summary, tone="busy")
             return
         if typ == "user_message_appended":
             self._on_user_message_appended(str(payload.get("content") or ""))
@@ -5189,7 +5228,13 @@ class AssistantPalette(QMainWindow):
                         message_key=self._latest_visible_message_key(role="assistant"),
                     )
                 )
+            metadata = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+            fallback_completion = str(metadata.get("kind") or "").strip().lower() == "fallback_completion"
             self._set_status("Ready")
+            if is_final and fallback_completion:
+                self._set_history_status(str(payload.get("content") or "").strip(), tone="info")
+            elif is_final:
+                self._set_history_status()
             if self.auto_speak.isChecked() and is_final:
                 self._controller.voice_manager.speak(str(payload.get("content") or ""))
             if is_final:
@@ -5201,12 +5246,20 @@ class AssistantPalette(QMainWindow):
                     self._notify_completion_ready(content)
             return
         if typ == "tool_request":
+            tool_calls = payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else []
+            if tool_calls:
+                summary = _tool_call_summary(tool_calls[0])
+                self._set_history_status(f"Waiting for approval: {summary.name}", tone="busy")
+            else:
+                self._set_history_status("Waiting for tool approval", tone="busy")
             dialog = ToolApprovalDialog(tool_calls=payload.get("tool_calls"), parent=self)
             approved = dialog.exec_() == QDialog.Accepted
             self._worker.provide_tool_approval(approved)
             return
         if typ == "ask_user":
             prompt = str(payload.get("prompt") or "Input required").strip()
+            short_prompt = prompt if len(prompt) <= 120 else f"{prompt[:117].rstrip()}..."
+            self._set_history_status(f"Waiting for your input: {short_prompt}", tone="busy")
             response, ok = QInputDialog.getText(self, "Input required", prompt)
             text = response if ok else ""
             self._worker.provide_user_response(text)
@@ -5223,6 +5276,13 @@ class AssistantPalette(QMainWindow):
                 self.refresh_history()
             return
         if typ == "tool":
+            message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+            metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+            tool_name = str((metadata or {}).get("name") or "").strip()
+            if tool_name:
+                self._set_history_status(f"Tool executed: {tool_name}", tone="busy")
+            else:
+                self._set_history_status("Tool executed", tone="busy")
             return
 
     def _on_worker_error(self, error: str) -> None:
@@ -5230,6 +5290,7 @@ class AssistantPalette(QMainWindow):
         self._run_has_final_output = True
         self._tray_completion_unread = False
         self._set_status("Error", tone="error")
+        self._set_history_status(str(error or "Unknown error"), tone="error")
         self._refresh_tray_feedback()
         self._notify("Assistant error", str(error or "Unknown error"))
         QMessageBox.critical(self, "Assistant error", str(error or "Unknown error"))
@@ -5238,6 +5299,26 @@ class AssistantPalette(QMainWindow):
         had_indicator = self._show_thinking_indicator()
         self._worker = None
         self._run_busy = False
+        if not self._run_has_final_output:
+            fallback = "The workflow completed, but it returned no written reply."
+            try:
+                self._controller.append_assistant_message(
+                    fallback,
+                    metadata={
+                        "kind": "fallback_completion",
+                        "run_id": str(self._controller.last_run_id() or "").strip(),
+                    },
+                )
+            except Exception:
+                pass
+            self._run_has_final_output = True
+            self._set_history_status(fallback, tone="info")
+            self.refresh_history(
+                request=self._history_scroll_request(
+                    mode="message_top",
+                    message_key=self._latest_visible_message_key(role="assistant"),
+                )
+            )
         self._refresh_tray_feedback()
         if had_indicator != self._show_thinking_indicator():
             self.refresh_history()

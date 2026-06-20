@@ -190,6 +190,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         messages = seed_messages_from_history_bundle(
             bundle,
             include_tool_calls_for_run_id=run_id,
+            artifact_loader=lambda rid, aid: gateway.download_run_artifact_content(run_id=rid, artifact_id=aid),
         )
         if messages:
             llm_manager.replace_gateway_messages(messages, last_run_id=run_id)

@@ -483,6 +483,7 @@ class AbstractAssistantApp:
             
             pixmap = QPixmap()
             pixmap.loadFromData(img_buffer.getvalue())
+            pixmap.setDevicePixelRatio(pixmap.width() / 22.0)
             qt_icon = QIcon(pixmap)
             
             # Update the Qt tray icon

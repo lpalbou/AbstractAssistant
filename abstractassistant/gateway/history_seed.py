@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 def _now_iso() -> str:
@@ -143,7 +143,8 @@ def _seed_from_telegram_ledgers(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
             rec = it.get("record") if isinstance(it, dict) else None
             if not isinstance(rec, dict):
                 continue
-            eff_type = str(rec.get("effect", {}).get("type") or "").strip()
+            eff = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+            eff_type = str(eff.get("type") or "").strip()
             if eff_type == "resume":
                 hit = _extract_telegram_from_resume_payload(rec)
                 if hit:
@@ -185,6 +186,157 @@ def _truncate_output(text: str, *, limit: int = 8000) -> str:
     if len(raw) <= int(limit):
         return raw
     return f"{raw[: int(limit)]}\n#TRUNCATION: tool output preview exceeded {limit} chars"
+
+
+def _pick_textish(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if value is None:
+        return ""
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return ""
+
+
+def _decode_artifact_payload(value: Any) -> Any:
+    raw = value
+    if isinstance(value, tuple) and value:
+        raw = value[0]
+    if isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            text = bytes(raw).decode("utf-8")
+        except Exception:
+            text = bytes(raw).decode("utf-8", errors="replace")
+    else:
+        text = str(raw or "")
+    if not text.strip():
+        return ""
+    try:
+        return json.loads(text)
+    except Exception:
+        return text
+
+
+def _terminal_output_record(bundle: Dict[str, Any], *, run_id: str) -> Optional[Dict[str, Any]]:
+    rid = str(run_id or "").strip()
+    if not rid:
+        return None
+    ledger = bundle.get("ledgers", {}).get(rid) if isinstance(bundle.get("ledgers"), dict) else None
+    items = ledger.get("items") if isinstance(ledger, dict) else None
+    if not isinstance(items, list):
+        return None
+    for item in reversed(items):
+        rec = item.get("record") if isinstance(item, dict) else None
+        result = rec.get("result") if isinstance(rec, dict) else None
+        if isinstance(result, dict) and result.get("output") is not None:
+            return rec
+    return None
+
+
+def _resolve_output_payload(
+    output: Any,
+    *,
+    run_id: str,
+    artifact_loader: Optional[Callable[[str, str], Any]],
+) -> Any:
+    if not isinstance(output, dict):
+        return output
+    artifact_id = output.get("$artifact") or output.get("artifact_id")
+    if not isinstance(artifact_id, str) or not artifact_id.strip() or artifact_loader is None:
+        return output
+    try:
+        return _decode_artifact_payload(artifact_loader(str(run_id or "").strip(), artifact_id.strip()))
+    except Exception:
+        return output
+
+
+def _extract_response_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return (
+            _pick_textish(value.get("answer"))
+            or _pick_textish(value.get("response"))
+            or _pick_textish(value.get("message"))
+            or _pick_textish(value.get("text"))
+            or _pick_textish(value.get("content"))
+        )
+    return _pick_textish(value)
+
+
+def recover_missing_assistant_from_history_bundle(
+    bundle: Dict[str, Any],
+    *,
+    run_id: Optional[str] = None,
+    artifact_loader: Optional[Callable[[str, str], Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    rid = str(run_id or bundle.get("root_run_id") or "").strip()
+    if not rid:
+        return None
+
+    root_rec = _terminal_output_record(bundle, run_id=rid)
+    if not isinstance(root_rec, dict):
+        return None
+    root_result = root_rec.get("result") if isinstance(root_rec.get("result"), dict) else {}
+    root_output = _resolve_output_payload(
+        root_result.get("output"),
+        run_id=rid,
+        artifact_loader=artifact_loader,
+    )
+    root_text = _extract_response_text(root_output)
+    root_meta = dict(root_output.get("meta")) if isinstance(root_output, dict) and isinstance(root_output.get("meta"), dict) else {}
+    if root_text:
+        meta = dict(root_meta)
+        meta.setdefault("kind", "recovered_history_answer")
+        meta.setdefault("run_id", rid)
+        return {
+            "role": "assistant",
+            "content": root_text,
+            "ts": _ts_from_record(root_rec),
+            "run_id": rid,
+            "metadata": meta or None,
+        }
+
+    sub_run_id = ""
+    if isinstance(root_meta, dict):
+        sub_run_id = str(root_meta.get("sub_run_id") or root_meta.get("subRunId") or "").strip()
+    if not sub_run_id and isinstance(root_output, dict):
+        scratchpad = root_output.get("scratchpad")
+        if isinstance(scratchpad, dict):
+            sub_run_id = str(scratchpad.get("sub_run_id") or scratchpad.get("subRunId") or "").strip()
+    if not sub_run_id:
+        return None
+
+    sub_rec = _terminal_output_record(bundle, run_id=sub_run_id)
+    if not isinstance(sub_rec, dict):
+        return None
+    sub_result = sub_rec.get("result") if isinstance(sub_rec.get("result"), dict) else {}
+    sub_output_raw = sub_result.get("output")
+    artifact_id = ""
+    if isinstance(sub_output_raw, dict):
+        artifact_id = str(sub_output_raw.get("$artifact") or sub_output_raw.get("artifact_id") or "").strip()
+    sub_output = _resolve_output_payload(
+        sub_output_raw,
+        run_id=sub_run_id,
+        artifact_loader=artifact_loader,
+    )
+    sub_text = _extract_response_text(sub_output)
+    if not sub_text:
+        return None
+
+    meta = dict(root_meta)
+    meta["kind"] = "recovered_history_answer"
+    meta["run_id"] = rid
+    meta["sub_run_id"] = sub_run_id
+    if artifact_id:
+        meta["artifact_id"] = artifact_id
+    return {
+        "role": "assistant",
+        "content": sub_text,
+        "ts": _ts_from_record(root_rec),
+        "run_id": rid,
+        "metadata": meta,
+    }
 
 
 def _extract_artifacts_from_output(obj: Any) -> List[Dict[str, str]]:
@@ -306,6 +458,7 @@ def seed_messages_from_history_bundle(
     bundle: Dict[str, Any],
     *,
     include_tool_calls_for_run_id: Optional[str] = None,
+    artifact_loader: Optional[Callable[[str, str], Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Return a list of session message dicts from a history bundle."""
     if not isinstance(bundle, dict):
@@ -315,17 +468,37 @@ def seed_messages_from_history_bundle(
     from_turns = _seed_from_session_turns(bundle)
     if from_turns:
         extra_tools = _seed_tool_cards(bundle, include_tool_calls_for_run_id or "") if include_tool_calls_for_run_id else []
-        return from_turns + extra_tools
+        out = from_turns + extra_tools
+    else:
+        from_tg = _seed_from_telegram_ledgers(bundle)
+        extra_tools = _seed_tool_cards(bundle, include_tool_calls_for_run_id or "") if include_tool_calls_for_run_id else []
+        if from_tg:
+            out = from_tg + extra_tools
+        else:
+            root_prompt = str(bundle.get("input_data", {}).get("prompt") or bundle.get("input_data", {}).get("context", {}).get("task") or "").strip()
+            if not root_prompt:
+                if extra_tools:
+                    out = extra_tools
+                else:
+                    warnings.warn("#FALLBACK: history bundle had no session turns; using empty seed")
+                    out = []
+            else:
+                out = [{"role": "user", "content": root_prompt, "ts": _now_iso(), "run_id": str(bundle.get("root_run_id") or "").strip() or None}] + extra_tools
 
-    from_tg = _seed_from_telegram_ledgers(bundle)
-    extra_tools = _seed_tool_cards(bundle, include_tool_calls_for_run_id or "") if include_tool_calls_for_run_id else []
-    if from_tg:
-        return from_tg + extra_tools
-
-    root_prompt = str(bundle.get("input_data", {}).get("prompt") or bundle.get("input_data", {}).get("context", {}).get("task") or "").strip()
-    if not root_prompt:
-        if extra_tools:
-            return extra_tools
-        warnings.warn("#FALLBACK: history bundle had no session turns; using empty seed")
-        return []
-    return [{"role": "user", "content": root_prompt, "ts": _now_iso(), "run_id": str(bundle.get("root_run_id") or "").strip() or None}] + extra_tools
+    target_run_id = str(include_tool_calls_for_run_id or bundle.get("root_run_id") or "").strip()
+    has_assistant = any(
+        isinstance(msg, dict)
+        and str(msg.get("role") or "") == "assistant"
+        and str(msg.get("run_id") or "").strip() == target_run_id
+        and str(msg.get("content") or "").strip()
+        for msg in out
+    )
+    if not has_assistant:
+        recovered = recover_missing_assistant_from_history_bundle(
+            bundle,
+            run_id=target_run_id or None,
+            artifact_loader=artifact_loader,
+        )
+        if isinstance(recovered, dict):
+            out.append(recovered)
+    return out

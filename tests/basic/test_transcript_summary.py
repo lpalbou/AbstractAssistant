@@ -156,3 +156,28 @@ def test_build_display_messages_includes_artifact_links() -> None:
         and link.get("run_id") == "run_1"
         for link in links
     )
+
+
+@pytest.mark.basic
+def test_build_display_messages_summarizes_truncated_web_search_from_metadata_arguments() -> None:
+    raw = [
+        {"role": "user", "content": "search roles", "timestamp": "2026-02-04T12:00:00+00:00"},
+        {"role": "assistant", "content": "", "metadata": {"kind": "tool_calls"}},
+        {
+            "role": "tool",
+            "content": "{\"success\":true,\"status_hint\":\"warning\",\"backend_used\":\"duckduckgo.html\",\"results\":[]}\n#TRUNCATION: tool output preview exceeded 8000 chars",
+            "metadata": {
+                "name": "web_search",
+                "success": True,
+                "status_hint": "warning",
+                "arguments": {"query": "Genentech AI roles"},
+            },
+        },
+        {"role": "assistant", "content": "Done.", "metadata": {"kind": "final_answer"}},
+    ]
+
+    out = build_display_messages(raw)
+    assistant = out[-1]
+    summary = str(assistant.get("tool_summary") or "")
+    assert "Genentech AI roles" in summary
+    assert "duckduckgo.html" in summary

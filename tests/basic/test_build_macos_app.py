@@ -19,6 +19,8 @@ def test_pyinstaller_spec_declares_menu_bar_app_contract() -> None:
     assert 'console=False' in spec
     assert 'argv_emulation=False' in spec
     assert 'collect_submodules("pymdownx")' in spec
+    assert 'ROOT.parent / "abstractcore"' in spec
+    assert 'collect_submodules("abstractcore")' in spec
 
 
 @pytest.mark.basic

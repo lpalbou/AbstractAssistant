@@ -52,6 +52,24 @@ from abstractassistantv2.preferences import (
 from abstractassistant.ui.gateway_worker import GatewayWorker
 
 
+def _alpha_bbox(pixmap, *, threshold: int = 128) -> tuple[int, int, int, int] | None:
+    image = pixmap.toImage()
+    min_x = image.width()
+    min_y = image.height()
+    max_x = -1
+    max_y = -1
+    for y in range(image.height()):
+        for x in range(image.width()):
+            if image.pixelColor(x, y).alpha() > threshold:
+                min_x = min(min_x, x)
+                min_y = min(min_y, y)
+                max_x = max(max_x, x)
+                max_y = max(max_y, y)
+    if max_x < 0 or max_y < 0:
+        return None
+    return min_x, min_y, max_x + 1, max_y + 1
+
+
 class _GatewayCatalogStub:
     def __init__(self) -> None:
         self.voice_model_calls: list[dict] = []
@@ -405,6 +423,22 @@ def test_assistant_v2_busy_tray_feedback_icon_renders_pixmap() -> None:
 
 
 @pytest.mark.basic
+@pytest.mark.parametrize("state", ["idle", "busy", "complete"])
+def test_assistant_v2_tray_feedback_icon_uses_large_opaque_footprint(state: str) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    icon = _tray_feedback_icon(state=state, frame=5, size=44)
+    pixmap = icon.pixmap(44, 44)
+    bbox = _alpha_bbox(pixmap, threshold=128)
+
+    assert app is not None
+    assert bbox is not None
+    left, top, right, bottom = bbox
+    assert right - left >= 38
+    assert bottom - top >= 38
+
+
+@pytest.mark.basic
 def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
     captures: list[str] = []
@@ -465,6 +499,7 @@ def test_assistant_v2_hidden_final_reply_marks_unread_and_notifies() -> None:
     palette.refresh_history = lambda request=None: history_calls.append(request)
     palette._history_scroll_request = lambda **kwargs: HistoryScrollRequest(**kwargs)
     palette._latest_visible_message_key = lambda role="": "assistant-1"
+    palette._set_history_status = lambda text="", tone="neutral": None
     palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
     palette._refresh_tray_feedback = lambda: refresh_calls.append("refresh")
     palette._notify_completion_ready = lambda content: notifications.append(content)
@@ -482,6 +517,80 @@ def test_assistant_v2_hidden_final_reply_marks_unread_and_notifies() -> None:
     assert refresh_calls == ["refresh"]
     assert notifications == ["Rendered and ready."]
     assert history_calls == []
+
+
+@pytest.mark.basic
+def test_assistant_v2_run_activity_event_updates_inline_status() -> None:
+    status_calls: list[tuple[str, str]] = []
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._on_worker_event(
+        palette,
+        {"type": "run_activity", "summary": "Running (abc123): search online for Genentech roles"},
+    )
+
+    assert status_calls == [("Running (abc123): search online for Genentech roles", "busy")]
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_event_updates_inline_status() -> None:
+    status_calls: list[tuple[str, str]] = []
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._on_worker_event(
+        palette,
+        {"type": "tool", "message": {"metadata": {"name": "web_search"}}},
+    )
+
+    assert status_calls == [("Tool executed: web_search", "busy")]
+
+
+@pytest.mark.basic
+def test_assistant_v2_worker_finished_inserts_last_resort_fallback() -> None:
+    appended: list[tuple[str, dict]] = []
+    history_calls: list[HistoryScrollRequest] = []
+    status_calls: list[tuple[str, str]] = []
+    refresh_calls: list[str] = []
+
+    class _Controller:
+        @staticmethod
+        def append_assistant_message(content: str, metadata=None) -> None:
+            appended.append((content, dict(metadata or {})))
+
+        @staticmethod
+        def last_run_id() -> str:
+            return "run-123"
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._worker = object()
+    palette._run_busy = True
+    palette._run_has_final_output = False
+    palette._controller = _Controller()
+    palette._show_thinking_indicator = lambda: False
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette.refresh_history = lambda request=None: history_calls.append(request)
+    palette._history_scroll_request = lambda **kwargs: HistoryScrollRequest(**kwargs)
+    palette._latest_visible_message_key = lambda role="": "assistant-fallback"
+    palette._refresh_tray_feedback = lambda: refresh_calls.append("refresh")
+    palette._set_status = lambda text, tone="neutral": status_calls.append((f"main:{text}", tone))
+
+    AssistantPalette._on_worker_finished(palette)
+
+    assert appended == [
+        (
+            "The workflow completed, but it returned no written reply.",
+            {"kind": "fallback_completion", "run_id": "run-123"},
+        )
+    ]
+    assert palette._run_has_final_output is True
+    assert history_calls == [HistoryScrollRequest(mode="message_top", message_key="assistant-fallback", offset=0)]
+    assert ("The workflow completed, but it returned no written reply.", "info") in status_calls
+    assert ("main:Ready", "neutral") in status_calls
+    assert refresh_calls == ["refresh"]
 
 
 @pytest.mark.basic
