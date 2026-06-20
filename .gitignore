@@ -42,7 +42,6 @@ venv.bak/
 
 # macOS specific
 .DS_Store
-AbstractAssistant.app/
 
 # IDEs and editors
 .vscode/
@@ -77,4 +76,5 @@ config.local.toml
 # Manual package
 local_settings.py
 
+untracked/
 */CLAUDE.md

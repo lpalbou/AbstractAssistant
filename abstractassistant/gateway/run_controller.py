@@ -133,6 +133,7 @@ class GatewayRunController:
                     print(f"❌ Gateway stream_ledger failed for {run_id}: {e}")
                 if on_offline:
                     on_offline(str(e))
+                raise e
 
             if sub_run_id:
                 return after, sub_run_id, False

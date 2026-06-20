@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from datetime import datetime
 from html.parser import HTMLParser
 import mimetypes
 import math
+import os
 import re
 import shutil
 import signal
@@ -96,7 +98,7 @@ except Exception:  # pragma: no cover - macOS-only enhancement
 
 from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
 from abstractassistant.utils.icon_generator import IconGenerator
-from abstractassistant.utils.markdown_renderer import MarkdownRenderer
+from abstractassistant.utils.markdown_renderer import MarkdownRenderer, split_markdown_mermaid_blocks
 
 from .controller import AssistantV2Controller
 from .gateway import ROUTE_SPECS, CapabilityRouteRow
@@ -104,6 +106,11 @@ from .hotkey import GlobalHotkeyManager
 from .preferences import AssistantPreferences
 
 _HTML_ACTION_FENCE_RE = re.compile(r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S)
+_TRAY_BUSY_FRAME_COUNT = 24
+_TRAY_BUSY_FRAME_INTERVAL_MS = 90
+_TRAY_FEEDBACK_ICON_SIZE = 56
+_TRAY_VISIBILITY_RETRY_DELAYS_MS = (0, 180, 720, 1600)
+_ZOOMED_SHELL_GROWTH = 1.4
 
 
 @dataclass(frozen=True)
@@ -111,6 +118,28 @@ class HistoryScrollRequest:
     mode: str = "preserve"
     message_key: str = ""
     offset: int = 0
+
+
+@dataclass(frozen=True)
+class TrayVisibilityState:
+    available: bool = True
+    qt_visible: bool = False
+    native_item_count: int = -1
+    native_button_size: tuple[int, int] = (0, 0)
+    native_image_size: tuple[int, int] = (0, 0)
+    error: str = ""
+
+    @property
+    def ready(self) -> bool:
+        if sys.platform == "darwin":
+            return (
+                self.native_item_count > 0
+                and self.native_button_size[0] > 0
+                and self.native_button_size[1] > 0
+                and self.native_image_size[0] > 0
+                and self.native_image_size[1] > 0
+            )
+        return bool(self.qt_visible)
 
 
 @dataclass(frozen=True)
@@ -321,6 +350,13 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         max-height: 168px !important;
         border-radius: 10px !important;
     }
+    .markdown-content .mermaid-diagram img {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        border-radius: 0 !important;
+    }
     .markdown-content table {
         width: 100% !important;
         table-layout: auto !important;
@@ -474,6 +510,21 @@ def _assistant_content_with_actions(content: str) -> tuple[str, List[AssistantHt
     return cleaned, actions
 
 
+def _assistant_content_blocks(content: str) -> tuple[List[Dict[str, str]], List[AssistantHtmlAction]]:
+    cleaned, actions = _assistant_content_with_actions(content)
+    blocks: List[Dict[str, str]] = []
+    for block in split_markdown_mermaid_blocks(cleaned):
+        if block.kind == "mermaid" and block.data_uri:
+            blocks.append({"kind": "mermaid", "text": block.text, "data_uri": block.data_uri})
+            continue
+        text = str(block.text or "")
+        if text:
+            blocks.append({"kind": "markdown", "text": text, "data_uri": ""})
+    if not blocks:
+        blocks.append({"kind": "markdown", "text": "", "data_uri": ""})
+    return blocks, actions
+
+
 def _open_external_href(href: str) -> bool:
     text = str(href or "").strip()
     if not _assistant_action_href_allowed(text):
@@ -494,6 +545,111 @@ def _qt_icon() -> QIcon:
 
 
 _ICON_CACHE: Dict[tuple[str, str, int], QIcon] = {}
+_TRAY_ICON_CACHE: Dict[tuple[str, int, int], QIcon] = {}
+
+
+def _zoomed_shell_size(*, screen_width: int, screen_height: int, normal_width: int, normal_height: int) -> tuple[int, int]:
+    base_width = min(max(int(screen_width * 0.50), max(760, normal_width + 140)), int(screen_width * 0.62))
+    base_height = min(max(int(screen_height * 0.56), max(420, normal_height + 72)), int(screen_height * 0.72))
+    width = min(
+        max(int(round(base_width * _ZOOMED_SHELL_GROWTH)), max(960, normal_width + 260)),
+        int(screen_width * 0.86),
+    )
+    height = min(
+        max(int(round(base_height * _ZOOMED_SHELL_GROWTH)), max(588, normal_height + 160)),
+        int(screen_height * 0.92),
+    )
+    return max(420, width), max(320, height)
+
+
+def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRAY_FEEDBACK_ICON_SIZE) -> QIcon:
+    normalized_state = str(state or "idle").strip().lower() or "idle"
+    normalized_frame = int(frame or 0) % _TRAY_BUSY_FRAME_COUNT
+    key = (normalized_state, normalized_frame, int(size))
+    cached = _TRAY_ICON_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    center = QPointF(size / 2.0, size / 2.0)
+
+    def _ring(*, radius: float, width: float, color: QColor, alpha: int) -> None:
+        pen = QPen(QColor(color.red(), color.green(), color.blue(), alpha))
+        pen.setWidthF(width)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(center, radius, radius)
+
+    def _orb(*, radius: float, color: QColor, alpha: int) -> None:
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(color.red(), color.green(), color.blue(), alpha))
+        painter.drawEllipse(center, radius, radius)
+
+    if normalized_state == "busy":
+        phase = float(normalized_frame) / float(_TRAY_BUSY_FRAME_COUNT)
+        pulse = 0.82 + 0.18 * math.sin(phase * math.tau)
+        core = QColor("#3aa8ff")
+        halo = QColor("#7cd7ff")
+        _ring(radius=size * 0.34, width=size * 0.072, color=core, alpha=66)
+        _ring(radius=size * 0.25, width=size * 0.056, color=halo, alpha=54)
+        for radius_factor, width_factor, span_deg, offset_deg, speed, tint in (
+            (0.36, 0.092, 148, 10, 1.0, QColor("#6ee7ff")),
+            (0.27, 0.076, 122, 150, -1.35, QColor("#4aa8ff")),
+            (0.18, 0.060, 98, 260, 1.8, QColor("#9ce4ff")),
+        ):
+            painter.save()
+            radius = size * radius_factor
+            rect = QRectF(center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0)
+            start_deg = offset_deg + (phase * 360.0 * speed)
+            pen = QPen(QColor(tint.red(), tint.green(), tint.blue(), int(190 * pulse)))
+            pen.setWidthF(size * width_factor)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawArc(rect, int(-start_deg * 16), int(-span_deg * 16))
+            painter.restore()
+        _orb(radius=size * (0.102 + 0.020 * pulse), color=QColor("#d9f4ff"), alpha=255)
+        _orb(radius=size * (0.050 + 0.012 * pulse), color=QColor("#ffffff"), alpha=255)
+    elif normalized_state == "complete":
+        mint = QColor("#2ed8a3")
+        gold = QColor("#ffd36c")
+        _orb(radius=size * 0.28, color=mint, alpha=235)
+        _ring(radius=size * 0.36, width=size * 0.078, color=QColor("#76f2c7"), alpha=120)
+        pen = QPen(gold)
+        pen.setWidthF(size * 0.07)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        for dx1, dy1, dx2, dy2 in (
+            (0.0, -0.18, 0.0, 0.18),
+            (-0.18, 0.0, 0.18, 0.0),
+            (-0.12, -0.12, 0.12, 0.12),
+            (-0.12, 0.12, 0.12, -0.12),
+        ):
+            painter.drawLine(
+                QPointF(center.x() + (dx1 * size), center.y() + (dy1 * size)),
+                QPointF(center.x() + (dx2 * size), center.y() + (dy2 * size)),
+            )
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#fff4cf"))
+        painter.drawEllipse(QPointF(center.x() + (size * 0.18), center.y() - (size * 0.18)), size * 0.05, size * 0.05)
+    else:
+        emerald = QColor("#34c86d")
+        _orb(radius=size * 0.28, color=emerald, alpha=235)
+        _ring(radius=size * 0.36, width=size * 0.078, color=QColor("#70e79a"), alpha=102)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#f6fff9"))
+        for dx, dy, radius in ((0.0, 0.0, 0.076), (-0.16, -0.12, 0.046), (0.16, -0.10, 0.042), (0.12, 0.16, 0.044)):
+            painter.drawEllipse(QPointF(center.x() + (dx * size), center.y() + (dy * size)), size * radius, size * radius)
+
+    painter.end()
+    icon = QIcon(pixmap)
+    _TRAY_ICON_CACHE[key] = icon
+    return icon
 
 
 def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
@@ -1261,6 +1417,47 @@ class DampedScrollArea(QScrollArea):
         event.accept()
 
 
+class PannableScrollArea(DampedScrollArea):
+    def __init__(self, *, factor: float = 0.7, parent: Optional[QWidget] = None) -> None:
+        super().__init__(factor=factor, parent=parent)
+        self._drag_origin: Optional[QPoint] = None
+        self.setWidgetResizable(False)
+        self.viewport().installEventFilter(self)
+        self.viewport().setCursor(Qt.ArrowCursor)
+
+    def refresh_pan_state(self) -> None:
+        if self._drag_origin is not None:
+            self.viewport().setCursor(Qt.ClosedHandCursor)
+            return
+        can_pan = self.horizontalScrollBar().maximum() > 0 or self.verticalScrollBar().maximum() > 0
+        self.viewport().setCursor(Qt.OpenHandCursor if can_pan else Qt.ArrowCursor)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.viewport():
+            event_type = event.type()
+            if event_type == QEvent.Enter:
+                self.refresh_pan_state()
+            elif event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                if self.horizontalScrollBar().maximum() > 0 or self.verticalScrollBar().maximum() > 0:
+                    self._drag_origin = event.pos()
+                    self.viewport().setCursor(Qt.ClosedHandCursor)
+                    event.accept()
+                    return True
+            elif event_type == QEvent.MouseMove and self._drag_origin is not None:
+                delta = event.pos() - self._drag_origin
+                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+                self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+                self._drag_origin = event.pos()
+                event.accept()
+                return True
+            elif event_type in {QEvent.MouseButtonRelease, QEvent.Leave} and self._drag_origin is not None:
+                self._drag_origin = None
+                self.refresh_pan_state()
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+
 class AttachmentDropFrame(QFrame):
     files_dropped = pyqtSignal(object)
     drop_active_changed = pyqtSignal(bool)
@@ -1586,7 +1783,7 @@ class MessageCard(QFrame):
         self._voice_button = None
         self._voice_spinner = None
         self._content = str(message.get("content") or "")
-        self._rendered_content, self._html_actions = _assistant_content_with_actions(self._content)
+        self._content_blocks, self._html_actions = _assistant_content_blocks(self._content)
         self._role = role
         self._history_message_key = str(message_key or "").strip()
         self._media_artifacts = _message_media_artifacts(message)
@@ -1611,7 +1808,7 @@ class MessageCard(QFrame):
             pass
         bubble_layout = QVBoxLayout(bubble)
         bubble_layout.setContentsMargins(12, 10, 12, 10)
-        bubble_layout.setSpacing(4)
+        bubble_layout.setSpacing(0 if is_user else 4)
 
         if not is_user:
             header_row = QHBoxLayout()
@@ -1642,19 +1839,32 @@ class MessageCard(QFrame):
             header_row.addWidget(copy_button)
             self._copy_button = copy_button
 
-        if self._rendered_content.strip():
-            if is_user:
-                browser = AutoSizingTextBrowser(min_height=20, max_height=None)
-                browser.setObjectName("userMessageText")
-                browser.setStyleSheet("background: transparent; border: none; color: #ffffff; padding: 0px; margin: 0px;")
-                browser.setHtml(_user_html(self._content))
-                browser.refresh_height()
-                bubble_layout.addWidget(browser)
-            else:
+        if is_user:
+            browser = AutoSizingTextBrowser(min_height=20, max_height=None)
+            browser.setObjectName("userMessageText")
+            browser.setStyleSheet("background: transparent; border: none; color: #ffffff; padding: 0px; margin: 0px;")
+            browser.setHtml(_user_html(self._content))
+            browser.refresh_height()
+            bubble_layout.addWidget(browser)
+        else:
+            for block in self._content_blocks:
+                kind = str(block.get("kind") or "").strip().lower()
+                if kind == "mermaid":
+                    preview = MermaidPreviewCard(
+                        source=str(block.get("text") or ""),
+                        data_uri=str(block.get("data_uri") or ""),
+                        bubble_width=max(180, int(bubble_width or 0) - 24),
+                        parent=bubble,
+                    )
+                    bubble_layout.addWidget(preview, 0, Qt.AlignLeft)
+                    continue
+                rendered_text = str(block.get("text") or "")
+                if not rendered_text.strip():
+                    continue
                 browser = AutoSizingTextBrowser(min_height=28, max_height=None)
                 browser.setObjectName("assistantMessageText")
                 browser.setStyleSheet("background: transparent; border: none; color: #e8edf4; padding: 0px; margin: 0px;")
-                browser.setHtml(_assistant_html(renderer, self._rendered_content))
+                browser.setHtml(_assistant_html(renderer, rendered_text))
                 browser.refresh_height()
                 bubble_layout.addWidget(browser)
 
@@ -1703,7 +1913,7 @@ class MessageCard(QFrame):
         timestamp = _format_message_timestamp(ts_val)
         if timestamp:
             stamp_row = QHBoxLayout()
-            stamp_row.setContentsMargins(0, 2, 2, 0)
+            stamp_row.setContentsMargins(0, 0 if is_user else 2, 2, 0)
             stamp_row.setSpacing(0)
             stamp_row.addStretch(1)
             stamp = QLabel(timestamp)
@@ -1726,6 +1936,8 @@ class MessageCard(QFrame):
         bubble.setFixedWidth(width_val)
         for browser in self.findChildren(AutoSizingTextBrowser):
             browser.refresh_height(width_val - 24)
+        for preview in self.findChildren(MermaidPreviewCard):
+            preview.set_bubble_width(width_val - 24)
 
     def sync_to_viewport_width(self, viewport_width: int) -> None:
         self.set_bubble_width(_message_bubble_width(viewport_width, role=self._role))
@@ -2240,6 +2452,168 @@ class InlineMediaPlayer(QFrame):
                 player.stop()
             except Exception:
                 pass
+
+
+_MERMAID_PREVIEW_MAX_WIDTH = 860
+_MERMAID_INLINE_MIN_HEIGHT = 140
+_MERMAID_INLINE_MAX_HEIGHT = 420
+_MERMAID_INLINE_MIN_ZOOM = 0.25
+_MERMAID_INLINE_MAX_ZOOM = 4.0
+_MERMAID_INLINE_MIN_RENDER_SCALE = 0.02
+_MERMAID_INLINE_MAX_RENDER_SCALE = 8.0
+_MERMAID_ZOOM_STEP = 1.18
+
+
+def _pixmap_from_data_uri(data_uri: str) -> QPixmap:
+    text = str(data_uri or "").strip()
+    if not text.startswith("data:image/"):
+        return QPixmap()
+    _, _, payload = text.partition(",")
+    if not payload:
+        return QPixmap()
+    try:
+        raw = base64.b64decode(payload)
+    except Exception:
+        return QPixmap()
+    pixmap = QPixmap()
+    if not pixmap.loadFromData(raw):
+        return QPixmap()
+    return pixmap
+
+
+class MermaidPreviewCard(QFrame):
+    def __init__(self, *, source: str, data_uri: str, bubble_width: int, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._source = str(source or "")
+        self._pixmap = _pixmap_from_data_uri(data_uri)
+        self._bubble_width = max(220, int(bubble_width or 0))
+        self._zoom_multiplier = 1.0
+        self.setObjectName("mediaPreviewCard")
+        try:
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Maximum)
+        except Exception:
+            pass
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
+        icon_label = QLabel()
+        icon_label.setObjectName("mediaTitleIcon")
+        icon_label.setPixmap(_symbol_icon("file-image", color="#79c7ff", size=14).pixmap(14, 14))
+        icon_label.setFixedSize(16, 16)
+        header.addWidget(icon_label, 0, Qt.AlignVCenter)
+
+        title_label = QLabel("Diagram")
+        title_label.setObjectName("mediaPreviewTitle")
+        title_label.setToolTip("Rendered Mermaid diagram")
+        header.addWidget(title_label, 1)
+
+        self._zoom_out_button = QPushButton("-")
+        self._zoom_out_button.setObjectName("mediaIconButton")
+        self._zoom_out_button.setToolTip("Zoom out")
+        self._zoom_out_button.clicked.connect(lambda: self._set_zoom_multiplier(self._zoom_multiplier / _MERMAID_ZOOM_STEP))
+        header.addWidget(self._zoom_out_button, 0)
+
+        self._zoom_in_button = QPushButton("+")
+        self._zoom_in_button.setObjectName("mediaIconButton")
+        self._zoom_in_button.setToolTip("Zoom in")
+        self._zoom_in_button.clicked.connect(lambda: self._set_zoom_multiplier(self._zoom_multiplier * _MERMAID_ZOOM_STEP))
+        header.addWidget(self._zoom_in_button, 0)
+        root.addLayout(header)
+
+        self._scroll = PannableScrollArea(factor=0.8, parent=self)
+        self._scroll.setObjectName("mermaidPreviewScroll")
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        root.addWidget(self._scroll, 0, Qt.AlignLeft)
+
+        self._image_label = QLabel()
+        self._image_label.setObjectName("mermaidPreviewImage")
+        self._image_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self._scroll.setWidget(self._image_label)
+
+        QShortcut(Qt.Key_Plus, self, activated=lambda: self._set_zoom_multiplier(self._zoom_multiplier * _MERMAID_ZOOM_STEP))
+        QShortcut(Qt.Key_Minus, self, activated=lambda: self._set_zoom_multiplier(self._zoom_multiplier / _MERMAID_ZOOM_STEP))
+        self.set_bubble_width(self._bubble_width)
+
+    def set_bubble_width(self, bubble_width: int) -> None:
+        self._bubble_width = max(220, int(bubble_width or 0))
+        self._render_preview()
+
+    def _set_zoom_multiplier(self, value: float) -> None:
+        bounded = max(_MERMAID_INLINE_MIN_ZOOM, min(_MERMAID_INLINE_MAX_ZOOM, float(value or 1.0)))
+        if math.isclose(self._zoom_multiplier, bounded, rel_tol=0.0, abs_tol=0.001):
+            self._sync_scroll_state()
+            return
+        self._zoom_multiplier = bounded
+        self._render_preview(preserve_anchor=True)
+
+    def _render_preview(self, *, preserve_anchor: bool = False) -> None:
+        if self._pixmap.isNull():
+            self._image_label.setText("Diagram preview unavailable.")
+            return
+        anchor_x = 0.0
+        anchor_y = 0.0
+        if preserve_anchor:
+            anchor_x, anchor_y = self._scroll_anchor()
+
+        frame_width = min(max(220, self._bubble_width), _MERMAID_PREVIEW_MAX_WIDTH)
+        source_width = max(1, int(self._pixmap.width() or 1))
+        source_height = max(1, int(self._pixmap.height() or 1))
+        fit_width_scale = float(frame_width) / float(source_width)
+        fit_height_scale = float(_MERMAID_INLINE_MAX_HEIGHT) / float(source_height)
+        base_scale = min(fit_width_scale, fit_height_scale)
+        scale = base_scale * self._zoom_multiplier
+        scale = max(_MERMAID_INLINE_MIN_RENDER_SCALE, min(_MERMAID_INLINE_MAX_RENDER_SCALE, scale))
+
+        width = max(1, int(round(source_width * scale)))
+        height = max(1, int(round(source_height * scale)))
+        scaled = self._pixmap.scaled(width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+        self.setFixedWidth(frame_width)
+        self._scroll.setFixedWidth(frame_width)
+        self._image_label.setPixmap(scaled)
+        self._image_label.setFixedSize(scaled.size())
+        viewport_height = min(_MERMAID_INLINE_MAX_HEIGHT, max(_MERMAID_INLINE_MIN_HEIGHT, scaled.height()))
+        self._scroll.setFixedHeight(viewport_height + 18)
+        QTimer.singleShot(0, lambda: self._after_render(anchor_x, anchor_y, preserve_anchor))
+
+    def _after_render(self, anchor_x: float, anchor_y: float, preserve_anchor: bool) -> None:
+        if preserve_anchor:
+            self._restore_scroll_anchor(anchor_x, anchor_y)
+        else:
+            self._scroll.horizontalScrollBar().setValue(0)
+            self._scroll.verticalScrollBar().setValue(0)
+        self._sync_scroll_state()
+
+    def _scroll_anchor(self) -> tuple[float, float]:
+        width = max(1, int(self._image_label.width() or 1))
+        height = max(1, int(self._image_label.height() or 1))
+        viewport = self._scroll.viewport().size()
+        center_x = float(self._scroll.horizontalScrollBar().value()) + float(max(1, viewport.width())) / 2.0
+        center_y = float(self._scroll.verticalScrollBar().value()) + float(max(1, viewport.height())) / 2.0
+        return center_x / float(width), center_y / float(height)
+
+    def _restore_scroll_anchor(self, anchor_x: float, anchor_y: float) -> None:
+        width = max(1, int(self._image_label.width() or 1))
+        height = max(1, int(self._image_label.height() or 1))
+        viewport = self._scroll.viewport().size()
+        hbar = self._scroll.horizontalScrollBar()
+        vbar = self._scroll.verticalScrollBar()
+        target_x = int(round(float(anchor_x) * float(width) - float(max(1, viewport.width())) / 2.0))
+        target_y = int(round(float(anchor_y) * float(height) - float(max(1, viewport.height())) / 2.0))
+        hbar.setValue(max(0, min(hbar.maximum(), target_x)))
+        vbar.setValue(max(0, min(vbar.maximum(), target_y)))
+
+    def _sync_scroll_state(self) -> None:
+        self._scroll.refresh_pan_state()
+        self._zoom_out_button.setEnabled(self._zoom_multiplier > (_MERMAID_INLINE_MIN_ZOOM + 0.01))
+        self._zoom_in_button.setEnabled(self._zoom_multiplier < (_MERMAID_INLINE_MAX_ZOOM - 0.01))
 
 
 class ArtifactPreviewCard(QFrame):
@@ -3941,6 +4315,11 @@ class AssistantPalette(QMainWindow):
         self._status_tone = "neutral"
         self._run_busy = False
         self._run_has_final_output = False
+        self._tray_animation_frame = 0
+        self._tray_completion_unread = False
+        self._tray_feedback_timer = QTimer(self)
+        self._tray_feedback_timer.setInterval(_TRAY_BUSY_FRAME_INTERVAL_MS)
+        self._tray_feedback_timer.timeout.connect(self._advance_tray_feedback)
         self._history_settle_timer = QTimer(self)
         self._history_settle_timer.setSingleShot(True)
         self._history_settle_timer.timeout.connect(self._apply_pending_history_scroll)
@@ -4238,6 +4617,7 @@ class AssistantPalette(QMainWindow):
 
     def attach_tray(self, tray: QSystemTrayIcon) -> None:
         self._tray = tray
+        self._refresh_tray_feedback()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.hide()
@@ -4362,13 +4742,11 @@ class AssistantPalette(QMainWindow):
         top_gap = 4
         bottom_gap = 4
         if self._zoomed:
-            width = min(
-                max(int(screen_geom.width() * 0.50), max(760, normal_width + 140)),
-                int(screen_geom.width() * 0.62),
-            )
-            target_height = min(
-                max(int(screen_geom.height() * 0.56), max(420, normal_height + 72)),
-                int(screen_geom.height() * 0.72),
+            width, target_height = _zoomed_shell_size(
+                screen_width=int(screen_geom.width()),
+                screen_height=int(screen_geom.height()),
+                normal_width=normal_width,
+                normal_height=normal_height,
             )
             card_width = max(420 - (side_gap * 2), width - (side_gap * 2))
             history_height = max(
@@ -4408,6 +4786,8 @@ class AssistantPalette(QMainWindow):
         self._reflow_shell()
 
     def show_palette(self) -> None:
+        self._tray_completion_unread = False
+        self._refresh_tray_feedback()
         self._reflow_shell()
         self.show()
         self.raise_()
@@ -4756,11 +5136,13 @@ class AssistantPalette(QMainWindow):
                     "attachments": preview_items,
                     "media": preview_items,
                 }
-            self._controller.append_user_message(prompt, metadata=metadata)
+        self._controller.append_user_message(prompt, metadata=metadata)
 
         self._run_busy = True
         self._run_has_final_output = False
+        self._tray_completion_unread = False
         self._set_status("Running assistant workflow...", tone="busy")
+        self._refresh_tray_feedback()
         try:
             worker = self._controller.build_chat_worker(
                 prompt=prompt,
@@ -4790,6 +5172,7 @@ class AssistantPalette(QMainWindow):
             inactive_statuses = {"completed", "complete", "ready", "idle", "offline", "error", "failed", "cancelled"}
             self._run_busy = status_lower not in inactive_statuses and not self._run_has_final_output
             self._set_status(status_text, tone="busy" if self._run_busy else "neutral")
+            self._refresh_tray_feedback()
             return
         if typ == "user_message_appended":
             self._on_user_message_appended(str(payload.get("content") or ""))
@@ -4810,7 +5193,12 @@ class AssistantPalette(QMainWindow):
             if self.auto_speak.isChecked() and is_final:
                 self._controller.voice_manager.speak(str(payload.get("content") or ""))
             if is_final:
-                self._notify("Assistant reply", str(payload.get("content") or "").strip())
+                content = str(payload.get("content") or "").strip()
+                hidden = not self.isVisible()
+                self._tray_completion_unread = hidden
+                self._refresh_tray_feedback()
+                if hidden:
+                    self._notify_completion_ready(content)
             return
         if typ == "tool_request":
             dialog = ToolApprovalDialog(tool_calls=payload.get("tool_calls"), parent=self)
@@ -4840,7 +5228,9 @@ class AssistantPalette(QMainWindow):
     def _on_worker_error(self, error: str) -> None:
         self._run_busy = False
         self._run_has_final_output = True
+        self._tray_completion_unread = False
         self._set_status("Error", tone="error")
+        self._refresh_tray_feedback()
         self._notify("Assistant error", str(error or "Unknown error"))
         QMessageBox.critical(self, "Assistant error", str(error or "Unknown error"))
 
@@ -4848,6 +5238,7 @@ class AssistantPalette(QMainWindow):
         had_indicator = self._show_thinking_indicator()
         self._worker = None
         self._run_busy = False
+        self._refresh_tray_feedback()
         if had_indicator != self._show_thinking_indicator():
             self.refresh_history()
         self._set_status("Ready")
@@ -5153,7 +5544,46 @@ class AssistantPalette(QMainWindow):
             self.prompt_edit.setToolTip(tooltip)
             self.send_button.setToolTip(tooltip)
 
-    def _notify(self, title: str, message: str) -> None:
+    def _tray_feedback_state(self) -> str:
+        if self._show_thinking_indicator():
+            return "busy"
+        if self._tray_completion_unread:
+            return "complete"
+        return "idle"
+
+    def _refresh_tray_feedback(self) -> None:
+        tray = self._tray
+        if tray is None:
+            return
+        state = self._tray_feedback_state()
+        if state == "busy":
+            if not self._tray_feedback_timer.isActive():
+                self._tray_feedback_timer.start()
+        else:
+            self._tray_feedback_timer.stop()
+            self._tray_animation_frame = 0
+        try:
+            tray.setIcon(_tray_feedback_icon(state=state, frame=self._tray_animation_frame))
+        except Exception:
+            pass
+        tooltip = "AbstractAssistant"
+        if state == "busy":
+            tooltip = "AbstractAssistant • Thinking..."
+        elif state == "complete":
+            tooltip = "AbstractAssistant • Reply ready"
+        try:
+            tray.setToolTip(tooltip)
+        except Exception:
+            pass
+
+    def _advance_tray_feedback(self) -> None:
+        if self._tray_feedback_state() != "busy":
+            self._tray_feedback_timer.stop()
+            return
+        self._tray_animation_frame = (self._tray_animation_frame + 1) % _TRAY_BUSY_FRAME_COUNT
+        self._refresh_tray_feedback()
+
+    def _notify(self, title: str, message: str, *, icon: Optional[QIcon] = None, duration_ms: int = 5000) -> None:
         tray = self._tray
         if tray is None:
             return
@@ -5161,9 +5591,30 @@ class AssistantPalette(QMainWindow):
         if not text:
             return
         try:
-            tray.showMessage(title, text[:180], QSystemTrayIcon.Information, 5000)
+            if icon is not None:
+                tray.showMessage(title, text[:220], icon, duration_ms)
+            else:
+                tray.showMessage(title, text[:220], QSystemTrayIcon.Information, duration_ms)
         except Exception:
-            pass
+            try:
+                tray.showMessage(title, text[:220], QSystemTrayIcon.Information, duration_ms)
+            except Exception:
+                pass
+
+    def _notify_completion_ready(self, message: str) -> None:
+        text = re.sub(r"\s+", " ", str(message or "").strip())
+        excerpt = text[:140].rstrip()
+        if len(text) > len(excerpt):
+            excerpt = f"{excerpt}..."
+        body = "Your reply is waiting in the menu bar."
+        if excerpt:
+            body = f"Fresh reply ready.\n{excerpt}\nClick the shimmering orbit to open it."
+        self._notify(
+            "Fresh Reply Ready",
+            body,
+            icon=_tray_feedback_icon(state="complete"),
+            duration_ms=7000,
+        )
 
     def _scroll_history_to_latest(self) -> None:
         self._apply_history_scroll_request(self._history_scroll_request(mode="bottom"))
@@ -5341,6 +5792,11 @@ class AssistantPalette(QMainWindow):
                 border-radius: 12px;
                 padding: 6px;
             }
+            QScrollArea#mermaidPreviewScroll {
+                background: rgba(16, 22, 31, 0.92);
+                border: 1px solid rgba(166, 187, 214, 0.10);
+                border-radius: 10px;
+            }
             QLabel#mediaPreviewTitle {
                 color: #eaf1f8;
                 font-size: 11px;
@@ -5353,6 +5809,9 @@ class AssistantPalette(QMainWindow):
             QLabel#mediaPreviewStatus {
                 color: #9fb0c4;
                 font-size: 10px;
+            }
+            QLabel#mermaidPreviewImage {
+                background: transparent;
             }
             QLabel#mediaTransportMeta {
                 color: #9fb0c4;
@@ -5700,16 +6159,278 @@ def _handle_tray_activation(*, palette, menu: Optional[QMenu], reason) -> None:
             pass
 
 
+def _env_truthy(name: str) -> bool:
+    value = str(os.getenv(name) or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _tray_diagnostics_enabled() -> bool:
+    return (
+        _env_truthy("ABSTRACTASSISTANT_TRAY_DIAGNOSTICS")
+        or bool(getattr(sys, "frozen", False))
+    )
+
+
+def _tray_diagnostics_log_path() -> Optional[Path]:
+    raw = str(os.getenv("ABSTRACTASSISTANT_TRAY_LOG_PATH") or "").strip()
+    if raw:
+        try:
+            return Path(raw).expanduser()
+        except Exception:
+            return None
+    if not _tray_diagnostics_enabled():
+        return None
+    return Path.home() / "Library" / "Logs" / "Assistant" / "abstractassistant-launcher.log"
+
+
+def _bundle_tray_log(message: str) -> None:
+    if not _tray_diagnostics_enabled():
+        return
+    text = f"[assistant-tray] {message}"
+    try:
+        print(text, flush=True)
+    except Exception:
+        pass
+    path = _tray_diagnostics_log_path()
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{text}\n")
+    except Exception:
+        pass
+
+
+def _native_tray_capture_path() -> Optional[Path]:
+    raw = str(os.getenv("ABSTRACTASSISTANT_TRAY_CAPTURE_PATH") or "").strip()
+    if not raw:
+        if not _tray_diagnostics_enabled():
+            return None
+        return Path.home() / "Library" / "Logs" / "Assistant" / "abstractassistant-status-item.png"
+    try:
+        return Path(raw).expanduser()
+    except Exception:
+        return None
+
+
+def _capture_native_status_item_button_png(*, reason: str = "") -> bool:
+    capture_path = _native_tray_capture_path()
+    if capture_path is None or sys.platform != "darwin" or AppKit is None:
+        return False
+    try:
+        items = AppKit.NSStatusBar.systemStatusBar().valueForKey_("statusItems")
+        if items is None or int(items.count()) <= 0:
+            return False
+        objects = items.allObjects()
+        if not objects:
+            return False
+        item = objects[0]
+        button = item.button() if item is not None else None
+        if button is None:
+            return False
+        bounds = button.bounds()
+        if int(round(bounds.size.width)) <= 0 or int(round(bounds.size.height)) <= 0:
+            return False
+        bitmap = button.bitmapImageRepForCachingDisplayInRect_(bounds)
+        if bitmap is None:
+            return False
+        button.cacheDisplayInRect_toBitmapImageRep_(bounds, bitmap)
+        data = bitmap.representationUsingType_properties_(AppKit.NSPNGFileType, None)
+        if data is None:
+            return False
+        capture_path.parent.mkdir(parents=True, exist_ok=True)
+        capture_path.write_bytes(bytes(data))
+        _bundle_tray_log(f"{reason or 'capture'}: wrote native tray button render to {capture_path}")
+        return True
+    except Exception as exc:
+        _bundle_tray_log(f"{reason or 'capture'}: native tray button capture failed: {exc}")
+        return False
+
+
+def _native_status_item_metrics() -> tuple[int, tuple[int, int], tuple[int, int]]:
+    if sys.platform != "darwin" or AppKit is None:
+        return -1, (0, 0), (0, 0)
+    try:
+        items = AppKit.NSStatusBar.systemStatusBar().valueForKey_("statusItems")
+        if items is None:
+            return 0, (0, 0), (0, 0)
+        count = int(items.count())
+        button_size = (0, 0)
+        image_size = (0, 0)
+        objects = items.allObjects()
+        if count > 0 and objects:
+            item = objects[0]
+            button = item.button() if item is not None else None
+            if button is not None:
+                frame = button.frame()
+                button_size = (int(round(frame.size.width)), int(round(frame.size.height)))
+                image = button.image()
+                if image is not None:
+                    size = image.size()
+                    image_size = (int(round(size.width)), int(round(size.height)))
+        return count, button_size, image_size
+    except Exception:
+        return -1, (0, 0), (0, 0)
+
+
+def _refresh_tray_visibility(*, tray: QSystemTrayIcon, palette, reason: str = "") -> TrayVisibilityState:
+    try:
+        available = bool(QSystemTrayIcon.isSystemTrayAvailable())
+    except Exception:
+        available = True
+    if not available:
+        _bundle_tray_log(f"{reason or 'refresh'}: system tray unavailable")
+        native_item_count, native_button_size, native_image_size = _native_status_item_metrics()
+        return TrayVisibilityState(
+            available=False,
+            qt_visible=False,
+            native_item_count=native_item_count,
+            native_button_size=native_button_size,
+            native_image_size=native_image_size,
+        )
+    try:
+        tray.show()
+    except Exception as exc:
+        _bundle_tray_log(f"{reason or 'refresh'}: tray.show failed: {exc}")
+    try:
+        tray.setVisible(True)
+    except Exception:
+        pass
+    try:
+        palette.attach_tray(tray)
+    except Exception as exc:
+        _bundle_tray_log(f"{reason or 'refresh'}: attach_tray failed: {exc}")
+    try:
+        palette._refresh_tray_feedback()
+    except Exception as exc:
+        _bundle_tray_log(f"{reason or 'refresh'}: tray feedback refresh failed: {exc}")
+    try:
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+    except Exception:
+        pass
+    try:
+        visible = bool(tray.isVisible())
+    except Exception:
+        visible = True
+    native_item_count, native_button_size, native_image_size = _native_status_item_metrics()
+    state = TrayVisibilityState(
+        available=True,
+        qt_visible=visible,
+        native_item_count=native_item_count,
+        native_button_size=native_button_size,
+        native_image_size=native_image_size,
+    )
+    _bundle_tray_log(
+        f"{reason or 'refresh'}: tray visible={state.qt_visible} "
+        f"native_items={state.native_item_count} "
+        f"button={state.native_button_size[0]}x{state.native_button_size[1]} "
+        f"image={state.native_image_size[0]}x{state.native_image_size[1]} "
+        f"ready={state.ready}"
+    )
+    if state.ready:
+        _capture_native_status_item_button_png(reason=reason or "refresh")
+    return state
+
+
+def _schedule_tray_visibility_refresh(*, tray: QSystemTrayIcon, palette, delays_ms: tuple[int, ...] = _TRAY_VISIBILITY_RETRY_DELAYS_MS) -> None:
+    for delay in tuple(delays_ms or ()):
+        QTimer.singleShot(
+            max(0, int(delay)),
+            lambda d=int(delay): _refresh_tray_visibility(tray=tray, palette=palette, reason=f"retry@{d}ms"),
+        )
+
+
+def _macos_tray_context_fallback(*, host_menu: QMenu, palette) -> None:
+    try:
+        host_menu.hide()
+    except Exception:
+        pass
+    now = time.monotonic()
+    last_activation = float(getattr(palette, "_tray_last_activation_ts", 0.0) or 0.0)
+    if last_activation > 0.0 and (now - last_activation) <= 0.20:
+        return
+    try:
+        palette.show_palette()
+    except Exception:
+        pass
+
+
+def _configure_tray_host(*, tray: QSystemTrayIcon, palette, menu: QMenu) -> None:
+    if sys.platform != "darwin":
+        try:
+            tray.setContextMenu(menu)
+        except Exception:
+            pass
+        return
+    host_menu = QMenu()
+    try:
+        host_menu.aboutToShow.connect(lambda: _macos_tray_context_fallback(host_menu=host_menu, palette=palette))
+    except Exception:
+        pass
+    try:
+        tray.setContextMenu(host_menu)
+    except Exception:
+        pass
+    try:
+        palette._tray_host_menu = host_menu
+    except Exception:
+        pass
+
+
+def _schedule_initial_palette_show(
+    *,
+    tray: QSystemTrayIcon,
+    palette,
+    delays_ms: tuple[int, ...] = _TRAY_VISIBILITY_RETRY_DELAYS_MS,
+) -> None:
+    shown = {"done": False}
+    delays = tuple(delays_ms or ())
+
+    def _maybe_show(*, reason: str) -> None:
+        if shown["done"]:
+            return
+        state = _refresh_tray_visibility(tray=tray, palette=palette, reason=reason)
+        if not state.ready:
+            return
+        shown["done"] = True
+        palette.show_palette()
+
+    for delay in delays:
+        QTimer.singleShot(
+            max(0, int(delay)),
+            lambda d=int(delay): _maybe_show(reason=f"visible-launch@{d}ms"),
+        )
+
+    fallback_delay = max(delays or (0,)) + 500
+
+    def _fallback_show() -> None:
+        if shown["done"]:
+            return
+        shown["done"] = True
+        try:
+            palette._set_banner("Menu bar icon is still initializing. Keep this window open while the app finishes attaching.", tone="warn")
+        except Exception:
+            pass
+        palette.show_palette()
+
+    QTimer.singleShot(max(0, int(fallback_delay)), _fallback_show)
+
+
 def launch_tray_app(*, config: Optional[Config] = None, debug: bool = False, data_dir: Optional[Path] = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("AbstractAssistant")
     app.setWindowIcon(_qt_icon())
+    show_on_launch = _env_truthy("ABSTRACTASSISTANT_SHOW_ON_LAUNCH")
 
     controller = AssistantV2Controller(config=config, data_dir=data_dir, debug=debug)
     palette = AssistantPalette(controller=controller, debug=debug)
 
     tray = QSystemTrayIcon(_qt_icon(), app)
+    app._assistant_tray = tray  # type: ignore[attr-defined]
     tray.setToolTip("AbstractAssistant")
     menu = QMenu()
     menu.addAction("Show", palette.show_palette)
@@ -5719,8 +6440,29 @@ def launch_tray_app(*, config: Optional[Config] = None, debug: bool = False, dat
     menu.addSeparator()
     menu.addAction("Quit", app.quit)
     palette._tray_menu = menu
-    tray.activated.connect(lambda reason: _handle_tray_activation(palette=palette, menu=menu, reason=reason))
-    tray.show()
-    palette.attach_tray(tray)
-    palette.hide()
+    _configure_tray_host(tray=tray, palette=palette, menu=menu)
+
+    def _on_tray_activated(reason) -> None:
+        try:
+            palette._tray_last_activation_ts = time.monotonic()
+        except Exception:
+            pass
+        _handle_tray_activation(palette=palette, menu=menu, reason=reason)
+
+    tray.activated.connect(_on_tray_activated)
+    _refresh_tray_visibility(tray=tray, palette=palette, reason="startup")
+    _schedule_tray_visibility_refresh(tray=tray, palette=palette)
+    if show_on_launch:
+        try:
+            app.applicationStateChanged.connect(  # type: ignore[attr-defined]
+                lambda state: _refresh_tray_visibility(tray=tray, palette=palette, reason="app-active")
+                if state == Qt.ApplicationActive
+                else None
+            )
+        except Exception:
+            pass
+    if show_on_launch:
+        _schedule_initial_palette_show(tray=tray, palette=palette)
+    else:
+        palette.hide()
     return app.exec_()

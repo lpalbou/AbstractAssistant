@@ -153,9 +153,6 @@ class Config:
                 use_gateway = True
             elif raw in {"false", "0", "no", "n"}:
                 use_gateway = False
-        if (env_gateway_url or configured_gateway_url) and not use_gateway:
-            print("#FALLBACK: gateway.url is set but use_gateway=false; enabling gateway mode")
-            use_gateway = True
         return cls(
             ui=UIConfig(
                 theme=ui_data.get("theme", "dark"),

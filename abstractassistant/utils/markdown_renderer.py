@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import html
+import importlib.util
 import json
 import re
 
 import markdown
 from pygments.formatters import HtmlFormatter
+
+from .mermaid_renderer import mermaid_block_to_data_uri
 
 
 _MARKDOWNISH_RE = re.compile(
@@ -18,6 +22,14 @@ _MARKDOWNISH_RE = re.compile(
 )
 _YAML_KEY_RE = re.compile(r"^[A-Za-z0-9_.\"'/-]+\s*:\s*(?:.*)?$")
 _YAML_LIST_RE = re.compile(r"^-\s+.+$")
+_MERMAID_FENCE_RE = re.compile(r"(^|\n)```mermaid[^\n]*\n(?P<code>.*?)(?:\n```)(?=\n|$)", flags=re.I | re.S)
+
+
+@dataclass(frozen=True)
+class MarkdownRenderBlock:
+    kind: str
+    text: str = ""
+    data_uri: str = ""
 
 
 def _try_parse_json_block(text: str) -> str | None:
@@ -83,6 +95,47 @@ def _prepare_markdown_source(text: str) -> str:
     return normalized
 
 
+def _replace_mermaid_fences(text: str) -> str:
+    parts: list[str] = []
+    for block in split_markdown_mermaid_blocks(text):
+        if block.kind == "mermaid" and block.data_uri:
+            parts.append(
+                '\n<div class="mermaid-diagram">'
+                f'<img src="{block.data_uri}" alt="Rendered Mermaid flowchart" />'
+                "</div>\n"
+            )
+            continue
+        parts.append(block.text)
+    return "".join(parts)
+
+
+def split_markdown_mermaid_blocks(text: str) -> list[MarkdownRenderBlock]:
+    raw = str(text or "")
+    if not raw:
+        return []
+
+    blocks: list[MarkdownRenderBlock] = []
+    last_pos = 0
+
+    for match in _MERMAID_FENCE_RE.finditer(raw):
+        code = str(match.group("code") or "").strip()
+        if not code:
+            continue
+        data_uri = mermaid_block_to_data_uri(code)
+        if not data_uri:
+            continue
+        before = raw[last_pos:match.start()]
+        if before:
+            blocks.append(MarkdownRenderBlock(kind="markdown", text=before))
+        blocks.append(MarkdownRenderBlock(kind="mermaid", text=code, data_uri=data_uri))
+        last_pos = match.end()
+
+    tail = raw[last_pos:]
+    if tail or not blocks:
+        blocks.append(MarkdownRenderBlock(kind="markdown", text=tail if blocks else raw))
+    return blocks
+
+
 class MarkdownRenderer:
     """Markdown renderer with fenced-code and table support."""
 
@@ -99,25 +152,45 @@ class MarkdownRenderer:
             "tables",
             "nl2br",
             "sane_lists",
-            "pymdownx.highlight",
-            "pymdownx.inlinehilite",
-            "pymdownx.superfences",
         ]
-        self.extension_configs = {
-            "pymdownx.highlight": {
+        self.extension_configs = {}
+        if self._has_pymdownx():
+            self.extensions.extend(
+                [
+                    "pymdownx.highlight",
+                    "pymdownx.inlinehilite",
+                    "pymdownx.superfences",
+                ]
+            )
+            self.extension_configs.update(
+                {
+                    "pymdownx.highlight": {
+                        "css_class": "codehilite",
+                        "pygments_style": theme,
+                        "linenums": False,
+                        "guess_lang": False,
+                    },
+                    "pymdownx.superfences": {
+                        "preserve_tabs": True,
+                    },
+                }
+            )
+        else:
+            self.extensions.append("codehilite")
+            self.extension_configs["codehilite"] = {
                 "css_class": "codehilite",
                 "pygments_style": theme,
                 "linenums": False,
                 "guess_lang": False,
-            },
-            "pymdownx.superfences": {
-                "preserve_tabs": True,
-            },
-        }
+            }
+
+    @staticmethod
+    def _has_pymdownx() -> bool:
+        return importlib.util.find_spec("pymdownx") is not None
 
     def render(self, markdown_text: str) -> str:
         try:
-            prepared = _prepare_markdown_source(markdown_text)
+            prepared = _replace_mermaid_fences(_prepare_markdown_source(markdown_text))
             md = markdown.Markdown(
                 extensions=self.extensions,
                 extension_configs=self.extension_configs,
@@ -201,6 +274,23 @@ class MarkdownRenderer:
             height: auto;
             max-height: 180px;
             border-radius: 8px;
+        }
+
+        .markdown-content .mermaid-diagram {
+            margin: 12px 0 16px 0;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(12, 18, 28, 0.98));
+        }
+
+        .markdown-content .mermaid-diagram img {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            max-height: none;
+            height: auto;
+            border-radius: 0;
         }
 
         .markdown-content code {

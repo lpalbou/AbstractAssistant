@@ -35,17 +35,16 @@ export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
 abstractgateway serve --host 127.0.0.1 --port 8080
 ```
 
-## macOS app bundle (optional)
+## macOS app build (optional)
 
-AbstractAssistant ships a helper that creates a native app bundle under `/Applications`:
+For a real Finder-launchable `.app`, build the bundled macOS artifact with PyInstaller:
 
 ```bash
-create-app-bundle
+pip install -e ".[macos-app]"
+build-macos-app
 ```
 
-Notes:
-- requires macOS (`iconutil` is used to build `icon.icns`)
-- may require permissions to write to `/Applications`
+This builds a self-contained `AbstractAssistant.app` and installs it into `/Applications`.
 
 ## Headless / terminal only
 

@@ -406,8 +406,8 @@ class GatewayWorker(QThread):
                             ts=str(ev.get("ts") or ""),
                         )
                         history_changed = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    warnings.warn(f"Failed to append assistant message: {e}")
                 ev["history_changed"] = history_changed
                 self.event_emitted.emit(ev)
                 continue
@@ -449,8 +449,8 @@ class GatewayWorker(QThread):
                             metadata=msg.get("metadata") if isinstance(msg.get("metadata"), dict) else None,
                             ts=str(msg.get("ts") or ""),
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        warnings.warn(f"Failed to append tool message: {e}")
                 self.event_emitted.emit(ev)
                 continue
 
@@ -636,8 +636,8 @@ class GatewayWorker(QThread):
                             metadata=metadata,
                         )
                         self.event_emitted.emit({"type": "user_message_appended", "content": self._user_text})
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        warnings.warn(f"Failed to append user message: {e}")
 
                 primary_image_artifact = self._pick_primary_image_artifact(attachments)
                 input_data = build_run_input_data(

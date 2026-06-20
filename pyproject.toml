@@ -70,12 +70,16 @@ dev = [
     "black>=23.0.0",
     "isort>=5.12.0",
     "mypy>=1.5.0",
+    "pyinstaller>=6.21.0",
+]
+macos-app = [
+    "pyinstaller>=6.21.0",
 ]
 
 [project.scripts]
 assistant = "abstractassistant.cli:main"
 abstractassistant = "abstractassistant.cli:main"
-create-app-bundle = "abstractassistant.create_app_bundle:main"
+build-macos-app = "abstractassistant.build_macos_app:main"
 
 [project.urls]
 Homepage = "https://github.com/lpalbou/abstractassistant"

@@ -27,7 +27,8 @@ _ROUTER_SYSTEM_PROMPT = (
     "Use image, edit_image, upscale_image, video, image_to_video, music, or sound only for explicit media generation or transformation requests. "
     "If the request needs a source image for editing, upscaling, or image-to-video and no primary image is available, use mode=need_source_image. "
     "For chat, leave media_prompt empty and assistant_message empty. "
-    "For media modes, assistant_message must be a short user-facing confirmation sentence and media_prompt must be the literal prompt to send to the media model."
+    "For media modes, assistant_message must be a short user-facing confirmation sentence and media_prompt must be the literal prompt to send to the media model. "
+    "Do not use a top-level prompt key in place of media_prompt."
 )
 
 _ROUTER_SCHEMA: Dict[str, Any] = {
@@ -49,6 +50,7 @@ _ROUTER_SCHEMA: Dict[str, Any] = {
         },
         "assistant_message": {"type": "string"},
         "media_prompt": {"type": "string"},
+        "prompt": {"type": "string"},
     },
     "required": ["mode", "assistant_message", "media_prompt"],
 }
@@ -222,7 +224,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             "system": _ROUTER_SYSTEM_PROMPT,
             "resp_schema": _ROUTER_SCHEMA,
         },
-        effect_config={"provider": "", "model": "", "temperature": 0.0},
+        effect_config={"provider": "", "model": "", "temperature": 0.0, "structured_output_fallback": True},
     )
 
     route_break = _node(
@@ -238,8 +240,24 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("mode", "mode", "string"),
             _pin("assistant_message", "assistant_message", "string"),
             _pin("media_prompt", "media_prompt", "string"),
+            _pin("prompt", "prompt", "string"),
         ],
-        break_config={"selectedPaths": ["mode", "assistant_message", "media_prompt"]},
+        break_config={"selectedPaths": ["mode", "assistant_message", "media_prompt", "prompt"]},
+    )
+
+    route_media_prompt = _node(
+        "route_media_prompt",
+        "coalesce",
+        x=500.0,
+        y=40.0,
+        label="Resolve Media Prompt",
+        icon="&#x21C4;",
+        color="#3498DB",
+        inputs=[
+            _pin("a", "a", "any"),
+            _pin("b", "b", "any"),
+        ],
+        outputs=[_pin("result", "result", "any")],
     )
 
     route_switch = _node(
@@ -584,6 +602,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         route_prompt,
         route_call,
         route_break,
+        route_media_prompt,
         route_switch,
         agent,
         image,
@@ -614,6 +633,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("route-call-to-break", "route_call", "data", "route_break", "object"),
         _edge("route-call-to-switch-exec", "route_call", "exec-out", "route_switch", "exec-in", animated=True),
         _edge("route-break-to-switch-value", "route_break", "mode", "route_switch", "value"),
+        _edge("route-break-media-prompt-primary", "route_break", "media_prompt", "route_media_prompt", "a"),
+        _edge("route-break-media-prompt-fallback", "route_break", "prompt", "route_media_prompt", "b"),
         _edge("switch-chat", "route_switch", "case:chat", "assistant_agent", "exec-in", animated=True),
         _edge("start-agent-use-context", "start", "use_context", "assistant_agent", "use_context"),
         _edge("start-agent-context", "start", "context", "assistant_agent", "context"),
@@ -633,7 +654,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("agent-end-meta", "assistant_agent", "meta", "end_chat", "meta"),
         _edge("agent-end-scratchpad", "assistant_agent", "scratchpad", "end_chat", "scratchpad"),
         _edge("switch-image", "route_switch", "case:image", "generate_image", "exec-in", animated=True),
-        _edge("route-break-image-prompt", "route_break", "media_prompt", "generate_image", "prompt"),
+        _edge("route-break-image-prompt", "route_media_prompt", "result", "generate_image", "prompt"),
         _edge("image-end-exec", "generate_image", "exec-out", "end_image", "exec-in", animated=True),
         _edge("route-break-image-response", "route_break", "assistant_message", "end_image", "response"),
         _edge("image-end-success", "generate_image", "success", "end_image", "success"),
@@ -644,7 +665,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("image-end-content-type", "generate_image", "content_type", "end_image", "content_type"),
         _edge("image-end-outputs", "generate_image", "outputs", "end_image", "outputs"),
         _edge("switch-edit", "route_switch", "case:edit_image", "edit_image", "exec-in", animated=True),
-        _edge("route-break-edit-prompt", "route_break", "media_prompt", "edit_image", "prompt"),
+        _edge("route-break-edit-prompt", "route_media_prompt", "result", "edit_image", "prompt"),
         _edge("start-edit-source", "start", "primary_image_artifact", "edit_image", "image_artifact"),
         _edge("edit-end-exec", "edit_image", "exec-out", "end_edit", "exec-in", animated=True),
         _edge("route-break-edit-response", "route_break", "assistant_message", "end_edit", "response"),
@@ -667,7 +688,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("upscale-end-content-type", "upscale_image", "content_type", "end_upscale", "content_type"),
         _edge("upscale-end-outputs", "upscale_image", "outputs", "end_upscale", "outputs"),
         _edge("switch-video", "route_switch", "case:video", "generate_video", "exec-in", animated=True),
-        _edge("route-break-video-prompt", "route_break", "media_prompt", "generate_video", "prompt"),
+        _edge("route-break-video-prompt", "route_media_prompt", "result", "generate_video", "prompt"),
         _edge("video-end-exec", "generate_video", "exec-out", "end_video", "exec-in", animated=True),
         _edge("route-break-video-response", "route_break", "assistant_message", "end_video", "response"),
         _edge("video-end-success", "generate_video", "success", "end_video", "success"),
@@ -678,7 +699,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("video-end-content-type", "generate_video", "content_type", "end_video", "content_type"),
         _edge("video-end-outputs", "generate_video", "outputs", "end_video", "outputs"),
         _edge("switch-image-to-video", "route_switch", "case:image_to_video", "image_to_video", "exec-in", animated=True),
-        _edge("route-break-image-to-video-prompt", "route_break", "media_prompt", "image_to_video", "prompt"),
+        _edge("route-break-image-to-video-prompt", "route_media_prompt", "result", "image_to_video", "prompt"),
         _edge("start-image-to-video-source", "start", "primary_image_artifact", "image_to_video", "source_image"),
         _edge("image-to-video-end-exec", "image_to_video", "exec-out", "end_image_to_video", "exec-in", animated=True),
         _edge("route-break-image-to-video-response", "route_break", "assistant_message", "end_image_to_video", "response"),
@@ -690,7 +711,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("image-to-video-end-content-type", "image_to_video", "content_type", "end_image_to_video", "content_type"),
         _edge("image-to-video-end-outputs", "image_to_video", "outputs", "end_image_to_video", "outputs"),
         _edge("switch-music", "route_switch", "case:music", "generate_music", "exec-in", animated=True),
-        _edge("route-break-music-prompt", "route_break", "media_prompt", "generate_music", "prompt"),
+        _edge("route-break-music-prompt", "route_media_prompt", "result", "generate_music", "prompt"),
         _edge("music-end-exec", "generate_music", "exec-out", "end_music", "exec-in", animated=True),
         _edge("route-break-music-response", "route_break", "assistant_message", "end_music", "response"),
         _edge("music-end-success", "generate_music", "success", "end_music", "success"),
@@ -702,7 +723,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("music-end-content-type", "generate_music", "content_type", "end_music", "content_type"),
         _edge("music-end-outputs", "generate_music", "outputs", "end_music", "outputs"),
         _edge("switch-sound", "route_switch", "case:sound", "generate_sound", "exec-in", animated=True),
-        _edge("route-break-sound-prompt", "route_break", "media_prompt", "generate_sound", "prompt"),
+        _edge("route-break-sound-prompt", "route_media_prompt", "result", "generate_sound", "prompt"),
         _edge("sound-end-exec", "generate_sound", "exec-out", "end_sound", "exec-in", animated=True),
         _edge("route-break-sound-response", "route_break", "assistant_message", "end_sound", "response"),
         _edge("sound-end-success", "generate_sound", "success", "end_sound", "success"),

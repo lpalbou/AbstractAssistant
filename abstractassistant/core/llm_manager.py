@@ -553,8 +553,9 @@ class LLMManager:
                 return
             self._host.append_message(role=role, content=content, metadata=metadata)
             self._refresh_session_view()
-        except Exception:
-            return
+        except Exception as e:
+            warnings.warn(f"Error appending message: {e}")
+            raise
 
     def set_last_run_id(self, run_id: str) -> None:
         """Persist last run id for the active session."""
@@ -572,8 +573,9 @@ class LLMManager:
             if self._host is None:
                 return
             self._host.set_last_run_id(run_id)
-        except Exception:
-            return
+        except Exception as e:
+            warnings.warn(f"Error setting last run id: {e}")
+            raise
 
     def session_messages(self) -> List[Dict[str, Any]]:
         """Return the durable session messages (for gateway run input)."""

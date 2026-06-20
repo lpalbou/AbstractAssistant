@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from abstractassistant.config import Config
 from PyQt5.QtCore import QEvent
-from PyQt5.QtWidgets import QSystemTrayIcon
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
+from abstractassistant.utils.mermaid_renderer import mermaid_block_to_data_uri
+import abstractassistantv2.app as app_module
 
 from abstractassistantv2.app import (
     AssistantHtmlAction,
     AssistantPalette,
     HistoryScrollRequest,
+    MessageCard,
+    MermaidPreviewCard,
     _attachment_icon_name,
     _attachment_kind,
+    _assistant_content_blocks,
     _assistant_content_with_actions,
     _assistant_footer_items,
     _handle_tray_activation,
@@ -24,12 +30,18 @@ from abstractassistantv2.app import (
     _merge_attachment_paths,
     _message_bubble_width,
     _message_media_artifacts,
+    _refresh_tray_visibility,
+    _tray_feedback_icon,
     _tool_call_summary,
     _visible_history_messages,
+    _zoomed_shell_size,
 )
 from abstractassistantv2.controller import AssistantV2Controller
 from abstractassistantv2.gateway import AssistantGatewayService
-from abstractassistantv2.assistant_workflow import MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
+from abstractassistantv2.assistant_workflow import (
+    MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
+    normalized_managed_visualflow,
+)
 from abstractassistantv2.preferences import (
     AssistantPreferences,
     GatewayConnectionPreferences,
@@ -273,6 +285,440 @@ def test_assistant_v2_gateway_service_reconciles_and_promotes_catalog_workflow()
     assert gateway.promoted[0]["bundle_id"] == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
     assert workflows[0].bundle_id == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
     assert workflows[0].registry_scope == "tenant_catalog"
+
+
+@pytest.mark.basic
+def test_assistant_v2_managed_workflow_accepts_prompt_alias_for_media_routes() -> None:
+    flow = normalized_managed_visualflow()
+    nodes = {str(node.get("id")): node for node in flow["nodes"]}
+    edges = {str(edge.get("id")): edge for edge in flow["edges"]}
+
+    route_break = nodes["route_break"]
+    route_break_data = route_break["data"]
+    assert route_break_data["breakConfig"]["selectedPaths"] == ["mode", "assistant_message", "media_prompt", "prompt"]
+    assert any(pin["id"] == "prompt" for pin in route_break_data["outputs"])
+    assert nodes["route_call"]["data"]["effectConfig"]["structured_output_fallback"] is True
+
+    route_media_prompt = nodes["route_media_prompt"]
+    assert route_media_prompt["type"] == "coalesce"
+    assert edges["route-break-media-prompt-primary"]["target"] == "route_media_prompt"
+    assert edges["route-break-media-prompt-primary"]["targetHandle"] == "a"
+    assert edges["route-break-media-prompt-fallback"]["target"] == "route_media_prompt"
+    assert edges["route-break-media-prompt-fallback"]["targetHandle"] == "b"
+
+    for edge_id, target in [
+        ("route-break-image-prompt", "generate_image"),
+        ("route-break-edit-prompt", "edit_image"),
+        ("route-break-video-prompt", "generate_video"),
+        ("route-break-image-to-video-prompt", "image_to_video"),
+        ("route-break-music-prompt", "generate_music"),
+        ("route-break-sound-prompt", "generate_sound"),
+    ]:
+        edge = edges[edge_id]
+        assert edge["source"] == "route_media_prompt"
+        assert edge["sourceHandle"] == "result"
+        assert edge["target"] == target
+        assert edge["targetHandle"] == "prompt"
+
+
+@pytest.mark.basic
+def test_mermaid_preview_card_keeps_wide_diagrams_zoomable_inline() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    data_uri = mermaid_block_to_data_uri(
+        "flowchart LR\n"
+        "    A[Observation] --> B[Thought (Reasoning)]\n"
+        "    B --> C[Action]\n"
+        "    C --> D[Observation (Feedback)]\n"
+        "    D --> A\n"
+    )
+
+    assert data_uri is not None
+
+    card = MermaidPreviewCard(source="flowchart LR", data_uri=data_uri, bubble_width=760)
+    card.show()
+    app.processEvents()
+
+    initial = card._image_label.pixmap()
+    assert initial is not None
+    assert initial.width() == 760
+    assert card._scroll.horizontalScrollBar().maximum() == 0
+
+    initial_width = initial.width()
+    card._set_zoom_multiplier(card._zoom_multiplier * 1.18)
+    app.processEvents()
+
+    zoomed = card._image_label.pixmap()
+    assert zoomed is not None
+    assert zoomed.width() > initial_width
+    assert card._scroll.horizontalScrollBar().maximum() > 0
+    card.close()
+
+
+@pytest.mark.basic
+def test_user_message_card_keeps_timestamp_tight_to_single_line_message() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    card = MessageCard(
+        message={"role": "user", "content": "create a true detailed ReAct diagram", "ts": "2026-06-17T00:38:00+00:00"},
+        message_key="user-1",
+        renderer=None,
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        build_media_preview=None,
+        bubble_width=760,
+    )
+    card.show()
+    app.processEvents()
+
+    bubble_layout = card._bubble.layout()
+    assert bubble_layout is not None
+    assert bubble_layout.spacing() == 0
+    stamp_layout = bubble_layout.itemAt(bubble_layout.count() - 1).layout()
+    assert stamp_layout is not None
+    assert stamp_layout.contentsMargins().top() == 0
+    card.close()
+
+
+@pytest.mark.basic
+def test_assistant_v2_zoomed_shell_size_grows_by_40_percent_per_axis() -> None:
+    width, height = _zoomed_shell_size(
+        screen_width=2200,
+        screen_height=1400,
+        normal_width=520,
+        normal_height=360,
+    )
+
+    assert (width, height) == (1540, 1098)
+
+
+@pytest.mark.basic
+def test_assistant_v2_busy_tray_feedback_icon_renders_pixmap() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    icon = _tray_feedback_icon(state="busy", frame=5, size=40)
+    pixmap = icon.pixmap(40, 40)
+
+    assert app is not None
+    assert not pixmap.isNull()
+    assert pixmap.width() == 40
+    assert pixmap.height() == 40
+
+
+@pytest.mark.basic
+def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+    captures: list[str] = []
+
+    class _Tray:
+        @staticmethod
+        def isSystemTrayAvailable() -> bool:
+            return True
+
+        def show(self) -> None:
+            events.append("show")
+
+        def setVisible(self, visible: bool) -> None:
+            events.append(f"visible:{visible}")
+
+        def isVisible(self) -> bool:
+            return True
+
+    class _Palette:
+        def attach_tray(self, _tray) -> None:
+            events.append("attach")
+
+        def _refresh_tray_feedback(self) -> None:
+            events.append("refresh")
+
+    monkeypatch.setattr(app_module, "QSystemTrayIcon", _Tray)
+    monkeypatch.setattr(app_module, "_native_status_item_metrics", lambda: (1, (22, 22), (16, 22)))
+    monkeypatch.setattr(
+        app_module,
+        "_capture_native_status_item_button_png",
+        lambda reason="": captures.append(reason or "refresh") or True,
+    )
+
+    state = _refresh_tray_visibility(tray=_Tray(), palette=_Palette(), reason="test")
+
+    assert state.qt_visible is True
+    assert state.ready is True
+    assert events == ["show", "visible:True", "attach", "refresh"]
+    assert captures == ["test"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_hidden_final_reply_marks_unread_and_notifies() -> None:
+    class _AutoSpeak:
+        def isChecked(self) -> bool:
+            return False
+
+    notifications: list[str] = []
+    status_calls: list[tuple[str, str]] = []
+    refresh_calls: list[str] = []
+    history_calls: list[HistoryScrollRequest] = []
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._run_busy = True
+    palette._run_has_final_output = False
+    palette._tray_completion_unread = False
+    palette.auto_speak = _AutoSpeak()
+    palette.refresh_history = lambda request=None: history_calls.append(request)
+    palette._history_scroll_request = lambda **kwargs: HistoryScrollRequest(**kwargs)
+    palette._latest_visible_message_key = lambda role="": "assistant-1"
+    palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
+    palette._refresh_tray_feedback = lambda: refresh_calls.append("refresh")
+    palette._notify_completion_ready = lambda content: notifications.append(content)
+    palette.isVisible = lambda: False
+
+    AssistantPalette._on_worker_event(
+        palette,
+        {"type": "assistant", "final": True, "content": "Rendered and ready.", "history_changed": False},
+    )
+
+    assert palette._run_busy is False
+    assert palette._run_has_final_output is True
+    assert palette._tray_completion_unread is True
+    assert status_calls[-1] == ("Ready", "neutral")
+    assert refresh_calls == ["refresh"]
+    assert notifications == ["Rendered and ready."]
+    assert history_calls == []
+
+
+@pytest.mark.basic
+def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+
+    class _Signal:
+        def connect(self, callback) -> None:
+            events.append("tray-connect")
+            self.callback = callback
+
+    class _App:
+        def __init__(self, _argv) -> None:
+            self.applicationStateChanged = _Signal()
+
+        @staticmethod
+        def instance():
+            return None
+
+        def setQuitOnLastWindowClosed(self, value: bool) -> None:
+            events.append(f"quit:{value}")
+
+        def setApplicationName(self, name: str) -> None:
+            events.append(f"name:{name}")
+
+        def setWindowIcon(self, _icon) -> None:
+            events.append("icon")
+
+        def quit(self) -> None:
+            events.append("quit-called")
+
+        def exec_(self) -> int:
+            events.append("exec")
+            return 17
+
+    class _Palette:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def attach_tray(self, _tray) -> None:
+            events.append("attach-tray")
+
+        def show_palette(self) -> None:
+            events.append("show")
+
+        def hide(self) -> None:
+            events.append("hide")
+
+        def _create_session(self) -> None:
+            events.append("new-session")
+
+        def _open_settings(self) -> None:
+            events.append("settings")
+
+    class _Tray:
+        @staticmethod
+        def isSystemTrayAvailable() -> bool:
+            return True
+
+        def __init__(self, _icon, _app) -> None:
+            self.activated = _Signal()
+            self._visible = False
+
+        def setToolTip(self, _text: str) -> None:
+            events.append("tooltip")
+
+        def setIcon(self, _icon) -> None:
+            events.append("tray-icon")
+
+        def setVisible(self, visible: bool) -> None:
+            self._visible = bool(visible)
+            events.append(f"tray-visible:{visible}")
+
+        def isVisible(self) -> bool:
+            return self._visible
+
+        def show(self) -> None:
+            self._visible = True
+            events.append("tray-show")
+
+        def setContextMenu(self, _menu) -> None:
+            events.append("tray-menu")
+
+    class _Menu:
+        def __init__(self) -> None:
+            self.aboutToShow = _Signal()
+
+        def addAction(self, _label, _callback=None):
+            events.append(f"action:{_label}")
+            return object()
+
+        def hide(self) -> None:
+            events.append("menu-hide")
+
+        def addSeparator(self) -> None:
+            events.append("separator")
+
+    monkeypatch.setenv("ABSTRACTASSISTANT_SHOW_ON_LAUNCH", "1")
+    monkeypatch.setattr(app_module, "QApplication", _App)
+    monkeypatch.setattr(app_module, "AssistantV2Controller", lambda **kwargs: object())
+    monkeypatch.setattr(app_module, "AssistantPalette", _Palette)
+    monkeypatch.setattr(app_module, "QSystemTrayIcon", _Tray)
+    monkeypatch.setattr(app_module, "QMenu", _Menu)
+    monkeypatch.setattr(app_module, "_native_status_item_metrics", lambda: (1, (22, 22), (16, 22)))
+    monkeypatch.setattr(app_module, "QTimer", type("_Timer", (), {"singleShot": staticmethod(lambda _ms, callback: callback())}))
+    monkeypatch.setattr(app_module, "_qt_icon", lambda: object())
+
+    result = app_module.launch_tray_app(config=None, debug=False, data_dir=None)
+
+    assert result == 17
+    assert "show" in events
+    assert "hide" not in events
+    assert events.count("tray-connect") >= 2
+
+
+@pytest.mark.basic
+def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+    metric_values = [
+        (0, (0, 0), (0, 0)),
+        (0, (0, 0), (0, 0)),
+        (1, (22, 22), (18, 22)),
+        (1, (22, 22), (18, 22)),
+    ]
+
+    class _Signal:
+        def connect(self, callback) -> None:
+            self.callback = callback
+
+    class _App:
+        def __init__(self, _argv) -> None:
+            self.applicationStateChanged = _Signal()
+
+        @staticmethod
+        def instance():
+            return None
+
+        def setQuitOnLastWindowClosed(self, _value: bool) -> None:
+            pass
+
+        def setApplicationName(self, _name: str) -> None:
+            pass
+
+        def setWindowIcon(self, _icon) -> None:
+            pass
+
+        def processEvents(self) -> None:
+            events.append("process")
+
+        def quit(self) -> None:
+            events.append("quit")
+
+        def exec_(self) -> int:
+            return 0
+
+    class _Palette:
+        def __init__(self, **_kwargs) -> None:
+            self.show_count = 0
+
+        def attach_tray(self, _tray) -> None:
+            events.append("attach-tray")
+
+        def show_palette(self) -> None:
+            self.show_count += 1
+            events.append(f"show:{self.show_count}")
+
+        def hide(self) -> None:
+            events.append("hide")
+
+        def _create_session(self) -> None:
+            pass
+
+        def _open_settings(self) -> None:
+            pass
+
+        def _set_banner(self, text: str = "", tone: str = "info") -> None:
+            events.append(f"banner:{tone}:{bool(text)}")
+
+    class _Tray:
+        @staticmethod
+        def isSystemTrayAvailable() -> bool:
+            return True
+
+        def __init__(self, _icon, _app) -> None:
+            self.activated = _Signal()
+            self._visible = False
+
+        def setToolTip(self, _text: str) -> None:
+            pass
+
+        def setIcon(self, _icon) -> None:
+            pass
+
+        def setVisible(self, visible: bool) -> None:
+            self._visible = bool(visible)
+
+        def isVisible(self) -> bool:
+            return self._visible
+
+        def show(self) -> None:
+            self._visible = True
+
+        def setContextMenu(self, _menu) -> None:
+            pass
+
+    class _Menu:
+        def __init__(self) -> None:
+            self.aboutToShow = _Signal()
+
+        def addAction(self, _label, _callback=None):
+            return object()
+
+        def hide(self) -> None:
+            return None
+
+        def addSeparator(self) -> None:
+            return None
+
+    monkeypatch.setenv("ABSTRACTASSISTANT_SHOW_ON_LAUNCH", "1")
+    monkeypatch.setattr(app_module, "QApplication", _App)
+    monkeypatch.setattr(app_module, "AssistantV2Controller", lambda **kwargs: object())
+    monkeypatch.setattr(app_module, "AssistantPalette", _Palette)
+    monkeypatch.setattr(app_module, "QSystemTrayIcon", _Tray)
+    monkeypatch.setattr(app_module, "QMenu", _Menu)
+    monkeypatch.setattr(
+        app_module,
+        "_native_status_item_metrics",
+        lambda values=metric_values: values.pop(0) if len(values) > 1 else values[0],
+    )
+    monkeypatch.setattr(app_module, "QTimer", type("_Timer", (), {"singleShot": staticmethod(lambda _ms, callback: callback())}))
+    monkeypatch.setattr(app_module, "_qt_icon", lambda: object())
+
+    app_module.launch_tray_app(config=None, debug=False, data_dir=None)
+
+    assert "show:1" in events
+    assert events.count("show:1") == 1
+    assert not any(entry.startswith("banner:warn:True") for entry in events)
 
 
 class _WrongGatewaySurfaceStub:
@@ -961,6 +1407,45 @@ def test_assistant_v2_keeps_non_actionable_html_code_fences_as_code() -> None:
 
     assert rendered == content
     assert actions == []
+
+
+@pytest.mark.basic
+def test_assistant_v2_extracts_mermaid_blocks_as_dedicated_preview_segments() -> None:
+    content = (
+        "Intro text.\n\n"
+        "```mermaid\n"
+        "flowchart LR\n"
+        "    A[Observe] --> B[Think]\n"
+        "    B --> C[Act]\n"
+        "```\n\n"
+        "Outro text."
+    )
+
+    blocks, actions = _assistant_content_blocks(content)
+
+    assert actions == []
+    assert [str(block.get("kind") or "") for block in blocks] == ["markdown", "mermaid", "markdown"]
+    assert "Intro text." in str(blocks[0].get("text") or "")
+    assert "flowchart LR" in str(blocks[1].get("text") or "")
+    assert str(blocks[1].get("data_uri") or "").startswith("data:image/png;base64,")
+    assert "Outro text." in str(blocks[2].get("text") or "")
+
+
+@pytest.mark.basic
+def test_assistant_v2_keeps_unsupported_mermaid_dialects_in_markdown() -> None:
+    content = (
+        "```mermaid\n"
+        "sequenceDiagram\n"
+        "    Alice->>Bob: Hello\n"
+        "```\n"
+    )
+
+    blocks, actions = _assistant_content_blocks(content)
+
+    assert actions == []
+    assert len(blocks) == 1
+    assert str(blocks[0].get("kind") or "") == "markdown"
+    assert "sequenceDiagram" in str(blocks[0].get("text") or "")
 
 
 @pytest.mark.basic

@@ -261,21 +261,23 @@ class AbstractAssistantApp:
         )
     
     def _load_app_bundle_icon(self) -> Optional[Image.Image]:
-        """Load the icon from the app bundle if available."""
+        """Load the icon from the frozen app bundle if available."""
         try:
-            from pathlib import Path
-            # Try to find the app bundle icon
-            app_bundle_icon = Path("/Applications/AbstractAssistant.app/Contents/Resources/icon.png")
-            
-            if self.debug:
-                print(f"🔍 Looking for app bundle icon at: {app_bundle_icon}")
-                print(f"   Exists: {app_bundle_icon.exists()}")
-            
-            if app_bundle_icon.exists():
+            candidates = []
+            if getattr(sys, "frozen", False):
+                executable = Path(sys.executable).resolve()
+                candidates.append(executable.parent.parent / "Resources" / "icon.png")
+            candidates.append(Path(__file__).resolve().parent.parent / "build" / "macos" / "icon.png")
+            for app_bundle_icon in candidates:
+                if self.debug:
+                    print(f"🔍 Looking for packaged icon at: {app_bundle_icon}")
+                    print(f"   Exists: {app_bundle_icon.exists()}")
+                if not app_bundle_icon.exists():
+                    continue
                 base_icon = Image.open(app_bundle_icon)
                 
                 if self.debug:
-                    print(f"✅ Loaded app bundle icon: {base_icon.size} {base_icon.mode}")
+                    print(f"✅ Loaded packaged icon: {base_icon.size} {base_icon.mode}")
                 
                 # Resize to system tray size if needed
                 target_size = (self.config.system_tray.icon_size, self.config.system_tray.icon_size)
@@ -283,11 +285,10 @@ class AbstractAssistantApp:
                     if self.debug:
                         print(f"🔄 Resizing from {base_icon.size} to {target_size}")
                     base_icon = base_icon.resize(target_size, Image.Resampling.LANCZOS)
-                
                 return base_icon
         except Exception as e:
             if self.debug:
-                print(f"❌ Could not load app bundle icon: {e}")
+                print(f"❌ Could not load packaged icon: {e}")
         return None
     
     def update_icon_status(self, status: str):

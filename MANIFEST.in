@@ -13,8 +13,6 @@ recursive-include docs *.md *.txt
 prune docs/devnotes
 
 # Exclude development artifacts
-exclude setup_macos_app.py
-prune AbstractAssistant.app
 prune tests
 prune .venv
 prune dist
