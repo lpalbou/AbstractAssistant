@@ -29,12 +29,14 @@ from PyQt5.QtGui import (
     QDesktopServices,
     QFont,
     QIcon,
+    QLinearGradient,
     QPainter,
     QPainterPath,
     QPalette,
     QPen,
     QPixmap,
     QPolygonF,
+    QRadialGradient,
 )
 from PyQt5.QtWidgets import (
     QApplication,
@@ -106,8 +108,8 @@ from .hotkey import GlobalHotkeyManager
 from .preferences import AssistantPreferences
 
 _HTML_ACTION_FENCE_RE = re.compile(r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S)
-_TRAY_BUSY_FRAME_COUNT = 24
-_TRAY_BUSY_FRAME_INTERVAL_MS = 90
+_TRAY_BUSY_FRAME_COUNT = 36
+_TRAY_BUSY_FRAME_INTERVAL_MS = 60
 _TRAY_FEEDBACK_ICON_SIZE = 44
 _TRAY_VISIBILITY_RETRY_DELAYS_MS = (0, 180, 720, 1600)
 _ZOOMED_SHELL_GROWTH = 1.4
@@ -592,42 +594,163 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
         painter.setBrush(QColor(color.red(), color.green(), color.blue(), alpha))
         painter.drawEllipse(center, radius, radius)
 
-    def _state_disc(*, fill: QColor, ring: QColor, ring_alpha: int = 150) -> None:
-        _orb(radius=size * 0.39, color=fill, alpha=240)
+    def _gradient_disc(
+        *,
+        radius: float,
+        inner: QColor,
+        mid: QColor,
+        edge: QColor,
+        gloss_alpha: int = 130,
+        shadow_alpha: int = 44,
+    ) -> None:
+        fill = QRadialGradient(
+            center.x() - (radius * 0.46),
+            center.y() - (radius * 0.54),
+            radius * 1.8,
+            center.x() - (radius * 0.58),
+            center.y() - (radius * 0.64),
+        )
+        fill.setColorAt(0.0, inner)
+        fill.setColorAt(0.46, mid)
+        fill.setColorAt(1.0, edge)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(fill))
+        painter.drawEllipse(center, radius, radius)
+
+        shadow = QLinearGradient(center.x(), center.y() - radius, center.x(), center.y() + radius)
+        shadow.setColorAt(0.0, QColor(0, 0, 0, 0))
+        shadow.setColorAt(0.56, QColor(0, 0, 0, 0))
+        shadow.setColorAt(1.0, QColor(5, 10, 18, shadow_alpha))
+        painter.setBrush(QBrush(shadow))
+        painter.drawEllipse(center, radius, radius)
+
+        gloss = QRadialGradient(
+            center.x() - (radius * 0.58),
+            center.y() - (radius * 0.72),
+            radius * 1.05,
+        )
+        gloss.setColorAt(0.0, QColor(255, 255, 255, gloss_alpha))
+        gloss.setColorAt(0.34, QColor(255, 255, 255, int(gloss_alpha * 0.42)))
+        gloss.setColorAt(0.78, QColor(255, 255, 255, 0))
+        painter.setBrush(QBrush(gloss))
+        painter.drawEllipse(
+            QPointF(center.x() - (radius * 0.16), center.y() - (radius * 0.26)),
+            radius * 0.60,
+            radius * 0.48,
+        )
+
+    def _state_disc(
+        *,
+        inner: QColor,
+        mid: QColor,
+        edge: QColor,
+        ring: QColor,
+        ring_alpha: int = 150,
+        glow: Optional[QColor] = None,
+        glow_alpha: int = 44,
+    ) -> None:
+        if glow is not None:
+            glow_gradient = QRadialGradient(center, size * 0.47)
+            glow_gradient.setColorAt(0.68, QColor(glow.red(), glow.green(), glow.blue(), 0))
+            glow_gradient.setColorAt(1.0, QColor(glow.red(), glow.green(), glow.blue(), glow_alpha))
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(glow_gradient))
+            painter.drawEllipse(center, size * 0.47, size * 0.47)
+        _gradient_disc(radius=size * 0.39, inner=inner, mid=mid, edge=edge)
         _ring(radius=size * 0.425, width=size * 0.092, color=ring, alpha=ring_alpha)
 
-    if normalized_state == "busy":
-        phase = float(normalized_frame) / float(_TRAY_BUSY_FRAME_COUNT)
-        sweep = phase * 360.0
-        _state_disc(fill=QColor("#2497ff"), ring=QColor("#89ddff"), ring_alpha=118)
-        for radius_factor, width_factor, span_deg, offset_deg, speed, tint in (
-            (0.415, 0.095, 124, 10, 1.0, QColor("#f2fbff")),
-            (0.290, 0.070, 92, 185, -1.2, QColor("#d4f2ff")),
-        ):
-            painter.save()
-            radius = size * radius_factor
-            rect = QRectF(center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0)
-            start_deg = offset_deg + (sweep * speed)
-            pen = QPen(QColor(tint.red(), tint.green(), tint.blue(), 240))
-            pen.setWidthF(size * width_factor)
+    def _arc(
+        *,
+        radius: float,
+        width: float,
+        color: QColor,
+        start_deg: float,
+        span_deg: float,
+        alpha: int = 235,
+        glow_alpha: int = 84,
+    ) -> None:
+        rect = QRectF(center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0)
+        for width_scale, stroke_alpha in ((1.45, glow_alpha), (1.0, alpha)):
+            pen = QPen(QColor(color.red(), color.green(), color.blue(), stroke_alpha))
+            pen.setWidthF(width * width_scale)
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
             painter.drawArc(rect, int(-start_deg * 16), int(-span_deg * 16))
-            painter.restore()
-        _orb(radius=size * 0.072, color=QColor("#ffffff"), alpha=255)
-        orbit_theta = math.radians((sweep * 1.4) - 45.0)
+
+    if normalized_state == "busy":
+        phase = float(normalized_frame) / float(_TRAY_BUSY_FRAME_COUNT)
+        loop = phase * math.tau
+        sweep = math.degrees(loop + (0.14 * math.sin(loop * 2.0)))
+        pulse = 0.5 + (0.5 * math.sin((loop * 1.45) - 0.55))
+        pendulum = 34.0 * math.sin((loop * 1.30) + 0.2)
+        recoil = 13.0 * math.sin((loop * 2.9) + 0.85)
+        shimmer = 10.0 * math.sin((loop * 4.0) - 0.3)
+        _state_disc(
+            inner=QColor("#c9f3ff"),
+            mid=QColor("#3aa9ff"),
+            edge=QColor("#0f5fda"),
+            ring=QColor("#b8ecff"),
+            ring_alpha=int(118 + (26 * pulse)),
+            glow=QColor("#52bbff"),
+            glow_alpha=int(28 + (22 * pulse)),
+        )
+        _ring(radius=size * 0.272, width=size * 0.050, color=QColor("#ddf6ff"), alpha=int(24 + (30 * pulse)))
+        _arc(
+            radius=size * 0.415,
+            width=size * 0.084,
+            color=QColor("#f2fbff"),
+            start_deg=18.0 + sweep + (pendulum * 0.38),
+            span_deg=118.0 + (10.0 * pulse),
+            alpha=242,
+            glow_alpha=96,
+        )
+        _arc(
+            radius=size * 0.308,
+            width=size * 0.066,
+            color=QColor("#d9f4ff"),
+            start_deg=198.0 + pendulum + recoil,
+            span_deg=84.0 + (12.0 * (1.0 - pulse)),
+            alpha=232,
+            glow_alpha=86,
+        )
+        _arc(
+            radius=size * 0.228,
+            width=size * 0.054,
+            color=QColor("#b8eaff"),
+            start_deg=262.0 - (sweep * 0.82) + (recoil * 0.95) + shimmer,
+            span_deg=64.0 + (9.0 * math.sin((loop * 2.35) + 0.45)),
+            alpha=212,
+            glow_alpha=64,
+        )
+        _orb(radius=size * (0.068 + (0.008 * pulse)), color=QColor("#ffffff"), alpha=255)
+        orbit_theta = math.radians(sweep + (22.0 * math.sin(loop * 2.7)) - 42.0)
+        orbit_distance = size * (0.17 + (0.03 * pulse))
         orbit_center = QPointF(
-            center.x() + (math.cos(orbit_theta) * size * 0.19),
-            center.y() + (math.sin(orbit_theta) * size * 0.19),
+            center.x() + (math.cos(orbit_theta) * orbit_distance),
+            center.y() + (math.sin(orbit_theta) * orbit_distance),
         )
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#d8f4ff"))
-        painter.drawEllipse(orbit_center, size * 0.050, size * 0.050)
+        orbit_glow = QRadialGradient(orbit_center, size * 0.11)
+        orbit_glow.setColorAt(0.0, QColor(255, 255, 255, 230))
+        orbit_glow.setColorAt(0.45, QColor(203, 242, 255, 150))
+        orbit_glow.setColorAt(1.0, QColor(144, 214, 255, 0))
+        painter.setBrush(QBrush(orbit_glow))
+        painter.drawEllipse(orbit_center, size * 0.078, size * 0.078)
+        painter.setBrush(QColor("#effcff"))
+        painter.drawEllipse(orbit_center, size * 0.047, size * 0.047)
     elif normalized_state == "complete":
         mint = QColor("#2ccf9b")
         gold = QColor("#ffd36c")
-        _state_disc(fill=mint, ring=QColor("#81f0c8"), ring_alpha=140)
+        _state_disc(
+            inner=QColor("#cffff0"),
+            mid=mint,
+            edge=QColor("#11856a"),
+            ring=QColor("#8bf0c9"),
+            ring_alpha=142,
+            glow=QColor("#4fdbaf"),
+            glow_alpha=30,
+        )
         pen = QPen(gold)
         pen.setWidthF(size * 0.074)
         pen.setCapStyle(Qt.RoundCap)
@@ -646,15 +769,36 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
         painter.setBrush(QColor("#fff4cf"))
         painter.drawEllipse(QPointF(center.x() + (size * 0.19), center.y() - (size * 0.19)), size * 0.050, size * 0.050)
     else:
-        _state_disc(fill=QColor("#34c86d"), ring=QColor("#9af0b3"), ring_alpha=148)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#f6fff9"))
-        for dx, dy, radius in (
-            (0.0, 0.0, 0.078),
-            (-0.20, -0.15, 0.050),
-            (0.20, -0.13, 0.046),
-            (0.14, 0.20, 0.048),
+        _state_disc(
+            inner=QColor("#c8ffd2"),
+            mid=QColor("#46d978"),
+            edge=QColor("#177d46"),
+            ring=QColor("#c7ffd3"),
+            ring_alpha=156,
+            glow=QColor("#63ea8f"),
+            glow_alpha=28,
+        )
+        link_pen = QPen(QColor(242, 255, 246, 74))
+        link_pen.setWidthF(size * 0.040)
+        link_pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(link_pen)
+        for start_dx, start_dy, end_dx, end_dy in (
+            (0.0, 0.0, -0.20, -0.15),
+            (0.0, 0.0, 0.20, -0.13),
+            (0.0, 0.0, 0.14, 0.20),
         ):
+            painter.drawLine(
+                QPointF(center.x() + (start_dx * size), center.y() + (start_dy * size)),
+                QPointF(center.x() + (end_dx * size), center.y() + (end_dy * size)),
+            )
+        painter.setPen(Qt.NoPen)
+        for dx, dy, radius, color in (
+            (0.0, 0.0, 0.078, QColor("#f5fff7")),
+            (-0.20, -0.15, 0.050, QColor("#ffffff")),
+            (0.20, -0.13, 0.046, QColor("#f8fff9")),
+            (0.14, 0.20, 0.048, QColor("#e6fff0")),
+        ):
+            painter.setBrush(color)
             painter.drawEllipse(QPointF(center.x() + (dx * size), center.y() + (dy * size)), size * radius, size * radius)
 
     painter.end()
