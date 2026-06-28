@@ -1101,6 +1101,67 @@ class GatewayClient:
             label="voice_tts failed",
         )
 
+    def voice_tts_stream(
+        self,
+        *,
+        run_id: str,
+        text: str,
+        provider: Optional[str] = None,
+        voice: Optional[str] = None,
+        fmt: Optional[str] = None,
+        request_id: Optional[str] = None,
+        model: Optional[str] = None,
+        profile: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+    ):
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("voice_tts_stream: run_id is required")
+        body: Dict[str, Any] = {"text": str(text or "")}
+        if provider:
+            body["provider"] = str(provider)
+        if voice:
+            body["voice"] = str(voice)
+        if fmt:
+            body["format"] = str(fmt)
+        if request_id:
+            body["request_id"] = str(request_id)
+        if model:
+            body["model"] = str(model)
+        if profile:
+            body["profile"] = str(profile)
+
+        data = json.dumps(body).encode("utf-8")
+        headers = self._headers()
+        headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(
+            self._url(f"/api/gateway/runs/{rid}/voice/tts/stream"),
+            data=data,
+            method="POST",
+            headers=headers,
+        )
+
+        def _events():
+            try:
+                with urllib.request.urlopen(req, timeout=float(timeout_s or self._cfg.timeout_s)) as resp:
+                    for raw_line in resp:
+                        line = _decode_bytes(bytes(raw_line or b""), label="voice_tts_stream failed").strip()
+                        if not line:
+                            continue
+                        parsed = _parse_json(line, label="voice_tts_stream failed")
+                        if isinstance(parsed, dict):
+                            yield parsed
+            except urllib.error.HTTPError as e:
+                body_text = _read_error(e, label="voice_tts_stream failed")
+                raise GatewayHttpError(
+                    f"voice_tts_stream failed: {body_text}",
+                    status=int(getattr(e, "code", 0) or 0),
+                    retry_after_s=_retry_after_s(dict(e.headers)),
+                    body_text=body_text,
+                )
+
+        return _events()
+
     def image_generate(
         self,
         *,

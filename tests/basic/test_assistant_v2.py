@@ -4,16 +4,23 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from abstractassistant.config import Config
-from PyQt5.QtCore import QEvent
+from abstractassistant.core.llm_manager import LLMManager
+from abstractassistant.core.session_index import SessionIndex
+from abstractassistant.core.session_store import SessionSnapshot, SessionStore
+from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtGui import QKeyEvent, QTextCursor
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
 from abstractassistant.utils.mermaid_renderer import mermaid_block_to_data_uri
 import abstractassistantv2.app as app_module
 
 from abstractassistantv2.app import (
+    AttachmentTextEdit,
     AssistantHtmlAction,
     AssistantPalette,
     HistoryScrollRequest,
@@ -31,6 +38,7 @@ from abstractassistantv2.app import (
     _message_bubble_width,
     _message_media_artifacts,
     _refresh_tray_visibility,
+    _session_picker_label,
     _tray_feedback_icon,
     _tool_call_summary,
     _visible_history_messages,
@@ -439,6 +447,44 @@ def test_assistant_v2_tray_feedback_icon_uses_large_opaque_footprint(state: str)
 
 
 @pytest.mark.basic
+def test_assistant_v2_session_picker_label_uses_compact_date_and_topic() -> None:
+    label = _session_picker_label(
+        {
+            "created_at": "2026-06-21T10:14:00+00:00",
+            "updated_at": "2026-06-21T10:59:00+00:00",
+            "title": "Investigate why the menu bar session picker truncates valuable context",
+        }
+    )
+
+    assert label == "26/06/21 - Investigate why the menu bar session picker truncates val…"
+
+
+@pytest.mark.basic
+def test_llm_manager_session_fallback_title_uses_first_user_query(tmp_path: Path) -> None:
+    index = SessionIndex(tmp_path)
+    record = index.create_session()
+    store = SessionStore(index.data_dir_for(record.session_id) / "session.json")
+    store.save(
+        SessionSnapshot(
+            session_id=record.session_id,
+            actor_id=record.actor_id,
+            messages=[
+                {"role": "user", "content": "Plan the Q3 launch checklist"},
+                {"role": "assistant", "content": "Sure, let's map it out."},
+                {"role": "user", "content": "Also estimate the staffing risks"},
+            ],
+            last_run_id=None,
+        )
+    )
+    manager = LLMManager.__new__(LLMManager)
+    manager._session_index = index  # type: ignore[attr-defined]
+
+    title = LLMManager._fallback_title_for_session(manager, record.session_id)
+
+    assert title == "Plan the Q3 launch checklist"
+
+
+@pytest.mark.basic
 def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
     captures: list[str] = []
@@ -536,17 +582,69 @@ def test_assistant_v2_run_activity_event_updates_inline_status() -> None:
 
 @pytest.mark.basic
 def test_assistant_v2_tool_event_updates_inline_status() -> None:
-    status_calls: list[tuple[str, str]] = []
+    status_calls: list[tuple[str, str, bool, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", rich=False, tooltip=None: status_calls.append(
+        (text, tone, rich, str(tooltip or ""))
+    )
 
     AssistantPalette._on_worker_event(
         palette,
-        {"type": "tool", "message": {"metadata": {"name": "web_search"}}},
+        {
+            "type": "tool",
+            "message": {
+                "metadata": {
+                    "name": "web_search",
+                    "arguments": {"query": "ML Engineering Director Genentech AI4DD 2026", "num_results": 10},
+                }
+            },
+        },
     )
 
-    assert status_calls == [("Tool executed: web_search", "busy")]
+    assert status_calls == [
+        (
+            '<span style="color:#63d98b; font-weight:800;">web_search</span>'
+            '<span style="color:#63d98b; font-weight:800;">(</span>'
+            '<span style="color:#ffc963; font-weight:400;">'
+            'query=&quot;ML Engineering Director Genentech AI4DD 2026&quot;, num_results=10</span>'
+            '<span style="color:#63d98b; font-weight:800;">)</span>',
+            "busy",
+            True,
+            'web_search(query="ML Engineering Director Genentech AI4DD 2026", num_results=10)',
+        )
+    ]
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_status_budget_tracks_palette_width() -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class _FakeWidget:
+        def __init__(self, width: int) -> None:
+            self._width = width
+
+        def width(self) -> int:
+            return self._width
+
+        def font(self):
+            return app.font()
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette.isMaximized = lambda: False
+    palette.width = lambda: 420
+    palette.chat_status_label = _FakeWidget(420)
+    palette.history_card = _FakeWidget(420)
+    small = AssistantPalette._tool_history_label_max_chars(palette)
+
+    palette.isMaximized = lambda: True
+    palette.width = lambda: 1100
+    palette.chat_status_label = _FakeWidget(1100)
+    palette.history_card = _FakeWidget(1100)
+    large = AssistantPalette._tool_history_label_max_chars(palette)
+
+    assert small < large
+    assert large > 150
 
 
 @pytest.mark.basic
@@ -1479,6 +1577,273 @@ def test_assistant_v2_event_filter_tolerates_preinit_history_events() -> None:
 
     assert handled is False
     assert events == ["schedule"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_message_voice_synthesizing_click_pauses_stream_without_history_refresh() -> None:
+    class _Voice:
+        def __init__(self) -> None:
+            self.pause_calls = 0
+
+        def pause(self) -> bool:
+            self.pause_calls += 1
+            return True
+
+    class _Card:
+        def __init__(self) -> None:
+            self.states: list[str] = []
+
+        def set_voice_state(self, state: str) -> None:
+            self.states.append(state)
+
+    voice = _Voice()
+    card = _Card()
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._controller = SimpleNamespace(voice_manager=voice)
+    palette._active_spoken_message_key = "id:m1"
+    palette._active_spoken_message_phase = "synthesizing"
+    palette._history_cards_by_key = {"id:m1": card}
+    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("history refreshed"))
+
+    AssistantPalette._toggle_message_voice(palette, {"role": "assistant", "message_id": "m1", "content": "hello"})
+
+    assert voice.pause_calls == 1
+    assert palette._active_spoken_message_phase == "paused"
+    assert card.states == ["paused"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_message_voice_pause_resume_updates_card_without_history_refresh() -> None:
+    class _Voice:
+        def __init__(self) -> None:
+            self.pause_calls = 0
+            self.resume_calls = 0
+
+        def is_paused(self) -> bool:
+            return False
+
+        def is_speaking(self) -> bool:
+            return True
+
+        def pause(self) -> bool:
+            self.pause_calls += 1
+            return True
+
+        def resume(self) -> bool:
+            self.resume_calls += 1
+            return True
+
+    class _Card:
+        def __init__(self) -> None:
+            self.states: list[str] = []
+
+        def set_voice_state(self, state: str) -> None:
+            self.states.append(state)
+
+    voice = _Voice()
+    card = _Card()
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._controller = SimpleNamespace(voice_manager=voice)
+    palette._active_spoken_message_key = "id:m1"
+    palette._active_spoken_message_phase = "speaking"
+    palette._history_cards_by_key = {"id:m1": card}
+    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("history refreshed"))
+
+    message = {"role": "assistant", "message_id": "m1", "content": "hello"}
+    AssistantPalette._toggle_message_voice(palette, message)
+    assert voice.pause_calls == 1
+    assert palette._active_spoken_message_phase == "paused"
+    assert card.states == ["paused"]
+
+    AssistantPalette._toggle_message_voice(palette, message)
+    assert voice.resume_calls == 1
+    assert palette._active_spoken_message_phase == "speaking"
+    assert card.states == ["paused", "speaking"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_message_voice_start_and_finish_do_not_rebuild_history() -> None:
+    class _Voice:
+        def __init__(self) -> None:
+            self.stopped = 0
+            self.spoken: list[str] = []
+
+        def is_paused(self) -> bool:
+            return False
+
+        def is_speaking(self) -> bool:
+            return False
+
+        def stop_speaking(self) -> None:
+            self.stopped += 1
+
+        def speak(self, text: str, callback=None) -> bool:
+            self.spoken.append(text)
+            return True
+
+    class _Card:
+        def __init__(self) -> None:
+            self.states: list[str] = []
+
+        def set_voice_state(self, state: str) -> None:
+            self.states.append(state)
+
+    voice = _Voice()
+    old_card = _Card()
+    new_card = _Card()
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._controller = SimpleNamespace(voice_manager=voice)
+    palette._active_spoken_message_key = "id:old"
+    palette._active_spoken_message_phase = "speaking"
+    palette._history_cards_by_key = {"id:old": old_card, "id:new": new_card}
+    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("history refreshed"))
+
+    message = {"role": "assistant", "message_id": "new", "content": "hello again"}
+    AssistantPalette._toggle_message_voice(palette, message)
+    assert voice.stopped == 1
+    assert voice.spoken == ["hello again"]
+    assert old_card.states == ["idle"]
+    assert new_card.states == ["synthesizing"]
+
+    AssistantPalette._on_message_speech_started(palette, "id:new")
+    AssistantPalette._on_message_speech_finished(palette, "id:new")
+    assert new_card.states == ["synthesizing", "speaking", "idle"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_message_action_buttons_do_not_take_focus() -> None:
+    app = QApplication.instance() or QApplication([])
+    card = MessageCard(
+        message={"role": "assistant", "message_id": "m1", "content": "hello"},
+        message_key="id:m1",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        bubble_width=320,
+        on_toggle_voice=lambda _message: None,
+        voice_state="idle",
+    )
+    card.show()
+    app.processEvents()
+
+    buttons = [button for button in card.findChildren(app_module.QPushButton) if button.objectName() == "messageActionButton"]
+    assert len(buttons) == 2
+    assert all(button.focusPolicy() == Qt.NoFocus for button in buttons)
+
+
+@pytest.mark.basic
+def test_assistant_v2_prompt_up_down_jump_at_text_edges() -> None:
+    app = QApplication.instance() or QApplication([])
+    editor = AttachmentTextEdit()
+    editor.resize(260, 80)
+    editor.setPlainText("alpha\nbeta\ngamma")
+    editor.show()
+    app.processEvents()
+
+    cursor = editor.textCursor()
+    cursor.setPosition(len("alpha\nbe"))
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key_Up)
+    assert 0 < editor.textCursor().position() < len("alpha\nbeta")
+
+    cursor = editor.textCursor()
+    cursor.setPosition(len("alp"))
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key_Up)
+    assert editor.textCursor().position() == 0
+
+    cursor = editor.textCursor()
+    cursor.setPosition(len("alpha\nbeta\nga"))
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key_Down)
+    assert editor.textCursor().position() == len("alpha\nbeta\ngamma")
+
+
+@pytest.mark.basic
+def test_assistant_v2_prompt_edge_navigation_accepts_keypad_modifier() -> None:
+    app = QApplication.instance() or QApplication([])
+    editor = AttachmentTextEdit()
+    editor.setPlainText("alpha\nbeta")
+    editor.show()
+    app.processEvents()
+
+    cursor = editor.textCursor()
+    cursor.setPosition(len("alp"))
+    editor.setTextCursor(cursor)
+    event = QKeyEvent(QEvent.KeyPress, Qt.Key_Up, Qt.KeypadModifier)
+    QApplication.sendEvent(editor, event)
+
+    assert event.isAccepted()
+    assert editor.textCursor().position() == 0
+
+
+@pytest.mark.basic
+def test_assistant_v2_prompt_edge_navigation_uses_displayed_wrapped_lines() -> None:
+    app = QApplication.instance() or QApplication([])
+    text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+    editor = AttachmentTextEdit()
+    editor.resize(260, 80)
+    editor.setLineWrapMode(AttachmentTextEdit.WidgetWidth)
+    editor.setPlainText(text)
+    editor.show()
+    app.processEvents()
+
+    cursor = editor.textCursor()
+    cursor.setPosition(3)
+    editor.setTextCursor(cursor)
+    probe = QTextCursor(cursor)
+    assert probe.movePosition(QTextCursor.Down)
+    QTest.keyClick(editor, Qt.Key_Up)
+    assert editor.textCursor().position() == 0
+
+    cursor = editor.textCursor()
+    cursor.setPosition(len(text) - 5)
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key_Down)
+    assert editor.textCursor().position() == len(text)
+
+
+@pytest.mark.basic
+def test_assistant_v2_prompt_edge_navigation_uses_visible_viewport_edges() -> None:
+    app = QApplication.instance() or QApplication([])
+    text = "\n".join(f"line {index}" for index in range(12))
+    editor = AttachmentTextEdit()
+    editor.resize(260, 38)
+    editor.setFixedHeight(38)
+    editor.setPlainText(text)
+    editor.show()
+    app.processEvents()
+
+    def move_cursor_to_line(line: str) -> None:
+        cursor = editor.textCursor()
+        cursor.setPosition(text.index(line) + 2)
+        editor.setTextCursor(cursor)
+        app.processEvents()
+
+    def align_cursor(edge: str) -> None:
+        viewport = editor.viewport().rect()
+        rect = editor.cursorRect(editor.textCursor())
+        delta = rect.top() - viewport.top() if edge == "top" else rect.bottom() - viewport.bottom()
+        bar = editor.verticalScrollBar()
+        bar.setValue(bar.value() + delta)
+        app.processEvents()
+
+    move_cursor_to_line("line 6")
+    align_cursor("top")
+    viewport = editor.viewport().rect()
+    probe = QTextCursor(editor.textCursor())
+    assert probe.movePosition(QTextCursor.Up)
+    assert editor.cursorRect(probe).center().y() < viewport.top()
+    QTest.keyClick(editor, Qt.Key_Up)
+    assert editor.textCursor().position() == 0
+
+    move_cursor_to_line("line 6")
+    align_cursor("bottom")
+    viewport = editor.viewport().rect()
+    probe = QTextCursor(editor.textCursor())
+    assert probe.movePosition(QTextCursor.Down)
+    assert editor.cursorRect(probe).center().y() > viewport.bottom()
+    QTest.keyClick(editor, Qt.Key_Down)
+    assert editor.textCursor().position() == len(text)
 
 
 @pytest.mark.basic

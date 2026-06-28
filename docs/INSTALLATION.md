@@ -46,6 +46,19 @@ build-macos-app
 
 This builds a self-contained `AbstractAssistant.app` and installs it into `/Applications`.
 
+If you are changing the macOS UI from source and want to verify the packaged app, rerun
+`build-macos-app` after your change, quit any older `AbstractAssistant` menu-bar process, and then
+relaunch `/Applications/AbstractAssistant.app`. Source-run tray behavior and the installed bundle
+are not the same validation target.
+
+If you want the bundle without installing it into `/Applications`, use:
+
+```bash
+build-macos-app --skip-install
+```
+
+That produces `dist/macos/AbstractAssistant.app`.
+
 ## Headless / terminal only
 
 You can use the CLI without running the tray UI:

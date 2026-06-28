@@ -16,6 +16,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 ## What You Get
 
 - A tray-first desktop assistant with a compact top-right query palette.
+- Recent-session navigation in the palette header, with compact `yy/mm/dd - topic` labels and a
+  live gateway connection orb.
 - One published gateway assistant workflow, `abstractassistant-orchestrator`, as the runtime path
   for tray and CLI turns.
 - Gateway-backed multimodal defaults for text, voice, image, video, sound, and music routes.

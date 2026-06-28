@@ -27,6 +27,7 @@ except Exception:
 
 from ..core.gateway_voice_manager import GatewayVoiceManager
 from ..core.gateway_selection_store import GatewaySelection
+from ..core.tool_display import compact_tool_message_label
 from ..gateway import list_agent_entrypoints
 from .gateway_worker import GatewayWorker
 
@@ -50,7 +51,7 @@ try:
         QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
     )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QRect, QMetaObject, QEvent
-    from PyQt5.QtGui import QFont, QPalette, QColor, QCursor
+    from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QTextCursor
     from PyQt5.QtCore import QPoint
     QT_AVAILABLE = "PyQt5"
 except ImportError:
@@ -62,7 +63,7 @@ except ImportError:
             QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QThread, Slot as pyqtSlot, QMetaObject, QEvent
-        from PySide2.QtGui import QFont, QPalette, QColor, QCursor
+        from PySide2.QtGui import QFont, QPalette, QColor, QCursor, QTextCursor
         from PySide2.QtCore import QPoint
         QT_AVAILABLE = "PySide2"
     except ImportError:
@@ -74,7 +75,7 @@ except ImportError:
                 QLineEdit, QScrollArea, QSizePolicy, QButtonGroup
             )
             from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QEvent
-            from PyQt6.QtGui import QFont, QPalette, QColor, QCursor
+            from PyQt6.QtGui import QFont, QPalette, QColor, QCursor, QTextCursor
             from PyQt6.QtCore import QPoint
             QT_AVAILABLE = "PyQt6"
         except ImportError:
@@ -89,6 +90,13 @@ class TTSToggle(QPushButton):
         self.setFixedSize(40, 24)
         self.setToolTip("Speaker (TTS)")
         self.setCheckable(True)
+        try:
+            self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        except Exception:
+            try:
+                self.setFocusPolicy(Qt.NoFocus)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         self._tts_state = "idle"  # 'idle', 'speaking', 'paused'
         try:
             self.toggled.connect(lambda _=False: self._update_appearance())
@@ -1783,6 +1791,7 @@ class QtChatBubble(QWidget):
         self.error_callback = None
         self.status_callback = None  # New callback for status updates
         self._voice_meter_callback = None
+        self._suppress_history_updates_until = 0.0
         self._run_state = RunStateMachine(
             on_state_change=self._handle_run_state_change,
             on_missing_final=self._handle_missing_final_output,
@@ -4046,7 +4055,14 @@ class QtChatBubble(QWidget):
     def handle_key_press(self, event):
         """Handle key press events in text input."""
 #        print(f"🔄 Key pressed: {event.key()}, modifiers: {event.modifiers()}")
-        
+
+        if (
+            event.key() in {self._qt_key("Key_Up"), self._qt_key("Key_Down")}
+            and self._prompt_navigation_modifiers_are_plain(event.modifiers())
+            and self._handle_prompt_vertical_navigation(self.input_text, event.key())
+        ):
+            return
+
         # Check for Enter/Return key
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
             # Shift+Enter should add a new line
@@ -4061,6 +4077,62 @@ class QtChatBubble(QWidget):
         
         # Call original keyPressEvent for all other keys
         QTextEdit.keyPressEvent(self.input_text, event)
+
+    @staticmethod
+    def _qt_int(value) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return int(getattr(value, "value", 0) or 0)
+
+    @classmethod
+    def _qt_key(name: str):
+        key = getattr(Qt, name, None)
+        if key is None and hasattr(Qt, "Key"):
+            key = getattr(Qt.Key, name)
+        return key
+
+    @classmethod
+    def _qt_keyboard_modifier(cls, name: str) -> int:
+        modifier = getattr(Qt, name, None)
+        if modifier is None and hasattr(Qt, "KeyboardModifier"):
+            modifier = getattr(Qt.KeyboardModifier, name)
+        return cls._qt_int(modifier)
+
+    @classmethod
+    def _prompt_navigation_modifiers_are_plain(cls, modifiers) -> bool:
+        return (cls._qt_int(modifiers) & ~cls._qt_keyboard_modifier("KeypadModifier")) == 0
+
+    @staticmethod
+    def _text_cursor_move_operation(name: str):
+        operation = getattr(QTextCursor, name, None)
+        if operation is None and hasattr(QTextCursor, "MoveOperation"):
+            operation = getattr(QTextCursor.MoveOperation, name)
+        return operation
+
+    def _handle_prompt_vertical_navigation(self, editor, key) -> bool:
+        cursor = editor.textCursor()
+        if cursor.hasSelection():
+            return False
+
+        viewport_rect = editor.viewport().rect()
+        if key == self._qt_key("Key_Up"):
+            probe = QTextCursor(cursor)
+            if probe.movePosition(self._text_cursor_move_operation("Up")):
+                if editor.cursorRect(probe).center().y() >= viewport_rect.top():
+                    return False
+            cursor.movePosition(self._text_cursor_move_operation("Start"))
+            editor.setTextCursor(cursor)
+            return True
+        if key == self._qt_key("Key_Down"):
+            probe = QTextCursor(cursor)
+            if probe.movePosition(self._text_cursor_move_operation("Down")):
+                if editor.cursorRect(probe).center().y() <= viewport_rect.bottom():
+                    return False
+            cursor.movePosition(self._text_cursor_move_operation("End"))
+            editor.setTextCursor(cursor)
+            return True
+        return False
     
     def on_provider_changed(self, index: int):
         """Handle provider change."""
@@ -5306,9 +5378,7 @@ class QtChatBubble(QWidget):
             try:
                 msg = event.get("message") if isinstance(event, dict) else None
                 if isinstance(msg, dict):
-                    name = self._tool_name_from_message(msg)
-                    if name:
-                        self._set_run_activity(f"Tool executed: {name}", override=True)
+                    self._set_run_activity(compact_tool_message_label(msg, max_chars=120), override=True)
             except Exception:
                 pass
             return
@@ -6066,9 +6136,143 @@ class QtChatBubble(QWidget):
                 print(f"🔊 QtChatBubble: v0.5.1 callbacks will handle status transitions")
             # DON'T call response_callback or set "ready" status here!
             # The v0.5.1 callbacks will handle everything
-    
+
+    def _capture_history_scroll(self):
+        """Capture current history-dialog scroll without forcing the dialog open."""
+        try:
+            dlg = getattr(self, "history_dialog", None)
+            if dlg is None or not bool(dlg.isVisible()):
+                return None
+            area = getattr(dlg, "scroll_area", None)
+            if area is None:
+                return None
+            bar = area.verticalScrollBar()
+            if bar is None:
+                return None
+            return {
+                "bar": bar,
+                "value": int(bar.value()),
+            }
+        except Exception:
+            return None
+
+    def _restore_history_scroll(self, snapshot) -> None:
+        """Restore history scroll after UI actions that must not move the chat."""
+        if not snapshot:
+            return
+        bar = snapshot.get("bar") if isinstance(snapshot, dict) else None
+        value = snapshot.get("value") if isinstance(snapshot, dict) else None
+        if bar is None or value is None:
+            return
+
+        def _restore() -> None:
+            try:
+                maximum = int(bar.maximum())
+                target = max(0, min(int(value), maximum))
+                bar.setValue(target)
+            except Exception:
+                pass
+
+        _restore()
+        for delay_ms in (0, 50, 150, 300):
+            try:
+                QTimer.singleShot(delay_ms, _restore)
+            except Exception:
+                pass
+
+    def _with_history_scroll_preserved(self, action: Callable[[], Any]):
+        """Run an action without letting it disturb the visible chat scroll."""
+        snapshot = self._capture_history_scroll()
+        try:
+            return action()
+        finally:
+            self._restore_history_scroll(snapshot)
+
+    def _suppress_history_updates_for_voice_control(self, duration_s: float = 1.25) -> None:
+        """Prevent manual voice controls from repainting the visible chat."""
+        try:
+            until = time.monotonic() + max(0.0, float(duration_s))
+            current = float(getattr(self, "_suppress_history_updates_until", 0.0) or 0.0)
+            self._suppress_history_updates_until = max(current, until)
+        except Exception:
+            self._suppress_history_updates_until = 0.0
+
+    def _history_updates_suppressed(self) -> bool:
+        """Return True while a manual voice-control click must be render-neutral."""
+        try:
+            return time.monotonic() < float(getattr(self, "_suppress_history_updates_until", 0.0) or 0.0)
+        except Exception:
+            return False
+
+    def _should_ignore_speech_end_for_manual_voice_control(self) -> bool:
+        """Ignore stale speech-end callbacks produced by pause/stop controls."""
+        if self._history_updates_suppressed():
+            return True
+        try:
+            vm = getattr(self, "voice_manager", None)
+        except Exception:
+            vm = None
+        if vm is None:
+            return False
+        try:
+            state = str(getattr(vm, "get_state", lambda: "")() or "").strip().lower()
+            if state == "paused":
+                return True
+        except Exception:
+            pass
+        try:
+            return bool(getattr(vm, "is_paused", lambda: False)())
+        except Exception:
+            return False
+
+    def _stop_voice_for_context_change(self) -> None:
+        """Stop current speech when the active conversation context changes."""
+        vm = getattr(self, "voice_manager", None)
+        if vm is None:
+            return
+        try:
+            if hasattr(vm, "stop"):
+                vm.stop()
+            elif hasattr(vm, "stop_speaking"):
+                vm.stop_speaking()
+        except Exception as e:
+            if bool(getattr(self, "debug", False)):
+                print(f"❌ Error stopping voice for context change: {e}")
+        try:
+            self._update_tts_toggle_state()
+        except Exception:
+            pass
+        try:
+            self._run_state.set_speaking(False)
+        except Exception:
+            pass
+
     def on_tts_toggled(self, enabled: bool):
         """Handle TTS toggle state change."""
+        return self._with_history_scroll_preserved(lambda: self._on_tts_toggled_inner(enabled))
+
+    def _on_tts_toggled_inner(self, enabled: bool):
+        was_enabled = bool(getattr(self, "tts_enabled", False))
+        if was_enabled and not bool(enabled) and self.voice_manager:
+            try:
+                current_state = str(self.voice_manager.get_state() or "").strip().lower()
+            except Exception:
+                current_state = ""
+            if current_state in {"speaking", "paused"}:
+                self._on_tts_single_click_inner()
+                self.tts_enabled = True
+                try:
+                    btn = getattr(self, "tts_toggle", None)
+                    if btn is not None:
+                        prev = btn.blockSignals(True)
+                        try:
+                            btn.set_enabled(True)
+                        finally:
+                            btn.blockSignals(prev)
+                except Exception:
+                    pass
+                return
+
         self.tts_enabled = enabled
         if self.debug:
             print(f"🔊 TTS {'enabled' if enabled else 'disabled'}")
@@ -6126,8 +6330,12 @@ class QtChatBubble(QWidget):
 
     def on_tts_single_click(self):
         """Handle single click on TTS toggle - pause/resume functionality."""
+        return self._with_history_scroll_preserved(self._on_tts_single_click_inner)
+
+    def _on_tts_single_click_inner(self):
         if not self.voice_manager or not self.tts_enabled:
             return
+        self._suppress_history_updates_for_voice_control()
 
         try:
             current_state = self.voice_manager.get_state()
@@ -6192,8 +6400,12 @@ class QtChatBubble(QWidget):
 
     def on_tts_double_click(self):
         """Handle double click on TTS toggle - stop TTS and open chat bubble."""
+        return self._with_history_scroll_preserved(self._on_tts_double_click_inner)
+
+    def _on_tts_double_click_inner(self):
         if self.debug:
             print("🔊 TTS double click - stopping speech and showing chat")
+        self._suppress_history_updates_for_voice_control()
 
         # Prevent double-free errors by checking if objects are still valid
         try:
@@ -6869,9 +7081,14 @@ class QtChatBubble(QWidget):
 
     def _on_status_single_click(self) -> None:
         """Single click on SPEAKING/PAUSED → pause or resume."""
+        return self._with_history_scroll_preserved(self._on_status_single_click_inner)
+
+    def _on_status_single_click_inner(self) -> None:
+        """Single click on SPEAKING/PAUSED → pause or resume."""
         self._status_pending_click = False
         if not self.voice_manager:
             return
+        self._suppress_history_updates_for_voice_control()
         try:
             if self.voice_manager.is_paused():
                 self.voice_manager.resume()
@@ -6884,9 +7101,14 @@ class QtChatBubble(QWidget):
 
     def _on_status_double_click(self) -> None:
         """Double click on SPEAKING/PAUSED → stop voice."""
+        return self._with_history_scroll_preserved(self._on_status_double_click_inner)
+
+    def _on_status_double_click_inner(self) -> None:
+        """Double click on SPEAKING/PAUSED → stop voice."""
         self._status_pending_click = False
         if not self.voice_manager:
             return
+        self._suppress_history_updates_for_voice_control()
         try:
             self.voice_manager.stop()
             self.notify_manual_voice_stop()
@@ -7315,6 +7537,7 @@ class QtChatBubble(QWidget):
             return
 
         try:
+            self._stop_voice_for_context_change()
             self._save_tool_prefs_for_session(current or None)
             self.llm_manager.switch_session(sid)
         except Exception as e:
@@ -7375,6 +7598,7 @@ class QtChatBubble(QWidget):
             self._save_tool_prefs_for_session(old_id)
 
         try:
+            self._stop_voice_for_context_change()
             new_id = str(self.llm_manager.create_new_session() or "").strip()
         except Exception as e:
             self._show_warning("New session", f"Failed to create a new session:\n{e}")
@@ -7776,6 +8000,7 @@ Continue the conversation naturally, referring to the context above when relevan
 
         if file_path:
             try:
+                self._stop_voice_for_context_change()
                 # Use AbstractCore session loading via LLMManager
                 success = self.llm_manager.load_session(file_path)
 
@@ -7971,6 +8196,10 @@ Continue the conversation naturally, referring to the context above when relevan
         updates the history dialog if it's currently open.
         """
         try:
+            if self._history_updates_suppressed():
+                if self.debug:
+                    print("🔇 Suppressed chat rebuild during manual voice control")
+                return
             # If history dialog is open, refresh it with new message history
             if self.history_dialog and self.history_dialog.isVisible():
                 self.history_dialog.refresh_messages(self.message_history)
@@ -8101,6 +8330,10 @@ Continue the conversation naturally, referring to the context above when relevan
 
     def _show_history_if_voice_mode_off(self):
         """Show chat history only if voice mode is OFF."""
+        if self._history_updates_suppressed():
+            if self.debug:
+                print("🔇 Suppressed history show during manual voice control")
+            return
         if self._is_voice_mode_active():
             if self.debug:
                 print("🎙️ Chat history blocked - Voice mode is active")
@@ -8117,6 +8350,10 @@ Continue the conversation naturally, referring to the context above when relevan
 
     def show_history(self, checked: Optional[bool] = None):
         """Toggle message history dialog visibility."""
+        if self._history_updates_suppressed():
+            if self.debug:
+                print("🔇 Suppressed history refresh during manual voice control")
+            return
         # Best-effort: refresh history from the durable session so the dialog is accurate
         # even when opened during full voice mode.
         try:
@@ -8449,6 +8686,10 @@ Continue the conversation naturally, referring to the context above when relevan
         """Handle speech end on main thread (called via QMetaObject.invokeMethod)."""
         if self.debug:
             print("🔊 QtChatBubble: Speech ended - handling completion on main thread")
+        if self._should_ignore_speech_end_for_manual_voice_control():
+            if self.debug:
+                print("🔇 Ignored speech-end callback during manual voice control")
+            return
         
         # Update toggle state when speech completes
         self._update_tts_toggle_state()

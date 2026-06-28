@@ -1,7 +1,7 @@
 """
 Gateway voice manager for AbstractAssistant.
 
-TTS: gateway /voice/tts → download audio artifact → local OS playback.
+TTS: gateway /voice/tts/stream when advertised, otherwise gateway /voice/tts → local playback.
 STT: AbstractVoice VoiceRecognizer (mic + VAD) → GatewaySTTAdapter → gateway /audio/transcribe.
 """
 
@@ -17,6 +17,7 @@ import uuid
 import warnings
 import os
 import io
+import base64
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
@@ -43,6 +44,10 @@ class GatewayVoiceManager:
         self._play_proc: Optional[subprocess.Popen] = None
         self._inprocess_player = None
         self._playback_backend = "none"
+        self._stream_id = ""
+        self._stream_active = False
+        self._stream_pause_gate: Optional[threading.Event] = None
+        self._stream_stop_gate: Optional[threading.Event] = None
         # Playback readiness (pause waits until a player spawns or fails).
         self._play_ready = threading.Event()
         self._state_lock = threading.Lock()
@@ -314,6 +319,233 @@ class GatewayVoiceManager:
             return bool(rec.change_vad_aggressiveness(aggressiveness))
         return False
 
+    def _start_stream_control(self) -> Tuple[str, threading.Event, threading.Event]:
+        pause_gate = threading.Event()
+        pause_gate.set()
+        stop_gate = threading.Event()
+        stream_id = uuid.uuid4().hex
+        with self._state_lock:
+            self._stream_id = stream_id
+            self._stream_active = True
+            self._stream_pause_gate = pause_gate
+            self._stream_stop_gate = stop_gate
+            self._paused = False
+        return stream_id, pause_gate, stop_gate
+
+    def _stop_stream_control(self) -> None:
+        with self._state_lock:
+            pause_gate = self._stream_pause_gate
+            stop_gate = self._stream_stop_gate
+            self._stream_id = ""
+            self._stream_active = False
+            self._stream_pause_gate = None
+            self._stream_stop_gate = None
+        if stop_gate is not None:
+            try:
+                stop_gate.set()
+            except Exception:
+                pass
+        if pause_gate is not None:
+            try:
+                pause_gate.set()
+            except Exception:
+                pass
+
+    def _clear_stream_control(self, stream_id: str) -> bool:
+        with self._state_lock:
+            if str(self._stream_id or "") != str(stream_id or ""):
+                return False
+            self._stream_id = ""
+            self._stream_active = False
+            self._stream_pause_gate = None
+            self._stream_stop_gate = None
+            return True
+
+    def _wait_for_stream_resume(self, pause_gate: threading.Event, stop_gate: threading.Event) -> bool:
+        while not stop_gate.is_set():
+            try:
+                if pause_gate.wait(timeout=0.05):
+                    return True
+            except Exception:
+                return False
+        return False
+
+    def _speak_gateway_stream(
+        self,
+        *,
+        gw,
+        run_id: str,
+        text: str,
+        provider: Optional[str],
+        voice: Optional[str],
+        profile: Optional[str],
+        fmt: str,
+        request_id: str,
+        model: Optional[str],
+        callback: Optional[Callable],
+    ) -> Optional[bool]:
+        if not self._gateway_tts_streaming_available():
+            return None
+        if str(fmt or "").strip().lower() not in {"wav", "wave"}:
+            return None
+        stream_fn = getattr(gw, "voice_tts_stream", None)
+        if not callable(stream_fn):
+            return None
+        if self._ensure_inprocess_audio_player() is None:
+            return None
+
+        stream_id, pause_gate, stop_gate = self._start_stream_control()
+        thread = threading.Thread(
+            target=self._run_gateway_stream_playback,
+            kwargs={
+                "stream_id": stream_id,
+                "pause_gate": pause_gate,
+                "stop_gate": stop_gate,
+                "gw": gw,
+                "stream_fn": stream_fn,
+                "run_id": run_id,
+                "text": text,
+                "provider": provider,
+                "voice": voice,
+                "profile": profile,
+                "request_id": request_id,
+                "model": model,
+                "callback": callback,
+            },
+            daemon=True,
+        )
+        thread.start()
+        return True
+
+    def _run_gateway_stream_playback(
+        self,
+        *,
+        stream_id: str,
+        pause_gate: threading.Event,
+        stop_gate: threading.Event,
+        gw,
+        stream_fn,
+        run_id: str,
+        text: str,
+        provider: Optional[str],
+        voice: Optional[str],
+        profile: Optional[str],
+        request_id: str,
+        model: Optional[str],
+        callback: Optional[Callable],
+    ) -> bool:
+        audio_started = False
+        stream_opened = False
+        player = None
+        playback_drained = threading.Event()
+        queued_audio_s = 0.0
+
+        def _artifact_fallback() -> bool:
+            if stop_gate.is_set():
+                return False
+            try:
+                return self._speak_gateway_artifact(
+                    gw=gw,
+                    run_id=run_id,
+                    text=text,
+                    provider=provider,
+                    voice=voice,
+                    profile=profile,
+                    fmt=self._preferred_tts_format(),
+                    request_id=request_id,
+                    model=model,
+                    callback=callback,
+                )
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: gateway artifact TTS failed after streaming fallback: {e}")
+                return False
+
+        try:
+            events = stream_fn(
+                run_id=run_id,
+                text=text,
+                provider=provider,
+                voice=voice,
+                profile=profile,
+                fmt="wav",
+                request_id=request_id,
+                model=model,
+                timeout_s=120.0,
+            )
+            event_iter = iter(events)
+            while not stop_gate.is_set():
+                if not self._wait_for_stream_resume(pause_gate, stop_gate):
+                    return False
+                try:
+                    event = next(event_iter)
+                except StopIteration:
+                    break
+                if not self._wait_for_stream_resume(pause_gate, stop_gate):
+                    return False
+                if not isinstance(event, dict):
+                    continue
+                event_type = str(event.get("type") or "").strip().lower()
+                if event_type in {"runtime_start", "start"}:
+                    stream_opened = True
+                    continue
+                if event_type == "audio":
+                    raw = event.get("audio_b64")
+                    if not isinstance(raw, str) or not raw.strip():
+                        if audio_started:
+                            return False
+                        return _artifact_fallback()
+                    audio_bytes = base64.b64decode("".join(raw.strip().split()), validate=True)
+                    if not audio_started:
+                        if not self._begin_stream_playback():
+                            return _artifact_fallback()
+                        player = self._ensure_inprocess_audio_player()
+                        if player is None:
+                            return _artifact_fallback()
+                        self._configure_stream_playback_callbacks(player, playback_drained)
+                        audio_started = True
+                    if not self._wait_for_stream_resume(pause_gate, stop_gate):
+                        return False
+                    duration_s = self._queue_stream_wav_chunk(audio_bytes, playback_drained=playback_drained)
+                    if duration_s is None:
+                        return False
+                    queued_audio_s += max(0.0, float(duration_s))
+                    continue
+                if event_type == "done":
+                    if audio_started:
+                        self._wait_for_stream_playback_drain(
+                            player,
+                            playback_drained,
+                            timeout_s=max(5.0, queued_audio_s + 10.0),
+                        )
+                        self._finish_stream_playback(callback=callback, stream_id=stream_id)
+                        return True
+                    return _artifact_fallback()
+                if event_type in {"error", "cancelled"}:
+                    if audio_started:
+                        self._finish_stream_playback(callback=callback, stream_id=stream_id)
+                        return False
+                    return _artifact_fallback()
+            if stop_gate.is_set():
+                return False
+            if audio_started:
+                self._wait_for_stream_playback_drain(
+                    player,
+                    playback_drained,
+                    timeout_s=max(5.0, queued_audio_s + 10.0),
+                )
+                self._finish_stream_playback(callback=callback, stream_id=stream_id)
+                return False
+            return _artifact_fallback()
+        except Exception as e:
+            if audio_started:
+                self._finish_stream_playback(callback=callback, stream_id=stream_id)
+                warnings.warn(f"#FALLBACK: gateway streaming TTS failed after audio started: {e}")
+                return False
+            warnings.warn(f"#FALLBACK: gateway streaming TTS unavailable, using artifact TTS: {e}")
+            return _artifact_fallback()
+        finally:
+            self._clear_stream_control(stream_id)
+
     def speak(self, text: str, speed: float = 1.0, callback: Optional[Callable] = None) -> bool:
         """Speak the given text via gateway TTS."""
         _ = float(speed or 1.0)
@@ -323,6 +555,7 @@ class GatewayVoiceManager:
         if not self.supports_tts():
             warnings.warn("#FALLBACK: gateway TTS unavailable or no local audio player")
             return False
+        self.stop_speaking()
         gw = None
         try:
             gw = self._gateway_client()
@@ -330,37 +563,105 @@ class GatewayVoiceManager:
             selected_provider = self._selected_tts_provider()
             selected_voice = self._selected_tts_voice()
             selected_voice_mode = self._selected_tts_voice_mode()
-            res = gw.voice_tts(
+            selected_model = self._selected_tts_model()
+            preferred_format = self._preferred_tts_format()
+            request_id = str(uuid.uuid4())
+            stream_result = self._speak_gateway_stream(
+                gw=gw,
                 run_id=run_id,
                 text=raw,
                 provider=selected_provider,
                 voice=selected_voice if selected_voice_mode == "clone" else None,
                 profile=selected_voice if selected_voice_mode != "clone" else None,
-                fmt=self._preferred_tts_format(),
-                request_id=str(uuid.uuid4()),
-                model=self._selected_tts_model(),
-                timeout_s=120.0,
+                fmt=preferred_format,
+                request_id=request_id,
+                model=selected_model,
+                callback=callback,
             )
-            audio = res.get("audio_artifact") if isinstance(res, dict) else None
-            aid = str(audio.get("$artifact") or "").strip() if isinstance(audio, dict) else ""
-            if not aid:
-                raise RuntimeError("Gateway TTS response missing audio artifact")
-            audio_bytes, content_type = gw.download_run_artifact_content(
+            if stream_result is not None:
+                return bool(stream_result)
+            return self._speak_gateway_artifact(
+                gw=gw,
                 run_id=run_id,
-                artifact_id=aid,
-                max_bytes=25_000_000,
-                timeout_s=120.0,
+                text=raw,
+                provider=selected_provider,
+                voice=selected_voice if selected_voice_mode == "clone" else None,
+                profile=selected_voice if selected_voice_mode != "clone" else None,
+                fmt=preferred_format,
+                request_id=request_id,
+                model=selected_model,
+                callback=callback,
             )
-            return self._play_audio_bytes(audio_bytes, content_type, callback=callback)
         except Exception as e:
             warnings.warn(f"#FALLBACK: gateway TTS failed: {e}")
             return False
+
+    def _speak_gateway_artifact(
+        self,
+        *,
+        gw,
+        run_id: str,
+        text: str,
+        provider: Optional[str],
+        voice: Optional[str],
+        profile: Optional[str],
+        fmt: str,
+        request_id: str,
+        model: Optional[str],
+        callback: Optional[Callable],
+    ) -> bool:
+        res = gw.voice_tts(
+            run_id=run_id,
+            text=text,
+            provider=provider,
+            voice=voice,
+            profile=profile,
+            fmt=fmt,
+            request_id=request_id,
+            model=model,
+            timeout_s=120.0,
+        )
+        audio = res.get("audio_artifact") if isinstance(res, dict) else None
+        aid = str(audio.get("$artifact") or "").strip() if isinstance(audio, dict) else ""
+        if not aid:
+            raise RuntimeError("Gateway TTS response missing audio artifact")
+        audio_bytes, content_type = gw.download_run_artifact_content(
+            run_id=run_id,
+            artifact_id=aid,
+            max_bytes=25_000_000,
+            timeout_s=120.0,
+        )
+        return self._play_audio_bytes(audio_bytes, content_type, callback=callback)
 
     def pause(self) -> bool:
         """Pause current speech when supported by the local player."""
         with self._state_lock:
             if self._paused:
                 return True
+            stream_active = bool(self._stream_active)
+            stream_pause_gate = self._stream_pause_gate
+            if stream_active and stream_pause_gate is not None:
+                self._paused = True
+                self._speaking = False
+            else:
+                stream_pause_gate = None
+        if stream_pause_gate is not None:
+            try:
+                stream_pause_gate.clear()
+            except Exception:
+                pass
+            player = self._inprocess_player
+            if self._playback_backend == "inprocess" and player is not None:
+                try:
+                    player.pause()
+                except Exception:
+                    pass
+            try:
+                self._meter_pause.set()
+            except Exception:
+                pass
+            self._tts_gate_end()
+            return True
         player = self._inprocess_player
         if self._playback_backend == "inprocess" and player is not None:
             try:
@@ -398,6 +699,28 @@ class GatewayVoiceManager:
         with self._state_lock:
             if not self._paused:
                 return False
+            stream_active = bool(self._stream_active)
+            stream_pause_gate = self._stream_pause_gate
+        if stream_active and stream_pause_gate is not None:
+            try:
+                stream_pause_gate.set()
+            except Exception:
+                pass
+            player = self._inprocess_player
+            if self._playback_backend == "inprocess" and player is not None:
+                try:
+                    player.resume()
+                except Exception:
+                    pass
+            with self._state_lock:
+                self._paused = False
+                self._speaking = True
+            try:
+                self._meter_pause.clear()
+            except Exception:
+                pass
+            self._tts_gate_start()
+            return True
         player = self._inprocess_player
         if self._playback_backend == "inprocess" and player is not None:
             try:
@@ -445,6 +768,7 @@ class GatewayVoiceManager:
 
     def stop_speaking(self) -> None:
         """Stop any active playback."""
+        self._stop_stream_control()
         self._stop_meter()
         player = self._inprocess_player
         if self._playback_backend == "inprocess" and player is not None:
@@ -509,12 +833,18 @@ class GatewayVoiceManager:
     def _sync_playback_state(self) -> None:
         player = self._inprocess_player
         if self._playback_backend == "inprocess" and player is not None:
+            with self._state_lock:
+                if self._paused:
+                    return
             try:
                 active = bool(getattr(player, "is_playing", False))
             except Exception:
                 active = False
             if active:
                 return
+            with self._state_lock:
+                if self._stream_active:
+                    return
             with self._state_lock:
                 self._speaking = False
                 self._paused = False
@@ -529,6 +859,9 @@ class GatewayVoiceManager:
             return
         proc = self._play_proc
         if proc is None:
+            with self._state_lock:
+                if self._stream_active:
+                    return
             return
         try:
             if proc.poll() is None:
@@ -708,6 +1041,121 @@ class GatewayVoiceManager:
         player.playback_complete_callback = None
         player.play_audio(samples, sample_rate=sample_rate)
         return True
+
+    def _begin_stream_playback(self) -> bool:
+        player = self._ensure_inprocess_audio_player()
+        if player is None:
+            return False
+        pause_gate = self._stream_pause_gate
+        paused = bool(pause_gate is not None and not pause_gate.is_set())
+        try:
+            if paused:
+                self._meter_pause.set()
+            else:
+                self._meter_pause.clear()
+            self._play_ready.set()
+        except Exception:
+            pass
+        with self._state_lock:
+            self._speaking = not paused
+            self._paused = paused
+        self._playback_backend = "inprocess"
+        if not paused:
+            self._tts_gate_start()
+        return True
+
+    def _finish_stream_playback(self, *, callback: Optional[Callable], stream_id: str = "") -> None:
+        if stream_id:
+            with self._state_lock:
+                if str(self._stream_id or "") != str(stream_id or ""):
+                    return
+        self._stop_meter()
+        self._emit_audio_meter(0.0)
+        with self._state_lock:
+            self._speaking = False
+            self._paused = False
+        self._playback_backend = "none"
+        self._tts_gate_end()
+        try:
+            if self.on_speech_end:
+                self.on_speech_end()
+        except Exception:
+            pass
+        if callback:
+            try:
+                callback()
+            except Exception:
+                pass
+
+    def _configure_stream_playback_callbacks(self, player, playback_drained: threading.Event) -> None:
+        speech_start_emitted = threading.Event()
+
+        def _on_audio_start() -> None:
+            if speech_start_emitted.is_set():
+                return
+            speech_start_emitted.set()
+            try:
+                if self.on_speech_start:
+                    self.on_speech_start()
+            except Exception:
+                pass
+
+        def _on_audio_end() -> None:
+            playback_drained.set()
+
+        player.on_audio_start = _on_audio_start
+        player.on_audio_end = _on_audio_end
+        player.playback_complete_callback = None
+
+    def _queue_stream_wav_chunk(self, audio_bytes: bytes, *, playback_drained: threading.Event) -> Optional[float]:
+        player = self._ensure_inprocess_audio_player()
+        if player is None:
+            return None
+        decoded = self._decode_wav_audio_bytes(audio_bytes)
+        if decoded is None:
+            return None
+        samples, sample_rate = decoded
+        playback_drained.clear()
+        player.play_audio(samples, sample_rate=sample_rate)
+        try:
+            duration = float(len(samples)) / float(sample_rate) if sample_rate else 0.0
+        except Exception:
+            duration = 0.0
+        return duration
+
+    def _wait_for_stream_playback_drain(self, player, playback_drained: threading.Event, *, timeout_s: float) -> bool:
+        deadline = time.monotonic() + max(0.0, float(timeout_s or 0.0))
+        while time.monotonic() < deadline:
+            if playback_drained.is_set() or self._stream_playback_idle(player):
+                return True
+            time.sleep(0.03)
+        return bool(playback_drained.is_set() or self._stream_playback_idle(player))
+
+    def _stream_playback_idle(self, player) -> bool:
+        with self._state_lock:
+            if self._paused:
+                return False
+        if player is None:
+            return True
+        try:
+            if bool(getattr(player, "is_playing", False)):
+                return False
+        except Exception:
+            return False
+        try:
+            q = getattr(player, "audio_queue", None)
+            if q is not None and not bool(q.empty()):
+                return False
+        except Exception:
+            return False
+        try:
+            current = getattr(player, "current_audio", None)
+            if current is None:
+                return True
+            pos = int(getattr(player, "current_position", 0) or 0)
+            return bool(pos >= len(current))
+        except Exception:
+            return False
 
     def _ensure_inprocess_audio_player(self):
         if self._inprocess_player is not None:
@@ -1056,16 +1504,25 @@ class GatewayVoiceManager:
         try:
             fn = getattr(self._llm_manager, "gateway_capabilities", None)
             if callable(fn):
-                caps = fn()
+                try:
+                    caps = fn(stale_ok=True)
+                except TypeError:
+                    caps = fn()
                 if caps is not None:
                     return caps
         except Exception:
             pass
-        return get_cached_assistant_capabilities(self._gateway_client())
+        return get_cached_assistant_capabilities(self._gateway_client(), stale_ok=True)
 
     def _gateway_tts_available(self) -> bool:
         try:
             return bool(self._assistant_capabilities().tts_available())
+        except Exception:
+            return False
+
+    def _gateway_tts_streaming_available(self) -> bool:
+        try:
+            return bool(self._assistant_capabilities().tts_streaming_available())
         except Exception:
             return False
 

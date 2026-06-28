@@ -102,3 +102,19 @@ You can also override bearer-token connection settings on the command line:
 ```bash
 assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
+
+## The bundled app still looks unchanged after a UI fix
+
+If you are validating the Finder-launchable macOS bundle, remember that source-run tray testing and
+`/Applications/AbstractAssistant.app` are separate targets.
+
+Check:
+
+- rerun `build-macos-app` after the source change
+- quit any older `AbstractAssistant` menu-bar process before relaunching the app bundle
+- confirm the rebuilt app was copied into `/Applications`
+- relaunch `/Applications/AbstractAssistant.app`
+
+If the header connection orb still looks stale after relaunch, open **Settings** and verify the
+gateway URL and sign-in state, then check whether the orb changes when the gateway becomes
+reachable again.

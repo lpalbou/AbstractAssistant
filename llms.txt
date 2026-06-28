@@ -13,7 +13,8 @@ Key facts:
 - Published assistant workflow: `abstractassistant-orchestrator`
 - Multimodal defaults are edited through gateway capability-default routes, not local config files
 - Local data lives under `~/.abstractassistant/`
-- Preferred validation: `python -m pytest abstractassistant/tests/basic abstractassistant/tests/integration -q`
+- Header UX includes a recent-session picker and a live gateway connection orb
+- Preferred validation: `python -m pytest tests/basic tests/integration -q`
 - Regenerate the full bundle with `python scripts/update_llms_full.py`
 
 ## Context
@@ -24,8 +25,8 @@ Key facts:
 
 - [README.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/README.md): project overview and quick start.
 - [docs/README.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/README.md): docs hub.
-- [docs/INSTALLATION.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/INSTALLATION.md): install requirements and macOS bundle helper.
-- [docs/getting-started.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/getting-started.md): first launch, workflows, defaults, sessions, and voice.
+- [docs/INSTALLATION.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/INSTALLATION.md): install requirements and macOS bundle rebuild helper.
+- [docs/getting-started.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/getting-started.md): first launch, workflows, defaults, recent sessions, and voice.
 - [docs/api.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/api.md): CLI and gateway-facing desktop contract.
 - [docs/architecture.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/architecture.md): component boundaries and source-of-truth rules.
 - [docs/faq.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/faq.md): common conceptual questions.
@@ -36,9 +37,9 @@ Key facts:
 
 - [abstractassistant/cli.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/cli.py): tray and terminal entrypoints.
 - [abstractassistant/config.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/config.py): gateway URL/token resolution.
-- [abstractassistant/gateway/client.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/gateway/client.py): gateway HTTP client.
+- [abstractassistant/gateway/client.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/gateway/client.py): gateway HTTP client, including artifact and JSONL streaming TTS calls.
 - [abstractassistant/ui/gateway_worker.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/ui/gateway_worker.py): run launch, history replay, waits, and streaming.
-- [abstractassistant/core/gateway_voice_manager.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/core/gateway_voice_manager.py): local mic/playback plus gateway STT/TTS routing.
+- [abstractassistant/core/gateway_voice_manager.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/core/gateway_voice_manager.py): local mic/playback plus gateway STT/TTS routing; prefers advertised Gateway TTS streaming and falls back to artifact TTS before audio starts.
 - [abstractassistantv2/app.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistantv2/app.py): tray and palette shell.
 - [abstractassistantv2/controller.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistantv2/controller.py): controller for sessions, workflow resolution, preferences, and route defaults.
 - [abstractassistantv2/gateway.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistantv2/gateway.py): workflow-catalog and capability-default helpers.

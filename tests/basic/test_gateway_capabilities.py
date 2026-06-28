@@ -128,6 +128,20 @@ def test_assistant_capabilities_parse_and_cache_gateway_contract(monkeypatch: py
 
 
 @pytest.mark.basic
+def test_assistant_capabilities_can_use_stale_cache_without_discovery() -> None:
+    gateway = _GatewayStub()
+    first = get_cached_assistant_capabilities(gateway)
+    first.fetched_at = 1.0
+
+    stale = get_cached_assistant_capabilities(gateway, ttl_s=0.001, stale_ok=True)
+    refreshed = get_cached_assistant_capabilities(gateway, ttl_s=0.001)
+
+    assert stale is first
+    assert refreshed is not first
+    assert gateway.discovery_calls == 2
+
+
+@pytest.mark.basic
 def test_merge_prompt_cache_runtime_hint_sets_runtime_prompt_cache() -> None:
     input_data = {"_runtime": {"provider": "stub"}}
 

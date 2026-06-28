@@ -19,6 +19,7 @@ for candidate in (
     ROOT.parent / "abstractgateway" / "src",
     ROOT.parent / "abstractcore" / "src",
     ROOT.parent / "abstractcore",
+    ROOT.parent / "abstractvoice",
 ):
     if candidate.exists():
         PATHEX.append(str(candidate.resolve()))
@@ -30,10 +31,14 @@ HIDDENIMPORTS = [
     "abstractassistantv2.gateway",
     "abstractassistantv2.hotkey",
     "abstractassistantv2.preferences",
+    "abstractassistant.core.gateway_stt_adapter",
     "abstractassistant.ui.gateway_worker",
+    "abstractcore.config.manager",
+    "abstractruntime.integrations.abstractcore.session_attachments",
+    "abstractvoice.recognition",
+    "abstractvoice.tts",
 ]
 HIDDENIMPORTS += collect_submodules("pymdownx")
-HIDDENIMPORTS += collect_submodules("abstractcore")
 
 a = Analysis(
     [str(ENTRY)],

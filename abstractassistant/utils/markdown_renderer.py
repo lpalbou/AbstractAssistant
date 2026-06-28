@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import html
-import importlib.util
+from html.parser import HTMLParser
 import json
 import re
 
-import markdown
+from markdown_it import MarkdownIt
+from pygments import highlight as pygments_highlight
 from pygments.formatters import HtmlFormatter
+from pygments.lexers import TextLexer, get_lexer_by_name
+from pygments.util import ClassNotFound
 
 from .mermaid_renderer import mermaid_block_to_data_uri
-
 
 _MARKDOWNISH_RE = re.compile(
     r"(^#{1,6}\s|^>\s|```|`[^`]+`|"
@@ -22,7 +24,14 @@ _MARKDOWNISH_RE = re.compile(
 )
 _YAML_KEY_RE = re.compile(r"^[A-Za-z0-9_.\"'/-]+\s*:\s*(?:.*)?$")
 _YAML_LIST_RE = re.compile(r"^-\s+.+$")
-_MERMAID_FENCE_RE = re.compile(r"(^|\n)```mermaid[^\n]*\n(?P<code>.*?)(?:\n```)(?=\n|$)", flags=re.I | re.S)
+_MERMAID_FENCE_RE = re.compile(
+    r"(^|\n)```mermaid[^\n]*\n(?P<code>.*?)(?:\n```)(?=\n|$)", flags=re.I | re.S
+)
+_LIST_ITEM_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<marker>[-+*]|\d+[.)])\s+(?P<body>.*\S)\s*$"
+)
+_BARE_URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>'\"]+")
+_AUTOLINK_SKIP_TAGS = {"a", "code", "pre", "script", "style"}
 
 
 @dataclass(frozen=True)
@@ -92,7 +101,146 @@ def _prepare_markdown_source(text: str) -> str:
     if _looks_like_yaml_block(normalized):
         return f"```yaml\n{normalized.strip()}\n```"
 
-    return normalized
+    return _normalize_loose_markdown_lists(normalized)
+
+
+def _normalize_loose_markdown_lists(text: str) -> str:
+    lines = str(text or "").split("\n")
+    normalized: list[str] = []
+    in_fence = False
+    active_nested_prefixes: tuple[str, ...] = ()
+    active_nested_indent = ""
+    active_heading_indent = ""
+    pending_parent: tuple[tuple[str, ...], str, bool] | None = None
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            normalized.append(line)
+            active_nested_prefixes = ()
+            active_nested_indent = ""
+            active_heading_indent = ""
+            pending_parent = None
+            continue
+        if in_fence:
+            normalized.append(line)
+            continue
+
+        match = _LIST_ITEM_RE.match(line)
+        if not match:
+            active_nested_prefixes = ()
+            active_nested_indent = ""
+            active_heading_indent = ""
+            pending_parent = None
+            normalized.append(line)
+            continue
+
+        indent = str(match.group("indent") or "")
+        marker = str(match.group("marker") or "-")
+        body = str(match.group("body") or "")
+        nested_indent = _sublist_indent(indent, marker)
+
+        if pending_parent and not indent:
+            prefixes, candidate_indent, force_heading_children = pending_parent
+            if force_heading_children or (
+                prefixes and _line_starts_with_any_prefix(body, prefixes)
+            ):
+                active_nested_prefixes = () if force_heading_children else prefixes
+                active_nested_indent = candidate_indent
+                active_heading_indent = (
+                    candidate_indent if force_heading_children else ""
+                )
+                indent = candidate_indent
+                line = f"{indent}{marker} {body}"
+            pending_parent = None
+        elif active_heading_indent and not indent:
+            if _body_has_trailing_colon(body) and _is_heading_like_list_label(body):
+                active_heading_indent = ""
+                active_nested_indent = ""
+            else:
+                indent = active_heading_indent
+                line = f"{indent}{marker} {body}"
+        elif active_nested_prefixes and not indent:
+            if _line_starts_with_any_prefix(body, active_nested_prefixes):
+                indent = active_nested_indent
+                line = f"{indent}{marker} {body}"
+            else:
+                active_nested_prefixes = ()
+                active_nested_indent = ""
+                active_heading_indent = ""
+
+        if not indent and normalized and normalized[-1].strip():
+            previous = normalized[-1].strip()
+            if not _LIST_ITEM_RE.match(previous) and not previous.startswith(
+                (">", "```")
+            ):
+                normalized.append("")
+
+        normalized.append(line)
+
+        pending_parent = None
+        if not indent and _body_has_trailing_colon(body):
+            prefixes = _extract_nested_list_prefixes(body)
+            if _is_heading_like_list_label(body):
+                pending_parent = ((), nested_indent, True)
+            elif prefixes:
+                pending_parent = (prefixes, nested_indent, False)
+
+    return "\n".join(normalized)
+
+
+def _sublist_indent(indent: str, marker: str) -> str:
+    return f"{indent}{' ' * (len(str(marker or '-')) + 1)}"
+
+
+def _extract_nested_list_prefixes(body: str) -> tuple[str, ...]:
+    plain = re.sub(r"[*_`~]+", "", str(body or "")).strip().rstrip(":").strip()
+    if not plain:
+        return ()
+    parts = [
+        segment.strip()
+        for segment in re.split(r"\s+(?:and|or)\s+|[,&/|]", plain)
+        if segment.strip()
+    ]
+    prefixes: list[str] = []
+    for part in parts:
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'/-]*", part)
+        if not words:
+            continue
+        token = words[0].strip("-_/").lower()
+        if token and token not in prefixes:
+            prefixes.append(token)
+    return tuple(prefixes)
+
+
+def _body_has_trailing_colon(body: str) -> bool:
+    plain = re.sub(r"[*_`~]+", "", str(body or "")).strip()
+    return plain.endswith(":")
+
+
+def _is_heading_like_list_label(body: str) -> bool:
+    plain = re.sub(r"[*_`~]+", "", str(body or "")).strip()
+    if not plain.endswith(":"):
+        return False
+    heading = plain.rstrip(":").strip()
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'/-]*", heading)
+    return bool(words) and len(words) <= 4
+
+
+def _line_starts_with_any_prefix(body: str, prefixes: tuple[str, ...]) -> bool:
+    plain = re.sub(r"[*_`~]+", "", str(body or "")).lstrip()
+    folded = plain.lower()
+    for prefix in prefixes:
+        if folded == prefix:
+            return True
+        if folded.startswith(prefix + " "):
+            return True
+        if folded.startswith(prefix + ":"):
+            return True
+        if folded.startswith(prefix + "’") or folded.startswith(prefix + "'"):
+            return True
+    return False
 
 
 def _replace_mermaid_fences(text: str) -> str:
@@ -107,6 +255,114 @@ def _replace_mermaid_fences(text: str) -> str:
             continue
         parts.append(block.text)
     return "".join(parts)
+
+
+def _split_url_trailing_punctuation(url: str) -> tuple[str, str]:
+    link = str(url or "")
+    trailing = ""
+    while link and link[-1] in ".,;:!":
+        trailing = link[-1] + trailing
+        link = link[:-1]
+    for opening, closing in (("(", ")"), ("[", "]"), ("{", "}")):
+        while link.endswith(closing) and link.count(closing) > link.count(opening):
+            trailing = link[-1] + trailing
+            link = link[:-1]
+    return link, trailing
+
+
+def _autolink_text_node(text: str) -> str:
+    raw = str(text or "")
+    if not raw:
+        return ""
+
+    rendered: list[str] = []
+    pos = 0
+    for match in _BARE_URL_RE.finditer(raw):
+        rendered.append(html.escape(raw[pos : match.start()], quote=False))
+        url, trailing = _split_url_trailing_punctuation(match.group(0))
+        if not url:
+            rendered.append(html.escape(match.group(0), quote=False))
+            pos = match.end()
+            continue
+        href = url if re.match(r"(?i)^https?://", url) else f"https://{url}"
+        safe_href = html.escape(href, quote=True)
+        safe_label = html.escape(url, quote=False)
+        rendered.append(f'<a href="{safe_href}">{safe_label}</a>')
+        rendered.append(html.escape(trailing, quote=False))
+        pos = match.end()
+    rendered.append(html.escape(raw[pos:], quote=False))
+    return "".join(rendered)
+
+
+class _HtmlTextAutolinker(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.parts: list[str] = []
+        self._text_buffer: list[str] = []
+        self._skip_depth = 0
+
+    def result(self) -> str:
+        self._flush_text()
+        return "".join(self.parts)
+
+    def _flush_text(self) -> None:
+        if not self._text_buffer:
+            return
+        raw = "".join(self._text_buffer)
+        self._text_buffer = []
+        if self._skip_depth > 0:
+            self.parts.append(raw)
+            return
+        self.parts.append(_autolink_text_node(html.unescape(raw)))
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        self._flush_text()
+        raw = self.get_starttag_text()
+        self.parts.append(raw if raw is not None else f"<{tag}>")
+        if str(tag or "").lower() in _AUTOLINK_SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        self._flush_text()
+        raw = self.get_starttag_text()
+        self.parts.append(raw if raw is not None else f"<{tag} />")
+
+    def handle_endtag(self, tag: str) -> None:
+        self._flush_text()
+        self.parts.append(f"</{tag}>")
+        if str(tag or "").lower() in _AUTOLINK_SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        self._text_buffer.append(str(data or ""))
+
+    def handle_entityref(self, name: str) -> None:
+        self._text_buffer.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self._text_buffer.append(f"&#{name};")
+
+    def handle_comment(self, data: str) -> None:
+        self._flush_text()
+        self.parts.append(f"<!--{data}-->")
+
+    def handle_decl(self, decl: str) -> None:
+        self._flush_text()
+        self.parts.append(f"<!{decl}>")
+
+    def handle_pi(self, data: str) -> None:
+        self._flush_text()
+        self.parts.append(f"<?{data}>")
+
+
+def _autolink_html_text(html_content: str) -> str:
+    parser = _HtmlTextAutolinker()
+    try:
+        parser.feed(str(html_content or ""))
+        parser.close()
+        return parser.result()
+    except Exception:
+        return str(html_content or "")
 
 
 def split_markdown_mermaid_blocks(text: str) -> list[MarkdownRenderBlock]:
@@ -124,7 +380,7 @@ def split_markdown_mermaid_blocks(text: str) -> list[MarkdownRenderBlock]:
         data_uri = mermaid_block_to_data_uri(code)
         if not data_uri:
             continue
-        before = raw[last_pos:match.start()]
+        before = raw[last_pos : match.start()]
         if before:
             blocks.append(MarkdownRenderBlock(kind="markdown", text=before))
         blocks.append(MarkdownRenderBlock(kind="mermaid", text=code, data_uri=data_uri))
@@ -132,12 +388,14 @@ def split_markdown_mermaid_blocks(text: str) -> list[MarkdownRenderBlock]:
 
     tail = raw[last_pos:]
     if tail or not blocks:
-        blocks.append(MarkdownRenderBlock(kind="markdown", text=tail if blocks else raw))
+        blocks.append(
+            MarkdownRenderBlock(kind="markdown", text=tail if blocks else raw)
+        )
     return blocks
 
 
 class MarkdownRenderer:
-    """Markdown renderer with fenced-code and table support."""
+    """Markdown renderer with CommonMark/GFM parsing for Qt rich text."""
 
     def __init__(self, theme: str = "monokai"):
         self.theme = theme
@@ -147,56 +405,32 @@ class MarkdownRenderer:
             noclasses=False,
             linenos=False,
         )
-        self.extensions = [
-            "fenced_code",
-            "tables",
-            "nl2br",
-            "sane_lists",
-        ]
-        self.extension_configs = {}
-        if self._has_pymdownx():
-            self.extensions.extend(
-                [
-                    "pymdownx.highlight",
-                    "pymdownx.inlinehilite",
-                    "pymdownx.superfences",
-                ]
-            )
-            self.extension_configs.update(
-                {
-                    "pymdownx.highlight": {
-                        "css_class": "codehilite",
-                        "pygments_style": theme,
-                        "linenums": False,
-                        "guess_lang": False,
-                    },
-                    "pymdownx.superfences": {
-                        "preserve_tabs": True,
-                    },
-                }
-            )
-        else:
-            self.extensions.append("codehilite")
-            self.extension_configs["codehilite"] = {
-                "css_class": "codehilite",
-                "pygments_style": theme,
-                "linenums": False,
-                "guess_lang": False,
-            }
+        self._markdown = MarkdownIt(
+            "gfm-like",
+            {
+                "breaks": True,
+                "html": True,
+                "linkify": False,
+                "highlight": self._highlight_code,
+            },
+        )
 
-    @staticmethod
-    def _has_pymdownx() -> bool:
-        return importlib.util.find_spec("pymdownx") is not None
+    def _highlight_code(self, code: str, lang_name: str, _attrs: str) -> str:
+        language = re.split(r"[\s,{]+", str(lang_name or "").strip(), maxsplit=1)[0]
+        try:
+            lexer = (
+                get_lexer_by_name(language, stripall=False)
+                if language
+                else TextLexer(stripall=False)
+            )
+        except ClassNotFound:
+            lexer = TextLexer(stripall=False)
+        return pygments_highlight(code, lexer, self.formatter)
 
     def render(self, markdown_text: str) -> str:
         try:
             prepared = _replace_mermaid_fences(_prepare_markdown_source(markdown_text))
-            md = markdown.Markdown(
-                extensions=self.extensions,
-                extension_configs=self.extension_configs,
-                output_format="html5",
-            )
-            html_content = md.convert(prepared)
+            html_content = _autolink_html_text(self._markdown.render(prepared))
             pygments_css = self.formatter.get_style_defs(".codehilite")
             full_html = f"""
             <style>
@@ -261,11 +495,32 @@ class MarkdownRenderer:
         
         .markdown-content ul, .markdown-content ol {
             margin-bottom: 16px;
-            padding-left: 24px;
+            padding-left: 20px;
         }
-        
+
+        .markdown-content ul ul,
+        .markdown-content ul ol,
+        .markdown-content ol ul,
+        .markdown-content ol ol {
+            margin: 6px 0 0 0;
+            padding-left: 12px;
+        }
+
+        .markdown-content ul ul {
+            list-style-type: circle;
+        }
+
+        .markdown-content ul ul ul {
+            list-style-type: square;
+        }
+
         .markdown-content li {
             margin-bottom: 4px;
+        }
+
+        .markdown-content li ul,
+        .markdown-content li ol {
+            margin-top: 4px;
         }
 
         .markdown-content img {
@@ -346,18 +601,9 @@ class MarkdownRenderer:
             font-weight: 600;
         }
         
-        .markdown-content tr:nth-child(even) {
-            background: rgba(45, 55, 72, 0.3);
-        }
-        
         .markdown-content a {
             color: #63b3ed;
             text-decoration: none;
-        }
-        
-        .markdown-content a:hover {
-            color: #90cdf4;
-            text-decoration: underline;
         }
         
         .markdown-content strong {
@@ -377,7 +623,7 @@ class MarkdownRenderer:
         }
         
         /* Syntax highlighting adjustments for dark theme */
-        .highlight {
+        .codehilite {
             background: #1a202c !important;
             border-radius: 8px;
             padding: 16px;
@@ -387,7 +633,7 @@ class MarkdownRenderer:
             overflow-wrap: anywhere;
         }
 
-        .highlight pre {
+        .codehilite pre {
             background: transparent !important;
             border: none !important;
             padding: 0 !important;
@@ -403,10 +649,10 @@ markdown_renderer = MarkdownRenderer(theme="monokai")
 
 def render_markdown(text: str) -> str:
     """Convenience function to render markdown text.
-    
+
     Args:
         text: Markdown text to render
-        
+
     Returns:
         HTML string with embedded CSS
     """

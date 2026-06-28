@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from datetime import datetime
+import html as _html
 from html.parser import HTMLParser
 import mimetypes
 import math
@@ -28,6 +29,7 @@ from PyQt5.QtGui import (
     QCursor,
     QDesktopServices,
     QFont,
+    QFontMetrics,
     QIcon,
     QLinearGradient,
     QPainter,
@@ -37,6 +39,7 @@ from PyQt5.QtGui import (
     QPixmap,
     QPolygonF,
     QRadialGradient,
+    QTextCursor,
 )
 from PyQt5.QtWidgets import (
     QApplication,
@@ -99,6 +102,10 @@ except Exception:  # pragma: no cover - macOS-only enhancement
     _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE = False
 
 from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
+from abstractassistant.core.tool_display import (
+    compact_tool_call_label,
+    compact_tool_call_label_html,
+)
 from abstractassistant.utils.icon_generator import IconGenerator
 from abstractassistant.utils.markdown_renderer import MarkdownRenderer, split_markdown_mermaid_blocks
 
@@ -113,6 +120,65 @@ _TRAY_BUSY_FRAME_INTERVAL_MS = 60
 _TRAY_FEEDBACK_ICON_SIZE = 44
 _TRAY_VISIBILITY_RETRY_DELAYS_MS = (0, 180, 720, 1600)
 _ZOOMED_SHELL_GROWTH = 1.4
+
+
+def _qt_int(value: Any) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(getattr(value, "value", 0) or 0)
+
+
+def _qt_key(name: str) -> int:
+    key = getattr(Qt, name, None)
+    if key is None and hasattr(Qt, "Key"):
+        key = getattr(Qt.Key, name)
+    return _qt_int(key)
+
+
+def _qt_keyboard_modifier(name: str) -> int:
+    modifier = getattr(Qt, name, None)
+    if modifier is None and hasattr(Qt, "KeyboardModifier"):
+        modifier = getattr(Qt.KeyboardModifier, name)
+    return _qt_int(modifier)
+
+
+def _text_cursor_move_operation(name: str):
+    operation = getattr(QTextCursor, name, None)
+    if operation is None and hasattr(QTextCursor, "MoveOperation"):
+        operation = getattr(QTextCursor.MoveOperation, name)
+    return operation
+
+
+def _prompt_navigation_modifiers_are_plain(modifiers: Any) -> bool:
+    # Some keyboards report arrow keys with KeypadModifier; keep that as plain navigation.
+    return (_qt_int(modifiers) & ~_qt_keyboard_modifier("KeypadModifier")) == 0
+
+
+def _handle_text_edit_edge_navigation(editor: QTextEdit, key: int) -> bool:
+    cursor = editor.textCursor()
+    if cursor.hasSelection():
+        return False
+
+    normalized_key = _qt_int(key)
+    viewport_rect = editor.viewport().rect()
+    if normalized_key == _qt_key("Key_Up"):
+        probe = QTextCursor(cursor)
+        if probe.movePosition(_text_cursor_move_operation("Up")):
+            if editor.cursorRect(probe).center().y() >= viewport_rect.top():
+                return False
+        cursor.movePosition(_text_cursor_move_operation("Start"))
+        editor.setTextCursor(cursor)
+        return True
+    if normalized_key == _qt_key("Key_Down"):
+        probe = QTextCursor(cursor)
+        if probe.movePosition(_text_cursor_move_operation("Down")):
+            if editor.cursorRect(probe).center().y() <= viewport_rect.bottom():
+                return False
+        cursor.movePosition(_text_cursor_move_operation("End"))
+        editor.setTextCursor(cursor)
+        return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -318,26 +384,40 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     .markdown-content p {
         margin: 0 0 8px 0 !important;
     }
-    .markdown-content p:last-child {
-        margin-bottom: 0 !important;
-    }
     .markdown-content ul,
     .markdown-content ol {
         margin: 0 0 8px 0 !important;
-        padding-left: 20px !important;
+        padding-left: 18px !important;
+    }
+    .markdown-content ul ul,
+    .markdown-content ul ol,
+    .markdown-content ol ul,
+    .markdown-content ol ol {
+        margin: 3px 0 0 0 !important;
+        padding-left: 10px !important;
+    }
+    .markdown-content ul ul {
+        list-style-type: circle !important;
+    }
+    .markdown-content ul ul ul {
+        list-style-type: square !important;
     }
     .markdown-content li {
-        margin-bottom: 4px !important;
+        margin-bottom: 3px !important;
     }
     .markdown-content li p {
         margin: 0 !important;
+    }
+    .markdown-content li ul,
+    .markdown-content li ol {
+        margin-top: 3px !important;
     }
     .markdown-content code {
         background: #20262f !important;
         color: #c9f0e1 !important;
     }
     .markdown-content pre,
-    .highlight {
+    .codehilite {
         background: #161b23 !important;
         color: #edf2f8 !important;
         border-color: rgba(255, 255, 255, 0.08) !important;
@@ -436,6 +516,51 @@ def _assistant_action_href_allowed(href: Any) -> bool:
     if scheme in {"javascript", "vbscript"}:
         return False
     return scheme in {"http", "https", "mailto", "data", "file"}
+
+
+def _session_picker_date_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "--/--/--"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone()
+        return parsed.strftime("%y/%m/%d")
+    except Exception:
+        match = re.match(r"(\d{4})-(\d{2})-(\d{2})", text)
+        if match:
+            year, month, day = match.groups()
+            return f"{year[-2:]}/{month}/{day}"
+    return "--/--/--"
+
+
+def _session_picker_topic(value: Any, *, limit: int = 58) -> str:
+    text = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    if not text:
+        return "New session"
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(0, limit - 1)].rstrip()}…"
+
+
+def _session_picker_label(session: Dict[str, Any]) -> str:
+    stamp = session.get("created_at") or session.get("updated_at") or ""
+    topic = _session_picker_topic(session.get("title"))
+    return f"{_session_picker_date_label(stamp)} - {topic}"
+
+
+def _session_picker_tooltip(session: Dict[str, Any]) -> str:
+    title = " ".join(str(session.get("title") or "New session").replace("\r", " ").replace("\n", " ").split()).strip()
+    title = title or "New session"
+    created = str(session.get("created_at") or "").strip()
+    updated = str(session.get("updated_at") or "").strip()
+    lines = [title]
+    if created:
+        lines.append(f"Created: {created}")
+    if updated and updated != created:
+        lines.append(f"Updated: {updated}")
+    return "\n".join(lines)
 
 
 class _AssistantHtmlActionParser(HTMLParser):
@@ -1656,6 +1781,17 @@ class AttachmentTextEdit(QTextEdit):
     files_dropped = pyqtSignal(object)
     drop_active_changed = pyqtSignal(bool)
 
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        key = _qt_int(event.key())
+        if (
+            key in {_qt_key("Key_Up"), _qt_key("Key_Down")}
+            and _prompt_navigation_modifiers_are_plain(event.modifiers())
+            and _handle_text_edit_edge_navigation(self, key)
+        ):
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         paths = _local_file_paths_from_mime(event.mimeData())
         if paths:
@@ -1741,6 +1877,100 @@ class AttachmentIconChip(QFrame):
             style.polish(self)
         self.update()
         super().leaveEvent(event)
+
+
+class ConnectionStatusOrb(QWidget):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._state = "unknown"
+        self.setFixedSize(18, 18)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+    def set_state(self, state: str) -> None:
+        normalized = str(state or "").strip().lower() or "unknown"
+        if normalized == self._state:
+            return
+        self._state = normalized
+        self.update()
+
+    def _palette_colors(self) -> tuple[QColor, QColor, QColor, QColor]:
+        if self._state == "connected":
+            return (
+                QColor("#32d47d"),
+                QColor("#a9ffcf"),
+                QColor("#0f6f3e"),
+                QColor(114, 255, 183, 94),
+            )
+        if self._state == "disconnected":
+            return (
+                QColor("#ff6669"),
+                QColor("#ffd5d7"),
+                QColor("#8e2329"),
+                QColor(255, 138, 141, 92),
+            )
+        return (
+            QColor("#7a8aa0"),
+            QColor("#e7eef9"),
+            QColor("#354255"),
+            QColor(178, 197, 224, 74),
+        )
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        base, highlight, shadow, ring = self._palette_colors()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        halo_rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
+        halo = QRadialGradient(halo_rect.center(), halo_rect.width() * 0.5)
+        halo.setColorAt(0.0, QColor(ring.red(), ring.green(), ring.blue(), min(255, ring.alpha() + 18)))
+        halo.setColorAt(0.62, ring)
+        halo.setColorAt(1.0, QColor(ring.red(), ring.green(), ring.blue(), 0))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(halo))
+        painter.drawEllipse(halo_rect)
+
+        sphere_rect = QRectF(2.0, 2.0, self.width() - 4.0, self.height() - 4.0)
+        fill = QRadialGradient(
+            sphere_rect.center().x() - sphere_rect.width() * 0.18,
+            sphere_rect.top() + sphere_rect.height() * 0.22,
+            sphere_rect.width() * 0.82,
+        )
+        fill.setColorAt(0.0, highlight)
+        fill.setColorAt(0.28, QColor(base).lighter(122))
+        fill.setColorAt(0.72, base)
+        fill.setColorAt(1.0, shadow)
+        painter.setBrush(QBrush(fill))
+        painter.setPen(QPen(QColor(255, 255, 255, 54), 0.9))
+        painter.drawEllipse(sphere_rect)
+
+        lower_sheen = QLinearGradient(sphere_rect.left(), sphere_rect.top(), sphere_rect.left(), sphere_rect.bottom())
+        lower_sheen.setColorAt(0.0, QColor(255, 255, 255, 0))
+        lower_sheen.setColorAt(0.68, QColor(255, 255, 255, 0))
+        lower_sheen.setColorAt(1.0, QColor(0, 0, 0, 56))
+        painter.setBrush(QBrush(lower_sheen))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(sphere_rect.adjusted(0.0, 0.5, 0.0, 0.0))
+
+        painter.setBrush(QColor(255, 255, 255, 148))
+        painter.drawEllipse(
+            QRectF(
+                sphere_rect.left() + sphere_rect.width() * 0.18,
+                sphere_rect.top() + sphere_rect.height() * 0.14,
+                sphere_rect.width() * 0.38,
+                sphere_rect.height() * 0.28,
+            )
+        )
+        painter.setBrush(QColor(255, 255, 255, 74))
+        painter.drawEllipse(
+            QRectF(
+                sphere_rect.left() + sphere_rect.width() * 0.58,
+                sphere_rect.top() + sphere_rect.height() * 0.28,
+                sphere_rect.width() * 0.12,
+                sphere_rect.height() * 0.12,
+            )
+        )
+        painter.end()
 
 
 if _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE:
@@ -1977,16 +2207,24 @@ class MessageCard(QFrame):
                 voice_button = QPushButton()
                 voice_button.setObjectName("messageActionButton")
                 voice_button.setCheckable(True)
+                try:
+                    voice_button.setFocusPolicy(Qt.NoFocus)
+                except Exception:
+                    pass
                 voice_button.setIconSize(QSize(15, 15))
                 voice_button.setFixedSize(24, 24)
                 voice_button.setToolTip("Listen to this response / Toggle voice output")
-                voice_button.clicked.connect(lambda: on_toggle_voice(message))
+                voice_button.clicked.connect(lambda _checked=False, m=message: on_toggle_voice(m))
                 header_row.addWidget(voice_button)
                 self._voice_button = voice_button
                 self._apply_voice_button_state(str(voice_state or "").strip())
 
             copy_button = QPushButton()
             copy_button.setObjectName("messageActionButton")
+            try:
+                copy_button.setFocusPolicy(Qt.NoFocus)
+            except Exception:
+                pass
             copy_button.setIcon(self._copy_icon)
             copy_button.setIconSize(QSize(15, 15))
             copy_button.setFixedSize(24, 24)
@@ -2097,6 +2335,9 @@ class MessageCard(QFrame):
 
     def sync_to_viewport_width(self, viewport_width: int) -> None:
         self.set_bubble_width(_message_bubble_width(viewport_width, role=self._role))
+
+    def set_voice_state(self, state: str) -> None:
+        self._apply_voice_button_state(str(state or "").strip())
 
     def _copy_message(self) -> None:
         if self._copy_button is None:
@@ -4444,6 +4685,7 @@ class AssistantPalette(QMainWindow):
     hotkey_activated = pyqtSignal()
     message_speech_started = pyqtSignal(str)
     message_speech_finished = pyqtSignal(str)
+    connection_status_updated = pyqtSignal(object)
 
     def __init__(self, *, controller: AssistantV2Controller, debug: bool = False) -> None:
         super().__init__()
@@ -4471,17 +4713,26 @@ class AssistantPalette(QMainWindow):
         self._status_tone = "neutral"
         self._run_busy = False
         self._run_has_final_output = False
+        self._active_tool_history_status: Optional[Dict[str, Any]] = None
         self._tray_animation_frame = 0
         self._tray_completion_unread = False
+        self._connection_status_state = "unknown"
+        self._connection_status_detail = "Checking gateway connection."
+        self._hotkey_tooltip_note = ""
+        self._connection_status_request_inflight = False
         self._tray_feedback_timer = QTimer(self)
         self._tray_feedback_timer.setInterval(_TRAY_BUSY_FRAME_INTERVAL_MS)
         self._tray_feedback_timer.timeout.connect(self._advance_tray_feedback)
+        self._connection_status_timer = QTimer(self)
+        self._connection_status_timer.setInterval(15000)
+        self._connection_status_timer.timeout.connect(self._request_connection_status_refresh)
         self._history_settle_timer = QTimer(self)
         self._history_settle_timer.setSingleShot(True)
         self._history_settle_timer.timeout.connect(self._apply_pending_history_scroll)
         self.hotkey_activated.connect(self.toggle_palette)
         self.message_speech_started.connect(self._on_message_speech_started)
         self.message_speech_finished.connect(self._on_message_speech_finished)
+        self.connection_status_updated.connect(self._apply_connection_status)
         self._controller.voice_manager.on_speech_start = self._emit_message_speech_started
 
         self.setWindowTitle("AbstractAssistant")
@@ -4564,14 +4815,18 @@ class AssistantPalette(QMainWindow):
         title = QLabel("AbstractAssistant")
         title.setObjectName("windowTitle")
         title_row.addWidget(title, 0, Qt.AlignVCenter)
-
-        self.connection_led = QFrame()
-        self.connection_led.setObjectName("connectionLed")
-        self.connection_led.setFixedSize(8, 8)
-        self.connection_led.setToolTip("Checking gateway connection")
-        self.connection_led.setProperty("state", "unknown")
-        title_row.addWidget(self.connection_led, 0, Qt.AlignVCenter)
         title_row.addStretch(1)
+
+        self.session_picker = QComboBox()
+        self.session_picker.setObjectName("sessionPicker")
+        self.session_picker.setFixedHeight(28)
+        self.session_picker.setMinimumWidth(172)
+        self.session_picker.setMaximumWidth(248)
+        self.session_picker.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.session_picker.setMinimumContentsLength(18)
+        self.session_picker.setToolTip("Jump to a recent session")
+        self.session_picker.currentIndexChanged.connect(self._on_session_picker_changed)
+        title_row.addWidget(self.session_picker, 1, Qt.AlignVCenter)
 
         header_actions = QHBoxLayout()
         header_actions.setContentsMargins(0, 0, 0, 0)
@@ -4616,6 +4871,10 @@ class AssistantPalette(QMainWindow):
         settings.clicked.connect(self._open_settings)
         header_actions.addWidget(settings)
 
+        self.connection_orb = ConnectionStatusOrb()
+        self.connection_orb.setToolTip("Checking gateway connection")
+        title_row.addWidget(self.connection_orb, 0, Qt.AlignVCenter)
+
         self.banner_label = QLabel("")
         self.banner_label.setObjectName("bannerLabel")
         self.banner_label.setWordWrap(True)
@@ -4644,6 +4903,7 @@ class AssistantPalette(QMainWindow):
         self.chat_status_label = QLabel("Ready")
         self.chat_status_label.setObjectName("historyStatusLabel")
         self.chat_status_label.setWordWrap(True)
+        self.chat_status_label.setTextFormat(Qt.PlainText)
         self.chat_status_label.hide()
         history_wrap.addWidget(self.banner_label)
         history_wrap.addWidget(self.chat_status_label)
@@ -4727,6 +4987,8 @@ class AssistantPalette(QMainWindow):
         self._refresh_submission_state()
         self._render_attachments()
         self._apply_hotkey()
+        self._request_connection_status_refresh()
+        self._connection_status_timer.start()
         QTimer.singleShot(0, self._reflow_shell)
         QTimer.singleShot(0, self._sync_native_traffic_lights)
 
@@ -4754,22 +5016,251 @@ class AssistantPalette(QMainWindow):
         style.polish(widget)
         widget.update()
 
+    def _compose_connection_tooltip(self, detail: str) -> str:
+        text = str(detail or "").strip() or "Checking gateway connection."
+        note = str(getattr(self, "_hotkey_tooltip_note", "") or "").strip()
+        if note:
+            return f"{text}\n({note})"
+        return text
+
+    def _set_connection_indicator(self, state: str, detail: str) -> None:
+        orb = getattr(self, "connection_orb", None)
+        if orb is None:
+            return
+        self._connection_status_state = str(state or "").strip().lower() or "unknown"
+        self._connection_status_detail = str(detail or "").strip() or "Checking gateway connection."
+        orb.set_state(self._connection_status_state)
+        orb.setToolTip(self._compose_connection_tooltip(self._connection_status_detail))
+        orb.update()
+
+    def _request_connection_status_refresh(self) -> None:
+        if bool(getattr(self, "_connection_status_request_inflight", False)):
+            return
+        self._connection_status_request_inflight = True
+
+        def _run() -> None:
+            try:
+                payload = self._controller.connection_status()
+            except Exception as exc:
+                payload = {"ok": False, "detail": str(exc or "Gateway unavailable.").strip()}
+            self.connection_status_updated.emit(payload)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _apply_connection_status(self, payload: Any) -> None:
+        self._connection_status_request_inflight = False
+        if not isinstance(payload, dict) or payload.get("ok") is False:
+            detail = (
+                str(payload.get("detail") or "Gateway unavailable.").strip()
+                if isinstance(payload, dict)
+                else "Gateway unavailable."
+            )
+            self._set_connection_indicator("disconnected", detail)
+            return
+
+        principal = payload.get("principal") if isinstance(payload.get("principal"), dict) else {}
+        auth = payload.get("auth") if isinstance(payload.get("auth"), dict) else {}
+        routing = payload.get("routing") if isinstance(payload.get("routing"), dict) else {}
+        user_id = str(principal.get("user_id") or "unknown").strip()
+        tenant_id = str(principal.get("tenant_id") or "").strip()
+        mode = str(auth.get("mode") or "").strip() or "unknown"
+        routing_mode = str(routing.get("mode") or "").strip()
+        detail = f"Connected to gateway as {user_id}"
+        if tenant_id:
+            detail = f"{detail} in tenant {tenant_id}"
+        detail = f"{detail} via {mode}"
+        if routing_mode:
+            detail = f"{detail} • routing: {routing_mode}"
+        self._set_connection_indicator("connected", detail)
+
+    def _active_session_id(self) -> str:
+        return str(getattr(self._controller, "active_session_id", "") or "").strip()
+
+    def _refresh_session_picker(self, *, select_session_id: Optional[str] = None) -> None:
+        combo = getattr(self, "session_picker", None)
+        if combo is None:
+            return
+        try:
+            sessions = list(self._controller.list_sessions() or [])
+        except Exception:
+            sessions = []
+
+        active = str(select_session_id or self._active_session_id() or "").strip()
+        selected_index = 0
+
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for session in sessions:
+                if not isinstance(session, dict):
+                    continue
+                session_id = str(session.get("session_id") or "").strip()
+                if not session_id:
+                    continue
+                combo.addItem(_session_picker_label(session), session_id)
+                item_index = combo.count() - 1
+                combo.setItemData(item_index, _session_picker_tooltip(session), Qt.ToolTipRole)
+                if active and session_id == active:
+                    selected_index = item_index
+            if combo.count() <= 0:
+                combo.addItem("No sessions yet")
+                combo.setEnabled(False)
+            else:
+                combo.setEnabled(True)
+                combo.setCurrentIndex(min(selected_index, combo.count() - 1))
+        finally:
+            combo.blockSignals(False)
+
+    def _on_session_picker_changed(self, index: int) -> None:
+        combo = getattr(self, "session_picker", None)
+        if combo is None:
+            return
+        session_id = str(combo.itemData(int(index)) or "").strip()
+        if not session_id:
+            return
+        current = self._active_session_id()
+        if session_id == current:
+            return
+        if self._worker is not None:
+            QMessageBox.information(self, "Session switch", "Please wait for the current response to finish.")
+            self._refresh_session_picker(select_session_id=current or None)
+            return
+        try:
+            self._controller.switch_session(session_id)
+        except Exception as exc:
+            QMessageBox.warning(self, "Session switch", f"Failed to switch session:\n{exc}")
+            self._refresh_session_picker(select_session_id=current or None)
+            return
+        self._tray_completion_unread = False
+        self._refresh_tray_feedback()
+        self._set_history_status()
+        self._set_status("Ready")
+        self.refresh_history(request=self._history_scroll_request(mode="bottom"))
+
     def _set_status(self, text: str, tone: str = "neutral") -> None:
         self._status_text = str(text or "").strip() or "Ready"
         self._status_tone = str(tone or "neutral").strip() or "neutral"
 
-    def _set_history_status(self, text: str = "", *, tone: str = "neutral") -> None:
+    def _set_history_status(
+        self,
+        text: str = "",
+        *,
+        tone: str = "neutral",
+        rich: bool = False,
+        tooltip: Optional[str] = None,
+    ) -> None:
         message = str(text or "").strip()
         if not message:
+            self._active_tool_history_status = None
             self.chat_status_label.clear()
             self.chat_status_label.hide()
             return
-        display = message if len(message) <= 160 else f"{message[:157].rstrip()}..."
+        if rich:
+            display = message
+            self.chat_status_label.setTextFormat(Qt.RichText)
+            self.chat_status_label.setWordWrap(False)
+        else:
+            self._active_tool_history_status = None
+            display = message if len(message) <= 160 else f"{message[:157].rstrip()}..."
+            self.chat_status_label.setTextFormat(Qt.PlainText)
+            self.chat_status_label.setWordWrap(True)
         self.chat_status_label.setText(display)
         self.chat_status_label.setProperty("tone", str(tone or "neutral").strip() or "neutral")
-        self.chat_status_label.setToolTip(message)
+        self.chat_status_label.setToolTip(str(tooltip or message))
         self._refresh_widget_style(self.chat_status_label)
         self.chat_status_label.show()
+
+    def _tool_history_label_max_chars(self, *, prefix: str = "") -> int:
+        """Approximate the longest single-line tool label that fits the current palette width."""
+
+        fallback = 120
+        try:
+            label = getattr(self, "chat_status_label", None)
+            width = int(label.width()) if label is not None and int(label.width()) > 80 else 0
+            if width <= 80:
+                card = getattr(self, "history_card", None)
+                width = int(card.width()) - 34 if card is not None and int(card.width()) > 120 else 0
+            if width <= 80:
+                width = int(self.width()) - 72 if int(self.width()) > 120 else 0
+            if width <= 80:
+                return fallback
+
+            font = label.font() if label is not None else self.font()
+            metrics = QFontMetrics(font)
+            sample = "abcdefghijklmnopqrstuvwxyz0123456789_-./:=?&"
+            avg_px = max(5.5, metrics.horizontalAdvance(sample) / max(1, len(sample)))
+            prefix_px = metrics.horizontalAdvance(str(prefix or ""))
+            usable_px = max(120, width - 18 - prefix_px)
+            estimated = int(usable_px / avg_px)
+
+            if bool(self.isMaximized()) or width >= 980:
+                upper = 280
+            elif width >= 720:
+                upper = 210
+            elif width >= 520:
+                upper = 150
+            else:
+                upper = 96
+            return max(64, min(upper, estimated))
+        except Exception:
+            return fallback
+
+    def _tool_message_parts(self, message: Any) -> tuple[str, Any]:
+        if not isinstance(message, dict):
+            return "tool", None
+        metadata = message.get("metadata")
+        meta = metadata if isinstance(metadata, dict) else {}
+        name = str(meta.get("name") or "").strip()
+        if not name:
+            content = str(message.get("content") or "")
+            match = re.match(r"\s*\[([^\]]+)\]:", content)
+            if match:
+                name = str(match.group(1) or "").strip()
+        arguments = meta.get("arguments")
+        if arguments is None:
+            arguments = meta.get("args")
+        return name or "tool", arguments
+
+    def _set_tool_history_status(
+        self,
+        *,
+        name: str,
+        arguments: Any,
+        prefix: str = "",
+        tone: str = "busy",
+        remember: bool = True,
+    ) -> None:
+        budget = self._tool_history_label_max_chars(prefix=prefix)
+        label = compact_tool_call_label(name, arguments, max_chars=budget)
+        label_html = compact_tool_call_label_html(name, arguments, max_chars=budget)
+        prefix_html = ""
+        if prefix:
+            prefix_html = f'<span style="color:#ffc963; font-weight:600;">{_html.escape(prefix)}</span>'
+        self._set_history_status(
+            f"{prefix_html}{label_html}",
+            tone=tone,
+            rich=True,
+            tooltip=f"{prefix}{label}",
+        )
+        if remember:
+            self._active_tool_history_status = {
+                "name": str(name or "tool"),
+                "arguments": arguments,
+                "prefix": str(prefix or ""),
+                "tone": str(tone or "busy"),
+            }
+
+    def _refresh_active_tool_history_status_for_width(self) -> None:
+        payload = getattr(self, "_active_tool_history_status", None)
+        if not isinstance(payload, dict):
+            return
+        self._set_tool_history_status(
+            name=str(payload.get("name") or "tool"),
+            arguments=payload.get("arguments"),
+            prefix=str(payload.get("prefix") or ""),
+            tone=str(payload.get("tone") or "busy"),
+            remember=False,
+        )
 
     def _set_banner(self, text: str = "", tone: str = "info") -> None:
         message = str(text or "").strip()
@@ -4798,6 +5289,7 @@ class AssistantPalette(QMainWindow):
         super().showEvent(event)
         QTimer.singleShot(0, self._sync_native_traffic_lights)
         QTimer.singleShot(0, self._restore_deferred_history_scroll_on_show)
+        self._request_connection_status_refresh()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         preserve_request = None
@@ -4806,6 +5298,7 @@ class AssistantPalette(QMainWindow):
         super().resizeEvent(event)
         QTimer.singleShot(0, self._resize_visible_history_cards)
         QTimer.singleShot(0, self._sync_native_traffic_lights)
+        QTimer.singleShot(0, self._refresh_active_tool_history_status_for_width)
         if preserve_request is not None:
             self._commit_history_scroll_request(preserve_request)
 
@@ -5015,6 +5508,7 @@ class AssistantPalette(QMainWindow):
             if self._show_thinking_indicator():
                 self.history_layout.addWidget(ThinkingIndicatorCard())
             self._sync_history_viewport()
+            self._refresh_session_picker(select_session_id=self._active_session_id() or None)
             self._reflow_shell()
         finally:
             self._history_refreshing = False
@@ -5393,7 +5887,11 @@ class AssistantPalette(QMainWindow):
             tool_calls = payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else []
             if tool_calls:
                 summary = _tool_call_summary(tool_calls[0])
-                self._set_history_status(f"Waiting for approval: {summary.name}", tone="busy")
+                self._set_tool_history_status(
+                    name=summary.name,
+                    arguments=tool_calls[0].get("arguments"),
+                    prefix="Waiting for approval: ",
+                )
             else:
                 self._set_history_status("Waiting for tool approval", tone="busy")
             dialog = ToolApprovalDialog(tool_calls=payload.get("tool_calls"), parent=self)
@@ -5421,12 +5919,8 @@ class AssistantPalette(QMainWindow):
             return
         if typ == "tool":
             message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
-            metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
-            tool_name = str((metadata or {}).get("name") or "").strip()
-            if tool_name:
-                self._set_history_status(f"Tool executed: {tool_name}", tone="busy")
-            else:
-                self._set_history_status("Tool executed", tone="busy")
+            name, arguments = self._tool_message_parts(message)
+            self._set_tool_history_status(name=name, arguments=arguments)
             return
 
     def _on_worker_error(self, error: str) -> None:
@@ -5518,6 +6012,10 @@ class AssistantPalette(QMainWindow):
             return "idle"
         if str(self._active_spoken_message_phase or "") == "synthesizing":
             return "synthesizing"
+        if str(self._active_spoken_message_phase or "") == "paused":
+            return "paused"
+        if str(self._active_spoken_message_phase or "") == "speaking":
+            return "speaking"
         if self._controller.voice_manager.is_paused():
             return "paused"
         if self._controller.voice_manager.is_speaking():
@@ -5526,40 +6024,57 @@ class AssistantPalette(QMainWindow):
         self._active_spoken_message_phase = "idle"
         return "idle"
 
+    def _set_message_voice_card_state(self, key: str, state: str) -> None:
+        cards_by_key = getattr(self, "__dict__", {}).get("_history_cards_by_key", {})
+        card = cards_by_key.get(str(key or "").strip()) if isinstance(cards_by_key, dict) else None
+        if card is None:
+            return
+        setter = getattr(card, "set_voice_state", None)
+        if callable(setter):
+            setter(str(state or "").strip())
+
     def _toggle_message_voice(self, message: Dict[str, Any]) -> None:
         key = _message_key(message)
         state = self._message_voice_state(message)
         voice = self._controller.voice_manager
         if state == "synthesizing":
+            voice.pause()
+            self._active_spoken_message_phase = "paused"
+            self._set_message_voice_card_state(key, "paused")
             return
         if state == "speaking":
             voice.pause()
-            self.refresh_history()
+            self._active_spoken_message_phase = "paused"
+            self._set_message_voice_card_state(key, "paused")
             return
         if state == "paused":
             voice.resume()
-            self.refresh_history()
+            self._active_spoken_message_phase = "speaking"
+            self._set_message_voice_card_state(key, "speaking")
             return
+        previous_key = str(self._active_spoken_message_key or "").strip()
         voice.stop_speaking()
+        if previous_key and previous_key != key:
+            self._set_message_voice_card_state(previous_key, "idle")
         content = str(message.get("content") or "").strip()
         if not content:
             return
         self._active_spoken_message_key = key
         self._active_spoken_message_phase = "synthesizing"
-        self.refresh_history()
+        self._set_message_voice_card_state(key, "synthesizing")
         started = voice.speak(content, callback=lambda key=key: self.message_speech_finished.emit(key))
         if started:
             self._active_spoken_message_key = key
         else:
             self._active_spoken_message_key = ""
             self._active_spoken_message_phase = "idle"
-            self.refresh_history()
+            self._set_message_voice_card_state(key, "idle")
 
     def _on_message_speech_finished(self, key: str) -> None:
         if str(self._active_spoken_message_key or "") == str(key or ""):
             self._active_spoken_message_key = ""
             self._active_spoken_message_phase = "idle"
-        self.refresh_history()
+        self._set_message_voice_card_state(str(key or ""), "idle")
 
     def _emit_message_speech_started(self) -> None:
         key = str(self._active_spoken_message_key or "").strip()
@@ -5570,7 +6085,7 @@ class AssistantPalette(QMainWindow):
         if str(self._active_spoken_message_key or "") != str(key or ""):
             return
         self._active_spoken_message_phase = "speaking"
-        self.refresh_history()
+        self._set_message_voice_card_state(str(key or ""), "speaking")
 
     def _toggle_listening(self) -> None:
         if self._listening:
@@ -5609,16 +6124,6 @@ class AssistantPalette(QMainWindow):
         options = self._controller.workflow_options()
         status = self._controller.workflow_status()
         current = options[0] if options else None
-        if current is not None:
-            workflow_name = str(current.label or current.bundle_id or "assistant").strip()
-            version = str(current.bundle_version or "").strip()
-            detail = f"Connected to {workflow_name}"
-            if version:
-                detail = f"{detail} ({version})"
-            self._set_connection_led("connected", detail)
-        else:
-            detail = str(status.error or "Gateway assistant workflow unavailable.").strip()
-            self._set_connection_led("disconnected", detail)
         if status.error and not options:
             detail = str(status.error or "").strip()
             message = detail
@@ -5631,24 +6136,6 @@ class AssistantPalette(QMainWindow):
             self._set_banner()
         self._refresh_submission_state()
         self._reflow_shell()
-
-    def _set_connection_led(self, state: str, detail: str) -> None:
-        led = getattr(self, "connection_led", None)
-        if led is None:
-            return
-        normalized = str(state or "").strip().lower() or "unknown"
-        led.setProperty("state", normalized)
-        tooltip = str(detail or "").strip()
-        if normalized == "connected":
-            tooltip = tooltip or "Connected to the published gateway assistant."
-        elif normalized == "disconnected":
-            tooltip = tooltip or "The published gateway assistant is unavailable."
-        else:
-            tooltip = tooltip or "Checking gateway connection."
-        led.setToolTip(tooltip)
-        led.style().unpolish(led)
-        led.style().polish(led)
-        led.update()
 
     def _create_session(self) -> None:
         self._controller.create_session()
@@ -5703,6 +6190,7 @@ class AssistantPalette(QMainWindow):
         self.auto_speak.setChecked(bool(self._controller.preferences.auto_speak))
         self._refresh_capability_state()
         self._refresh_workflows()
+        self._request_connection_status_refresh()
         self._refresh_submission_state()
         self._reflow_shell()
 
@@ -5726,13 +6214,16 @@ class AssistantPalette(QMainWindow):
         prefs = self._controller.preferences_store.load()
         self._controller.preferences = prefs
         if not prefs.hotkey_enabled:
+            self._hotkey_tooltip_note = ""
             self._hotkey.stop()
+            self._set_connection_indicator(self._connection_status_state, self._connection_status_detail)
             return
         ok = self._hotkey.start(sequence=prefs.hotkey_sequence, callback=self.hotkey_activated.emit)
         msg = "Summon shortcut unavailable. Use the tray icon or reinstall hotkey support." if (not ok and self._hotkey.error) else ""
+        self._hotkey_tooltip_note = msg
         if self._tray is not None:
             self._tray.setToolTip(f"AbstractAssistant\n({msg})" if msg else "AbstractAssistant")
-        self.connection_led.setToolTip(f"Checking gateway connection\n({msg})" if msg else "Checking gateway connection")
+        self._set_connection_indicator(self._connection_status_state, self._connection_status_detail)
         self.history_card.setToolTip("")
         if self._status_tone not in {"error", "busy"}:
             self._set_status("Ready")
@@ -5875,18 +6366,41 @@ class AssistantPalette(QMainWindow):
                 font-size: 15px;
                 font-weight: 700;
             }
-            QFrame#connectionLed {
-                border-radius: 4px;
-                background: #6a7788;
-                border: 1px solid rgba(255, 255, 255, 0.16);
+            QComboBox#sessionPicker {
+                min-height: 28px;
+                max-height: 28px;
+                padding: 0px 30px 0px 12px;
+                border-radius: 14px;
+                border: 1px solid rgba(130, 150, 178, 0.28);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(42, 52, 67, 0.98),
+                    stop:1 rgba(23, 29, 39, 0.98));
+                color: #eef4fb;
+                font-size: 12px;
+                font-weight: 600;
             }
-            QFrame#connectionLed[state="connected"] {
-                background: #38bf76;
-                border-color: rgba(112, 224, 164, 0.56);
+            QComboBox#sessionPicker:hover {
+                border-color: rgba(121, 199, 255, 0.42);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(47, 59, 76, 0.99),
+                    stop:1 rgba(25, 32, 43, 0.99));
             }
-            QFrame#connectionLed[state="disconnected"] {
-                background: #d05252;
-                border-color: rgba(255, 183, 183, 0.46);
+            QComboBox#sessionPicker:disabled {
+                color: #8390a2;
+                border-color: rgba(130, 150, 178, 0.16);
+                background: rgba(24, 30, 39, 0.88);
+            }
+            QComboBox#sessionPicker::drop-down {
+                border: none;
+                width: 26px;
+            }
+            QComboBox#sessionPicker QAbstractItemView {
+                background: rgba(21, 27, 37, 0.99);
+                color: #eef4fb;
+                border: 1px solid rgba(130, 150, 178, 0.20);
+                selection-background-color: #243447;
+                border-radius: 12px;
+                padding: 6px;
             }
             QLabel#controlLabel {
                 color: #71839a;

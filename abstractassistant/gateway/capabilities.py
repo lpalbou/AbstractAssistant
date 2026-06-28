@@ -84,6 +84,15 @@ class AssistantCapabilities:
     def tts_available(self) -> bool:
         return bool(self.tts().get("available"))
 
+    def tts_streaming_available(self) -> bool:
+        tts = self.tts()
+        delivery_modes = _as_list_of_strings(tts.get("delivery_modes"))
+        return bool(tts.get("streaming") is True and "stream" in delivery_modes and self.tts_stream_endpoint())
+
+    def tts_stream_endpoint(self) -> str:
+        endpoint = self.tts().get("stream_endpoint")
+        return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
+
     def stt_available(self) -> bool:
         return bool(self.stt().get("available"))
 
@@ -306,6 +315,7 @@ def get_cached_assistant_capabilities(
     *,
     ttl_s: float = 60.0,
     force: bool = False,
+    stale_ok: bool = False,
 ) -> AssistantCapabilities:
     """Return a short-lived cache of Gateway's assistant contract."""
 
@@ -315,7 +325,7 @@ def get_cached_assistant_capabilities(
         not force
         and isinstance(cached, AssistantCapabilities)
         and cached.fetched_at
-        and (now - float(cached.fetched_at)) < float(ttl_s)
+        and (bool(stale_ok) or (now - float(cached.fetched_at)) < float(ttl_s))
     ):
         return cached
 

@@ -21,9 +21,11 @@ can be called production-ready on macOS and later on other desktop hosts.
   no longer exposes runtime mode selection in the primary user path.
 - `abstractassistantv2/controller.py` and `abstractassistantv2/gateway.py` now reconcile and run a
   managed `abstractassistant-orchestrator` workflow from the gateway tenant catalog.
-- The primary palette and settings dialog are visually improved, but expert review still flags
-  workflow provenance clarity, blocked-state guidance, and scope copy around gateway-owned defaults.
-- Live macOS polish and visual validation are still incomplete.
+- The primary palette now includes recent-session navigation and a live gateway connection orb, but
+  expert review still flags workflow provenance clarity, blocked-state guidance, and scope copy
+  around gateway-owned defaults.
+- Live macOS polish and visual validation are still incomplete, and frozen-bundle validation still
+  needs to remain part of the acceptance bar instead of only source-run tray smoke.
 
 ## Problem
 
@@ -49,12 +51,15 @@ important release blockers in the UX and workflow-default story.
 - Keep the tray surface compact and trustworthy while the workflow handles tool and media routing.
 - Validate the polished tray shell on a real macOS desktop, including readability, focus behavior,
   hotkey flow, voice toggles, and workflow-routed media actions.
+- Validate the same UX against the rebuilt `/Applications/AbstractAssistant.app`, not only a
+  source-run tray session.
 
 ## Suggested implementation
 
 - Add explicit provenance copy and clearer blocked-state guidance on the palette.
 - Keep the managed assistant workflow as the only runtime path.
-- Capture real desktop screenshots and smoke evidence after the next UX pass.
+- Capture real desktop screenshots and smoke evidence after the next UX pass, including frozen-app
+  bundle verification.
 
 ## Scope
 
@@ -90,6 +95,10 @@ important release blockers in the UX and workflow-default story.
   - settings save/reset
   - blocked gateway state
   - summon hotkey
+- Frozen macOS bundle smoke with `/Applications/AbstractAssistant.app`:
+  - recent-session picker matches local session state
+  - live connection orb reflects real gateway availability
+  - rebuilt bundle matches the expected palette UI
 - Screenshot review for the tray shell and settings dialog
 
 ## Progress checklist
@@ -97,7 +106,7 @@ important release blockers in the UX and workflow-default story.
 - [x] Rework the settings information architecture into separate connection/gateway/device surfaces
 - [ ] Make workflow/default provenance obvious on the main tray surface
 - [x] Publish and promote a dedicated assistant workflow into the gateway catalog
-- [ ] Complete live macOS UX validation and capture final screenshots
+- [ ] Complete live macOS UX validation, frozen-bundle validation, and capture final screenshots
 
 ## Guidance for the implementing agent
 

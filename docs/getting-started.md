@@ -61,10 +61,15 @@ section to sign in with a gateway user token. For local/shared setups, a bearer 
 Typical flow:
 
 1. Open the palette from the tray, or use the global summon hotkey when available.
-2. Ask a question or attach files.
-3. Let the published `abstractassistant-orchestrator` workflow decide whether the turn needs normal
+2. Use the header session picker to jump across recent sessions. Each item is shown as
+   `yy/mm/dd - topic`. When a durable topic is not available yet, the picker falls back to the
+   first user query for that session.
+3. Check the live connection orb at the far right of the header. Green means the app can reach the
+   gateway right now; red means the gateway connection itself needs attention.
+4. Ask a question or attach files.
+5. Let the published `abstractassistant-orchestrator` workflow decide whether the turn needs normal
    chat, tools, or media generation.
-4. Approve tool batches when the workflow requests them.
+6. Approve tool batches when the workflow requests them.
 
 You do not choose a workflow in the normal tray path. The gateway publishes the assistant workflow,
 and the desktop app uses that workflow directly.
@@ -100,8 +105,13 @@ Gateway/Core vision options include:
 
 The desktop app remembers:
 
+- the recent-session list shown in the header picker
 - transcript snapshots
 - the last run id
+
+Session topics currently come from durable session titles when available. If a session has not been
+given a durable topic yet, the tray header uses the first user query as a local fallback so you can
+still scan the recent-session list quickly.
 
 Attachments can be added with the file picker or drag-and-drop.
 
@@ -110,8 +120,11 @@ the full response payload and opens downloaded artifacts locally.
 
 ## 7. Voice
 
-Microphone capture and playback happen locally on the desktop. STT and TTS requests are sent to
-gateway routes.
+Microphone capture and playback happen locally on the desktop. STT and TTS
+requests are sent to gateway routes. When the gateway advertises streaming TTS,
+the assistant plays JSONL audio chunks progressively and still receives the
+final Runtime artifact from the gateway stream. Otherwise it uses the buffered
+artifact-backed TTS route.
 
 If gateway voice routes are not configured, the assistant disables the affected controls instead of
 quietly falling back to a local speech model.

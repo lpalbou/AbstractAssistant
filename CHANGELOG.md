@@ -4,6 +4,18 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- The palette header now includes a recent-session picker with compact `yy/mm/dd - topic` labels.
+  When a durable session topic is not available yet, the picker falls back to the first user
+  query.
+- The header connection indicator is now a larger live orb at the far right of the palette and
+  reflects actual gateway connection status instead of only workflow availability.
+
+### Fixed
+- The macOS app-bundle build now uses a narrower PyInstaller hidden-import surface for the
+  gateway-native tray app, which avoids force-collecting the full optional `abstractcore`
+  dependency tree during bundle builds.
+
 ## [0.4.11] - 2026-06-14
 
 ### Fixed

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import base64
+import re
 import pytest
 
 from PyQt5.QtCore import QSize
 from PyQt5.QtGui import QImage
+from PyQt5.QtWidgets import QApplication, QTextBrowser
 
 from abstractassistant.utils.markdown_renderer import (
     MarkdownRenderer,
+    _autolink_html_text,
     _prepare_markdown_source,
     split_markdown_mermaid_blocks,
 )
@@ -18,7 +21,9 @@ from abstractassistantv2.app import _image_thumbnail_size
 
 @pytest.mark.basic
 def test_prepare_markdown_source_wraps_standalone_json_payload() -> None:
-    prepared = _prepare_markdown_source('{"assistant":"AbstractAssistant","items":[1,2]}')
+    prepared = _prepare_markdown_source(
+        '{"assistant":"AbstractAssistant","items":[1,2]}'
+    )
 
     assert prepared.startswith("```json\n{")
     assert '"assistant": "AbstractAssistant"' in prepared
@@ -28,10 +33,7 @@ def test_prepare_markdown_source_wraps_standalone_json_payload() -> None:
 @pytest.mark.basic
 def test_prepare_markdown_source_wraps_yaml_like_payload() -> None:
     prepared = _prepare_markdown_source(
-        "assistant:\n"
-        "  model: gpt-oss-120b\n"
-        "  tools:\n"
-        "    - web\n"
+        "assistant:\n" "  model: gpt-oss-120b\n" "  tools:\n" "    - web\n"
     )
 
     assert prepared.startswith("```yaml\nassistant:")
@@ -52,6 +54,53 @@ def test_prepare_markdown_source_preserves_existing_markdown() -> None:
 
 
 @pytest.mark.basic
+def test_prepare_markdown_source_recovers_loose_and_nested_bullets() -> None:
+    markdown_text = (
+        "**Key Story:** *Anthropic Surpasses OpenAI in Valuation*\n"
+        "- Anthropic closed the largest private funding round in AI history\n"
+        "- **Claude Opus 4.8** leads the model race\n"
+        "- Google I/O & Microsoft Build dominated June launches:\n"
+        "- Google released new Gemini family\n"
+        "- Microsoft shipped 7 in-house models\n"
+        "- NVIDIA open-sourced Cosmos 3\n"
+    )
+
+    prepared = _prepare_markdown_source(markdown_text)
+
+    assert (
+        "\n\n- Anthropic closed the largest private funding round in AI history"
+        in prepared
+    )
+    assert "\n- Google I/O & Microsoft Build dominated June launches:" in prepared
+    assert "\n  - Google released new Gemini family" in prepared
+    assert "\n  - Microsoft shipped 7 in-house models" in prepared
+    assert "\n- NVIDIA open-sourced Cosmos 3" in prepared
+
+
+@pytest.mark.basic
+def test_prepare_markdown_source_recovers_heading_style_nested_bullets() -> None:
+    markdown_text = (
+        "**Key Story:** *US-Iran Peace Deal Fragile as Strait of Hormuz Re-Closed*\n"
+        "- **June 20, 2026:** Iran re-closed Strait of Hormuz, citing US/Israel ceasefire violations\n"
+        "- **VP JD Vance** arrived in Switzerland (Zurich) for peace talks with Iranian negotiators\n"
+        "- Oil prices soaring; 20,000 seafarers stranded\n"
+        "- **Israel-Hezbollah conflict** added to emergency peace session agenda\n"
+        "- **Ukraine War Update:**\n"
+        "- Zelensky: Ukrainian FP drones now reach 3,000 km (hit Russia's Tyumen region)\n"
+        "- Russian airstrike on Zaporizhzhia: 5 dead, 11 injured\n"
+    )
+
+    prepared = _prepare_markdown_source(markdown_text)
+
+    assert "\n- **Ukraine War Update:**" in prepared
+    assert (
+        "\n  - Zelensky: Ukrainian FP drones now reach 3,000 km (hit Russia's Tyumen region)"
+        in prepared
+    )
+    assert "\n  - Russian airstrike on Zaporizhzhia: 5 dead, 11 injured" in prepared
+
+
+@pytest.mark.basic
 def test_markdown_renderer_renders_inline_formatting_and_tables() -> None:
     renderer = MarkdownRenderer()
     html = renderer.render(
@@ -67,6 +116,47 @@ def test_markdown_renderer_renders_inline_formatting_and_tables() -> None:
 
 
 @pytest.mark.basic
+def test_markdown_renderer_autolinks_bare_urls_in_text_and_lists() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render(
+        "LIENS D'ACHAT:\n"
+        "- Ensemble complet : https://www.climaffaires.com/unites-interieures-daikin/3104-daikin.html\n"
+        "- Unité intérieure : www.climaled.fr/unite-interieure-daikin\n"
+    )
+
+    assert (
+        '<a href="https://www.climaffaires.com/unites-interieures-daikin/3104-daikin.html">'
+        "https://www.climaffaires.com/unites-interieures-daikin/3104-daikin.html</a>"
+    ) in html
+    assert (
+        '<a href="https://www.climaled.fr/unite-interieure-daikin">'
+        "www.climaled.fr/unite-interieure-daikin</a>"
+    ) in html
+
+
+@pytest.mark.basic
+def test_markdown_renderer_autolink_excludes_sentence_punctuation() -> None:
+    html = _autolink_html_text("<p>Open https://example.com/path?x=1&amp;y=2.</p>")
+
+    assert 'href="https://example.com/path?x=1&amp;y=2"' in html
+    assert "https://example.com/path?x=1&amp;y=2</a>." in html
+
+
+@pytest.mark.basic
+def test_markdown_renderer_autolink_does_not_rewrite_existing_links_or_code() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render(
+        "[Existing](https://example.com/one)\n\n"
+        "`https://example.com/code`\n\n"
+        "```text\nhttps://example.com/fenced\n```\n"
+    )
+
+    assert html.count('<a href="https://example.com/one">Existing</a>') == 1
+    assert 'href="https://example.com/code"' not in html
+    assert 'href="https://example.com/fenced"' not in html
+
+
+@pytest.mark.basic
 def test_markdown_renderer_formats_raw_json_as_highlighted_code() -> None:
     renderer = MarkdownRenderer()
     html = renderer.render('{"assistant":"AbstractAssistant","ok":true}')
@@ -76,14 +166,115 @@ def test_markdown_renderer_formats_raw_json_as_highlighted_code() -> None:
 
 
 @pytest.mark.basic
-def test_markdown_renderer_falls_back_when_pymdownx_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(MarkdownRenderer, "_has_pymdownx", staticmethod(lambda: False))
-
+def test_markdown_renderer_highlights_fenced_code_without_language_metadata() -> None:
     renderer = MarkdownRenderer()
-    html = renderer.render("```python\nprint(1)\n```")
+    html = renderer.render("```\nprint(1)\n```")
 
     assert "Markdown rendering error" not in html
     assert "codehilite" in html
+
+
+@pytest.mark.basic
+def test_markdown_renderer_renders_recovered_nested_bullet_structure() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render(
+        "**Key Story:** *Anthropic Surpasses OpenAI in Valuation*\n"
+        "- Anthropic closed the largest private funding round in AI history\n"
+        "- **Claude Opus 4.8** leads the model race\n"
+        "- Google I/O & Microsoft Build dominated June launches:\n"
+        "- Google released new Gemini family\n"
+        "- Microsoft shipped 7 in-house models\n"
+        "- NVIDIA open-sourced Cosmos 3\n"
+    )
+
+    assert re.search(
+        r"<li>Google I/O &amp; Microsoft Build dominated June launches:\s*<ul>\s*"
+        r"<li>Google released new Gemini family</li>\s*"
+        r"<li>Microsoft shipped 7 in-house models</li>\s*</ul>\s*</li>",
+        html,
+    )
+    assert "<li>NVIDIA open-sourced Cosmos 3</li>" in html
+
+
+@pytest.mark.basic
+def test_markdown_renderer_renders_heading_style_nested_bullet_structure() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render(
+        "**Key Story:** *US-Iran Peace Deal Fragile as Strait of Hormuz Re-Closed*\n"
+        "- **June 20, 2026:** Iran re-closed Strait of Hormuz, citing US/Israel ceasefire violations\n"
+        "- **VP JD Vance** arrived in Switzerland (Zurich) for peace talks with Iranian negotiators\n"
+        "- Oil prices soaring; 20,000 seafarers stranded\n"
+        "- **Israel-Hezbollah conflict** added to emergency peace session agenda\n"
+        "- **Ukraine War Update:**\n"
+        "- Zelensky: Ukrainian FP drones now reach 3,000 km (hit Russia's Tyumen region)\n"
+        "- Russian airstrike on Zaporizhzhia: 5 dead, 11 injured\n"
+    )
+
+    assert re.search(
+        r"<li><strong>Ukraine War Update:</strong>\s*<ul>\s*"
+        r"<li>Zelensky: Ukrainian FP drones now reach 3,000 km \(hit Russia's Tyumen region\)</li>\s*"
+        r"<li>Russian airstrike on Zaporizhzhia: 5 dead, 11 injured</li>\s*</ul>\s*</li>",
+        html,
+    )
+
+
+def _list_indents_by_text(html: str) -> dict[str, int | None]:
+    app = QApplication.instance() or QApplication([])
+    browser = QTextBrowser()
+    browser.setHtml(html)
+    document = browser.document()
+    indents: dict[str, int | None] = {}
+    block = document.begin()
+    while block.isValid():
+        text = str(block.text() or "").strip()
+        if text:
+            text_list = block.textList()
+            indents[text] = None if text_list is None else text_list.format().indent()
+        block = block.next()
+    assert app is not None
+    return indents
+
+
+@pytest.mark.basic
+def test_markdown_renderer_qt_document_keeps_nested_list_depths() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render(
+        "- Google I/O & Microsoft Build dominated June launches:\n"
+        "  - Google released new Gemini family\n"
+        "  - Microsoft shipped 7 in-house models\n"
+        "- NVIDIA open-sourced Cosmos 3\n"
+    )
+
+    indents = _list_indents_by_text(html)
+
+    assert indents["Google I/O & Microsoft Build dominated June launches:"] == 1
+    assert indents["Google released new Gemini family"] == 2
+    assert indents["Microsoft shipped 7 in-house models"] == 2
+    assert indents["NVIDIA open-sourced Cosmos 3"] == 1
+
+
+@pytest.mark.basic
+def test_markdown_renderer_qt_document_recovers_heading_style_nested_depths() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render(
+        "- **Ukraine War Update:**\n"
+        "- Zelensky: Ukrainian FP drones now reach 3,000 km (hit Russia's Tyumen region)\n"
+        "- Russian airstrike on Zaporizhzhia: 5 dead, 11 injured\n"
+        "- **FIFA World Cup 2026:**\n"
+        "- First expanded 48-team tournament preparations continue\n"
+    )
+
+    indents = _list_indents_by_text(html)
+
+    assert indents["Ukraine War Update:"] == 1
+    assert (
+        indents[
+            "Zelensky: Ukrainian FP drones now reach 3,000 km (hit Russia's Tyumen region)"
+        ]
+        == 2
+    )
+    assert indents["Russian airstrike on Zaporizhzhia: 5 dead, 11 injured"] == 2
+    assert indents["FIFA World Cup 2026:"] == 1
 
 
 @pytest.mark.basic
@@ -106,7 +297,9 @@ def test_markdown_renderer_renders_mermaid_flowchart_as_inline_image() -> None:
 
 
 @pytest.mark.basic
-def test_markdown_renderer_mermaid_png_does_not_clip_bright_text_into_top_edge() -> None:
+def test_markdown_renderer_mermaid_png_does_not_clip_bright_text_into_top_edge() -> (
+    None
+):
     renderer = MarkdownRenderer()
     html = renderer.render(
         "```mermaid\n"
@@ -170,10 +363,7 @@ def test_markdown_renderer_recovers_common_mermaid_router_formatting_mistakes() 
 def test_markdown_renderer_falls_back_for_unsupported_mermaid_dialects() -> None:
     renderer = MarkdownRenderer()
     html = renderer.render(
-        "```mermaid\n"
-        "sequenceDiagram\n"
-        "    Alice->>Bob: Hello Bob\n"
-        "```\n"
+        "```mermaid\n" "sequenceDiagram\n" "    Alice->>Bob: Hello Bob\n" "```\n"
     )
 
     assert '<div class="mermaid-diagram">' not in html

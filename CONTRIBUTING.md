@@ -1,7 +1,7 @@
 # Contributing to AbstractAssistant
 
-Thanks for improving AbstractAssistant. This repo is part of the AbstractFramework ecosystem and focuses on a
-macOS-first tray app + CLI that host a local, durable agent.
+Thanks for improving AbstractAssistant. This repo is part of the AbstractFramework ecosystem and
+focuses on a macOS-first gateway-native tray app plus CLI.
 
 Quick links:
 - Docs hub: [docs/README.md](docs/README.md)
@@ -61,6 +61,17 @@ Debug logs:
 ```bash
 assistant --debug tray
 ```
+
+Packaged macOS app validation:
+
+```bash
+build-macos-app
+open /Applications/AbstractAssistant.app
+```
+
+When you change tray or palette behavior, validate the rebuilt `/Applications/AbstractAssistant.app`
+too. Quit any older menu-bar process first so you are not comparing new source against an older
+installed bundle.
 
 ## Code style and checks
 

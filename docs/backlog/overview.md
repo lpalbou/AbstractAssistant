@@ -7,8 +7,8 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 2
-- Proposed: 2
+- Planned: 3
+- Proposed: 3
 - Completed: 1
 - Deprecated: 0
 - Recurrent: 0
@@ -16,9 +16,13 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 ## Next Recommended Work
 
 1. Finish the production UX hardening pass around the now-canonical gateway workflow shell.
-2. Continue the broader v2 rollout and remove remaining legacy assistant code that still suggests
+2. Keep frozen macOS bundle validation and source-vs-bundle parity visible for tray and palette
+   changes.
+3. Define durable session topic/summary metadata so recent-session navigation can stay compact and
+   trustworthy without re-deriving titles ad hoc.
+4. Continue the broader v2 rollout and remove remaining legacy assistant code that still suggests
    alternate runtime models.
-3. Harden the desktop auth UX around expiry, session renewal, and secure local storage.
+5. Harden the desktop auth UX around expiry, session renewal, and secure local storage.
 
 ## Planned Items
 
@@ -26,6 +30,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 |---|---|---|---|
 | [0002](planned/0002_gateway_native_assistant_v2_rollout.md) | Gateway-native assistant v2 rollout | Planned | Broader rollout and legacy de-emphasis after the single-path contract cleanup. |
 | [0004](planned/0004_production_ux_and_catalog_default_hardening.md) | Production UX and catalog-default hardening | Planned | Final polish and live macOS validation on the single-workflow shell. |
+| [0006](planned/0006_durable_session_topics_and_summaries.md) | Durable session topics and summaries | Planned | Define canonical topic/summary metadata for recent-session navigation in the gateway-native shell. |
 
 ## Proposed Items
 
@@ -33,6 +38,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 |---|---|---|---|
 | [0001](proposed/0001_gateway_capability_profile_alignment.md) | Gateway capability profile alignment | Proposed | Keep as background design memory while v2 rollout lands. |
 | [0003](proposed/0003_tauri_shell_spike.md) | Tauri shell spike | Proposed | Promote only if cross-platform host evidence outweighs Qt-first delivery. |
+| [0007](proposed/0007_frozen_macos_bundle_parity_and_packaging_trim.md) | Frozen macOS bundle parity and packaging trim | Proposed | Promote if bundle breadth, warnings, or frozen-app-only regressions keep recurring. |
 
 ## Completed Items
 

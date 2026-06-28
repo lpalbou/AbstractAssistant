@@ -98,6 +98,8 @@ class LLMManager:
         self.current_session: Optional[_SessionView] = None
         self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
         self._refresh_session_view()
+        if self.use_gateway:
+            self._prefetch_gateway_capabilities()
 
     @property
     def agent_host(self) -> Optional["AgentHost"]:
@@ -131,12 +133,26 @@ class LLMManager:
             )
         return self._gateway_client
 
-    def gateway_capabilities(self, *, force: bool = False):
+    def gateway_capabilities(self, *, force: bool = False, stale_ok: bool = False):
         """Return cached assistant-facing Gateway capabilities."""
         gw = self.gateway_client()
         if gw is None:
             return None
-        return get_cached_assistant_capabilities(gw, force=bool(force))
+        return get_cached_assistant_capabilities(gw, force=bool(force), stale_ok=bool(stale_ok))
+
+    def _prefetch_gateway_capabilities(self) -> None:
+        """Warm Gateway discovery off the UI/speech critical path."""
+
+        def _worker() -> None:
+            try:
+                self.gateway_capabilities(force=True)
+            except Exception:
+                pass
+
+        try:
+            threading.Thread(target=_worker, name="gateway-capabilities-prefetch", daemon=True).start()
+        except Exception:
+            pass
 
     @property
     def active_session_id(self) -> str:
@@ -416,9 +432,7 @@ class LLMManager:
         last_txt = _clean(last)
         if not first_txt:
             return _trunc(last_txt, 80) if last_txt else None
-        if not last_txt or first_txt == last_txt:
-            return _trunc(first_txt, 80)
-        return f"{_trunc(first_txt, 34)} → {_trunc(last_txt, 34)}"
+        return _trunc(first_txt, 80)
 
     @staticmethod
     def _generate_session_title(*, provider: str, model: str, first: str, last: str) -> Optional[str]:

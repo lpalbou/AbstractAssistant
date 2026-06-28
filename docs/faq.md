@@ -50,8 +50,10 @@ them in Settings or on the gateway instead of silently guessing.
 
 ## How does voice work?
 
-The desktop app captures microphone audio locally and plays audio locally. STT and TTS execution go
-through the gateway.
+The desktop app captures microphone audio locally and plays audio locally. STT
+and TTS execution go through the gateway. If the gateway advertises streaming
+TTS, spoken replies play progressively from JSONL audio chunk events; otherwise
+the assistant uses the artifact-backed TTS route.
 
 If the gateway does not advertise voice routes, the assistant disables the mic or auto-speak
 controls.

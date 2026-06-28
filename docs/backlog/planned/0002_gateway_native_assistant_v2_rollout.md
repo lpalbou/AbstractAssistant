@@ -20,6 +20,8 @@ de-emphasis before the redesign can be treated as the stable product path.
 - `abstractassistantv2/` contains the new tray shell, controller, preferences, and gateway service.
 - The CLI now launches the v2 tray shell by default and assistant execution is routed through one
   managed catalog workflow.
+- The palette header now includes recent-session navigation and a live gateway connection orb, and
+  the macOS bundle build is expected to ship that same v2 surface into `/Applications`.
 - The legacy `app.py` and `ui/qt_bubble.py` path still exists and still represents a large amount
   of historical complexity.
 - The settings flow now supports both bearer-token and hosted gateway-session sign-in.
@@ -45,6 +47,7 @@ work, even though Gateway is now the correct control plane.
 - Keep the assistant on one published catalog workflow path with no runtime fallbacks.
 - Add a desktop-compatible path for hosted gateway auth.
 - Validate approvals, tray summonability, hotkey behavior, and workflow-routed media requests.
+- Keep source-run tray behavior and the frozen macOS bundle aligned for user-visible UI changes.
 - Reduce user-visible dependence on the legacy tray path.
 
 ## Suggested implementation
@@ -83,6 +86,8 @@ work, even though Gateway is now the correct control plane.
 
 - `python -m pytest tests/basic tests/integration -q`
 - Manual tray smoke on macOS: chat, tool use, image request, voice, approval flow, hotkey
+- Frozen-bundle macOS smoke with `/Applications/AbstractAssistant.app`: launch, session picker,
+  live connection orb, settings, and tray summon parity with the source-run tray
 - Documentation review for gateway-owned defaults and workflow catalog behavior
 
 ## Progress checklist
@@ -90,7 +95,7 @@ work, even though Gateway is now the correct control plane.
 - [x] Collapse the runtime contract to one managed assistant workflow path
 - [ ] Validate tray/palette UX on macOS with workflow-routed media requests enabled
 - [ ] Review legacy desktop modules and decide what remains for compatibility only
-- [ ] Record packaging and platform validation expectations
+- [ ] Record frozen-bundle packaging and platform validation expectations
 
 ## Guidance for the implementing agent
 
