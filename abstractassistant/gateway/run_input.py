@@ -27,8 +27,6 @@ def _to_chat_messages(messages: List[Dict[str, Any]], keep: int) -> List[Dict[st
 def build_run_input_data(
     *,
     prompt: str,
-    provider: str,
-    model: str,
     system: str = "",
     messages: Optional[List[Dict[str, Any]]] = None,
     attachments: Optional[List[Dict[str, Any]]] = None,
@@ -37,12 +35,16 @@ def build_run_input_data(
     temperature: Optional[float] = None,
     seed: Optional[int] = None,
     max_iterations: int = 50,
-    use_context: bool = True,
+    use_context: bool = False,
     primary_image_artifact: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """Build workflow input without desktop-owned routing or history authority.
+
+    Provider/model routing is resolved by Gateway/Core capability defaults.
+    ``messages`` is opt-in because canonical history belongs to Runtime/Gateway;
+    v2 and CLI callers should pass only the prompt plus artifact references.
+    """
     prompt_s = str(prompt or "")
-    provider_s = str(provider or "").strip()
-    model_s = str(model or "").strip()
     system_s = str(system or "")
 
     attachments_list = [dict(a) for a in attachments or [] if isinstance(a, dict) and a.get("$artifact")]
@@ -61,10 +63,6 @@ def build_run_input_data(
         ctx["primary_image_artifact"] = primary_image
 
     runtime_ns: Dict[str, Any] = {}
-    if provider_s:
-        runtime_ns["provider"] = provider_s
-    if model_s:
-        runtime_ns["model"] = model_s
     if isinstance(temperature, (int, float)):
         runtime_ns["temperature"] = float(temperature)
     if isinstance(seed, int):
@@ -109,10 +107,6 @@ def build_run_input_data(
     }
     if system_s:
         out["system"] = system_s
-    if provider_s:
-        out["provider"] = provider_s
-    if model_s:
-        out["model"] = model_s
 
     if attachments_list:
         out["attachments"] = attachments_list

@@ -26,11 +26,14 @@ from abstractassistantv2.app import (
     HistoryScrollRequest,
     MessageCard,
     MermaidPreviewCard,
+    ToolUsageDialog,
     _attachment_icon_name,
     _attachment_kind,
     _assistant_content_blocks,
     _assistant_content_with_actions,
     _assistant_footer_items,
+    _assistant_footer_metrics,
+    _assistant_tool_calls_for_message,
     _handle_tray_activation,
     _local_attachment_preview_items,
     _media_display_title,
@@ -121,7 +124,13 @@ class _GatewayCatalogStub:
                     "default_entrypoint": "chat",
                     "is_default": True,
                     "actions": {"can_run": True},
-                    "entrypoints": [{"flow_id": "chat", "name": "Default Chat", "interfaces": ["abstractassistant.agent.v1"]}],
+                    "entrypoints": [
+                        {
+                            "flow_id": "chat",
+                            "name": "Default Chat",
+                            "interfaces": ["abstractassistant.agent.v1"],
+                        }
+                    ],
                 }
             ]
         }
@@ -137,13 +146,17 @@ class _GatewayCatalogStub:
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_uses_catalog_workflows_and_voice_catalogs() -> None:
+def test_assistant_v2_gateway_service_uses_catalog_workflows_and_voice_catalogs() -> (
+    None
+):
     gateway = _GatewayCatalogStub()
     service = AssistantGatewayService(gateway)
 
     workflows = service.list_workflows()
     routes = service.route_map()
-    providers = service.provider_choices(route_key="output.voice", base_url="https://voices.example.test/v1")
+    providers = service.provider_choices(
+        route_key="output.voice", base_url="https://voices.example.test/v1"
+    )
     models = service.model_choices(
         route_key="output.voice",
         provider="openai",
@@ -167,7 +180,9 @@ def test_assistant_v2_gateway_service_uses_catalog_workflows_and_voice_catalogs(
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_prefers_catalog_default_when_multiple_managed_options_exist() -> None:
+def test_assistant_v2_gateway_service_prefers_catalog_default_when_multiple_managed_options_exist() -> (
+    None
+):
     class _GatewayDefaultStub(_GatewayCatalogStub):
         def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
             assert scope == "tenant_catalog"
@@ -179,7 +194,13 @@ def test_assistant_v2_gateway_service_prefers_catalog_default_when_multiple_mana
                         "default_entrypoint": "chat",
                         "is_default": False,
                         "actions": {"can_run": True},
-                        "entrypoints": [{"flow_id": "chat", "name": "Older", "interfaces": ["abstractassistant.agent.v1"]}],
+                        "entrypoints": [
+                            {
+                                "flow_id": "chat",
+                                "name": "Older",
+                                "interfaces": ["abstractassistant.agent.v1"],
+                            }
+                        ],
                     },
                     {
                         "bundle_id": MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
@@ -187,7 +208,13 @@ def test_assistant_v2_gateway_service_prefers_catalog_default_when_multiple_mana
                         "default_entrypoint": "chat",
                         "is_default": True,
                         "actions": {"can_run": True},
-                        "entrypoints": [{"flow_id": "chat", "name": "Default", "interfaces": ["abstractassistant.agent.v1"]}],
+                        "entrypoints": [
+                            {
+                                "flow_id": "chat",
+                                "name": "Default",
+                                "interfaces": ["abstractassistant.agent.v1"],
+                            }
+                        ],
                     },
                 ]
             }
@@ -202,7 +229,9 @@ def test_assistant_v2_gateway_service_prefers_catalog_default_when_multiple_mana
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_blocks_ambiguous_catalog_without_default() -> None:
+def test_assistant_v2_gateway_service_blocks_ambiguous_catalog_without_default() -> (
+    None
+):
     class _GatewayAmbiguousStub(_GatewayCatalogStub):
         def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
             assert scope == "tenant_catalog"
@@ -214,7 +243,13 @@ def test_assistant_v2_gateway_service_blocks_ambiguous_catalog_without_default()
                         "default_entrypoint": "chat",
                         "is_default": False,
                         "actions": {"can_run": True},
-                        "entrypoints": [{"flow_id": "chat", "name": "Older", "interfaces": ["abstractassistant.agent.v1"]}],
+                        "entrypoints": [
+                            {
+                                "flow_id": "chat",
+                                "name": "Older",
+                                "interfaces": ["abstractassistant.agent.v1"],
+                            }
+                        ],
                     },
                     {
                         "bundle_id": MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
@@ -222,7 +257,13 @@ def test_assistant_v2_gateway_service_blocks_ambiguous_catalog_without_default()
                         "default_entrypoint": "chat",
                         "is_default": False,
                         "actions": {"can_run": True},
-                        "entrypoints": [{"flow_id": "chat", "name": "Newer", "interfaces": ["abstractassistant.agent.v1"]}],
+                        "entrypoints": [
+                            {
+                                "flow_id": "chat",
+                                "name": "Newer",
+                                "interfaces": ["abstractassistant.agent.v1"],
+                            }
+                        ],
                     },
                 ]
             }
@@ -257,7 +298,15 @@ class _ManagedWorkflowGatewayStub:
 
     def update_visualflow(self, **kwargs) -> dict:
         self.updated.append(dict(kwargs))
-        flow = {"id": str(kwargs["flow_id"]), "name": kwargs.get("name"), "description": kwargs.get("description"), "interfaces": kwargs.get("interfaces"), "nodes": kwargs.get("nodes"), "edges": kwargs.get("edges"), "entryNode": kwargs.get("entry_node")}
+        flow = {
+            "id": str(kwargs["flow_id"]),
+            "name": kwargs.get("name"),
+            "description": kwargs.get("description"),
+            "interfaces": kwargs.get("interfaces"),
+            "nodes": kwargs.get("nodes"),
+            "edges": kwargs.get("edges"),
+            "entryNode": kwargs.get("entry_node"),
+        }
         self._flows = [flow]
         return flow
 
@@ -269,7 +318,11 @@ class _ManagedWorkflowGatewayStub:
                 "bundle_version": "0.0.0",
                 "default_entrypoint": "node-1",
                 "entrypoints": [
-                    {"flow_id": "node-1", "name": "Assistant", "interfaces": ["abstractassistant.agent.v1"]},
+                    {
+                        "flow_id": "node-1",
+                        "name": "Assistant",
+                        "interfaces": ["abstractassistant.agent.v1"],
+                    },
                 ],
             }
         ]
@@ -285,7 +338,11 @@ class _ManagedWorkflowGatewayStub:
                 "is_default": False,
                 "actions": {"can_run": True},
                 "entrypoints": [
-                    {"flow_id": "node-1", "name": "Assistant", "interfaces": ["abstractassistant.agent.v1"]},
+                    {
+                        "flow_id": "node-1",
+                        "name": "Assistant",
+                        "interfaces": ["abstractassistant.agent.v1"],
+                    },
                 ],
             }
         ]
@@ -300,7 +357,9 @@ class _ManagedWorkflowGatewayStub:
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_reconciles_and_promotes_catalog_workflow() -> None:
+def test_assistant_v2_gateway_service_reconciles_and_promotes_catalog_workflow() -> (
+    None
+):
     gateway = _ManagedWorkflowGatewayStub()
     service = AssistantGatewayService(gateway)
 
@@ -321,9 +380,17 @@ def test_assistant_v2_managed_workflow_accepts_prompt_alias_for_media_routes() -
 
     route_break = nodes["route_break"]
     route_break_data = route_break["data"]
-    assert route_break_data["breakConfig"]["selectedPaths"] == ["mode", "assistant_message", "media_prompt", "prompt"]
+    assert route_break_data["breakConfig"]["selectedPaths"] == [
+        "mode",
+        "assistant_message",
+        "media_prompt",
+        "prompt",
+    ]
     assert any(pin["id"] == "prompt" for pin in route_break_data["outputs"])
-    assert nodes["route_call"]["data"]["effectConfig"]["structured_output_fallback"] is True
+    assert (
+        nodes["route_call"]["data"]["effectConfig"]["structured_output_fallback"]
+        is True
+    )
 
     route_media_prompt = nodes["route_media_prompt"]
     assert route_media_prompt["type"] == "coalesce"
@@ -361,7 +428,9 @@ def test_mermaid_preview_card_keeps_wide_diagrams_zoomable_inline() -> None:
 
     assert data_uri is not None
 
-    card = MermaidPreviewCard(source="flowchart LR", data_uri=data_uri, bubble_width=760)
+    card = MermaidPreviewCard(
+        source="flowchart LR", data_uri=data_uri, bubble_width=760
+    )
     card.show()
     app.processEvents()
 
@@ -386,7 +455,11 @@ def test_user_message_card_keeps_timestamp_tight_to_single_line_message() -> Non
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     card = MessageCard(
-        message={"role": "user", "content": "create a true detailed ReAct diagram", "ts": "2026-06-17T00:38:00+00:00"},
+        message={
+            "role": "user",
+            "content": "create a true detailed ReAct diagram",
+            "ts": "2026-06-17T00:38:00+00:00",
+        },
         message_key="user-1",
         renderer=None,
         on_open_artifact=lambda *_args, **_kwargs: None,
@@ -432,7 +505,9 @@ def test_assistant_v2_busy_tray_feedback_icon_renders_pixmap() -> None:
 
 @pytest.mark.basic
 @pytest.mark.parametrize("state", ["idle", "busy", "complete"])
-def test_assistant_v2_tray_feedback_icon_uses_large_opaque_footprint(state: str) -> None:
+def test_assistant_v2_tray_feedback_icon_uses_large_opaque_footprint(
+    state: str,
+) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     icon = _tray_feedback_icon(state=state, frame=5, size=44)
@@ -456,11 +531,15 @@ def test_assistant_v2_session_picker_label_uses_compact_date_and_topic() -> None
         }
     )
 
-    assert label == "26/06/21 - Investigate why the menu bar session picker truncates val…"
+    assert (
+        label == "26/06/21 - Investigate why the menu bar session picker truncates val…"
+    )
 
 
 @pytest.mark.basic
-def test_llm_manager_session_fallback_title_uses_first_user_query(tmp_path: Path) -> None:
+def test_llm_manager_session_fallback_title_uses_first_user_query(
+    tmp_path: Path,
+) -> None:
     index = SessionIndex(tmp_path)
     record = index.create_session()
     store = SessionStore(index.data_dir_for(record.session_id) / "session.json")
@@ -485,7 +564,9 @@ def test_llm_manager_session_fallback_title_uses_first_user_query(tmp_path: Path
 
 
 @pytest.mark.basic
-def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     events: list[str] = []
     captures: list[str] = []
 
@@ -511,7 +592,9 @@ def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(monkeypa
             events.append("refresh")
 
     monkeypatch.setattr(app_module, "QSystemTrayIcon", _Tray)
-    monkeypatch.setattr(app_module, "_native_status_item_metrics", lambda: (1, (22, 22), (16, 22)))
+    monkeypatch.setattr(
+        app_module, "_native_status_item_metrics", lambda: (1, (22, 22), (16, 22))
+    )
     monkeypatch.setattr(
         app_module,
         "_capture_native_status_item_button_png",
@@ -553,7 +636,12 @@ def test_assistant_v2_hidden_final_reply_marks_unread_and_notifies() -> None:
 
     AssistantPalette._on_worker_event(
         palette,
-        {"type": "assistant", "final": True, "content": "Rendered and ready.", "history_changed": False},
+        {
+            "type": "assistant",
+            "final": True,
+            "content": "Rendered and ready.",
+            "history_changed": False,
+        },
     )
 
     assert palette._run_busy is False
@@ -570,14 +658,21 @@ def test_assistant_v2_run_activity_event_updates_inline_status() -> None:
     status_calls: list[tuple[str, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append(
+        (text, tone)
+    )
 
     AssistantPalette._on_worker_event(
         palette,
-        {"type": "run_activity", "summary": "Running (abc123): search online for Genentech roles"},
+        {
+            "type": "run_activity",
+            "summary": "Running (abc123): search online for Genentech roles",
+        },
     )
 
-    assert status_calls == [("Running (abc123): search online for Genentech roles", "busy")]
+    assert status_calls == [
+        ("Running (abc123): search online for Genentech roles", "busy")
+    ]
 
 
 @pytest.mark.basic
@@ -585,8 +680,10 @@ def test_assistant_v2_tool_event_updates_inline_status() -> None:
     status_calls: list[tuple[str, str, bool, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
-    palette._set_history_status = lambda text="", tone="neutral", rich=False, tooltip=None: status_calls.append(
-        (text, tone, rich, str(tooltip or ""))
+    palette._set_history_status = (
+        lambda text="", tone="neutral", rich=False, tooltip=None: status_calls.append(
+            (text, tone, rich, str(tooltip or ""))
+        )
     )
 
     AssistantPalette._on_worker_event(
@@ -596,7 +693,10 @@ def test_assistant_v2_tool_event_updates_inline_status() -> None:
             "message": {
                 "metadata": {
                     "name": "web_search",
-                    "arguments": {"query": "ML Engineering Director Genentech AI4DD 2026", "num_results": 10},
+                    "arguments": {
+                        "query": "ML Engineering Director Genentech AI4DD 2026",
+                        "num_results": 10,
+                    },
                 }
             },
         },
@@ -607,7 +707,7 @@ def test_assistant_v2_tool_event_updates_inline_status() -> None:
             '<span style="color:#63d98b; font-weight:800;">web_search</span>'
             '<span style="color:#63d98b; font-weight:800;">(</span>'
             '<span style="color:#ffc963; font-weight:400;">'
-            'query=&quot;ML Engineering Director Genentech AI4DD 2026&quot;, num_results=10</span>'
+            "query=&quot;ML Engineering Director Genentech AI4DD 2026&quot;, num_results=10</span>"
             '<span style="color:#63d98b; font-weight:800;">)</span>',
             "busy",
             True,
@@ -644,11 +744,11 @@ def test_assistant_v2_tool_status_budget_tracks_palette_width() -> None:
     large = AssistantPalette._tool_history_label_max_chars(palette)
 
     assert small < large
-    assert large > 150
+    assert large >= 120
 
 
 @pytest.mark.basic
-def test_assistant_v2_worker_finished_inserts_last_resort_fallback() -> None:
+def test_assistant_v2_worker_finished_shows_non_durable_empty_reply_diagnostic() -> None:
     appended: list[tuple[str, dict]] = []
     history_calls: list[HistoryScrollRequest] = []
     status_calls: list[tuple[str, str]] = []
@@ -669,30 +769,74 @@ def test_assistant_v2_worker_finished_inserts_last_resort_fallback() -> None:
     palette._run_has_final_output = False
     palette._controller = _Controller()
     palette._show_thinking_indicator = lambda: False
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append(
+        (text, tone)
+    )
     palette.refresh_history = lambda request=None: history_calls.append(request)
     palette._history_scroll_request = lambda **kwargs: HistoryScrollRequest(**kwargs)
     palette._latest_visible_message_key = lambda role="": "assistant-fallback"
     palette._refresh_tray_feedback = lambda: refresh_calls.append("refresh")
-    palette._set_status = lambda text, tone="neutral": status_calls.append((f"main:{text}", tone))
+    palette._set_status = lambda text, tone="neutral": status_calls.append(
+        (f"main:{text}", tone)
+    )
 
     AssistantPalette._on_worker_finished(palette)
 
-    assert appended == [
-        (
-            "The workflow completed, but it returned no written reply.",
-            {"kind": "fallback_completion", "run_id": "run-123"},
-        )
-    ]
+    assert appended == []
     assert palette._run_has_final_output is True
-    assert history_calls == [HistoryScrollRequest(mode="message_top", message_key="assistant-fallback", offset=0)]
-    assert ("The workflow completed, but it returned no written reply.", "info") in status_calls
+    assert history_calls == []
+    assert (
+        "The workflow completed, but it returned no written reply.",
+        "info",
+    ) in status_calls
     assert ("main:Ready", "neutral") in status_calls
     assert refresh_calls == ["refresh"]
 
 
 @pytest.mark.basic
-def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_assistant_v2_replay_degraded_prevents_finished_fallback() -> None:
+    appended: list[tuple[str, dict]] = []
+    status_calls: list[tuple[str, str]] = []
+
+    class _Controller:
+        @staticmethod
+        def append_assistant_message(content: str, metadata=None) -> None:
+            appended.append((content, dict(metadata or {})))
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._worker = object()
+    palette._run_busy = True
+    palette._run_has_final_output = False
+    palette._controller = _Controller()
+    palette._tray_completion_unread = False
+    palette._show_thinking_indicator = lambda: False
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append(
+        (text, tone)
+    )
+    palette._set_status = lambda text, tone="neutral": status_calls.append(
+        (f"main:{text}", tone)
+    )
+    palette._refresh_tray_feedback = lambda: None
+    palette.refresh_history = lambda request=None: None
+
+    AssistantPalette._on_worker_event(
+        palette,
+        {
+            "type": "replay_degraded",
+            "message": "Gateway history replay failed: unavailable",
+        },
+    )
+    AssistantPalette._on_worker_finished(palette)
+
+    assert appended == []
+    assert palette._run_has_final_output is True
+    assert ("Gateway history replay failed: unavailable", "error") in status_calls
+
+
+@pytest.mark.basic
+def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     events: list[str] = []
 
     class _Signal:
@@ -792,8 +936,16 @@ def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(monke
     monkeypatch.setattr(app_module, "AssistantPalette", _Palette)
     monkeypatch.setattr(app_module, "QSystemTrayIcon", _Tray)
     monkeypatch.setattr(app_module, "QMenu", _Menu)
-    monkeypatch.setattr(app_module, "_native_status_item_metrics", lambda: (1, (22, 22), (16, 22)))
-    monkeypatch.setattr(app_module, "QTimer", type("_Timer", (), {"singleShot": staticmethod(lambda _ms, callback: callback())}))
+    monkeypatch.setattr(
+        app_module, "_native_status_item_metrics", lambda: (1, (22, 22), (16, 22))
+    )
+    monkeypatch.setattr(
+        app_module,
+        "QTimer",
+        type(
+            "_Timer", (), {"singleShot": staticmethod(lambda _ms, callback: callback())}
+        ),
+    )
     monkeypatch.setattr(app_module, "_qt_icon", lambda: object())
 
     result = app_module.launch_tray_app(config=None, debug=False, data_dir=None)
@@ -805,7 +957,9 @@ def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(monke
 
 
 @pytest.mark.basic
-def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     events: list[str] = []
     metric_values = [
         (0, (0, 0), (0, 0)),
@@ -918,7 +1072,13 @@ def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(m
         "_native_status_item_metrics",
         lambda values=metric_values: values.pop(0) if len(values) > 1 else values[0],
     )
-    monkeypatch.setattr(app_module, "QTimer", type("_Timer", (), {"singleShot": staticmethod(lambda _ms, callback: callback())}))
+    monkeypatch.setattr(
+        app_module,
+        "QTimer",
+        type(
+            "_Timer", (), {"singleShot": staticmethod(lambda _ms, callback: callback())}
+        ),
+    )
     monkeypatch.setattr(app_module, "_qt_icon", lambda: object())
 
     app_module.launch_tray_app(config=None, debug=False, data_dir=None)
@@ -948,11 +1108,15 @@ class _WrongGatewaySurfaceStub:
         }
 
     def list_bundles(self) -> dict:
-        raise AssertionError("private bundle fallback must not run against a non-gateway surface")
+        raise AssertionError(
+            "private bundle fallback must not run against a non-gateway surface"
+        )
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_blocks_private_fallback_on_wrong_surface() -> None:
+def test_assistant_v2_gateway_service_blocks_private_fallback_on_wrong_surface() -> (
+    None
+):
     service = AssistantGatewayService(_WrongGatewaySurfaceStub())
 
     workflows = service.list_workflows()
@@ -972,7 +1136,11 @@ def test_assistant_v2_preferences_round_trip(tmp_path: Path) -> None:
         window_width=1200,
         window_height=700,
         bottom_offset=48,
-        tool_preferences={"read_file": "approve", "execute_command": "ask", "edit_file": "disabled"},
+        tool_preferences={
+            "read_file": "approve",
+            "execute_command": "ask",
+            "edit_file": "disabled",
+        },
     )
 
     store.save(prefs)
@@ -999,9 +1167,13 @@ def test_assistant_v2_connection_preferences_round_trip(tmp_path: Path) -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_prefers_runtime_bearer_override_over_saved_connection(tmp_path: Path) -> None:
+def test_assistant_v2_controller_prefers_runtime_bearer_override_over_saved_connection(
+    tmp_path: Path,
+) -> None:
     controller = object.__new__(AssistantV2Controller)
-    controller.connection_store = GatewayConnectionStore(tmp_path / "gateway_connection.json")
+    controller.connection_store = GatewayConnectionStore(
+        tmp_path / "gateway_connection.json"
+    )
     controller.connection_store.save(
         GatewayConnectionPreferences(
             base_url="https://saved.gateway.example",
@@ -1053,7 +1225,9 @@ def test_assistant_v2_controller_returns_catalog_workflow_selection() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_build_chat_worker_uses_gateway_text_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_assistant_v2_controller_build_chat_worker_does_not_pass_text_route_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class _WorkerCapture:
@@ -1085,14 +1259,210 @@ def test_assistant_v2_controller_build_chat_worker_uses_gateway_text_defaults(mo
 
     controller.build_chat_worker(prompt="Hello", attachments=["/tmp/prompt.txt"])
 
-    assert captured["provider"] == "ovh"
-    assert captured["model"] == "gpt-oss-20b"
+    assert "provider" not in captured
+    assert "model" not in captured
     assert captured["bundle_id"] == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
     assert captured["registry_scope"] == "tenant_catalog"
     assert captured["attachments"] == ["/tmp/prompt.txt"]
     assert captured["allowed_tools"] == ["read_file", "web_search"]
     assert captured["tool_policy"]["require_approval_tools"] == ["execute_command"]
     assert captured["primary_image_artifact"] is None
+
+
+@pytest.mark.basic
+def test_assistant_v2_controller_session_tool_auto_approval_is_chat_scoped() -> None:
+    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller._session_auto_approve_all = set()
+    controller.llm_manager = SimpleNamespace(active_session_id="chat-a")
+    controller.tool_inventory = lambda: {  # type: ignore[method-assign]
+        "items": [
+            {"name": "execute_command", "selected_mode": "ask"},
+            {"name": "web_search", "selected_mode": "approve"},
+            {"name": "delete_file", "selected_mode": "disabled"},
+        ]
+    }
+
+    assert (
+        controller.should_auto_approve_tool_batch([{"name": "execute_command"}])
+        is False
+    )
+    controller.grant_session_tool_auto_approval()
+
+    assert (
+        controller.should_auto_approve_tool_batch([{"name": "execute_command"}]) is True
+    )
+    assert controller.should_auto_approve_tool_batch([{"name": "delete_file"}]) is False
+    assert controller.tool_policy_for_run() == {
+        "auto_approve_tools": ["execute_command", "web_search"],
+        "require_approval_tools": [],
+    }
+
+    controller.llm_manager.active_session_id = "chat-b"
+    assert (
+        controller.should_auto_approve_tool_batch([{"name": "execute_command"}])
+        is False
+    )
+
+
+@pytest.mark.basic
+def test_assistant_v2_controller_hydrates_tool_details_from_ledger_run_tree() -> None:
+    class _Gateway:
+        def __init__(self) -> None:
+            self.ledgers = {
+                "root": [
+                    {
+                        "status": "completed",
+                        "result": {"output": {"meta": {"sub_run_id": "child"}}},
+                    }
+                ],
+                "child": [
+                    {
+                        "status": "completed",
+                        "effect": {
+                            "type": "tool_calls",
+                            "payload": {
+                                "tool_calls": [
+                                    {
+                                        "name": f"tool_{index}",
+                                        "call_id": f"c{index}",
+                                        "arguments": {"index": index},
+                                    }
+                                    for index in range(7)
+                                ]
+                            },
+                        },
+                        "result": {
+                            "results": [
+                                {
+                                    "call_id": f"c{index}",
+                                    "success": True,
+                                    "output": f"ok {index}",
+                                }
+                                for index in range(7)
+                            ]
+                        },
+                    }
+                ],
+            }
+
+        def get_ledger(self, *, run_id: str, after: int, limit: int) -> dict:
+            items = self.ledgers.get(run_id, [])
+            chunk = items[int(after) : int(after) + int(limit)]
+            return {"items": chunk, "next_after": int(after) + len(chunk)}
+
+    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller.gateway = _Gateway()
+    message = {
+        "role": "assistant",
+        "content": "Done.",
+        "metadata": {
+            "run_id": "root",
+            "_assistant_stats": {
+                "tool_calls": 7,
+                "tool_call_details": [{"name": "stale_cached_tool", "arguments": {}}],
+            },
+        },
+    }
+
+    result = controller.tool_call_details_for_message(message)
+
+    assert result["source"] == "ledger"
+    assert len(result["tool_calls"]) == 7
+    assert result["tool_calls"][0]["name"] == "tool_0"
+    assert result["tool_calls"][0]["run_id"] == "child"
+
+
+@pytest.mark.basic
+def test_assistant_v2_controller_falls_back_to_scratchpad_when_ledger_missing() -> None:
+    class _Gateway:
+        def get_ledger(self, *, run_id: str, after: int, limit: int) -> dict:
+            raise RuntimeError(f"Run {run_id} not found")
+
+    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller.gateway = _Gateway()
+    message = {
+        "role": "assistant",
+        "content": "Done.",
+        "metadata": {
+            "run_id": "old-run",
+            "_assistant_stats": {"tool_calls": 2},
+            "scratchpad": {
+                "cycles": [
+                    {
+                        "i": 1,
+                        "tool_calls": [
+                            {
+                                "name": "fetch_url",
+                                "call_id": "c1",
+                                "arguments": {"url": "https://example.com"},
+                            }
+                        ],
+                    },
+                    {
+                        "i": 2,
+                        "tool_calls": [
+                            {
+                                "name": "execute_command",
+                                "call_id": "c2",
+                                "arguments": {"command": "pwd"},
+                            }
+                        ],
+                    },
+                ]
+            },
+        },
+    }
+
+    result = controller.tool_call_details_for_message(message)
+
+    assert result["source"] == "scratchpad"
+    assert [call["name"] for call in result["tool_calls"]] == [
+        "fetch_url",
+        "execute_command",
+    ]
+    assert result["tool_calls"][0]["run_id"] == "old-run"
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_request_auto_approval_bypasses_dialog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    approvals: list[bool] = []
+    status_calls: list[tuple[str, str]] = []
+
+    class _Controller:
+        def should_auto_approve_tool_batch(self, tool_calls):
+            return True
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._controller = _Controller()
+    palette._worker = SimpleNamespace(
+        provide_tool_approval=lambda approved: approvals.append(bool(approved))
+    )
+    palette._set_tool_history_status = lambda **kwargs: status_calls.append(
+        (kwargs["prefix"], kwargs["name"])
+    )
+    palette._set_history_status = lambda *args, **kwargs: None
+
+    def _raise_dialog(*_args, **_kwargs):
+        raise AssertionError(
+            "approval dialog should not open when this chat already trusts enabled tools"
+        )
+
+    monkeypatch.setattr(app_module, "ToolApprovalDialog", _raise_dialog)
+
+    AssistantPalette._on_worker_event(
+        palette,
+        {
+            "type": "tool_request",
+            "tool_calls": [
+                {"name": "execute_command", "arguments": {"command": "pwd"}}
+            ],
+        },
+    )
+
+    assert approvals == [True]
+    assert status_calls[-1] == ("Auto-approved in this chat: ", "execute_command")
 
 
 @pytest.mark.basic
@@ -1107,12 +1477,22 @@ def test_assistant_v2_footer_items_use_live_assistant_stats() -> None:
                 "duration_ms": 1530,
                 "llm_calls": 1,
                 "tool_calls": 2,
-                "usage": {"input_tokens": 120, "output_tokens": 32, "total_tokens": 152},
+                "usage": {
+                    "input_tokens": 120,
+                    "output_tokens": 32,
+                    "total_tokens": 152,
+                },
             },
         },
     }
 
-    assert _assistant_footer_items(message) == ["120 in", "32 out", "1.5s", "2 tools"]
+    assert _assistant_footer_items(message) == [
+        "120 in",
+        "32 out",
+        "1.5s",
+        "2 tools",
+        "gpt-4.1",
+    ]
 
 
 @pytest.mark.basic
@@ -1133,7 +1513,263 @@ def test_assistant_v2_footer_items_parse_history_seed_repl_stats() -> None:
         },
     }
 
-    assert _assistant_footer_items(message) == ["45 in", "11 out", "2.0s", "2 calls"]
+    assert _assistant_footer_items(message) == [
+        "45 in",
+        "11 out",
+        "2.0s",
+        "1 tool",
+        "2 calls",
+    ]
+
+
+@pytest.mark.basic
+def test_assistant_v2_footer_tools_metric_keeps_details_and_priority() -> None:
+    message = {
+        "role": "assistant",
+        "content": "Done.",
+        "metadata": {
+            "model": "gpt-5.4-mini",
+            "_assistant_stats": {
+                "duration_ms": 40100,
+                "llm_calls": 8,
+                "tool_calls": 2,
+                "tool_call_details": [
+                    {"name": "web_search", "arguments": {"query": "Genentech roles"}},
+                    {"name": "fetch_url", "arguments": {"url": "https://example.com"}},
+                ],
+                "usage": {
+                    "input_tokens": 110139,
+                    "output_tokens": 1890,
+                    "total_tokens": 112029,
+                },
+            },
+        },
+    }
+
+    metrics = _assistant_footer_metrics(message)
+
+    assert [metric["kind"] for metric in metrics] == [
+        "tokens_in",
+        "tokens_out",
+        "duration",
+        "tools",
+        "llm_calls",
+    ]
+    assert [metric["plain"] for metric in metrics] == [
+        "110139 in",
+        "1890 out",
+        "40s",
+        "2 tools",
+        "8 calls",
+    ]
+    assert _assistant_tool_calls_for_message(message)[0]["name"] == "web_search"
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_calls_for_message_reads_scratchpad_fallback() -> None:
+    message = {
+        "role": "assistant",
+        "content": "Done.",
+        "metadata": {
+            "run_id": "old-run",
+            "_assistant_stats": {"tool_calls": 1},
+            "scratchpad": {
+                "cycles": [
+                    {
+                        "i": 1,
+                        "tool_calls": [
+                            {
+                                "name": "fetch_url",
+                                "call_id": "c1",
+                                "arguments": {"url": "https://example.com"},
+                            }
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+
+    assert _assistant_tool_calls_for_message(message)[0]["name"] == "fetch_url"
+
+
+@pytest.mark.basic
+def test_assistant_v2_message_card_renders_clickable_tools_metric() -> None:
+    app = QApplication.instance() or QApplication([])
+    opened: list[str] = []
+    message = {
+        "role": "assistant",
+        "message_id": "m_tools",
+        "content": "Done.",
+        "metadata": {
+            "_assistant_stats": {
+                "tool_calls": 1,
+                "tool_call_details": [
+                    {"name": "execute_command", "arguments": {"command": "pwd"}}
+                ],
+            }
+        },
+    }
+    card = MessageCard(
+        message=message,
+        message_key="id:m_tools",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        bubble_width=360,
+        on_show_tools=lambda _message: opened.append("tools"),
+    )
+    card.show()
+    app.processEvents()
+
+    buttons = [
+        button
+        for button in card.findChildren(app_module.QPushButton)
+        if button.objectName() == "metricChip"
+    ]
+    assert len(buttons) == 1
+    assert buttons[0].property("kind") == "tools"
+
+    buttons[0].click()
+    assert opened == ["tools"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_usage_dialog_renders_tool_cards() -> None:
+    app = QApplication.instance() or QApplication([])
+    dialog = ToolUsageDialog(
+        message={
+            "role": "assistant",
+            "content": "Done.",
+            "metadata": {
+                "_assistant_stats": {
+                    "tool_calls": 2,
+                    "tool_call_details": [
+                        {"name": "execute_command", "arguments": {"command": "pwd"}},
+                        {
+                            "name": "web_search",
+                            "arguments": {"query": "Genentech roles"},
+                        },
+                    ],
+                }
+            },
+        }
+    )
+    dialog.show()
+    app.processEvents()
+
+    cards = dialog.findChildren(app_module.QFrame, "toolApprovalCallCard")
+    assert len(cards) == 2
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_usage_dialog_renders_ledger_calls_without_metadata_details() -> (
+    None
+):
+    app = QApplication.instance() or QApplication([])
+    dialog = ToolUsageDialog(
+        message={
+            "role": "assistant",
+            "content": "Done.",
+            "metadata": {"run_id": "run-7", "_assistant_stats": {"tool_calls": 7}},
+        },
+        tool_calls=[
+            {"name": f"tool_{index}", "arguments": {"index": index}, "run_id": "run-7"}
+            for index in range(7)
+        ],
+        source="ledger",
+        run_ids=["run-7"],
+    )
+    dialog.show()
+    app.processEvents()
+
+    cards = dialog.findChildren(app_module.QFrame, "toolApprovalCallCard")
+    assert len(cards) == 7
+    assert (
+        "not attached"
+        not in dialog.findChildren(app_module.QLabel, "toolApprovalHint")[0].text()
+    )
+
+
+@pytest.mark.basic
+def test_assistant_v2_show_message_tools_fetches_ledger_before_dialog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    class _Controller:
+        def tool_call_details_for_message(self, message):
+            assert message["metadata"]["run_id"] == "run-7"
+            return {
+                "tool_calls": [
+                    {"name": "web_search", "arguments": {"query": "Genentech"}}
+                ],
+                "source": "ledger",
+                "run_ids": ["run-7"],
+                "error": "",
+            }
+
+    class _Dialog:
+        def __init__(self, **kwargs):
+            captured["dialog_init"] = kwargs
+
+        def set_loading(self):
+            captured["loading"] = True
+
+        def update_tool_usage(self, **kwargs):
+            captured["updated"] = kwargs
+
+        def exec_(self):
+            captured["executed"] = True
+            return 1
+
+    class _Signal:
+        def __init__(self):
+            self._callbacks = []
+
+        def connect(self, callback):
+            self._callbacks.append(callback)
+
+        def emit(self, *args):
+            for callback in list(self._callbacks):
+                callback(*args)
+
+    class _Worker:
+        def __init__(self, *, controller, message, parent=None):
+            self.controller = controller
+            self.message = message
+            self.loaded = _Signal()
+            self.failed = _Signal()
+            self.finished = _Signal()
+
+        def start(self):
+            self.loaded.emit(
+                self.controller.tool_call_details_for_message(self.message)
+            )
+            self.finished.emit()
+
+        def deleteLater(self):
+            captured["worker_deleted"] = True
+
+    monkeypatch.setattr(app_module, "ToolUsageDialog", _Dialog)
+    monkeypatch.setattr(app_module, "ToolUsageLookupWorker", _Worker)
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._controller = _Controller()
+    AssistantPalette._show_message_tools(
+        palette,
+        {
+            "role": "assistant",
+            "content": "Done.",
+            "metadata": {"run_id": "run-7", "_assistant_stats": {"tool_calls": 1}},
+        },
+    )
+
+    assert captured["dialog_init"]["source"] == "metadata"
+    assert captured["loading"] is True
+    assert captured["updated"]["source"] == "ledger"
+    assert captured["updated"]["tool_calls"][0]["name"] == "web_search"
+    assert captured["executed"] is True
+    assert captured["worker_deleted"] is True
 
 
 @pytest.mark.basic
@@ -1162,10 +1798,7 @@ def test_assistant_v2_tool_call_summary_humanizes_large_write_file_payload() -> 
 @pytest.mark.basic
 def test_assistant_v2_tool_call_summary_parses_json_argument_text() -> None:
     summary = _tool_call_summary(
-        {
-            "name": "execute_command",
-            "arguments": '{"cmd":"npm test","timeout":120}'
-        }
+        {"name": "execute_command", "arguments": '{"cmd":"npm test","timeout":120}'}
     )
 
     assert summary.name == "execute_command"
@@ -1175,7 +1808,9 @@ def test_assistant_v2_tool_call_summary_parses_json_argument_text() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_visible_history_messages_prioritizes_latest_user_turn_while_busy() -> None:
+def test_assistant_v2_visible_history_messages_prioritizes_latest_user_turn_while_busy() -> (
+    None
+):
     messages = [
         {"role": "assistant", "content": "Previous reply"},
         {"role": "user", "content": "draw me a rabbit"},
@@ -1203,7 +1838,11 @@ def test_assistant_v2_visible_history_messages_keeps_attachment_only_turns() -> 
             "content": "",
             "metadata": {
                 "attachments": [
-                    {"local_path": "/tmp/demo.wav", "filename": "demo.wav", "content_type": "audio/wav"}
+                    {
+                        "local_path": "/tmp/demo.wav",
+                        "filename": "demo.wav",
+                        "content_type": "audio/wav",
+                    }
                 ]
             },
         }
@@ -1242,10 +1881,22 @@ def test_assistant_v2_message_media_artifacts_collects_and_deduplicates_media() 
         "role": "assistant",
         "content": "Here is the diagram.",
         "metadata": {
-            "image_artifact": {"$artifact": "img_1", "filename": "diagram.png", "content_type": "image/png"},
+            "image_artifact": {
+                "$artifact": "img_1",
+                "filename": "diagram.png",
+                "content_type": "image/png",
+            },
             "generated_media": {
-                "image_artifact": {"$artifact": "img_1", "filename": "diagram.png", "content_type": "image/png"},
-                "audio_artifact": {"$artifact": "aud_1", "filename": "voice.wav", "content_type": "audio/wav"},
+                "image_artifact": {
+                    "$artifact": "img_1",
+                    "filename": "diagram.png",
+                    "content_type": "image/png",
+                },
+                "audio_artifact": {
+                    "$artifact": "aud_1",
+                    "filename": "voice.wav",
+                    "content_type": "audio/wav",
+                },
             },
         },
     }
@@ -1257,11 +1908,21 @@ def test_assistant_v2_message_media_artifacts_collects_and_deduplicates_media() 
 
 @pytest.mark.basic
 def test_assistant_v2_local_attachment_preview_items_tag_media_modalities() -> None:
-    items = _local_attachment_preview_items(["/tmp/example.png", "/tmp/example.mp3", "/tmp/readme.txt"])
+    items = _local_attachment_preview_items(
+        ["/tmp/example.png", "/tmp/example.mp3", "/tmp/readme.txt"]
+    )
 
     assert items == [
-        {"local_path": "/tmp/example.png", "filename": "example.png", "modality": "image"},
-        {"local_path": "/tmp/example.mp3", "filename": "example.mp3", "modality": "audio"},
+        {
+            "local_path": "/tmp/example.png",
+            "filename": "example.png",
+            "modality": "image",
+        },
+        {
+            "local_path": "/tmp/example.mp3",
+            "filename": "example.mp3",
+            "modality": "audio",
+        },
         {"local_path": "/tmp/readme.txt", "filename": "readme.txt"},
     ]
 
@@ -1279,7 +1940,9 @@ def test_assistant_v2_attachment_kind_maps_common_file_types() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_merge_attachment_paths_deduplicates_and_filters_non_files(tmp_path: Path) -> None:
+def test_assistant_v2_merge_attachment_paths_deduplicates_and_filters_non_files(
+    tmp_path: Path,
+) -> None:
     keep = tmp_path / "keep.txt"
     keep.write_text("hello")
     other = tmp_path / "other.txt"
@@ -1296,16 +1959,28 @@ def test_assistant_v2_merge_attachment_paths_deduplicates_and_filters_non_files(
 
 
 @pytest.mark.basic
-def test_assistant_v2_media_display_title_hides_hash_like_audio_names(tmp_path: Path) -> None:
+def test_assistant_v2_media_display_title_hides_hash_like_audio_names(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "artifact.wav"
     path.write_bytes(b"RIFF0000WAVE")
 
-    assert _media_display_title(title="be73678943931c9e88eb1fe57dffac05", kind="audio", path=path) == "Audio"
-    assert _media_display_title(title="briefing.wav", kind="audio", path=path) == "briefing.wav"
+    assert (
+        _media_display_title(
+            title="be73678943931c9e88eb1fe57dffac05", kind="audio", path=path
+        )
+        == "Audio"
+    )
+    assert (
+        _media_display_title(title="briefing.wav", kind="audio", path=path)
+        == "briefing.wav"
+    )
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_artifact_cache_filename_uses_runtime_content_type_override() -> None:
+def test_assistant_v2_controller_artifact_cache_filename_uses_runtime_content_type_override() -> (
+    None
+):
     controller = AssistantV2Controller.__new__(AssistantV2Controller)
 
     filename = AssistantV2Controller._artifact_cache_filename(
@@ -1400,7 +2075,9 @@ def test_assistant_v2_sync_history_viewport_matches_content_height() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_capture_history_scroll_request_preserves_top_visible_message_offset() -> None:
+def test_assistant_v2_capture_history_scroll_request_preserves_top_visible_message_offset() -> (
+    None
+):
     class _Bar:
         def value(self) -> int:
             return 182
@@ -1440,19 +2117,25 @@ def test_assistant_v2_capture_history_scroll_request_preserves_top_visible_messa
 
     palette = AssistantPalette.__new__(AssistantPalette)
     palette.history_scroll = _Scroll()
-    palette.history_layout = _Layout([
-        _Widget("user-1", 20, 120),
-        _Widget("assistant-1", 160, 140),
-        _Widget("assistant-2", 320, 140),
-    ])
+    palette.history_layout = _Layout(
+        [
+            _Widget("user-1", 20, 120),
+            _Widget("assistant-1", 160, 140),
+            _Widget("assistant-2", 320, 140),
+        ]
+    )
 
     request = AssistantPalette._capture_history_scroll_request(palette)
 
-    assert request == HistoryScrollRequest(mode="preserve", message_key="assistant-1", offset=22)
+    assert request == HistoryScrollRequest(
+        mode="preserve", message_key="assistant-1", offset=22
+    )
 
 
 @pytest.mark.basic
-def test_assistant_v2_default_history_refresh_request_uses_bottom_for_first_hydration() -> None:
+def test_assistant_v2_default_history_refresh_request_uses_bottom_for_first_hydration() -> (
+    None
+):
     palette = AssistantPalette.__new__(AssistantPalette)
     palette._history_cards_by_key = {}
     palette._latest_visible_message_key = lambda role="": "assistant-2"
@@ -1468,7 +2151,9 @@ def test_assistant_v2_default_history_refresh_request_uses_bottom_for_first_hydr
 
 
 @pytest.mark.basic
-def test_assistant_v2_commit_history_scroll_request_defers_bottom_mode_while_hidden() -> None:
+def test_assistant_v2_commit_history_scroll_request_defers_bottom_mode_while_hidden() -> (
+    None
+):
     class _Timer:
         def __init__(self) -> None:
             self.stop_calls = 0
@@ -1495,7 +2180,9 @@ def test_assistant_v2_commit_history_scroll_request_defers_bottom_mode_while_hid
 
 
 @pytest.mark.basic
-def test_assistant_v2_restore_deferred_history_scroll_on_show_replays_saved_request() -> None:
+def test_assistant_v2_restore_deferred_history_scroll_on_show_replays_saved_request() -> (
+    None
+):
     events: list[HistoryScrollRequest] = []
     request = HistoryScrollRequest(mode="bottom")
 
@@ -1510,7 +2197,9 @@ def test_assistant_v2_restore_deferred_history_scroll_on_show_replays_saved_requ
 
 
 @pytest.mark.basic
-def test_assistant_v2_apply_history_scroll_request_anchors_message_top_and_bottom_modes() -> None:
+def test_assistant_v2_apply_history_scroll_request_anchors_message_top_and_bottom_modes() -> (
+    None
+):
     class _Bar:
         def __init__(self) -> None:
             self.value = None
@@ -1580,7 +2269,9 @@ def test_assistant_v2_event_filter_tolerates_preinit_history_events() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_voice_synthesizing_click_pauses_stream_without_history_refresh() -> None:
+def test_assistant_v2_message_voice_synthesizing_click_pauses_stream_without_history_refresh() -> (
+    None
+):
     class _Voice:
         def __init__(self) -> None:
             self.pause_calls = 0
@@ -1603,9 +2294,13 @@ def test_assistant_v2_message_voice_synthesizing_click_pauses_stream_without_his
     palette._active_spoken_message_key = "id:m1"
     palette._active_spoken_message_phase = "synthesizing"
     palette._history_cards_by_key = {"id:m1": card}
-    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("history refreshed"))
+    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("history refreshed")
+    )
 
-    AssistantPalette._toggle_message_voice(palette, {"role": "assistant", "message_id": "m1", "content": "hello"})
+    AssistantPalette._toggle_message_voice(
+        palette, {"role": "assistant", "message_id": "m1", "content": "hello"}
+    )
 
     assert voice.pause_calls == 1
     assert palette._active_spoken_message_phase == "paused"
@@ -1613,7 +2308,9 @@ def test_assistant_v2_message_voice_synthesizing_click_pauses_stream_without_his
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_voice_pause_resume_updates_card_without_history_refresh() -> None:
+def test_assistant_v2_message_voice_pause_resume_updates_card_without_history_refresh() -> (
+    None
+):
     class _Voice:
         def __init__(self) -> None:
             self.pause_calls = 0
@@ -1647,7 +2344,9 @@ def test_assistant_v2_message_voice_pause_resume_updates_card_without_history_re
     palette._active_spoken_message_key = "id:m1"
     palette._active_spoken_message_phase = "speaking"
     palette._history_cards_by_key = {"id:m1": card}
-    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("history refreshed"))
+    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("history refreshed")
+    )
 
     message = {"role": "assistant", "message_id": "m1", "content": "hello"}
     AssistantPalette._toggle_message_voice(palette, message)
@@ -1696,7 +2395,9 @@ def test_assistant_v2_message_voice_start_and_finish_do_not_rebuild_history() ->
     palette._active_spoken_message_key = "id:old"
     palette._active_spoken_message_phase = "speaking"
     palette._history_cards_by_key = {"id:old": old_card, "id:new": new_card}
-    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("history refreshed"))
+    palette.refresh_history = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("history refreshed")
+    )
 
     message = {"role": "assistant", "message_id": "new", "content": "hello again"}
     AssistantPalette._toggle_message_voice(palette, message)
@@ -1725,7 +2426,11 @@ def test_assistant_v2_message_action_buttons_do_not_take_focus() -> None:
     card.show()
     app.processEvents()
 
-    buttons = [button for button in card.findChildren(app_module.QPushButton) if button.objectName() == "messageActionButton"]
+    buttons = [
+        button
+        for button in card.findChildren(app_module.QPushButton)
+        if button.objectName() == "messageActionButton"
+    ]
     assert len(buttons) == 2
     assert all(button.focusPolicy() == Qt.NoFocus for button in buttons)
 
@@ -1822,7 +2527,11 @@ def test_assistant_v2_prompt_edge_navigation_uses_visible_viewport_edges() -> No
     def align_cursor(edge: str) -> None:
         viewport = editor.viewport().rect()
         rect = editor.cursorRect(editor.textCursor())
-        delta = rect.top() - viewport.top() if edge == "top" else rect.bottom() - viewport.bottom()
+        delta = (
+            rect.top() - viewport.top()
+            if edge == "top"
+            else rect.bottom() - viewport.bottom()
+        )
         bar = editor.verticalScrollBar()
         bar.setValue(bar.value() + delta)
         app.processEvents()
@@ -1898,7 +2607,11 @@ def test_assistant_v2_extracts_mermaid_blocks_as_dedicated_preview_segments() ->
     blocks, actions = _assistant_content_blocks(content)
 
     assert actions == []
-    assert [str(block.get("kind") or "") for block in blocks] == ["markdown", "mermaid", "markdown"]
+    assert [str(block.get("kind") or "") for block in blocks] == [
+        "markdown",
+        "mermaid",
+        "markdown",
+    ]
     assert "Intro text." in str(blocks[0].get("text") or "")
     assert "flowchart LR" in str(blocks[1].get("text") or "")
     assert str(blocks[1].get("data_uri") or "").startswith("data:image/png;base64,")
@@ -1907,12 +2620,7 @@ def test_assistant_v2_extracts_mermaid_blocks_as_dedicated_preview_segments() ->
 
 @pytest.mark.basic
 def test_assistant_v2_keeps_unsupported_mermaid_dialects_in_markdown() -> None:
-    content = (
-        "```mermaid\n"
-        "sequenceDiagram\n"
-        "    Alice->>Bob: Hello\n"
-        "```\n"
-    )
+    content = "```mermaid\n" "sequenceDiagram\n" "    Alice->>Bob: Hello\n" "```\n"
 
     blocks, actions = _assistant_content_blocks(content)
 
@@ -1934,7 +2642,9 @@ def test_assistant_v2_tray_activation_opens_palette_on_primary_click() -> None:
         def popup(self, _pos) -> None:
             events.append("menu")
 
-    _handle_tray_activation(palette=_Palette(), menu=_Menu(), reason=QSystemTrayIcon.Trigger)
+    _handle_tray_activation(
+        palette=_Palette(), menu=_Menu(), reason=QSystemTrayIcon.Trigger
+    )
 
     assert events == ["show"]
 
@@ -1951,7 +2661,9 @@ def test_assistant_v2_tray_activation_opens_menu_only_on_context_click() -> None
         def popup(self, _pos) -> None:
             events.append("menu")
 
-    _handle_tray_activation(palette=_Palette(), menu=_Menu(), reason=QSystemTrayIcon.Context)
+    _handle_tray_activation(
+        palette=_Palette(), menu=_Menu(), reason=QSystemTrayIcon.Context
+    )
 
     assert events == ["menu"]
 
@@ -1961,10 +2673,14 @@ class _GatewayWorkerStub:
         self.start_run_calls: list[dict] = []
 
     def list_bundles(self) -> dict:
-        raise AssertionError("tenant catalog workflow selection should not resolve through private bundles")
+        raise AssertionError(
+            "tenant catalog workflow selection should not resolve through private bundles"
+        )
 
     def session_prompt_cache_prepare(self, **kwargs) -> dict:
-        raise AssertionError("gateway worker must not negotiate prompt cache from the desktop client")
+        raise AssertionError(
+            "gateway worker must not negotiate prompt cache from the desktop client"
+        )
 
     def start_run(self, **kwargs) -> str:
         self.start_run_calls.append(dict(kwargs))
@@ -1975,6 +2691,9 @@ class _GatewayWorkerStub:
 
     def get_run_input_data(self, *, run_id: str) -> dict:
         return {"input_data": {"prompt": "Hello from v2"}}
+
+    def get_run_history_bundle(self, **kwargs) -> dict:
+        return {"root_run_id": "run_1", "session": {"turns": []}, "ledgers": {}}
 
 
 class _LLMManagerStub:
@@ -1987,7 +2706,9 @@ class _LLMManagerStub:
     def gateway_client(self):
         return self._gateway
 
-    def append_message(self, *, role: str, content: str, metadata=None, ts: str = "") -> None:
+    def append_message(
+        self, *, role: str, content: str, metadata=None, ts: str = ""
+    ) -> None:
         payload = {"role": role, "content": content}
         if metadata is not None:
             payload["metadata"] = metadata
@@ -2003,20 +2724,25 @@ class _LLMManagerStub:
 
 
 @pytest.mark.basic
-def test_gateway_worker_starts_runs_with_catalog_scope_and_version(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gateway_worker_starts_runs_with_catalog_scope_and_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     gateway = _GatewayWorkerStub()
     llm_manager = _LLMManagerStub(gateway)
 
-    def _no_follow(self, *, root_run_id, on_record, should_stop, on_offline=None, on_online=None) -> None:
+    def _no_follow(
+        self, *, root_run_id, on_record, should_stop, on_offline=None, on_online=None
+    ) -> None:
         return None
 
-    monkeypatch.setattr("abstractassistant.ui.gateway_worker.GatewayRunController.follow_run", _no_follow)
+    monkeypatch.setattr(
+        "abstractassistant.ui.gateway_worker.GatewayRunController.follow_run",
+        _no_follow,
+    )
 
     worker = GatewayWorker(
         llm_manager=llm_manager,
         user_text="Hello from v2",
-        provider="",
-        model="",
         attachments=[],
         bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
         flow_id="chat",
@@ -2034,9 +2760,9 @@ def test_gateway_worker_starts_runs_with_catalog_scope_and_version(monkeypatch: 
                 "prompt": "Hello from v2",
                 "context": {
                     "task": "Hello from v2",
-                    "messages": [{"role": "user", "content": "Hello from v2"}],
+                    "messages": [],
                 },
-                "use_context": True,
+                "use_context": False,
                 "_runtime": {},
                 "max_iterations": 50,
                 "has_primary_image_context": False,

@@ -3,18 +3,20 @@ iPhone Messages-style history dialog for AbstractAssistant.
 
 This module provides an authentic iPhone Messages UI for displaying chat history.
 """
+import html
 import re
 import time
 import warnings
 from datetime import datetime
 from typing import Dict, List, Callable, Optional
-import markdown
-from markdown.extensions.fenced_code import FencedCodeExtension
-from markdown.extensions.tables import TableExtension
-from markdown.extensions.nl2br import Nl2BrExtension
-from pygments import highlight
-from pygments.lexers import get_lexer_by_name, TextLexer
-from pygments.formatters import HtmlFormatter
+
+try:
+    from ..utils.markdown_renderer import MarkdownRenderer
+except ImportError:
+    try:
+        from abstractassistant.utils.markdown_renderer import MarkdownRenderer
+    except ImportError:
+        MarkdownRenderer = None  # type: ignore[assignment]
 
 try:
     from PyQt6.QtWidgets import (
@@ -65,6 +67,26 @@ except ImportError:
         )
         from PySide2.QtCore import Qt, QTimer, Signal as pyqtSignal, QSize, QEvent, QCoreApplication
         from PySide2.QtGui import QFont, QCursor, QPixmap, QIcon, QPainterPath, QRegion
+
+
+_HISTORY_MARKDOWN_RENDERER = (
+    MarkdownRenderer(theme="friendly_grayscale")
+    if MarkdownRenderer is not None
+    else None
+)
+_HISTORY_MARKDOWN_COMPACT_OVERRIDES = """
+<style>
+.markdown-content {
+    padding: 0 !important;
+}
+.markdown-content > :first-child {
+    margin-top: 0 !important;
+}
+.markdown-content > :last-child {
+    margin-bottom: 0 !important;
+}
+</style>
+"""
 
 
 class ClickableBubble(QFrame):
@@ -1489,50 +1511,24 @@ class iPhoneMessagesDialog:
 
     @staticmethod
     def _process_full_markdown(text: str) -> str:
-        """Process markdown using proper markdown library with syntax highlighting."""
-        # Configure markdown with extensions
-        md = markdown.Markdown(
-            extensions=[
-                FencedCodeExtension(),
-                TableExtension(),
-                'nl2br',  # Convert newlines to <br>
-            ],
-            extension_configs={
-                'fenced_code': {
-                    'lang_prefix': 'language-',
-                }
-            }
+        """Render replay/history content through the shared production markdown path."""
+        raw = str(text or "")
+        if not raw:
+            return ""
+
+        if _HISTORY_MARKDOWN_RENDERER is None:
+            safe_text = html.escape(raw).replace("\n", "<br>")
+            return f"<p>{safe_text}</p>"
+
+        rendered = _HISTORY_MARKDOWN_RENDERER.render(raw)
+        marker = '<div class="markdown-content">'
+        if marker not in rendered:
+            return rendered
+        return rendered.replace(
+            marker,
+            _HISTORY_MARKDOWN_COMPACT_OVERRIDES + marker,
+            1,
         )
-
-        # Convert markdown to HTML
-        html = md.convert(text)
-
-        # Apply custom styling to the generated HTML
-        # Style code blocks
-        html = html.replace('<pre>', '<pre style="margin: 6px 0; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px; overflow-x: auto;">')
-        html = html.replace('<code>', '<code style="font-family: \'Menlo\', \'Monaco\', \'Courier New\', monospace; font-size: 12px; line-height: 1.4; color: #e8e8e8;">')
-
-        # Style tables
-        html = html.replace('<table>', '<table style="margin: 6px 0; border-collapse: collapse; width: 100%; font-size: 12px;">')
-        html = html.replace('<thead>', '<thead style="background: rgba(0,0,0,0.2);">')
-        html = html.replace('<th>', '<th style="padding: 4px 8px; text-align: left; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.2);">')
-        html = html.replace('<td>', '<td style="padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">')
-
-        # Style headers with minimal spacing
-        html = html.replace('<h1>', '<h1 style="margin: 6px 0 2px 0; font-weight: 600; font-size: 17px;">')
-        html = html.replace('<h2>', '<h2 style="margin: 5px 0 2px 0; font-weight: 600; font-size: 16px;">')
-        html = html.replace('<h3>', '<h3 style="margin: 4px 0 1px 0; font-weight: 600; font-size: 15px;">')
-        html = html.replace('<h4>', '<h4 style="margin: 3px 0 1px 0; font-weight: 600; font-size: 14px;">')
-
-        # Style lists with minimal spacing
-        html = html.replace('<ul>', '<ul style="margin: 4px 0; padding-left: 20px;">')
-        html = html.replace('<ol>', '<ol style="margin: 4px 0; padding-left: 20px;">')
-        html = html.replace('<li>', '<li style="margin: 1px 0; line-height: 1.3;">')
-
-        # Style paragraphs with minimal spacing
-        html = html.replace('<p>', '<p style="margin: 2px 0; line-height: 1.3;">')
-
-        return html
 
     @staticmethod
     def _make_thumbnail_button(

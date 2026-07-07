@@ -99,12 +99,8 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         raise RuntimeError(detail)
 
     llm_manager.append_message(role="user", content=args.prompt)
-    provider, model = controller.chat_defaults()
     input_data = build_run_input_data(
         prompt=args.prompt,
-        provider=provider,
-        model=model,
-        messages=llm_manager.session_messages(),
         allowed_tools=controller.allowed_tools_for_run(),
         tool_policy=controller.tool_policy_for_run(),
         primary_image_artifact=controller.latest_image_artifact(),

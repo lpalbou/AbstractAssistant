@@ -4975,16 +4975,12 @@ class QtChatBubble(QWidget):
             self.worker = GatewayWorker(
                 llm_manager=self.llm_manager,
                 user_text=message,
-                provider=self.current_provider,
-                model=self.current_model,
                 attachments=media_files if media_files else None,
                 system_prompt_extra=system_prompt_extra,
                 allowed_tools=self._gateway_allowed_tools_for_run(),
                 tool_policy=tool_policy,
                 bundle_id=self.gateway_bundle_id,
                 flow_id=self.gateway_flow_id,
-                image_provider=self.current_image_provider,
-                image_model=self.current_image_model,
                 debug=bool(self.debug),
             )
             self.worker.event_emitted.connect(self.on_agent_event)
@@ -5048,15 +5044,11 @@ class QtChatBubble(QWidget):
         self.worker = GatewayWorker(
             llm_manager=self.llm_manager,
             user_text="",
-            provider=self.current_provider,
-            model=self.current_model,
             attachments=None,
             system_prompt_extra=None,
             allowed_tools=self._gateway_allowed_tools_for_run(),
             bundle_id=self.gateway_bundle_id,
             flow_id=self.gateway_flow_id,
-            image_provider=self.current_image_provider,
-            image_model=self.current_image_model,
             attach_run_id=run_id,
             debug=bool(self.debug),
         )

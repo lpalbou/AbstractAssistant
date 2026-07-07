@@ -25,3 +25,25 @@ def test_adapter_emits_tool_request() -> None:
     }
     events = adapter.handle_record(rec)
     assert events and events[0]["type"] == "tool_request"
+
+
+def test_adapter_emits_final_event_for_bare_artifact_output() -> None:
+    adapter = GatewayEventAdapter()
+    rec = {"result": {"output": {"$artifact": "answer_1", "content_type": "application/json"}}}
+
+    events = adapter.handle_record(rec)
+
+    assert events == [
+        {
+            "type": "assistant",
+            "content": "",
+            "meta": {
+                "$artifact": "answer_1",
+                "artifact": {"$artifact": "answer_1", "content_type": "application/json"},
+                "artifact_id": "answer_1",
+                "content_type": "application/json",
+            },
+            "final": True,
+            "ts": "",
+        }
+    ]

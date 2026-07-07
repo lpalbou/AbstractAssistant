@@ -27,6 +27,7 @@ from ..gateway import (
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.run_controller import GatewayRunController
+from ..gateway.tool_usage import extract_tool_call_details_from_record
 
 
 def _parse_iso_ms(raw: Any) -> Optional[int]:
@@ -75,6 +76,48 @@ def _parse_usage_summary(value: Any) -> Optional[Dict[str, int]]:
     return parsed
 
 
+def _compact_tool_call_for_ui(
+    call: Dict[str, Any],
+    *,
+    max_text_chars: int = 500,
+    max_items: int = 24,
+) -> Dict[str, Any]:
+    def _compact(value: Any) -> Any:
+        if isinstance(value, str):
+            text = value
+            if len(text) <= max_text_chars:
+                return text
+            return f"{text[: max(0, max_text_chars - 3)]}..."
+        if isinstance(value, dict):
+            out: Dict[str, Any] = {}
+            items = list(value.items())
+            for key, item in items[:max_items]:
+                out[str(key)] = _compact(item)
+            if len(items) > max_items:
+                out["_omitted_keys"] = len(items) - max_items
+            return out
+        if isinstance(value, list):
+            out = [_compact(item) for item in value[:max_items]]
+            if len(value) > max_items:
+                out.append(f"... {len(value) - max_items} more")
+            return out
+        return value
+
+    compacted = {
+        "name": str(call.get("name") or "").strip(),
+        "arguments": _compact(call.get("arguments")),
+    }
+    call_id = str(call.get("call_id") or call.get("id") or "").strip()
+    if call_id:
+        compacted["call_id"] = call_id
+    try:
+        if compacted != call:
+            compacted["_ui_compacted"] = True
+    except Exception:
+        compacted["_ui_compacted"] = True
+    return compacted
+
+
 class GatewayWorker(QThread):
     """Worker thread that drives a gateway-first run (ledger replay + SSE)."""
 
@@ -86,8 +129,6 @@ class GatewayWorker(QThread):
         *,
         llm_manager,
         user_text: str,
-        provider: str,
-        model: str,
         attachments: Optional[List[str]] = None,
         system_prompt_extra: Optional[str] = None,
         allowed_tools: Optional[List[str]] = None,
@@ -106,8 +147,6 @@ class GatewayWorker(QThread):
         self._gateway = None
         self._adapter = GatewayEventAdapter()
         self._user_text = str(user_text or "")
-        self._provider = str(provider or "")
-        self._model = str(model or "")
         self._attachments = list(attachments or [])
         self._system_prompt_extra = str(system_prompt_extra) if system_prompt_extra else ""
         self._allowed_tools = list(allowed_tools) if allowed_tools is not None else None
@@ -129,6 +168,8 @@ class GatewayWorker(QThread):
         self._tool_approval_decision: Optional[bool] = None
         self._ask_user_event = threading.Event()
         self._ask_user_response: Optional[str] = None
+        self._pending_tool_approval_wait: Optional[Dict[str, str]] = None
+        self._pending_ask_user_wait: Optional[Dict[str, str]] = None
         self._offline = False
         self._root_run_id = ""
         self._follow_run_id = ""
@@ -140,10 +181,31 @@ class GatewayWorker(QThread):
     def provide_tool_approval(self, approved: bool) -> None:
         self._tool_approval_decision = bool(approved)
         self._tool_approval_event.set()
+        wait = dict(self._pending_tool_approval_wait or {})
+        wait_key = str(wait.get("wait_key") or "").strip()
+        run_id = str(wait.get("run_id") or "").strip()
+        if not run_id or not wait_key:
+            return
+        self._pending_tool_approval_wait = None
+        payload: Dict[str, Any] = {"approved": bool(approved)}
+        if not approved:
+            payload["reason"] = "Denied by user"
+        self.submit_wait_response(run_id=run_id, wait_key=wait_key, payload=payload)
 
     def provide_user_response(self, response: str) -> None:
         self._ask_user_response = str(response or "")
         self._ask_user_event.set()
+        wait = dict(self._pending_ask_user_wait or {})
+        wait_key = str(wait.get("wait_key") or "").strip()
+        run_id = str(wait.get("run_id") or "").strip()
+        if not run_id or not wait_key:
+            return
+        self._pending_ask_user_wait = None
+        self.submit_wait_response(
+            run_id=run_id,
+            wait_key=wait_key,
+            payload={"response": str(response or "")},
+        )
 
     def _upload_attachments(self, *, session_id: str) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
@@ -198,7 +260,10 @@ class GatewayWorker(QThread):
             messages = seed_messages_from_history_bundle(
                 bundle,
                 include_tool_calls_for_run_id=run_id,
-                artifact_loader=lambda rid, aid: self._gateway.download_run_artifact_content(run_id=rid, artifact_id=aid),
+                artifact_loader=lambda rid, aid: self._gateway.download_run_artifact_content(
+                    run_id=rid,
+                    artifact_id=aid,
+                ),
             )
             try:
                 tool_ids = [
@@ -229,9 +294,16 @@ class GatewayWorker(QThread):
                     changed = True
                 self.event_emitted.emit({"type": "history_seeded", "changed": changed})
             else:
-                warnings.warn("#FALLBACK: history bundle produced no messages; keeping local snapshot")
+                warnings.warn("#REPLAY: history bundle produced no messages; local cache unchanged")
         except Exception as e:
-            warnings.warn(f"#FALLBACK: failed to seed history bundle: {e}")
+            warnings.warn(f"#REPLAY_DEGRADED: failed to seed history bundle: {e}")
+            self.event_emitted.emit(
+                {
+                    "type": "replay_degraded",
+                    "run_id": run_id,
+                    "message": f"Gateway history replay failed: {e}",
+                }
+            )
         try:
             if isinstance(bundle, dict):
                 self._maybe_emit_pending_wait(run_id=run_id, bundle=bundle)
@@ -476,6 +548,18 @@ class GatewayWorker(QThread):
 
         ordered: List[tuple[str, str]] = []
         seen: set[tuple[str, str]] = set()
+        explicit_artifact_id = ""
+        artifact = meta.get("artifact") if isinstance(meta.get("artifact"), dict) else None
+        if isinstance(artifact, dict):
+            explicit_artifact_id = self._artifact_id_from_value(artifact)
+        if not explicit_artifact_id:
+            explicit_artifact_id = str(meta.get("artifact_id") or meta.get("$artifact") or "").strip()
+        if explicit_artifact_id:
+            for preferred_run_id in preferred_run_ids:
+                key = (preferred_run_id, explicit_artifact_id)
+                if key not in seen:
+                    ordered.append(key)
+                    seen.add(key)
         for preferred_run_id in preferred_run_ids:
             for key in reversed(self._output_artifact_candidates):
                 if key in seen or key[0] != preferred_run_id:
@@ -542,9 +626,21 @@ class GatewayWorker(QThread):
             return recovered, merged_meta
 
         artifact = merged_meta.get("artifact") if isinstance(merged_meta.get("artifact"), dict) else None
-        image_artifact = merged_meta.get("image_artifact") if isinstance(merged_meta.get("image_artifact"), dict) else None
-        video_artifact = merged_meta.get("video_artifact") if isinstance(merged_meta.get("video_artifact"), dict) else None
-        audio_artifact = merged_meta.get("audio_artifact") if isinstance(merged_meta.get("audio_artifact"), dict) else None
+        image_artifact = (
+            merged_meta.get("image_artifact")
+            if isinstance(merged_meta.get("image_artifact"), dict)
+            else None
+        )
+        video_artifact = (
+            merged_meta.get("video_artifact")
+            if isinstance(merged_meta.get("video_artifact"), dict)
+            else None
+        )
+        audio_artifact = (
+            merged_meta.get("audio_artifact")
+            if isinstance(merged_meta.get("audio_artifact"), dict)
+            else None
+        )
         content_type = ""
         for candidate in (image_artifact, video_artifact, audio_artifact, artifact):
             if not isinstance(candidate, dict):
@@ -560,7 +656,12 @@ class GatewayWorker(QThread):
         elif content_type.startswith("audio/") or audio_artifact:
             fallback = "Generated audio ready."
         else:
-            fallback = "The workflow completed, but it returned no written reply."
+            activity = str(self._run_activity_by_run.get(rid) or "").strip()
+            if activity:
+                merged_meta.setdefault("run_activity", activity)
+            merged_meta["kind"] = "runtime_empty_response"
+            merged_meta["empty_response"] = True
+            return "", merged_meta
 
         activity = str(self._run_activity_by_run.get(rid) or "").strip()
         if activity:
@@ -579,6 +680,26 @@ class GatewayWorker(QThread):
                 "client_id": "abstractassistant",
             }
         )
+
+    def submit_wait_response(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
+        """Submit a runtime wait response through Gateway without owning the wait.
+
+        The ledger follower must continue observing Runtime while a local dialog
+        is open. This method sends the command as a client action; Runtime then
+        records the accepted/resolved state, which all viewers replay.
+        """
+        rid = str(run_id or "").strip()
+        key = str(wait_key or "").strip()
+        if not rid or not key:
+            return
+
+        def _send() -> None:
+            try:
+                self._submit_resume(run_id=rid, wait_key=key, payload=dict(payload or {}))
+            except Exception as exc:
+                self.error_occurred.emit(f"Failed to submit runtime wait response: {exc}")
+
+        threading.Thread(target=_send, name="abstractassistant-wait-submit", daemon=True).start()
 
     def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
         self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
@@ -621,29 +742,22 @@ class GatewayWorker(QThread):
 
             if typ == "tool_request":
                 wait_key = str(ev.get("wait_key") or "").strip()
+                if wait_key:
+                    self._pending_tool_approval_wait = {
+                        "run_id": str(run_id or "").strip(),
+                        "wait_key": wait_key,
+                    }
                 self.event_emitted.emit(ev)
-                if not wait_key:
-                    continue
-                self._tool_approval_decision = None
-                self._tool_approval_event.clear()
-                self._tool_approval_event.wait()
-                approved = bool(self._tool_approval_decision)
-                payload = {"approved": approved}
-                if not approved:
-                    payload["reason"] = "Denied by user"
-                self._submit_resume(run_id=run_id, wait_key=wait_key, payload=payload)
                 continue
 
             if typ == "ask_user":
                 wait_key = str(ev.get("wait_key") or "").strip()
+                if wait_key:
+                    self._pending_ask_user_wait = {
+                        "run_id": str(run_id or "").strip(),
+                        "wait_key": wait_key,
+                    }
                 self.event_emitted.emit(ev)
-                if not wait_key:
-                    continue
-                self._ask_user_response = None
-                self._ask_user_event.clear()
-                self._ask_user_event.wait()
-                response = str(self._ask_user_response or "")
-                self._submit_resume(run_id=run_id, wait_key=wait_key, payload={"response": response})
                 continue
 
             if typ == "tool":
@@ -787,6 +901,7 @@ class GatewayWorker(QThread):
                 "duration_ms": 0,
                 "llm_calls": 0,
                 "tool_calls": 0,
+                "tool_call_details": [],
                 "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
                 "_min_ms": None,
                 "_max_ms": None,
@@ -821,25 +936,28 @@ class GatewayWorker(QThread):
                 bucket["output_tokens"] += parsed["output_tokens"]
                 bucket["total_tokens"] += parsed["total_tokens"] or (parsed["input_tokens"] + parsed["output_tokens"])
         elif effect_type == "tool_calls":
-            payload = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
-            calls = payload.get("tool_calls")
-            if isinstance(calls, list):
+            calls = extract_tool_call_details_from_record(rec, run_id=rid)
+            if calls:
                 stats["tool_calls"] = int(stats.get("tool_calls") or 0) + len(calls)
+                details = stats.setdefault("tool_call_details", [])
+                if isinstance(details, list):
+                    details.extend(_compact_tool_call_for_ui(dict(call)) for call in calls)
 
     def _meta_with_run_stats(self, meta: Dict[str, Any], *, run_id: str) -> Dict[str, Any]:
         merged = dict(meta or {})
-        stats = self._stats_by_run.get(str(run_id or "").strip())
+        rid = str(run_id or "").strip()
+        if rid:
+            merged.setdefault("run_id", rid)
+        stats = self._stats_by_run.get(rid)
         if isinstance(stats, dict):
             merged["_assistant_stats"] = {
+                "run_id": rid,
                 "duration_ms": int(stats.get("duration_ms") or 0),
                 "llm_calls": int(stats.get("llm_calls") or 0),
                 "tool_calls": int(stats.get("tool_calls") or 0),
+                "tool_call_details": list(stats.get("tool_call_details") or []),
                 "usage": dict(stats.get("usage") or {}),
             }
-        if self._provider and "provider" not in merged:
-            merged["provider"] = self._provider
-        if self._model and "model" not in merged:
-            merged["model"] = self._model
         return merged
 
     def run(self) -> None:
@@ -863,7 +981,13 @@ class GatewayWorker(QThread):
                 self._follow_run_id = ""
                 status = controller.get_run_status(run_id=run_id)
                 if status in {"completed", "failed", "cancelled"}:
-                    self.event_emitted.emit({"type": "status", "status": "completed"})
+                    controller.replay_terminal_ledger(
+                        run_id=run_id,
+                        after=0,
+                        on_record=lambda rid, rec: self._handle_events(run_id=rid, rec=rec),
+                    )
+                    self._seed_history_from_gateway(run_id=run_id)
+                    self.event_emitted.emit({"type": "status", "status": status})
                     return
                 self._seed_history_from_gateway(run_id=run_id)
                 self._emit_run_activity(run_id=run_id)
@@ -895,10 +1019,7 @@ class GatewayWorker(QThread):
                 primary_image_artifact = self._pick_primary_image_artifact(attachments)
                 input_data = build_run_input_data(
                     prompt=self._user_text,
-                    provider=self._provider,
-                    model=self._model,
                     system=self._system_prompt_extra,
-                    messages=self._llm_manager.session_messages() if self._llm_manager else [],
                     attachments=attachments,
                     allowed_tools=self._allowed_tools,
                     tool_policy=self._tool_policy,
@@ -931,7 +1052,11 @@ class GatewayWorker(QThread):
                 on_online=self._mark_online,
             )
 
-            self.event_emitted.emit({"type": "status", "status": "completed"})
+            self._seed_history_from_gateway(run_id=run_id)
+            final_status = controller.get_run_status(run_id=run_id)
+            if final_status not in {"completed", "failed", "cancelled"}:
+                final_status = "completed"
+            self.event_emitted.emit({"type": "status", "status": final_status})
         except Exception as e:
             if self._debug:
                 import traceback

@@ -10,6 +10,7 @@ from PyQt5.QtCore import QSize
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QApplication, QTextBrowser
 
+from abstractassistant.ui.history_dialog import iPhoneMessagesDialog
 from abstractassistant.utils.markdown_renderer import (
     MarkdownRenderer,
     _autolink_html_text,
@@ -172,6 +173,86 @@ def test_markdown_renderer_highlights_fenced_code_without_language_metadata() ->
 
     assert "Markdown rendering error" not in html
     assert "codehilite" in html
+
+
+@pytest.mark.basic
+def test_markdown_renderer_wraps_json_code_blocks_in_a_consistent_panel() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render('```json\n{"model":"gpt-5.4-mini","max_tokens":100}\n```')
+
+    assert 'data-code-language="json"' in html
+    assert 'bgcolor="#101722"' in html
+    assert "font-size: 0.85em" in html
+
+
+@pytest.mark.basic
+def test_markdown_renderer_highlights_embedded_json_inside_bash_payloads() -> None:
+    renderer = MarkdownRenderer()
+    html = renderer.render(
+        "```bash\n"
+        "curl -X POST https://openai.abstractframework.ai/v1/chat/completions \\\n"
+        '  -H "Content-Type: application/json" \\\n'
+        "  -d '{\n"
+        '    "model": "gpt-5.4-mini",\n'
+        '    "max_tokens": 100\n'
+        "  }'\n"
+        "```\n"
+    )
+
+    assert 'data-code-language="bash"' in html
+    assert re.search(
+        r'style="color: #ff6fae[^"]*">&quot;model&quot;</span>',
+        html,
+        flags=re.I,
+    )
+    assert re.search(
+        r'style="color: #f2df6b[^"]*">&quot;gpt-5\.4-mini&quot;</span>',
+        html,
+        flags=re.I,
+    )
+    assert re.search(
+        r'style="color: #b28cff[^"]*">100</span>',
+        html,
+        flags=re.I,
+    )
+
+
+@pytest.mark.basic
+def test_markdown_renderer_live_theme_uses_color_code_style_and_unwraps_panels() -> None:
+    renderer = MarkdownRenderer(theme="friendly_grayscale")
+    html = renderer.render(
+        "```bash\n"
+        "curl -X POST https://openai.abstractframework.ai/v1/chat/completions \\\n"
+        '  -H "Content-Type: application/json" \\\n'
+        "  -d '{\n"
+        '    \"model\": \"gpt-5.4-mini\",\n'
+        '    \"max_tokens\": 100\n'
+        "  }'\n"
+        "```\n"
+    )
+
+    lowered = html.lower()
+    assert "<pre><code class=\"language-bash\"><table" not in html
+    assert 'data-code-language="bash"' in html
+    assert "color: #ff6fae" in lowered
+    assert '"color: #3b3b3b"' not in lowered
+
+
+@pytest.mark.basic
+def test_history_dialog_uses_shared_markdown_renderer_for_code_blocks() -> None:
+    html = iPhoneMessagesDialog._process_full_markdown(
+        "```json\n"
+        "{\n"
+        '  "model": "gpt-5.4-mini",\n'
+        '  "max_tokens": 100\n'
+        "}\n"
+        "```\n"
+    )
+
+    lowered = html.lower()
+    assert 'data-code-language="json"' in html
+    assert "font-size: 12px" not in html
+    assert "color: #ff6fae" in lowered
 
 
 @pytest.mark.basic

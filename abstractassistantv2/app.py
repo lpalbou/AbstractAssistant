@@ -22,7 +22,18 @@ import wave
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from PyQt5.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtCore import (
+    QEvent,
+    QPoint,
+    QPointF,
+    QRectF,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    QUrl,
+    pyqtSignal,
+)
 from PyQt5.QtGui import (
     QBrush,
     QColor,
@@ -74,9 +85,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 try:
     from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
     from PyQt5.QtMultimediaWidgets import QVideoWidget
+
     QT_MULTIMEDIA_AVAILABLE = True
 except Exception:  # pragma: no cover - multimedia is optional at runtime
     QMediaContent = None  # type: ignore[assignment]
@@ -106,15 +119,23 @@ from abstractassistant.core.tool_display import (
     compact_tool_call_label,
     compact_tool_call_label_html,
 )
+from abstractassistant.gateway.tool_usage import (
+    extract_tool_call_details_from_scratchpad,
+)
 from abstractassistant.utils.icon_generator import IconGenerator
-from abstractassistant.utils.markdown_renderer import MarkdownRenderer, split_markdown_mermaid_blocks
+from abstractassistant.utils.markdown_renderer import (
+    MarkdownRenderer,
+    split_markdown_mermaid_blocks,
+)
 
 from .controller import AssistantV2Controller
 from .gateway import ROUTE_SPECS, CapabilityRouteRow
 from .hotkey import GlobalHotkeyManager
 from .preferences import AssistantPreferences
 
-_HTML_ACTION_FENCE_RE = re.compile(r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S)
+_HTML_ACTION_FENCE_RE = re.compile(
+    r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S
+)
 _TRAY_BUSY_FRAME_COUNT = 36
 _TRAY_BUSY_FRAME_INTERVAL_MS = 60
 _TRAY_FEEDBACK_ICON_SIZE = 44
@@ -280,9 +301,17 @@ def _tool_call_value_summary(name: str, value: Any) -> str:
         return "empty"
 
     lowered = text.lower()
-    looks_like_html = "<html" in lowered or lowered.startswith("<!doctype html") or lowered.startswith("<div")
+    looks_like_html = (
+        "<html" in lowered
+        or lowered.startswith("<!doctype html")
+        or lowered.startswith("<div")
+    )
     has_newlines = "\n" in text or "\r" in text
-    if key in {"content", "body", "text", "html", "script"} or has_newlines or len(text) > 120:
+    if (
+        key in {"content", "body", "text", "html", "script"}
+        or has_newlines
+        or len(text) > 120
+    ):
         kind = "HTML content" if looks_like_html else "text content"
         return f"{kind}, {len(text):,} chars"
     if len(text) > 96:
@@ -302,7 +331,9 @@ def _tool_call_reason(name: str, arguments: Dict[str, Any]) -> str:
     ).strip()
     cmd = str(arguments.get("cmd") or arguments.get("command") or "").strip()
     url = str(arguments.get("url") or arguments.get("href") or "").strip()
-    query = str(arguments.get("q") or arguments.get("query") or arguments.get("prompt") or "").strip()
+    query = str(
+        arguments.get("q") or arguments.get("query") or arguments.get("prompt") or ""
+    ).strip()
 
     if normalized == "write_file" and path:
         return f"Create or replace `{path}`."
@@ -350,7 +381,9 @@ def _tool_call_summary(call: Any) -> ToolCallSummary:
                 continue
             parameter_rows.append((label, _tool_call_value_summary(label, value)))
     elif call.get("arguments") not in {None, "", {}}:
-        parameter_rows.append(("arguments", _tool_call_value_summary("arguments", call.get("arguments"))))
+        parameter_rows.append(
+            ("arguments", _tool_call_value_summary("arguments", call.get("arguments")))
+        )
     return ToolCallSummary(
         name=name,
         reason=_tool_call_reason(name, arguments),
@@ -413,14 +446,31 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         margin-top: 3px !important;
     }
     .markdown-content code {
-        background: #20262f !important;
-        color: #c9f0e1 !important;
+        background: #232c3a !important;
+        color: #eef4fb !important;
+        font-size: inherit !important;
+        line-height: inherit !important;
+        padding: 2px 6px !important;
+        border-radius: 5px !important;
     }
     .markdown-content pre,
     .codehilite {
-        background: #161b23 !important;
+        background: transparent !important;
         color: #edf2f8 !important;
-        border-color: rgba(255, 255, 255, 0.08) !important;
+        border: none !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        font-size: inherit !important;
+        line-height: 1.55 !important;
+    }
+    .markdown-content pre code {
+        background: transparent !important;
+        color: inherit !important;
+        padding: 0 !important;
+        border-radius: 0 !important;
+        font-size: inherit !important;
+        line-height: inherit !important;
     }
     .markdown-content a {
         color: #79c7ff !important;
@@ -439,7 +489,7 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         max-height: none !important;
         border-radius: 0 !important;
     }
-    .markdown-content table {
+    .markdown-content table:not(.codepanel) {
         width: 100% !important;
         table-layout: auto !important;
         border-collapse: collapse !important;
@@ -450,8 +500,8 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         border-radius: 10px !important;
         overflow: hidden !important;
     }
-    .markdown-content td,
-    .markdown-content th {
+    .markdown-content table:not(.codepanel) td,
+    .markdown-content table:not(.codepanel) th {
         padding: 6px 10px !important;
         overflow-wrap: anywhere !important;
         word-break: break-word !important;
@@ -459,18 +509,35 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         vertical-align: top !important;
         border: 1px solid rgba(255, 255, 255, 0.06) !important;
     }
-    .markdown-content th {
+    .markdown-content table:not(.codepanel) th {
         font-size: 11px !important;
         font-weight: 700 !important;
         line-height: 1.3 !important;
         background: rgba(255, 255, 255, 0.04) !important;
     }
-    .markdown-content td {
+    .markdown-content table:not(.codepanel) td {
         font-size: 11px !important;
         line-height: 1.3 !important;
     }
-    .markdown-content tr:nth-child(even) td {
+    .markdown-content table:not(.codepanel) tr:nth-child(even) td {
         background: rgba(255, 255, 255, 0.02) !important;
+    }
+    .markdown-content table.codepanel {
+        width: 100% !important;
+        margin: 8px 0 10px 0 !important;
+        border: none !important;
+        background: transparent !important;
+    }
+    .markdown-content table.codepanel td,
+    .markdown-content table.codepanel th {
+        font-size: 13px !important;
+        line-height: 1.45 !important;
+        padding: 0 !important;
+        border: none !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+        vertical-align: top !important;
     }
     .markdown-content pre,
     .markdown-content code {
@@ -489,6 +556,7 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
 
 def _user_html(content: str) -> str:
     import html
+
     escaped = html.escape(content.strip())
     themed_override = (
         "<style>"
@@ -502,7 +570,7 @@ def _user_html(content: str) -> str:
         "  padding: 0px !important;"
         "}"
         "</style>"
-        "<div class=\"user-content\" align=\"left\">"
+        '<div class="user-content" align="left">'
     )
     return themed_override + escaped + "</div>"
 
@@ -536,7 +604,9 @@ def _session_picker_date_label(value: Any) -> str:
 
 
 def _session_picker_topic(value: Any, *, limit: int = 58) -> str:
-    text = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    text = " ".join(
+        str(value or "").replace("\r", " ").replace("\n", " ").split()
+    ).strip()
     if not text:
         return "New session"
     if len(text) <= limit:
@@ -551,7 +621,12 @@ def _session_picker_label(session: Dict[str, Any]) -> str:
 
 
 def _session_picker_tooltip(session: Dict[str, Any]) -> str:
-    title = " ".join(str(session.get("title") or "New session").replace("\r", " ").replace("\n", " ").split()).strip()
+    title = " ".join(
+        str(session.get("title") or "New session")
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .split()
+    ).strip()
     title = title or "New session"
     created = str(session.get("created_at") or "").strip()
     updated = str(session.get("updated_at") or "").strip()
@@ -620,7 +695,9 @@ def _assistant_html_actions_from_snippet(snippet: str) -> List[AssistantHtmlActi
     return deduped
 
 
-def _assistant_content_with_actions(content: str) -> tuple[str, List[AssistantHtmlAction]]:
+def _assistant_content_with_actions(
+    content: str,
+) -> tuple[str, List[AssistantHtmlAction]]:
     text = str(content or "")
     actions: List[AssistantHtmlAction] = []
 
@@ -637,12 +714,16 @@ def _assistant_content_with_actions(content: str) -> tuple[str, List[AssistantHt
     return cleaned, actions
 
 
-def _assistant_content_blocks(content: str) -> tuple[List[Dict[str, str]], List[AssistantHtmlAction]]:
+def _assistant_content_blocks(
+    content: str,
+) -> tuple[List[Dict[str, str]], List[AssistantHtmlAction]]:
     cleaned, actions = _assistant_content_with_actions(content)
     blocks: List[Dict[str, str]] = []
     for block in split_markdown_mermaid_blocks(cleaned):
         if block.kind == "mermaid" and block.data_uri:
-            blocks.append({"kind": "mermaid", "text": block.text, "data_uri": block.data_uri})
+            blocks.append(
+                {"kind": "mermaid", "text": block.text, "data_uri": block.data_uri}
+            )
             continue
         text = str(block.text or "")
         if text:
@@ -677,21 +758,36 @@ _ICON_CACHE: Dict[tuple[str, str, int], QIcon] = {}
 _TRAY_ICON_CACHE: Dict[tuple[str, int, int], QIcon] = {}
 
 
-def _zoomed_shell_size(*, screen_width: int, screen_height: int, normal_width: int, normal_height: int) -> tuple[int, int]:
-    base_width = min(max(int(screen_width * 0.50), max(760, normal_width + 140)), int(screen_width * 0.62))
-    base_height = min(max(int(screen_height * 0.56), max(420, normal_height + 72)), int(screen_height * 0.72))
+def _zoomed_shell_size(
+    *, screen_width: int, screen_height: int, normal_width: int, normal_height: int
+) -> tuple[int, int]:
+    base_width = min(
+        max(int(screen_width * 0.50), max(760, normal_width + 140)),
+        int(screen_width * 0.62),
+    )
+    base_height = min(
+        max(int(screen_height * 0.56), max(420, normal_height + 72)),
+        int(screen_height * 0.72),
+    )
     width = min(
-        max(int(round(base_width * _ZOOMED_SHELL_GROWTH)), max(960, normal_width + 260)),
+        max(
+            int(round(base_width * _ZOOMED_SHELL_GROWTH)), max(960, normal_width + 260)
+        ),
         int(screen_width * 0.86),
     )
     height = min(
-        max(int(round(base_height * _ZOOMED_SHELL_GROWTH)), max(588, normal_height + 160)),
+        max(
+            int(round(base_height * _ZOOMED_SHELL_GROWTH)),
+            max(588, normal_height + 160),
+        ),
         int(screen_height * 0.92),
     )
     return max(420, width), max(320, height)
 
 
-def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRAY_FEEDBACK_ICON_SIZE) -> QIcon:
+def _tray_feedback_icon(
+    *, state: str = "idle", frame: int = 0, size: int = _TRAY_FEEDBACK_ICON_SIZE
+) -> QIcon:
     normalized_state = str(state or "idle").strip().lower() or "idle"
     normalized_frame = int(frame or 0) % _TRAY_BUSY_FRAME_COUNT
     key = (normalized_state, normalized_frame, int(size))
@@ -742,7 +838,9 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
         painter.setBrush(QBrush(fill))
         painter.drawEllipse(center, radius, radius)
 
-        shadow = QLinearGradient(center.x(), center.y() - radius, center.x(), center.y() + radius)
+        shadow = QLinearGradient(
+            center.x(), center.y() - radius, center.x(), center.y() + radius
+        )
         shadow.setColorAt(0.0, QColor(0, 0, 0, 0))
         shadow.setColorAt(0.56, QColor(0, 0, 0, 0))
         shadow.setColorAt(1.0, QColor(5, 10, 18, shadow_alpha))
@@ -776,8 +874,12 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
     ) -> None:
         if glow is not None:
             glow_gradient = QRadialGradient(center, size * 0.47)
-            glow_gradient.setColorAt(0.68, QColor(glow.red(), glow.green(), glow.blue(), 0))
-            glow_gradient.setColorAt(1.0, QColor(glow.red(), glow.green(), glow.blue(), glow_alpha))
+            glow_gradient.setColorAt(
+                0.68, QColor(glow.red(), glow.green(), glow.blue(), 0)
+            )
+            glow_gradient.setColorAt(
+                1.0, QColor(glow.red(), glow.green(), glow.blue(), glow_alpha)
+            )
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(glow_gradient))
             painter.drawEllipse(center, size * 0.47, size * 0.47)
@@ -794,7 +896,9 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
         alpha: int = 235,
         glow_alpha: int = 84,
     ) -> None:
-        rect = QRectF(center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0)
+        rect = QRectF(
+            center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0
+        )
         for width_scale, stroke_alpha in ((1.45, glow_alpha), (1.0, alpha)):
             pen = QPen(QColor(color.red(), color.green(), color.blue(), stroke_alpha))
             pen.setWidthF(width * width_scale)
@@ -820,7 +924,12 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
             glow=QColor("#52bbff"),
             glow_alpha=int(28 + (22 * pulse)),
         )
-        _ring(radius=size * 0.272, width=size * 0.050, color=QColor("#ddf6ff"), alpha=int(24 + (30 * pulse)))
+        _ring(
+            radius=size * 0.272,
+            width=size * 0.050,
+            color=QColor("#ddf6ff"),
+            alpha=int(24 + (30 * pulse)),
+        )
         _arc(
             radius=size * 0.415,
             width=size * 0.084,
@@ -848,7 +957,9 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
             alpha=212,
             glow_alpha=64,
         )
-        _orb(radius=size * (0.068 + (0.008 * pulse)), color=QColor("#ffffff"), alpha=255)
+        _orb(
+            radius=size * (0.068 + (0.008 * pulse)), color=QColor("#ffffff"), alpha=255
+        )
         orbit_theta = math.radians(sweep + (22.0 * math.sin(loop * 2.7)) - 42.0)
         orbit_distance = size * (0.17 + (0.03 * pulse))
         orbit_center = QPointF(
@@ -892,7 +1003,11 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
             )
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#fff4cf"))
-        painter.drawEllipse(QPointF(center.x() + (size * 0.19), center.y() - (size * 0.19)), size * 0.050, size * 0.050)
+        painter.drawEllipse(
+            QPointF(center.x() + (size * 0.19), center.y() - (size * 0.19)),
+            size * 0.050,
+            size * 0.050,
+        )
     else:
         _state_disc(
             inner=QColor("#c8ffd2"),
@@ -924,7 +1039,11 @@ def _tray_feedback_icon(*, state: str = "idle", frame: int = 0, size: int = _TRA
             (0.14, 0.20, 0.048, QColor("#e6fff0")),
         ):
             painter.setBrush(color)
-            painter.drawEllipse(QPointF(center.x() + (dx * size), center.y() + (dy * size)), size * radius, size * radius)
+            painter.drawEllipse(
+                QPointF(center.x() + (dx * size), center.y() + (dy * size)),
+                size * radius,
+                size * radius,
+            )
 
     painter.end()
     pixmap.setDevicePixelRatio(2.0)
@@ -967,7 +1086,9 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
             _line(0.18, y, 0.82, y)
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(tint))
-            painter.drawEllipse(QPointF(knob_x * size, y * size), size * 0.08, size * 0.08)
+            painter.drawEllipse(
+                QPointF(knob_x * size, y * size), size * 0.08, size * 0.08
+            )
     elif key[0] == "paperclip":
         path = QPainterPath()
         path.moveTo(size * 0.48, size * 0.48)
@@ -981,7 +1102,11 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
         painter.drawPath(path)
     elif key[0] == "mic":
         painter.setBrush(translucent_brush)
-        painter.drawRoundedRect(QRectF(size * 0.35, size * 0.15, size * 0.30, size * 0.42), size * 0.15, size * 0.15)
+        painter.drawRoundedRect(
+            QRectF(size * 0.35, size * 0.15, size * 0.30, size * 0.42),
+            size * 0.15,
+            size * 0.15,
+        )
         painter.setBrush(Qt.NoBrush)
         _line(0.50, 0.62, 0.50, 0.82)
         _line(0.34, 0.82, 0.66, 0.82)
@@ -1016,13 +1141,25 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
             y2 = 0.50 + math.sin(angle) * 0.35
             _line(x1, y1, x2, y2)
     elif key[0] == "copy":
-        painter.drawRoundedRect(QRectF(size * 0.36, size * 0.20, size * 0.42, size * 0.48), size * 0.08, size * 0.08)
+        painter.drawRoundedRect(
+            QRectF(size * 0.36, size * 0.20, size * 0.42, size * 0.48),
+            size * 0.08,
+            size * 0.08,
+        )
         painter.setBrush(QBrush(QColor(9, 13, 22, 255)))
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(QRectF(size * 0.20, size * 0.32, size * 0.42, size * 0.48), size * 0.08, size * 0.08)
+        painter.drawRoundedRect(
+            QRectF(size * 0.20, size * 0.32, size * 0.42, size * 0.48),
+            size * 0.08,
+            size * 0.08,
+        )
         painter.setBrush(Qt.NoBrush)
         painter.setPen(pen)
-        painter.drawRoundedRect(QRectF(size * 0.20, size * 0.32, size * 0.42, size * 0.48), size * 0.08, size * 0.08)
+        painter.drawRoundedRect(
+            QRectF(size * 0.20, size * 0.32, size * 0.42, size * 0.48),
+            size * 0.08,
+            size * 0.08,
+        )
     elif key[0] == "close":
         _line(0.30, 0.30, 0.70, 0.70)
         _line(0.70, 0.30, 0.30, 0.70)
@@ -1056,8 +1193,14 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
         _line(0.56, 0.36, 0.76, 0.36)
 
         if kind == "image":
-            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.46, size * 0.32, size * 0.22), size * 0.04, size * 0.04)
-            painter.drawEllipse(QPointF(size * 0.42, size * 0.51), size * 0.03, size * 0.03)
+            painter.drawRoundedRect(
+                QRectF(size * 0.34, size * 0.46, size * 0.32, size * 0.22),
+                size * 0.04,
+                size * 0.04,
+            )
+            painter.drawEllipse(
+                QPointF(size * 0.42, size * 0.51), size * 0.03, size * 0.03
+            )
             peak = QPainterPath()
             peak.moveTo(size * 0.36, size * 0.66)
             peak.lineTo(size * 0.46, size * 0.54)
@@ -1071,11 +1214,19 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
             _line(0.62, 0.40, 0.62, 0.62)
             _line(0.44, 0.48, 0.62, 0.44)
             painter.setBrush(QBrush(tint))
-            painter.drawEllipse(QPointF(size * 0.39, size * 0.66), size * 0.05, size * 0.04)
-            painter.drawEllipse(QPointF(size * 0.57, size * 0.62), size * 0.05, size * 0.04)
+            painter.drawEllipse(
+                QPointF(size * 0.39, size * 0.66), size * 0.05, size * 0.04
+            )
+            painter.drawEllipse(
+                QPointF(size * 0.57, size * 0.62), size * 0.05, size * 0.04
+            )
             painter.setBrush(Qt.NoBrush)
         elif kind == "video":
-            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.44, size * 0.32, size * 0.22), size * 0.04, size * 0.04)
+            painter.drawRoundedRect(
+                QRectF(size * 0.34, size * 0.44, size * 0.32, size * 0.22),
+                size * 0.04,
+                size * 0.04,
+            )
             path = QPainterPath()
             path.moveTo(size * 0.46, size * 0.50)
             path.lineTo(size * 0.56, size * 0.55)
@@ -1091,13 +1242,25 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
             _line(0.62, 0.54, 0.56, 0.60)
             _line(0.52, 0.44, 0.48, 0.64)
         elif kind == "archive":
-            painter.drawRoundedRect(QRectF(size * 0.36, size * 0.44, size * 0.28, size * 0.24), size * 0.03, size * 0.03)
+            painter.drawRoundedRect(
+                QRectF(size * 0.36, size * 0.44, size * 0.28, size * 0.24),
+                size * 0.03,
+                size * 0.03,
+            )
             _line(0.36, 0.50, 0.64, 0.50)
             _line(0.36, 0.56, 0.64, 0.56)
             _line(0.36, 0.62, 0.64, 0.62)
         elif kind == "data":
-            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.42, size * 0.32, size * 0.12), size * 0.06, size * 0.06)
-            painter.drawRoundedRect(QRectF(size * 0.34, size * 0.56, size * 0.32, size * 0.12), size * 0.06, size * 0.06)
+            painter.drawRoundedRect(
+                QRectF(size * 0.34, size * 0.42, size * 0.32, size * 0.12),
+                size * 0.06,
+                size * 0.06,
+            )
+            painter.drawRoundedRect(
+                QRectF(size * 0.34, size * 0.56, size * 0.32, size * 0.12),
+                size * 0.06,
+                size * 0.06,
+            )
         else:
             _line(0.36, 0.48, 0.64, 0.48)
             _line(0.36, 0.58, 0.64, 0.58)
@@ -1126,8 +1289,16 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
     elif key[0] == "pause":
         painter.setBrush(QBrush(tint))
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(QRectF(size * 0.30, size * 0.24, size * 0.12, size * 0.52), size * 0.05, size * 0.05)
-        painter.drawRoundedRect(QRectF(size * 0.58, size * 0.24, size * 0.12, size * 0.52), size * 0.05, size * 0.05)
+        painter.drawRoundedRect(
+            QRectF(size * 0.30, size * 0.24, size * 0.12, size * 0.52),
+            size * 0.05,
+            size * 0.05,
+        )
+        painter.drawRoundedRect(
+            QRectF(size * 0.58, size * 0.24, size * 0.12, size * 0.52),
+            size * 0.05,
+            size * 0.05,
+        )
     elif key[0] == "play":
         path = QPainterPath()
         path.moveTo(size * 0.34, size * 0.24)
@@ -1153,7 +1324,10 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
             dot.setAlpha(max(45, min(255, alpha)))
             painter.setBrush(QBrush(dot))
             painter.drawEllipse(
-                QPointF(center.x() + radius * math.cos(angle), center.y() + radius * math.sin(angle)),
+                QPointF(
+                    center.x() + radius * math.cos(angle),
+                    center.y() + radius * math.sin(angle),
+                ),
                 dot_radius,
                 dot_radius,
             )
@@ -1242,7 +1416,11 @@ def _parse_usage_summary(value: Any) -> Optional[Dict[str, int]]:
         "output_tokens": max(0, int(out_tok or 0)),
         "total_tokens": max(0, int(total_tok or 0)),
     }
-    if parsed["input_tokens"] == 0 and parsed["output_tokens"] == 0 and parsed["total_tokens"] == 0:
+    if (
+        parsed["input_tokens"] == 0
+        and parsed["output_tokens"] == 0
+        and parsed["total_tokens"] == 0
+    ):
         return None
     return parsed
 
@@ -1261,7 +1439,13 @@ def _parse_iso_ms(raw: Any) -> Optional[int]:
 def _extract_duration_ms(value: Any) -> Optional[int]:
     if not isinstance(value, dict):
         return None
-    for key in ("duration_ms", "elapsed_ms", "total_ms", "processing_ms", "generation_ms"):
+    for key in (
+        "duration_ms",
+        "elapsed_ms",
+        "total_ms",
+        "processing_ms",
+        "generation_ms",
+    ):
         numeric = _coerce_float(value.get(key))
         if numeric is not None and numeric >= 0:
             return int(numeric)
@@ -1284,6 +1468,13 @@ def _format_duration_short(duration_ms: int) -> str:
     if seconds < 10:
         return f"{seconds:.1f}s"
     return f"{int(round(seconds))}s"
+
+
+def _format_metric_count(value: int) -> str:
+    try:
+        return f"{max(0, int(value or 0)):,}"
+    except Exception:
+        return "0"
 
 
 def _format_message_timestamp(raw: Any) -> str:
@@ -1321,19 +1512,99 @@ def _attachment_kind(raw_path: Any) -> str:
     suffix = Path(name).suffix.lower()
     content_type, _encoding = mimetypes.guess_type(name)
     content_type = str(content_type or "").strip().lower()
-    if content_type.startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".svg"}:
+    if content_type.startswith("image/") or suffix in {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".heic",
+        ".heif",
+        ".svg",
+    }:
         return "image"
-    if content_type.startswith("audio/") or suffix in {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".aiff", ".aif", ".opus"}:
+    if content_type.startswith("audio/") or suffix in {
+        ".wav",
+        ".mp3",
+        ".m4a",
+        ".aac",
+        ".ogg",
+        ".flac",
+        ".aiff",
+        ".aif",
+        ".opus",
+    }:
         return "audio"
-    if content_type.startswith("video/") or suffix in {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".mpeg", ".mpg"}:
+    if content_type.startswith("video/") or suffix in {
+        ".mp4",
+        ".mov",
+        ".m4v",
+        ".webm",
+        ".mkv",
+        ".avi",
+        ".mpeg",
+        ".mpg",
+    }:
         return "video"
-    if suffix in {".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".java", ".kt", ".go", ".rs", ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".swift", ".html", ".css", ".scss", ".sql", ".sh", ".bash", ".zsh"}:
+    if suffix in {
+        ".py",
+        ".pyi",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".java",
+        ".kt",
+        ".go",
+        ".rs",
+        ".c",
+        ".cc",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".html",
+        ".css",
+        ".scss",
+        ".sql",
+        ".sh",
+        ".bash",
+        ".zsh",
+    }:
         return "code"
     if suffix in {".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar"}:
         return "archive"
-    if suffix in {".csv", ".tsv", ".json", ".jsonl", ".yaml", ".yml", ".xml", ".parquet", ".sqlite", ".db", ".xls", ".xlsx"}:
+    if suffix in {
+        ".csv",
+        ".tsv",
+        ".json",
+        ".jsonl",
+        ".yaml",
+        ".yml",
+        ".xml",
+        ".parquet",
+        ".sqlite",
+        ".db",
+        ".xls",
+        ".xlsx",
+    }:
         return "data"
-    if content_type.startswith("text/") or suffix in {".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".rtf"}:
+    if content_type.startswith("text/") or suffix in {
+        ".txt",
+        ".md",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".ppt",
+        ".pptx",
+        ".rtf",
+    }:
         return "document"
     return "generic"
 
@@ -1402,7 +1673,9 @@ def _local_file_paths_from_mime(mime: Any) -> List[str]:
 
 
 def _artifact_key(artifact: Dict[str, Any]) -> str:
-    artifact_id = str(artifact.get("$artifact") or artifact.get("artifact_id") or "").strip()
+    artifact_id = str(
+        artifact.get("$artifact") or artifact.get("artifact_id") or ""
+    ).strip()
     local_path = str(artifact.get("local_path") or artifact.get("path") or "").strip()
     filename = str(artifact.get("filename") or "").strip()
     if artifact_id:
@@ -1417,13 +1690,36 @@ def _artifact_key(artifact: Dict[str, Any]) -> str:
 def _artifact_media_kind(artifact: Dict[str, Any]) -> str:
     content_type = str(artifact.get("content_type") or "").strip().lower()
     modality = str(artifact.get("modality") or "").strip().lower()
-    filename = str(artifact.get("filename") or artifact.get("local_path") or artifact.get("path") or "").strip().lower()
+    filename = (
+        str(
+            artifact.get("filename")
+            or artifact.get("local_path")
+            or artifact.get("path")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
 
-    if content_type.startswith("image/") or modality == "image" or filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff")):
+    if (
+        content_type.startswith("image/")
+        or modality == "image"
+        or filename.endswith(
+            (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff")
+        )
+    ):
         return "image"
-    if content_type.startswith("video/") or modality == "video" or filename.endswith((".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi")):
+    if (
+        content_type.startswith("video/")
+        or modality == "video"
+        or filename.endswith((".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"))
+    ):
         return "video"
-    if content_type.startswith("audio/") or modality == "audio" or filename.endswith((".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac")):
+    if (
+        content_type.startswith("audio/")
+        or modality == "audio"
+        or filename.endswith((".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac"))
+    ):
         return "audio"
     return "other"
 
@@ -1435,23 +1731,33 @@ def _artifact_label(artifact: Dict[str, Any]) -> str:
     local_path = str(artifact.get("local_path") or artifact.get("path") or "").strip()
     if local_path:
         return Path(local_path).name or local_path
-    artifact_id = str(artifact.get("$artifact") or artifact.get("artifact_id") or "").strip()
+    artifact_id = str(
+        artifact.get("$artifact") or artifact.get("artifact_id") or ""
+    ).strip()
     return artifact_id or "artifact"
 
 
 def _message_media_artifacts(message: Dict[str, Any]) -> List[Dict[str, Any]]:
-    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    metadata = (
+        message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    )
     if not isinstance(metadata, dict):
         return []
 
     out: List[Dict[str, Any]] = []
     seen: set[str] = set()
 
-    def _push(candidate: Any, *, fallback_kind: str = "", fallback_content_type: str = "") -> None:
+    def _push(
+        candidate: Any, *, fallback_kind: str = "", fallback_content_type: str = ""
+    ) -> None:
         if not isinstance(candidate, dict):
             return
-        artifact_id = str(candidate.get("$artifact") or candidate.get("artifact_id") or "").strip()
-        local_path = str(candidate.get("local_path") or candidate.get("path") or "").strip()
+        artifact_id = str(
+            candidate.get("$artifact") or candidate.get("artifact_id") or ""
+        ).strip()
+        local_path = str(
+            candidate.get("local_path") or candidate.get("path") or ""
+        ).strip()
         if not artifact_id and not local_path:
             return
         item = dict(candidate)
@@ -1474,7 +1780,11 @@ def _message_media_artifacts(message: Dict[str, Any]) -> List[Dict[str, Any]]:
         ("media_artifact", ""),
         ("artifact_ref", ""),
     ):
-        _push(metadata.get(key), fallback_kind=fallback_kind, fallback_content_type=str(metadata.get("content_type") or ""))
+        _push(
+            metadata.get(key),
+            fallback_kind=fallback_kind,
+            fallback_content_type=str(metadata.get("content_type") or ""),
+        )
 
     generated_media = metadata.get("generated_media")
     if isinstance(generated_media, dict):
@@ -1489,7 +1799,11 @@ def _message_media_artifacts(message: Dict[str, Any]) -> List[Dict[str, Any]]:
             _push(
                 generated_media.get(key),
                 fallback_kind=fallback_kind,
-                fallback_content_type=str(generated_media.get("content_type") or metadata.get("content_type") or ""),
+                fallback_content_type=str(
+                    generated_media.get("content_type")
+                    or metadata.get("content_type")
+                    or ""
+                ),
             )
 
     for list_key in ("attachments", "media"):
@@ -1527,18 +1841,27 @@ _IMAGE_PREVIEW_HEIGHT = 50
 _IMAGE_PREVIEW_MAX_WIDTH = 220
 
 
-def _image_thumbnail_size(size: QSize, *, height: int = _IMAGE_PREVIEW_HEIGHT, max_width: int = _IMAGE_PREVIEW_MAX_WIDTH) -> QSize:
+def _image_thumbnail_size(
+    size: QSize,
+    *,
+    height: int = _IMAGE_PREVIEW_HEIGHT,
+    max_width: int = _IMAGE_PREVIEW_MAX_WIDTH,
+) -> QSize:
     width = max(1, int(size.width() or 0))
     source_height = max(1, int(size.height() or 0))
     bounded_height = max(1, int(height or _IMAGE_PREVIEW_HEIGHT))
     bounded_width = max(1, int(max_width or _IMAGE_PREVIEW_MAX_WIDTH))
-    scaled = QSize(width, source_height).scaled(bounded_width, bounded_height, Qt.KeepAspectRatio)
+    scaled = QSize(width, source_height).scaled(
+        bounded_width, bounded_height, Qt.KeepAspectRatio
+    )
     return QSize(max(1, scaled.width()), max(1, scaled.height()))
 
 
 def _message_key(message: Dict[str, Any]) -> str:
     message_id = str(message.get("message_id") or "").strip()
-    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    metadata = (
+        message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    )
     if not message_id and isinstance(metadata, dict):
         message_id = str(metadata.get("message_id") or "").strip()
     if message_id:
@@ -1551,7 +1874,9 @@ def _message_key(message: Dict[str, Any]) -> str:
 
 def _history_message_key(message: Dict[str, Any], *, fallback_index: int) -> str:
     message_id = str(message.get("message_id") or "").strip()
-    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    metadata = (
+        message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    )
     if not message_id and isinstance(metadata, dict):
         message_id = str(metadata.get("message_id") or "").strip()
     if message_id:
@@ -1563,7 +1888,9 @@ def _history_message_key(message: Dict[str, Any], *, fallback_index: int) -> str
     return f"{role}|index:{max(0, int(fallback_index))}"
 
 
-def _visible_history_messages(messages: List[Dict[str, Any]], *, busy: bool) -> List[Dict[str, Any]]:
+def _visible_history_messages(
+    messages: List[Dict[str, Any]], *, busy: bool
+) -> List[Dict[str, Any]]:
     del busy
     return [
         message
@@ -1577,9 +1904,53 @@ def _visible_history_messages(messages: List[Dict[str, Any]], *, busy: bool) -> 
     ]
 
 
-def _assistant_footer_items(message: Dict[str, Any]) -> List[str]:
-    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
-    items: List[str] = []
+def _assistant_tool_calls_for_message(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    metadata = (
+        message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    )
+    candidates: List[Any] = []
+    if isinstance(metadata, dict):
+        stats_meta = metadata.get("_assistant_stats")
+        if isinstance(stats_meta, dict):
+            candidates.extend(
+                [
+                    stats_meta.get("tool_call_details"),
+                    stats_meta.get("tool_calls_detail"),
+                    stats_meta.get("tool_calls"),
+                ]
+            )
+        repl = metadata.get("_repl")
+        if isinstance(repl, dict):
+            repl_stats = repl.get("stats")
+            if isinstance(repl_stats, dict):
+                candidates.extend(
+                    [
+                        repl_stats.get("tool_call_details"),
+                        repl_stats.get("tool_calls_detail"),
+                        repl_stats.get("tool_calls"),
+                    ]
+                )
+        candidates.append(metadata.get("tool_calls"))
+        scratchpad_calls = extract_tool_call_details_from_scratchpad(
+            metadata.get("scratchpad"),
+            run_id=str(metadata.get("run_id") or message.get("run_id") or "").strip(),
+        )
+        if scratchpad_calls:
+            candidates.append(scratchpad_calls)
+
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            calls = [dict(call) for call in candidate if isinstance(call, dict)]
+            if calls:
+                return calls
+    return []
+
+
+def _assistant_footer_metrics(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    metadata = (
+        message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    )
+    metrics: List[Dict[str, Any]] = []
     usage = None
     duration_ms = None
     llm_calls = None
@@ -1589,7 +1960,11 @@ def _assistant_footer_items(message: Dict[str, Any]) -> List[str]:
         usage = _parse_usage_summary(metadata.get("usage"))
         stats_meta = metadata.get("_assistant_stats")
         if isinstance(stats_meta, dict):
-            usage = usage or _parse_usage_summary(stats_meta.get("usage") if isinstance(stats_meta.get("usage"), dict) else stats_meta.get("tokens"))
+            usage = usage or _parse_usage_summary(
+                stats_meta.get("usage")
+                if isinstance(stats_meta.get("usage"), dict)
+                else stats_meta.get("tokens")
+            )
             duration_ms = _extract_duration_ms(stats_meta)
             llm_calls = _coerce_int(stats_meta.get("llm_calls"))
             tool_calls = _coerce_int(stats_meta.get("tool_calls"))
@@ -1597,28 +1972,117 @@ def _assistant_footer_items(message: Dict[str, Any]) -> List[str]:
         if isinstance(repl, dict):
             repl_stats = repl.get("stats")
             if isinstance(repl_stats, dict):
-                usage = usage or _parse_usage_summary(repl_stats.get("usage") if isinstance(repl_stats.get("usage"), dict) else repl_stats.get("tokens"))
-                duration_ms = duration_ms if duration_ms is not None else _extract_duration_ms(repl_stats)
-                llm_calls = llm_calls if llm_calls is not None else _coerce_int(repl_stats.get("llm_calls"))
-                tool_calls = tool_calls if tool_calls is not None else _coerce_int(repl_stats.get("tool_calls"))
+                usage = usage or _parse_usage_summary(
+                    repl_stats.get("usage")
+                    if isinstance(repl_stats.get("usage"), dict)
+                    else repl_stats.get("tokens")
+                )
+                duration_ms = (
+                    duration_ms
+                    if duration_ms is not None
+                    else _extract_duration_ms(repl_stats)
+                )
+                llm_calls = (
+                    llm_calls
+                    if llm_calls is not None
+                    else _coerce_int(repl_stats.get("llm_calls"))
+                )
+                tool_calls = (
+                    tool_calls
+                    if tool_calls is not None
+                    else _coerce_int(repl_stats.get("tool_calls"))
+                )
 
     if usage is not None:
-        items.append(f"{usage['input_tokens']} in")
-        items.append(f"{usage['output_tokens']} out")
+        metrics.append(
+            {
+                "kind": "tokens_in",
+                "label": f"IN {_format_metric_count(usage['input_tokens'])}",
+                "plain": f"{usage['input_tokens']} in",
+                "tooltip": "Input tokens used by this answer",
+                "clickable": False,
+            }
+        )
+        metrics.append(
+            {
+                "kind": "tokens_out",
+                "label": f"OUT {_format_metric_count(usage['output_tokens'])}",
+                "plain": f"{usage['output_tokens']} out",
+                "tooltip": "Output tokens produced by this answer",
+                "clickable": False,
+            }
+        )
     if duration_ms is not None:
-        items.append(_format_duration_short(duration_ms))
-    if llm_calls is not None and llm_calls > 1:
-        items.append(f"{llm_calls} calls")
+        duration = _format_duration_short(duration_ms)
+        metrics.append(
+            {
+                "kind": "duration",
+                "label": duration,
+                "plain": duration,
+                "tooltip": "Elapsed runtime for this answer",
+                "clickable": False,
+            }
+        )
     if tool_calls is not None and tool_calls > 0:
-        items.append(f"{tool_calls} tools")
+        label = f"{_format_metric_count(tool_calls)} tool{'s' if int(tool_calls or 0) != 1 else ''}"
+        metrics.append(
+            {
+                "kind": "tools",
+                "label": label,
+                "plain": f"{tool_calls} tool{'s' if int(tool_calls or 0) != 1 else ''}",
+                "tooltip": "Review tools executed for this answer",
+                "clickable": True,
+                "tool_calls": _assistant_tool_calls_for_message(message),
+            }
+        )
+    if llm_calls is not None and llm_calls > 1:
+        metrics.append(
+            {
+                "kind": "llm_calls",
+                "label": f"{_format_metric_count(llm_calls)} LLM",
+                "plain": f"{llm_calls} calls",
+                "tooltip": "LLM calls used by this answer",
+                "clickable": False,
+            }
+        )
 
-    provider = str(metadata.get("provider") or "").strip() if isinstance(metadata, dict) else ""
-    model = str(metadata.get("model") or "").strip() if isinstance(metadata, dict) else ""
-    if not items and (provider or model):
-        items.append(" / ".join(part for part in (provider, model) if part))
-    elif len(items) < 4 and model:
-        items.append(model)
-    return items[:4]
+    provider = (
+        str(metadata.get("provider") or "").strip()
+        if isinstance(metadata, dict)
+        else ""
+    )
+    model = (
+        str(metadata.get("model") or "").strip() if isinstance(metadata, dict) else ""
+    )
+    if not metrics and (provider or model):
+        label = " / ".join(part for part in (provider, model) if part)
+        metrics.append(
+            {
+                "kind": "model",
+                "label": label,
+                "plain": label,
+                "tooltip": "Model used",
+                "clickable": False,
+            }
+        )
+    elif len(metrics) < 5 and model:
+        metrics.append(
+            {
+                "kind": "model",
+                "label": model,
+                "plain": model,
+                "tooltip": "Model used",
+                "clickable": False,
+            }
+        )
+    return metrics[:5]
+
+
+def _assistant_footer_items(message: Dict[str, Any]) -> List[str]:
+    return [
+        str(item.get("plain") or item.get("label") or "").strip()
+        for item in _assistant_footer_metrics(message)
+    ]
 
 
 DIRECT_CHAT_SYSTEM_PROMPT = (
@@ -1630,10 +2094,18 @@ DIRECT_CHAT_SYSTEM_PROMPT = (
 
 
 class AutoSizingTextBrowser(QTextBrowser):
-    def __init__(self, *, min_height: int = 34, max_height: Optional[int] = None, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        *,
+        min_height: int = 34,
+        max_height: Optional[int] = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self._min_height = int(min_height)
-        self._max_height = int(max_height) if isinstance(max_height, int) and max_height > 0 else None
+        self._max_height = (
+            int(max_height) if isinstance(max_height, int) and max_height > 0 else None
+        )
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFrameShape(QFrame.NoFrame)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1641,7 +2113,9 @@ class AutoSizingTextBrowser(QTextBrowser):
         self.setOpenExternalLinks(True)
         self.document().setDocumentMargin(0)
         try:
-            self.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
+            self.setTextInteractionFlags(
+                Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse
+            )
         except Exception:
             pass
 
@@ -1664,7 +2138,9 @@ class AutoSizingTextBrowser(QTextBrowser):
 
 
 class DampedScrollArea(QScrollArea):
-    def __init__(self, *, factor: float = 0.7, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, *, factor: float = 0.7, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._wheel_factor = max(0.1, float(factor or 0.7))
 
@@ -1689,7 +2165,9 @@ class DampedScrollArea(QScrollArea):
             if not angle_y:
                 super().wheelEvent(event)
                 return
-            step = (angle_y / 120.0) * float(max(1, bar.singleStep())) * self._wheel_factor
+            step = (
+                (angle_y / 120.0) * float(max(1, bar.singleStep())) * self._wheel_factor
+            )
         if step > 0:
             step = max(1.0, step)
         elif step < 0:
@@ -1699,7 +2177,9 @@ class DampedScrollArea(QScrollArea):
 
 
 class PannableScrollArea(DampedScrollArea):
-    def __init__(self, *, factor: float = 0.7, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, *, factor: float = 0.7, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(factor=factor, parent=parent)
         self._drag_origin: Optional[QPoint] = None
         self.setWidgetResizable(False)
@@ -1710,7 +2190,10 @@ class PannableScrollArea(DampedScrollArea):
         if self._drag_origin is not None:
             self.viewport().setCursor(Qt.ClosedHandCursor)
             return
-        can_pan = self.horizontalScrollBar().maximum() > 0 or self.verticalScrollBar().maximum() > 0
+        can_pan = (
+            self.horizontalScrollBar().maximum() > 0
+            or self.verticalScrollBar().maximum() > 0
+        )
         self.viewport().setCursor(Qt.OpenHandCursor if can_pan else Qt.ArrowCursor)
 
     def eventFilter(self, watched, event) -> bool:
@@ -1718,20 +2201,33 @@ class PannableScrollArea(DampedScrollArea):
             event_type = event.type()
             if event_type == QEvent.Enter:
                 self.refresh_pan_state()
-            elif event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-                if self.horizontalScrollBar().maximum() > 0 or self.verticalScrollBar().maximum() > 0:
+            elif (
+                event_type == QEvent.MouseButtonPress
+                and event.button() == Qt.LeftButton
+            ):
+                if (
+                    self.horizontalScrollBar().maximum() > 0
+                    or self.verticalScrollBar().maximum() > 0
+                ):
                     self._drag_origin = event.pos()
                     self.viewport().setCursor(Qt.ClosedHandCursor)
                     event.accept()
                     return True
             elif event_type == QEvent.MouseMove and self._drag_origin is not None:
                 delta = event.pos() - self._drag_origin
-                self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
-                self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+                self.horizontalScrollBar().setValue(
+                    self.horizontalScrollBar().value() - delta.x()
+                )
+                self.verticalScrollBar().setValue(
+                    self.verticalScrollBar().value() - delta.y()
+                )
                 self._drag_origin = event.pos()
                 event.accept()
                 return True
-            elif event_type in {QEvent.MouseButtonRelease, QEvent.Leave} and self._drag_origin is not None:
+            elif (
+                event_type in {QEvent.MouseButtonRelease, QEvent.Leave}
+                and self._drag_origin is not None
+            ):
                 self._drag_origin = None
                 self.refresh_pan_state()
                 event.accept()
@@ -1840,7 +2336,11 @@ class AttachmentIconChip(QFrame):
         icon_label = QLabel()
         icon_label.setObjectName("attachmentIconGlyph")
         icon_label.setAlignment(Qt.AlignCenter)
-        icon = _symbol_icon(_attachment_icon_name(self._path), color=_attachment_icon_color(self._path), size=18)
+        icon = _symbol_icon(
+            _attachment_icon_name(self._path),
+            color=_attachment_icon_color(self._path),
+            size=18,
+        )
         icon_label.setPixmap(icon.pixmap(18, 18))
         root.addWidget(icon_label)
 
@@ -1850,13 +2350,17 @@ class AttachmentIconChip(QFrame):
         remove_button.setIconSize(QSize(10, 10))
         remove_button.setToolTip("Remove attachment")
         remove_button.setFixedSize(16, 16)
-        remove_button.clicked.connect(lambda _checked=False: self.remove_requested.emit(self._path))
+        remove_button.clicked.connect(
+            lambda _checked=False: self.remove_requested.emit(self._path)
+        )
         remove_button.hide()
         self._remove_button = remove_button
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._remove_button.move(max(0, self.width() - self._remove_button.width() - 1), 1)
+        self._remove_button.move(
+            max(0, self.width() - self._remove_button.width() - 1), 1
+        )
 
     def enterEvent(self, event) -> None:  # noqa: N802
         self.setProperty("hovered", "true")
@@ -1923,7 +2427,10 @@ class ConnectionStatusOrb(QWidget):
 
         halo_rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
         halo = QRadialGradient(halo_rect.center(), halo_rect.width() * 0.5)
-        halo.setColorAt(0.0, QColor(ring.red(), ring.green(), ring.blue(), min(255, ring.alpha() + 18)))
+        halo.setColorAt(
+            0.0,
+            QColor(ring.red(), ring.green(), ring.blue(), min(255, ring.alpha() + 18)),
+        )
         halo.setColorAt(0.62, ring)
         halo.setColorAt(1.0, QColor(ring.red(), ring.green(), ring.blue(), 0))
         painter.setPen(Qt.NoPen)
@@ -1944,7 +2451,12 @@ class ConnectionStatusOrb(QWidget):
         painter.setPen(QPen(QColor(255, 255, 255, 54), 0.9))
         painter.drawEllipse(sphere_rect)
 
-        lower_sheen = QLinearGradient(sphere_rect.left(), sphere_rect.top(), sphere_rect.left(), sphere_rect.bottom())
+        lower_sheen = QLinearGradient(
+            sphere_rect.left(),
+            sphere_rect.top(),
+            sphere_rect.left(),
+            sphere_rect.bottom(),
+        )
         lower_sheen.setColorAt(0.0, QColor(255, 255, 255, 0))
         lower_sheen.setColorAt(0.68, QColor(255, 255, 255, 0))
         lower_sheen.setColorAt(1.0, QColor(0, 0, 0, 56))
@@ -2025,7 +2537,11 @@ class MacTrafficLightButtonsBridge:
         self._target = None
 
     def available(self) -> bool:
-        return bool(_MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE and AppKit is not None and objc is not None)
+        return bool(
+            _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE
+            and AppKit is not None
+            and objc is not None
+        )
 
     def sync_geometry(self) -> bool:
         if not self.available():
@@ -2048,7 +2564,9 @@ class MacTrafficLightButtonsBridge:
         for button in self._buttons:
             frame = button.frame()
             button_height = float(frame.size.height)
-            qt_y = float(top_left.y() + max(0, int(round((anchor_height - button_height) / 2.0))))
+            qt_y = float(
+                top_left.y() + max(0, int(round((anchor_height - button_height) / 2.0)))
+            )
             frame.origin.x = current_x
             if host_flipped:
                 frame.origin.y = max(0.0, qt_y)
@@ -2090,14 +2608,18 @@ class MacTrafficLightButtonsBridge:
             del _app
             titled = int(getattr(AppKit, "NSWindowStyleMaskTitled", 1 << 0))
             closable = int(getattr(AppKit, "NSWindowStyleMaskClosable", 1 << 1))
-            minimizable = int(getattr(AppKit, "NSWindowStyleMaskMiniaturizable", 1 << 2))
+            minimizable = int(
+                getattr(AppKit, "NSWindowStyleMaskMiniaturizable", 1 << 2)
+            )
             resizable = int(getattr(AppKit, "NSWindowStyleMaskResizable", 1 << 3))
             style_mask = titled | closable | minimizable | resizable
-            source_window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-                AppKit.NSMakeRect(0, 0, 120, 64),
-                style_mask,
-                AppKit.NSBackingStoreBuffered,
-                False,
+            source_window = (
+                AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                    AppKit.NSMakeRect(0, 0, 120, 64),
+                    style_mask,
+                    AppKit.NSBackingStoreBuffered,
+                    False,
+                )
             )
             source_window.setReleasedWhenClosed_(False)
             target = _MacTrafficLightTarget.alloc().initWithCallbacks_(self._callbacks)
@@ -2124,7 +2646,9 @@ class MacTrafficLightButtonsBridge:
 
 
 class AssistantHtmlActionBar(QFrame):
-    def __init__(self, *, actions: List[AssistantHtmlAction], parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, *, actions: List[AssistantHtmlAction], parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("assistantHtmlActionBar")
         layout = QVBoxLayout(self)
@@ -2136,7 +2660,9 @@ class AssistantHtmlActionBar(QFrame):
             button.setIcon(_symbol_icon("external", color="#f6fbff", size=14))
             button.setIconSize(QSize(14, 14))
             button.setToolTip(str(action.href or "").strip())
-            button.clicked.connect(lambda _checked=False, href=action.href: _open_external_href(href))
+            button.clicked.connect(
+                lambda _checked=False, href=action.href: _open_external_href(href)
+            )
             layout.addWidget(button, 0, Qt.AlignLeft)
 
 
@@ -2151,6 +2677,7 @@ class MessageCard(QFrame):
         build_media_preview=None,
         bubble_width: int,
         on_toggle_voice=None,
+        on_show_tools=None,
         voice_state: str = "idle",
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -2163,13 +2690,17 @@ class MessageCard(QFrame):
         self._voice_icon = _symbol_icon("speaker", color="#8ea1b8", size=15)
         self._pause_icon = _symbol_icon("pause", color="#5ed2a1", size=15)
         self._play_icon = _symbol_icon("play", color="#5ed2a1", size=15)
-        self._spinner_icons = [_symbol_icon(f"spinner{idx}", color="#f0c979", size=15) for idx in range(8)]
+        self._spinner_icons = [
+            _symbol_icon(f"spinner{idx}", color="#f0c979", size=15) for idx in range(8)
+        ]
         self._spinner_frame = 0
         self._copy_button = None
         self._voice_button = None
         self._voice_spinner = None
         self._content = str(message.get("content") or "")
-        self._content_blocks, self._html_actions = _assistant_content_blocks(self._content)
+        self._content_blocks, self._html_actions = _assistant_content_blocks(
+            self._content
+        )
         self._role = role
         self._history_message_key = str(message_key or "").strip()
         self._media_artifacts = _message_media_artifacts(message)
@@ -2214,7 +2745,9 @@ class MessageCard(QFrame):
                 voice_button.setIconSize(QSize(15, 15))
                 voice_button.setFixedSize(24, 24)
                 voice_button.setToolTip("Listen to this response / Toggle voice output")
-                voice_button.clicked.connect(lambda _checked=False, m=message: on_toggle_voice(m))
+                voice_button.clicked.connect(
+                    lambda _checked=False, m=message: on_toggle_voice(m)
+                )
                 header_row.addWidget(voice_button)
                 self._voice_button = voice_button
                 self._apply_voice_button_state(str(voice_state or "").strip())
@@ -2236,7 +2769,9 @@ class MessageCard(QFrame):
         if is_user:
             browser = AutoSizingTextBrowser(min_height=20, max_height=None)
             browser.setObjectName("userMessageText")
-            browser.setStyleSheet("background: transparent; border: none; color: #ffffff; padding: 0px; margin: 0px;")
+            browser.setStyleSheet(
+                "background: transparent; border: none; color: #ffffff; padding: 0px; margin: 0px;"
+            )
             browser.setHtml(_user_html(self._content))
             browser.refresh_height()
             bubble_layout.addWidget(browser)
@@ -2257,13 +2792,17 @@ class MessageCard(QFrame):
                     continue
                 browser = AutoSizingTextBrowser(min_height=28, max_height=None)
                 browser.setObjectName("assistantMessageText")
-                browser.setStyleSheet("background: transparent; border: none; color: #e8edf4; padding: 0px; margin: 0px;")
+                browser.setStyleSheet(
+                    "background: transparent; border: none; color: #e8edf4; padding: 0px; margin: 0px;"
+                )
                 browser.setHtml(_assistant_html(renderer, rendered_text))
                 browser.refresh_height()
                 bubble_layout.addWidget(browser)
 
         if self._html_actions:
-            bubble_layout.addWidget(AssistantHtmlActionBar(actions=self._html_actions, parent=bubble))
+            bubble_layout.addWidget(
+                AssistantHtmlActionBar(actions=self._html_actions, parent=bubble)
+            )
 
         preview_count = 0
         if callable(build_media_preview):
@@ -2282,20 +2821,39 @@ class MessageCard(QFrame):
                 open_button = QPushButton(_artifact_label(artifact))
                 open_button.setObjectName("artifactChip")
                 open_button.setToolTip("Open media")
-                open_button.clicked.connect(lambda _checked=False, art=dict(artifact): on_open_artifact(art, message))
+                open_button.clicked.connect(
+                    lambda _checked=False, art=dict(artifact): on_open_artifact(
+                        art, message
+                    )
+                )
                 artifact_row.addWidget(open_button, 0, Qt.AlignLeft)
                 artifact_row.addStretch(1)
                 bubble_layout.addLayout(artifact_row)
 
         if not is_user:
-            footer_items = _assistant_footer_items(message)
-            if footer_items:
+            footer_metrics = _assistant_footer_metrics(message)
+            if footer_metrics:
                 footer_row = QHBoxLayout()
                 footer_row.setContentsMargins(0, 0, 0, 0)
                 footer_row.setSpacing(6)
-                for item in footer_items:
-                    chip = QLabel(item)
+                for metric in footer_metrics:
+                    label = str(metric.get("label") or "").strip()
+                    if not label:
+                        continue
+                    is_tools = str(metric.get("kind") or "") == "tools"
+                    if is_tools and callable(on_show_tools):
+                        chip = QPushButton(label)
+                        chip.setCursor(QCursor(Qt.PointingHandCursor))
+                        chip.clicked.connect(
+                            lambda _checked=False, m=message: on_show_tools(m)
+                        )
+                    else:
+                        chip = QLabel(label)
                     chip.setObjectName("metricChip")
+                    chip.setProperty(
+                        "kind", str(metric.get("kind") or "metric").strip() or "metric"
+                    )
+                    chip.setToolTip(str(metric.get("tooltip") or label))
                     footer_row.addWidget(chip)
                 footer_row.addStretch(1)
                 bubble_layout.addLayout(footer_row)
@@ -2303,6 +2861,7 @@ class MessageCard(QFrame):
         ts_val = message.get("ts") or message.get("timestamp")
         if not ts_val:
             import datetime as dt_module
+
             ts_val = dt_module.datetime.now(dt_module.timezone.utc).isoformat()
         timestamp = _format_message_timestamp(ts_val)
         if timestamp:
@@ -2359,7 +2918,9 @@ class MessageCard(QFrame):
         if normalized == "synthesizing":
             button.setChecked(False)
             button.setEnabled(False)
-            button.setIcon(self._spinner_icons[self._spinner_frame % len(self._spinner_icons)])
+            button.setIcon(
+                self._spinner_icons[self._spinner_frame % len(self._spinner_icons)]
+            )
             button.setToolTip("Synthesizing reply audio")
             if self._voice_spinner is None:
                 self._voice_spinner = QTimer(self)
@@ -2400,7 +2961,11 @@ def _format_media_time(ms: int) -> str:
 def _media_display_title(*, title: str, kind: str, path: Path) -> str:
     raw = str(title or "").strip()
     candidate = raw or path.name or path.stem
-    if candidate and len(candidate) >= 24 and re.fullmatch(r"[A-Fa-f0-9_-]{24,}", candidate):
+    if (
+        candidate
+        and len(candidate) >= 24
+        and re.fullmatch(r"[A-Fa-f0-9_-]{24,}", candidate)
+    ):
         candidate = ""
     if candidate:
         return candidate
@@ -2460,7 +3025,9 @@ def _probe_media_duration_ms(path: Path) -> int:
     return 0
 
 
-def _subprocess_audio_player_command(path: Path, *, offset_ms: int = 0) -> Optional[List[str]]:
+def _subprocess_audio_player_command(
+    path: Path, *, offset_ms: int = 0
+) -> Optional[List[str]]:
     candidate = Path(path)
     offset_ms_i = max(0, int(offset_ms or 0))
     offset_s = offset_ms_i / 1000.0
@@ -2486,23 +3053,38 @@ def _subprocess_audio_player_command(path: Path, *, offset_ms: int = 0) -> Optio
 
 
 class InlineMediaPlayer(QFrame):
-    def __init__(self, *, kind: str, path: Path, title: str, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, *, kind: str, path: Path, title: str, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._kind = str(kind or "").strip().lower()
         self._path = Path(path)
-        self._title = _media_display_title(title=title, kind=self._kind, path=self._path)
-        self._duration_ms = _probe_media_duration_ms(self._path) if self._kind in {"audio", "video"} else 0
+        self._title = _media_display_title(
+            title=title, kind=self._kind, path=self._path
+        )
+        self._duration_ms = (
+            _probe_media_duration_ms(self._path)
+            if self._kind in {"audio", "video"}
+            else 0
+        )
         self._seeking = False
         self._position_ms = 0
         self._process = None
         self._process_paused = False
         self._process_offset_ms = 0
         self._process_started_at = 0.0
-        self._process_backend = self._kind == "audio" and _subprocess_audio_player_command(self._path, offset_ms=0) is not None
+        self._process_backend = (
+            self._kind == "audio"
+            and _subprocess_audio_player_command(self._path, offset_ms=0) is not None
+        )
         self._play_icon = _symbol_icon("play", color="#f4f8fc", size=14)
         self._pause_icon = _symbol_icon("pause", color="#f4f8fc", size=14)
         self._open_icon = _symbol_icon("external", color="#a9bbcf", size=13)
-        self._kind_icon = _symbol_icon("file-audio" if self._kind == "audio" else "file-video", color="#77d1a8" if self._kind == "audio" else "#f0c979", size=14)
+        self._kind_icon = _symbol_icon(
+            "file-audio" if self._kind == "audio" else "file-video",
+            color="#77d1a8" if self._kind == "audio" else "#f0c979",
+            size=14,
+        )
         self.setObjectName("inlineMediaPlayer")
 
         root = QVBoxLayout(self)
@@ -2538,10 +3120,17 @@ class InlineMediaPlayer(QFrame):
         self._position_timer.timeout.connect(self._poll_process_playback)
         self.destroyed.connect(self._cleanup_playback)
 
-        if not self._process_backend and QT_MULTIMEDIA_AVAILABLE and QMediaPlayer is not None and QMediaContent is not None:
+        if (
+            not self._process_backend
+            and QT_MULTIMEDIA_AVAILABLE
+            and QMediaPlayer is not None
+            and QMediaContent is not None
+        ):
             try:
                 self._player = QMediaPlayer(self)
-                self._player.setMedia(QMediaContent(QUrl.fromLocalFile(str(self._path))))
+                self._player.setMedia(
+                    QMediaContent(QUrl.fromLocalFile(str(self._path)))
+                )
             except Exception:
                 self._player = None
 
@@ -2704,7 +3293,9 @@ class InlineMediaPlayer(QFrame):
             return
         self._stop_process_playback(reset=False, keep_position=offset_ms)
         try:
-            process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(
+                command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
         except Exception:
             self._open_external()
             return
@@ -2746,7 +3337,9 @@ class InlineMediaPlayer(QFrame):
             return
         self._apply_transport_button_state()
 
-    def _stop_process_playback(self, *, reset: bool, keep_position: Optional[int] = None) -> None:
+    def _stop_process_playback(
+        self, *, reset: bool, keep_position: Optional[int] = None
+    ) -> None:
         process = self._process
         if process is not None:
             try:
@@ -2774,7 +3367,10 @@ class InlineMediaPlayer(QFrame):
             return max(0, int(self._position_ms or 0))
         if self._process_paused:
             return max(0, int(self._position_ms or 0))
-        elapsed_ms = int((time.monotonic() - float(self._process_started_at or time.monotonic())) * 1000.0)
+        elapsed_ms = int(
+            (time.monotonic() - float(self._process_started_at or time.monotonic()))
+            * 1000.0
+        )
         position = max(0, int(self._process_offset_ms or 0) + elapsed_ms)
         if self._duration_ms > 0:
             position = min(position, self._duration_ms)
@@ -2801,7 +3397,11 @@ class InlineMediaPlayer(QFrame):
     def _apply_transport_button_state(self) -> None:
         if self._process_backend:
             self._play_button.setEnabled(True)
-            if self._process is not None and self._process.poll() is None and not self._process_paused:
+            if (
+                self._process is not None
+                and self._process.poll() is None
+                and not self._process_paused
+            ):
                 self._play_button.setIcon(self._pause_icon)
                 self._play_button.setToolTip("Pause audio")
             else:
@@ -2823,7 +3423,9 @@ class InlineMediaPlayer(QFrame):
         self._play_button.setToolTip("Pause audio" if is_playing else "Play audio")
 
     def _update_time_label(self, position_ms: int) -> None:
-        total = _format_media_time(self._duration_ms) if self._duration_ms > 0 else "--:--"
+        total = (
+            _format_media_time(self._duration_ms) if self._duration_ms > 0 else "--:--"
+        )
         self._time_label.setText(f"{_format_media_time(position_ms)} / {total}")
 
     def _cleanup_playback(self, *_args) -> None:
@@ -2879,7 +3481,14 @@ def _pixmap_from_data_uri(data_uri: str) -> QPixmap:
 
 
 class MermaidPreviewCard(QFrame):
-    def __init__(self, *, source: str, data_uri: str, bubble_width: int, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        *,
+        source: str,
+        data_uri: str,
+        bubble_width: int,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self._source = str(source or "")
         self._pixmap = _pixmap_from_data_uri(data_uri)
@@ -2900,7 +3509,9 @@ class MermaidPreviewCard(QFrame):
         header.setSpacing(6)
         icon_label = QLabel()
         icon_label.setObjectName("mediaTitleIcon")
-        icon_label.setPixmap(_symbol_icon("file-image", color="#79c7ff", size=14).pixmap(14, 14))
+        icon_label.setPixmap(
+            _symbol_icon("file-image", color="#79c7ff", size=14).pixmap(14, 14)
+        )
         icon_label.setFixedSize(16, 16)
         header.addWidget(icon_label, 0, Qt.AlignVCenter)
 
@@ -2912,13 +3523,21 @@ class MermaidPreviewCard(QFrame):
         self._zoom_out_button = QPushButton("-")
         self._zoom_out_button.setObjectName("mediaIconButton")
         self._zoom_out_button.setToolTip("Zoom out")
-        self._zoom_out_button.clicked.connect(lambda: self._set_zoom_multiplier(self._zoom_multiplier / _MERMAID_ZOOM_STEP))
+        self._zoom_out_button.clicked.connect(
+            lambda: self._set_zoom_multiplier(
+                self._zoom_multiplier / _MERMAID_ZOOM_STEP
+            )
+        )
         header.addWidget(self._zoom_out_button, 0)
 
         self._zoom_in_button = QPushButton("+")
         self._zoom_in_button.setObjectName("mediaIconButton")
         self._zoom_in_button.setToolTip("Zoom in")
-        self._zoom_in_button.clicked.connect(lambda: self._set_zoom_multiplier(self._zoom_multiplier * _MERMAID_ZOOM_STEP))
+        self._zoom_in_button.clicked.connect(
+            lambda: self._set_zoom_multiplier(
+                self._zoom_multiplier * _MERMAID_ZOOM_STEP
+            )
+        )
         header.addWidget(self._zoom_in_button, 0)
         root.addLayout(header)
 
@@ -2934,8 +3553,20 @@ class MermaidPreviewCard(QFrame):
         self._image_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self._scroll.setWidget(self._image_label)
 
-        QShortcut(Qt.Key_Plus, self, activated=lambda: self._set_zoom_multiplier(self._zoom_multiplier * _MERMAID_ZOOM_STEP))
-        QShortcut(Qt.Key_Minus, self, activated=lambda: self._set_zoom_multiplier(self._zoom_multiplier / _MERMAID_ZOOM_STEP))
+        QShortcut(
+            Qt.Key_Plus,
+            self,
+            activated=lambda: self._set_zoom_multiplier(
+                self._zoom_multiplier * _MERMAID_ZOOM_STEP
+            ),
+        )
+        QShortcut(
+            Qt.Key_Minus,
+            self,
+            activated=lambda: self._set_zoom_multiplier(
+                self._zoom_multiplier / _MERMAID_ZOOM_STEP
+            ),
+        )
         self.set_bubble_width(self._bubble_width)
 
     def set_bubble_width(self, bubble_width: int) -> None:
@@ -2943,7 +3574,9 @@ class MermaidPreviewCard(QFrame):
         self._render_preview()
 
     def _set_zoom_multiplier(self, value: float) -> None:
-        bounded = max(_MERMAID_INLINE_MIN_ZOOM, min(_MERMAID_INLINE_MAX_ZOOM, float(value or 1.0)))
+        bounded = max(
+            _MERMAID_INLINE_MIN_ZOOM, min(_MERMAID_INLINE_MAX_ZOOM, float(value or 1.0))
+        )
         if math.isclose(self._zoom_multiplier, bounded, rel_tol=0.0, abs_tol=0.001):
             self._sync_scroll_state()
             return
@@ -2966,21 +3599,32 @@ class MermaidPreviewCard(QFrame):
         fit_height_scale = float(_MERMAID_INLINE_MAX_HEIGHT) / float(source_height)
         base_scale = min(fit_width_scale, fit_height_scale)
         scale = base_scale * self._zoom_multiplier
-        scale = max(_MERMAID_INLINE_MIN_RENDER_SCALE, min(_MERMAID_INLINE_MAX_RENDER_SCALE, scale))
+        scale = max(
+            _MERMAID_INLINE_MIN_RENDER_SCALE,
+            min(_MERMAID_INLINE_MAX_RENDER_SCALE, scale),
+        )
 
         width = max(1, int(round(source_width * scale)))
         height = max(1, int(round(source_height * scale)))
-        scaled = self._pixmap.scaled(width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = self._pixmap.scaled(
+            width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
 
         self.setFixedWidth(frame_width)
         self._scroll.setFixedWidth(frame_width)
         self._image_label.setPixmap(scaled)
         self._image_label.setFixedSize(scaled.size())
-        viewport_height = min(_MERMAID_INLINE_MAX_HEIGHT, max(_MERMAID_INLINE_MIN_HEIGHT, scaled.height()))
+        viewport_height = min(
+            _MERMAID_INLINE_MAX_HEIGHT, max(_MERMAID_INLINE_MIN_HEIGHT, scaled.height())
+        )
         self._scroll.setFixedHeight(viewport_height + 18)
-        QTimer.singleShot(0, lambda: self._after_render(anchor_x, anchor_y, preserve_anchor))
+        QTimer.singleShot(
+            0, lambda: self._after_render(anchor_x, anchor_y, preserve_anchor)
+        )
 
-    def _after_render(self, anchor_x: float, anchor_y: float, preserve_anchor: bool) -> None:
+    def _after_render(
+        self, anchor_x: float, anchor_y: float, preserve_anchor: bool
+    ) -> None:
         if preserve_anchor:
             self._restore_scroll_anchor(anchor_x, anchor_y)
         else:
@@ -2992,8 +3636,14 @@ class MermaidPreviewCard(QFrame):
         width = max(1, int(self._image_label.width() or 1))
         height = max(1, int(self._image_label.height() or 1))
         viewport = self._scroll.viewport().size()
-        center_x = float(self._scroll.horizontalScrollBar().value()) + float(max(1, viewport.width())) / 2.0
-        center_y = float(self._scroll.verticalScrollBar().value()) + float(max(1, viewport.height())) / 2.0
+        center_x = (
+            float(self._scroll.horizontalScrollBar().value())
+            + float(max(1, viewport.width())) / 2.0
+        )
+        center_y = (
+            float(self._scroll.verticalScrollBar().value())
+            + float(max(1, viewport.height())) / 2.0
+        )
         return center_x / float(width), center_y / float(height)
 
     def _restore_scroll_anchor(self, anchor_x: float, anchor_y: float) -> None:
@@ -3002,15 +3652,27 @@ class MermaidPreviewCard(QFrame):
         viewport = self._scroll.viewport().size()
         hbar = self._scroll.horizontalScrollBar()
         vbar = self._scroll.verticalScrollBar()
-        target_x = int(round(float(anchor_x) * float(width) - float(max(1, viewport.width())) / 2.0))
-        target_y = int(round(float(anchor_y) * float(height) - float(max(1, viewport.height())) / 2.0))
+        target_x = int(
+            round(
+                float(anchor_x) * float(width) - float(max(1, viewport.width())) / 2.0
+            )
+        )
+        target_y = int(
+            round(
+                float(anchor_y) * float(height) - float(max(1, viewport.height())) / 2.0
+            )
+        )
         hbar.setValue(max(0, min(hbar.maximum(), target_x)))
         vbar.setValue(max(0, min(vbar.maximum(), target_y)))
 
     def _sync_scroll_state(self) -> None:
         self._scroll.refresh_pan_state()
-        self._zoom_out_button.setEnabled(self._zoom_multiplier > (_MERMAID_INLINE_MIN_ZOOM + 0.01))
-        self._zoom_in_button.setEnabled(self._zoom_multiplier < (_MERMAID_INLINE_MAX_ZOOM - 0.01))
+        self._zoom_out_button.setEnabled(
+            self._zoom_multiplier > (_MERMAID_INLINE_MIN_ZOOM + 0.01)
+        )
+        self._zoom_in_button.setEnabled(
+            self._zoom_multiplier < (_MERMAID_INLINE_MAX_ZOOM - 0.01)
+        )
 
 
 class ArtifactPreviewCard(QFrame):
@@ -3087,7 +3749,9 @@ class ArtifactPreviewCard(QFrame):
             button.setCursor(QCursor(Qt.PointingHandCursor))
             button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             scaled_size = _image_thumbnail_size(pixmap.size())
-            scaled = pixmap.scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = pixmap.scaled(
+                scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
             button.setFixedSize(scaled.size())
             button.setIcon(QIcon(scaled))
             button.setIconSize(scaled.size())
@@ -3095,7 +3759,9 @@ class ArtifactPreviewCard(QFrame):
             return
 
         if self._media_kind in {"audio", "video"}:
-            player = InlineMediaPlayer(kind=self._media_kind, path=path, title=self._title, parent=self)
+            player = InlineMediaPlayer(
+                kind=self._media_kind, path=path, title=self._title, parent=self
+            )
             self._content_layout.addWidget(player)
             return
 
@@ -3134,17 +3800,17 @@ class ThinkingDotsWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
-        
+
         dot_radius = 3.0
         spacing = 9.0
         center_x = self.width() / 2.0
         center_y = self.height() / 2.0
-        
+
         for i in range(3):
             # Sequence phase delay to create the wave-like motion
             phase = i * 0.95
             offset = math.sin(self._tick - phase)
-            
+
             # Snap shape: bounce up snappily during positive phase, rest at bottom during negative phase
             if offset > 0:
                 y_shift = -offset * 4.5
@@ -3152,7 +3818,7 @@ class ThinkingDotsWidget(QWidget):
             else:
                 y_shift = 0.0
                 dot_color = QColor(156, 163, 175, 140)  # Muted grey at rest
-                
+
             painter.setBrush(QBrush(dot_color))
             x = center_x + (i - 1) * spacing
             y = center_y + y_shift
@@ -3186,7 +3852,9 @@ class ThinkingIndicatorCard(QFrame):
 
 
 class ToolApprovalCallCard(QFrame):
-    def __init__(self, *, call: Any, index: int, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, *, call: Any, index: int, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         summary = _tool_call_summary(call)
         self.setObjectName("toolApprovalCallCard")
@@ -3248,7 +3916,9 @@ class ToolApprovalCallCard(QFrame):
         raw_panel = QPlainTextEdit()
         raw_panel.setObjectName("toolApprovalRawPanel")
         raw_panel.setReadOnly(True)
-        raw_panel.setPlainText(summary.raw_text or "No raw tool call payload was provided.")
+        raw_panel.setPlainText(
+            summary.raw_text or "No raw tool call payload was provided."
+        )
         raw_panel.setMinimumHeight(132)
         raw_panel.setMaximumHeight(220)
         raw_panel.hide()
@@ -3256,7 +3926,9 @@ class ToolApprovalCallCard(QFrame):
 
         def _toggle_raw(checked: bool) -> None:
             raw_panel.setVisible(bool(checked))
-            raw_toggle.setText("Hide full tool call" if checked else "Show full tool call")
+            raw_toggle.setText(
+                "Hide full tool call" if checked else "Show full tool call"
+            )
 
         raw_toggle.toggled.connect(_toggle_raw)
 
@@ -3264,6 +3936,7 @@ class ToolApprovalCallCard(QFrame):
 class ToolApprovalDialog(QDialog):
     def __init__(self, *, tool_calls: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self.approval_scope = "once"
         self.setWindowTitle("Approve tools")
         self.resize(680, 520)
 
@@ -3276,12 +3949,18 @@ class ToolApprovalDialog(QDialog):
         headline.setObjectName("dialogTitle")
         root.addWidget(headline)
 
-        hint = QLabel("Review this batch. Allow or deny applies only to the current request.")
+        hint = QLabel(
+            "Review this batch. Use “Allow once” for this request, or allow all enabled tools for this chat to stop prompting while you stay in this chat."
+        )
         hint.setWordWrap(True)
         hint.setObjectName("toolApprovalHint")
         root.addWidget(hint)
 
-        calls = [call for call in list(tool_calls or []) if isinstance(call, dict)] if isinstance(tool_calls, list) else []
+        calls = (
+            [call for call in list(tool_calls or []) if isinstance(call, dict)]
+            if isinstance(tool_calls, list)
+            else []
+        )
         batch_note = QLabel(
             f"{len(calls)} tool request{'s' if len(calls) != 1 else ''} in this approval batch."
             if calls
@@ -3295,7 +3974,9 @@ class ToolApprovalDialog(QDialog):
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Sunken)
-        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;")
+        sep.setStyleSheet(
+            "background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;"
+        )
         root.addWidget(sep)
 
         scroll = QScrollArea()
@@ -3333,14 +4014,22 @@ class ToolApprovalDialog(QDialog):
         deny.setObjectName("toolApprovalSecondaryButton")
         deny.clicked.connect(self.reject)
         buttons.addWidget(deny)
-        allow = QPushButton("Allow")
-        allow.setObjectName("toolApprovalPrimaryButton")
-        allow.clicked.connect(self.accept)
+
+        allow = QPushButton("Allow once")
+        allow.setObjectName("toolApprovalSecondaryButton")
+        allow.clicked.connect(self._accept_once)
         buttons.addWidget(allow)
+
+        allow_session = QPushButton("Allow all enabled tools in this chat")
+        allow_session.setObjectName("toolApprovalPrimaryButton")
+        allow_session.setToolTip(
+            "Auto-approve future tool requests only for enabled tools in this chat."
+        )
+        allow_session.clicked.connect(self._accept_for_session)
+        buttons.addWidget(allow_session)
         root.addLayout(buttons)
 
-        self.setStyleSheet(
-            """
+        self.setStyleSheet("""
             QDialog {
                 background: #090d16;
                 color: #f3f4f6;
@@ -3456,14 +4145,277 @@ class ToolApprovalDialog(QDialog):
                 border: none;
                 height: 0px;
             }
-            """
+            """)
+
+    def _accept_once(self) -> None:
+        self.approval_scope = "once"
+        self.accept()
+
+    def _accept_for_session(self) -> None:
+        self.approval_scope = "session"
+        self.accept()
+
+
+class ToolUsageLookupWorker(QThread):
+    loaded = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        *,
+        controller: AssistantV2Controller,
+        message: Dict[str, Any],
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._controller = controller
+        self._message = dict(message or {})
+
+    def run(self) -> None:
+        try:
+            result = self._controller.tool_call_details_for_message(self._message)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            return
+        self.loaded.emit(result if isinstance(result, dict) else {})
+
+
+class ToolUsageDialog(QDialog):
+    def __init__(
+        self,
+        *,
+        message: Dict[str, Any],
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        source: str = "",
+        run_ids: Optional[List[str]] = None,
+        error: str = "",
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Tools used")
+        self.resize(680, 520)
+        self._message = dict(message or {})
+
+        ledger_calls = [
+            dict(call) for call in (tool_calls or []) if isinstance(call, dict)
+        ]
+        cached_calls = _assistant_tool_calls_for_message(message)
+        calls = ledger_calls or cached_calls
+        source_s = str(source or "").strip()
+        run_ids_s = [
+            str(rid or "").strip() for rid in (run_ids or []) if str(rid or "").strip()
+        ]
+        error_s = str(error or "").strip()
+        metrics = _assistant_footer_metrics(message)
+        tool_metric = next(
+            (metric for metric in metrics if str(metric.get("kind") or "") == "tools"),
+            {},
         )
+        count_label = str(
+            tool_metric.get("plain") or tool_metric.get("label") or "tool calls"
+        ).strip()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        headline = QLabel("Tools used in this answer")
+        headline.setWordWrap(True)
+        headline.setObjectName("dialogTitle")
+        root.addWidget(headline)
+
+        self._hint_label = QLabel("")
+        self._hint_label.setWordWrap(True)
+        self._hint_label.setObjectName("toolApprovalHint")
+        root.addWidget(self._hint_label)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        sep.setStyleSheet(
+            "background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;"
+        )
+        root.addWidget(sep)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        root.addWidget(scroll, 1)
+
+        host = QWidget()
+        host_layout = QVBoxLayout(host)
+        host_layout.setContentsMargins(0, 0, 0, 0)
+        host_layout.setSpacing(10)
+        scroll.setWidget(host)
+        self._host = host
+        self._host_layout = host_layout
+        self._count_label = count_label
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        close = QPushButton("Close")
+        close.setObjectName("toolApprovalSecondaryButton")
+        close.clicked.connect(self.accept)
+        buttons.addWidget(close)
+        root.addLayout(buttons)
+
+        self.setStyleSheet("""
+            QDialog {
+                background: #090d16;
+                color: #f3f4f6;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial;
+            }
+            QLabel#dialogTitle {
+                color: #ffffff;
+                font-size: 20px;
+                font-weight: 700;
+            }
+            QLabel#toolApprovalHint {
+                color: #9ca3af;
+                font-size: 13px;
+            }
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QFrame#toolApprovalCallCard {
+                background: rgba(22, 28, 38, 0.72);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
+            }
+            QLabel#toolApprovalName {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLabel#toolApprovalReason {
+                color: #d1d5db;
+                font-size: 12px;
+            }
+            QFrame#toolApprovalParams {
+                background: rgba(0, 0, 0, 0.25);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 10px;
+            }
+            QLabel#toolApprovalParamKey {
+                color: #a5b4fc;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QLabel#toolApprovalParamValue {
+                color: #f3f4f6;
+                font-size: 11px;
+            }
+            QPushButton#toolApprovalRawToggle, QPushButton#toolApprovalSecondaryButton {
+                min-height: 34px;
+                border-radius: 10px;
+                padding: 0 16px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.04);
+                color: #f3f4f6;
+                font-weight: 600;
+                font-size: 13px;
+            }
+            QPushButton#toolApprovalRawToggle:hover, QPushButton#toolApprovalSecondaryButton:hover {
+                background: rgba(255, 255, 255, 0.09);
+                border-color: rgba(255, 255, 255, 0.15);
+            }
+            QPlainTextEdit#toolApprovalRawPanel {
+                background: #0b0f17;
+                color: #f3f4f6;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+                padding: 8px;
+                font-family: "SF Mono", Menlo, Monaco, Consolas;
+                font-size: 11px;
+            }
+            """)
+        self.update_tool_usage(
+            tool_calls=calls, source=source_s, run_ids=run_ids_s, error=error_s
+        )
+
+    def set_loading(self) -> None:
+        if _assistant_tool_calls_for_message(self._message):
+            self._hint_label.setText(
+                "Refreshing tool details from the runtime ledger..."
+            )
+            return
+        self._populate_empty(
+            "Loading tool details from the runtime ledger...",
+            "The dialog is replaying the run ledger via Gateway.",
+        )
+
+    def update_tool_usage(
+        self,
+        *,
+        tool_calls: List[Dict[str, Any]],
+        source: str = "",
+        run_ids: Optional[List[str]] = None,
+        error: str = "",
+    ) -> None:
+        calls = [dict(call) for call in (tool_calls or []) if isinstance(call, dict)]
+        source_s = str(source or "").strip()
+        run_ids_s = [
+            str(rid or "").strip() for rid in (run_ids or []) if str(rid or "").strip()
+        ]
+        error_s = str(error or "").strip()
+        if calls:
+            if source_s == "ledger":
+                run_hint = f" from run {run_ids_s[0]}" if run_ids_s else ""
+                hint_text = f"{len(calls)} tools loaded{run_hint} by replaying the runtime ledger."
+            elif source_s == "scratchpad":
+                run_hint = f" for run {run_ids_s[0]}" if run_ids_s else ""
+                hint_text = f"{len(calls)} tools loaded{run_hint} from the persisted agent scratchpad because the Gateway ledger was unavailable."
+            else:
+                hint_text = f"{len(calls)} tools loaded from cached assistant metadata."
+            self._clear_tool_host()
+            self._hint_label.setText(hint_text)
+            for index, call in enumerate(calls):
+                self._host_layout.addWidget(
+                    ToolApprovalCallCard(call=call, index=index, parent=self._host)
+                )
+            self._host_layout.addStretch(1)
+            return
+        if error_s:
+            self._populate_empty(
+                f"Could not load tool details from the runtime ledger: {error_s}",
+                f"Ledger lookup failed.\n\n{error_s}",
+            )
+        elif source_s == "missing_run_id":
+            self._populate_empty(
+                "This message has a tool count but no run_id, so the runtime ledger cannot be replayed for it.",
+                "No run_id is attached to this assistant message. Future messages now persist the run_id so this ledger replay can work.",
+            )
+        else:
+            self._populate_empty(
+                f"{self._count_label} recorded, but no completed tool_calls records were found in the runtime ledger.",
+                "The Gateway ledger returned no completed tool_calls records for this run.",
+            )
+
+    def _populate_empty(self, hint: str, detail: str) -> None:
+        self._clear_tool_host()
+        self._hint_label.setText(str(hint or ""))
+        fallback = QPlainTextEdit()
+        fallback.setObjectName("toolApprovalRawPanel")
+        fallback.setReadOnly(True)
+        fallback.setPlainText(str(detail or ""))
+        self._host_layout.addWidget(fallback)
+        self._host_layout.addStretch(1)
+
+    def _clear_tool_host(self) -> None:
+        while self._host_layout.count():
+            item = self._host_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
 
 class ToolSettingsDialog(QDialog):
     settings_saved = pyqtSignal()
 
-    def __init__(self, *, controller: AssistantV2Controller, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, *, controller: AssistantV2Controller, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._controller = controller
         self._rows: Dict[str, Dict[str, Any]] = {}
@@ -3490,7 +4442,9 @@ class ToolSettingsDialog(QDialog):
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Sunken)
-        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;")
+        sep.setStyleSheet(
+            "background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;"
+        )
         root.addWidget(sep)
 
         self.mode_note = QLabel("")
@@ -3538,8 +4492,7 @@ class ToolSettingsDialog(QDialog):
         self.refresh()
 
     def _apply_styles(self) -> None:
-        self.setStyleSheet(
-            """
+        self.setStyleSheet("""
             QDialog {
                 background: #090d16;
                 color: #f3f4f6;
@@ -3675,8 +4628,7 @@ class ToolSettingsDialog(QDialog):
                 border: none;
                 height: 0px;
             }
-            """
-        )
+            """)
 
     def _toolset_icon(self, toolset: str) -> str:
         mapping = {
@@ -3703,7 +4655,9 @@ class ToolSettingsDialog(QDialog):
     def refresh(self) -> None:
         inventory = self._controller.tool_inventory()
         items = inventory.get("items") if isinstance(inventory, dict) else []
-        self.mode_note.setText(self._tool_mode_text(str((inventory or {}).get("tool_mode") or "")))
+        self.mode_note.setText(
+            self._tool_mode_text(str((inventory or {}).get("tool_mode") or ""))
+        )
         self.feedback.clear()
 
         while self.list_layout.count():
@@ -3738,15 +4692,23 @@ class ToolSettingsDialog(QDialog):
             title.setObjectName("toolName")
             text_col.addWidget(title)
 
-            desc_parts = [str(item.get("description") or "").strip(), str(item.get("when_to_use") or "").strip()]
-            desc = " ".join(part for part in desc_parts if part).strip() or "No description available."
+            desc_parts = [
+                str(item.get("description") or "").strip(),
+                str(item.get("when_to_use") or "").strip(),
+            ]
+            desc = (
+                " ".join(part for part in desc_parts if part).strip()
+                or "No description available."
+            )
             meta = QLabel(desc)
             meta.setObjectName("toolMeta")
             meta.setWordWrap(True)
             text_col.addWidget(meta)
 
             policy_default = str(item.get("policy_default") or "ask").strip().lower()
-            default_hint = QLabel(f"Default: {'Approve' if policy_default == 'approve' else 'Ask'}")
+            default_hint = QLabel(
+                f"Default: {'Approve' if policy_default == 'approve' else 'Ask'}"
+            )
             default_hint.setObjectName("toolMeta")
             text_col.addWidget(default_hint)
 
@@ -3761,7 +4723,12 @@ class ToolSettingsDialog(QDialog):
 
             self.list_layout.addWidget(row)
             searchable = f"{name}\n{desc}\n{item.get('toolset') or ''}".lower()
-            self._rows[name] = {"row": row, "combo": combo, "default_mode": str(item.get("default_mode") or "ask"), "search": searchable}
+            self._rows[name] = {
+                "row": row,
+                "combo": combo,
+                "default_mode": str(item.get("default_mode") or "ask"),
+                "search": searchable,
+            }
 
         self.list_layout.addStretch(1)
         self._apply_filter()
@@ -3800,7 +4767,13 @@ class ToolSettingsDialog(QDialog):
 class SettingsDialog(QDialog):
     settings_saved = pyqtSignal()
 
-    def __init__(self, *, controller: AssistantV2Controller, apply_hotkey, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        *,
+        controller: AssistantV2Controller,
+        apply_hotkey,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self._controller = controller
         self._apply_hotkey = apply_hotkey
@@ -3816,7 +4789,9 @@ class SettingsDialog(QDialog):
         title.setObjectName("dialogTitle")
         root.addWidget(title)
 
-        subtitle = QLabel("Gateway defaults stay on the gateway. Device preferences stay on this Mac.")
+        subtitle = QLabel(
+            "Gateway defaults stay on the gateway. Device preferences stay on this Mac."
+        )
         subtitle.setObjectName("dialogSubtitle")
         subtitle.setWordWrap(True)
         root.addWidget(subtitle)
@@ -3825,7 +4800,9 @@ class SettingsDialog(QDialog):
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Sunken)
-        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;")
+        sep.setStyleSheet(
+            "background-color: rgba(255, 255, 255, 0.08); max-height: 1px; border: none; margin: 4px 0;"
+        )
         root.addWidget(sep)
 
         self.settings_tabs = QTabWidget()
@@ -3838,7 +4815,9 @@ class SettingsDialog(QDialog):
         connection_root.setSpacing(12)
         self.settings_tabs.addTab(connection_tab, "Connection")
 
-        connection_intro = QLabel("Choose how this desktop app signs into the gateway. These settings stay on this device.")
+        connection_intro = QLabel(
+            "Choose how this desktop app signs into the gateway. These settings stay on this device."
+        )
         connection_intro.setObjectName("sectionHelp")
         connection_intro.setWordWrap(True)
         connection_root.addWidget(connection_intro)
@@ -3865,7 +4844,9 @@ class SettingsDialog(QDialog):
         self.auth_mode_combo = QComboBox()
         self.auth_mode_combo.addItem("Bearer token", "bearer")
         self.auth_mode_combo.addItem("Gateway session", "session")
-        self.auth_mode_combo.currentIndexChanged.connect(self._refresh_connection_fields)
+        self.auth_mode_combo.currentIndexChanged.connect(
+            self._refresh_connection_fields
+        )
         connection_form.addWidget(self.auth_mode_combo, 1, 1)
 
         self.bearer_token_label = QLabel("Bearer token")
@@ -3888,7 +4869,9 @@ class SettingsDialog(QDialog):
         self.gateway_user_token_edit.setPlaceholderText("Paste the gateway user token")
         connection_form.addWidget(self.gateway_user_token_edit, 4, 1)
 
-        self.remember_session = QCheckBox("Keep the gateway session after this app closes")
+        self.remember_session = QCheckBox(
+            "Keep the gateway session after this app closes"
+        )
         connection_form.addWidget(self.remember_session, 5, 0, 1, 2)
 
         self.connection_status = QLabel("")
@@ -3948,7 +4931,9 @@ class SettingsDialog(QDialog):
         voice_shortcut_text.addWidget(self.voice_shortcut_summary)
         self.voice_shortcut_button = QPushButton("Open Voice Output")
         self.voice_shortcut_button.setObjectName("secondaryButton")
-        self.voice_shortcut_button.clicked.connect(lambda: self._focus_route("output.voice"))
+        self.voice_shortcut_button.clicked.connect(
+            lambda: self._focus_route("output.voice")
+        )
         voice_shortcut_layout.addWidget(self.voice_shortcut_button, 0, Qt.AlignTop)
         routes_root.addWidget(self.voice_shortcut_card)
 
@@ -3994,7 +4979,9 @@ class SettingsDialog(QDialog):
         form.addWidget(QLabel("Provider"), 0, 0)
         self.provider_combo = QComboBox()
         self.provider_combo.setMinimumWidth(260)
-        self.provider_combo.currentIndexChanged.connect(self._refresh_models_for_provider)
+        self.provider_combo.currentIndexChanged.connect(
+            self._refresh_models_for_provider
+        )
         form.addWidget(self.provider_combo, 0, 1)
 
         form.addWidget(QLabel("Model"), 1, 0)
@@ -4122,7 +5109,12 @@ class SettingsDialog(QDialog):
         self._apply_styles()
 
         # Add drop shadows to settings cards
-        for card in (self.connection_card, self.voice_shortcut_card, self.route_card, self.prefs_card):
+        for card in (
+            self.connection_card,
+            self.voice_shortcut_card,
+            self.route_card,
+            self.prefs_card,
+        ):
             shadow = QGraphicsDropShadowEffect(card)
             shadow.setBlurRadius(16)
             shadow.setColor(QColor(0, 0, 0, 100))
@@ -4157,7 +5149,9 @@ class SettingsDialog(QDialog):
             self.route_list.setCurrentRow(selected_index)
         else:
             self.route_label.setText("No gateway routes available")
-            self.route_help.setText("Connect to a gateway account that can read capability defaults.")
+            self.route_help.setText(
+                "Connect to a gateway account that can read capability defaults."
+            )
             self.route_state.setText("")
             self._set_route_editor_enabled(False)
         self._refresh_voice_shortcut_summary()
@@ -4170,8 +5164,7 @@ class SettingsDialog(QDialog):
         self.bottom_offset_spin.setValue(int(prefs.bottom_offset))
 
     def _apply_styles(self) -> None:
-        self.setStyleSheet(
-            """
+        self.setStyleSheet("""
             QDialog {
                 background: #090d16;
                 color: #f3f4f6;
@@ -4344,13 +5337,14 @@ class SettingsDialog(QDialog):
                 border: none;
                 height: 0px;
             }
-            """
-        )
+            """)
 
     def _load_connection_preferences(self) -> None:
         connection = self._controller.current_connection()
         self.gateway_url_edit.setText(str(connection.base_url or DEFAULT_GATEWAY_URL))
-        self._set_combo_value(self.auth_mode_combo, str(connection.auth_mode or "bearer"))
+        self._set_combo_value(
+            self.auth_mode_combo, str(connection.auth_mode or "bearer")
+        )
         self.bearer_token_edit.setText(str(connection.auth_token or ""))
         self.gateway_user_edit.setText(str(connection.user_id or ""))
         self.remember_session.setChecked(bool(connection.remember_session))
@@ -4371,27 +5365,43 @@ class SettingsDialog(QDialog):
     def _refresh_connection_status(self) -> None:
         payload = self._controller.connection_status()
         if not isinstance(payload, dict) or payload.get("ok") is False:
-            detail = str(payload.get("detail") or "Not connected yet.").strip() if isinstance(payload, dict) else "Not connected yet."
+            detail = (
+                str(payload.get("detail") or "Not connected yet.").strip()
+                if isinstance(payload, dict)
+                else "Not connected yet."
+            )
             self.connection_status.setText(f"Status: {detail}")
             return
-        principal = payload.get("principal") if isinstance(payload.get("principal"), dict) else {}
+        principal = (
+            payload.get("principal")
+            if isinstance(payload.get("principal"), dict)
+            else {}
+        )
         auth = payload.get("auth") if isinstance(payload.get("auth"), dict) else {}
-        routing = payload.get("routing") if isinstance(payload.get("routing"), dict) else {}
+        routing = (
+            payload.get("routing") if isinstance(payload.get("routing"), dict) else {}
+        )
         user_id = str(principal.get("user_id") or "unknown").strip()
         tenant_id = str(principal.get("tenant_id") or "").strip()
         mode = str(auth.get("mode") or "").strip() or "unknown"
         suffix = f" in tenant {tenant_id}" if tenant_id else ""
         routing_mode = str(routing.get("mode") or "").strip()
         routing_note = f" Routing: {routing_mode}." if routing_mode else ""
-        self.connection_status.setText(f"Status: connected as {user_id}{suffix} via {mode}.{routing_note}")
+        self.connection_status.setText(
+            f"Status: connected as {user_id}{suffix} via {mode}.{routing_note}"
+        )
 
     def _save_connection(self) -> None:
         base_url = self.gateway_url_edit.text().strip() or DEFAULT_GATEWAY_URL
         auth_mode = str(self.auth_mode_combo.currentData() or "bearer")
         try:
             if auth_mode == "bearer":
-                self._controller.save_bearer_connection(base_url=base_url, auth_token=self.bearer_token_edit.text())
-                self.connection_feedback.setText("Saved bearer-token connection on this device.")
+                self._controller.save_bearer_connection(
+                    base_url=base_url, auth_token=self.bearer_token_edit.text()
+                )
+                self.connection_feedback.setText(
+                    "Saved bearer-token connection on this device."
+                )
             else:
                 self._controller.login_gateway_session(
                     base_url=base_url,
@@ -4400,7 +5410,9 @@ class SettingsDialog(QDialog):
                     remember=bool(self.remember_session.isChecked()),
                 )
                 self.gateway_user_token_edit.clear()
-                self.connection_feedback.setText("Saved gateway session on this device.")
+                self.connection_feedback.setText(
+                    "Saved gateway session on this device."
+                )
         except Exception as exc:
             QMessageBox.critical(self, "Connection failed", str(exc))
             return
@@ -4411,10 +5423,15 @@ class SettingsDialog(QDialog):
         connection = self._controller.current_connection()
         base_url = self.gateway_url_edit.text().strip() or DEFAULT_GATEWAY_URL
         try:
-            if str(connection.auth_mode or "").strip() == "session" and str(connection.session_id or "").strip():
+            if (
+                str(connection.auth_mode or "").strip() == "session"
+                and str(connection.session_id or "").strip()
+            ):
                 self._controller.logout_gateway_session()
             else:
-                self._controller.save_bearer_connection(base_url=base_url, auth_token="")
+                self._controller.save_bearer_connection(
+                    base_url=base_url, auth_token=""
+                )
         except Exception as exc:
             QMessageBox.critical(self, "Sign-out failed", str(exc))
             return
@@ -4478,13 +5495,24 @@ class SettingsDialog(QDialog):
                 break
 
     def _refresh_voice_shortcut_summary(self) -> None:
-        row = next((item for item in self._route_rows if item.key == "output.voice"), None)
+        row = next(
+            (item for item in self._route_rows if item.key == "output.voice"), None
+        )
         if row is None:
-            self.voice_shortcut_summary.setText("Configure provider, model, and voice/profile used when the assistant speaks replies aloud.")
+            self.voice_shortcut_summary.setText(
+                "Configure provider, model, and voice/profile used when the assistant speaks replies aloud."
+            )
             return
         provider = str(row.provider or "").strip() or "No provider"
         model = str(row.model or "").strip() or "No model"
-        voice = str((row.options or {}).get("voice") or (row.options or {}).get("profile") or "").strip() or "Default voice"
+        voice = (
+            str(
+                (row.options or {}).get("voice")
+                or (row.options or {}).get("profile")
+                or ""
+            ).strip()
+            or "Default voice"
+        )
         self.voice_shortcut_summary.setText(f"{provider} / {model} · {voice}")
 
     def _route_key_label(self, key: str) -> str:
@@ -4493,12 +5521,20 @@ class SettingsDialog(QDialog):
 
     def _route_state_text(self, row: CapabilityRouteRow) -> str:
         parts = [
-            "Saved on the connected gateway." if row.configured else "No saved override on this route yet.",
+            (
+                "Saved on the connected gateway."
+                if row.configured
+                else "No saved override on this route yet."
+            ),
         ]
         if row.covered_by:
-            parts.append(f"This route is covered by {self._route_key_label(row.covered_by)}.")
+            parts.append(
+                f"This route is covered by {self._route_key_label(row.covered_by)}."
+            )
         if row.derived_from:
-            parts.append(f"This route inherits from {self._route_key_label(row.derived_from)}.")
+            parts.append(
+                f"This route inherits from {self._route_key_label(row.derived_from)}."
+            )
         if row.source:
             parts.append(f"Gateway source: {row.source}.")
         return " ".join(parts)
@@ -4507,7 +5543,9 @@ class SettingsDialog(QDialog):
         self.provider_combo.blockSignals(True)
         self.provider_combo.clear()
         try:
-            choices = self._controller.provider_choices(route_key=row.key, base_url=self.base_url_edit.text().strip())
+            choices = self._controller.provider_choices(
+                route_key=row.key, base_url=self.base_url_edit.text().strip()
+            )
         except Exception as exc:
             self.route_feedback.setText(str(exc))
             choices = []
@@ -4521,7 +5559,9 @@ class SettingsDialog(QDialog):
         row = self._active_row()
         if row is None:
             return
-        provider = self.provider_combo.currentData() or self.provider_combo.currentText()
+        provider = (
+            self.provider_combo.currentData() or self.provider_combo.currentText()
+        )
         self.model_combo.clear()
         try:
             choices = self._controller.model_choices(
@@ -4542,8 +5582,12 @@ class SettingsDialog(QDialog):
         row = self._active_row()
         if row is None:
             return
-        current_provider = str(self.provider_combo.currentData() or self.provider_combo.currentText() or "").strip()
-        current_model = str(self.model_combo.currentData() or self.model_combo.currentText() or "").strip()
+        current_provider = str(
+            self.provider_combo.currentData() or self.provider_combo.currentText() or ""
+        ).strip()
+        current_model = str(
+            self.model_combo.currentData() or self.model_combo.currentText() or ""
+        ).strip()
         self._populate_providers(row=row)
         if current_provider:
             if self.provider_combo.findText(current_provider) < 0:
@@ -4560,8 +5604,12 @@ class SettingsDialog(QDialog):
         self.voice_combo.clear()
         if row is None or row.key != "output.voice":
             return
-        provider = str(self.provider_combo.currentData() or self.provider_combo.currentText() or "").strip()
-        model = str(self.model_combo.currentData() or self.model_combo.currentText() or "").strip()
+        provider = str(
+            self.provider_combo.currentData() or self.provider_combo.currentText() or ""
+        ).strip()
+        model = str(
+            self.model_combo.currentData() or self.model_combo.currentText() or ""
+        ).strip()
         try:
             choices = self._controller.voice_choices(
                 provider=provider,
@@ -4581,7 +5629,9 @@ class SettingsDialog(QDialog):
         self.voice_combo.setVisible(is_voice)
         if is_voice:
             self._refresh_voice_choices()
-            voice_value = str(options.get("voice") or options.get("profile") or "").strip()
+            voice_value = str(
+                options.get("voice") or options.get("profile") or ""
+            ).strip()
             if voice_value:
                 if self.voice_combo.findText(voice_value) < 0:
                     self.voice_combo.addItem(voice_value, voice_value)
@@ -4607,14 +5657,20 @@ class SettingsDialog(QDialog):
             return {}
         options = self._controller.parse_options(self.options_edit.toPlainText())
         if row.key == "output.voice":
-            voice = str(self.voice_combo.currentData() or self.voice_combo.currentText() or "").strip()
+            voice = str(
+                self.voice_combo.currentData() or self.voice_combo.currentText() or ""
+            ).strip()
             if voice:
                 options["voice"] = voice
             else:
                 options.pop("voice", None)
                 options.pop("profile", None)
         if row.key == "output.image.image_upscale":
-            resolution = str(self.resolution_combo.currentData() or self.resolution_combo.currentText() or "").strip()
+            resolution = str(
+                self.resolution_combo.currentData()
+                or self.resolution_combo.currentText()
+                or ""
+            ).strip()
             if resolution:
                 options["resolution"] = resolution
             else:
@@ -4626,8 +5682,14 @@ class SettingsDialog(QDialog):
         if row is None:
             return
         try:
-            provider = str(self.provider_combo.currentData() or self.provider_combo.currentText() or "").strip()
-            model = str(self.model_combo.currentData() or self.model_combo.currentText() or "").strip()
+            provider = str(
+                self.provider_combo.currentData()
+                or self.provider_combo.currentText()
+                or ""
+            ).strip()
+            model = str(
+                self.model_combo.currentData() or self.model_combo.currentText() or ""
+            ).strip()
             self._controller.save_route_default(
                 route_key=row.key,
                 provider=provider,
@@ -4651,7 +5713,9 @@ class SettingsDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Reset failed", str(exc))
             return
-        self.route_feedback.setText("This route now uses the gateway-wide default again.")
+        self.route_feedback.setText(
+            "This route now uses the gateway-wide default again."
+        )
         self.settings_saved.emit()
         self.refresh()
 
@@ -4687,7 +5751,9 @@ class AssistantPalette(QMainWindow):
     message_speech_finished = pyqtSignal(str)
     connection_status_updated = pyqtSignal(object)
 
-    def __init__(self, *, controller: AssistantV2Controller, debug: bool = False) -> None:
+    def __init__(
+        self, *, controller: AssistantV2Controller, debug: bool = False
+    ) -> None:
         super().__init__()
         self._controller = controller
         self._debug = bool(debug)
@@ -4725,7 +5791,9 @@ class AssistantPalette(QMainWindow):
         self._tray_feedback_timer.timeout.connect(self._advance_tray_feedback)
         self._connection_status_timer = QTimer(self)
         self._connection_status_timer.setInterval(15000)
-        self._connection_status_timer.timeout.connect(self._request_connection_status_refresh)
+        self._connection_status_timer.timeout.connect(
+            self._request_connection_status_refresh
+        )
         self._history_settle_timer = QTimer(self)
         self._history_settle_timer.setSingleShot(True)
         self._history_settle_timer.timeout.connect(self._apply_pending_history_scroll)
@@ -4733,19 +5801,20 @@ class AssistantPalette(QMainWindow):
         self.message_speech_started.connect(self._on_message_speech_started)
         self.message_speech_finished.connect(self._on_message_speech_finished)
         self.connection_status_updated.connect(self._apply_connection_status)
-        self._controller.voice_manager.on_speech_start = self._emit_message_speech_started
+        self._controller.voice_manager.on_speech_start = (
+            self._emit_message_speech_started
+        )
 
         self.setWindowTitle("AbstractAssistant")
         self.setWindowIcon(_qt_icon())
         self.setObjectName("assistantPalette")
         self.setMinimumSize(420, 260)
-        self.resize(self._controller.preferences.window_width, self._controller.preferences.window_height)
-        self.setAcceptDrops(False)
-        self.setWindowFlags(
-            Qt.Tool
-            | Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
+        self.resize(
+            self._controller.preferences.window_width,
+            self._controller.preferences.window_height,
         )
+        self.setAcceptDrops(False)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         central = QWidget()
@@ -4945,7 +6014,9 @@ class AssistantPalette(QMainWindow):
         self.attach_button.setIcon(_symbol_icon("paperclip"))
         self.attach_button.setIconSize(QSize(16, 16))
         self.attach_button.setFixedSize(36, 36)
-        self.attach_button.setToolTip("Attach files, photos, or documents (Drag & Drop supported)")
+        self.attach_button.setToolTip(
+            "Attach files, photos, or documents (Drag & Drop supported)"
+        )
         self.attach_button.clicked.connect(self._pick_attachments)
         composer.addWidget(self.attach_button)
 
@@ -5028,7 +6099,9 @@ class AssistantPalette(QMainWindow):
         if orb is None:
             return
         self._connection_status_state = str(state or "").strip().lower() or "unknown"
-        self._connection_status_detail = str(detail or "").strip() or "Checking gateway connection."
+        self._connection_status_detail = (
+            str(detail or "").strip() or "Checking gateway connection."
+        )
         orb.set_state(self._connection_status_state)
         orb.setToolTip(self._compose_connection_tooltip(self._connection_status_detail))
         orb.update()
@@ -5042,7 +6115,10 @@ class AssistantPalette(QMainWindow):
             try:
                 payload = self._controller.connection_status()
             except Exception as exc:
-                payload = {"ok": False, "detail": str(exc or "Gateway unavailable.").strip()}
+                payload = {
+                    "ok": False,
+                    "detail": str(exc or "Gateway unavailable.").strip(),
+                }
             self.connection_status_updated.emit(payload)
 
         threading.Thread(target=_run, daemon=True).start()
@@ -5058,9 +6134,15 @@ class AssistantPalette(QMainWindow):
             self._set_connection_indicator("disconnected", detail)
             return
 
-        principal = payload.get("principal") if isinstance(payload.get("principal"), dict) else {}
+        principal = (
+            payload.get("principal")
+            if isinstance(payload.get("principal"), dict)
+            else {}
+        )
         auth = payload.get("auth") if isinstance(payload.get("auth"), dict) else {}
-        routing = payload.get("routing") if isinstance(payload.get("routing"), dict) else {}
+        routing = (
+            payload.get("routing") if isinstance(payload.get("routing"), dict) else {}
+        )
         user_id = str(principal.get("user_id") or "unknown").strip()
         tenant_id = str(principal.get("tenant_id") or "").strip()
         mode = str(auth.get("mode") or "").strip() or "unknown"
@@ -5076,7 +6158,9 @@ class AssistantPalette(QMainWindow):
     def _active_session_id(self) -> str:
         return str(getattr(self._controller, "active_session_id", "") or "").strip()
 
-    def _refresh_session_picker(self, *, select_session_id: Optional[str] = None) -> None:
+    def _refresh_session_picker(
+        self, *, select_session_id: Optional[str] = None
+    ) -> None:
         combo = getattr(self, "session_picker", None)
         if combo is None:
             return
@@ -5099,7 +6183,9 @@ class AssistantPalette(QMainWindow):
                     continue
                 combo.addItem(_session_picker_label(session), session_id)
                 item_index = combo.count() - 1
-                combo.setItemData(item_index, _session_picker_tooltip(session), Qt.ToolTipRole)
+                combo.setItemData(
+                    item_index, _session_picker_tooltip(session), Qt.ToolTipRole
+                )
                 if active and session_id == active:
                     selected_index = item_index
             if combo.count() <= 0:
@@ -5122,13 +6208,19 @@ class AssistantPalette(QMainWindow):
         if session_id == current:
             return
         if self._worker is not None:
-            QMessageBox.information(self, "Session switch", "Please wait for the current response to finish.")
+            QMessageBox.information(
+                self,
+                "Session switch",
+                "Please wait for the current response to finish.",
+            )
             self._refresh_session_picker(select_session_id=current or None)
             return
         try:
             self._controller.switch_session(session_id)
         except Exception as exc:
-            QMessageBox.warning(self, "Session switch", f"Failed to switch session:\n{exc}")
+            QMessageBox.warning(
+                self, "Session switch", f"Failed to switch session:\n{exc}"
+            )
             self._refresh_session_picker(select_session_id=current or None)
             return
         self._tray_completion_unread = False
@@ -5165,7 +6257,9 @@ class AssistantPalette(QMainWindow):
             self.chat_status_label.setTextFormat(Qt.PlainText)
             self.chat_status_label.setWordWrap(True)
         self.chat_status_label.setText(display)
-        self.chat_status_label.setProperty("tone", str(tone or "neutral").strip() or "neutral")
+        self.chat_status_label.setProperty(
+            "tone", str(tone or "neutral").strip() or "neutral"
+        )
         self.chat_status_label.setToolTip(str(tooltip or message))
         self._refresh_widget_style(self.chat_status_label)
         self.chat_status_label.show()
@@ -5176,10 +6270,18 @@ class AssistantPalette(QMainWindow):
         fallback = 120
         try:
             label = getattr(self, "chat_status_label", None)
-            width = int(label.width()) if label is not None and int(label.width()) > 80 else 0
+            width = (
+                int(label.width())
+                if label is not None and int(label.width()) > 80
+                else 0
+            )
             if width <= 80:
                 card = getattr(self, "history_card", None)
-                width = int(card.width()) - 34 if card is not None and int(card.width()) > 120 else 0
+                width = (
+                    int(card.width()) - 34
+                    if card is not None and int(card.width()) > 120
+                    else 0
+                )
             if width <= 80:
                 width = int(self.width()) - 72 if int(self.width()) > 120 else 0
             if width <= 80:
@@ -5324,7 +6426,9 @@ class AssistantPalette(QMainWindow):
         if obj is prompt_edit and event is not None and event.type() == QEvent.KeyPress:
             key = int(event.key())
             modifiers = int(event.modifiers())
-            if key in {Qt.Key_Return, Qt.Key_Enter} and not (modifiers & int(Qt.ShiftModifier)):
+            if key in {Qt.Key_Return, Qt.Key_Enter} and not (
+                modifiers & int(Qt.ShiftModifier)
+            ):
                 self._submit()
                 return True
         history_host = state.get("history_host")
@@ -5341,9 +6445,17 @@ class AssistantPalette(QMainWindow):
         active_modal = QApplication.activeModalWidget()
         if active_modal is not None and active_modal.isVisible():
             return
-        if self._settings_dialog is not None and self._settings_dialog.isVisible() and self._settings_dialog.isActiveWindow():
+        if (
+            self._settings_dialog is not None
+            and self._settings_dialog.isVisible()
+            and self._settings_dialog.isActiveWindow()
+        ):
             return
-        if self._tool_settings_dialog is not None and self._tool_settings_dialog.isVisible() and self._tool_settings_dialog.isActiveWindow():
+        if (
+            self._tool_settings_dialog is not None
+            and self._tool_settings_dialog.isVisible()
+            and self._tool_settings_dialog.isActiveWindow()
+        ):
             return
         self.hide()
 
@@ -5353,7 +6465,9 @@ class AssistantPalette(QMainWindow):
             return None
         return screen.availableGeometry()
 
-    def _clamp_window_to_screen(self, *, x: int, y: int, width: int, height: int, screen_geom):
+    def _clamp_window_to_screen(
+        self, *, x: int, y: int, width: int, height: int, screen_geom
+    ):
         min_x = int(screen_geom.x())
         min_y = int(screen_geom.y())
         max_x = int(screen_geom.x() + max(0, int(screen_geom.width()) - int(width)))
@@ -5385,8 +6499,13 @@ class AssistantPalette(QMainWindow):
         if screen_geom is None:
             return
         prefs = self._controller.preferences
-        normal_width = min(max(int(prefs.window_width), 420), min(612, int(screen_geom.width() * 0.38)))
-        normal_height = min(max(int(prefs.window_height), 320), min(392, int(screen_geom.height() * 0.46)))
+        normal_width = min(
+            max(int(prefs.window_width), 420), min(612, int(screen_geom.width() * 0.38))
+        )
+        normal_height = min(
+            max(int(prefs.window_height), 320),
+            min(392, int(screen_geom.height() * 0.46)),
+        )
         show_history = True
         show_banner = bool(getattr(self.banner_label, "text", lambda: "")().strip())
         if hasattr(self, "history_card") and self.history_card is not None:
@@ -5400,7 +6519,9 @@ class AssistantPalette(QMainWindow):
                 self.banner_label.setMaximumHeight(0)
             self.banner_label.setVisible(show_banner)
         header_height = max(42, int(self.header_card.sizeHint().height()))
-        composer_height = int(self.composer_card.height() or self.composer_card.sizeHint().height() or 80)
+        composer_height = int(
+            self.composer_card.height() or self.composer_card.sizeHint().height() or 80
+        )
         side_gap = 8
         card_gap = 4
         top_gap = 4
@@ -5415,17 +6536,30 @@ class AssistantPalette(QMainWindow):
             card_width = max(420 - (side_gap * 2), width - (side_gap * 2))
             history_height = max(
                 132,
-                int(target_height - top_gap - bottom_gap - header_height - composer_height - (card_gap * 2)),
+                int(
+                    target_height
+                    - top_gap
+                    - bottom_gap
+                    - header_height
+                    - composer_height
+                    - (card_gap * 2)
+                ),
             )
             self.history_card.setMinimumHeight(history_height)
             self.history_card.setMaximumHeight(history_height)
             self.header_card.setGeometry(side_gap, top_gap, card_width, header_height)
             history_y = top_gap + header_height + card_gap
-            self.history_card.setGeometry(side_gap, history_y, card_width, history_height)
+            self.history_card.setGeometry(
+                side_gap, history_y, card_width, history_height
+            )
             composer_y = history_y + history_height + card_gap
-            self.composer_card.setGeometry(side_gap, composer_y, card_width, composer_height)
+            self.composer_card.setGeometry(
+                side_gap, composer_y, card_width, composer_height
+            )
             x = int(screen_geom.x() + max(0, (screen_geom.width() - width) / 2))
-            y = int(screen_geom.y() + max(0, (screen_geom.height() - target_height) / 2))
+            y = int(
+                screen_geom.y() + max(0, (screen_geom.height() - target_height) / 2)
+            )
             self.setGeometry(x, y, width, target_height)
             QTimer.singleShot(0, self._sync_native_traffic_lights)
             return
@@ -5439,7 +6573,9 @@ class AssistantPalette(QMainWindow):
         history_y = top_gap + header_height + card_gap
         self.history_card.setGeometry(side_gap, history_y, card_width, history_height)
         composer_y = history_y + history_height + card_gap
-        self.composer_card.setGeometry(side_gap, composer_y, card_width, composer_height)
+        self.composer_card.setGeometry(
+            side_gap, composer_y, card_width, composer_height
+        )
         target_height = int(composer_y + composer_height + bottom_gap)
         self.resize(width, target_height)
         self.position_near_tray()
@@ -5468,7 +6604,11 @@ class AssistantPalette(QMainWindow):
         event.ignore()
 
     def refresh_history(self, request: Optional[HistoryScrollRequest] = None) -> None:
-        scroll_request = request if isinstance(request, HistoryScrollRequest) else self._default_history_refresh_request()
+        scroll_request = (
+            request
+            if isinstance(request, HistoryScrollRequest)
+            else self._default_history_refresh_request()
+        )
         state = getattr(self, "__dict__", {})
         timer = state.get("_history_settle_timer")
         if timer is not None:
@@ -5491,7 +6631,9 @@ class AssistantPalette(QMainWindow):
                     continue
                 role = str(message.get("role") or "").strip()
                 is_user = role == "user"
-                message_key = _history_message_key(message, fallback_index=visible_index)
+                message_key = _history_message_key(
+                    message, fallback_index=visible_index
+                )
                 bubble_width = _message_bubble_width(viewport_width, role=role)
                 card = MessageCard(
                     message=message,
@@ -5501,14 +6643,19 @@ class AssistantPalette(QMainWindow):
                     build_media_preview=self._build_media_preview,
                     bubble_width=bubble_width,
                     on_toggle_voice=None if is_user else self._toggle_message_voice,
-                    voice_state="idle" if is_user else self._message_voice_state(message),
+                    on_show_tools=None if is_user else self._show_message_tools,
+                    voice_state=(
+                        "idle" if is_user else self._message_voice_state(message)
+                    ),
                 )
                 self._history_cards_by_key[message_key] = card
                 self.history_layout.addWidget(card)
             if self._show_thinking_indicator():
                 self.history_layout.addWidget(ThinkingIndicatorCard())
             self._sync_history_viewport()
-            self._refresh_session_picker(select_session_id=self._active_session_id() or None)
+            self._refresh_session_picker(
+                select_session_id=self._active_session_id() or None
+            )
             self._reflow_shell()
         finally:
             self._history_refreshing = False
@@ -5614,7 +6761,9 @@ class AssistantPalette(QMainWindow):
             return _history_message_key(message, fallback_index=visible_index)
         return ""
 
-    def _commit_history_scroll_request(self, request: Optional[HistoryScrollRequest]) -> None:
+    def _commit_history_scroll_request(
+        self, request: Optional[HistoryScrollRequest]
+    ) -> None:
         if not isinstance(request, HistoryScrollRequest):
             request = self._history_scroll_request()
         state = getattr(self, "__dict__", {})
@@ -5626,7 +6775,9 @@ class AssistantPalette(QMainWindow):
             if request.mode in {"bottom", "message_top"}:
                 self._deferred_history_scroll_on_show = request
             elif getattr(self, "_deferred_history_scroll_on_show", None) is None:
-                self._deferred_history_scroll_on_show = self._history_scroll_request(mode="bottom")
+                self._deferred_history_scroll_on_show = self._history_scroll_request(
+                    mode="bottom"
+                )
             return
         self._deferred_history_scroll_on_show = self._history_scroll_request()
         self._schedule_history_scroll_apply()
@@ -5652,7 +6803,9 @@ class AssistantPalette(QMainWindow):
         timer.start(16)
 
     def _apply_pending_history_scroll(self) -> None:
-        request = getattr(self, "__dict__", {}).get("_pending_history_scroll", HistoryScrollRequest())
+        request = getattr(self, "__dict__", {}).get(
+            "_pending_history_scroll", HistoryScrollRequest()
+        )
         self._sync_history_viewport()
         self._pending_history_scroll = self._history_scroll_request()
         self._apply_history_scroll_request(request)
@@ -5664,7 +6817,9 @@ class AssistantPalette(QMainWindow):
         bar = scroll.verticalScrollBar()
         if bar is None:
             return
-        normalized = str(getattr(request, "mode", "preserve") or "preserve").strip().lower()
+        normalized = (
+            str(getattr(request, "mode", "preserve") or "preserve").strip().lower()
+        )
         if normalized == "bottom":
             bar.setValue(bar.maximum())
             # Asynchronous text browser reflow safety timers
@@ -5677,7 +6832,9 @@ class AssistantPalette(QMainWindow):
         if not target_key:
             return
         cards_by_key = getattr(self, "__dict__", {}).get("_history_cards_by_key", {})
-        target_widget = cards_by_key.get(target_key) if isinstance(cards_by_key, dict) else None
+        target_widget = (
+            cards_by_key.get(target_key) if isinstance(cards_by_key, dict) else None
+        )
         if target_widget is None:
             return
         try:
@@ -5725,7 +6882,11 @@ class AssistantPalette(QMainWindow):
 
     def _remove_attachment(self, path: str) -> None:
         target = _normalize_attachment_path(path)
-        next_items = [item for item in self._attachments if _normalize_attachment_path(item) != target]
+        next_items = [
+            item
+            for item in self._attachments
+            if _normalize_attachment_path(item) != target
+        ]
         if next_items == self._attachments:
             return
         self._attachments = next_items
@@ -5762,7 +6923,9 @@ class AssistantPalette(QMainWindow):
             for path in self._attachments:
                 chip = AttachmentIconChip(path=path, parent=self.attachments_host)
                 chip.remove_requested.connect(self._remove_attachment)
-                self.attachments_layout.addWidget(chip, 0, Qt.AlignLeft | Qt.AlignVCenter)
+                self.attachments_layout.addWidget(
+                    chip, 0, Qt.AlignLeft | Qt.AlignVCenter
+                )
             self.attachments_layout.addStretch(1)
         else:
             hint = QLabel("Drop files to attach")
@@ -5779,9 +6942,13 @@ class AssistantPalette(QMainWindow):
         prompt = self.prompt_edit.toPlainText().strip()
         if not prompt and not self._attachments:
             return
-        plan = self._controller.submission_plan(prompt=prompt, attachments=self._attachments)
+        plan = self._controller.submission_plan(
+            prompt=prompt, attachments=self._attachments
+        )
         if not bool(plan.get("ready", True)):
-            detail = str(plan.get("detail") or "This request cannot run right now.").strip()
+            detail = str(
+                plan.get("detail") or "This request cannot run right now."
+            ).strip()
             QMessageBox.critical(self, "Assistant unavailable", detail)
             return
 
@@ -5835,8 +7002,19 @@ class AssistantPalette(QMainWindow):
         if typ == "status":
             status_text = str(payload.get("status") or "Working").strip() or "Working"
             status_lower = status_text.lower()
-            inactive_statuses = {"completed", "complete", "ready", "idle", "offline", "error", "failed", "cancelled"}
-            self._run_busy = status_lower not in inactive_statuses and not self._run_has_final_output
+            inactive_statuses = {
+                "completed",
+                "complete",
+                "ready",
+                "idle",
+                "offline",
+                "error",
+                "failed",
+                "cancelled",
+            }
+            self._run_busy = (
+                status_lower not in inactive_statuses and not self._run_has_final_output
+            )
             self._set_status(status_text, tone="busy" if self._run_busy else "neutral")
             if self._run_busy:
                 if not str(self.chat_status_label.text() or "").strip():
@@ -5850,6 +7028,14 @@ class AssistantPalette(QMainWindow):
             summary = str(payload.get("summary") or "").strip()
             if summary:
                 self._set_history_status(summary, tone="busy")
+            return
+        if typ == "replay_degraded":
+            message = str(payload.get("message") or "Gateway replay is degraded.").strip()
+            self._run_busy = False
+            self._run_has_final_output = True
+            self._set_status("Replay degraded", tone="error")
+            self._set_history_status(message, tone="error")
+            self._refresh_tray_feedback()
             return
         if typ == "user_message_appended":
             self._on_user_message_appended(str(payload.get("content") or ""))
@@ -5866,11 +7052,17 @@ class AssistantPalette(QMainWindow):
                         message_key=self._latest_visible_message_key(role="assistant"),
                     )
                 )
-            metadata = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
-            fallback_completion = str(metadata.get("kind") or "").strip().lower() == "fallback_completion"
+            metadata = (
+                payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+            )
+            fallback_completion = (
+                str(metadata.get("kind") or "").strip().lower() == "fallback_completion"
+            )
             self._set_status("Ready")
             if is_final and fallback_completion:
-                self._set_history_status(str(payload.get("content") or "").strip(), tone="info")
+                self._set_history_status(
+                    str(payload.get("content") or "").strip(), tone="info"
+                )
             elif is_final:
                 self._set_history_status()
             if self.auto_speak.isChecked() and is_final:
@@ -5884,7 +7076,11 @@ class AssistantPalette(QMainWindow):
                     self._notify_completion_ready(content)
             return
         if typ == "tool_request":
-            tool_calls = payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else []
+            tool_calls = (
+                payload.get("tool_calls")
+                if isinstance(payload.get("tool_calls"), list)
+                else []
+            )
             if tool_calls:
                 summary = _tool_call_summary(tool_calls[0])
                 self._set_tool_history_status(
@@ -5894,14 +7090,46 @@ class AssistantPalette(QMainWindow):
                 )
             else:
                 self._set_history_status("Waiting for tool approval", tone="busy")
-            dialog = ToolApprovalDialog(tool_calls=payload.get("tool_calls"), parent=self)
+            if self._controller.should_auto_approve_tool_batch(tool_calls):
+                if tool_calls:
+                    summary = _tool_call_summary(tool_calls[0])
+                    self._set_tool_history_status(
+                        name=summary.name,
+                        arguments=tool_calls[0].get("arguments"),
+                        prefix="Auto-approved in this chat: ",
+                    )
+                else:
+                    self._set_history_status(
+                        "Auto-approved tools in this chat", tone="busy"
+                    )
+                worker = getattr(self, "_worker", None)
+                if worker is not None:
+                    worker.provide_tool_approval(True)
+                return
+            dialog = ToolApprovalDialog(
+                tool_calls=payload.get("tool_calls"), parent=self
+            )
             approved = dialog.exec_() == QDialog.Accepted
+            if (
+                approved
+                and str(getattr(dialog, "approval_scope", "once") or "once")
+                == "session"
+            ):
+                self._controller.grant_session_tool_auto_approval()
+                self._set_banner(
+                    "Trusting enabled tools in this chat. Disabled tools stay disabled; gateway limits still apply.",
+                    tone="info",
+                )
             self._worker.provide_tool_approval(approved)
             return
         if typ == "ask_user":
             prompt = str(payload.get("prompt") or "Input required").strip()
-            short_prompt = prompt if len(prompt) <= 120 else f"{prompt[:117].rstrip()}..."
-            self._set_history_status(f"Waiting for your input: {short_prompt}", tone="busy")
+            short_prompt = (
+                prompt if len(prompt) <= 120 else f"{prompt[:117].rstrip()}..."
+            )
+            self._set_history_status(
+                f"Waiting for your input: {short_prompt}", tone="busy"
+            )
             response, ok = QInputDialog.getText(self, "Input required", prompt)
             text = response if ok else ""
             self._worker.provide_user_response(text)
@@ -5911,14 +7139,24 @@ class AssistantPalette(QMainWindow):
                 return
             assistant_key = self._latest_visible_message_key(role="assistant")
             if assistant_key:
-                self.refresh_history(request=self._history_scroll_request(mode="message_top", message_key=assistant_key))
+                self.refresh_history(
+                    request=self._history_scroll_request(
+                        mode="message_top", message_key=assistant_key
+                    )
+                )
             elif self._latest_visible_message_key():
-                self.refresh_history(request=self._history_scroll_request(mode="bottom"))
+                self.refresh_history(
+                    request=self._history_scroll_request(mode="bottom")
+                )
             else:
                 self.refresh_history()
             return
         if typ == "tool":
-            message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+            message = (
+                payload.get("message")
+                if isinstance(payload.get("message"), dict)
+                else {}
+            )
             name, arguments = self._tool_message_parts(message)
             self._set_tool_history_status(name=name, arguments=arguments)
             return
@@ -5939,24 +7177,8 @@ class AssistantPalette(QMainWindow):
         self._run_busy = False
         if not self._run_has_final_output:
             fallback = "The workflow completed, but it returned no written reply."
-            try:
-                self._controller.append_assistant_message(
-                    fallback,
-                    metadata={
-                        "kind": "fallback_completion",
-                        "run_id": str(self._controller.last_run_id() or "").strip(),
-                    },
-                )
-            except Exception:
-                pass
             self._run_has_final_output = True
             self._set_history_status(fallback, tone="info")
-            self.refresh_history(
-                request=self._history_scroll_request(
-                    mode="message_top",
-                    message_key=self._latest_visible_message_key(role="assistant"),
-                )
-            )
         self._refresh_tray_feedback()
         if had_indicator != self._show_thinking_indicator():
             self.refresh_history()
@@ -5965,8 +7187,12 @@ class AssistantPalette(QMainWindow):
     def _on_user_message_appended(self, _content: str = "") -> None:
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
 
-    def _open_artifact_from_message(self, artifact: Dict[str, Any], message: Dict[str, Any]) -> None:
-        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    def _open_artifact_from_message(
+        self, artifact: Dict[str, Any], message: Dict[str, Any]
+    ) -> None:
+        metadata = (
+            message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        )
         run_id = str(
             metadata.get("artifact_run_id")
             or metadata.get("run_id")
@@ -5977,13 +7203,17 @@ class AssistantPalette(QMainWindow):
         ).strip()
         self._open_artifact(artifact, run_id=run_id)
 
-    def _build_media_preview(self, artifact: Dict[str, Any], message: Dict[str, Any]) -> Optional[QWidget]:
+    def _build_media_preview(
+        self, artifact: Dict[str, Any], message: Dict[str, Any]
+    ) -> Optional[QWidget]:
         if not isinstance(artifact, dict):
             return None
         if _artifact_media_kind(artifact) not in {"image", "audio", "video"}:
             return None
 
-        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        metadata = (
+            message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        )
         run_id = str(
             (metadata or {}).get("artifact_run_id")
             or (metadata or {}).get("run_id")
@@ -5996,7 +7226,9 @@ class AssistantPalette(QMainWindow):
         def _resolve() -> Path:
             return self._controller.download_artifact(run_id=run_id, artifact=artifact)
 
-        return ArtifactPreviewCard(artifact=artifact, resolve_path=_resolve, parent=self)
+        return ArtifactPreviewCard(
+            artifact=artifact, resolve_path=_resolve, parent=self
+        )
 
     def _open_artifact(self, artifact: Dict[str, Any], *, run_id: str) -> None:
         try:
@@ -6005,6 +7237,62 @@ class AssistantPalette(QMainWindow):
             QMessageBox.critical(self, "Open failed", str(exc))
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _show_message_tools(self, message: Dict[str, Any]) -> None:
+        dialog = ToolUsageDialog(
+            message=message,
+            tool_calls=_assistant_tool_calls_for_message(message),
+            source="metadata",
+            parent=self,
+        )
+        worker = ToolUsageLookupWorker(
+            controller=self._controller, message=message, parent=dialog
+        )
+        try:
+            state = self.__dict__
+        except Exception:
+            state = {}
+        workers = state.get("_tool_usage_workers")
+        if not isinstance(workers, list):
+            workers = []
+            state["_tool_usage_workers"] = workers
+        workers.append(worker)
+
+        def _loaded(result: Any) -> None:
+            payload = result if isinstance(result, dict) else {}
+            dialog.update_tool_usage(
+                tool_calls=(
+                    payload.get("tool_calls")
+                    if isinstance(payload.get("tool_calls"), list)
+                    else []
+                ),
+                source=str(payload.get("source") or ""),
+                run_ids=(
+                    payload.get("run_ids")
+                    if isinstance(payload.get("run_ids"), list)
+                    else []
+                ),
+                error=str(payload.get("error") or ""),
+            )
+
+        def _failed(error: str) -> None:
+            dialog.update_tool_usage(
+                tool_calls=[], source="error", run_ids=[], error=str(error or "")
+            )
+
+        def _cleanup() -> None:
+            try:
+                workers.remove(worker)
+            except ValueError:
+                pass
+            worker.deleteLater()
+
+        worker.loaded.connect(_loaded)
+        worker.failed.connect(_failed)
+        worker.finished.connect(_cleanup)
+        dialog.set_loading()
+        worker.start()
+        dialog.exec_()
 
     def _message_voice_state(self, message: Dict[str, Any]) -> str:
         key = _message_key(message)
@@ -6026,7 +7314,11 @@ class AssistantPalette(QMainWindow):
 
     def _set_message_voice_card_state(self, key: str, state: str) -> None:
         cards_by_key = getattr(self, "__dict__", {}).get("_history_cards_by_key", {})
-        card = cards_by_key.get(str(key or "").strip()) if isinstance(cards_by_key, dict) else None
+        card = (
+            cards_by_key.get(str(key or "").strip())
+            if isinstance(cards_by_key, dict)
+            else None
+        )
         if card is None:
             return
         setter = getattr(card, "set_voice_state", None)
@@ -6062,7 +7354,9 @@ class AssistantPalette(QMainWindow):
         self._active_spoken_message_key = key
         self._active_spoken_message_phase = "synthesizing"
         self._set_message_voice_card_state(key, "synthesizing")
-        started = voice.speak(content, callback=lambda key=key: self.message_speech_finished.emit(key))
+        started = voice.speak(
+            content, callback=lambda key=key: self.message_speech_finished.emit(key)
+        )
         if started:
             self._active_spoken_message_key = key
         else:
@@ -6152,7 +7446,11 @@ class AssistantPalette(QMainWindow):
 
     def _open_settings(self) -> None:
         if self._settings_dialog is None:
-            dialog = SettingsDialog(controller=self._controller, apply_hotkey=self._apply_hotkey, parent=self)
+            dialog = SettingsDialog(
+                controller=self._controller,
+                apply_hotkey=self._apply_hotkey,
+                parent=self,
+            )
             dialog.settings_saved.connect(self._on_settings_saved)
             self._settings_dialog = dialog
         self._settings_dialog.refresh()
@@ -6171,7 +7469,9 @@ class AssistantPalette(QMainWindow):
                 pref_gap = max(0, int(self._controller.preferences.bottom_offset))
                 x_gap = 8 if pref_gap == 0 else min(pref_gap, 10)
                 y_gap = 8 if pref_gap == 0 else min(pref_gap, 12)
-                x = int(screen_geom.x() + screen_geom.width() - dialog_geom.width() - x_gap)
+                x = int(
+                    screen_geom.x() + screen_geom.width() - dialog_geom.width() - x_gap
+                )
                 y = int(screen_geom.y() + y_gap)
                 x, y = self._clamp_window_to_screen(
                     x=x,
@@ -6216,14 +7516,26 @@ class AssistantPalette(QMainWindow):
         if not prefs.hotkey_enabled:
             self._hotkey_tooltip_note = ""
             self._hotkey.stop()
-            self._set_connection_indicator(self._connection_status_state, self._connection_status_detail)
+            self._set_connection_indicator(
+                self._connection_status_state, self._connection_status_detail
+            )
             return
-        ok = self._hotkey.start(sequence=prefs.hotkey_sequence, callback=self.hotkey_activated.emit)
-        msg = "Summon shortcut unavailable. Use the tray icon or reinstall hotkey support." if (not ok and self._hotkey.error) else ""
+        ok = self._hotkey.start(
+            sequence=prefs.hotkey_sequence, callback=self.hotkey_activated.emit
+        )
+        msg = (
+            "Summon shortcut unavailable. Use the tray icon or reinstall hotkey support."
+            if (not ok and self._hotkey.error)
+            else ""
+        )
         self._hotkey_tooltip_note = msg
         if self._tray is not None:
-            self._tray.setToolTip(f"AbstractAssistant\n({msg})" if msg else "AbstractAssistant")
-        self._set_connection_indicator(self._connection_status_state, self._connection_status_detail)
+            self._tray.setToolTip(
+                f"AbstractAssistant\n({msg})" if msg else "AbstractAssistant"
+            )
+        self._set_connection_indicator(
+            self._connection_status_state, self._connection_status_detail
+        )
         self.history_card.setToolTip("")
         if self._status_tone not in {"error", "busy"}:
             self._set_status("Ready")
@@ -6232,14 +7544,20 @@ class AssistantPalette(QMainWindow):
         tts_available = self._controller.supports_tts()
         stt_available = self._controller.supports_stt()
         self.auto_speak.setEnabled(tts_available)
-        self.auto_speak.setToolTip("" if tts_available else "Gateway voice output is not configured.")
+        self.auto_speak.setToolTip(
+            "" if tts_available else "Gateway voice output is not configured."
+        )
         self.mic_button.setEnabled(stt_available)
-        self.mic_button.setToolTip("" if stt_available else "Gateway speech input is not configured.")
+        self.mic_button.setToolTip(
+            "" if stt_available else "Gateway speech input is not configured."
+        )
         self._update_prompt_placeholder()
         self._refresh_submission_state()
 
     def _update_prompt_placeholder(self) -> None:
-        self.prompt_edit.setPlaceholderText("Ask anything or drop files here. The assistant will choose the right tools or media on the gateway.")
+        self.prompt_edit.setPlaceholderText(
+            "Ask anything or drop files here. The assistant will choose the right tools or media on the gateway."
+        )
 
     def _refresh_submission_state(self) -> None:
         ready = self._controller.current_workflow() is not None
@@ -6279,7 +7597,9 @@ class AssistantPalette(QMainWindow):
             self._tray_feedback_timer.stop()
             self._tray_animation_frame = 0
         try:
-            tray.setIcon(_tray_feedback_icon(state=state, frame=self._tray_animation_frame))
+            tray.setIcon(
+                _tray_feedback_icon(state=state, frame=self._tray_animation_frame)
+            )
         except Exception:
             pass
         tooltip = "AbstractAssistant"
@@ -6296,10 +7616,19 @@ class AssistantPalette(QMainWindow):
         if self._tray_feedback_state() != "busy":
             self._tray_feedback_timer.stop()
             return
-        self._tray_animation_frame = (self._tray_animation_frame + 1) % _TRAY_BUSY_FRAME_COUNT
+        self._tray_animation_frame = (
+            self._tray_animation_frame + 1
+        ) % _TRAY_BUSY_FRAME_COUNT
         self._refresh_tray_feedback()
 
-    def _notify(self, title: str, message: str, *, icon: Optional[QIcon] = None, duration_ms: int = 5000) -> None:
+    def _notify(
+        self,
+        title: str,
+        message: str,
+        *,
+        icon: Optional[QIcon] = None,
+        duration_ms: int = 5000,
+    ) -> None:
         tray = self._tray
         if tray is None:
             return
@@ -6310,10 +7639,14 @@ class AssistantPalette(QMainWindow):
             if icon is not None:
                 tray.showMessage(title, text[:220], icon, duration_ms)
             else:
-                tray.showMessage(title, text[:220], QSystemTrayIcon.Information, duration_ms)
+                tray.showMessage(
+                    title, text[:220], QSystemTrayIcon.Information, duration_ms
+                )
         except Exception:
             try:
-                tray.showMessage(title, text[:220], QSystemTrayIcon.Information, duration_ms)
+                tray.showMessage(
+                    title, text[:220], QSystemTrayIcon.Information, duration_ms
+                )
             except Exception:
                 pass
 
@@ -6324,7 +7657,9 @@ class AssistantPalette(QMainWindow):
             excerpt = f"{excerpt}..."
         body = "Your reply is waiting in the menu bar."
         if excerpt:
-            body = f"Fresh reply ready.\n{excerpt}\nClick the shimmering orbit to open it."
+            body = (
+                f"Fresh reply ready.\n{excerpt}\nClick the shimmering orbit to open it."
+            )
         self._notify(
             "Fresh Reply Ready",
             body,
@@ -6341,8 +7676,7 @@ class AssistantPalette(QMainWindow):
         palette.setColor(QPalette.Base, QColor("#161b23"))
         palette.setColor(QPalette.Text, QColor("#e8edf4"))
         self.setPalette(palette)
-        self.setStyleSheet(
-            """
+        self.setStyleSheet("""
             QMainWindow#assistantPalette, QWidget#rootSurface {
                 background: transparent;
                 color: #e8edf4;
@@ -6495,13 +7829,48 @@ class AssistantPalette(QMainWindow):
                 background: rgba(83, 198, 145, 0.18);
                 border: 1px solid rgba(83, 198, 145, 0.28);
             }
-            QLabel#metricChip {
-                padding: 2px 7px;
-                border-radius: 9px;
-                background: rgba(255, 255, 255, 0.06);
+            QLabel#metricChip, QPushButton#metricChip {
+                min-height: 20px;
+                padding: 2px 8px;
+                border-radius: 10px;
+                border: 1px solid rgba(255, 255, 255, 0.07);
+                background: rgba(255, 255, 255, 0.055);
                 color: #a8bad0;
                 font-size: 10px;
-                font-weight: 600;
+                font-weight: 650;
+            }
+            QPushButton#metricChip {
+                text-align: center;
+            }
+            QLabel#metricChip[kind="tokens_in"] {
+                color: #b7cffb;
+                background: rgba(92, 142, 255, 0.10);
+                border-color: rgba(92, 142, 255, 0.16);
+            }
+            QLabel#metricChip[kind="tokens_out"] {
+                color: #baf3d0;
+                background: rgba(69, 188, 123, 0.10);
+                border-color: rgba(69, 188, 123, 0.16);
+            }
+            QLabel#metricChip[kind="duration"] {
+                color: #f7d58a;
+                background: rgba(238, 184, 70, 0.10);
+                border-color: rgba(238, 184, 70, 0.18);
+            }
+            QPushButton#metricChip[kind="tools"] {
+                color: #c8f6df;
+                background: rgba(31, 167, 112, 0.20);
+                border-color: rgba(89, 221, 160, 0.30);
+            }
+            QPushButton#metricChip[kind="tools"]:hover {
+                color: #ffffff;
+                background: rgba(31, 167, 112, 0.32);
+                border-color: rgba(125, 244, 190, 0.52);
+            }
+            QLabel#metricChip[kind="llm_calls"] {
+                color: #d5c5ff;
+                background: rgba(148, 111, 255, 0.10);
+                border-color: rgba(148, 111, 255, 0.16);
             }
             QFrame#assistantHtmlActionBar {
                 background: transparent;
@@ -6871,8 +8240,7 @@ class AssistantPalette(QMainWindow):
                 color: #8bd8b1;
                 background: rgba(83, 198, 145, 0.12);
             }
-            """
-        )
+            """)
 
 
 def json_dumps(value: Dict[str, Any]) -> str:
@@ -6904,9 +8272,8 @@ def _env_truthy(name: str) -> bool:
 
 
 def _tray_diagnostics_enabled() -> bool:
-    return (
-        _env_truthy("ABSTRACTASSISTANT_TRAY_DIAGNOSTICS")
-        or bool(getattr(sys, "frozen", False))
+    return _env_truthy("ABSTRACTASSISTANT_TRAY_DIAGNOSTICS") or bool(
+        getattr(sys, "frozen", False)
     )
 
 
@@ -6919,7 +8286,13 @@ def _tray_diagnostics_log_path() -> Optional[Path]:
             return None
     if not _tray_diagnostics_enabled():
         return None
-    return Path.home() / "Library" / "Logs" / "Assistant" / "abstractassistant-launcher.log"
+    return (
+        Path.home()
+        / "Library"
+        / "Logs"
+        / "Assistant"
+        / "abstractassistant-launcher.log"
+    )
 
 
 def _bundle_tray_log(message: str) -> None:
@@ -6946,7 +8319,13 @@ def _native_tray_capture_path() -> Optional[Path]:
     if not raw:
         if not _tray_diagnostics_enabled():
             return None
-        return Path.home() / "Library" / "Logs" / "Assistant" / "abstractassistant-status-item.png"
+        return (
+            Path.home()
+            / "Library"
+            / "Logs"
+            / "Assistant"
+            / "abstractassistant-status-item.png"
+        )
     try:
         return Path(raw).expanduser()
     except Exception:
@@ -6980,10 +8359,14 @@ def _capture_native_status_item_button_png(*, reason: str = "") -> bool:
             return False
         capture_path.parent.mkdir(parents=True, exist_ok=True)
         capture_path.write_bytes(bytes(data))
-        _bundle_tray_log(f"{reason or 'capture'}: wrote native tray button render to {capture_path}")
+        _bundle_tray_log(
+            f"{reason or 'capture'}: wrote native tray button render to {capture_path}"
+        )
         return True
     except Exception as exc:
-        _bundle_tray_log(f"{reason or 'capture'}: native tray button capture failed: {exc}")
+        _bundle_tray_log(
+            f"{reason or 'capture'}: native tray button capture failed: {exc}"
+        )
         return False
 
 
@@ -7003,7 +8386,10 @@ def _native_status_item_metrics() -> tuple[int, tuple[int, int], tuple[int, int]
             button = item.button() if item is not None else None
             if button is not None:
                 frame = button.frame()
-                button_size = (int(round(frame.size.width)), int(round(frame.size.height)))
+                button_size = (
+                    int(round(frame.size.width)),
+                    int(round(frame.size.height)),
+                )
                 image = button.image()
                 if image is not None:
                     size = image.size()
@@ -7013,14 +8399,18 @@ def _native_status_item_metrics() -> tuple[int, tuple[int, int], tuple[int, int]
         return -1, (0, 0), (0, 0)
 
 
-def _refresh_tray_visibility(*, tray: QSystemTrayIcon, palette, reason: str = "") -> TrayVisibilityState:
+def _refresh_tray_visibility(
+    *, tray: QSystemTrayIcon, palette, reason: str = ""
+) -> TrayVisibilityState:
     try:
         available = bool(QSystemTrayIcon.isSystemTrayAvailable())
     except Exception:
         available = True
     if not available:
         _bundle_tray_log(f"{reason or 'refresh'}: system tray unavailable")
-        native_item_count, native_button_size, native_image_size = _native_status_item_metrics()
+        native_item_count, native_button_size, native_image_size = (
+            _native_status_item_metrics()
+        )
         return TrayVisibilityState(
             available=False,
             qt_visible=False,
@@ -7054,7 +8444,9 @@ def _refresh_tray_visibility(*, tray: QSystemTrayIcon, palette, reason: str = ""
         visible = bool(tray.isVisible())
     except Exception:
         visible = True
-    native_item_count, native_button_size, native_image_size = _native_status_item_metrics()
+    native_item_count, native_button_size, native_image_size = (
+        _native_status_item_metrics()
+    )
     state = TrayVisibilityState(
         available=True,
         qt_visible=visible,
@@ -7074,11 +8466,18 @@ def _refresh_tray_visibility(*, tray: QSystemTrayIcon, palette, reason: str = ""
     return state
 
 
-def _schedule_tray_visibility_refresh(*, tray: QSystemTrayIcon, palette, delays_ms: tuple[int, ...] = _TRAY_VISIBILITY_RETRY_DELAYS_MS) -> None:
+def _schedule_tray_visibility_refresh(
+    *,
+    tray: QSystemTrayIcon,
+    palette,
+    delays_ms: tuple[int, ...] = _TRAY_VISIBILITY_RETRY_DELAYS_MS,
+) -> None:
     for delay in tuple(delays_ms or ()):
         QTimer.singleShot(
             max(0, int(delay)),
-            lambda d=int(delay): _refresh_tray_visibility(tray=tray, palette=palette, reason=f"retry@{d}ms"),
+            lambda d=int(delay): _refresh_tray_visibility(
+                tray=tray, palette=palette, reason=f"retry@{d}ms"
+            ),
         )
 
 
@@ -7106,7 +8505,9 @@ def _configure_tray_host(*, tray: QSystemTrayIcon, palette, menu: QMenu) -> None
         return
     host_menu = QMenu()
     try:
-        host_menu.aboutToShow.connect(lambda: _macos_tray_context_fallback(host_menu=host_menu, palette=palette))
+        host_menu.aboutToShow.connect(
+            lambda: _macos_tray_context_fallback(host_menu=host_menu, palette=palette)
+        )
     except Exception:
         pass
     try:
@@ -7150,7 +8551,10 @@ def _schedule_initial_palette_show(
             return
         shown["done"] = True
         try:
-            palette._set_banner("Menu bar icon is still initializing. Keep this window open while the app finishes attaching.", tone="warn")
+            palette._set_banner(
+                "Menu bar icon is still initializing. Keep this window open while the app finishes attaching.",
+                tone="warn",
+            )
         except Exception:
             pass
         palette.show_palette()
@@ -7158,7 +8562,12 @@ def _schedule_initial_palette_show(
     QTimer.singleShot(max(0, int(fallback_delay)), _fallback_show)
 
 
-def launch_tray_app(*, config: Optional[Config] = None, debug: bool = False, data_dir: Optional[Path] = None) -> int:
+def launch_tray_app(
+    *,
+    config: Optional[Config] = None,
+    debug: bool = False,
+    data_dir: Optional[Path] = None,
+) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("AbstractAssistant")
@@ -7194,9 +8603,13 @@ def launch_tray_app(*, config: Optional[Config] = None, debug: bool = False, dat
     if show_on_launch:
         try:
             app.applicationStateChanged.connect(  # type: ignore[attr-defined]
-                lambda state: _refresh_tray_visibility(tray=tray, palette=palette, reason="app-active")
-                if state == Qt.ApplicationActive
-                else None
+                lambda state: (
+                    _refresh_tray_visibility(
+                        tray=tray, palette=palette, reason="app-active"
+                    )
+                    if state == Qt.ApplicationActive
+                    else None
+                )
             )
         except Exception:
             pass

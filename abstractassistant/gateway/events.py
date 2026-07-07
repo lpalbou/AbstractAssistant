@@ -88,6 +88,7 @@ def extract_flow_end_output(rec: StepRecord | None) -> Optional[Dict[str, Any]]:
         )
         meta = dict(out0.get("meta")) if isinstance(out0.get("meta"), dict) else {}
         for key in (
+            "$artifact",
             "artifact",
             "image_artifact",
             "video_artifact",
@@ -108,6 +109,11 @@ def extract_flow_end_output(rec: StepRecord | None) -> Optional[Dict[str, Any]]:
             artifact = out0.get("artifact_ref")
             if isinstance(artifact, dict):
                 meta["artifact"] = artifact
+        if not isinstance(meta.get("artifact"), dict) and isinstance(out0.get("$artifact"), str):
+            meta["artifact"] = dict(out0)
+        if "$artifact" in meta and "artifact_id" not in meta:
+            meta["artifact_id"] = meta.get("$artifact")
+        artifact = meta.get("artifact") if isinstance(meta.get("artifact"), dict) else None
         content_type = str((artifact or {}).get("content_type") or meta.get("content_type") or "").strip().lower()
         if isinstance(artifact, dict) and content_type.startswith("image/") and "image_artifact" not in meta:
             meta["image_artifact"] = artifact

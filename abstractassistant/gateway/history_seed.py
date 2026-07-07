@@ -462,7 +462,7 @@ def seed_messages_from_history_bundle(
 ) -> List[Dict[str, Any]]:
     """Return a list of session message dicts from a history bundle."""
     if not isinstance(bundle, dict):
-        warnings.warn("#FALLBACK: history bundle was not a dict; returning empty seed")
+        warnings.warn("#REPLAY_DEGRADED: history bundle was not a dict; returning empty seed")
         return []
 
     from_turns = _seed_from_session_turns(bundle)
@@ -480,7 +480,7 @@ def seed_messages_from_history_bundle(
                 if extra_tools:
                     out = extra_tools
                 else:
-                    warnings.warn("#FALLBACK: history bundle had no session turns; using empty seed")
+                    warnings.warn("#REPLAY: history bundle had no session turns; using empty seed")
                     out = []
             else:
                 out = [{"role": "user", "content": root_prompt, "ts": _now_iso(), "run_id": str(bundle.get("root_run_id") or "").strip() or None}] + extra_tools

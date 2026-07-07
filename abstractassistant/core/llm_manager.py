@@ -264,12 +264,6 @@ class LLMManager:
                         )
                     )
             history_changed = cleaned != existing
-            if existing and len(cleaned) < len(existing):
-                warnings.warn(
-                    "#FALLBACK: gateway history replay was shorter than the local session snapshot; preserving the fuller local history"
-                )
-                cleaned = existing
-                history_changed = False
             self._gateway_snapshot = SessionSnapshot(
                 session_id=snap.session_id,
                 actor_id=snap.actor_id,

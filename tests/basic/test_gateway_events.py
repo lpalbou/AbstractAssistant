@@ -60,6 +60,17 @@ def test_extract_flow_end_output_preserves_media_artifacts() -> None:
     assert out["meta"]["artifact_id"] == "img_1"
 
 
+def test_extract_flow_end_output_preserves_bare_artifact_reference() -> None:
+    rec = {"result": {"output": {"$artifact": "answer_1", "content_type": "application/json"}}}
+
+    out = extract_flow_end_output(rec)
+
+    assert out is not None
+    assert out["response"] == ""
+    assert out["meta"]["artifact"] == {"$artifact": "answer_1", "content_type": "application/json"}
+    assert out["meta"]["artifact_id"] == "answer_1"
+
+
 def test_extract_wait_and_tool_calls() -> None:
     rec = {"result": {"wait": {"reason": "job", "details": {"tool_calls": [{"name": "read_file"}]}}}}
     wait = extract_wait_from_record(rec)

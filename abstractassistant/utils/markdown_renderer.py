@@ -12,6 +12,21 @@ from markdown_it import MarkdownIt
 from pygments import highlight as pygments_highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
+from pygments.style import Style
+from pygments.token import (
+    Comment,
+    Error,
+    Generic,
+    Keyword,
+    Literal,
+    Name,
+    Number,
+    Operator,
+    Punctuation,
+    String,
+    Text,
+    Whitespace,
+)
 from pygments.util import ClassNotFound
 
 from .mermaid_renderer import mermaid_block_to_data_uri
@@ -31,7 +46,90 @@ _LIST_ITEM_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?P<marker>[-+*]|\d+[.)])\s+(?P<body>.*\S)\s*$"
 )
 _BARE_URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>'\"]+")
+_SHELL_DATA_FLAG_RE = re.compile(r"(?:^|[ \t])(?:-d|--data(?:-raw|-binary)?)\s+")
 _AUTOLINK_SKIP_TAGS = {"a", "code", "pre", "script", "style"}
+_SHELL_LANGUAGES = {"bash", "shell", "sh", "zsh", "console"}
+_JSONISH_LANGUAGES = {"json", "jsonc"}
+_APP_CODE_THEMES = {"monokai", "friendly_grayscale"}
+_WRAPPED_CODE_PANEL_RE = re.compile(
+    r"<pre><code(?:\s+class=\"[^\"]*\")?>(?P<panel><table\b[^>]*class=\"codepanel\"[\s\S]*?</table>)</code></pre>",
+    flags=re.I,
+)
+_CODE_MONO_FONT = (
+    "'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace"
+)
+_CODE_PANEL_STYLE = (
+    "margin: 10px 0 14px 0; "
+    "border-collapse: collapse; "
+    "border-spacing: 0; "
+    "border: none;"
+)
+_CODE_PANEL_ACCENT_BG = "#344b73"
+_CODE_PANEL_BODY_BG = "#101722"
+_CODE_PANEL_CELL_STYLE = (
+    "padding: 14px 16px !important; "
+    "background-color: #101722 !important; "
+    "border: none !important; "
+    "text-align: left; "
+    "vertical-align: top;"
+)
+_CODE_BLOCK_PRE_STYLE = (
+    "margin: 0; "
+    "padding: 0; "
+    "background-color: transparent; "
+    "border: none; "
+    "color: #edf2f8; "
+    f"font-family: {_CODE_MONO_FONT}; "
+    "font-size: 0.85em; "
+    "line-height: 1.4; "
+    "white-space: pre-wrap; "
+    "overflow-wrap: anywhere; "
+    "word-break: break-word;"
+)
+_CODE_BLOCK_CODE_STYLE = (
+    f"font-family: {_CODE_MONO_FONT}; "
+    "font-size: inherit; "
+    "line-height: inherit; "
+    "color: #edf2f8; "
+    "font-weight: 400; "
+    "background: transparent; "
+    "white-space: inherit;"
+)
+_SHELL_JSON_QUOTE_STYLE = "color: #d7dee9;"
+
+
+class _AbstractAssistantCodeStyle(Style):
+    background_color = "#0f1520"
+    default_style = ""
+    styles = {
+        Text: "#edf2f8",
+        Whitespace: "#edf2f8",
+        Comment: "italic #7f8da1",
+        Comment.Preproc: "#7bdcff",
+        Keyword: "bold #7bdcff",
+        Keyword.Constant: "#7bdcff",
+        Keyword.Namespace: "#7bdcff",
+        Literal: "#f2df6b",
+        Literal.Date: "#f2df6b",
+        String: "#f2df6b",
+        String.Double: "#f2df6b",
+        String.Single: "#f2df6b",
+        Number: "#b28cff",
+        Operator: "#aebdd2",
+        Punctuation: "#dbe3ef",
+        Name.Builtin: "#8bd5ff",
+        Name.Function: "#8bd5ff",
+        Name.Class: "bold #8bd5ff",
+        Name.Tag: "bold #ff6fae",
+        Name.Attribute: "#ff6fae",
+        Name.Variable: "#ff6fae",
+        Name.Variable.Instance: "#ff6fae",
+        Name.Label: "#ff6fae",
+        Generic.Heading: "bold #edf2f8",
+        Generic.Subheading: "bold #edf2f8",
+        Generic.Output: "#c8d2df",
+        Error: "#ff8f8f",
+    }
 
 
 @dataclass(frozen=True)
@@ -365,6 +463,110 @@ def _autolink_html_text(html_content: str) -> str:
         return str(html_content or "")
 
 
+def _unwrap_generated_code_panels(html_content: str) -> str:
+    raw = str(html_content or "")
+    if not raw or "codepanel" not in raw:
+        return raw
+    return _WRAPPED_CODE_PANEL_RE.sub(lambda match: match.group("panel"), raw)
+
+
+def _normalized_code_language(lang_name: str, code: str) -> str:
+    raw = str(lang_name or "").strip().lower()
+    alias_map = {
+        "shell-session": "bash",
+        "text/plain": "text",
+        "json5": "json",
+    }
+    language = alias_map.get(raw, raw)
+    if not language:
+        if _looks_like_json_code(code):
+            return "json"
+        if _looks_like_shell_command(code):
+            return "bash"
+        return "text"
+    if language in _JSONISH_LANGUAGES:
+        return "json"
+    if language in _SHELL_LANGUAGES:
+        return "bash"
+    return language
+
+
+def _looks_like_json_code(code: str) -> bool:
+    trimmed = str(code or "").strip()
+    if not trimmed:
+        return False
+    if not (
+        (trimmed.startswith("{") and trimmed.endswith("}"))
+        or (trimmed.startswith("[") and trimmed.endswith("]"))
+    ):
+        return False
+    try:
+        json.loads(trimmed)
+    except Exception:
+        return False
+    return True
+
+
+def _looks_like_shell_command(code: str) -> bool:
+    first_line = (
+        str(code or "").strip().splitlines()[0] if str(code or "").strip() else ""
+    )
+    return bool(
+        re.match(
+            r"^(?:[$#]\s*)?(?:curl|wget|http|httpie|python|python3|node|npm|pnpm|yarn)\b",
+            first_line,
+        )
+    )
+
+
+def _find_balanced_json_end(text: str, start: int) -> int | None:
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(int(start or 0), len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+            if depth < 0:
+                return None
+    return None
+
+
+def _split_shell_embedded_json_payload(code: str) -> tuple[str, str, str, str] | None:
+    raw = str(code or "")
+    for match in _SHELL_DATA_FLAG_RE.finditer(raw):
+        quote_index = match.end()
+        if quote_index >= len(raw):
+            continue
+        quote = raw[quote_index]
+        if quote not in {"'", '"'}:
+            continue
+        json_start = quote_index + 1
+        if json_start >= len(raw) or raw[json_start] != "{":
+            continue
+        json_end = _find_balanced_json_end(raw, json_start)
+        if json_end is None or json_end >= len(raw) or raw[json_end] != quote:
+            continue
+        return raw[:quote_index], quote, raw[json_start:json_end], raw[json_end:]
+    return None
+
+
 def split_markdown_mermaid_blocks(text: str) -> list[MarkdownRenderBlock]:
     raw = str(text or "")
     if not raw:
@@ -399,11 +601,15 @@ class MarkdownRenderer:
 
     def __init__(self, theme: str = "monokai"):
         self.theme = theme
+        formatter_style = (
+            _AbstractAssistantCodeStyle if theme in _APP_CODE_THEMES else theme
+        )
         self.formatter = HtmlFormatter(
-            style=theme,
+            style=formatter_style,
             cssclass="codehilite",
-            noclasses=False,
+            noclasses=True,
             linenos=False,
+            nowrap=True,
         )
         self._markdown = MarkdownIt(
             "gfm-like",
@@ -415,8 +621,7 @@ class MarkdownRenderer:
             },
         )
 
-    def _highlight_code(self, code: str, lang_name: str, _attrs: str) -> str:
-        language = re.split(r"[\s,{]+", str(lang_name or "").strip(), maxsplit=1)[0]
+    def _highlight_segment(self, code: str, language: str) -> str:
         try:
             lexer = (
                 get_lexer_by_name(language, stripall=False)
@@ -427,15 +632,57 @@ class MarkdownRenderer:
             lexer = TextLexer(stripall=False)
         return pygments_highlight(code, lexer, self.formatter)
 
+    def _render_shell_with_embedded_json(self, code: str, language: str) -> str | None:
+        segments = _split_shell_embedded_json_payload(code)
+        if segments is None:
+            return None
+        prefix, quote, payload, suffix = segments
+        open_quote = html.escape(quote)
+        close_quote = html.escape(str(suffix[:1] or quote))
+        trailing = suffix[1:] if suffix[:1] == quote else suffix
+        return (
+            self._highlight_segment(prefix, language)
+            + f'<span style="{_SHELL_JSON_QUOTE_STYLE}">{open_quote}</span>'
+            + self._highlight_segment(payload, "json")
+            + f'<span style="{_SHELL_JSON_QUOTE_STYLE}">{close_quote}</span>'
+            + self._highlight_segment(trailing, language)
+        )
+
+    def _code_block_html(self, highlighted: str, language: str) -> str:
+        safe_language = html.escape(str(language or "text"), quote=True)
+        return (
+            f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            f'class="codepanel" data-code-language="{safe_language}" style="{_CODE_PANEL_STYLE}">'
+            f"<tr>"
+            f'<td width="4" bgcolor="{_CODE_PANEL_ACCENT_BG}"></td>'
+            f'<td bgcolor="{_CODE_PANEL_BODY_BG}" style="{_CODE_PANEL_CELL_STYLE}">'
+            f'<pre class="codehilite" style="{_CODE_BLOCK_PRE_STYLE}">'
+            f'<code style="{_CODE_BLOCK_CODE_STYLE}">{highlighted}</code>'
+            "</pre></td></tr></table>"
+        )
+
+    def _highlight_code(self, code: str, lang_name: str, _attrs: str) -> str:
+        language = _normalized_code_language(
+            re.split(r"[\s,{]+", str(lang_name or "").strip(), maxsplit=1)[0],
+            code,
+        )
+        if language == "bash":
+            highlighted = self._render_shell_with_embedded_json(code, language)
+            if highlighted is None:
+                highlighted = self._highlight_segment(code, language)
+        else:
+            highlighted = self._highlight_segment(code, language)
+        return self._code_block_html(highlighted, language)
+
     def render(self, markdown_text: str) -> str:
         try:
             prepared = _replace_mermaid_fences(_prepare_markdown_source(markdown_text))
-            html_content = _autolink_html_text(self._markdown.render(prepared))
-            pygments_css = self.formatter.get_style_defs(".codehilite")
+            html_content = _autolink_html_text(
+                _unwrap_generated_code_panels(self._markdown.render(prepared))
+            )
             full_html = f"""
             <style>
             {self._get_base_css()}
-            {pygments_css}
             </style>
             <div class="markdown-content">
             {html_content}
@@ -553,20 +800,24 @@ class MarkdownRenderer:
             color: #e2e8f0;
             padding: 2px 6px;
             border-radius: 4px;
-            font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
-            font-size: 0.9em;
+            font-family: __CODE_MONO_FONT__;
+            font-size: 1em;
+            line-height: inherit;
         }
         
         .markdown-content pre {
-            background: #1a202c;
-            color: #e2e8f0;
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            border: 1px solid #4a5568;
+            background: transparent;
+            color: #edf2f8;
+            padding: 0;
+            border-radius: 0;
+            margin: 0;
+            border: none;
             white-space: pre-wrap;
             overflow-wrap: anywhere;
             word-break: break-word;
+            font-family: __CODE_MONO_FONT__;
+            font-size: 1em;
+            line-height: 1.55;
         }
 
         .markdown-content pre code {
@@ -574,6 +825,9 @@ class MarkdownRenderer:
             padding: 0;
             border-radius: 0;
             white-space: inherit;
+            color: inherit;
+            font-size: inherit;
+            line-height: inherit;
         }
 
         .markdown-content blockquote {
@@ -588,6 +842,19 @@ class MarkdownRenderer:
             border-collapse: collapse;
             width: 100%;
             margin-bottom: 16px;
+        }
+
+        .markdown-content table.codepanel {
+            margin: 10px 0 14px 0;
+            border: none;
+        }
+
+        .markdown-content table.codepanel td,
+        .markdown-content table.codepanel th {
+            border: none;
+            padding: 0;
+            text-align: left;
+            vertical-align: top;
         }
 
         .markdown-content th, .markdown-content td {
@@ -624,13 +891,14 @@ class MarkdownRenderer:
         
         /* Syntax highlighting adjustments for dark theme */
         .codehilite {
-            background: #1a202c !important;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-            border: 1px solid #4a5568;
+            background: transparent !important;
+            border-radius: 0;
+            padding: 0;
+            margin: 0;
+            border: none;
             white-space: pre-wrap;
             overflow-wrap: anywhere;
+            color: #edf2f8 !important;
         }
 
         .codehilite pre {
@@ -639,8 +907,11 @@ class MarkdownRenderer:
             padding: 0 !important;
             margin: 0 !important;
             white-space: inherit !important;
+            color: inherit !important;
+            font-size: inherit !important;
+            line-height: inherit !important;
         }
-        """
+        """.replace("__CODE_MONO_FONT__", _CODE_MONO_FONT)
 
 
 # Global instance for easy access

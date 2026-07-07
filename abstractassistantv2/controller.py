@@ -13,6 +13,12 @@ from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
+from abstractassistant.gateway.tool_usage import (
+    extract_sub_run_ids_from_record,
+    extract_tool_call_details_from_ledger_items,
+    extract_tool_call_details_from_scratchpad,
+    ledger_record_from_item,
+)
 from abstractassistant.ui.gateway_worker import GatewayWorker
 
 from .gateway import AssistantGatewayService, CapabilityRouteRow, WorkflowCatalogStatus, WorkflowOption
@@ -44,6 +50,7 @@ class AssistantV2Controller:
         self.voice_manager = GatewayVoiceManager(llm_manager=self.llm_manager, debug_mode=self.debug)
         self.voice_manager.set_voice_mode("wait")
         self._sync_gateway_voice_defaults()
+        self._session_auto_approve_all: set[str] = set()
 
     @property
     def active_session_id(self) -> str:
@@ -148,7 +155,10 @@ class AssistantV2Controller:
         self.llm_manager.switch_session(session_id)
 
     def reset_session(self) -> None:
+        current = self.active_session_id
         self.llm_manager.reset_active_session(tts_mode=False)
+        if current:
+            self.clear_session_tool_auto_approval(session_id=current)
 
     def session_messages(self) -> List[Dict[str, Any]]:
         return self.llm_manager.session_messages()
@@ -236,12 +246,9 @@ class AssistantV2Controller:
         if workflow is None:
             detail = str(self.workflow_status().error or "No runnable gateway workflow is available.").strip()
             raise RuntimeError(detail)
-        provider, model = self.chat_defaults()
         return GatewayWorker(
             llm_manager=self.llm_manager,
             user_text=prompt,
-            provider=provider,
-            model=model,
             attachments=list(attachments or []),
             system_prompt_extra=str(system_prompt_extra or "").strip() or None,
             allowed_tools=self.allowed_tools_for_run(),
@@ -341,6 +348,7 @@ class AssistantV2Controller:
         inventory = self.tool_inventory()
         auto: List[str] = []
         require: List[str] = []
+        trust_enabled_for_chat = self.session_tool_auto_approval_active()
         for item in inventory.get("items") or []:
             if not isinstance(item, dict):
                 continue
@@ -350,7 +358,7 @@ class AssistantV2Controller:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled":
                 continue
-            if mode == "approve":
+            if trust_enabled_for_chat or mode == "approve":
                 auto.append(name)
             else:
                 require.append(name)
@@ -358,6 +366,36 @@ class AssistantV2Controller:
             "auto_approve_tools": auto,
             "require_approval_tools": require,
         }
+
+    def grant_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
+        sid = str(session_id or self.active_session_id or "").strip()
+        if sid:
+            self._session_auto_approve_all.add(sid)
+
+    def clear_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
+        sid = str(session_id or self.active_session_id or "").strip()
+        if sid:
+            self._session_auto_approve_all.discard(sid)
+
+    def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
+        sid = str(session_id or self.active_session_id or "").strip()
+        return bool(sid and sid in self._session_auto_approve_all)
+
+    def should_auto_approve_tool_batch(self, tool_calls: Any, *, session_id: Optional[str] = None) -> bool:
+        if not self.session_tool_auto_approval_active(session_id=session_id):
+            return False
+        if not isinstance(tool_calls, list) or not tool_calls:
+            return False
+        allowed = set(self.allowed_tools_for_run())
+        if not allowed:
+            return False
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                return False
+            name = str(call.get("name") or "").strip()
+            if not name or name not in allowed:
+                return False
+        return True
 
     def latest_image_artifact(self) -> Optional[Dict[str, Any]]:
         for message in reversed(self.session_messages()):
@@ -433,6 +471,109 @@ class AssistantV2Controller:
 
     def last_run_id(self) -> Optional[str]:
         return self.llm_manager.get_last_run_id()
+
+    @staticmethod
+    def _message_run_id_candidates(message: Dict[str, Any]) -> List[str]:
+        if not isinstance(message, dict):
+            return []
+        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        stats = metadata.get("_assistant_stats") if isinstance(metadata.get("_assistant_stats"), dict) else {}
+        repl = metadata.get("_repl") if isinstance(metadata.get("_repl"), dict) else {}
+        repl_stats = repl.get("stats") if isinstance(repl.get("stats"), dict) else {}
+        candidates = [
+            message.get("run_id"),
+            metadata.get("run_id"),
+            stats.get("run_id"),
+            repl.get("run_id"),
+            repl_stats.get("run_id"),
+            metadata.get("sub_run_id"),
+            stats.get("sub_run_id"),
+            repl.get("sub_run_id"),
+            repl_stats.get("sub_run_id"),
+        ]
+        out: List[str] = []
+        for candidate in candidates:
+            rid = str(candidate or "").strip()
+            if rid and rid not in out:
+                out.append(rid)
+        return out
+
+    def tool_call_details_for_run(self, *, run_id: str, include_subruns: bool = True) -> List[Dict[str, Any]]:
+        root = str(run_id or "").strip()
+        if not root:
+            raise ValueError("run_id is required")
+        pending: List[str] = [root]
+        seen_runs: set[str] = set()
+        seen_calls: set[str] = set()
+        out: List[Dict[str, Any]] = []
+
+        while pending:
+            rid = pending.pop(0)
+            if not rid or rid in seen_runs:
+                continue
+            seen_runs.add(rid)
+            after = 0
+            while True:
+                page = self.gateway.get_ledger(run_id=rid, after=after, limit=2000)
+                items = page.get("items") if isinstance(page, dict) else []
+                if not isinstance(items, list) or not items:
+                    break
+                if include_subruns:
+                    for item in items:
+                        record = ledger_record_from_item(item)
+                        for sub_run_id in extract_sub_run_ids_from_record(record):
+                            if sub_run_id not in seen_runs and sub_run_id not in pending:
+                                pending.append(sub_run_id)
+
+                for call in extract_tool_call_details_from_ledger_items(items, run_id=rid):
+                    call_id = str(call.get("call_id") or call.get("id") or "").strip()
+                    key = call_id or f"{rid}:{len(out)}:{call.get('name')}"
+                    if key in seen_calls:
+                        continue
+                    seen_calls.add(key)
+                    out.append(call)
+
+                next_after_raw = page.get("next_after") if isinstance(page, dict) else None
+                try:
+                    next_after = int(next_after_raw)
+                except Exception:
+                    next_after = after + len(items)
+                if next_after <= after:
+                    next_after = after + len(items)
+                if next_after <= after:
+                    break
+                after = next_after
+        return out
+
+    def tool_call_details_for_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        run_ids = self._message_run_id_candidates(message)
+        scratchpad_calls = extract_tool_call_details_from_scratchpad(
+            metadata.get("scratchpad"),
+            run_id=run_ids[0] if run_ids else "",
+        )
+
+        errors: List[str] = []
+        if run_ids:
+            for run_id in run_ids:
+                try:
+                    calls = self.tool_call_details_for_run(run_id=run_id, include_subruns=True)
+                except Exception as exc:
+                    errors.append(f"{run_id}: {exc}")
+                    continue
+                if calls:
+                    return {"tool_calls": calls, "source": "ledger", "run_ids": [run_id], "error": ""}
+        elif not scratchpad_calls:
+            return {"tool_calls": [], "source": "missing_run_id", "run_ids": [], "error": "No run_id is attached to this message."}
+
+        if scratchpad_calls:
+            return {
+                "tool_calls": scratchpad_calls,
+                "source": "scratchpad",
+                "run_ids": run_ids,
+                "error": "; ".join(errors),
+            }
+        return {"tool_calls": [], "source": "ledger", "run_ids": run_ids, "error": "; ".join(errors)}
 
     def submission_plan(self, *, prompt: str, attachments: Optional[List[str]] = None) -> Dict[str, Any]:
         workflow = self.current_workflow()

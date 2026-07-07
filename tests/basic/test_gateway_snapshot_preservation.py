@@ -1,8 +1,6 @@
-"""Gateway snapshot preservation regressions for AbstractAssistant."""
+"""Gateway snapshot replacement regressions for AbstractAssistant."""
 
 from __future__ import annotations
-
-import warnings
 
 import pytest
 
@@ -11,7 +9,7 @@ from abstractassistant.core.session_store import SessionSnapshot
 
 
 @pytest.mark.basic
-def test_replace_gateway_messages_does_not_shrink_existing_history() -> None:
+def test_replace_gateway_messages_allows_gateway_replay_to_shrink_local_history() -> None:
     manager = LLMManager.__new__(LLMManager)
     manager.use_gateway = True
     manager._gateway_store = None
@@ -31,17 +29,14 @@ def test_replace_gateway_messages_does_not_shrink_existing_history() -> None:
     saved: list[SessionSnapshot] = []
     manager._save_gateway_snapshot = lambda snapshot: saved.append(snapshot)
 
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        manager.replace_gateway_messages(
-            [{"role": "user", "content": "only latest", "ts": "2026-06-14T10:01:00+00:00"}],
-            last_run_id="run-new",
-        )
+    manager.replace_gateway_messages(
+        [{"role": "user", "content": "only latest", "ts": "2026-06-14T10:01:00+00:00"}],
+        last_run_id="run-new",
+    )
 
-    assert manager._gateway_snapshot.messages == existing_messages
+    assert [msg["content"] for msg in manager._gateway_snapshot.messages] == ["only latest"]
     assert manager._gateway_snapshot.last_run_id == "run-new"
-    assert saved[-1].messages == existing_messages
-    assert any("shorter than the local session snapshot" in str(item.message) for item in caught)
+    assert [msg["content"] for msg in saved[-1].messages] == ["only latest"]
 
 
 @pytest.mark.basic

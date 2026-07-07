@@ -7,7 +7,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 3
+- Planned: 4
 - Proposed: 3
 - Completed: 1
 - Deprecated: 0
@@ -15,14 +15,17 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Next Recommended Work
 
-1. Finish the production UX hardening pass around the now-canonical gateway workflow shell.
-2. Keep frozen macOS bundle validation and source-vs-bundle parity visible for tray and palette
+1. Finish the remaining v2 runtime-replayer compliance gaps after the strict terminal replay pass:
+   cross-client wait race tests, static direct-execution guards, voice/media boundary tests, and
+   ledger-only tool details.
+2. Finish the production UX hardening pass around the now-canonical gateway workflow shell.
+3. Keep frozen macOS bundle validation and source-vs-bundle parity visible for tray and palette
    changes.
-3. Define durable session topic/summary metadata so recent-session navigation can stay compact and
+4. Define durable session topic/summary metadata so recent-session navigation can stay compact and
    trustworthy without re-deriving titles ad hoc.
-4. Continue the broader v2 rollout and remove remaining legacy assistant code that still suggests
+5. Continue the broader v2 rollout and remove remaining legacy assistant code that still suggests
    alternate runtime models.
-5. Harden the desktop auth UX around expiry, session renewal, and secure local storage.
+6. Harden the desktop auth UX around expiry, session renewal, and secure local storage.
 
 ## Planned Items
 
@@ -31,6 +34,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 | [0002](planned/0002_gateway_native_assistant_v2_rollout.md) | Gateway-native assistant v2 rollout | Planned | Broader rollout and legacy de-emphasis after the single-path contract cleanup. |
 | [0004](planned/0004_production_ux_and_catalog_default_hardening.md) | Production UX and catalog-default hardening | Planned | Final polish and live macOS validation on the single-workflow shell. |
 | [0006](planned/0006_durable_session_topics_and_summaries.md) | Durable session topics and summaries | Planned | Define canonical topic/summary metadata for recent-session navigation in the gateway-native shell. |
+| [0008](planned/0008_v2_runtime_replayer_adr_compliance_hardening.md) | V2 runtime replayer ADR compliance hardening | In progress | Strict terminal replay, non-blocking wait projection, runtime-authoritative cache replacement, no durable empty-output fallback, and provider/model-free run input landed; static guards, cross-client race tests, and voice/media boundary tests remain. |
 
 ## Proposed Items
 

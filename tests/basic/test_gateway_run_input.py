@@ -9,7 +9,7 @@ from abstractassistant.gateway.run_input import build_run_input_data
 
 @pytest.mark.basic
 def test_build_run_input_omits_blank_provider_and_model() -> None:
-    payload = build_run_input_data(prompt="hello", provider="", model="")
+    payload = build_run_input_data(prompt="hello")
 
     assert "provider" not in payload
     assert "model" not in payload
@@ -17,13 +17,18 @@ def test_build_run_input_omits_blank_provider_and_model() -> None:
 
 
 @pytest.mark.basic
-def test_build_run_input_includes_selected_provider_and_model() -> None:
-    payload = build_run_input_data(prompt="hello", provider="openai", model="gpt-4.1-mini")
+def test_build_run_input_omits_local_chat_history_by_default() -> None:
+    payload = build_run_input_data(
+        prompt="hello",
+        messages=[
+            {"role": "user", "content": "old local prompt"},
+            {"role": "assistant", "content": "old local answer"},
+        ],
+    )
 
-    assert payload["provider"] == "openai"
-    assert payload["model"] == "gpt-4.1-mini"
-    assert payload["_runtime"]["provider"] == "openai"
-    assert payload["_runtime"]["model"] == "gpt-4.1-mini"
+    assert payload["context"] == {"task": "hello", "messages": []}
+    assert payload["use_context"] is False
+    assert payload["_runtime"] == {}
 
 
 @pytest.mark.basic
@@ -32,8 +37,6 @@ def test_build_run_input_includes_primary_image_context() -> None:
 
     payload = build_run_input_data(
         prompt="edit this",
-        provider="",
-        model="",
         primary_image_artifact=artifact,
     )
 
