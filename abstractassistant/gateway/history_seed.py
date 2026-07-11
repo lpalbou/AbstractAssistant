@@ -10,6 +10,8 @@ import json
 import warnings
 from typing import Any, Callable, Dict, List, Optional
 
+from .run_stats import stats_from_history_bundle
+
 
 def _now_iso() -> str:
     try:
@@ -501,4 +503,41 @@ def seed_messages_from_history_bundle(
         )
         if isinstance(recovered, dict):
             out.append(recovered)
+    _attach_bundle_stats(out, bundle, run_id=target_run_id)
     return out
+
+
+def _attach_bundle_stats(messages: List[Dict[str, Any]], bundle: Dict[str, Any], *, run_id: str) -> None:
+    """Attach ledger-derived answer stats to this bundle's assistant message.
+
+    Seeding REPLACES the local session cache, so without this the stats a live
+    follower attached to the final answer would be wiped by the stats-less
+    seeded copy (and recovered answers would never carry stats at all). Only
+    the target run's messages are touched: other session turns keep their own
+    `_repl.stats` from the gateway.
+    """
+    rid = str(run_id or "").strip()
+    if not rid:
+        return
+    stats: Optional[Dict[str, Any]] = None
+    computed = False
+    for msg in messages:
+        if not isinstance(msg, dict) or str(msg.get("role") or "") != "assistant":
+            continue
+        if str(msg.get("run_id") or "").strip() != rid:
+            continue
+        meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+        if isinstance(meta.get("_assistant_stats"), dict):
+            continue
+        if not computed:
+            computed = True
+            try:
+                stats = stats_from_history_bundle(bundle)
+            except Exception as e:
+                warnings.warn(f"#REPLAY_DEGRADED: failed to derive run stats from bundle: {e}")
+                stats = None
+        if not isinstance(stats, dict):
+            return
+        meta = dict(meta)
+        meta["_assistant_stats"] = {"run_id": rid, **stats}
+        msg["metadata"] = meta

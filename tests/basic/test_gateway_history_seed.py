@@ -65,6 +65,112 @@ def test_seed_root_prompt_fallback() -> None:
     assert msgs[0].get("content") == "root prompt"
 
 
+def _llm_record(*, run_id: str, input_tokens: int, output_tokens: int, ts: str) -> dict:
+    return {
+        "record": {
+            "run_id": run_id,
+            "status": "completed",
+            "started_at": ts,
+            "ended_at": ts,
+            "effect": {"type": "llm_call", "payload": {}},
+            "result": {
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                }
+            },
+        }
+    }
+
+
+def _tool_record(*, run_id: str, name: str, arguments: dict, ts: str) -> dict:
+    return {
+        "record": {
+            "run_id": run_id,
+            "status": "completed",
+            "started_at": ts,
+            "ended_at": ts,
+            "effect": {
+                "type": "tool_calls",
+                "payload": {"tool_calls": [{"name": name, "call_id": "c1", "arguments": arguments}]},
+            },
+            "result": {"results": [{"call_id": "c1", "success": True, "output": "ok"}]},
+        }
+    }
+
+
+def test_seed_attaches_run_tree_stats_to_assistant_message() -> None:
+    """Answers seeded from a bundle carry ledger-derived stats aggregated across
+    the whole run tree (root + sub-runs), since agent workflows execute their
+    llm_call/tool_calls effects in sub-runs."""
+    bundle = {
+        "root_run_id": "root-1",
+        "session": {
+            "turns": [
+                {"run_id": "root-1", "prompt": "do work", "answer": "done"},
+            ]
+        },
+        "ledgers": {
+            "root-1": {
+                "items": [
+                    _llm_record(run_id="root-1", input_tokens=100, output_tokens=20, ts="2026-07-09T10:00:00Z"),
+                ]
+            },
+            "sub-1": {
+                "items": [
+                    _llm_record(run_id="sub-1", input_tokens=900, output_tokens=80, ts="2026-07-09T10:00:05Z"),
+                    _tool_record(
+                        run_id="sub-1",
+                        name="write_file",
+                        arguments={"file_path": "out.md", "content": "x"},
+                        ts="2026-07-09T10:00:10Z",
+                    ),
+                ]
+            },
+        },
+    }
+
+    msgs = seed_messages_from_history_bundle(bundle, include_tool_calls_for_run_id="root-1")
+    assistant = [m for m in msgs if m.get("role") == "assistant"][0]
+    stats = assistant["metadata"]["_assistant_stats"]
+
+    assert stats["llm_calls"] == 2
+    assert stats["tool_calls"] == 1
+    assert stats["usage"] == {"input_tokens": 1000, "output_tokens": 100, "total_tokens": 1100}
+    assert stats["tool_call_details"][0]["name"] == "write_file"
+    assert stats["duration_ms"] == 10000
+
+
+def test_seed_keeps_existing_repl_stats_for_other_turns() -> None:
+    """Only the target run's answer gets bundle stats; other session turns keep
+    their own metadata untouched."""
+    bundle = {
+        "root_run_id": "root-2",
+        "session": {
+            "turns": [
+                {"run_id": "old-run", "prompt": "before", "answer": "old answer", "stats": {"llm_calls": 7}},
+                {"run_id": "root-2", "prompt": "now", "answer": "new answer"},
+            ]
+        },
+        "ledgers": {
+            "root-2": {
+                "items": [
+                    _llm_record(run_id="root-2", input_tokens=10, output_tokens=5, ts="2026-07-09T11:00:00Z"),
+                ]
+            }
+        },
+    }
+
+    msgs = seed_messages_from_history_bundle(bundle, include_tool_calls_for_run_id="root-2")
+    old = [m for m in msgs if m.get("role") == "assistant" and m.get("run_id") == "old-run"][0]
+    new = [m for m in msgs if m.get("role") == "assistant" and m.get("run_id") == "root-2"][0]
+
+    assert "_assistant_stats" not in (old.get("metadata") or {})
+    assert (old.get("metadata") or {}).get("_repl", {}).get("stats", {}).get("llm_calls") == 7
+    assert new["metadata"]["_assistant_stats"]["usage"]["input_tokens"] == 10
+
+
 def test_seed_recovers_missing_assistant_from_subworkflow_artifact() -> None:
     bundle = {
         "root_run_id": "root-1",

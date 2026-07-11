@@ -613,6 +613,50 @@ class AgentHost:
         self._local_tool_executor = MappingToolExecutor.from_tools(self._tools)
         self._agent = self._create_agent()
 
+    # ------------------------------------------------------------------
+    # Local run controls (2026-07-10): thin wrappers over the runtime/agent
+    # control surface so the tray UI can steer/pause/resume/cancel local
+    # (non-gateway) turns with the same UX as gateway runs. Best-effort:
+    # each returns False when there is no active run to act on.
+    # ------------------------------------------------------------------
+
+    def active_run_id(self) -> str:
+        agent = self._agent
+        return str(getattr(agent, "run_id", "") or "") if agent is not None else ""
+
+    def inject_guidance(self, message: str) -> bool:
+        """Steer the active local run: append to its durable inbox; the agent
+        loop folds it into the next reasoning cycle (durable transcript)."""
+        text = str(message or "").strip()
+        agent = self._agent
+        inject = getattr(agent, "inject_message", None) if agent is not None else None
+        if not text or not callable(inject) or not self.active_run_id():
+            return False
+        inject(text)
+        return True
+
+    def pause_turn(self, *, reason: str = "") -> bool:
+        run_id = self.active_run_id()
+        if not run_id or self._runtime is None:
+            return False
+        self._runtime.pause_run(run_id, reason=str(reason or "") or None)
+        return True
+
+    def resume_turn(self) -> bool:
+        run_id = self.active_run_id()
+        if not run_id or self._runtime is None:
+            return False
+        self._runtime.resume_run(run_id)
+        return True
+
+    def cancel_turn(self, *, reason: str = "") -> bool:
+        agent = self._agent
+        cancel = getattr(agent, "cancel", None) if agent is not None else None
+        if not callable(cancel) or not self.active_run_id():
+            return False
+        cancel(str(reason or "") or None)
+        return True
+
     def clear_messages(self) -> None:
         """Clear the persisted transcript for the current session."""
         self._set_agent_session_messages([])

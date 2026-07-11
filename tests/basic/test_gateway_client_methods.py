@@ -281,3 +281,35 @@ def test_gateway_client_session_login_parses_gateway_cookies(monkeypatch: pytest
     assert gw.config.session_id == "agws_cookie"
     assert gw.config.csrf_token == "agcsrf_cookie"
     assert gw.config.session_expires_at == "2026-06-12T12:00:00+00:00"
+
+
+@pytest.mark.basic
+def test_gateway_client_run_control_wrappers_build_expected_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    """pause/resume/cancel/inject_guidance submit durable gateway commands (2026-07-10)."""
+    calls = []
+
+    def fake_request_json(**kwargs):
+        calls.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(client_mod, "_request_json", fake_request_json)
+    gw = GatewayClient(GatewayClientConfig(base_url="http://gateway", auth_token="tok"))
+
+    gw.pause_run(run_id="r1", reason="tea break")
+    gw.resume_run(run_id="r1")
+    gw.cancel_run(run_id="r1", reason="stop")
+    gw.inject_guidance(run_id="r1", guidance="focus on the event bus")
+
+    assert [c["url"] for c in calls] == ["http://gateway/api/gateway/commands"] * 4
+    bodies = [c["body"] for c in calls]
+    assert [b["type"] for b in bodies] == ["pause", "resume", "cancel", "inject_guidance"]
+    assert all(b["run_id"] == "r1" for b in bodies)
+    assert all(b["command_id"] for b in bodies)
+    assert bodies[0]["payload"] == {"reason": "tea break"}
+    assert bodies[2]["payload"] == {"reason": "stop"}
+    assert bodies[3]["payload"] == {"guidance": "focus on the event bus"}
+
+    with pytest.raises(ValueError):
+        gw.inject_guidance(run_id="r1", guidance="   ")
+    with pytest.raises(ValueError):
+        gw.pause_run(run_id="")

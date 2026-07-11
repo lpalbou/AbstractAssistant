@@ -1660,23 +1660,25 @@ class iPhoneMessagesDialog:
 
         import threading
 
+        # Marshal bytes back through the button's signal: QTimer.singleShot
+        # from a plain thread never fires (no event loop there), and touching
+        # QPixmap/QIcon off the GUI thread is unsupported. Same pattern as the
+        # artifact branch above.
+        try:
+            btn.image_bytes_ready.connect(
+                lambda data: (lambda pix: _apply_pixmap(pix) if pix.loadFromData(data) else None)(QPixmap())
+            )
+        except Exception:
+            pass
+
         def _download() -> None:
             data = iPhoneMessagesDialog._fetch_image_bytes(t)
             if not data:
                 return
-
-            def _set_on_ui() -> None:
-                try:
-                    pix = QPixmap()
-                    if pix.loadFromData(data):
-                        _apply_pixmap(pix)
-                except Exception:
-                    return
-
             try:
-                QTimer.singleShot(0, _set_on_ui)
+                btn.image_bytes_ready.emit(bytes(data))
             except Exception:
-                _set_on_ui()
+                warnings.warn("#FALLBACK: url thumbnail signal emit failed; skipping thumbnail")
 
         threading.Thread(target=_download, daemon=True).start()
         return btn

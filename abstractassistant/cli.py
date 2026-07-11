@@ -15,12 +15,21 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+def _package_version() -> str:
+    try:
+        from importlib.metadata import version
+
+        return version("abstractassistant")
+    except Exception:
+        return "unknown"
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the command-line argument parser."""
     prog = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "abstractassistant"
     parser = argparse.ArgumentParser(prog=prog, description="AbstractAssistant (agentic tray + CLI)")
-    
-    parser.add_argument("--version", action="version", version="abstractassistant (agentic) v1")
+
+    parser.add_argument("--version", action="version", version=f"abstractassistant {_package_version()}")
     parser.add_argument(
         "--gateway-url",
         type=str,

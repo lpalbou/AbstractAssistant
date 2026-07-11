@@ -6,6 +6,63 @@ This file tracks major development tasks, architectural decisions, and implement
 
 ## TASK COMPLETION LOG
 
+### Task: Run Visibility, Run Controls, and Mid-Run Steering (2026-07-10)
+
+**Description**: Gave the assistant (v2 palette primarily; v1 bubble kept in parity) live
+visibility into agent cycles and tool launches, durable pause/resume/cancel controls, and
+mid-run steering — typed text during a run redirects the agent without cancelling it.
+
+**How it works**:
+1. **Visibility** (`gateway/adapter.py`): STARTED ledger records now produce UI events —
+   `{"type": "cycle", "iteration": N}` for `llm_call` starts on the agent's `reason` node
+   (counted per run id), and `{"type": "tool_started", "tools": [{name, arguments_preview}]}`
+   for `tool_calls` starts (pre-execution; previously only tool *results* were visible).
+   Both palettes render them on the inline status line ("Thinking — cycle 3",
+   "Tool: read_file {'file_path': …}").
+2. **Controls**: `GatewayClient.pause_run/resume_run/cancel_run/inject_guidance` wrappers
+   (durable gateway commands; pause/cancel are tree-wide, pause lands at the next step
+   boundary). v2 controller gained `pause_run/resume_run/inject_guidance` beside the
+   existing `cancel_run`. UI: the send/stop button's right-click menu offers
+   Pause/Resume/Stop while a run is active.
+3. **Steering**: while a run is active, `_submit` (v2) / `send_message` (v1) no longer
+   refuse typed text — it is delivered via `inject_guidance` into the run's durable
+   `_runtime.inbox`, folds into the agent's next reasoning cycle as a durable transcript
+   message (see abstractagent adapters, maintainer ruling 2026-07-09/10), and is echoed
+   into the local transcript with `metadata.kind = "operator_guidance"`.
+4. **Local (non-gateway) parity**: `AgentHost` gained `active_run_id/inject_guidance/
+   pause_turn/resume_turn/cancel_turn`; the v1 bubble routes controls to the gateway or
+   the local host transparently.
+
+**Files Modified**: `abstractassistant/gateway/adapter.py`, `abstractassistant/gateway/client.py`,
+`abstractassistant/core/agent_host.py`, `abstractassistant/ui/qt_bubble.py`,
+`abstractassistantv2/controller.py`, `abstractassistantv2/app.py`.
+
+**Testing**: `tests/basic` — 265 passed. New: adapter cycle/tool_started contract tests,
+client run-control command tests, v2 palette steering + status tests, v2 controller command
+tests. The steering/pause/resume/cancel mechanics were separately live-verified at the
+runtime/agent layer (ReAct/MemAct/CodeAct all drain the inbox into the durable transcript).
+
+**Notes/Limitations**: steering requires the flow to reach an inbox-bearing agent loop
+(Agent-node/abstractagent loops qualify; hand-built `llm_call` loops do not — see
+`docs/guide/event-inbox-agent.md`). Pause is honored at the next commit point; an in-flight
+LLM/tool call finishes first. The tray app was not driven end-to-end headlessly; UI-level
+changes are covered by the palette unit tests.
+
+**Post-release fix (same day, live-testing feedback)**: after Stop, the follower thread
+lingers until its next SSE line/idle window; during that window `self._worker` was still
+set, so (a) the Send icon did not come back and (b) a re-sent message was silently routed
+into the STEERING path of the now-cancelled run — it never started a new run and the
+session ended with the misleading "no written reply" banner. Fixes in `app.py`:
+`_cancel_active_run` restores the Send button immediately and marks `_cancel_requested`;
+`_submit` steers only live non-cancelled runs, queues a send issued during teardown
+(`_pending_submit`, fired by `_on_worker_finished`), and clears stale finished workers;
+a user-stopped run now reports "Run stopped." instead of the no-written-reply diagnostic.
+Same teardown guard added to the v1 bubble. State flags are class-level defaults because
+`getattr(obj, missing, default)` raises RuntimeError on `__new__`-built QObjects (tests).
+Four regression tests added (269 passing).
+
+---
+
 ### Task: AbstractCore 2.4.5 Upgrade and File Attachment Feature (2025-10-21)
 
 **Description**: Upgraded AbstractCore from 2.4.2 to 2.4.5 to leverage new universal media handling capabilities and implemented a complete file attachment system in the chat bubble UI, enabling users to attach and send images, PDFs, Office documents, and other file types alongside text messages.

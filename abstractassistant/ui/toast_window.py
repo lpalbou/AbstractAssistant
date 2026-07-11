@@ -23,7 +23,10 @@ except ImportError:
         def render_markdown(text):
             return f"<pre>{text}</pre>"
 
-print(f"🔍 Toast Window: MARKDOWN_AVAILABLE = {MARKDOWN_AVAILABLE}")
+if not MARKDOWN_AVAILABLE:
+    import warnings
+
+    warnings.warn("#FALLBACK: markdown renderer unavailable; toast responses render as plain text")
 
 try:
     from PyQt5.QtWidgets import (

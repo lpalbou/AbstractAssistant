@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.4.11"
+version = "0.5.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,7 +18,6 @@ classifiers = [
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -27,7 +26,8 @@ classifiers = [
 ]
 
 dependencies = [
-    # Base install is fully-featured (voice + media + provider/tool integrations).
+    # Base install covers text chat + media over the gateway; local microphone
+    # capture (STT/VAD audio I/O) requires the [voice] extra.
     "abstractagent>=0.3.12",
     "abstractvoice>=0.10.18",
     # Provider/client extras (avoid GPU-only stacks like vLLM by default).
@@ -38,13 +38,10 @@ dependencies = [
     "PyQt5>=5.15.0",
     "pynput>=1.7.7",
     # Markdown rendering in UI
-    "markdown>=3.5.0",
     "markdown-it-py>=4.0.0",
     "pygments>=2.16.0",
-    "pymdown-extensions>=10.0",
     # UX helpers
     "pyperclip>=1.8.2",
-    "plyer>=2.1.0",
     # webrtcvad (via abstractvoice) depends on pkg_resources at import time;
     # pkg_resources remains available through setuptools 80.x and disappears in 81+.
     "setuptools>=61.0,<81",

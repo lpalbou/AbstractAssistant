@@ -21,7 +21,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - One published gateway assistant workflow, `abstractassistant-orchestrator`, as the runtime path
   for tray and CLI turns.
 - Gateway-backed multimodal defaults for text, voice, image, video, sound, and music routes.
-- Local microphone capture and local playback while STT/TTS execution stays on the gateway.
+- Local microphone capture and local playback while STT/TTS execution stays on the gateway
+  (microphone capture requires the `voice` extra — see Install).
 - Workflow-routed image, video, sound, and music generation through gateway defaults.
 - Durable tool approvals through gateway waits instead of local side channels.
 - Gateway-backed capability-default editing, including advanced route options where the selected
@@ -32,6 +33,15 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 ```bash
 pip install "abstractassistant"
 ```
+
+For local microphone capture (voice conversations and dictation), install the `voice` extra:
+
+```bash
+pip install "abstractassistant[voice]"
+```
+
+The base install covers text chat and gateway-backed media; it does not include the local
+audio-input stack. STT/TTS execution stays on the gateway either way.
 
 Practical requirements:
 

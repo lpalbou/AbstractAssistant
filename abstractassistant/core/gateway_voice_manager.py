@@ -1289,19 +1289,24 @@ class GatewayVoiceManager:
         self._stop_meter()
         if not self._audio_meter_callback or not levels or step_s <= 0:
             return
-        self._meter_stop.clear()
-        self._meter_pause.clear()
+        # Fresh per-generation events (captured in the closure): clearing the
+        # shared stop event here could revive an old thread that had not yet
+        # observed the stop flag, leaving two meters emitting concurrently.
+        stop_ev = threading.Event()
+        pause_ev = threading.Event()
+        self._meter_stop = stop_ev
+        self._meter_pause = pause_ev
 
         def _run() -> None:
             for lvl in levels:
-                if self._meter_stop.is_set():
+                if stop_ev.is_set():
                     return
-                while self._meter_pause.is_set() and not self._meter_stop.is_set():
+                while pause_ev.is_set() and not stop_ev.is_set():
                     time.sleep(0.05)
-                if self._meter_stop.is_set():
+                if stop_ev.is_set():
                     return
                 self._emit_audio_meter(lvl)
-                self._meter_stop.wait(timeout=step_s)
+                stop_ev.wait(timeout=step_s)
             self._emit_audio_meter(0.0)
 
         self._meter_thread = threading.Thread(target=_run, daemon=True)

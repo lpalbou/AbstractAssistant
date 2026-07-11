@@ -61,6 +61,10 @@ class _SessionView:
 class LLMManager:
     """Back-compat façade: drive an agentic backend and expose a session-like view."""
 
+    # Class-level default so instances built without __init__ (tests, tools)
+    # still lock correctly; __init__ replaces it with a per-instance lock.
+    _snapshot_lock: threading.RLock = threading.RLock()
+
     def __init__(self, config=None, debug: bool = False, *, data_dir: Optional[Path] = None):
         if config is None:
             from ..config import Config
@@ -76,6 +80,10 @@ class LLMManager:
         self._session_index = SessionIndex(self.data_dir)
         self._title_seeds: Dict[str, str] = {}
         self._title_lock = threading.Lock()
+        # Serializes gateway-snapshot read-copy-write + save. Appends arrive
+        # from the GatewayWorker thread, wait-submit threads, and the Qt main
+        # thread; without this, concurrent appends are last-writer-wins.
+        self._snapshot_lock = threading.RLock()
 
         if self.use_gateway:
             self.current_provider = ""
@@ -197,7 +205,10 @@ class LLMManager:
         return snap
 
     def _save_gateway_snapshot(self, snapshot: SessionSnapshot) -> None:
-        store = self._gateway_store or self._gateway_store_for(snapshot.session_id)
+        # Resolve the store from the snapshot's own session id: a cached store
+        # could belong to another session after a switch, silently writing one
+        # session's transcript into another session's file.
+        store = self._gateway_store_for(snapshot.session_id)
         self._gateway_store = store
         store.save(snapshot)
 
@@ -250,38 +261,40 @@ class LLMManager:
         if not self.use_gateway:
             return False
         try:
-            snap = self._ensure_gateway_snapshot()
-            run_id = snap.last_run_id if last_run_id is None else str(last_run_id or "").strip() or None
-            existing: List[Dict[str, Any]] = [dict(m) for m in (snap.messages or []) if isinstance(m, dict)]
-            cleaned: List[Dict[str, Any]] = []
-            for index, m in enumerate(messages):
-                if isinstance(m, dict):
-                    cleaned.append(
-                        self._normalize_message_dict(
-                            m,
-                            fallback_index=index,
-                            session_id=snap.session_id,
+            with self._snapshot_lock:
+                snap = self._ensure_gateway_snapshot()
+                run_id = snap.last_run_id if last_run_id is None else str(last_run_id or "").strip() or None
+                existing: List[Dict[str, Any]] = [dict(m) for m in (snap.messages or []) if isinstance(m, dict)]
+                cleaned: List[Dict[str, Any]] = []
+                for index, m in enumerate(messages):
+                    if isinstance(m, dict):
+                        cleaned.append(
+                            self._normalize_message_dict(
+                                m,
+                                fallback_index=index,
+                                session_id=snap.session_id,
+                            )
                         )
-                    )
-            history_changed = cleaned != existing
-            self._gateway_snapshot = SessionSnapshot(
-                session_id=snap.session_id,
-                actor_id=snap.actor_id,
-                messages=cleaned,
-                last_run_id=run_id,
-            )
-            self._save_gateway_snapshot(self._gateway_snapshot)
+                history_changed = cleaned != existing
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=cleaned,
+                    last_run_id=run_id,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
             self._refresh_session_view()
             return history_changed
         except Exception:
             return False
 
     def _ensure_gateway_snapshot(self) -> SessionSnapshot:
-        snap = self._gateway_snapshot
-        if snap is None:
-            snap = self._load_gateway_snapshot(self.active_session_id)
-            self._gateway_snapshot = snap
-        return snap
+        with self._snapshot_lock:
+            snap = self._gateway_snapshot
+            if snap is None:
+                snap = self._load_gateway_snapshot(self.active_session_id)
+                self._gateway_snapshot = snap
+            return snap
 
     def list_sessions(self) -> List[Dict[str, str]]:
         out: List[Dict[str, str]] = []
@@ -305,7 +318,8 @@ class LLMManager:
         rec = self._session_index.create_session()
         if self.use_gateway:
             self._host = None
-            self._gateway_snapshot = self._load_gateway_snapshot(rec.session_id)
+            with self._snapshot_lock:
+                self._gateway_snapshot = self._load_gateway_snapshot(rec.session_id)
         else:
             self._host = self._build_host_for_session(rec.session_id) if self.current_provider and self.current_model else None
         self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
@@ -321,7 +335,8 @@ class LLMManager:
         self._session_index.set_active(sid)
         if self.use_gateway:
             self._host = None
-            self._gateway_snapshot = self._load_gateway_snapshot(sid)
+            with self._snapshot_lock:
+                self._gateway_snapshot = self._load_gateway_snapshot(sid)
         else:
             self._host = self._build_host_for_session(sid) if self.current_provider and self.current_model else None
         self.llm = None if self.use_gateway else self._best_effort_llm_for_ui()
@@ -537,24 +552,25 @@ class LLMManager:
         """Append a message to the current session transcript."""
         try:
             if self.use_gateway:
-                snap = self._ensure_gateway_snapshot()
-                messages = list(snap.messages)
-                msg: Dict[str, Any] = {
-                    "role": str(role),
-                    "content": str(content),
-                    "ts": str(ts or "").strip() or datetime.now(timezone.utc).isoformat(),
-                    "message_id": self._fresh_message_id(),
-                }
-                if metadata:
-                    msg["metadata"] = dict(metadata)
-                messages.append(msg)
-                self._gateway_snapshot = SessionSnapshot(
-                    session_id=snap.session_id,
-                    actor_id=snap.actor_id,
-                    messages=messages,
-                    last_run_id=snap.last_run_id,
-                )
-                self._save_gateway_snapshot(self._gateway_snapshot)
+                with self._snapshot_lock:
+                    snap = self._ensure_gateway_snapshot()
+                    messages = list(snap.messages)
+                    msg: Dict[str, Any] = {
+                        "role": str(role),
+                        "content": str(content),
+                        "ts": str(ts or "").strip() or datetime.now(timezone.utc).isoformat(),
+                        "message_id": self._fresh_message_id(),
+                    }
+                    if metadata:
+                        msg["metadata"] = dict(metadata)
+                    messages.append(msg)
+                    self._gateway_snapshot = SessionSnapshot(
+                        session_id=snap.session_id,
+                        actor_id=snap.actor_id,
+                        messages=messages,
+                        last_run_id=snap.last_run_id,
+                    )
+                    self._save_gateway_snapshot(self._gateway_snapshot)
                 self._refresh_session_view()
                 return
             if self._host is None:
@@ -569,14 +585,15 @@ class LLMManager:
         """Persist last run id for the active session."""
         try:
             if self.use_gateway:
-                snap = self._ensure_gateway_snapshot()
-                self._gateway_snapshot = SessionSnapshot(
-                    session_id=snap.session_id,
-                    actor_id=snap.actor_id,
-                    messages=list(snap.messages),
-                    last_run_id=str(run_id or "").strip() or None,
-                )
-                self._save_gateway_snapshot(self._gateway_snapshot)
+                with self._snapshot_lock:
+                    snap = self._ensure_gateway_snapshot()
+                    self._gateway_snapshot = SessionSnapshot(
+                        session_id=snap.session_id,
+                        actor_id=snap.actor_id,
+                        messages=list(snap.messages),
+                        last_run_id=str(run_id or "").strip() or None,
+                    )
+                    self._save_gateway_snapshot(self._gateway_snapshot)
                 return
             if self._host is None:
                 return
@@ -599,14 +616,15 @@ class LLMManager:
     def reset_active_session(self, tts_mode: bool = False) -> None:
         self._tts_mode = bool(tts_mode)
         if self.use_gateway:
-            snap = self._ensure_gateway_snapshot()
-            self._gateway_snapshot = SessionSnapshot(
-                session_id=snap.session_id,
-                actor_id=snap.actor_id,
-                messages=[],
-                last_run_id=None,
-            )
-            self._save_gateway_snapshot(self._gateway_snapshot)
+            with self._snapshot_lock:
+                snap = self._ensure_gateway_snapshot()
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=[],
+                    last_run_id=None,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
             self._refresh_session_view()
             return
         if self._host is None:
@@ -647,14 +665,15 @@ class LLMManager:
                     for m in msgs_raw:
                         if isinstance(m, dict):
                             messages.append(dict(m))
-                snap = self._ensure_gateway_snapshot()
-                self._gateway_snapshot = SessionSnapshot(
-                    session_id=snap.session_id,
-                    actor_id=snap.actor_id,
-                    messages=messages,
-                    last_run_id=None,
-                )
-                self._save_gateway_snapshot(self._gateway_snapshot)
+                with self._snapshot_lock:
+                    snap = self._ensure_gateway_snapshot()
+                    self._gateway_snapshot = SessionSnapshot(
+                        session_id=snap.session_id,
+                        actor_id=snap.actor_id,
+                        messages=messages,
+                        last_run_id=None,
+                    )
+                    self._save_gateway_snapshot(self._gateway_snapshot)
                 self._refresh_session_view()
                 return True
             if self._host is None:

@@ -4,17 +4,156 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Assistant replies in the palette now end with a discreet per-answer stats line —
+  `input : … tk | output : … tk | tools : … | files : …` — with investigation tooltips on each
+  segment: token tooltips show exact counts and the number of LLM calls, the tools segment lists
+  every executed tool with what it did (and stays clickable to open the full tool-usage dialog),
+  and the files segment lists which files were created, modified, moved or deleted.
+- File activity is derived by a new conservative classifier
+  (`abstractassistant/core/file_activity.py`) that understands the dedicated file tools
+  (`write_file`, `edit_file`, `delete_file`, `move_file`, …) and simple `execute_command`
+  shell forms (`mkdir`, `touch`, `mv`, `cp`, `rm`, output redirects). Ambiguous commands
+  (globs, substitutions) are deliberately not counted, and failed tool calls are excluded.
+  When a replayed message carries no tool details, the files segment is omitted rather than
+  guessed.
+- User messages now have the same top-right copy button as assistant replies.
+- The `files` stats segment is now clickable (like `tools`) and opens a dedicated
+  "Files affected in this answer" dialog: one scrollable card per file mutation with a colored
+  action chip (CREATED / MODIFIED / MOVED / DELETED), the full path (from → to for moves) and
+  the tool that performed it, hydrated from the run ledger on open.
+- Tool and file usage dialogs were redesigned around informative cards: each tool card shows
+  the tool name, what it did, its key parameters, a per-call execution outcome chip
+  (COMPLETED / FAILED) with the error message when a call failed, and a raw-payload toggle —
+  all in a scrollable card list.
+
+### Changed
+- The footer metric chips (colored `IN/OUT/tools` badges) were replaced by the flat stats line
+  above; duration and model remain as trailing dim segments, and the run's LLM-call count moved
+  into the input-tokens tooltip.
+- Persisted per-run tool details now retain each call's `success`/`error` outcome so replayed
+  messages can report honest tool/file stats.
+
+### Fixed
+- Answer stats were empty for agent workflows: the final message only carried the ROOT run's
+  stats bucket while llm_call/tool_calls effects execute in sub-runs. Stats are now folded by a
+  shared module (`abstractassistant/gateway/run_stats.py`) and aggregated across the whole
+  followed run tree (tokens/calls summed, duration as the wall-clock span across runs).
+- Answers recovered from a run's history bundle (`recovered_history_answer`, e.g. after the
+  final event was missed or on reattach) carried no stats at all — and history reseeding at the
+  end of every run REPLACED the live message's stats with a stats-less copy. Seeded messages now
+  derive `_assistant_stats` from the bundle's ledgers (root + sub-runs); other session turns are
+  left untouched.
+- The live-followed final answer is now authoritative: the post-run history reseed no longer
+  REPLACES a transcript that already carries the run's final answer (that replace could discard
+  the live message and re-materialize it through the `recovered_history_answer` path, losing
+  stats when the gateway's session turns were missing). Reseeding now runs only as a gap filler
+  when no final answer was observed on the stream — and seeded answers derive full stats from
+  the bundle's ledgers, so even that path carries real token/tool/file numbers.
+- No partial stats fallbacks: a bare workflow-meta tool count (no recorded stats) renders no
+  stats segments — messages persisted before stats recording existed show only the model line.
+
+## [0.5.0] - 2026-07-07
+
+### Added
+- The shipped palette (v2) now has a working **Stop** control: while a run is active the
+  composer's send button becomes a Stop button that submits a durable gateway `cancel` for the
+  run and interrupts the local follower.
+
 ### Changed
 - The palette header now includes a recent-session picker with compact `yy/mm/dd - topic` labels.
   When a durable session topic is not available yet, the picker falls back to the first user
   query.
 - The header connection indicator is now a larger live orb at the far right of the palette and
   reflects actual gateway connection status instead of only workflow availability.
+- Ask-user prompts no longer resume the run with a silent empty answer on Cancel (both UIs):
+  cancelling now asks whether to send an empty response or keep the run waiting, and a kept
+  wait is re-prompted the next time the window is shown. The legacy bubble's ask dialog also
+  accepts multiline answers.
+- Gateway-mode connection errors now name the gateway (with its URL) instead of "the provider",
+  and the legacy bubble schedules a reattach attempt once the gateway is back. Provider-discovery
+  failures at startup now surface as an OFFLINE status pill (with remediation in the tooltip)
+  instead of a console-only warning under a green READY pill.
+- Refusing to enable text-to-speech (no backend / no TTS support) now explains why in a visible
+  warning instead of silently snapping the toggle back off.
 
 ### Fixed
 - The macOS app-bundle build now uses a narrower PyInstaller hidden-import surface for the
   gateway-native tray app, which avoids force-collecting the full optional `abstractcore`
   dependency tree during bundle builds.
+- The PyInstaller spec now excludes `pygame` (pulled in via nltk's lazy `timit` corpus import,
+  never imported by the app); its bundled SDL dylibs failed binary processing during COLLECT
+  (`SystemError: ... pygame/.dylibs/libwebp.7.dylib`) and broke the macOS app build.
+- Typing in the legacy Qt bubble was completely broken: `_qt_key` was declared `@classmethod`
+  without a `cls` parameter, so every keypress raised `TypeError` before the character could be
+  inserted. Regression-tested.
+- Tool-approval and ask-user waits are now answered by identity (`run_id` + `wait_key`) instead
+  of a single "last observed wait" slot, so a second approval request arriving while a dialog is
+  open can no longer steal the answer and leave the first run waiting forever (shared
+  `GatewayWorker`, both UIs).
+- An open Messages window now receives new answers: the update path called a nonexistent
+  `refresh_messages` method (swallowed `AttributeError`) and the show-path was a no-op when the
+  history toggle was already checked.
+- `send_message` now refuses to start while a worker run is active — the Enter key bypassed the
+  disabled send button and could rebind a live `QThread` (fatal "Destroyed while thread is still
+  running" class) and stream two runs into one session. Also removed a dead block referencing an
+  undefined `run_id` that raised a swallowed `NameError` on every send.
+- Closing the bubble mid-run no longer calls `QThread.terminate()` with an unbounded `wait()`
+  (crash/hang-on-quit class); the worker is interrupted cooperatively with a bounded wait.
+- "Reconnect gateway" can reattach again: the one-shot startup reattach guard was never reset, so
+  every later reconnect silently skipped re-following the in-flight run.
+- The gateway ledger follower now retries transient connection failures (gateway restart, network
+  blip) with bounded backoff instead of dying on the first error, honors cancellation while
+  streaming (per-SSE-line stop signal), and still fails fast on non-transient HTTP errors. It also
+  clears the OFFLINE state on the idle-timeout path (the stream normally exits via idle, so the
+  pill would otherwise stay OFFLINE for the rest of a healthy run), and an exception raised by the
+  record callback is no longer misclassified as a transient transport error and retried past its
+  cursor (which would silently drop the record).
+- Full voice mode no longer wedges in PROCESSING when a run is already in flight: the send guard's
+  refusal is now observable (`send_message` returns a bool), so the voice loop releases its busy
+  latch and resumes listening instead of going deaf until the in-flight run finishes.
+- Keyed wait answers require both `run_id` and `wait_key` to target a wait by identity (a lone
+  kwarg falls back to the pending wait wholesale rather than stitching a mixed identity), and the
+  pending-wait slot is cleared only on a full `(run_id, wait_key)` match (wait keys such as
+  `voice_input` can repeat across runs). The ask-user crash fallback and legacy input-dialog path
+  now also honor wait identity and the Cancel-keeps-waiting semantics.
+- After a gateway drop mid-run, the legacy bubble now retries reattach with capped backoff
+  (5s/15s/30s/60s) instead of a single fixed 5s attempt, matching what the error message promises.
+- Gateway session snapshots are now mutated under a lock and saved through unique temp files —
+  concurrent appends from the worker/wait-submit/main threads could previously lose messages or
+  interleave two writers into invalid JSON (which then silently loaded as an empty transcript).
+  Snapshot saves also resolve their target file from the snapshot's own session id, so a stale
+  write can no longer land in another session's file.
+- The input placeholder taught the wrong gesture ("Shift+Enter to send"); Enter sends and
+  Shift+Enter inserts a newline. Escape now hides the bubble when voice is idle (the ⨯ button
+  quits the app, so there was no keyboard way to dismiss the window).
+- TTS "paused" no longer renders with the error style in the dormant `TTSStateManager` path, the
+  toast module no longer prints diagnostics at import time, and the markdown code font stack is
+  Menlo-first (`SF Mono` is not resolvable in Qt on macOS).
+- Remote-image thumbnails in the Messages window now marshal downloaded bytes through the
+  button's thread-safe signal (like artifact thumbnails); the previous `QTimer.singleShot` from a
+  plain thread never fired, and its fallback touched `QPixmap` off the GUI thread.
+- Restarting the gateway voice meter now uses fresh per-generation stop/pause events, so an old
+  meter thread that missed the stop flag can no longer resume alongside the new one (flickering
+  tray meter).
+
+- The shipped palette (v2) now cleans up on quit: `QApplication.aboutToQuit` interrupts the
+  running worker (bounded wait), stops the global hotkey listener, and cleans up voice — quitting
+  mid-run no longer risks a "QThread: Destroyed while thread is still running" crash.
+- Voice dictation in the palette now marshals recognizer-thread callbacks (transcription / listen
+  stop) onto the Qt main thread via signals instead of mutating widgets off-thread.
+- `assistant --version` now reports the installed package version instead of a hardcoded string.
+- Dropped unused runtime dependencies `markdown`, `pymdown-extensions`, and `plyer` (only
+  `markdown-it-py` + `pygments` are used); the macOS spec no longer force-collects `pymdownx`.
+
+### Removed
+- Deleted the dead CustomTkinter modules `ui/toast_manager.py` and `ui/chat_bubble.py`
+  (unimportable: `customtkinter` is not a dependency; nothing imported them).
+- Removed the Python 3.9 classifier (the package requires Python >= 3.10).
+
+### Packaging
+- The macOS bundle declares `NSMicrophoneUsageDescription` so voice mode no longer trips macOS
+  TCC termination on first microphone access.
 
 ## [0.4.11] - 2026-06-14
 

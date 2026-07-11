@@ -55,8 +55,10 @@ _WRAPPED_CODE_PANEL_RE = re.compile(
     r"<pre><code(?:\s+class=\"[^\"]*\")?>(?P<panel><table\b[^>]*class=\"codepanel\"[\s\S]*?</table>)</code></pre>",
     flags=re.I,
 )
+# Menlo-first: 'SF Mono' is not resolvable in Qt on macOS (see AGENTS.md,
+# 2026-02-22 font stack note), so leading with it forces fallback scanning.
 _CODE_MONO_FONT = (
-    "'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace"
+    "'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace"
 )
 _CODE_PANEL_STYLE = (
     "margin: 10px 0 14px 0; "

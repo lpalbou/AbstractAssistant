@@ -1676,6 +1676,10 @@ class _MessageInputRow(QWidget):
 
 class QtChatBubble(QWidget):
     """Modern Qt-based chat bubble."""
+
+    # Run-teardown state (2026-07-10): class-level default so lookups never
+    # trip QObject.__getattr__ on partially-constructed instances (tests).
+    _cancel_requested = False
     
     def __init__(self, llm_manager, config=None, debug=False, listening_mode="wait"):
         super().__init__()
@@ -1805,6 +1809,8 @@ class QtChatBubble(QWidget):
         # Worker thread
         self.worker = None
         self._reattach_attempted = False
+        # Ask-user wait deferred by the user (Cancel + "keep waiting").
+        self._deferred_ask_event: Optional[Dict[str, Any]] = None
         
         self.setup_ui()
         self.setup_styling()
@@ -2220,7 +2226,7 @@ class QtChatBubble(QWidget):
         self.tools_button = self._input_row.tools_button
         self.send_button = self._input_row.send_button
 
-        self.input_text.setPlaceholderText("Ask me anything... (Shift+Enter to send)")
+        self.input_text.setPlaceholderText("Ask me anything…  (Enter to send · Shift+Enter for a new line)")
         try:
             self.input_text.installEventFilter(self)
         except Exception:
@@ -2231,7 +2237,11 @@ class QtChatBubble(QWidget):
         self.attach_button.setToolTip("Attach files (images, documents, audio, video)")
         self.tools_button.clicked.connect(self.open_tool_selector)
         self.tools_button.setToolTip("Tools")
-        self.send_button.clicked.connect(self.send_message)
+        self.send_button.clicked.connect(self._on_send_clicked)
+        # During a run the send button doubles as the run-control surface:
+        # click = stop (or steer, when text is present); right-click = pause/resume.
+        self.send_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.send_button.customContextMenuRequested.connect(self._show_run_control_menu)
 
         # Styling (theme methods will override these too; these are safe defaults for first paint)
         self.attach_button.setStyleSheet(
@@ -2984,6 +2994,16 @@ class QtChatBubble(QWidget):
             QTimer.singleShot(40, self._stabilize_layout)
         except Exception:
             pass
+        # Re-prompt a deferred ask-user wait when the user comes back.
+        try:
+            deferred = self._deferred_ask_event
+            if isinstance(deferred, dict) and self._is_run_in_progress():
+                self._deferred_ask_event = None
+                QTimer.singleShot(250, lambda ev=dict(deferred): self._handle_ask_user(ev))
+            elif deferred is not None and not self._is_run_in_progress():
+                self._deferred_ask_event = None
+        except Exception:
+            pass
 
     def setup_styling(self):
         """Apply a system-aware theme (follows OS light/dark)."""
@@ -3242,6 +3262,18 @@ class QtChatBubble(QWidget):
                 except Exception as e:
                     warnings.warn(f"#FALLBACK: gateway provider discovery failed; leaving provider list empty ({e})")
                     self.current_provider = ""
+                    # Console warnings are invisible for a menu-bar app: reflect
+                    # the disconnect in the status pill instead of showing READY.
+                    try:
+                        gateway_url = str(getattr(getattr(self.config, "gateway", None), "url", "") or "").strip()
+                        self.update_status("OFFLINE", force=True)
+                        if hasattr(self, "status_label") and self.status_label is not None:
+                            self.status_label.setToolTip(
+                                f"Gateway unreachable{f' at {gateway_url}' if gateway_url else ''} — "
+                                "start it (abstractgateway serve) or set ABSTRACTGATEWAY_URL."
+                            )
+                    except Exception:
+                        pass
 
             elif self.provider_manager:
                 available_providers = self.provider_manager.get_available_providers(exclude_mock=True)
@@ -4085,7 +4117,7 @@ class QtChatBubble(QWidget):
         except Exception:
             return int(getattr(value, "value", 0) or 0)
 
-    @classmethod
+    @staticmethod
     def _qt_key(name: str):
         key = getattr(Qt, name, None)
         if key is None and hasattr(Qt, "Key"):
@@ -4903,11 +4935,196 @@ class QtChatBubble(QWidget):
                 print(f"🗑️ Removed attached file: {file_path}")
             self.update_attached_files_display()
 
-    def send_message(self):
-        """Send message to LLM with optional media attachments."""
+    # ------------------------------------------------------------------
+    # Run controls + steering (2026-07-10)
+    #
+    # During a run, the send button is the control surface:
+    # - click with text in the box  -> steer the run (durable inject_guidance)
+    # - click with an empty box     -> stop the run
+    # - right-click                 -> pause / resume / stop menu
+    # Gateway runs use durable gateway commands; local AgentHost turns use the
+    # runtime/agent control surface directly. Both are best-effort: a control
+    # that cannot resolve an active run does nothing beyond a status line.
+    # ------------------------------------------------------------------
+
+    def _on_send_clicked(self) -> None:
+        if self._is_run_in_progress() and not self.input_text.toPlainText().strip():
+            self._cancel_active_run()
+            return
+        self.send_message()
+
+    def _active_run_controls(self):
+        """Resolve the active run's control handle.
+
+        Returns ("gateway", client, run_id), ("local", agent_host, run_id), or None.
+        """
+        if not self._is_run_in_progress():
+            return None
+        if self.use_gateway and hasattr(self.llm_manager, "gateway_client"):
+            try:
+                gw = self.llm_manager.gateway_client()
+            except Exception:
+                gw = None
+            run_id = str(getattr(self.worker, "_root_run_id", "") or "")
+            if not run_id:
+                try:
+                    run_id = str(self.llm_manager.get_last_run_id() or "")
+                except Exception:
+                    run_id = ""
+            if gw is not None and run_id:
+                return ("gateway", gw, run_id)
+            return None
+        host = getattr(self.llm_manager, "agent_host", None)
+        if host is not None:
+            try:
+                run_id = str(host.active_run_id() or "")
+            except Exception:
+                run_id = ""
+            if run_id:
+                return ("local", host, run_id)
+        return None
+
+    def _steer_active_run(self, text: str) -> bool:
+        guidance = str(text or "").strip()
+        ctrl = self._active_run_controls()
+        if not guidance or ctrl is None:
+            return False
+        kind, handle, run_id = ctrl
+        try:
+            if kind == "gateway":
+                handle.inject_guidance(run_id=run_id, guidance=guidance)
+            elif not handle.inject_guidance(guidance):
+                return False
+        except Exception as e:
+            warnings.warn(f"steer failed: {e}")
+            return False
+        # Show the interjection in the local transcript so the thread reads truthfully.
+        try:
+            self.llm_manager.append_message(
+                role="user", content=guidance, metadata={"kind": "operator_guidance"}
+            )
+            self._update_message_history_from_session()
+            self._update_token_count_from_session()
+            self._rebuild_chat_display()
+        except Exception:
+            pass
+        preview = guidance if len(guidance) <= 80 else f"{guidance[:77]}..."
+        self._set_run_activity(f"Steering: {preview}", override=True)
+        return True
+
+    def _pause_active_run(self) -> None:
+        ctrl = self._active_run_controls()
+        if ctrl is None:
+            return
+        kind, handle, run_id = ctrl
+        try:
+            if kind == "gateway":
+                handle.pause_run(run_id=run_id, reason="Paused by user")
+            else:
+                handle.pause_turn(reason="Paused by user")
+            self._set_run_activity("Pausing — takes effect at the next step boundary", override=True)
+        except Exception as e:
+            warnings.warn(f"pause failed: {e}")
+
+    def _resume_active_run(self) -> None:
+        ctrl = self._active_run_controls()
+        if ctrl is None:
+            return
+        kind, handle, run_id = ctrl
+        try:
+            if kind == "gateway":
+                handle.resume_run(run_id=run_id)
+            else:
+                handle.resume_turn()
+            self._set_run_activity("Resumed", override=True)
+        except Exception as e:
+            warnings.warn(f"resume failed: {e}")
+
+    def _cancel_active_run(self) -> None:
+        ctrl = self._active_run_controls()
+        if ctrl is None:
+            return
+        kind, handle, run_id = ctrl
+        try:
+            if kind == "gateway":
+                handle.cancel_run(run_id=run_id, reason="Stopped by user")
+            else:
+                handle.cancel_turn(reason="Stopped by user")
+            # The worker lingers until its stream notices the terminal status;
+            # block steering into the cancelled run during that window.
+            self._cancel_requested = True
+            self._set_run_activity("Stopping…", override=True)
+        except Exception as e:
+            warnings.warn(f"cancel failed: {e}")
+
+    def _show_run_control_menu(self, pos) -> None:
+        if not self._is_run_in_progress():
+            return
+        try:
+            from PyQt5.QtWidgets import QMenu
+        except Exception:
+            return
+        menu = QMenu(self.send_button)
+        act_pause = menu.addAction("Pause run")
+        act_resume = menu.addAction("Resume run")
+        menu.addSeparator()
+        act_stop = menu.addAction("Stop run")
+        chosen = menu.exec_(self.send_button.mapToGlobal(pos))
+        if chosen == act_pause:
+            self._pause_active_run()
+        elif chosen == act_resume:
+            self._resume_active_run()
+        elif chosen == act_stop:
+            self._cancel_active_run()
+
+    def _enter_running_send_button_state(self) -> None:
+        """While a controllable run is active, the send button becomes a stop button.
+        Plain LLMWorker turns (no durable run to command) keep the disabled spinner."""
+        controllable = isinstance(self.worker, (GatewayWorker, AgentWorker))
+        if not controllable:
+            return
+        try:
+            self.send_button.setEnabled(True)
+            self.send_button.setText("■")
+            self.send_button.setToolTip(
+                "Stop the run — with text in the box, sends it as steering (right-click: pause/resume)"
+            )
+        except Exception:
+            pass
+
+    def send_message(self) -> bool:
+        """Send message to LLM with optional media attachments.
+
+        Returns True when the input was consumed: a worker was started, or the
+        text was delivered as steering to the run in progress. Returns False
+        when the send was refused (empty input, or a run in progress that
+        could not accept steering). Callers such as the voice loop rely on the
+        return value to unwind their busy state.
+        """
         message = self.input_text.toPlainText().strip()
         if not message:
-            return
+            return False
+
+        # While a run is in progress, typed text becomes STEERING (2026-07-10): it lands in
+        # the run's durable inbox and folds into the agent's next reasoning cycle — no
+        # cancel/restart, context preserved. Rebinding `self.worker` while the previous
+        # QThread still runs would be fatal ("QThread: Destroyed while thread is still
+        # running"), so a second run is never started here either way.
+        try:
+            if self.worker is not None and hasattr(self.worker, "isRunning") and self.worker.isRunning():
+                if not self._cancel_requested and self._steer_active_run(message):
+                    self.input_text.clear()
+                    return True
+                self._set_run_activity(
+                    "Finishing the stopped run — try again in a moment"
+                    if self._cancel_requested
+                    else "A response is still in progress — please wait",
+                    override=False,
+                )
+                return False
+        except Exception:
+            pass
+        self._cancel_requested = False
 
         if self.debug:
             print(f"💬 Sending message: '{message[:50]}...' to {self.current_provider}/{self.current_model}")
@@ -4939,10 +5156,8 @@ class QtChatBubble(QWidget):
         except Exception:
             pass
         try:
-            rid = str(run_id or "").strip()
-            suffix = rid[-6:] if len(rid) > 6 else rid
-            label = f"Running (reattached {suffix})" if suffix else "Running (reattached)"
-            self._set_run_activity(label, override=True)
+            preview = message if len(message) <= 80 else f"{message[:77]}..."
+            self._set_run_activity(f"Running: {preview}", override=True)
         except Exception:
             pass
         self._begin_turn()
@@ -5015,6 +5230,7 @@ class QtChatBubble(QWidget):
         if self.debug:
             print("🔄 QtChatBubble: Starting worker thread...")
         self.worker.start()
+        self._enter_running_send_button_state()
 
         if self.debug:
             print("🔄 QtChatBubble: Worker thread started")
@@ -5023,6 +5239,7 @@ class QtChatBubble(QWidget):
         # Voice mode keeps the bubble visible as a control surface.
         if not self._is_voice_mode_active():
             self.hide()
+        return True
 
     def _start_gateway_attach(self, *, run_id: str) -> None:
         if not run_id or not self.use_gateway:
@@ -5055,6 +5272,7 @@ class QtChatBubble(QWidget):
         self.worker.event_emitted.connect(self.on_agent_event)
         self.worker.error_occurred.connect(self.on_error_occurred)
         self.worker.start()
+        self._enter_running_send_button_state()
 
     def _maybe_reattach_gateway_run(self) -> None:
         if self._reattach_attempted:
@@ -5131,6 +5349,39 @@ class QtChatBubble(QWidget):
 
         self._start_gateway_attach(run_id=run_id)
 
+    def _schedule_reattach_retry(self, *, attempt: int = 0, max_attempts: int = 4) -> None:
+        """Retry reattaching to a durable run with capped backoff.
+
+        A single 5s attempt is not enough when the gateway is down longer than
+        that; this keeps trying (5s, 15s, 30s, 60s) until a run is picked up or
+        attempts are exhausted. Each try resets the one-shot guard so
+        `_maybe_reattach_gateway_run` is not blocked.
+        """
+        if not self.use_gateway:
+            return
+        if attempt >= max_attempts:
+            return
+        if self._is_run_in_progress():
+            return
+        delays_ms = [5000, 15000, 30000, 60000]
+        delay = delays_ms[min(attempt, len(delays_ms) - 1)]
+
+        def _try() -> None:
+            if self._is_run_in_progress():
+                return
+            try:
+                self._reattach_attempted = False
+                self._maybe_reattach_gateway_run()
+            except Exception:
+                pass
+            if not self._is_run_in_progress():
+                self._schedule_reattach_retry(attempt=attempt + 1, max_attempts=max_attempts)
+
+        try:
+            QTimer.singleShot(delay, _try)
+        except Exception:
+            pass
+
     def _reconnect_gateway(self) -> None:
         if not self.use_gateway:
             return
@@ -5147,6 +5398,9 @@ class QtChatBubble(QWidget):
         except Exception as e:
             warnings.warn(f"#FALLBACK: gateway reconnect refresh failed: {e}")
         try:
+            # The startup auto-reattach sets this once-ever guard; an explicit
+            # reconnect must be allowed to re-follow an in-flight run again.
+            self._reattach_attempted = False
             self._maybe_reattach_gateway_run()
         except Exception as e:
             warnings.warn(f"#FALLBACK: gateway reconnect reattach failed: {e}")
@@ -5359,6 +5613,22 @@ class QtChatBubble(QWidget):
                     pass
             return
 
+        if typ == "cycle":
+            n = event.get("iteration")
+            self._set_run_activity(f"Thinking — cycle {n}", override=True)
+            return
+
+        if typ == "tool_started":
+            tools = [t for t in (event.get("tools") or []) if isinstance(t, dict)]
+            names = ", ".join(str(t.get("name") or "") for t in tools)
+            label = f"Tool: {names}" if names else "Running tools"
+            if len(tools) == 1:
+                preview = str(tools[0].get("arguments_preview") or "")
+                if preview:
+                    label = f"{label} {preview}"
+            self._set_run_activity(label, override=True)
+            return
+
         if typ == "tool":
             try:
                 self._update_message_history_from_session()
@@ -5535,13 +5805,46 @@ class QtChatBubble(QWidget):
             import traceback as _tb
             sys.stderr.write(f"\n=== _handle_tool_request CRASH ===\n{_tb.format_exc()}\n")
             sys.stderr.flush()
+            # Deny by identity when possible and tell the user — a silent
+            # auto-deny reads as "the assistant ignored the tools".
             if hasattr(self, "worker") and self.worker and hasattr(self.worker, "provide_tool_approval"):
-                self.worker.provide_tool_approval(False)
+                rid = str(event.get("run_id") or "").strip() if isinstance(event, dict) else ""
+                key = str(event.get("wait_key") or "").strip() if isinstance(event, dict) else ""
+                try:
+                    if rid and key:
+                        self.worker.provide_tool_approval(False, run_id=rid, wait_key=key)
+                    else:
+                        self.worker.provide_tool_approval(False)
+                except TypeError:
+                    self.worker.provide_tool_approval(False)
+            try:
+                self._set_run_activity(
+                    "Tool batch denied: the approval prompt failed to open", override=True
+                )
+            except Exception:
+                pass
 
     def _handle_tool_request_inner(self, event: Dict) -> None:
         tool_calls = event.get("tool_calls")
         if not isinstance(tool_calls, list):
             tool_calls = []
+        # Identity of the wait being answered. A second approval request can
+        # arrive while this dialog is open; answering by identity (instead of
+        # "the last observed wait") keeps the response bound to this run.
+        wait_run_id = str(event.get("run_id") or "").strip()
+        wait_key = str(event.get("wait_key") or "").strip()
+
+        def _answer_approval(approved: bool) -> None:
+            if not hasattr(self.worker, "provide_tool_approval"):
+                return
+            try:
+                if wait_run_id and wait_key:
+                    self.worker.provide_tool_approval(approved, run_id=wait_run_id, wait_key=wait_key)
+                    return
+            except TypeError:
+                pass  # local AgentWorker signature (no kwargs)
+            self.worker.provide_tool_approval(approved)
+
         try:
             self._run_state.mark_waiting()
         except Exception:
@@ -5604,8 +5907,7 @@ class QtChatBubble(QWidget):
                 self._run_state.mark_executing()
             except Exception:
                 pass
-            if hasattr(self.worker, "provide_tool_approval"):
-                self.worker.provide_tool_approval(True)
+            _answer_approval(True)
             return
 
         try:
@@ -5848,8 +6150,7 @@ class QtChatBubble(QWidget):
                 self._run_state.mark_executing()
             except Exception:
                 pass
-        if hasattr(self.worker, "provide_tool_approval"):
-            self.worker.provide_tool_approval(bool(approved))
+        _answer_approval(bool(approved))
 
     def _announce_tool_execution(self, tool_calls: list) -> None:
         """Speak a short announcement when tools execute (voice mode only)."""
@@ -5908,10 +6209,20 @@ class QtChatBubble(QWidget):
             sys.stderr.write(f"\n=== _handle_ask_user CRASH ===\n{_tb.format_exc()}\n")
             sys.stderr.flush()
             if hasattr(self, "worker") and self.worker and hasattr(self.worker, "provide_user_response"):
-                self.worker.provide_user_response("")
+                rid = str(event.get("run_id") or "").strip() if isinstance(event, dict) else ""
+                key = str(event.get("wait_key") or "").strip() if isinstance(event, dict) else ""
+                try:
+                    if rid and key:
+                        self.worker.provide_user_response("", run_id=rid, wait_key=key)
+                    else:
+                        self.worker.provide_user_response("")
+                except TypeError:
+                    self.worker.provide_user_response("")
 
     def _handle_ask_user_inner(self, event: Dict) -> None:
         prompt = str(event.get("prompt") or "Input required:")
+        wait_run_id = str(event.get("run_id") or "").strip()
+        wait_key = str(event.get("wait_key") or "").strip()
         try:
             self._run_state.mark_waiting()
         except Exception:
@@ -5931,10 +6242,16 @@ class QtChatBubble(QWidget):
         self._activate_app()
 
         response = ""
+        submit = True
         try:
             dlg = QInputDialog()
             dlg.setWindowTitle("Assistant needs input")
             dlg.setLabelText(prompt)
+            try:
+                # Questions often ask for more than one line.
+                dlg.setOption(QInputDialog.UsePlainTextEditForTextInput, True)
+            except Exception:
+                pass
             try:
                 attr = getattr(Qt, "WA_QuitOnClose", None)
                 if attr is None and hasattr(Qt, "WidgetAttribute"):
@@ -5957,11 +6274,42 @@ class QtChatBubble(QWidget):
             result = dlg.exec()
             if result == accepted_code:
                 response = str(dlg.textValue() or "")
+            else:
+                # Cancel used to silently resume the run with an empty answer.
+                # Make the consequence explicit; "No" keeps the wait pending
+                # (re-prompted the next time the bubble is shown).
+                choice = self._ask_question(
+                    "Run is waiting for your answer",
+                    "Send an empty response so the run can continue?\n\n"
+                    "Choosing No keeps the run waiting; opening the assistant "
+                    "again will ask this question again.",
+                    buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    default=QMessageBox.StandardButton.No,
+                )
+                if choice != QMessageBox.StandardButton.Yes:
+                    submit = False
         except Exception:
             text, ok = QInputDialog.getText(None, "Assistant needs input", prompt)
             response = str(text) if ok else ""
+            # Mirror the primary path: Cancel does not silently submit "".
+            if not ok:
+                submit = False
+        if not submit:
+            self._deferred_ask_event = dict(event)
+            try:
+                self._set_run_activity("Waiting for input (dismissed — open the assistant to answer)", override=True)
+            except Exception:
+                pass
+            return
+        self._deferred_ask_event = None
         if hasattr(self.worker, "provide_user_response"):
-            self.worker.provide_user_response(response)
+            try:
+                if wait_run_id and wait_key:
+                    self.worker.provide_user_response(response, run_id=wait_run_id, wait_key=wait_key)
+                else:
+                    self.worker.provide_user_response(response)
+            except TypeError:
+                self.worker.provide_user_response(response)
     
     @pyqtSlot(str)
     def on_response_ready(self, response):
@@ -6277,6 +6625,12 @@ class QtChatBubble(QWidget):
             except Exception:
                 pass
             self.tts_enabled = False
+            # A toggle that snaps back with no explanation reads as broken.
+            self._show_warning(
+                "Voice unavailable",
+                "Text-to-speech is not available: no voice backend is configured.\n"
+                "In gateway mode, check that the gateway exposes a /voice/tts route.",
+            )
             return
 
         if enabled and self.voice_manager and not getattr(self.voice_manager, "supports_tts", lambda: False)():
@@ -6287,6 +6641,11 @@ class QtChatBubble(QWidget):
             except Exception:
                 pass
             self.tts_enabled = False
+            self._show_warning(
+                "Voice unavailable",
+                "Text-to-speech is not supported by the current voice backend.\n"
+                "In gateway mode, check that the gateway exposes a /voice/tts route.",
+            )
             return
 
         # Stop any current speech when disabling
@@ -6605,7 +6964,8 @@ class QtChatBubble(QWidget):
                 "Voice mode failed",
                 "Full voice mode couldn't start listening.\n\n"
                 f"Error: {err or 'unknown'}\n\n"
-                "If this persists, check the terminal output for details.",
+                "Check microphone access (System Settings → Privacy & Security → Microphone) "
+                "and that the voice backend is configured, then try again.",
             )
             return
 
@@ -6892,7 +7252,28 @@ class QtChatBubble(QWidget):
                 print("🎙️  Ignoring transcription while busy")
             return
 
+        # A run may already be in flight (e.g. a reattach follower, or a
+        # wait-submit failure reset _voice_busy while the worker kept going).
+        # send_message would silently refuse; don't strand the loop in
+        # PROCESSING — stay in LISTENING and drop this utterance explicitly.
+        try:
+            if self.worker is not None and hasattr(self.worker, "isRunning") and self.worker.isRunning():
+                if self.debug:
+                    print("🎙️  A run is still active; staying in LISTENING")
+                self._voice_busy = False
+                if self._is_full_voice_running():
+                    try:
+                        if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                            self.full_voice_toggle.set_listening_state("listening")
+                    except Exception:
+                        pass
+                    self.update_status("LISTENING")
+                return
+        except Exception:
+            pass
+
         self._voice_busy = True
+        started = False
         try:
             try:
                 if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
@@ -6906,16 +7287,25 @@ class QtChatBubble(QWidget):
                 self.input_text.setPlainText(str(transcribed_text or ""))
             except Exception:
                 pass
-            self.send_message()
+            started = bool(self.send_message())
         except Exception as e:
-            self._voice_busy = False
             if self.debug:
                 print(f"❌ Error handling voice input: {e}")
-            try:
-                if self._is_full_voice_running():
-                    self.update_status("LISTENING")
-            except Exception:
-                pass
+        finally:
+            # If the send did not actually start a run (refused or raised),
+            # release the busy latch and resume listening rather than wedging.
+            if not started:
+                self._voice_busy = False
+                try:
+                    if self._is_full_voice_running():
+                        try:
+                            if hasattr(self, "full_voice_toggle") and self.full_voice_toggle:
+                                self.full_voice_toggle.set_listening_state("listening")
+                        except Exception:
+                            pass
+                        self.update_status("LISTENING")
+                except Exception:
+                    pass
 
     def handle_voice_stop(self):
         """Handle when user says 'stop' to exit Full Voice Mode (thread-safe)."""
@@ -7157,11 +7547,16 @@ class QtChatBubble(QWidget):
                 print("🔊 Space shortcut triggered pause/resume")
 
     def handle_escape_shortcut(self):
-        """Handle escape key shortcut for stop."""
+        """Escape stops speech when speaking; otherwise it hides the bubble."""
         if self.voice_manager and self.voice_manager.get_state() in ['speaking', 'paused']:
             self.on_tts_double_click()
             if self.debug:
                 print("🔊 Escape shortcut triggered stop")
+            return
+        # macOS convention: Escape dismisses a floating panel. The ⨯ button
+        # quits the app, so this is the only keyboard way to put the bubble away.
+        if not self._is_full_voice_running():
+            self.hide()
     
     def _clean_response_for_voice(self, text: str) -> str:
         """Clean response text for voice synthesis - remove formatting and make conversational."""
@@ -7244,8 +7639,27 @@ class QtChatBubble(QWidget):
                     "LM Studio says the model is unloaded. Load the model in LM Studio (or pick another model) "
                     "and try again."
                 )
-            elif "connection" in lower and ("refused" in lower or "failed" in lower):
-                informative = "Couldn't reach the provider. Check that it is running and reachable, then try again."
+            elif "connection" in lower and ("refused" in lower or "failed" in lower or "reset" in lower):
+                if self.use_gateway:
+                    gateway_url = ""
+                    try:
+                        gateway_url = str(getattr(getattr(self.config, "gateway", None), "url", "") or "").strip()
+                    except Exception:
+                        gateway_url = ""
+                    target = f" at {gateway_url}" if gateway_url else ""
+                    informative = (
+                        f"Couldn't reach the gateway{target}. The run may still be executing server-side — "
+                        "the assistant will keep trying to reattach for a short while, or use Reconnect."
+                    )
+                    # A durable run survives the gateway blip; retry reattach a
+                    # few times with backoff (the one-shot guard would otherwise
+                    # block every later attempt).
+                    try:
+                        self._schedule_reattach_retry(attempt=0)
+                    except Exception:
+                        pass
+                else:
+                    informative = "Couldn't reach the provider. Check that it is running and reachable, then try again."
 
             try:
                 # Bring bubble forward so the modal isn't lost behind other windows.
@@ -7726,7 +8140,7 @@ class QtChatBubble(QWidget):
         # If the history window is open, refresh it to reflect the cleared session.
         if self.history_dialog and self.history_dialog.isVisible():
             try:
-                self.history_dialog.refresh_messages(self.message_history)
+                self.history_dialog.update_message_history(self.message_history)
             except Exception:
                 pass
 
@@ -8194,7 +8608,7 @@ Continue the conversation naturally, referring to the context above when relevan
                 return
             # If history dialog is open, refresh it with new message history
             if self.history_dialog and self.history_dialog.isVisible():
-                self.history_dialog.refresh_messages(self.message_history)
+                self.history_dialog.update_message_history(self.message_history)
                 if self.debug:
                     print("🔄 Refreshed history dialog with loaded session messages")
             
@@ -8332,6 +8746,15 @@ Continue the conversation naturally, referring to the context above when relevan
             return
 
         # Voice mode is off, show history (and reflect state in the toggle).
+        # When the dialog is already open, setChecked(True) is a no-op (the
+        # toggled signal only fires on edges), so refresh it explicitly —
+        # otherwise an open Messages window never receives new answers.
+        try:
+            if self.history_dialog and self.history_dialog.isVisible():
+                self.show_history(True)
+                return
+        except Exception:
+            pass
         try:
             if hasattr(self, "history_button") and self.history_button:
                 self.history_button.setChecked(True)
@@ -8761,10 +9184,19 @@ Continue the conversation naturally, referring to the context above when relevan
 
     def closeEvent(self, event):
         """Handle close event."""
+        # Never QThread.terminate(): killing a Python thread mid-GIL/mid-read is
+        # undefined behavior (crash-on-quit class). Request cooperative stop and
+        # wait briefly; a still-running daemon-style worker dies with the process.
         if self.worker and self.worker.isRunning():
-            self.worker.terminate()
-            self.worker.wait()
-        
+            try:
+                self.worker.requestInterruption()
+            except Exception:
+                pass
+            try:
+                self.worker.wait(2000)
+            except Exception:
+                pass
+
         # Clean up voice manager
         if self.voice_manager:
             try:

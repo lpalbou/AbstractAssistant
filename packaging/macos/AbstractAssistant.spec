@@ -38,7 +38,6 @@ HIDDENIMPORTS = [
     "abstractvoice.recognition",
     "abstractvoice.tts",
 ]
-HIDDENIMPORTS += collect_submodules("pymdownx")
 
 a = Analysis(
     [str(ENTRY)],
@@ -49,7 +48,9 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["PyQt6", "PySide2", "PySide6"],
+    # pygame is only reachable through nltk's lazy timit corpus import; bundling
+    # it drags SDL dylibs whose codesign processing can fail (libwebp bincache).
+    excludes=["PyQt6", "PySide2", "PySide6", "pygame"],
     noarchive=False,
     optimize=0,
 )
@@ -95,5 +96,11 @@ app = BUNDLE(
         "NSHighResolutionCapable": True,
         "NSPrincipalClass": "NSApplication",
         "NSAppleScriptEnabled": False,
+        # Voice mode records via abstractvoice; without this usage string
+        # macOS terminates the process on first microphone access.
+        "NSMicrophoneUsageDescription": (
+            "AbstractAssistant uses the microphone for voice conversations "
+            "and dictation."
+        ),
     },
 )

@@ -28,6 +28,7 @@ class GatewayEventAdapter:
     def __init__(self) -> None:
         self._seen_wait_keys: set[str] = set()
         self._seen_tool_call_ids: set[str] = set()
+        self._cycles_by_run: Dict[str, int] = {}
 
     def seed_tool_call_ids(self, call_ids: List[str]) -> None:
         for cid in call_ids:
@@ -41,6 +42,38 @@ class GatewayEventAdapter:
         record_ts = ""
         if isinstance(rec, dict):
             record_ts = str(rec.get("ended_at") or rec.get("started_at") or "").strip()
+
+        # Realtime run activity (2026-07-10): STARTED records carry the full effect payload
+        # BEFORE execution, so the user can see what the agent is doing while the call is
+        # still in flight — a reasoning cycle beginning, or a tool launching with its args.
+        # Previously only tool RESULTS surfaced; the in-flight phase was a silent "thinking".
+        if isinstance(rec, dict):
+            raw_status = rec.get("status")
+            status0 = str(getattr(raw_status, "value", raw_status) or "").strip().lower()
+            effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+            etype = str(effect.get("type") or "").strip().lower()
+            if status0 == "started" and etype == "llm_call" and str(rec.get("node_id") or "") == "reason":
+                rid = str(rec.get("run_id") or "")
+                n = int(self._cycles_by_run.get(rid, 0)) + 1
+                self._cycles_by_run[rid] = n
+                events.append({"type": "cycle", "iteration": n})
+            elif status0 == "started" and etype == "tool_calls":
+                payload0 = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
+                tools: List[Dict[str, Any]] = []
+                for tc in payload0.get("tool_calls") or []:
+                    if not (isinstance(tc, dict) and str(tc.get("name") or "").strip()):
+                        continue
+                    args = tc.get("arguments")
+                    try:
+                        preview = str(args) if args else ""
+                    except Exception:
+                        preview = ""
+                    if len(preview) > 120:
+                        #[WARNING:TRUNCATION] bounded args preview for the activity line
+                        preview = preview[:119] + "…"
+                    tools.append({"name": str(tc.get("name")).strip(), "arguments_preview": preview})
+                if tools:
+                    events.append({"type": "tool_started", "tools": tools})
 
         emit = extract_emit_event(rec)
         if emit:

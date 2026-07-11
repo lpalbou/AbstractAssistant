@@ -18,7 +18,13 @@ def test_pyinstaller_spec_declares_menu_bar_app_contract() -> None:
     assert 'macos_entry.py' in spec
     assert 'console=False' in spec
     assert 'argv_emulation=False' in spec
-    assert 'collect_submodules("pymdownx")' in spec
+    # pymdownx is no longer a dependency; nothing should force-collect it.
+    assert 'pymdownx' not in spec
+    # The mic is reachable through abstractvoice; macOS kills processes that
+    # touch it without a usage description.
+    assert '"NSMicrophoneUsageDescription"' in spec
+    # pygame rides in via nltk's lazy corpus imports and breaks COLLECT.
+    assert '"pygame"' in spec
     assert 'ROOT.parent / "abstractcore"' in spec
     assert 'ROOT.parent / "abstractvoice"' in spec
     assert 'collect_submodules("abstractcore")' not in spec

@@ -21,6 +21,13 @@ See also:
 pip install "abstractassistant"
 ```
 
+For local microphone capture (voice conversations and dictation), install the `voice` extra
+(the base install covers text chat and gateway-backed media, but not the local audio-input stack):
+
+```bash
+pip install "abstractassistant[voice]"
+```
+
 Verify:
 
 ```bash
@@ -58,6 +65,12 @@ build-macos-app --skip-install
 ```
 
 That produces `dist/macos/AbstractAssistant.app`.
+
+The bundle is currently **unsigned and un-notarized**. Building it yourself is fine (locally built
+apps carry no quarantine attribute), but a copy you send to someone else will be blocked by
+Gatekeeper ("cannot verify developer" / "damaged") until it is signed and notarized. The app is
+also menu-bar only (`LSUIElement`), so it deliberately shows no Dock icon — look for the tray icon
+in the top-right menu bar, not the Dock.
 
 ## Headless / terminal only
 

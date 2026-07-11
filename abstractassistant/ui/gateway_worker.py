@@ -27,95 +27,7 @@ from ..gateway import (
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.run_controller import GatewayRunController
-from ..gateway.tool_usage import extract_tool_call_details_from_record
-
-
-def _parse_iso_ms(raw: Any) -> Optional[int]:
-    text = str(raw or "").strip()
-    if not text:
-        return None
-    try:
-        from datetime import datetime
-
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except Exception:
-        return None
-    return int(dt.timestamp() * 1000)
-
-
-def _parse_usage_summary(value: Any) -> Optional[Dict[str, int]]:
-    if not isinstance(value, dict):
-        return None
-
-    def _num(*keys: str) -> Optional[int]:
-        for key in keys:
-            try:
-                raw = value.get(key)
-            except Exception:
-                raw = None
-            if raw in {None, ""}:
-                continue
-            try:
-                return max(0, int(raw))
-            except Exception:
-                continue
-        return None
-
-    input_tokens = _num("input_tokens", "prompt_tokens", "prompt", "input", "in")
-    output_tokens = _num("output_tokens", "completion_tokens", "completion", "output", "out")
-    total_tokens = _num("total_tokens", "total")
-    if total_tokens is None and (input_tokens is not None or output_tokens is not None):
-        total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
-    parsed = {
-        "input_tokens": int(input_tokens or 0),
-        "output_tokens": int(output_tokens or 0),
-        "total_tokens": int(total_tokens or 0),
-    }
-    if parsed["input_tokens"] == 0 and parsed["output_tokens"] == 0 and parsed["total_tokens"] == 0:
-        return None
-    return parsed
-
-
-def _compact_tool_call_for_ui(
-    call: Dict[str, Any],
-    *,
-    max_text_chars: int = 500,
-    max_items: int = 24,
-) -> Dict[str, Any]:
-    def _compact(value: Any) -> Any:
-        if isinstance(value, str):
-            text = value
-            if len(text) <= max_text_chars:
-                return text
-            return f"{text[: max(0, max_text_chars - 3)]}..."
-        if isinstance(value, dict):
-            out: Dict[str, Any] = {}
-            items = list(value.items())
-            for key, item in items[:max_items]:
-                out[str(key)] = _compact(item)
-            if len(items) > max_items:
-                out["_omitted_keys"] = len(items) - max_items
-            return out
-        if isinstance(value, list):
-            out = [_compact(item) for item in value[:max_items]]
-            if len(value) > max_items:
-                out.append(f"... {len(value) - max_items} more")
-            return out
-        return value
-
-    compacted = {
-        "name": str(call.get("name") or "").strip(),
-        "arguments": _compact(call.get("arguments")),
-    }
-    call_id = str(call.get("call_id") or call.get("id") or "").strip()
-    if call_id:
-        compacted["call_id"] = call_id
-    try:
-        if compacted != call:
-            compacted["_ui_compacted"] = True
-    except Exception:
-        compacted["_ui_compacted"] = True
-    return compacted
+from ..gateway.run_stats import aggregate_run_stats, observe_record
 
 
 class GatewayWorker(QThread):
@@ -173,37 +85,83 @@ class GatewayWorker(QThread):
         self._offline = False
         self._root_run_id = ""
         self._follow_run_id = ""
+        self._final_observed = False
         self._stats_by_run: Dict[str, Dict[str, Any]] = {}
         self._run_activity_by_run: Dict[str, str] = {}
         self._output_artifact_candidates: List[tuple[str, str]] = []
         self._seen_output_artifacts: set[tuple[str, str]] = set()
 
-    def provide_tool_approval(self, approved: bool) -> None:
+    def provide_tool_approval(
+        self,
+        approved: bool,
+        *,
+        run_id: Optional[str] = None,
+        wait_key: Optional[str] = None,
+    ) -> None:
+        """Answer a tool-approval wait.
+
+        Callers should pass the ``run_id``/``wait_key`` carried by the
+        ``tool_request`` event so the answer targets that exact wait. Without
+        them, the last observed wait is used (#FALLBACK) — a second approval
+        request arriving while a dialog is open would overwrite that slot and
+        misroute the answer.
+        """
         self._tool_approval_decision = bool(approved)
         self._tool_approval_event.set()
-        wait = dict(self._pending_tool_approval_wait or {})
-        wait_key = str(wait.get("wait_key") or "").strip()
-        run_id = str(wait.get("run_id") or "").strip()
-        if not run_id or not wait_key:
+        rid = str(run_id or "").strip()
+        key = str(wait_key or "").strip()
+        # Require BOTH kwargs to key by identity; a lone kwarg (XOR) would
+        # stitch a mixed run_id/wait_key from the pending slot and could clear
+        # the wrong record — treat it as unkeyed and fall back wholesale.
+        if not (rid and key):
+            wait = dict(self._pending_tool_approval_wait or {})
+            rid = str(wait.get("run_id") or "").strip()
+            key = str(wait.get("wait_key") or "").strip()
+            if rid and key:
+                warnings.warn(
+                    "#FALLBACK: tool approval answered without explicit run_id/wait_key; "
+                    "using last observed wait"
+                )
+        if not rid or not key:
             return
-        self._pending_tool_approval_wait = None
+        pending = self._pending_tool_approval_wait or {}
+        if str(pending.get("run_id") or "") == rid and str(pending.get("wait_key") or "") == key:
+            self._pending_tool_approval_wait = None
         payload: Dict[str, Any] = {"approved": bool(approved)}
         if not approved:
             payload["reason"] = "Denied by user"
-        self.submit_wait_response(run_id=run_id, wait_key=wait_key, payload=payload)
+        self.submit_wait_response(run_id=rid, wait_key=key, payload=payload)
 
-    def provide_user_response(self, response: str) -> None:
+    def provide_user_response(
+        self,
+        response: str,
+        *,
+        run_id: Optional[str] = None,
+        wait_key: Optional[str] = None,
+    ) -> None:
+        """Answer an ask-user wait (keyed like :meth:`provide_tool_approval`)."""
         self._ask_user_response = str(response or "")
         self._ask_user_event.set()
-        wait = dict(self._pending_ask_user_wait or {})
-        wait_key = str(wait.get("wait_key") or "").strip()
-        run_id = str(wait.get("run_id") or "").strip()
-        if not run_id or not wait_key:
+        rid = str(run_id or "").strip()
+        key = str(wait_key or "").strip()
+        # Require BOTH kwargs to key by identity (see provide_tool_approval).
+        if not (rid and key):
+            wait = dict(self._pending_ask_user_wait or {})
+            rid = str(wait.get("run_id") or "").strip()
+            key = str(wait.get("wait_key") or "").strip()
+            if rid and key:
+                warnings.warn(
+                    "#FALLBACK: ask-user answered without explicit run_id/wait_key; "
+                    "using last observed wait"
+                )
+        if not rid or not key:
             return
-        self._pending_ask_user_wait = None
+        pending = self._pending_ask_user_wait or {}
+        if str(pending.get("run_id") or "") == rid and str(pending.get("wait_key") or "") == key:
+            self._pending_ask_user_wait = None
         self.submit_wait_response(
-            run_id=run_id,
-            wait_key=wait_key,
+            run_id=rid,
+            wait_key=key,
             payload={"response": str(response or "")},
         )
 
@@ -734,6 +692,12 @@ class GatewayWorker(QThread):
                             ts=str(ev.get("ts") or ""),
                         )
                         history_changed = True
+                    # A final answer with content is now in the transcript
+                    # (either appended above or already present as the latest
+                    # assistant message): the live path is authoritative and
+                    # the post-run history reseed must not run.
+                    if bool(ev.get("final")) and str(content or "").strip():
+                        self._final_observed = True
                 except Exception as e:
                     warnings.warn(f"Failed to append assistant message: {e}")
                 ev["history_changed"] = history_changed
@@ -892,72 +856,20 @@ class GatewayWorker(QThread):
         self.event_emitted.emit({"type": "status", "status": "thinking"})
 
     def _record_run_stats(self, *, run_id: str, rec: Dict[str, Any]) -> None:
-        rid = str(run_id or "").strip()
-        if not rid or not isinstance(rec, dict):
-            return
-        stats = self._stats_by_run.setdefault(
-            rid,
-            {
-                "duration_ms": 0,
-                "llm_calls": 0,
-                "tool_calls": 0,
-                "tool_call_details": [],
-                "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-                "_min_ms": None,
-                "_max_ms": None,
-            },
-        )
-        started_ms = _parse_iso_ms(rec.get("started_at"))
-        ended_ms = _parse_iso_ms(rec.get("ended_at"))
-        at_ms = ended_ms if ended_ms is not None else started_ms
-        if at_ms is not None:
-            min_ms = stats.get("_min_ms")
-            max_ms = stats.get("_max_ms")
-            stats["_min_ms"] = at_ms if min_ms is None else min(min_ms, at_ms)
-            stats["_max_ms"] = at_ms if max_ms is None else max(max_ms, at_ms)
-            stats["duration_ms"] = max(0, int(stats["_max_ms"]) - int(stats["_min_ms"]))
-
-        if str(rec.get("status") or "").strip().lower() != "completed":
-            return
-        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
-        effect_type = str(effect.get("type") or "").strip()
-        result = rec.get("result") if isinstance(rec.get("result"), dict) else {}
-        if effect_type == "llm_call":
-            stats["llm_calls"] = int(stats.get("llm_calls") or 0) + 1
-            usage = result.get("usage") or result.get("token_usage") or result.get("tokens")
-            if not isinstance(usage, dict):
-                output = result.get("output")
-                if isinstance(output, dict):
-                    usage = output.get("usage") or output.get("token_usage") or output.get("tokens")
-            parsed = _parse_usage_summary(usage)
-            if parsed is not None:
-                bucket = stats["usage"]
-                bucket["input_tokens"] += parsed["input_tokens"]
-                bucket["output_tokens"] += parsed["output_tokens"]
-                bucket["total_tokens"] += parsed["total_tokens"] or (parsed["input_tokens"] + parsed["output_tokens"])
-        elif effect_type == "tool_calls":
-            calls = extract_tool_call_details_from_record(rec, run_id=rid)
-            if calls:
-                stats["tool_calls"] = int(stats.get("tool_calls") or 0) + len(calls)
-                details = stats.setdefault("tool_call_details", [])
-                if isinstance(details, list):
-                    details.extend(_compact_tool_call_for_ui(dict(call)) for call in calls)
+        observe_record(self._stats_by_run, run_id=run_id, rec=rec)
 
     def _meta_with_run_stats(self, meta: Dict[str, Any], *, run_id: str) -> Dict[str, Any]:
         merged = dict(meta or {})
         rid = str(run_id or "").strip()
         if rid:
             merged.setdefault("run_id", rid)
-        stats = self._stats_by_run.get(rid)
+        # Aggregate across every run this worker followed: agent workflows
+        # execute llm_call/tool_calls effects in sub-runs while the final
+        # answer event fires on the root run, so the root bucket alone
+        # understates (often to zero) the real token/tool activity.
+        stats = aggregate_run_stats(self._stats_by_run)
         if isinstance(stats, dict):
-            merged["_assistant_stats"] = {
-                "run_id": rid,
-                "duration_ms": int(stats.get("duration_ms") or 0),
-                "llm_calls": int(stats.get("llm_calls") or 0),
-                "tool_calls": int(stats.get("tool_calls") or 0),
-                "tool_call_details": list(stats.get("tool_call_details") or []),
-                "usage": dict(stats.get("usage") or {}),
-            }
+            merged["_assistant_stats"] = {"run_id": rid, **stats}
         return merged
 
     def run(self) -> None:
@@ -1052,7 +964,14 @@ class GatewayWorker(QThread):
                 on_online=self._mark_online,
             )
 
-            self._seed_history_from_gateway(run_id=run_id)
+            # The live-followed final answer (with its run-tree stats) is
+            # authoritative. Reseeding from the history bundle here would
+            # REPLACE the transcript with the gateway's bundle view — which can
+            # lack the answer entirely (missing session turns force the
+            # recovery path) and rebuilds every message. Reseed only as a gap
+            # filler when no final answer was observed on the stream.
+            if not self._final_observed:
+                self._seed_history_from_gateway(run_id=run_id)
             final_status = controller.get_run_status(run_id=run_id)
             if final_status not in {"completed", "failed", "cancelled"}:
                 final_status = "completed"

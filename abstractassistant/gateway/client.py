@@ -14,6 +14,7 @@ import mimetypes
 import os
 import socket
 import time
+import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 import urllib.error
@@ -976,6 +977,41 @@ class GatewayClient:
             body=body,
             label="submit_command failed",
         )
+
+    def _submit_run_command(self, *, run_id: str, type_: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError(f"{type_}: run_id is required")
+        return self.submit_command(
+            command={
+                "command_id": uuid.uuid4().hex,
+                "run_id": rid,
+                "type": type_,
+                "payload": dict(payload or {}),
+            }
+        )
+
+    def pause_run(self, *, run_id: str, reason: str = "") -> Dict[str, Any]:
+        """Pause a run (tree-wide, durable). Takes effect at the next step boundary."""
+        payload = {"reason": reason} if str(reason or "").strip() else {}
+        return self._submit_run_command(run_id=run_id, type_="pause", payload=payload)
+
+    def resume_run(self, *, run_id: str) -> Dict[str, Any]:
+        """Resume a previously paused run (tree-wide)."""
+        return self._submit_run_command(run_id=run_id, type_="resume")
+
+    def cancel_run(self, *, run_id: str, reason: str = "") -> Dict[str, Any]:
+        """Cancel a run (tree-wide, terminal)."""
+        payload = {"reason": reason} if str(reason or "").strip() else {}
+        return self._submit_run_command(run_id=run_id, type_="cancel", payload=payload)
+
+    def inject_guidance(self, *, run_id: str, guidance: str) -> Dict[str, Any]:
+        """Steer a running agent: the guidance lands in the durable inbox of the run
+        (and its descendants) and folds into the next reasoning cycle."""
+        text = str(guidance or "").strip()
+        if not text:
+            raise ValueError("inject_guidance: guidance is required")
+        return self._submit_run_command(run_id=run_id, type_="inject_guidance", payload={"guidance": text})
 
     def attachments_ingest(self, *, session_id: str, path: str, scope: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         sid = str(session_id or "").strip()

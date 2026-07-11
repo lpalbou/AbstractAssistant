@@ -794,6 +794,55 @@ def test_assistant_v2_worker_finished_shows_non_durable_empty_reply_diagnostic()
 
 
 @pytest.mark.basic
+def test_assistant_v2_send_button_stops_active_run() -> None:
+    """While a run is active the composer button cancels it: a gateway cancel
+    is submitted for the run and the follower thread is interrupted."""
+    cancelled: list[str] = []
+    interrupted: list[bool] = []
+    status_calls: list[tuple[str, str]] = []
+
+    class _Controller:
+        @staticmethod
+        def cancel_run(run_id: str) -> bool:
+            cancelled.append(run_id)
+            return True
+
+        @staticmethod
+        def last_run_id() -> str:
+            return "run-active"
+
+    class _Worker:
+        def requestInterruption(self) -> None:  # noqa: N802 (Qt naming)
+            interrupted.append(True)
+
+    submitted: list[bool] = []
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._controller = _Controller()
+    palette._worker = _Worker()
+    palette._submit = lambda: submitted.append(True)
+    palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._on_send_button_clicked(palette)
+
+    assert submitted == []  # busy → does not start a second run
+    assert cancelled == ["run-active"]
+    assert interrupted == [True]
+
+
+@pytest.mark.basic
+def test_assistant_v2_send_button_sends_when_idle() -> None:
+    submitted: list[bool] = []
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._worker = None
+    palette._submit = lambda: submitted.append(True)
+
+    AssistantPalette._on_send_button_clicked(palette)
+
+    assert submitted == [True]
+
+
+@pytest.mark.basic
 def test_assistant_v2_replay_degraded_prevents_finished_fallback() -> None:
     appended: list[tuple[str, dict]] = []
     status_calls: list[tuple[str, str]] = []
@@ -1486,11 +1535,13 @@ def test_assistant_v2_footer_items_use_live_assistant_stats() -> None:
         },
     }
 
+    # No tool_call_details are attached, so the files metric is omitted (it
+    # cannot be derived honestly) while tools stays reported by count.
     assert _assistant_footer_items(message) == [
-        "120 in",
-        "32 out",
+        "input : 120 tk",
+        "output : 32 tk",
+        "tools : 2",
         "1.5s",
-        "2 tools",
         "gpt-4.1",
     ]
 
@@ -1514,11 +1565,10 @@ def test_assistant_v2_footer_items_parse_history_seed_repl_stats() -> None:
     }
 
     assert _assistant_footer_items(message) == [
-        "45 in",
-        "11 out",
+        "input : 45 tk",
+        "output : 11 tk",
+        "tools : 1",
         "2.0s",
-        "1 tool",
-        "2 calls",
     ]
 
 
@@ -1551,18 +1601,111 @@ def test_assistant_v2_footer_tools_metric_keeps_details_and_priority() -> None:
     assert [metric["kind"] for metric in metrics] == [
         "tokens_in",
         "tokens_out",
-        "duration",
         "tools",
-        "llm_calls",
+        "files",
+        "duration",
+        "model",
     ]
     assert [metric["plain"] for metric in metrics] == [
-        "110139 in",
-        "1890 out",
+        "input : 110,139 tk",
+        "output : 1,890 tk",
+        "tools : 2",
+        "files : 0",
         "40s",
-        "2 tools",
-        "8 calls",
+        "gpt-5.4-mini",
     ]
+    tools_metric = metrics[2]
+    assert tools_metric["clickable"] is True
+    assert "web_search" in tools_metric["tooltip"]
+    assert "Genentech roles" in tools_metric["tooltip"]
+    files_metric = metrics[3]
+    assert "No files were created" in files_metric["tooltip"]
     assert _assistant_tool_calls_for_message(message)[0]["name"] == "web_search"
+
+
+@pytest.mark.basic
+def test_assistant_v2_footer_files_metric_derives_operations_from_tool_details() -> None:
+    message = {
+        "role": "assistant",
+        "content": "Done.",
+        "metadata": {
+            "_assistant_stats": {
+                "tool_calls": 4,
+                "tool_call_details": [
+                    {
+                        "name": "write_file",
+                        "arguments": {"file_path": "README.md", "content": "x"},
+                    },
+                    {
+                        "name": "execute_command",
+                        "arguments": {"command": "mkdir -p docs && mv draft.md docs/draft.md"},
+                    },
+                    # Failed calls must not count as file activity.
+                    {
+                        "name": "edit_file",
+                        "arguments": {"file_path": "broken.py"},
+                        "success": False,
+                    },
+                    {"name": "web_search", "arguments": {"query": "abc"}},
+                ],
+                "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            }
+        },
+    }
+
+    metrics = {metric["kind"]: metric for metric in _assistant_footer_metrics(message)}
+
+    files_metric = metrics["files"]
+    assert files_metric["plain"] == "files : 3"
+    assert "Created" in files_metric["tooltip"]
+    assert "README.md" in files_metric["tooltip"]
+    assert "docs/draft.md" in files_metric["tooltip"]
+    assert "broken.py" not in files_metric["tooltip"]
+
+    tools_metric = metrics["tools"]
+    assert tools_metric["plain"] == "tools : 4"
+    assert "[failed]" in tools_metric["tooltip"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_footer_ignores_bare_workflow_meta_counts() -> None:
+    """A bare workflow-meta tool count (no stats block, no details) is not
+    enough to render stats: no partial/fallback footers — messages without
+    recorded stats show only the model line."""
+    message = {
+        "role": "assistant",
+        "content": "Done.",
+        "metadata": {
+            "provider": "endpoint:ovh-provider",
+            "model": "gpt-oss-120b",
+            "kind": "recovered_history_answer",
+            "tool_calls": 25,
+            "tool_results": 25,
+        },
+    }
+
+    assert _assistant_footer_items(message) == ["endpoint:ovh-provider / gpt-oss-120b"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_footer_zero_tools_reports_zero_files() -> None:
+    message = {
+        "role": "assistant",
+        "content": "Done.",
+        "metadata": {
+            "_assistant_stats": {
+                "tool_calls": 0,
+                "usage": {"input_tokens": 9, "output_tokens": 3, "total_tokens": 12},
+            }
+        },
+    }
+
+    assert _assistant_footer_items(message) == [
+        "input : 9 tk",
+        "output : 3 tk",
+        "tools : 0",
+        "files : 0",
+    ]
 
 
 @pytest.mark.basic
@@ -1631,6 +1774,209 @@ def test_assistant_v2_message_card_renders_clickable_tools_metric() -> None:
 
     buttons[0].click()
     assert opened == ["tools"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_message_card_renders_stats_line_with_separators() -> None:
+    app = QApplication.instance() or QApplication([])
+    message = {
+        "role": "assistant",
+        "message_id": "m_stats",
+        "content": "Done.",
+        "metadata": {
+            "_assistant_stats": {
+                "tool_calls": 1,
+                "tool_call_details": [
+                    {"name": "write_file", "arguments": {"file_path": "a.txt"}}
+                ],
+                "usage": {"input_tokens": 12, "output_tokens": 4, "total_tokens": 16},
+            }
+        },
+    }
+    expected_segments = len(_assistant_footer_metrics(message))
+    assert expected_segments == 4  # input, output, tools, files
+
+    card = MessageCard(
+        message=message,
+        message_key="id:m_stats",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        bubble_width=360,
+        on_show_tools=lambda _message: None,
+    )
+    card.show()
+    app.processEvents()
+
+    segments = [
+        widget
+        for widget in card.findChildren(app_module.QLabel)
+        + card.findChildren(app_module.QPushButton)
+        if widget.objectName() == "metricChip"
+    ]
+    separators = [
+        widget
+        for widget in card.findChildren(app_module.QLabel)
+        if widget.objectName() == "metricSeparator"
+    ]
+    assert len(segments) == expected_segments
+    assert len(separators) == expected_segments - 1
+    files_labels = [
+        widget for widget in segments if widget.property("kind") == "files"
+    ]
+    assert len(files_labels) == 1
+    assert files_labels[0].text() == "files : 1"
+    assert "a.txt" in files_labels[0].toolTip()
+
+
+@pytest.mark.basic
+def test_assistant_v2_message_card_renders_clickable_files_metric() -> None:
+    app = QApplication.instance() or QApplication([])
+    opened: list[str] = []
+    message = {
+        "role": "assistant",
+        "message_id": "m_files",
+        "content": "Done.",
+        "metadata": {
+            "_assistant_stats": {
+                "tool_calls": 1,
+                "tool_call_details": [
+                    {"name": "write_file", "arguments": {"file_path": "a.txt", "content": "x"}}
+                ],
+            }
+        },
+    }
+    card = MessageCard(
+        message=message,
+        message_key="id:m_files",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        bubble_width=360,
+        on_show_tools=lambda _message: opened.append("tools"),
+        on_show_files=lambda _message: opened.append("files"),
+    )
+    card.show()
+    app.processEvents()
+
+    buttons = {
+        str(button.property("kind")): button
+        for button in card.findChildren(app_module.QPushButton)
+        if button.objectName() == "metricChip"
+    }
+    assert set(buttons) == {"tools", "files"}
+    buttons["files"].click()
+    assert opened == ["files"]
+
+
+@pytest.mark.basic
+def test_assistant_v2_file_activity_dialog_renders_one_card_per_operation() -> None:
+    app = QApplication.instance() or QApplication([])
+    dialog = app_module.FileActivityDialog(
+        message={
+            "role": "assistant",
+            "content": "Done.",
+            "metadata": {
+                "_assistant_stats": {
+                    "tool_calls": 3,
+                    "tool_call_details": [
+                        {
+                            "name": "write_file",
+                            "arguments": {"file_path": "report.md", "content": "x"},
+                        },
+                        {
+                            "name": "execute_command",
+                            "arguments": {"command": "mv draft.md docs/draft.md && rm old.log"},
+                        },
+                    ],
+                }
+            },
+        }
+    )
+    dialog.show()
+    app.processEvents()
+
+    cards = dialog.findChildren(app_module.QFrame, "toolApprovalCallCard")
+    assert len(cards) == 3  # created report.md, moved draft.md, deleted old.log
+
+    chips = [
+        str(chip.text()).strip().upper()
+        for chip in dialog.findChildren(app_module.QLabel, "usageStatusChip")
+    ]
+    assert chips == ["CREATED", "MOVED", "DELETED"]
+    hint = dialog.findChildren(app_module.QLabel, "toolApprovalHint")[0].text()
+    assert "3 files affected" in hint
+
+
+@pytest.mark.basic
+def test_assistant_v2_file_activity_dialog_empty_state_is_honest() -> None:
+    app = QApplication.instance() or QApplication([])
+    dialog = app_module.FileActivityDialog(
+        message={
+            "role": "assistant",
+            "content": "Done.",
+            "metadata": {
+                "_assistant_stats": {
+                    "tool_calls": 1,
+                    "tool_call_details": [
+                        {"name": "web_search", "arguments": {"query": "abc"}}
+                    ],
+                }
+            },
+        }
+    )
+    dialog.show()
+    app.processEvents()
+
+    assert not dialog.findChildren(app_module.QFrame, "toolApprovalCallCard")
+    hint = dialog.findChildren(app_module.QLabel, "toolApprovalHint")[0].text()
+    assert "No files were created, modified, moved or deleted" in hint
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_card_shows_execution_outcome_chip() -> None:
+    app = QApplication.instance() or QApplication([])
+    card = app_module.ToolApprovalCallCard(
+        call={
+            "name": "edit_file",
+            "arguments": {"file_path": "broken.py", "pattern": "x"},
+            "success": False,
+            "error": "pattern not found",
+        },
+        index=0,
+    )
+    card.show()
+    app.processEvents()
+
+    chips = [
+        str(chip.text()).strip().upper()
+        for chip in card.findChildren(app_module.QLabel, "usageStatusChip")
+    ]
+    assert chips == ["FAILED"]
+    errors = card.findChildren(app_module.QLabel, "usageCardError")
+    assert len(errors) == 1
+    assert "pattern not found" in errors[0].text()
+
+
+@pytest.mark.basic
+def test_assistant_v2_user_message_card_has_copy_button() -> None:
+    app = QApplication.instance() or QApplication([])
+    card = MessageCard(
+        message={"role": "user", "message_id": "u1", "content": "hello there"},
+        message_key="id:u1",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        bubble_width=320,
+    )
+    card.show()
+    app.processEvents()
+
+    buttons = [
+        button
+        for button in card.findChildren(app_module.QPushButton)
+        if button.objectName() == "messageActionButton"
+    ]
+    assert len(buttons) == 1
+    assert buttons[0].toolTip() == "Copy message"
+    assert buttons[0].focusPolicy() == Qt.NoFocus
 
 
 @pytest.mark.basic
@@ -2774,3 +3120,249 @@ def test_gateway_worker_starts_runs_with_catalog_scope_and_version(
         }
     ]
     assert llm_manager.last_run_id == "run_1"
+
+
+@pytest.mark.basic
+def test_assistant_v2_cycle_event_updates_inline_status() -> None:
+    """Adapter cycle events (llm_call STARTED on the reason node) surface as a live
+    'Thinking — cycle N' line (2026-07-10 run visibility)."""
+    status_calls: list[tuple[str, str]] = []
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._on_worker_event(palette, {"type": "cycle", "iteration": 3})
+
+    assert status_calls == [("Thinking — cycle 3", "busy")]
+
+
+@pytest.mark.basic
+def test_assistant_v2_tool_started_event_updates_inline_status() -> None:
+    """Adapter tool_started events (tool_calls STARTED, pre-execution) surface the
+    launch with an args preview — previously only tool results were visible."""
+    status_calls: list[tuple[str, str]] = []
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._on_worker_event(
+        palette,
+        {
+            "type": "tool_started",
+            "tools": [{"name": "read_file", "arguments_preview": "{'file_path': 'README.md'}"}],
+        },
+    )
+
+    assert status_calls == [("Tool: read_file {'file_path': 'README.md'}", "busy")]
+
+
+@pytest.mark.basic
+def test_assistant_v2_submit_steers_active_run_instead_of_refusing() -> None:
+    """Typed text while a run is active becomes durable steering (inject_guidance),
+    is echoed into the transcript, and never starts a second worker."""
+    injected: list[tuple[str, str]] = []
+    appended: list[tuple[str, dict]] = []
+    status_calls: list[tuple[str, str]] = []
+    refreshed: list[bool] = []
+
+    class _Controller:
+        @staticmethod
+        def last_run_id() -> str:
+            return "run-active"
+
+        @staticmethod
+        def inject_guidance(run_id: str, guidance: str) -> bool:
+            injected.append((run_id, guidance))
+            return True
+
+        @staticmethod
+        def append_user_message(content: str, metadata=None) -> None:
+            appended.append((content, dict(metadata or {})))
+
+    class _PromptEdit:
+        def __init__(self) -> None:
+            self._text = "focus on the event bus instead"
+            self.cleared = False
+
+        def toPlainText(self) -> str:  # noqa: N802 (Qt naming)
+            return self._text
+
+        def clear(self) -> None:
+            self._text = ""
+            self.cleared = True
+
+    class _LiveWorker:
+        @staticmethod
+        def isRunning() -> bool:  # noqa: N802 (Qt naming)
+            return True
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._worker = _LiveWorker()  # a run is in progress
+    palette._controller = _Controller()
+    palette.prompt_edit = _PromptEdit()
+    palette.refresh_history = lambda request=None: refreshed.append(True)
+    palette._history_scroll_request = lambda mode="bottom", **kw: None
+    palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._submit(palette)
+
+    assert injected == [("run-active", "focus on the event bus instead")]
+    assert palette.prompt_edit.cleared is True
+    assert appended and appended[0][0] == "focus on the event bus instead"
+    assert appended[0][1].get("kind") == "operator_guidance"
+    assert ("Steering: focus on the event bus instead", "busy") in status_calls
+
+
+@pytest.mark.basic
+def test_assistant_v2_controller_run_control_commands() -> None:
+    """Controller pause/resume/inject_guidance submit durable gateway commands."""
+    from abstractassistantv2.controller import AssistantV2Controller
+
+    submitted: list[dict] = []
+
+    class _Gateway:
+        @staticmethod
+        def submit_command(*, command: dict) -> dict:
+            submitted.append(dict(command))
+            return {"ok": True}
+
+    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller.gateway = _Gateway()
+
+    assert controller.pause_run("r1") is True
+    assert controller.resume_run("r1") is True
+    assert controller.inject_guidance("r1", "check the tests too") is True
+    assert controller.inject_guidance("r1", "   ") is False  # empty guidance refused
+    assert controller.pause_run("") is False
+
+    assert [c["type"] for c in submitted] == ["pause", "resume", "inject_guidance"]
+    assert all(c["run_id"] == "r1" for c in submitted)
+    assert submitted[2]["payload"] == {"guidance": "check the tests too"}
+
+
+class _PromptEditStub:
+    def __init__(self, text: str = "") -> None:
+        self._text = text
+        self.cleared = False
+
+    def toPlainText(self) -> str:  # noqa: N802 (Qt naming)
+        return self._text
+
+    def clear(self) -> None:
+        self._text = ""
+        self.cleared = True
+
+
+@pytest.mark.basic
+def test_assistant_v2_submit_during_stop_teardown_queues_instead_of_steering() -> None:
+    """After Stop, the follower lingers until its next SSE window. A send in that
+    window must NOT steer the cancelled run (the message would vanish — the
+    2026-07-10 'sent it again but never saw an answer' bug); it queues and the
+    composer keeps the text."""
+    steered: list[str] = []
+    status_calls: list[tuple[str, str]] = []
+
+    class _LiveWorker:
+        @staticmethod
+        def isRunning() -> bool:  # noqa: N802 (Qt naming)
+            return True
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._worker = _LiveWorker()
+    palette._cancel_requested = True  # user clicked Stop
+    palette.prompt_edit = _PromptEditStub("same question again")
+    palette._steer_active_run = lambda: steered.append("steered")
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._submit(palette)
+
+    assert steered == []
+    assert palette._pending_submit is True
+    assert palette.prompt_edit.cleared is False  # text preserved for the queued send
+    assert any("will send in a moment" in text for text, _tone in status_calls)
+
+
+@pytest.mark.basic
+def test_assistant_v2_submit_clears_stale_finished_worker() -> None:
+    """A worker whose thread already finished must not block or misroute the next
+    send: the stale reference is cleared and the submit proceeds afresh."""
+
+    class _FinishedWorker:
+        @staticmethod
+        def isRunning() -> bool:  # noqa: N802 (Qt naming)
+            return False
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._worker = _FinishedWorker()
+    palette._cancel_requested = False
+    # Empty composer: the fresh-submit path returns right after the guard,
+    # which is exactly the surface under test here.
+    palette.prompt_edit = _PromptEditStub("")
+    palette._attachments = []
+
+    AssistantPalette._submit(palette)
+
+    assert palette._worker is None
+    assert palette._pending_submit is False
+
+
+@pytest.mark.basic
+def test_assistant_v2_stop_restores_send_button_and_marks_teardown() -> None:
+    """Stopping hands the Send button back immediately (the user stopped on
+    purpose and expects to relaunch) and marks the teardown window."""
+    cancelled: list[str] = []
+    busy_calls: list[bool] = []
+    status_calls: list[tuple[str, str]] = []
+
+    class _Controller:
+        @staticmethod
+        def cancel_run(run_id: str) -> bool:
+            cancelled.append(run_id)
+            return True
+
+        @staticmethod
+        def last_run_id() -> str:
+            return "run-active"
+
+    class _Worker:
+        def requestInterruption(self) -> None:  # noqa: N802 (Qt naming)
+            pass
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._controller = _Controller()
+    palette._worker = _Worker()
+    palette._set_send_button_busy = lambda busy: busy_calls.append(bool(busy))
+    palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+
+    AssistantPalette._cancel_active_run(palette)
+
+    assert cancelled == ["run-active"]
+    assert palette._cancel_requested is True
+    assert busy_calls == [False]  # Send icon restored right away
+
+
+@pytest.mark.basic
+def test_assistant_v2_worker_finished_after_stop_reports_run_stopped() -> None:
+    """A user-stopped run has no final answer by design: the finish banner must
+    say 'Run stopped.' instead of the misleading no-written-reply diagnostic."""
+    status_calls: list[tuple[str, str]] = []
+
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette._worker = object()
+    palette._run_busy = True
+    palette._cancel_requested = True
+    palette._run_has_final_output = False
+    palette._show_thinking_indicator = lambda: False
+    palette._set_send_button_busy = lambda busy: None
+    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._refresh_tray_feedback = lambda: None
+    palette.refresh_history = lambda request=None: None
+    palette._set_status = lambda text, tone="neutral": None
+
+    AssistantPalette._on_worker_finished(palette)
+
+    assert palette._worker is None
+    assert palette._cancel_requested is False
+    assert ("Run stopped.", "info") in status_calls

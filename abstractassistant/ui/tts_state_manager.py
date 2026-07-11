@@ -173,7 +173,9 @@ class TTSStateManager:
             status_style = {
                 TTSState.IDLE: "ready",
                 TTSState.SPEAKING: "generating",
-                TTSState.PAUSED: "error",  # Use warning color for paused
+                # "generating" renders the amber/warning style; "error" (red)
+                # made a paused voice look like a failure.
+                TTSState.PAUSED: "generating",
                 TTSState.DISABLED: "idle"
             }
 

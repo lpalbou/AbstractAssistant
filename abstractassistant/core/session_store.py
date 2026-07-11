@@ -8,6 +8,8 @@ durability; this file is a convenience for fast app startup and UX continuity.
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -73,7 +75,16 @@ class SessionStore:
 
     def save(self, snapshot: SessionSnapshot) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_text(json.dumps(snapshot.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(self._path)
+        # Unique temp name per write: concurrent saves sharing one ".tmp" path
+        # can interleave writes into invalid JSON before the atomic rename.
+        tmp = self._path.with_suffix(f"{self._path.suffix}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+        try:
+            tmp.write_text(json.dumps(snapshot.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            tmp.replace(self._path)
+        finally:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
 

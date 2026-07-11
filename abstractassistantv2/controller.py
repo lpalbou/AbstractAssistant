@@ -6,6 +6,8 @@ import json
 import mimetypes
 from pathlib import Path
 import re
+import time
+import warnings
 from typing import Any, Dict, List, Optional
 
 from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
@@ -471,6 +473,100 @@ class AssistantV2Controller:
 
     def last_run_id(self) -> Optional[str]:
         return self.llm_manager.get_last_run_id()
+
+    def cancel_run(self, run_id: str) -> bool:
+        """Submit a durable, tree-wide gateway cancel for the given run.
+
+        Returns True when the command was accepted. The follower is stopped
+        separately by interrupting the worker thread.
+        """
+        rid = str(run_id or "").strip()
+        if not rid:
+            return False
+        try:
+            self.gateway.submit_command(
+                command={
+                    "command_id": f"cancel_{int(time.time() * 1000)}",
+                    "run_id": rid,
+                    "type": "cancel",
+                    "payload": {},
+                    "client_id": "abstractassistant",
+                }
+            )
+            return True
+        except Exception as exc:
+            warnings.warn(f"#FALLBACK: failed to cancel run via gateway: {exc}")
+            return False
+
+    def pause_run(self, run_id: str) -> bool:
+        """Submit a durable, tree-wide gateway pause for the given run.
+
+        Takes effect at the run's next step boundary (an in-flight LLM/tool
+        call finishes first). Returns True when the command was accepted.
+        """
+        rid = str(run_id or "").strip()
+        if not rid:
+            return False
+        try:
+            self.gateway.submit_command(
+                command={
+                    "command_id": f"pause_{int(time.time() * 1000)}",
+                    "run_id": rid,
+                    "type": "pause",
+                    "payload": {"reason": "Paused by user"},
+                    "client_id": "abstractassistant",
+                }
+            )
+            return True
+        except Exception as exc:
+            warnings.warn(f"#FALLBACK: failed to pause run via gateway: {exc}")
+            return False
+
+    def resume_run(self, run_id: str) -> bool:
+        """Resume a previously paused run (tree-wide)."""
+        rid = str(run_id or "").strip()
+        if not rid:
+            return False
+        try:
+            self.gateway.submit_command(
+                command={
+                    "command_id": f"resume_{int(time.time() * 1000)}",
+                    "run_id": rid,
+                    "type": "resume",
+                    "payload": {},
+                    "client_id": "abstractassistant",
+                }
+            )
+            return True
+        except Exception as exc:
+            warnings.warn(f"#FALLBACK: failed to resume run via gateway: {exc}")
+            return False
+
+    def inject_guidance(self, run_id: str, guidance: str) -> bool:
+        """Steer a running agent without cancelling it.
+
+        The guidance lands in the durable inbox of the run (and its
+        descendants) and folds into the agent's next reasoning cycle as a
+        durable transcript message. Returns True when the command was accepted.
+        """
+        rid = str(run_id or "").strip()
+        text = str(guidance or "").strip()
+        if not rid or not text:
+            return False
+        try:
+            self.gateway.submit_command(
+                command={
+                    "command_id": f"steer_{int(time.time() * 1000)}",
+                    "run_id": rid,
+                    "type": "inject_guidance",
+                    "payload": {"guidance": text},
+                    "client_id": "abstractassistant",
+                }
+            )
+            return True
+        except Exception as exc:
+            warnings.warn(f"#FALLBACK: failed to inject guidance via gateway: {exc}")
+            return False
 
     @staticmethod
     def _message_run_id_candidates(message: Dict[str, Any]) -> List[str]:
