@@ -6,7 +6,7 @@ Why:
 - `llms-full.txt` is the "single-file context bundle" version, suitable for offline use
   or for pasting into a model context window.
 
-This script intentionally avoids huge UI files (for example `abstractassistant/ui/qt_bubble.py`).
+This script intentionally avoids the huge tray UI file (`abstractassistant/app.py`).
 """
 
 from __future__ import annotations
@@ -42,15 +42,13 @@ INCLUDED_FILES: list[str] = [
     "abstractassistant/core/gateway_voice_manager.py",
     "abstractassistant/core/session_index.py",
     "abstractassistant/core/session_store.py",
-    "abstractassistantv2/app.py",
-    "abstractassistantv2/controller.py",
-    "abstractassistantv2/gateway.py",
-    "abstractassistantv2/preferences.py",
+    "abstractassistant/controller.py",
+    "abstractassistant/gateway_service.py",
+    "abstractassistant/preferences.py",
     "scripts/update_llms_full.py",
-    "tests/basic/test_assistant_v2.py",
+    "tests/basic/test_assistant_palette.py",
     "tests/basic/test_cli_gateway_mode.py",
     "tests/basic/test_gateway_client_methods.py",
-    "tests/integration/test_agent_host_tool_wait_resume.py",
 ]
 
 

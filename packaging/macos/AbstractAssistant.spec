@@ -16,7 +16,6 @@ VERSION = str(importlib_metadata.version("abstractassistant"))
 PATHEX = [str(ROOT)]
 for candidate in (
     ROOT.parent / "abstractruntime" / "src",
-    ROOT.parent / "abstractgateway" / "src",
     ROOT.parent / "abstractcore" / "src",
     ROOT.parent / "abstractcore",
     ROOT.parent / "abstractvoice",
@@ -25,12 +24,12 @@ for candidate in (
         PATHEX.append(str(candidate.resolve()))
 
 HIDDENIMPORTS = [
-    "abstractassistantv2",
-    "abstractassistantv2.app",
-    "abstractassistantv2.controller",
-    "abstractassistantv2.gateway",
-    "abstractassistantv2.hotkey",
-    "abstractassistantv2.preferences",
+    "abstractassistant.app",
+    "abstractassistant.controller",
+    "abstractassistant.gateway_service",
+    "abstractassistant.assistant_workflow",
+    "abstractassistant.hotkey",
+    "abstractassistant.preferences",
     "abstractassistant.core.gateway_stt_adapter",
     "abstractassistant.ui.gateway_worker",
     "abstractcore.config.manager",
@@ -39,11 +38,16 @@ HIDDENIMPORTS = [
     "abstractvoice.tts",
 ]
 
+ASSETS_DIR = ROOT / "abstractassistant" / "assets"
+DATAS = []
+if ASSETS_DIR.exists():
+    DATAS.append((str(ASSETS_DIR), "abstractassistant/assets"))
+
 a = Analysis(
     [str(ENTRY)],
     pathex=PATHEX,
     binaries=[],
-    datas=[],
+    datas=DATAS,
     hiddenimports=HIDDENIMPORTS,
     hookspath=[],
     hooksconfig={},

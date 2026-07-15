@@ -280,6 +280,59 @@ class GatewayWorker(QThread):
             out["reason"] = str(reason).strip()
         return out
 
+    def _all_ledger_wait_keys(self, bundle: Dict[str, Any]) -> set:
+        """Every wait_key present anywhere in the bundle's ledgers."""
+        keys: set = set()
+        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
+        if not isinstance(ledgers, dict):
+            return keys
+        for ledger in ledgers.values():
+            items = ledger.get("items") if isinstance(ledger, dict) else None
+            if not isinstance(items, list):
+                continue
+            for it in items:
+                rec = it.get("record") if isinstance(it, dict) else None
+                if not isinstance(rec, dict):
+                    continue
+                wait = extract_wait_from_record(rec)
+                if isinstance(wait, dict):
+                    key = str(wait.get("wait_key") or "").strip()
+                    if key:
+                        keys.add(key)
+        return keys
+
+    def _suppress_resolved_waits_for_attach(self, run_id: str) -> None:
+        """On reattach, mark every historical wait as seen EXCEPT the run's
+        currently-pending one, so the full-ledger replay does not re-open
+        already-answered approval / ask-user dialogs (answering a stale wait
+        fails its resume and can leave the run tree in a bad state)."""
+        if self._gateway is None:
+            return
+        try:
+            bundle = self._gateway.get_run_history_bundle(
+                run_id=run_id,
+                include_subruns=True,
+                include_session=False,
+                ledger_mode="tail",
+                ledger_max_items=2000,
+            )
+        except Exception:
+            return
+        current_key = ""
+        try:
+            info = self._gateway.get_run(run_id=run_id)
+            if isinstance(info, dict) and str(info.get("status") or "").strip().lower() == "waiting":
+                waiting = info.get("waiting")
+                if isinstance(waiting, dict):
+                    current_key = str(waiting.get("wait_key") or "").strip()
+        except Exception:
+            current_key = ""
+        keys = self._all_ledger_wait_keys(bundle)
+        if current_key:
+            keys.discard(current_key)
+        if keys:
+            self._adapter.seed_seen_wait_keys(keys)
+
     def _find_latest_wait_from_ledgers(self, bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
         if not isinstance(ledgers, dict):
@@ -891,6 +944,9 @@ class GatewayWorker(QThread):
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
                 self._follow_run_id = ""
+                # Reattach replays the whole ledger from the start; suppress
+                # already-resolved waits so answered dialogs don't re-open.
+                self._suppress_resolved_waits_for_attach(run_id)
                 status = controller.get_run_status(run_id=run_id)
                 if status in {"completed", "failed", "cancelled"}:
                     controller.replay_terminal_ledger(

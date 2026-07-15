@@ -30,6 +30,15 @@ class GatewayEventAdapter:
         self._seen_tool_call_ids: set[str] = set()
         self._cycles_by_run: Dict[str, int] = {}
 
+    def seed_seen_wait_keys(self, wait_keys) -> None:
+        """Mark wait keys as already-handled so replaying a run's ledger does
+        not re-emit already-resolved tool-approval / ask-user waits (used on
+        reattach, where the whole ledger replays from the start)."""
+        for key in wait_keys or []:
+            k = str(key or "").strip()
+            if k:
+                self._seen_wait_keys.add(k)
+
     def seed_tool_call_ids(self, call_ids: List[str]) -> None:
         for cid in call_ids:
             c = str(cid or "").strip()

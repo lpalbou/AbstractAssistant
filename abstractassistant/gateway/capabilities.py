@@ -9,13 +9,6 @@ import warnings
 from typing import Any, Dict, List, Optional
 
 
-AGENT_INTERFACE_PREFERENCE = (
-    "abstractassistant.agent.v1",
-    "abstract.agent.v1",
-    "abstractcode.agent.v1",
-)
-
-
 def _as_dict(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
@@ -72,9 +65,6 @@ class AssistantCapabilities:
     def unavailable(cls, *, error: str = "") -> "AssistantCapabilities":
         return cls(error=str(error or ""), fetched_at=time.monotonic())
 
-    def contract_loaded(self) -> bool:
-        return bool(self.version >= 1 and self.assistant)
-
     def tts(self) -> Dict[str, Any]:
         return _as_dict(_dig(self.assistant, "voice", "tts"))
 
@@ -104,14 +94,6 @@ class AssistantCapabilities:
         endpoint = self.tts().get("models_endpoint")
         return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
 
-    def stt_models_endpoint(self) -> str:
-        endpoint = self.stt().get("models_endpoint")
-        return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
-
-    def tts_catalog_endpoint(self) -> str:
-        endpoint = self.tts().get("catalog_endpoint")
-        return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
-
     def selected_tts_model(self) -> Optional[str]:
         preferred = str(
             os.getenv("ABSTRACTASSISTANT_GATEWAY_TTS_MODEL")
@@ -131,19 +113,6 @@ class AssistantCapabilities:
         if "wav" in formats:
             return "wav"
         return formats[0] if formats else "wav"
-
-    def tts_content_type(self, fmt: str) -> str:
-        content_types = self.tts().get("content_types")
-        if isinstance(content_types, dict):
-            value = content_types.get(str(fmt or "").strip().lower())
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        f = str(fmt or "").strip().lower()
-        if f in {"mp3", "mpeg"}:
-            return "audio/mpeg"
-        if f in {"wav", "wave"}:
-            return "audio/wav"
-        return "application/octet-stream"
 
     def tts_voices(self) -> List[Dict[str, Any]]:
         voices = self.tts().get("voices")
@@ -213,101 +182,6 @@ class AssistantCapabilities:
         except Exception:
             return 0
         return max(0, value)
-
-    def artifact_content_available(self) -> bool:
-        item = _as_dict(_dig(self.assistant, "artifacts", "content"))
-        if "available" in item:
-            return bool(item.get("available"))
-        endpoint = str(item.get("endpoint") or "").strip()
-        return bool(endpoint)
-
-    def session_prompt_cache_available(self) -> bool:
-        pc = _as_dict(self.assistant.get("prompt_cache"))
-        return bool(pc.get("session_lifecycle"))
-
-    def _media_entry(self, key: str) -> Dict[str, Any]:
-        return _as_dict(_dig(self.assistant, "media", key))
-
-    def _direct_media_entry(self, key: str) -> Dict[str, Any]:
-        return _as_dict(_dig(self.assistant, "media", key, "direct_endpoint"))
-
-    def direct_media_available(self, key: str) -> bool:
-        direct = self._direct_media_entry(key)
-        return bool(direct.get("available") and direct.get("route_available", True))
-
-    def direct_media_route_available(self, key: str) -> bool:
-        direct = self._direct_media_entry(key)
-        if "route_available" in direct:
-            return bool(direct.get("route_available"))
-        return bool(direct.get("available"))
-
-    def direct_media_config_hint(self, key: str) -> str:
-        direct = self._direct_media_entry(key)
-        hint = direct.get("config_hint")
-        return str(hint or "").strip() if isinstance(hint, str) else ""
-
-    def generated_image_direct_available(self) -> bool:
-        return self.direct_media_available("generated_image")
-
-    def generated_image_formats(self) -> List[str]:
-        direct = self._direct_media_entry("generated_image")
-        formats = _as_list_of_strings(direct.get("formats"))
-        return formats or ["png"]
-
-    def generated_image_provider_models_endpoint(self) -> str:
-        direct = self._direct_media_entry("generated_image")
-        endpoint = direct.get("provider_models_endpoint")
-        return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
-
-    def generated_image_provider_models_task(self) -> str:
-        direct = self._direct_media_entry("generated_image")
-        task = direct.get("provider_models_task")
-        return str(task or "").strip() if isinstance(task, str) and task.strip() else "text_to_image"
-
-    def direct_media_adapter_catalog_endpoint(self, key: str) -> str:
-        direct = self._direct_media_entry(key)
-        endpoint = direct.get("adapter_catalog_endpoint")
-        return str(endpoint or "").strip() if isinstance(endpoint, str) else ""
-
-    def direct_media_supports_batch(self, key: str) -> bool:
-        direct = self._direct_media_entry(key)
-        return bool(direct.get("supports_batch"))
-
-    def direct_media_batch_count_field(self, key: str) -> str:
-        direct = self._direct_media_entry(key)
-        field = direct.get("batch_count_field")
-        return str(field or "").strip() if isinstance(field, str) else ""
-
-    def direct_media_batch_seed_field(self, key: str) -> str:
-        direct = self._direct_media_entry(key)
-        field = direct.get("batch_seed_field")
-        return str(field or "").strip() if isinstance(field, str) else ""
-
-    def direct_media_supports_lora_adapters(self, key: str) -> bool:
-        direct = self._direct_media_entry(key)
-        return bool(direct.get("supports_lora_adapters"))
-
-    def direct_media_supports_flow_shift(self, key: str) -> bool:
-        direct = self._direct_media_entry(key)
-        return bool(direct.get("supports_flow_shift"))
-
-    def edited_image_direct_available(self) -> bool:
-        return self.direct_media_available("edited_image")
-
-    def upscaled_image_direct_available(self) -> bool:
-        return self.direct_media_available("upscaled_image")
-
-    def generated_video_direct_available(self) -> bool:
-        return self.direct_media_available("generated_video")
-
-    def image_to_video_direct_available(self) -> bool:
-        return self.direct_media_available("image_to_video")
-
-    def generated_voice_direct_available(self) -> bool:
-        return self.direct_media_available("generated_voice")
-
-    def generated_music_direct_available(self) -> bool:
-        return self.direct_media_available("generated_music")
 
 
 def get_cached_assistant_capabilities(

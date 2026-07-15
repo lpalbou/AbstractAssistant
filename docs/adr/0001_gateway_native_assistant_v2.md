@@ -71,8 +71,13 @@ the client fails closed with an explicit user-visible error.
 
 ## Enforcement
 
-- `abstractassistantv2/` is the only valid extension point for new desktop-shell work.
-- `abstractassistantv2/app.py`, `abstractassistantv2/controller.py`, `abstractassistantv2/gateway.py`,
+> Package note (2026-07-15): the gateway-native shell moved from the separate `abstractassistantv2/`
+> package into `abstractassistant/`, and the legacy Qt bubble UI was removed. The paths below reflect
+> the current layout; the decision itself is unchanged.
+
+- The `abstractassistant` package shell (`app.py`, `controller.py`, `gateway_service.py`,
+  `preferences.py`, `hotkey.py`) is the only valid extension point for new desktop-shell work.
+- `abstractassistant/app.py`, `abstractassistant/controller.py`, `abstractassistant/gateway_service.py`,
   `abstractassistant/cli.py`, and `abstractassistant/ui/gateway_worker.py` must not introduce
   alternate runtime execution paths.
 - The desktop client must not inject workflow-specific prompt-cache runtime hints before starting a
@@ -88,7 +93,7 @@ the client fails closed with an explicit user-visible error.
 
 ## Validation
 
-- `python -m pytest tests/basic tests/integration -q`
+- `python -m pytest tests/basic -q`
 - Targeted validation that the tray shell and CLI start runs only with tenant-catalog workflow
   metadata.
 - Targeted validation that obsolete direct/sandbox/private assistant paths are absent from the v2

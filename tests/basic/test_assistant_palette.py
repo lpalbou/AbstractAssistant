@@ -1,4 +1,4 @@
-"""Basic coverage for the gateway-native assistant v2 helpers."""
+"""Basic coverage for the gateway-native assistant palette helpers."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from PyQt5.QtGui import QKeyEvent, QTextCursor
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
 from abstractassistant.utils.mermaid_renderer import mermaid_block_to_data_uri
-import abstractassistantv2.app as app_module
+import abstractassistant.app as app_module
 
-from abstractassistantv2.app import (
+from abstractassistant.app import (
     AttachmentTextEdit,
     AssistantHtmlAction,
     AssistantPalette,
@@ -47,13 +47,13 @@ from abstractassistantv2.app import (
     _visible_history_messages,
     _zoomed_shell_size,
 )
-from abstractassistantv2.controller import AssistantV2Controller
-from abstractassistantv2.gateway import AssistantGatewayService
-from abstractassistantv2.assistant_workflow import (
+from abstractassistant.controller import AssistantController
+from abstractassistant.gateway_service import AssistantGatewayService
+from abstractassistant.assistant_workflow import (
     MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
     normalized_managed_visualflow,
 )
-from abstractassistantv2.preferences import (
+from abstractassistant.preferences import (
     AssistantPreferences,
     GatewayConnectionPreferences,
     GatewayConnectionStore,
@@ -146,7 +146,7 @@ class _GatewayCatalogStub:
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_uses_catalog_workflows_and_voice_catalogs() -> (
+def test_assistant_palette_gateway_service_uses_catalog_workflows_and_voice_catalogs() -> (
     None
 ):
     gateway = _GatewayCatalogStub()
@@ -180,7 +180,7 @@ def test_assistant_v2_gateway_service_uses_catalog_workflows_and_voice_catalogs(
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_prefers_catalog_default_when_multiple_managed_options_exist() -> (
+def test_assistant_palette_gateway_service_prefers_catalog_default_when_multiple_managed_options_exist() -> (
     None
 ):
     class _GatewayDefaultStub(_GatewayCatalogStub):
@@ -229,7 +229,7 @@ def test_assistant_v2_gateway_service_prefers_catalog_default_when_multiple_mana
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_blocks_ambiguous_catalog_without_default() -> (
+def test_assistant_palette_gateway_service_blocks_ambiguous_catalog_without_default() -> (
     None
 ):
     class _GatewayAmbiguousStub(_GatewayCatalogStub):
@@ -357,7 +357,7 @@ class _ManagedWorkflowGatewayStub:
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_reconciles_and_promotes_catalog_workflow() -> (
+def test_assistant_palette_gateway_service_reconciles_and_promotes_catalog_workflow() -> (
     None
 ):
     gateway = _ManagedWorkflowGatewayStub()
@@ -373,7 +373,7 @@ def test_assistant_v2_gateway_service_reconciles_and_promotes_catalog_workflow()
 
 
 @pytest.mark.basic
-def test_assistant_v2_managed_workflow_accepts_prompt_alias_for_media_routes() -> None:
+def test_assistant_palette_managed_workflow_accepts_prompt_alias_for_media_routes() -> None:
     flow = normalized_managed_visualflow()
     nodes = {str(node.get("id")): node for node in flow["nodes"]}
     edges = {str(edge.get("id")): edge for edge in flow["edges"]}
@@ -574,7 +574,7 @@ def test_message_card_actions_stay_pinned_while_voice_is_active() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_zoomed_shell_size_grows_by_40_percent_per_axis() -> None:
+def test_assistant_palette_zoomed_shell_size_grows_by_40_percent_per_axis() -> None:
     width, height = _zoomed_shell_size(
         screen_width=2200,
         screen_height=1400,
@@ -586,7 +586,7 @@ def test_assistant_v2_zoomed_shell_size_grows_by_40_percent_per_axis() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_busy_tray_feedback_icon_renders_pixmap() -> None:
+def test_assistant_palette_busy_tray_feedback_icon_renders_pixmap() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     icon = _tray_feedback_icon(state="busy", frame=5, size=40)
@@ -600,7 +600,7 @@ def test_assistant_v2_busy_tray_feedback_icon_renders_pixmap() -> None:
 
 @pytest.mark.basic
 @pytest.mark.parametrize("state", ["idle", "busy", "complete"])
-def test_assistant_v2_tray_feedback_icon_uses_large_opaque_footprint(
+def test_assistant_palette_tray_feedback_icon_uses_large_opaque_footprint(
     state: str,
 ) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -617,7 +617,7 @@ def test_assistant_v2_tray_feedback_icon_uses_large_opaque_footprint(
 
 
 @pytest.mark.basic
-def test_assistant_v2_session_picker_label_uses_compact_date_and_topic() -> None:
+def test_assistant_palette_session_picker_label_uses_compact_date_and_topic() -> None:
     label = _session_picker_label(
         {
             "created_at": "2026-06-21T10:14:00+00:00",
@@ -659,7 +659,7 @@ def test_llm_manager_session_fallback_title_uses_first_user_query(
 
 
 @pytest.mark.basic
-def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(
+def test_assistant_palette_refresh_tray_visibility_reapplies_icon_and_attach(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
@@ -705,7 +705,7 @@ def test_assistant_v2_refresh_tray_visibility_reapplies_icon_and_attach(
 
 
 @pytest.mark.basic
-def test_assistant_v2_hidden_final_reply_marks_unread_and_notifies() -> None:
+def test_assistant_palette_hidden_final_reply_marks_unread_and_notifies() -> None:
     class _AutoSpeak:
         def isChecked(self) -> bool:
             return False
@@ -749,7 +749,7 @@ def test_assistant_v2_hidden_final_reply_marks_unread_and_notifies() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_run_activity_event_updates_inline_status() -> None:
+def test_assistant_palette_run_activity_event_updates_inline_status() -> None:
     status_calls: list[tuple[str, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
@@ -771,7 +771,7 @@ def test_assistant_v2_run_activity_event_updates_inline_status() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_event_updates_inline_status() -> None:
+def test_assistant_palette_tool_event_updates_inline_status() -> None:
     status_calls: list[tuple[str, str, bool, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
@@ -812,7 +812,7 @@ def test_assistant_v2_tool_event_updates_inline_status() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_status_budget_tracks_palette_width() -> None:
+def test_assistant_palette_tool_status_budget_tracks_palette_width() -> None:
     app = QApplication.instance() or QApplication([])
 
     class _FakeWidget:
@@ -843,7 +843,7 @@ def test_assistant_v2_tool_status_budget_tracks_palette_width() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_worker_finished_shows_non_durable_empty_reply_diagnostic() -> None:
+def test_assistant_palette_worker_finished_shows_non_durable_empty_reply_diagnostic() -> None:
     appended: list[tuple[str, dict]] = []
     history_calls: list[HistoryScrollRequest] = []
     status_calls: list[tuple[str, str]] = []
@@ -889,7 +889,7 @@ def test_assistant_v2_worker_finished_shows_non_durable_empty_reply_diagnostic()
 
 
 @pytest.mark.basic
-def test_assistant_v2_send_button_stops_active_run() -> None:
+def test_assistant_palette_send_button_stops_active_run() -> None:
     """While a run is active the composer button cancels it: a gateway cancel
     is submitted for the run and the follower thread is interrupted."""
     cancelled: list[str] = []
@@ -926,7 +926,7 @@ def test_assistant_v2_send_button_stops_active_run() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_send_button_sends_when_idle() -> None:
+def test_assistant_palette_send_button_sends_when_idle() -> None:
     submitted: list[bool] = []
     palette = AssistantPalette.__new__(AssistantPalette)
     palette._worker = None
@@ -938,7 +938,7 @@ def test_assistant_v2_send_button_sends_when_idle() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_replay_degraded_prevents_finished_fallback() -> None:
+def test_assistant_palette_replay_degraded_prevents_finished_fallback() -> None:
     appended: list[tuple[str, dict]] = []
     status_calls: list[tuple[str, str]] = []
 
@@ -1076,7 +1076,7 @@ def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(
 
     monkeypatch.setenv("ABSTRACTASSISTANT_SHOW_ON_LAUNCH", "1")
     monkeypatch.setattr(app_module, "QApplication", _App)
-    monkeypatch.setattr(app_module, "AssistantV2Controller", lambda **kwargs: object())
+    monkeypatch.setattr(app_module, "AssistantController", lambda **kwargs: object())
     monkeypatch.setattr(app_module, "AssistantPalette", _Palette)
     monkeypatch.setattr(app_module, "QSystemTrayIcon", _Tray)
     monkeypatch.setattr(app_module, "QMenu", _Menu)
@@ -1207,7 +1207,7 @@ def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(
 
     monkeypatch.setenv("ABSTRACTASSISTANT_SHOW_ON_LAUNCH", "1")
     monkeypatch.setattr(app_module, "QApplication", _App)
-    monkeypatch.setattr(app_module, "AssistantV2Controller", lambda **kwargs: object())
+    monkeypatch.setattr(app_module, "AssistantController", lambda **kwargs: object())
     monkeypatch.setattr(app_module, "AssistantPalette", _Palette)
     monkeypatch.setattr(app_module, "QSystemTrayIcon", _Tray)
     monkeypatch.setattr(app_module, "QMenu", _Menu)
@@ -1258,7 +1258,7 @@ class _WrongGatewaySurfaceStub:
 
 
 @pytest.mark.basic
-def test_assistant_v2_gateway_service_blocks_private_fallback_on_wrong_surface() -> (
+def test_assistant_palette_gateway_service_blocks_private_fallback_on_wrong_surface() -> (
     None
 ):
     service = AssistantGatewayService(_WrongGatewaySurfaceStub())
@@ -1271,7 +1271,7 @@ def test_assistant_v2_gateway_service_blocks_private_fallback_on_wrong_surface()
 
 
 @pytest.mark.basic
-def test_assistant_v2_preferences_round_trip(tmp_path: Path) -> None:
+def test_assistant_palette_preferences_round_trip(tmp_path: Path) -> None:
     store = PreferencesStore(tmp_path / "preferences.json")
     prefs = AssistantPreferences(
         hotkey_enabled=True,
@@ -1293,7 +1293,7 @@ def test_assistant_v2_preferences_round_trip(tmp_path: Path) -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_connection_preferences_round_trip(tmp_path: Path) -> None:
+def test_assistant_palette_connection_preferences_round_trip(tmp_path: Path) -> None:
     store = GatewayConnectionStore(tmp_path / "gateway_connection.json")
     prefs = GatewayConnectionPreferences(
         base_url="https://gateway.example",
@@ -1311,10 +1311,10 @@ def test_assistant_v2_connection_preferences_round_trip(tmp_path: Path) -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_prefers_runtime_bearer_override_over_saved_connection(
+def test_assistant_palette_controller_prefers_runtime_bearer_override_over_saved_connection(
     tmp_path: Path,
 ) -> None:
-    controller = object.__new__(AssistantV2Controller)
+    controller = object.__new__(AssistantController)
     controller.connection_store = GatewayConnectionStore(
         tmp_path / "gateway_connection.json"
     )
@@ -1334,7 +1334,7 @@ def test_assistant_v2_controller_prefers_runtime_bearer_override_over_saved_conn
         }
     )
 
-    resolved = AssistantV2Controller._load_connection_preferences(controller)
+    resolved = AssistantController._load_connection_preferences(controller)
 
     assert resolved.base_url == "http://127.0.0.1:8080"
     assert resolved.auth_token == "cli-token"
@@ -1342,8 +1342,8 @@ def test_assistant_v2_controller_prefers_runtime_bearer_override_over_saved_conn
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_returns_catalog_workflow_selection() -> None:
-    controller = object.__new__(AssistantV2Controller)
+def test_assistant_palette_controller_returns_catalog_workflow_selection() -> None:
+    controller = object.__new__(AssistantController)
     controller.workflow_options = lambda: [  # type: ignore[method-assign]
         type(
             "_Workflow",
@@ -1358,7 +1358,7 @@ def test_assistant_v2_controller_returns_catalog_workflow_selection() -> None:
         )()
     ]
 
-    resolved = AssistantV2Controller.current_workflow(controller)
+    resolved = AssistantController.current_workflow(controller)
 
     assert resolved == WorkflowSelection(
         bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
@@ -1369,7 +1369,7 @@ def test_assistant_v2_controller_returns_catalog_workflow_selection() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_build_chat_worker_does_not_pass_text_route_defaults(
+def test_assistant_palette_controller_build_chat_worker_does_not_pass_text_route_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -1378,9 +1378,9 @@ def test_assistant_v2_controller_build_chat_worker_does_not_pass_text_route_defa
         def __init__(self, **kwargs) -> None:
             captured.update(kwargs)
 
-    monkeypatch.setattr("abstractassistantv2.controller.GatewayWorker", _WorkerCapture)
+    monkeypatch.setattr("abstractassistant.controller.GatewayWorker", _WorkerCapture)
 
-    controller = object.__new__(AssistantV2Controller)
+    controller = object.__new__(AssistantController)
     controller.llm_manager = object()
     controller.debug = False
     controller.current_workflow = lambda: WorkflowSelection(  # type: ignore[method-assign]
@@ -1389,11 +1389,6 @@ def test_assistant_v2_controller_build_chat_worker_does_not_pass_text_route_defa
         bundle_version="2026.06.12",
         registry_scope="tenant_catalog",
     )
-    controller.resolve_text_route = lambda: type(  # type: ignore[method-assign]
-        "_Route",
-        (),
-        {"provider": "ovh", "model": "gpt-oss-20b"},
-    )()
     controller.allowed_tools_for_run = lambda: ["read_file", "web_search"]  # type: ignore[method-assign]
     controller.tool_policy_for_run = lambda: {  # type: ignore[method-assign]
         "auto_approve_tools": ["read_file", "web_search"],
@@ -1414,8 +1409,8 @@ def test_assistant_v2_controller_build_chat_worker_does_not_pass_text_route_defa
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_session_tool_auto_approval_is_chat_scoped() -> None:
-    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+def test_assistant_palette_controller_session_tool_auto_approval_is_chat_scoped() -> None:
+    controller = AssistantController.__new__(AssistantController)
     controller._session_auto_approve_all = set()
     controller.llm_manager = SimpleNamespace(active_session_id="chat-a")
     controller.tool_inventory = lambda: {  # type: ignore[method-assign]
@@ -1449,7 +1444,7 @@ def test_assistant_v2_controller_session_tool_auto_approval_is_chat_scoped() -> 
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_hydrates_tool_details_from_ledger_run_tree() -> None:
+def test_assistant_palette_controller_hydrates_tool_details_from_ledger_run_tree() -> None:
     class _Gateway:
         def __init__(self) -> None:
             self.ledgers = {
@@ -1494,7 +1489,7 @@ def test_assistant_v2_controller_hydrates_tool_details_from_ledger_run_tree() ->
             chunk = items[int(after) : int(after) + int(limit)]
             return {"items": chunk, "next_after": int(after) + len(chunk)}
 
-    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller = AssistantController.__new__(AssistantController)
     controller.gateway = _Gateway()
     message = {
         "role": "assistant",
@@ -1517,12 +1512,12 @@ def test_assistant_v2_controller_hydrates_tool_details_from_ledger_run_tree() ->
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_falls_back_to_scratchpad_when_ledger_missing() -> None:
+def test_assistant_palette_controller_falls_back_to_scratchpad_when_ledger_missing() -> None:
     class _Gateway:
         def get_ledger(self, *, run_id: str, after: int, limit: int) -> dict:
             raise RuntimeError(f"Run {run_id} not found")
 
-    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller = AssistantController.__new__(AssistantController)
     controller.gateway = _Gateway()
     message = {
         "role": "assistant",
@@ -1568,7 +1563,7 @@ def test_assistant_v2_controller_falls_back_to_scratchpad_when_ledger_missing() 
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_request_auto_approval_bypasses_dialog(
+def test_assistant_palette_tool_request_auto_approval_bypasses_dialog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     approvals: list[bool] = []
@@ -1610,7 +1605,7 @@ def test_assistant_v2_tool_request_auto_approval_bypasses_dialog(
 
 
 @pytest.mark.basic
-def test_assistant_v2_footer_items_use_live_assistant_stats() -> None:
+def test_assistant_palette_footer_items_use_live_assistant_stats() -> None:
     message = {
         "role": "assistant",
         "content": "Ready.",
@@ -1642,7 +1637,7 @@ def test_assistant_v2_footer_items_use_live_assistant_stats() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_footer_items_parse_history_seed_repl_stats() -> None:
+def test_assistant_palette_footer_items_parse_history_seed_repl_stats() -> None:
     message = {
         "role": "assistant",
         "content": "Done.",
@@ -1668,7 +1663,7 @@ def test_assistant_v2_footer_items_parse_history_seed_repl_stats() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_footer_tools_metric_keeps_details_and_priority() -> None:
+def test_assistant_palette_footer_tools_metric_keeps_details_and_priority() -> None:
     message = {
         "role": "assistant",
         "content": "Done.",
@@ -1719,7 +1714,7 @@ def test_assistant_v2_footer_tools_metric_keeps_details_and_priority() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_footer_files_metric_derives_operations_from_tool_details() -> None:
+def test_assistant_palette_footer_files_metric_derives_operations_from_tool_details() -> None:
     message = {
         "role": "assistant",
         "content": "Done.",
@@ -1763,7 +1758,7 @@ def test_assistant_v2_footer_files_metric_derives_operations_from_tool_details()
 
 
 @pytest.mark.basic
-def test_assistant_v2_footer_ignores_bare_workflow_meta_counts() -> None:
+def test_assistant_palette_footer_ignores_bare_workflow_meta_counts() -> None:
     """A bare workflow-meta tool count (no stats block, no details) is not
     enough to render stats: no partial/fallback footers — messages without
     recorded stats show only the model line."""
@@ -1783,7 +1778,7 @@ def test_assistant_v2_footer_ignores_bare_workflow_meta_counts() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_footer_zero_tools_reports_zero_files() -> None:
+def test_assistant_palette_footer_zero_tools_reports_zero_files() -> None:
     message = {
         "role": "assistant",
         "content": "Done.",
@@ -1804,7 +1799,7 @@ def test_assistant_v2_footer_zero_tools_reports_zero_files() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_calls_for_message_reads_scratchpad_fallback() -> None:
+def test_assistant_palette_tool_calls_for_message_reads_scratchpad_fallback() -> None:
     message = {
         "role": "assistant",
         "content": "Done.",
@@ -1832,7 +1827,7 @@ def test_assistant_v2_tool_calls_for_message_reads_scratchpad_fallback() -> None
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_card_renders_clickable_tools_metric() -> None:
+def test_assistant_palette_message_card_renders_clickable_tools_metric() -> None:
     app = QApplication.instance() or QApplication([])
     opened: list[str] = []
     message = {
@@ -1872,7 +1867,7 @@ def test_assistant_v2_message_card_renders_clickable_tools_metric() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_card_renders_stats_line_with_separators() -> None:
+def test_assistant_palette_message_card_renders_stats_line_with_separators() -> None:
     app = QApplication.instance() or QApplication([])
     message = {
         "role": "assistant",
@@ -1924,7 +1919,7 @@ def test_assistant_v2_message_card_renders_stats_line_with_separators() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_card_renders_clickable_files_metric() -> None:
+def test_assistant_palette_message_card_renders_clickable_files_metric() -> None:
     app = QApplication.instance() or QApplication([])
     opened: list[str] = []
     message = {
@@ -1963,7 +1958,7 @@ def test_assistant_v2_message_card_renders_clickable_files_metric() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_file_activity_dialog_renders_one_card_per_operation() -> None:
+def test_assistant_palette_file_activity_dialog_renders_one_card_per_operation() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = app_module.FileActivityDialog(
         message={
@@ -2002,7 +1997,7 @@ def test_assistant_v2_file_activity_dialog_renders_one_card_per_operation() -> N
 
 
 @pytest.mark.basic
-def test_assistant_v2_file_activity_dialog_empty_state_is_honest() -> None:
+def test_assistant_palette_file_activity_dialog_empty_state_is_honest() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = app_module.FileActivityDialog(
         message={
@@ -2027,7 +2022,7 @@ def test_assistant_v2_file_activity_dialog_empty_state_is_honest() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_card_shows_execution_outcome_chip() -> None:
+def test_assistant_palette_tool_card_shows_execution_outcome_chip() -> None:
     app = QApplication.instance() or QApplication([])
     card = app_module.ToolApprovalCallCard(
         call={
@@ -2052,7 +2047,7 @@ def test_assistant_v2_tool_card_shows_execution_outcome_chip() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_user_message_card_has_copy_button() -> None:
+def test_assistant_palette_user_message_card_has_copy_button() -> None:
     app = QApplication.instance() or QApplication([])
     card = MessageCard(
         message={"role": "user", "message_id": "u1", "content": "hello there"},
@@ -2075,7 +2070,7 @@ def test_assistant_v2_user_message_card_has_copy_button() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_usage_dialog_renders_tool_cards() -> None:
+def test_assistant_palette_tool_usage_dialog_renders_tool_cards() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = ToolUsageDialog(
         message={
@@ -2103,7 +2098,7 @@ def test_assistant_v2_tool_usage_dialog_renders_tool_cards() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_usage_dialog_renders_ledger_calls_without_metadata_details() -> (
+def test_assistant_palette_tool_usage_dialog_renders_ledger_calls_without_metadata_details() -> (
     None
 ):
     app = QApplication.instance() or QApplication([])
@@ -2132,7 +2127,7 @@ def test_assistant_v2_tool_usage_dialog_renders_ledger_calls_without_metadata_de
 
 
 @pytest.mark.basic
-def test_assistant_v2_show_message_tools_fetches_ledger_before_dialog(
+def test_assistant_palette_show_message_tools_fetches_ledger_before_dialog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict = {}
@@ -2214,7 +2209,7 @@ def test_assistant_v2_show_message_tools_fetches_ledger_before_dialog(
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_call_summary_humanizes_large_write_file_payload() -> None:
+def test_assistant_palette_tool_call_summary_humanizes_large_write_file_payload() -> None:
     content = "<!DOCTYPE html>\n<html><body>Hello</body></html>" * 40
     summary = _tool_call_summary(
         {
@@ -2237,7 +2232,7 @@ def test_assistant_v2_tool_call_summary_humanizes_large_write_file_payload() -> 
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_call_summary_parses_json_argument_text() -> None:
+def test_assistant_palette_tool_call_summary_parses_json_argument_text() -> None:
     summary = _tool_call_summary(
         {"name": "execute_command", "arguments": '{"cmd":"npm test","timeout":120}'}
     )
@@ -2249,7 +2244,7 @@ def test_assistant_v2_tool_call_summary_parses_json_argument_text() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_visible_history_messages_prioritizes_latest_user_turn_while_busy() -> (
+def test_assistant_palette_visible_history_messages_prioritizes_latest_user_turn_while_busy() -> (
     None
 ):
     messages = [
@@ -2261,7 +2256,7 @@ def test_assistant_v2_visible_history_messages_prioritizes_latest_user_turn_whil
 
 
 @pytest.mark.basic
-def test_assistant_v2_visible_history_messages_keeps_recent_turns_when_idle() -> None:
+def test_assistant_palette_visible_history_messages_keeps_recent_turns_when_idle() -> None:
     messages = [
         {"role": "assistant", "content": "Earlier"},
         {"role": "user", "content": "Latest question"},
@@ -2272,7 +2267,7 @@ def test_assistant_v2_visible_history_messages_keeps_recent_turns_when_idle() ->
 
 
 @pytest.mark.basic
-def test_assistant_v2_visible_history_messages_keeps_attachment_only_turns() -> None:
+def test_assistant_palette_visible_history_messages_keeps_attachment_only_turns() -> None:
     messages = [
         {
             "role": "user",
@@ -2293,7 +2288,7 @@ def test_assistant_v2_visible_history_messages_keeps_attachment_only_turns() -> 
 
 
 @pytest.mark.basic
-def test_assistant_v2_thinking_indicator_tracks_active_run() -> None:
+def test_assistant_palette_thinking_indicator_tracks_active_run() -> None:
     palette = AssistantPalette.__new__(AssistantPalette)
     palette._run_busy = True
     palette._run_has_final_output = False
@@ -2302,7 +2297,7 @@ def test_assistant_v2_thinking_indicator_tracks_active_run() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_thinking_indicator_stops_after_final_output() -> None:
+def test_assistant_palette_thinking_indicator_stops_after_final_output() -> None:
     palette = AssistantPalette.__new__(AssistantPalette)
     palette._run_busy = True
     palette._run_has_final_output = True
@@ -2311,13 +2306,17 @@ def test_assistant_v2_thinking_indicator_stops_after_final_output() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_bubble_width_uses_role_ratios() -> None:
-    assert _message_bubble_width(1000, role="user") == 800
-    assert _message_bubble_width(1000, role="assistant") == 800
+def test_assistant_palette_message_bubble_width_uses_role_ratios() -> None:
+    # User messages are capped narrower than assistant replies.
+    assert _message_bubble_width(1000, role="user") == 720
+    assert _message_bubble_width(1000, role="assistant") == 860
+    assert _message_bubble_width(1000, role="user") < _message_bubble_width(
+        1000, role="assistant"
+    )
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_media_artifacts_collects_and_deduplicates_media() -> None:
+def test_assistant_palette_message_media_artifacts_collects_and_deduplicates_media() -> None:
     message = {
         "role": "assistant",
         "content": "Here is the diagram.",
@@ -2348,7 +2347,7 @@ def test_assistant_v2_message_media_artifacts_collects_and_deduplicates_media() 
 
 
 @pytest.mark.basic
-def test_assistant_v2_local_attachment_preview_items_tag_media_modalities() -> None:
+def test_assistant_palette_local_attachment_preview_items_tag_media_modalities() -> None:
     items = _local_attachment_preview_items(
         ["/tmp/example.png", "/tmp/example.mp3", "/tmp/readme.txt"]
     )
@@ -2369,7 +2368,7 @@ def test_assistant_v2_local_attachment_preview_items_tag_media_modalities() -> N
 
 
 @pytest.mark.basic
-def test_assistant_v2_attachment_kind_maps_common_file_types() -> None:
+def test_assistant_palette_attachment_kind_maps_common_file_types() -> None:
     assert _attachment_kind("/tmp/mockup.png") == "image"
     assert _attachment_kind("/tmp/voice.wav") == "audio"
     assert _attachment_kind("/tmp/demo.mov") == "video"
@@ -2381,7 +2380,7 @@ def test_assistant_v2_attachment_kind_maps_common_file_types() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_merge_attachment_paths_deduplicates_and_filters_non_files(
+def test_assistant_palette_merge_attachment_paths_deduplicates_and_filters_non_files(
     tmp_path: Path,
 ) -> None:
     keep = tmp_path / "keep.txt"
@@ -2400,7 +2399,7 @@ def test_assistant_v2_merge_attachment_paths_deduplicates_and_filters_non_files(
 
 
 @pytest.mark.basic
-def test_assistant_v2_media_display_title_hides_hash_like_audio_names(
+def test_assistant_palette_media_display_title_hides_hash_like_audio_names(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "artifact.wav"
@@ -2419,12 +2418,12 @@ def test_assistant_v2_media_display_title_hides_hash_like_audio_names(
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_artifact_cache_filename_uses_runtime_content_type_override() -> (
+def test_assistant_palette_controller_artifact_cache_filename_uses_runtime_content_type_override() -> (
     None
 ):
-    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller = AssistantController.__new__(AssistantController)
 
-    filename = AssistantV2Controller._artifact_cache_filename(
+    filename = AssistantController._artifact_cache_filename(
         controller,
         artifact_id="abc123",
         artifact={"filename": "", "content_type": ""},
@@ -2435,7 +2434,7 @@ def test_assistant_v2_controller_artifact_cache_filename_uses_runtime_content_ty
 
 
 @pytest.mark.basic
-def test_assistant_v2_resize_visible_history_cards_uses_viewport_width() -> None:
+def test_assistant_palette_resize_visible_history_cards_uses_viewport_width() -> None:
     class _Viewport:
         def width(self) -> int:
             return 900
@@ -2480,7 +2479,7 @@ def test_assistant_v2_resize_visible_history_cards_uses_viewport_width() -> None
 
 
 @pytest.mark.basic
-def test_assistant_v2_sync_history_viewport_matches_content_height() -> None:
+def test_assistant_palette_sync_history_viewport_matches_content_height() -> None:
     class _Layout:
         def __init__(self) -> None:
             self.invalidated = 0
@@ -2516,7 +2515,7 @@ def test_assistant_v2_sync_history_viewport_matches_content_height() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_capture_history_scroll_request_preserves_top_visible_message_offset() -> (
+def test_assistant_palette_capture_history_scroll_request_preserves_top_visible_message_offset() -> (
     None
 ):
     class _Bar:
@@ -2574,7 +2573,7 @@ def test_assistant_v2_capture_history_scroll_request_preserves_top_visible_messa
 
 
 @pytest.mark.basic
-def test_assistant_v2_default_history_refresh_request_uses_bottom_for_first_hydration() -> (
+def test_assistant_palette_default_history_refresh_request_uses_bottom_for_first_hydration() -> (
     None
 ):
     palette = AssistantPalette.__new__(AssistantPalette)
@@ -2592,7 +2591,7 @@ def test_assistant_v2_default_history_refresh_request_uses_bottom_for_first_hydr
 
 
 @pytest.mark.basic
-def test_assistant_v2_commit_history_scroll_request_defers_bottom_mode_while_hidden() -> (
+def test_assistant_palette_commit_history_scroll_request_defers_bottom_mode_while_hidden() -> (
     None
 ):
     class _Timer:
@@ -2621,7 +2620,7 @@ def test_assistant_v2_commit_history_scroll_request_defers_bottom_mode_while_hid
 
 
 @pytest.mark.basic
-def test_assistant_v2_restore_deferred_history_scroll_on_show_replays_saved_request() -> (
+def test_assistant_palette_restore_deferred_history_scroll_on_show_replays_saved_request() -> (
     None
 ):
     events: list[HistoryScrollRequest] = []
@@ -2638,7 +2637,7 @@ def test_assistant_v2_restore_deferred_history_scroll_on_show_replays_saved_requ
 
 
 @pytest.mark.basic
-def test_assistant_v2_apply_history_scroll_request_anchors_message_top_and_bottom_modes() -> (
+def test_assistant_palette_apply_history_scroll_request_anchors_message_top_and_bottom_modes() -> (
     None
 ):
     class _Bar:
@@ -2695,7 +2694,7 @@ def test_assistant_v2_apply_history_scroll_request_anchors_message_top_and_botto
 
 
 @pytest.mark.basic
-def test_assistant_v2_event_filter_tolerates_preinit_history_events() -> None:
+def test_assistant_palette_event_filter_tolerates_preinit_history_events() -> None:
     events: list[str] = []
     history_host = object()
 
@@ -2710,7 +2709,7 @@ def test_assistant_v2_event_filter_tolerates_preinit_history_events() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_voice_synthesizing_click_pauses_stream_without_history_refresh() -> (
+def test_assistant_palette_message_voice_synthesizing_click_pauses_stream_without_history_refresh() -> (
     None
 ):
     class _Voice:
@@ -2749,7 +2748,7 @@ def test_assistant_v2_message_voice_synthesizing_click_pauses_stream_without_his
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_voice_pause_resume_updates_card_without_history_refresh() -> (
+def test_assistant_palette_message_voice_pause_resume_updates_card_without_history_refresh() -> (
     None
 ):
     class _Voice:
@@ -2802,7 +2801,7 @@ def test_assistant_v2_message_voice_pause_resume_updates_card_without_history_re
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_voice_start_and_finish_do_not_rebuild_history() -> None:
+def test_assistant_palette_message_voice_start_and_finish_do_not_rebuild_history() -> None:
     class _Voice:
         def __init__(self) -> None:
             self.stopped = 0
@@ -2853,7 +2852,7 @@ def test_assistant_v2_message_voice_start_and_finish_do_not_rebuild_history() ->
 
 
 @pytest.mark.basic
-def test_assistant_v2_message_action_buttons_do_not_take_focus() -> None:
+def test_assistant_palette_message_action_buttons_do_not_take_focus() -> None:
     app = QApplication.instance() or QApplication([])
     card = MessageCard(
         message={"role": "assistant", "message_id": "m1", "content": "hello"},
@@ -2877,7 +2876,7 @@ def test_assistant_v2_message_action_buttons_do_not_take_focus() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_prompt_up_down_jump_at_text_edges() -> None:
+def test_assistant_palette_prompt_up_down_jump_at_text_edges() -> None:
     app = QApplication.instance() or QApplication([])
     editor = AttachmentTextEdit()
     editor.resize(260, 80)
@@ -2905,7 +2904,7 @@ def test_assistant_v2_prompt_up_down_jump_at_text_edges() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_prompt_edge_navigation_accepts_keypad_modifier() -> None:
+def test_assistant_palette_prompt_edge_navigation_accepts_keypad_modifier() -> None:
     app = QApplication.instance() or QApplication([])
     editor = AttachmentTextEdit()
     editor.setPlainText("alpha\nbeta")
@@ -2923,7 +2922,7 @@ def test_assistant_v2_prompt_edge_navigation_accepts_keypad_modifier() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_prompt_edge_navigation_uses_displayed_wrapped_lines() -> None:
+def test_assistant_palette_prompt_edge_navigation_uses_displayed_wrapped_lines() -> None:
     app = QApplication.instance() or QApplication([])
     text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
     editor = AttachmentTextEdit()
@@ -2949,7 +2948,7 @@ def test_assistant_v2_prompt_edge_navigation_uses_displayed_wrapped_lines() -> N
 
 
 @pytest.mark.basic
-def test_assistant_v2_prompt_edge_navigation_uses_visible_viewport_edges() -> None:
+def test_assistant_palette_prompt_edge_navigation_uses_visible_viewport_edges() -> None:
     app = QApplication.instance() or QApplication([])
     text = "\n".join(f"line {index}" for index in range(12))
     editor = AttachmentTextEdit()
@@ -2997,7 +2996,7 @@ def test_assistant_v2_prompt_edge_navigation_uses_visible_viewport_edges() -> No
 
 
 @pytest.mark.basic
-def test_assistant_v2_extracts_safe_html_action_blocks_from_assistant_content() -> None:
+def test_assistant_palette_extracts_safe_html_action_blocks_from_assistant_content() -> None:
     content = """
 Here is the page:
 
@@ -3020,7 +3019,7 @@ Use the button.
 
 
 @pytest.mark.basic
-def test_assistant_v2_keeps_non_actionable_html_code_fences_as_code() -> None:
+def test_assistant_palette_keeps_non_actionable_html_code_fences_as_code() -> None:
     content = """
 ```html
 <div class="panel"><strong>Example only</strong></div>
@@ -3034,7 +3033,7 @@ def test_assistant_v2_keeps_non_actionable_html_code_fences_as_code() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_extracts_mermaid_blocks_as_dedicated_preview_segments() -> None:
+def test_assistant_palette_extracts_mermaid_blocks_as_dedicated_preview_segments() -> None:
     content = (
         "Intro text.\n\n"
         "```mermaid\n"
@@ -3060,7 +3059,7 @@ def test_assistant_v2_extracts_mermaid_blocks_as_dedicated_preview_segments() ->
 
 
 @pytest.mark.basic
-def test_assistant_v2_keeps_unsupported_mermaid_dialects_in_markdown() -> None:
+def test_assistant_palette_keeps_unsupported_mermaid_dialects_in_markdown() -> None:
     content = "```mermaid\n" "sequenceDiagram\n" "    Alice->>Bob: Hello\n" "```\n"
 
     blocks, actions = _assistant_content_blocks(content)
@@ -3072,7 +3071,7 @@ def test_assistant_v2_keeps_unsupported_mermaid_dialects_in_markdown() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tray_activation_opens_palette_on_primary_click() -> None:
+def test_assistant_palette_tray_activation_opens_palette_on_primary_click() -> None:
     events: list[str] = []
 
     class _Palette:
@@ -3091,7 +3090,7 @@ def test_assistant_v2_tray_activation_opens_palette_on_primary_click() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tray_activation_opens_menu_only_on_context_click() -> None:
+def test_assistant_palette_tray_activation_opens_menu_only_on_context_click() -> None:
     events: list[str] = []
 
     class _Palette:
@@ -3218,7 +3217,7 @@ def test_gateway_worker_starts_runs_with_catalog_scope_and_version(
 
 
 @pytest.mark.basic
-def test_assistant_v2_cycle_event_updates_inline_status() -> None:
+def test_assistant_palette_cycle_event_updates_inline_status() -> None:
     """Adapter cycle events (llm_call STARTED on the reason node) surface as a live
     'Thinking — cycle N' line (2026-07-10 run visibility)."""
     status_calls: list[tuple[str, str]] = []
@@ -3232,7 +3231,7 @@ def test_assistant_v2_cycle_event_updates_inline_status() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_tool_started_event_updates_inline_status() -> None:
+def test_assistant_palette_tool_started_event_updates_inline_status() -> None:
     """Adapter tool_started events (tool_calls STARTED, pre-execution) surface the
     launch with an args preview — previously only tool results were visible."""
     status_calls: list[tuple[str, str]] = []
@@ -3252,7 +3251,7 @@ def test_assistant_v2_tool_started_event_updates_inline_status() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_submit_steers_active_run_instead_of_refusing() -> None:
+def test_assistant_palette_submit_steers_active_run_instead_of_refusing() -> None:
     """Typed text while a run is active becomes durable steering (inject_guidance),
     is echoed into the transcript, and never starts a second worker."""
     injected: list[tuple[str, str]] = []
@@ -3310,9 +3309,9 @@ def test_assistant_v2_submit_steers_active_run_instead_of_refusing() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_controller_run_control_commands() -> None:
+def test_assistant_palette_controller_run_control_commands() -> None:
     """Controller pause/resume/inject_guidance submit durable gateway commands."""
-    from abstractassistantv2.controller import AssistantV2Controller
+    from abstractassistant.controller import AssistantController
 
     submitted: list[dict] = []
 
@@ -3322,7 +3321,7 @@ def test_assistant_v2_controller_run_control_commands() -> None:
             submitted.append(dict(command))
             return {"ok": True}
 
-    controller = AssistantV2Controller.__new__(AssistantV2Controller)
+    controller = AssistantController.__new__(AssistantController)
     controller.gateway = _Gateway()
 
     assert controller.pause_run("r1") is True
@@ -3350,7 +3349,7 @@ class _PromptEditStub:
 
 
 @pytest.mark.basic
-def test_assistant_v2_submit_during_stop_teardown_queues_instead_of_steering() -> None:
+def test_assistant_palette_submit_during_stop_teardown_queues_instead_of_steering() -> None:
     """After Stop, the follower lingers until its next SSE window. A send in that
     window must NOT steer the cancelled run (the message would vanish — the
     2026-07-10 'sent it again but never saw an answer' bug); it queues and the
@@ -3379,7 +3378,7 @@ def test_assistant_v2_submit_during_stop_teardown_queues_instead_of_steering() -
 
 
 @pytest.mark.basic
-def test_assistant_v2_submit_clears_stale_finished_worker() -> None:
+def test_assistant_palette_submit_clears_stale_finished_worker() -> None:
     """A worker whose thread already finished must not block or misroute the next
     send: the stale reference is cleared and the submit proceeds afresh."""
 
@@ -3403,7 +3402,7 @@ def test_assistant_v2_submit_clears_stale_finished_worker() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_stop_restores_send_button_and_marks_teardown() -> None:
+def test_assistant_palette_stop_restores_send_button_and_marks_teardown() -> None:
     """Stopping hands the Send button back immediately (the user stopped on
     purpose and expects to relaunch) and marks the teardown window."""
     cancelled: list[str] = []
@@ -3439,7 +3438,7 @@ def test_assistant_v2_stop_restores_send_button_and_marks_teardown() -> None:
 
 
 @pytest.mark.basic
-def test_assistant_v2_worker_finished_after_stop_reports_run_stopped() -> None:
+def test_assistant_palette_worker_finished_after_stop_reports_run_stopped() -> None:
     """A user-stopped run has no final answer by design: the finish banner must
     say 'Run stopped.' instead of the misleading no-written-reply diagnostic."""
     status_calls: list[tuple[str, str]] = []
@@ -3461,3 +3460,104 @@ def test_assistant_v2_worker_finished_after_stop_reports_run_stopped() -> None:
     assert palette._worker is None
     assert palette._cancel_requested is False
     assert ("Run stopped.", "info") in status_calls
+
+
+def _status_palette(*, indicator: bool):
+    """A minimal palette wired for the real _set_history_status."""
+    from PyQt5.QtWidgets import QLabel
+
+    _ = QApplication.instance() or QApplication([])
+    palette = AssistantPalette.__new__(AssistantPalette)
+    palette.chat_status_label = QLabel()
+    palette._show_thinking_indicator = lambda: indicator
+    return palette
+
+
+@pytest.mark.basic
+def test_assistant_palette_busy_status_routes_to_thinking_badge_during_run() -> None:
+    """While the thinking indicator is visible, busy observability lives in the
+    transcript-tail badge (dots + text), not the banner above the transcript."""
+    palette = _status_palette(indicator=True)
+
+    AssistantPalette._set_history_status(palette, "Thinking — cycle 3", tone="busy")
+
+    assert palette._thinking_status_text == "Thinking — cycle 3"
+    assert palette.chat_status_label.text() == ""
+    assert palette.chat_status_label.isHidden()
+    assert AssistantPalette._history_status_showing(palette) is True
+
+
+@pytest.mark.basic
+def test_assistant_palette_busy_status_stays_on_top_label_without_indicator() -> None:
+    """Busy statuses outside a run (e.g. 'Connecting to gateway…' at bootstrap)
+    keep the top label — there is no badge to merge into yet."""
+    palette = _status_palette(indicator=False)
+
+    AssistantPalette._set_history_status(
+        palette, "Connecting to gateway…", tone="busy"
+    )
+
+    assert palette._thinking_status_text == ""
+    assert palette.chat_status_label.text() == "Connecting to gateway…"
+
+
+@pytest.mark.basic
+def test_assistant_palette_rich_tool_status_routes_plain_text_to_badge() -> None:
+    """Rich (HTML) tool statuses render in the badge as their plain-tooltip
+    form — the badge speaks the dots' single muted color, never colored HTML."""
+    palette = _status_palette(indicator=True)
+
+    AssistantPalette._set_history_status(
+        palette,
+        '<span style="color:#ffc963;">Tool:</span> read_file',
+        tone="busy",
+        rich=True,
+        tooltip="Tool: read_file file_path=notes.md",
+    )
+
+    assert palette._thinking_status_text == "Tool: read_file file_path=notes.md"
+    assert "<span" not in palette._thinking_status_text
+
+
+@pytest.mark.basic
+def test_assistant_palette_clearing_status_clears_badge_and_label() -> None:
+    palette = _status_palette(indicator=True)
+    AssistantPalette._set_history_status(palette, "Thinking — cycle 1", tone="busy")
+
+    AssistantPalette._set_history_status(palette, "")
+
+    assert palette._thinking_status_text == ""
+    assert AssistantPalette._history_status_showing(palette) is False
+    assert palette.chat_status_label.text() == ""
+
+
+@pytest.mark.basic
+def test_assistant_palette_error_status_leaves_badge_for_top_label() -> None:
+    """Non-busy tones (error/info) always render on the top label, even while
+    the indicator is up, and clear any stale badge text."""
+    palette = _status_palette(indicator=True)
+    AssistantPalette._set_history_status(palette, "Thinking — cycle 2", tone="busy")
+
+    AssistantPalette._set_history_status(palette, "Gateway unreachable", tone="error")
+
+    assert palette._thinking_status_text == ""
+    assert palette.chat_status_label.text() == "Gateway unreachable"
+    assert not palette.chat_status_label.isHidden()
+
+
+@pytest.mark.basic
+def test_thinking_indicator_card_shows_and_elides_status_text() -> None:
+    from abstractassistant.app import ThinkingIndicatorCard
+
+    _ = QApplication.instance() or QApplication([])
+    card = ThinkingIndicatorCard(status_text="Running assistant workflow...")
+    assert card._status.text() == "Running assistant workflow..."
+
+    card.set_status("")
+    assert card._status.isHidden()
+
+    long_text = "Tool: execute_command command=" + "x" * 400
+    card.sync_to_viewport_width(320)
+    card.set_status(long_text)
+    assert card._status.text().endswith("…")
+    assert len(card._status.text()) < len(long_text)

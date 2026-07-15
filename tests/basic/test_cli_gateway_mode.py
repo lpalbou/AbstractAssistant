@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-import types
 
 import pytest
 
@@ -40,16 +39,16 @@ def test_run_parser_accepts_gateway_override_flags() -> None:
 
 
 @pytest.mark.basic
-def test_cli_default_app_launches_v2_tray_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_default_app_launches_tray_shell(monkeypatch: pytest.MonkeyPatch) -> None:
     called: dict[str, object] = {}
-    fake_module = types.ModuleType("abstractassistantv2")
 
     def _launch_tray_app(**kwargs):
         called.update(kwargs)
         return 41
 
-    fake_module.launch_tray_app = _launch_tray_app  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "abstractassistantv2", fake_module)
+    import abstractassistant
+
+    monkeypatch.setattr(abstractassistant, "launch_tray_app", _launch_tray_app)
     monkeypatch.setattr(sys, "argv", ["assistant"])
 
     result = cli.main()
@@ -110,9 +109,6 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
         def workflow_status(self):
             return type("_Status", (), {"error": ""})()
 
-        def chat_defaults(self):
-            return ("endpoint:ovh-provider", "gpt-oss-20b")
-
         def allowed_tools_for_run(self):
             return ["web_search"]
 
@@ -135,11 +131,8 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
     run_controller_module = __import__("abstractassistant.gateway.run_controller", fromlist=["GatewayRunController"])
     monkeypatch.setattr(run_controller_module, "GatewayRunController", _RunController)
     monkeypatch.setattr(cli, "_build_config_from_args", lambda args: object())
-    monkeypatch.setattr(
-        cli,
-        "_import_v2_module",
-        lambda name: types.SimpleNamespace(AssistantV2Controller=_Controller),
-    )
+    controller_module = __import__("abstractassistant.controller", fromlist=["AssistantController"])
+    monkeypatch.setattr(controller_module, "AssistantController", _Controller)
 
     args = create_parser().parse_args(["run", "--prompt", "search internet for today news"])
     result = cli._run_gateway_command(args)

@@ -1,4 +1,4 @@
-"""Non-UI controller for the v2 assistant shell."""
+"""Non-UI controller for the AbstractAssistant tray shell."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import mimetypes
 from pathlib import Path
 import re
+import threading
 import time
 import warnings
 from typing import Any, Dict, List, Optional
@@ -23,7 +24,7 @@ from abstractassistant.gateway.tool_usage import (
 )
 from abstractassistant.ui.gateway_worker import GatewayWorker
 
-from .gateway import AssistantGatewayService, CapabilityRouteRow, WorkflowCatalogStatus, WorkflowOption
+from .gateway_service import AssistantGatewayService, CapabilityRouteRow, WorkflowCatalogStatus, WorkflowOption
 from .preferences import (
     AssistantPreferences,
     GatewayConnectionPreferences,
@@ -33,7 +34,7 @@ from .preferences import (
 )
 
 
-class AssistantV2Controller:
+class AssistantController:
     def __init__(self, config: Optional[Config] = None, *, data_dir: Optional[Path] = None, debug: bool = False) -> None:
         self.config = config or Config.default()
         self.debug = bool(debug)
@@ -44,15 +45,77 @@ class AssistantV2Controller:
         self.llm_manager = LLMManager(config=self.config, debug=self.debug, data_dir=self.data_dir)
         gateway = self.llm_manager.gateway_client()
         if gateway is None:
-            raise RuntimeError("Gateway mode is required for AbstractAssistant v2")
+            raise RuntimeError("AbstractAssistant requires gateway mode")
         self.gateway = gateway
         self.gateway_service = AssistantGatewayService(gateway)
         self.preferences_store = PreferencesStore(Path(self.llm_manager.data_dir) / "preferences.json")
         self.preferences = self.preferences_store.load()
         self.voice_manager = GatewayVoiceManager(llm_manager=self.llm_manager, debug_mode=self.debug)
         self.voice_manager.set_voice_mode("wait")
-        self._sync_gateway_voice_defaults()
+        self.voice_manager.set_quality_preset(getattr(self.preferences, "voice_quality", "standard"))
         self._session_auto_approve_all: set[str] = set()
+        # Short-lived caches so the send path and startup don't re-fetch the
+        # workflow catalog + tool inventory on the GUI thread every time
+        # (each was up to a 30s blocking round trip). Invalidated explicitly on
+        # connection/route/tool-preference changes; warmed by prefetch().
+        # An epoch counter guards against an in-flight fetch storing a result
+        # that a concurrent invalidate() (e.g. a gateway switch) already
+        # obsoleted.
+        self._cache_ttl_s = 20.0
+        self._cache_epoch = 0
+        self._workflow_cache: Optional[List[WorkflowOption]] = None
+        self._workflow_cache_at = 0.0
+        self._tool_inventory_cache: Optional[Dict[str, Any]] = None
+        self._tool_inventory_cache_at = 0.0
+        self._cache_lock = threading.RLock()
+        # The gateway voice-default sync does a blocking capability-defaults
+        # GET; it runs in prefetch() (off the GUI thread), not in __init__.
+
+    def _cache_fresh(self, at: float) -> bool:
+        return bool(at) and (time.monotonic() - float(at)) < self._cache_ttl_s
+
+    @staticmethod
+    def _copy_inventory(inventory: Dict[str, Any]) -> Dict[str, Any]:
+        # Return a defensive copy so a caller cannot mutate the cached object.
+        result = dict(inventory or {})
+        items = result.get("items")
+        if isinstance(items, list):
+            result["items"] = [dict(item) if isinstance(item, dict) else item for item in items]
+        return result
+
+    def invalidate_caches(self) -> None:
+        """Drop the workflow + tool caches (call after any change that could
+        move the catalog, tool inventory, or gateway connection)."""
+        with self._cache_lock:
+            self._cache_epoch += 1
+            self._workflow_cache = None
+            self._workflow_cache_at = 0.0
+            self._tool_inventory_cache = None
+            self._tool_inventory_cache_at = 0.0
+
+    def prefetch(self) -> None:
+        """Warm the workflow/tool/capabilities caches off the GUI thread.
+
+        Safe to call from a background thread: pure network + cache writes,
+        no Qt. Best-effort — failures leave the caches cold and the on-demand
+        path fetches later.
+        """
+        try:
+            self.workflow_options()
+        except Exception:
+            pass
+        try:
+            self.tool_inventory()
+        except Exception:
+            pass
+        try:
+            self.llm_manager.gateway_capabilities(force=True)
+        except Exception:
+            pass
+        try:
+            self._sync_gateway_voice_defaults()
+        except Exception:
+            pass
 
     @property
     def active_session_id(self) -> str:
@@ -62,7 +125,19 @@ class AssistantV2Controller:
         return session_memory_run_id(self.active_session_id)
 
     def workflow_options(self) -> List[WorkflowOption]:
-        return self.gateway_service.list_workflows()
+        with self._cache_lock:
+            if self._workflow_cache is not None and self._cache_fresh(self._workflow_cache_at):
+                return list(self._workflow_cache)
+            epoch = self._cache_epoch
+        options = self.gateway_service.list_workflows()
+        # Never negatively-cache an empty list: list_workflows() returns [] on a
+        # transient failure, and caching that would suppress runs for the TTL.
+        if options:
+            with self._cache_lock:
+                if epoch == self._cache_epoch:
+                    self._workflow_cache = list(options)
+                    self._workflow_cache_at = time.monotonic()
+        return list(options)
 
     def workflow_status(self) -> WorkflowCatalogStatus:
         return self.gateway_service.workflow_status()
@@ -73,12 +148,13 @@ class AssistantV2Controller:
             return None
         return self._workflow_selection_from_option(options[0])
 
-    def preferences_path(self) -> Path:
-        return self.preferences_store.path
-
     def save_preferences(self, prefs: AssistantPreferences) -> None:
         self.preferences = prefs
         self.preferences_store.save(prefs)
+        try:
+            self.voice_manager.set_quality_preset(getattr(prefs, "voice_quality", "standard"))
+        except Exception:
+            pass
 
     def _copy_preferences(self, **updates: Any) -> AssistantPreferences:
         payload = self.preferences.to_dict()
@@ -87,9 +163,6 @@ class AssistantV2Controller:
 
     def current_connection(self) -> GatewayConnectionPreferences:
         return self.connection
-
-    def connection_path(self) -> Path:
-        return self.connection_store.path
 
     def connection_status(self) -> Dict[str, Any]:
         try:
@@ -156,12 +229,6 @@ class AssistantV2Controller:
     def switch_session(self, session_id: str) -> None:
         self.llm_manager.switch_session(session_id)
 
-    def reset_session(self) -> None:
-        current = self.active_session_id
-        self.llm_manager.reset_active_session(tts_mode=False)
-        if current:
-            self.clear_session_tool_auto_approval(session_id=current)
-
     def session_messages(self) -> List[Dict[str, Any]]:
         return self.llm_manager.session_messages()
 
@@ -170,17 +237,6 @@ class AssistantV2Controller:
 
     def route_map(self) -> Dict[str, CapabilityRouteRow]:
         return self.gateway_service.route_map()
-
-    def resolve_text_route(self) -> Optional[CapabilityRouteRow]:
-        return self.route_map().get("input.text")
-
-    def chat_defaults(self) -> tuple[str, str]:
-        row = self.resolve_text_route()
-        if row is None:
-            return "", ""
-        provider = str(row.provider or "").strip()
-        model = str(row.model or "").strip()
-        return provider, model
 
     def save_route_default(
         self,
@@ -200,11 +256,13 @@ class AssistantV2Controller:
             base_url=base_url,
             options=parsed_options,
         )
+        self.invalidate_caches()
         self.refresh_gateway_capabilities()
         self._sync_gateway_voice_defaults()
 
     def clear_route_default(self, *, route_key: str) -> None:
         self.gateway_service.clear_route_default(route_key=route_key)
+        self.invalidate_caches()
         self.refresh_gateway_capabilities()
         self._sync_gateway_voice_defaults()
 
@@ -228,6 +286,7 @@ class AssistantV2Controller:
         self._sync_gateway_voice_defaults()
 
     def refresh_gateway_client(self) -> None:
+        self.invalidate_caches()
         self.llm_manager._gateway_client = None  # type: ignore[attr-defined]
         gateway = self.llm_manager.gateway_client()
         if gateway is None:
@@ -264,7 +323,120 @@ class AssistantV2Controller:
             debug=self.debug,
         )
 
+    def probe_reattach_candidate(self, *, stale_after_s: float = 600.0) -> Optional[Dict[str, Any]]:
+        """Off-thread: decide whether the active session's last run should be
+        reattached on launch. Returns {run_id, status, waiting} or None.
+
+        Reattach when the last run is (a) still running/waiting and updated
+        within `stale_after_s` (a live run to follow), or (b) terminal but its
+        answer never reached the local transcript (recover a run that finished
+        while the app was closed). Stale/zombie running runs are skipped so the
+        UI is not wedged busy following a dead run.
+        """
+        run_id = str(self.last_run_id() or "").strip()
+        if not run_id:
+            return None
+        try:
+            summary = self.gateway.get_run(run_id=run_id)
+        except Exception:
+            return None
+        if not isinstance(summary, dict):
+            return None
+        status = str(summary.get("status") or "").strip().lower()
+        waiting = summary.get("waiting") if isinstance(summary.get("waiting"), dict) else None
+        if status == "waiting":
+            # A run parked on the user (approval / ask) does not refresh
+            # updated_at while it waits — "quit with a pending approval, come
+            # back after lunch" must still reattach, so no staleness gate here.
+            return {"run_id": run_id, "status": status, "waiting": waiting}
+        if status == "running":
+            if self._run_updated_within(summary, stale_after_s):
+                return {"run_id": run_id, "status": status, "waiting": waiting}
+            return None
+        if status in {"completed", "failed", "cancelled"}:
+            if not self._session_has_answer_for_run(run_id):
+                return {"run_id": run_id, "status": status, "waiting": None}
+        return None
+
+    @staticmethod
+    def _run_updated_within(summary: Dict[str, Any], stale_after_s: float) -> bool:
+        raw = str(summary.get("updated_at") or summary.get("updatedAt") or "").strip()
+        if not raw:
+            return True  # No timestamp: don't treat as stale.
+        try:
+            from datetime import datetime, timezone
+
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - dt).total_seconds()
+            return age <= float(stale_after_s)
+        except Exception:
+            return True
+
+    def _session_has_answer_for_run(self, run_id: str) -> bool:
+        rid = str(run_id or "").strip()
+        messages = self.session_messages()
+        any_run_stamp = False
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            if str(message.get("role") or "") != "assistant":
+                continue
+            if not str(message.get("content") or "").strip():
+                continue
+            meta = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+            stamp = str((meta or {}).get("run_id") or message.get("run_id") or "").strip()
+            if stamp:
+                any_run_stamp = True
+                if stamp == rid:
+                    return True
+        # Only assume "seen" when NO assistant message carries a run stamp
+        # (a legacy/unstamped transcript). If OTHER runs are stamped but not
+        # this one, the answer for this run is genuinely missing → recover it.
+        if any_run_stamp:
+            return False
+        return any(
+            isinstance(m, dict)
+            and str(m.get("role") or "") == "assistant"
+            and str(m.get("content") or "").strip()
+            for m in messages
+        )
+
+    def build_attach_worker(self, run_id: str) -> GatewayWorker:
+        """Build a worker that follows an existing run instead of starting one.
+
+        Reattach needs no workflow-catalog lookup: the entrypoint is only
+        resolved on the start path, never on the attach path.
+        """
+        return GatewayWorker(
+            llm_manager=self.llm_manager,
+            user_text="",
+            attachments=[],
+            append_user_message=False,
+            bundle_id="",
+            flow_id="",
+            registry_scope="tenant_catalog",
+            attach_run_id=str(run_id or "").strip(),
+            debug=self.debug,
+        )
+
     def tool_inventory(self) -> Dict[str, Any]:
+        with self._cache_lock:
+            if self._tool_inventory_cache is not None and self._cache_fresh(self._tool_inventory_cache_at):
+                return self._copy_inventory(self._tool_inventory_cache)
+            epoch = self._cache_epoch
+        result = self._compute_tool_inventory()
+        # Only cache a real inventory (with items); an empty result usually
+        # means the discovery call failed and must not be pinned for the TTL.
+        if result.get("items"):
+            with self._cache_lock:
+                if epoch == self._cache_epoch:
+                    self._tool_inventory_cache = result
+                    self._tool_inventory_cache_at = time.monotonic()
+        return self._copy_inventory(result)
+
+    def _compute_tool_inventory(self) -> Dict[str, Any]:
         items: List[Dict[str, str]] = []
         tool_mode = ""
         note = ""
@@ -332,6 +504,8 @@ class AssistantV2Controller:
             if str(name).strip() and str(mode).strip().lower() in {"disabled", "approve", "ask"}
         }
         self.save_preferences(self._copy_preferences(tool_preferences=cleaned))
+        # Saved per-tool modes change the inventory's selected_mode.
+        self.invalidate_caches()
 
     def allowed_tools_for_run(self) -> List[str]:
         inventory = self.tool_inventory()
@@ -373,11 +547,6 @@ class AssistantV2Controller:
         sid = str(session_id or self.active_session_id or "").strip()
         if sid:
             self._session_auto_approve_all.add(sid)
-
-    def clear_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
-        sid = str(session_id or self.active_session_id or "").strip()
-        if sid:
-            self._session_auto_approve_all.discard(sid)
 
     def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
         sid = str(session_id or self.active_session_id or "").strip()
@@ -464,12 +633,6 @@ class AssistantV2Controller:
 
     def append_user_message(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
         self.llm_manager.append_message(role="user", content=content, metadata=metadata)
-
-    def append_assistant_message(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-        self.llm_manager.append_message(role="assistant", content=content, metadata=metadata)
-
-    def set_last_run_id(self, run_id: str) -> None:
-        self.llm_manager.set_last_run_id(run_id)
 
     def last_run_id(self) -> Optional[str]:
         return self.llm_manager.get_last_run_id()
@@ -743,6 +906,7 @@ class AssistantV2Controller:
         self.connection = connection
         self.connection_store.save(connection)
         self._apply_connection_to_config(connection)
+        self.invalidate_caches()
         self.refresh_gateway_client()
 
     def _apply_connection_to_config(self, connection: GatewayConnectionPreferences) -> None:

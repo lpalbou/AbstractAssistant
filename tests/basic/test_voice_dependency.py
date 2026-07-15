@@ -1,4 +1,9 @@
-"""Voice dependency tests."""
+"""Voice dependency tests.
+
+The assistant is gateway-native: STT/TTS execute on the gateway, but local
+mic capture (VoiceRecognizer) and in-process streaming playback
+(NonBlockingAudioPlayer) come from abstractvoice, which is a base dependency.
+"""
 
 import pytest
 
@@ -13,6 +18,4 @@ def test_abstractvoice_is_available() -> None:
             "Run `python -m pip install -e ./abstractvoice` in the monorepo."
         ) from e
 
-    from abstractassistant.core.tts_manager import VoiceManager
-
-    assert VoiceManager.is_available()
+    from abstractvoice.tts import NonBlockingAudioPlayer  # noqa: F401

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from abstractassistant.config import Config, resolve_gateway_connection
-from abstractassistantv2 import launch_tray_app
+from abstractassistant import launch_tray_app
 
 
 def _parser() -> argparse.ArgumentParser:

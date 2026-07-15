@@ -699,12 +699,11 @@ class MarkdownRenderer:
     def _get_base_css(self) -> str:
         return """
         .markdown-content {
-            font-family: "Helvetica Neue", "Helvetica", Arial;
-            font-size: 14px;
+            font-size: 13px;
             line-height: 1.6;
-            color: #e2e8f0;
+            color: #edf2f8;
             background: transparent;
-            padding: 16px;
+            padding: 0;
         }
         
         .markdown-content h1, .markdown-content h2, .markdown-content h3,
@@ -833,7 +832,7 @@ class MarkdownRenderer:
         }
 
         .markdown-content blockquote {
-            border-left: 4px solid #4299e1;
+            border-left: 3px solid #79c7ff;
             padding-left: 16px;
             margin: 16px 0;
             color: #cbd5e0;
@@ -871,7 +870,7 @@ class MarkdownRenderer:
         }
         
         .markdown-content a {
-            color: #63b3ed;
+            color: #79c7ff;
             text-decoration: none;
         }
         

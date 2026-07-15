@@ -123,7 +123,7 @@ Architecture records:
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest tests/basic tests/integration -q
+python -m pytest tests/basic -q
 ```
 
 ## Project Links

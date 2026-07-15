@@ -20,8 +20,9 @@ class _GatewayStub:
         self._cfg = SimpleNamespace(timeout_s=30.0)
         self.calls: list[tuple[str, float]] = []
 
-    def voice_tts(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, timeout_s=None):
+    def voice_tts(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, quality_preset=None, timeout_s=None):
         self.calls.append(("voice_tts", float(timeout_s or self._cfg.timeout_s)))
+        self.quality_preset = quality_preset
         return {"audio_artifact": {"$artifact": "art_1"}}
 
     def download_run_artifact_content(self, *, run_id: str, artifact_id: str, max_bytes: int = 25_000_000, timeout_s=None):
@@ -58,8 +59,8 @@ class _CapabilityGatewayStub(_GatewayStub):
             }
         }
 
-    def voice_tts(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, timeout_s=None):
-        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model}
+    def voice_tts(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, quality_preset=None, timeout_s=None):
+        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model, "quality_preset": quality_preset}
         return super().voice_tts(
             run_id=run_id,
             text=text,
@@ -69,6 +70,7 @@ class _CapabilityGatewayStub(_GatewayStub):
             fmt=fmt,
             request_id=request_id,
             model=model,
+            quality_preset=quality_preset,
             timeout_s=timeout_s,
         )
 
@@ -90,9 +92,9 @@ class _StreamingGatewayStub(_CapabilityGatewayStub):
         tts["formats"] = ["wav"]
         return payload
 
-    def voice_tts_stream(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, timeout_s=None):
+    def voice_tts_stream(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, quality_preset=None, timeout_s=None):
         self.calls.append(("voice_tts_stream", float(timeout_s or self._cfg.timeout_s)))
-        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model}
+        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model, "quality_preset": quality_preset}
         self.stream_started.set()
         yield {"type": "runtime_start", "ok": True}
         for i in range(max(1, self.audio_chunks)):
@@ -111,9 +113,9 @@ class _BlockingStreamingGatewayStub(_StreamingGatewayStub):
         super().__init__(audio_chunks=1)
         self.release_audio = threading.Event()
 
-    def voice_tts_stream(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, timeout_s=None):
+    def voice_tts_stream(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, quality_preset=None, timeout_s=None):
         self.calls.append(("voice_tts_stream", float(timeout_s or self._cfg.timeout_s)))
-        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model}
+        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model, "quality_preset": quality_preset}
         self.stream_started.set()
         yield {"type": "runtime_start", "ok": True}
         self.release_audio.wait(timeout=5.0)
@@ -134,9 +136,9 @@ class _SecondChunkGateStreamingGatewayStub(_StreamingGatewayStub):
         self.release_second_audio = threading.Event()
         self.second_audio_ready = threading.Event()
 
-    def voice_tts_stream(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, timeout_s=None):
+    def voice_tts_stream(self, *, run_id: str, text: str, provider=None, voice=None, fmt=None, request_id=None, model=None, profile=None, quality_preset=None, timeout_s=None):
         self.calls.append(("voice_tts_stream", float(timeout_s or self._cfg.timeout_s)))
-        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model}
+        self.tts_kwargs = {"provider": provider, "voice": voice, "profile": profile, "fmt": fmt, "model": model, "quality_preset": quality_preset}
         self.stream_started.set()
         yield {"type": "runtime_start", "ok": True}
         self.first_audio_ready.set()
@@ -156,6 +158,24 @@ class _SecondChunkGateStreamingGatewayStub(_StreamingGatewayStub):
         }
         self.stream_done.set()
         yield {"type": "done", "ok": True, "audio_artifact": {"$artifact": "art_stream"}}
+
+
+class _BlockingArtifactGatewayStub(_CapabilityGatewayStub):
+    """Artifact-only gateway whose synthesis blocks until released.
+
+    Models the real behavior where /voice/tts synthesizes the whole message
+    server-side (tens of seconds for long texts) before responding.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tts_started = threading.Event()
+        self.release_tts = threading.Event()
+
+    def voice_tts(self, **kwargs):
+        self.tts_started.set()
+        self.release_tts.wait(timeout=5.0)
+        return super().voice_tts(**kwargs)
 
 
 class _ManagerStub:
@@ -242,6 +262,8 @@ def test_gateway_voice_manager_temporarily_raises_tts_timeout(monkeypatch: pytes
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
 
     assert vm.speak("hello from timeout test") is True
+    # speak() dispatches asynchronously: wait for the worker to finish.
+    assert _wait_for(lambda: len(gateway.calls) == 2)
     assert gateway.calls == [("voice_tts", 120.0), ("download", 120.0)]
     assert gateway._cfg.timeout_s == 30.0
 
@@ -258,8 +280,9 @@ def test_gateway_voice_manager_uses_advertised_tts_format_and_voice(monkeypatch:
     assert vm.supports_tts() is True
     assert vm.supports_stt() is False
     assert vm.speak("hello from caps") is True
+    assert _wait_for(lambda: bool(gateway.tts_kwargs))
     expected_fmt = "wav" if sys.platform == "darwin" and vm._supports_inprocess_audio_player() else "mp3"
-    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": expected_fmt, "model": "tts-model"}
+    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": expected_fmt, "model": "tts-model", "quality_preset": None}
 
 
 @pytest.mark.basic
@@ -275,9 +298,10 @@ def test_gateway_voice_manager_prefers_advertised_streaming_tts(monkeypatch: pyt
     monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
 
     assert vm.speak("hello from stream") is True
+    assert gateway.stream_done.wait(timeout=2.0)
+    assert _wait_for(lambda: len(player.play_calls) == 1)
     assert gateway.calls == [("voice_tts_stream", 120.0)]
-    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": "wav", "model": "tts-model"}
-    assert len(player.play_calls) == 1
+    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": "wav", "model": "tts-model", "quality_preset": None}
 
 
 @pytest.mark.basic
@@ -294,8 +318,9 @@ def test_gateway_voice_manager_queues_stream_chunks_without_per_chunk_end(monkey
     vm.on_speech_start = lambda: starts.append("start")
 
     assert vm.speak("hello from queued stream") is True
+    assert gateway.stream_done.wait(timeout=2.0)
+    assert _wait_for(lambda: len(player.play_calls) == 2)
     assert gateway.calls == [("voice_tts_stream", 120.0)]
-    assert len(player.play_calls) == 2
     assert starts == ["start"]
 
 
@@ -371,6 +396,176 @@ def test_gateway_voice_manager_stream_stop_before_first_audio_does_not_fallback_
     assert gateway.calls == [("voice_tts_stream", 120.0)]
 
 
+class _QualityControlsGatewayStub(_CapabilityGatewayStub):
+    def discovery_capabilities(self):
+        payload = super().discovery_capabilities()
+        tts = payload["capabilities"]["contracts"]["assistant"]["voice"]["tts"]
+        tts["controls"] = {"quality_preset": {"supported": True, "values": ["low", "standard", "high"]}}
+        return payload
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_sends_quality_preset_when_advertised(monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = _QualityControlsGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+    vm.set_quality_preset("low")
+
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
+
+    assert vm.speak("hello quality") is True
+    assert _wait_for(lambda: bool(gateway.tts_kwargs))
+    assert gateway.tts_kwargs["quality_preset"] == "low"
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_omits_quality_preset_when_not_advertised(monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = _CapabilityGatewayStub()  # no controls.quality_preset advertised
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+    vm.set_quality_preset("low")
+
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
+
+    with pytest.warns(UserWarning, match="quality_preset"):
+        assert vm.speak("hello no preset") is True
+        assert _wait_for(lambda: bool(gateway.tts_kwargs))
+    assert gateway.tts_kwargs["quality_preset"] is None
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_artifact_speak_returns_before_synthesis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """speak() must never block the caller on synthesis (GUI-thread freeze fix)."""
+    gateway = _BlockingArtifactGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+
+    monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
+    played = []
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)
+
+    started_at = time.monotonic()
+    assert vm.speak("hello from long synthesis") is True
+    elapsed_s = time.monotonic() - started_at
+    assert elapsed_s < 0.25
+    assert gateway.tts_started.wait(timeout=1.0)
+    assert played == []
+
+    gateway.release_tts.set()
+    assert _wait_for(lambda: played == [1])
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_artifact_stop_during_synthesis_cancels_and_completes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stop during artifact synthesis: no zombie playback, exactly one completion."""
+    gateway = _BlockingArtifactGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+
+    monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
+    played = []
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)
+    completions = []
+
+    assert vm.speak("hello cancelled synthesis", callback=lambda: completions.append(1)) is True
+    assert gateway.tts_started.wait(timeout=1.0)
+    vm.stop_speaking()
+    gateway.release_tts.set()
+
+    assert _wait_for(lambda: len(completions) == 1)
+    time.sleep(0.1)
+    assert played == []
+    assert completions == [1]
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_artifact_pause_during_synthesis_holds_playback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pause while synthesizing holds playback until resume (honest pause)."""
+    gateway = _BlockingArtifactGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+
+    monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
+    played = []
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)
+
+    assert vm.speak("hello paused synthesis") is True
+    assert gateway.tts_started.wait(timeout=1.0)
+    assert vm.pause() is True
+    assert vm.is_paused() is True
+
+    gateway.release_tts.set()
+    time.sleep(0.15)
+    assert played == []
+
+    assert vm.resume() is True
+    assert _wait_for(lambda: played == [1])
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_speak_failure_fires_completion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A background failure must fire the completion callback (UI reset)."""
+    gateway = _GatewayStub()
+
+    def _boom(**kwargs):
+        raise RuntimeError("synthesis exploded")
+
+    gateway.voice_tts = _boom  # type: ignore[assignment]
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+
+    monkeypatch.setattr(vm, "supports_tts", lambda: True)
+    monkeypatch.setattr(vm, "_speak_gateway_stream", lambda **kwargs: None)
+    played = []
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: played.append(1) or True)
+    completions = []
+    ends = []
+    vm.on_speech_end = lambda: ends.append(1)
+
+    with pytest.warns(UserWarning, match="gateway TTS failed"):
+        assert vm.speak("hello failing synthesis", callback=lambda: completions.append(1)) is True
+        assert _wait_for(lambda: completions == [1])
+    assert ends == [1]
+    assert played == []
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_warns_when_streaming_advertised_but_player_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Silent degradation guard: advertised streaming + no sounddevice = loud #FALLBACK."""
+    gateway = _StreamingGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: False)
+    monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: None)
+    monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
+
+    with pytest.warns(UserWarning, match="streaming TTS is advertised but the in-process"):
+        assert vm.speak("hello degraded stream") is True
+        assert _wait_for(lambda: ("voice_tts", 120.0) in gateway.calls)
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_stream_stop_fires_completion_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stopping a stream before audio must still fire the completion callback."""
+    gateway = _BlockingStreamingGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+    player = _InProcessPlayerStub()
+    player.auto_end = True
+
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: True)
+    monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
+    completions = []
+
+    assert vm.speak("hello stopped stream completion", callback=lambda: completions.append(1)) is True
+    assert gateway.stream_started.wait(timeout=1.0)
+    vm.stop_speaking()
+    gateway.release_audio.set()
+
+    assert _wait_for(lambda: completions == [1])
+    assert player.play_calls == []
+
+
 @pytest.mark.basic
 def test_gateway_voice_manager_stream_pause_holds_later_chunks_until_resume(monkeypatch: pytest.MonkeyPatch) -> None:
     gateway = _SecondChunkGateStreamingGatewayStub()
@@ -412,8 +607,9 @@ def test_gateway_voice_manager_passes_selected_tts_provider(monkeypatch: pytest.
     monkeypatch.setattr(vm, "_play_audio_bytes", lambda audio_bytes, content_type, callback=None: True)
 
     assert vm.speak("hello from provider") is True
+    assert _wait_for(lambda: bool(gateway.tts_kwargs))
     expected_fmt = "wav" if sys.platform == "darwin" and vm._supports_inprocess_audio_player() else "mp3"
-    assert gateway.tts_kwargs == {"provider": "supertonic", "voice": None, "profile": "M1", "fmt": expected_fmt, "model": "supertonic-3"}
+    assert gateway.tts_kwargs == {"provider": "supertonic", "voice": None, "profile": "M1", "fmt": expected_fmt, "model": "supertonic-3", "quality_preset": None}
 
 
 @pytest.mark.basic

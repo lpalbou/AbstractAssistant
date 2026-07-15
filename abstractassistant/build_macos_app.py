@@ -41,6 +41,12 @@ def _spec_path(root: Path) -> Path:
 
 def _generate_icon_png(target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
+    asset = Path(__file__).resolve().parent / "assets" / "app_icon.png"
+    if asset.exists():
+        # Ship the designed app icon (transparent rounded-square art) rather
+        # than the procedural constellation; iconutil resizes it downstream.
+        Image.open(asset).convert("RGBA").save(target)
+        return
     image = IconGenerator(size=1024).create_app_icon("blue", animated=False)
     image.save(target)
 
@@ -115,9 +121,33 @@ def _install_app(source_app: Path, target_app: Path) -> None:
         subprocess.run([str(lsregister), "-f", str(target_app)], capture_output=True, text=True)
 
 
+def _require_voice_io() -> None:
+    """Preflight: refuse to build a bundle without local audio I/O.
+
+    Voice is core to the assistant. Without sounddevice the bundle silently
+    loses gateway streaming TTS (first audio waits for whole-message
+    synthesis: ~1 minute for long replies instead of seconds) and local
+    microphone capture — PyInstaller records the miss as one line in a warn
+    file nobody reads. `abstractvoice[audio-io]` is a base dependency, so its
+    absence means a broken build environment; fail loudly rather than ship a
+    degraded app (2026-07-15 time-to-first-voice regression).
+    """
+    try:
+        import sounddevice  # noqa: F401
+    except Exception as exc:
+        raise RuntimeError(
+            "'sounddevice' is not importable in this build environment, so the "
+            "bundle would lose audio streaming and microphone capture. It ships "
+            "with the base install via abstractvoice[audio-io]; reinstall the "
+            "package (pip install --no-build-isolation -e .) into the build venv "
+            "and rebuild."
+        ) from exc
+
+
 def build_macos_app(*, install_to_applications: bool = True) -> Path:
     if sys.platform != "darwin":
         raise RuntimeError("macOS app builds are only supported on macOS")
+    _require_voice_io()
     root = _repo_root()
     _ensure_icon_assets(root)
     spec_path = _spec_path(root)

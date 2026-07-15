@@ -1111,6 +1111,7 @@ class GatewayClient:
         request_id: Optional[str] = None,
         model: Optional[str] = None,
         profile: Optional[str] = None,
+        quality_preset: Optional[str] = None,
         timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
@@ -1129,6 +1130,8 @@ class GatewayClient:
             body["model"] = str(model)
         if profile:
             body["profile"] = str(profile)
+        if quality_preset:
+            body["quality_preset"] = str(quality_preset)
         return self._request_json(
             method="POST",
             url=self._url(f"/api/gateway/runs/{rid}/voice/tts"),
@@ -1148,6 +1151,7 @@ class GatewayClient:
         request_id: Optional[str] = None,
         model: Optional[str] = None,
         profile: Optional[str] = None,
+        quality_preset: Optional[str] = None,
         timeout_s: Optional[float] = None,
     ):
         rid = str(run_id or "").strip()
@@ -1166,6 +1170,8 @@ class GatewayClient:
             body["model"] = str(model)
         if profile:
             body["profile"] = str(profile)
+        if quality_preset:
+            body["quality_preset"] = str(quality_preset)
 
         data = json.dumps(body).encode("utf-8")
         headers = self._headers()

@@ -15,7 +15,7 @@ Quick links:
 - Documentation improvements (clarity, accuracy, examples)
 - Fixes and small features
 - Test coverage for durability/tool-boundary behavior
-- UI/UX improvements for the tray bubble
+- UI/UX improvements for the tray palette
 
 ## Development setup
 
@@ -40,7 +40,7 @@ Run the test suite (recommended invocation):
 python -m pytest -q
 ```
 
-Note: the default pytest configuration runs `tests/basic/` and `tests/integration/` (see `pyproject.toml`).
+Note: the default pytest configuration runs `tests/basic/` (see `pyproject.toml`).
 
 ## Running locally
 
@@ -53,13 +53,7 @@ assistant run --prompt "Hello"
 Tray UI (macOS):
 
 ```bash
-assistant tray
-```
-
-Debug logs:
-
-```bash
-assistant --debug tray
+assistant
 ```
 
 Packaged macOS app validation:
@@ -96,7 +90,7 @@ Please include:
 - platform + Python version
 - AbstractAssistant version (from `python -m pip show abstractassistant`)
 - reproduction steps and expected vs actual behavior
-- logs (`assistant --debug tray` for the UI, or paste terminal output for the CLI)
+- logs (tray launcher log under `~/Library/Logs/Assistant/` for the packaged app, or paste terminal output for the CLI)
 
 ## Security issues
 

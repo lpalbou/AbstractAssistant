@@ -109,9 +109,8 @@ The desktop app remembers:
 - transcript snapshots
 - the last run id
 
-Session topics currently come from durable session titles when available. If a session has not been
-given a durable topic yet, the tray header uses the first user query as a local fallback so you can
-still scan the recent-session list quickly.
+Session topics in the recent-session picker are derived locally from each session's transcript
+(the first user query), so you can scan the list quickly without any network call.
 
 Attachments can be added with the file picker or drag-and-drop.
 

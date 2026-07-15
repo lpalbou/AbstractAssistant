@@ -8,7 +8,6 @@ Packaging invariant:
 from __future__ import annotations
 
 import argparse
-import importlib
 import sys
 import time
 from pathlib import Path
@@ -79,27 +78,14 @@ def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
     return ans in {"y", "yes"}
 
 
-def _import_v2_module(name: str):
-    try:
-        return importlib.import_module(name)
-    except ModuleNotFoundError as exc:
-        if exc.name not in {"abstractassistantv2", name}:
-            raise
-        repo_root = Path(__file__).resolve().parent.parent
-        repo_root_s = str(repo_root)
-        if repo_root_s not in sys.path:
-            sys.path.insert(0, repo_root_s)
-        return importlib.import_module(name)
-
-
 def _run_gateway_command(args: argparse.Namespace) -> int:
     from .gateway import GatewayEventAdapter, build_run_input_data
     from .gateway.history_seed import seed_messages_from_history_bundle
     from .gateway.run_controller import GatewayRunController
-    AssistantV2Controller = _import_v2_module("abstractassistantv2.controller").AssistantV2Controller
+    from .controller import AssistantController
 
     config = _build_config_from_args(args)
-    controller = AssistantV2Controller(config=config, debug=False, data_dir=None)
+    controller = AssistantController(config=config, debug=False, data_dir=None)
     gateway = controller.gateway
     llm_manager = controller.llm_manager
     selected_workflow = controller.current_workflow()
@@ -234,7 +220,7 @@ def main() -> int:
             config = None
 
         try:
-            launch_tray_app = _import_v2_module("abstractassistantv2").launch_tray_app
+            from . import launch_tray_app
         except Exception as e:
             print("AbstractAssistant tray mode requires GUI dependencies.")
             print('Install (tray): pip install -U "abstractassistant"')

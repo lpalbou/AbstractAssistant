@@ -1,4 +1,4 @@
-"""Durable local preferences for AbstractAssistant v2.
+"""Durable local preferences for AbstractAssistant.
 
 Gateway owns provider/model/media defaults. The desktop client only persists
 local UX concerns plus device-side tool gating.
@@ -19,6 +19,9 @@ class AssistantPreferences:
     hotkey_enabled: bool = True
     hotkey_sequence: str = "cmd+shift+space"
     auto_speak: bool = False
+    # Voice latency vs quality: "low" synthesizes faster (fewer diffusion
+    # steps → quicker first audio), "high" is richer, "standard" is balanced.
+    voice_quality: str = "standard"
     window_width: int = 500
     window_height: int = 336
     bottom_offset: int = 18
@@ -31,10 +34,14 @@ class AssistantPreferences:
         tool_preferences_raw = raw.get("tool_preferences")
         if not isinstance(tool_preferences_raw, dict):
             tool_preferences_raw = {}
+        voice_quality = str(raw.get("voice_quality") or "standard").strip().lower()
+        if voice_quality not in {"low", "standard", "high"}:
+            voice_quality = "standard"
         return cls(
             hotkey_enabled=bool(raw.get("hotkey_enabled", True)),
             hotkey_sequence=str(raw.get("hotkey_sequence") or "cmd+shift+space").strip() or "cmd+shift+space",
             auto_speak=bool(raw.get("auto_speak", False)),
+            voice_quality=voice_quality,
             window_width=max(420, int(raw.get("window_width") or 500)),
             window_height=max(240, int(raw.get("window_height") or 336)),
             bottom_offset=max(0, int(raw.get("bottom_offset") or 18)),
@@ -50,6 +57,7 @@ class AssistantPreferences:
             "hotkey_enabled": bool(self.hotkey_enabled),
             "hotkey_sequence": str(self.hotkey_sequence or "").strip() or "cmd+shift+space",
             "auto_speak": bool(self.auto_speak),
+            "voice_quality": str(self.voice_quality or "standard").strip().lower() or "standard",
             "window_width": int(self.window_width),
             "window_height": int(self.window_height),
             "bottom_offset": int(self.bottom_offset),

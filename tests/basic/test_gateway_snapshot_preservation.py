@@ -11,9 +11,7 @@ from abstractassistant.core.session_store import SessionSnapshot
 @pytest.mark.basic
 def test_replace_gateway_messages_allows_gateway_replay_to_shrink_local_history() -> None:
     manager = LLMManager.__new__(LLMManager)
-    manager.use_gateway = True
     manager._gateway_store = None
-    manager._refresh_session_view = lambda: None
 
     existing_messages = [
         {"role": "user", "content": "first", "ts": "2026-06-14T10:00:00+00:00"},
@@ -42,9 +40,7 @@ def test_replace_gateway_messages_allows_gateway_replay_to_shrink_local_history(
 @pytest.mark.basic
 def test_replace_gateway_messages_accepts_longer_history_snapshots() -> None:
     manager = LLMManager.__new__(LLMManager)
-    manager.use_gateway = True
     manager._gateway_store = None
-    manager._refresh_session_view = lambda: None
     manager._gateway_snapshot = SessionSnapshot(
         session_id="session-1",
         actor_id="gateway",
@@ -70,9 +66,7 @@ def test_replace_gateway_messages_accepts_longer_history_snapshots() -> None:
 @pytest.mark.basic
 def test_append_gateway_message_assigns_message_id() -> None:
     manager = LLMManager.__new__(LLMManager)
-    manager.use_gateway = True
     manager._gateway_store = None
-    manager._refresh_session_view = lambda: None
     manager._gateway_snapshot = SessionSnapshot(
         session_id="session-1",
         actor_id="gateway",

@@ -16,19 +16,11 @@ from .events import (
 )
 from .adapter import GatewayEventAdapter
 from .run_input import build_run_input_data
-from .templates import select_agent_template, list_agent_entrypoints
 from .capabilities import (
-    AGENT_INTERFACE_PREFERENCE,
     AssistantCapabilities,
     get_cached_assistant_capabilities,
 )
-from .generated_media import (
-    ImageGenerationIntent,
-    build_generated_image_assistant_message,
-    choose_generated_image_format,
-    parse_image_generation_intent,
-    session_memory_run_id,
-)
+from .generated_media import session_memory_run_id
 
 __all__ = [
     "GatewayClient",
@@ -36,15 +28,8 @@ __all__ = [
     "GatewayHttpError",
     "GatewayEventAdapter",
     "build_run_input_data",
-    "select_agent_template",
-    "list_agent_entrypoints",
-    "AGENT_INTERFACE_PREFERENCE",
     "AssistantCapabilities",
     "get_cached_assistant_capabilities",
-    "ImageGenerationIntent",
-    "build_generated_image_assistant_message",
-    "choose_generated_image_format",
-    "parse_image_generation_intent",
     "session_memory_run_id",
     "extract_emit_event",
     "extract_flow_end_output",

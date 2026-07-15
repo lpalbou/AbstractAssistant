@@ -26,24 +26,30 @@ classifiers = [
 ]
 
 dependencies = [
-    # Base install covers text chat + media over the gateway; local microphone
-    # capture (STT/VAD audio I/O) requires the [voice] extra.
-    "abstractagent>=0.3.12",
-    "abstractvoice>=0.10.18",
-    # Provider/client extras (avoid GPU-only stacks like vLLM by default).
-    "abstractcore[openai,anthropic,ollama,lmstudio,tokens,media,tools]>=2.13.38",
+    # Voice is a core part of the assistant, so local audio I/O ships by
+    # default: abstractvoice[audio-io] pulls sounddevice + webrtcvad + soundfile
+    # for in-process streaming TTS playback and microphone capture. (STT itself
+    # runs on the gateway, so faster-whisper is NOT a base dependency — it comes
+    # with the [voice] extra for anyone who also wants local transcription.)
+    # abstractruntime supplies the session-memory run-id contract shared with
+    # the gateway (session_attachments); execution itself stays on the gateway.
+    "abstractruntime>=0.4.29",
+    "abstractvoice[audio-io]>=0.10.18",
+    # Only used for an optional local config read (STT language hint); all
+    # provider execution happens on the gateway, so no provider extras.
+    "abstractcore>=2.13.38",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
-    "pystray>=0.19.4",
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",
+    # Global hotkey support for the tray shell.
     "pynput>=1.7.7",
     # Markdown rendering in UI
     "markdown-it-py>=4.0.0",
     "pygments>=2.16.0",
-    # UX helpers
-    "pyperclip>=1.8.2",
-    # webrtcvad (via abstractvoice) depends on pkg_resources at import time;
-    # pkg_resources remains available through setuptools 80.x and disappears in 81+.
+    # webrtcvad (pulled in by the [voice]/[apple]/[gpu] extras) depends on
+    # pkg_resources at import time; pkg_resources remains available through
+    # setuptools 80.x and disappears in 81+. The pin lives in base deps because
+    # extras merge with base at resolve time.
     "setuptools>=61.0,<81",
 ]
 
@@ -89,6 +95,9 @@ where = ["."]
 include = ["abstractassistant*"]
 exclude = ["tests*", "docs*", "AbstractAssistant.app*"]
 
+[tool.setuptools.package-data]
+abstractassistant = ["assets/*.png"]
+
 [tool.black]
 line-length = 88
 target-version = ['py310']
@@ -104,7 +113,7 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests/basic", "tests/integration"]
+testpaths = ["tests/basic"]
 markers = [
     "basic: Level A (contract/unit) tests",
     "integration: Level B (integration/local) tests",

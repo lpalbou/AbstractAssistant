@@ -61,18 +61,8 @@ class UIConfig:
 
 
 @dataclass
-class LLMConfig:
-    """Local-mode configuration settings."""
-
-    default_provider: str = ""
-    default_model: str = ""
-    max_tokens: int = 32000
-    temperature: float = 0.7
-
-
-@dataclass
 class GatewayConfig:
-    """Gateway configuration settings (thin-client mode)."""
+    """Gateway configuration settings (the assistant is gateway-native)."""
 
     url: str = field(default_factory=_gateway_url_from_env)
     auth_token: str = field(default_factory=_gateway_auth_token_from_env)
@@ -81,7 +71,6 @@ class GatewayConfig:
     session_id: str = ""
     csrf_token: str = ""
     session_expires_at: str = ""
-    use_gateway: bool = True
     bundle_id: str = ""
     flow_id: str = ""
 
@@ -107,7 +96,6 @@ class Config:
     """Main runtime configuration."""
 
     ui: UIConfig = field(default_factory=UIConfig)
-    llm: LLMConfig = field(default_factory=LLMConfig)
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
     system_tray: SystemTrayConfig = field(default_factory=SystemTrayConfig)
     shortcuts: ShortcutsConfig = field(default_factory=ShortcutsConfig)
@@ -121,7 +109,6 @@ class Config:
     def from_dict(cls, data: Dict[str, Any]) -> "Config":
         """Create configuration from a dictionary."""
         ui_data = data.get("ui", {})
-        llm_data = data.get("llm", {})
         gateway_data = data.get("gateway", {})
         system_tray_data = data.get("system_tray", {})
         animation_fps_raw = system_tray_data.get("animation_fps", 30)
@@ -145,26 +132,12 @@ class Config:
             url_override=configured_gateway_url or env_gateway_url,
             auth_token_override=str(gateway_data.get("auth_token", "") or "").strip() or None,
         )
-        raw_use_gateway = gateway_data.get("use_gateway", True)
-        use_gateway = bool(raw_use_gateway)
-        if isinstance(raw_use_gateway, str):
-            raw = raw_use_gateway.strip().lower()
-            if raw in {"true", "1", "yes", "y"}:
-                use_gateway = True
-            elif raw in {"false", "0", "no", "n"}:
-                use_gateway = False
         return cls(
             ui=UIConfig(
                 theme=ui_data.get("theme", "dark"),
                 bubble_size_ratio=ui_data.get("bubble_size_ratio", 0.167),
                 auto_hide_delay=ui_data.get("auto_hide_delay", 8),
                 always_on_top=ui_data.get("always_on_top", True),
-            ),
-            llm=LLMConfig(
-                default_provider=str(llm_data.get("default_provider", "") or "").strip(),
-                default_model=str(llm_data.get("default_model", "") or "").strip(),
-                max_tokens=llm_data.get("max_tokens", 32000),
-                temperature=llm_data.get("temperature", 0.7),
             ),
             gateway=GatewayConfig(
                 url=gateway_url or DEFAULT_GATEWAY_URL,
@@ -174,7 +147,6 @@ class Config:
                 session_id=str(gateway_data.get("session_id", "") or "").strip(),
                 csrf_token=str(gateway_data.get("csrf_token", "") or "").strip(),
                 session_expires_at=str(gateway_data.get("session_expires_at", "") or "").strip(),
-                use_gateway=use_gateway,
                 bundle_id=str(gateway_data.get("bundle_id", "") or ""),
                 flow_id=str(gateway_data.get("flow_id", "") or ""),
             ),
@@ -206,12 +178,6 @@ class Config:
                 "auto_hide_delay": self.ui.auto_hide_delay,
                 "always_on_top": self.ui.always_on_top,
             },
-            "llm": {
-                "default_provider": self.llm.default_provider,
-                "default_model": self.llm.default_model,
-                "max_tokens": self.llm.max_tokens,
-                "temperature": self.llm.temperature,
-            },
             "gateway": {
                 "url": self.gateway.url,
                 "auth_token": auth_token,
@@ -220,7 +186,6 @@ class Config:
                 "session_id": session_id,
                 "csrf_token": csrf_token,
                 "session_expires_at": self.gateway.session_expires_at,
-                "use_gateway": self.gateway.use_gateway,
                 "bundle_id": self.gateway.bundle_id,
                 "flow_id": self.gateway.flow_id,
             },
@@ -247,14 +212,8 @@ class Config:
         if self.ui.auto_hide_delay < 0:
             errors.append(f"Invalid auto_hide_delay: {self.ui.auto_hide_delay}")
 
-        if not 0.0 <= self.llm.temperature <= 2.0:
-            errors.append(f"Invalid temperature: {self.llm.temperature}")
-
-        if self.llm.max_tokens < 1000:
-            errors.append(f"Invalid max_tokens: {self.llm.max_tokens}")
-
-        if self.gateway.use_gateway and not str(self.gateway.url or "").strip():
-            errors.append("Gateway URL is required when use_gateway=true")
+        if not str(self.gateway.url or "").strip():
+            errors.append("Gateway URL is required")
 
         if str(self.gateway.auth_mode or "bearer").strip() not in {"bearer", "session"}:
             errors.append(f"Invalid gateway auth_mode: {self.gateway.auth_mode}")

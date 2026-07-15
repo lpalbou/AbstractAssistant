@@ -6,28 +6,26 @@ This list is not exhaustive. The source of truth for install-time dependencies i
 
 ## AbstractFramework ecosystem
 
-- **AbstractCore** — providers, tool/media schemas, LLM client helpers: https://github.com/lpalbou/abstractcore
-- **AbstractRuntime** — durable runs, waits, ledger, artifacts: https://github.com/lpalbou/abstractruntime
-- **AbstractAgent** — agent loops (ReAct/CodeAct/MemAct): https://github.com/lpalbou/abstractagent
-- **AbstractVoice** — STT/TTS integration used by the tray UI: https://github.com/lpalbou/abstractvoice
+- **AbstractGateway** — workflows, durable execution, providers, and media routing (the assistant is a thin client of it): https://github.com/lpalbou/abstractgateway
+- **AbstractRuntime** — durable runs, waits, ledger, artifacts, and the session-memory run-id contract: https://github.com/lpalbou/abstractruntime
+- **AbstractCore** — configuration and schema helpers: https://github.com/lpalbou/abstractcore
+- **AbstractVoice** — microphone capture and in-process audio playback used by the tray UI: https://github.com/lpalbou/abstractvoice
 
 ## UI and desktop integration
 
-- **pystray** — system tray integration: https://github.com/moses-palmer/pystray
-- **PyQt5 / PySide2 / PyQt6** — Qt bindings used by the tray bubble UI
+- **PyQt5** — Qt bindings for the tray palette UI
 - **Pillow** — image utilities (tray icons)
+- **pynput** — optional global hotkey support
 
 ## Rendering and UX helpers
 
-- **markdown** + **pymdown-extensions** — Markdown rendering
+- **markdown-it-py** — Markdown rendering
 - **Pygments** — syntax highlighting
-- **pyperclip** — clipboard integration
-- **plyer** — native notifications
 
-## Configuration and packaging
+## Packaging
 
-- **tomli** / **tomli-w** — TOML parsing/writing (Python version compatibility)
 - **setuptools** / **wheel** — build tooling
+- **PyInstaller** — macOS app bundle builds
 
 ## Development tooling
 

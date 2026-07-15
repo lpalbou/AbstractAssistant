@@ -187,7 +187,8 @@ class SessionIndex:
         data_dir = self._base_dir / rel_path
         data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create an empty snapshot so AgentHost loads the intended ids.
+        # Create an empty snapshot so the gateway session loader picks up the
+        # intended session/actor ids on first load.
         store = SessionStore(data_dir / "session.json")
         store.save(SessionSnapshot(session_id=session_id, actor_id=actor_id, messages=[], last_run_id=None))
 

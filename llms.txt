@@ -14,7 +14,7 @@ Key facts:
 - Multimodal defaults are edited through gateway capability-default routes, not local config files
 - Local data lives under `~/.abstractassistant/`
 - Header UX includes a recent-session picker and a live gateway connection orb
-- Preferred validation: `python -m pytest tests/basic tests/integration -q`
+- Preferred validation: `python -m pytest tests/basic -q`
 - Regenerate the full bundle with `python scripts/update_llms_full.py`
 
 ## Context
@@ -40,17 +40,16 @@ Key facts:
 - [abstractassistant/gateway/client.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/gateway/client.py): gateway HTTP client, including artifact and JSONL streaming TTS calls.
 - [abstractassistant/ui/gateway_worker.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/ui/gateway_worker.py): run launch, history replay, waits, and streaming.
 - [abstractassistant/core/gateway_voice_manager.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/core/gateway_voice_manager.py): local mic/playback plus gateway STT/TTS routing; prefers advertised Gateway TTS streaming and falls back to artifact TTS before audio starts.
-- [abstractassistantv2/app.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistantv2/app.py): tray and palette shell.
-- [abstractassistantv2/controller.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistantv2/controller.py): controller for sessions, workflow resolution, preferences, and route defaults.
-- [abstractassistantv2/gateway.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistantv2/gateway.py): workflow-catalog and capability-default helpers.
-- [abstractassistantv2/preferences.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistantv2/preferences.py): durable local UX preferences.
+- [abstractassistant/app.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/app.py): tray and palette shell.
+- [abstractassistant/controller.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/controller.py): controller for sessions, workflow resolution, preferences, and route defaults.
+- [abstractassistant/gateway_service.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/gateway_service.py): workflow-catalog and capability-default helpers.
+- [abstractassistant/preferences.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/preferences.py): durable local UX preferences.
 
 ## Tests
 
-- [tests/basic/test_assistant_v2.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/basic/test_assistant_v2.py): v2 workflow, preferences, and gateway-worker contract coverage.
+- [tests/basic/test_assistant_palette.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/basic/test_assistant_palette.py): palette workflow, preferences, and gateway-worker contract coverage.
 - [tests/basic/test_cli_gateway_mode.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/basic/test_cli_gateway_mode.py): CLI gateway-mode parsing and tray launch behavior.
 - [tests/basic/test_gateway_client_methods.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/basic/test_gateway_client_methods.py): gateway client route coverage.
-- [tests/integration/test_agent_host_tool_wait_resume.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/integration/test_agent_host_tool_wait_resume.py): durable wait/resume behavior still expected by the desktop shell.
 
 ## Project
 

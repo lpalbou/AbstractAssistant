@@ -49,7 +49,8 @@ The assistant is authoritative only for:
 
 ## Desktop Shell
 
-The Qt tray shell lives in `abstractassistantv2/` and provides:
+The Qt tray shell lives in the `abstractassistant` package (`app.py`, `controller.py`,
+`gateway_service.py`, `preferences.py`, `hotkey.py`) and provides:
 
 - a compact top-right palette
 - one canonical assistant workflow from the gateway tenant catalog
@@ -119,4 +120,3 @@ session state locally for later reconnects.
 The repository validates the gateway-native shell through:
 
 - `abstractassistant/tests/basic`
-- `abstractassistant/tests/integration`

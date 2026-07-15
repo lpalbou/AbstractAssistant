@@ -10,14 +10,13 @@ from PyQt5.QtCore import QSize
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QApplication, QTextBrowser
 
-from abstractassistant.ui.history_dialog import iPhoneMessagesDialog
 from abstractassistant.utils.markdown_renderer import (
     MarkdownRenderer,
     _autolink_html_text,
     _prepare_markdown_source,
     split_markdown_mermaid_blocks,
 )
-from abstractassistantv2.app import _image_thumbnail_size
+from abstractassistant.app import _image_thumbnail_size
 
 
 @pytest.mark.basic
@@ -236,23 +235,6 @@ def test_markdown_renderer_live_theme_uses_color_code_style_and_unwraps_panels()
     assert 'data-code-language="bash"' in html
     assert "color: #ff6fae" in lowered
     assert '"color: #3b3b3b"' not in lowered
-
-
-@pytest.mark.basic
-def test_history_dialog_uses_shared_markdown_renderer_for_code_blocks() -> None:
-    html = iPhoneMessagesDialog._process_full_markdown(
-        "```json\n"
-        "{\n"
-        '  "model": "gpt-5.4-mini",\n'
-        '  "max_tokens": 100\n'
-        "}\n"
-        "```\n"
-    )
-
-    lowered = html.lower()
-    assert 'data-code-language="json"' in html
-    assert "font-size: 12px" not in html
-    assert "color: #ff6fae" in lowered
 
 
 @pytest.mark.basic

@@ -42,7 +42,7 @@ def build_run_input_data(
 
     Provider/model routing is resolved by Gateway/Core capability defaults.
     ``messages`` is opt-in because canonical history belongs to Runtime/Gateway;
-    v2 and CLI callers should pass only the prompt plus artifact references.
+    the tray and CLI callers should pass only the prompt plus artifact references.
     """
     prompt_s = str(prompt or "")
     system_s = str(system or "")

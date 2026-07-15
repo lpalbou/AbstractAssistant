@@ -1,4 +1,4 @@
-"""Gateway-facing contract helpers for AbstractAssistant v2."""
+"""Gateway-facing contract helpers for AbstractAssistant."""
 
 from __future__ import annotations
 

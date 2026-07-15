@@ -4,6 +4,130 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+### Changed (2026-07-15 — settings redesign + run status merged into the thinking badge)
+- Assistant Settings completely redesigned for density: the internal header (title/subtitle/
+  separator duplicated by the window title bar) is gone, controls dropped from 38px to 26px with a
+  12px type scale, cards are flat (no gradients/drop shadows/hover accents), the green primary
+  buttons were replaced by the dialog's single indigo accent, action buttons are right-aligned
+  (primary last), and paddings/spacings were halved throughout. The dialog now opens at 620x480
+  instead of 860x640 with the same content.
+- Run observability moved to the bottom of the transcript: the yellow status banner above the
+  history ("Thinking — cycle 3", "Tool: read_file …", steering/pause/approval waits) now renders
+  inside the thinking-dots pill as one badge — dots + status text in the dots' muted palette,
+  eliding to the viewport width with the full text on hover. Non-run statuses (errors, "Run
+  stopped.", bootstrap "Connecting…") keep the top line, which is the only time it appears.
+- The reattach banner shows the thinking badge immediately instead of waiting for the first replay
+  event.
+
+### Fixed (2026-07-15 — empty-state truncation)
+- The "Ask anything" empty state no longer clips in the collapsed palette: oversized margins
+  (48px) shrank to fit the ~110px viewport, and the subtitle renders on one line (Qt's word-wrap
+  heuristic folded it even with room to spare, and the folded line was what got cut).
+
+### Fixed (2026-07-15 — GUI-thread responsiveness + run reattach)
+- The send path no longer blocks the GUI thread on gateway round trips. Workflow-catalog and
+  tool-inventory lookups are cached in the controller (short TTL + explicit invalidation on
+  connection/route/tool-preference changes), and startup warms them on a background thread, so a
+  warm send performs zero blocking gateway calls. Sends are refused (with a "Connecting…" note)
+  until startup finishes rather than freezing on a cold fetch.
+- After a quit or crash mid-run, relaunching now reattaches to the durable run: a still-running or
+  user-waiting run resumes and streams its result, and a run that finished while the app was closed
+  has its answer recovered into the transcript. Already-answered approval/ask dialogs are not
+  re-opened on reattach.
+- Tool-approval and ask-user prompts now bring the palette to the front and post a tray
+  notification when it is hidden or in the background, so a run waiting on you is not missed.
+
+### Added
+- App icon: a designed rounded-square mark replaces the procedural icon (bundled asset;
+  transparent corners).
+
+### Changed (2026-07-15 — visual overhaul + voice-by-default + latency control)
+- Icons redrawn. The ~15 hand-drawn QPainter glyphs (inconsistent stroke weights and sizes) are
+  replaced by a coherent Lucide icon set rendered from inline SVG (`abstractassistant/icons.py`),
+  crisp on Retina and with a loud fallback for unknown names. New glyphs are available for future
+  surfaces (agent/entity, chevrons, reconnect, trash, mic-off, etc.).
+- Introduced `abstractassistant/theme.py` as the single source of truth for design tokens
+  (semantic colors, spacing, radii, type scale), replacing scattered color literals over time.
+- Typography: the app now uses the real macOS system font (San Francisco) set programmatically,
+  instead of unresolvable Qt `font-family` aliases that emitted startup warnings and fell back to
+  Helvetica. Markdown headings get a compressed chat scale (were all collapsed to body size), the
+  double body inset is removed, and links/blockquotes use the app accent.
+- Layout: user messages now render narrower than assistant replies (a short prompt is no longer a
+  full-width slab); a fresh session shows a centered empty state; the connection indicator is a
+  flat status dot + ring (was a glossy sphere); the thinking dots use the app accent.
+- Voice ships by default: `abstractvoice[audio-io]` (streaming TTS playback + mic capture) is now a
+  base dependency, and the macOS build fails loudly if local audio I/O is missing rather than
+  shipping a degraded bundle.
+- New "Voice latency" preference (Balanced / Faster / Higher quality) maps to the gateway TTS
+  `quality_preset`, sent only when the gateway advertises support — a client lever to shorten
+  time-to-first-voice.
+
+### Removed (2026-07-15 — gateway-native only: local execution engine removed)
+- The assistant is now purely gateway-native: the unreachable local (non-gateway) execution engine
+  was removed — `core/agent_host.py`, the local AbstractVoice TTS wrapper (`core/tts_manager.py`),
+  and every local branch in `core/llm_manager.py` (local `generate_response`, provider/model
+  selection, token-usage view, save/load session, local session titles). `LLMManager` is now a
+  focused gateway session/transcript manager.
+- Configuration: the `use_gateway` flag and the whole `llm` config section (`default_provider`,
+  `default_model`, `max_tokens`, `temperature`) are gone — the gateway owns provider/model routing.
+  A gateway URL is always required (defaults to `http://127.0.0.1:8080`).
+- Dependencies: `abstractagent` is no longer required; `abstractruntime` is now declared directly
+  (session-memory run-id contract). `abstractcore` no longer pulls provider extras — providers run
+  on the gateway.
+- Dead client-side surfaces deleted after an adversarial audit: the client image-intent pipeline in
+  `gateway/generated_media.py` (ADR 0001 forbids client-side media execution; the gateway-emitted
+  media events remain fully supported), `gateway/templates.py`, `gateway/session_cache.py`
+  (client-side prompt-cache negotiation, also ADR-forbidden), `core/transcript_summary.py`,
+  `core/gateway_selection_store.py`, test-only capability helpers, and unused controller wrappers.
+- Tests: `tests/integration/` (local agent-host tests) removed; the suite is `tests/basic` (232
+  tests).
+
+### Changed (2026-07-15 — single-package consolidation, legacy UI removed)
+- The desktop shell is now a single package. The gateway-native palette that shipped under
+  `abstractassistantv2/` moved into `abstractassistant/` and the legacy Qt "bubble" UI was removed.
+  Module map: `abstractassistantv2/app.py` → `abstractassistant/app.py`, `controller.py` →
+  `abstractassistant/controller.py`, `gateway.py` → `abstractassistant/gateway_service.py` (renamed
+  to avoid colliding with the `abstractassistant/gateway/` client package), and
+  `assistant_workflow.py`, `hotkey.py`, `preferences.py` moved as-is.
+- `AssistantV2Controller` is renamed to `AssistantController`.
+- `launch_tray_app` is now exposed from the package root (`from abstractassistant import
+  launch_tray_app`) with lazy GUI imports, so `import abstractassistant` and `assistant --help`
+  remain free of Qt/voice dependencies.
+- Removed the legacy UI modules (`ui/qt_bubble.py`, `ui/history_dialog.py`, `ui/provider_manager.py`,
+  `ui/ui_styles.py`, `ui/tts_state_manager.py`, `ui/toast_window.py`, `ui/run_state.py`), the unused
+  `web_server.py`, and the `pystray` and `pyperclip` dependencies they required (the palette uses the
+  Qt clipboard and tray directly). No user-facing behavior changes: the shipped `assistant` command
+  already launched the palette.
+
+### Fixed (2026-07-15 — speaker-button freeze + time-to-first-voice regression)
+- Clicking a message speaker button no longer freezes the app. `GatewayVoiceManager.speak()`
+  now dispatches on a worker thread and returns immediately: the whole synthesis + artifact
+  download (two HTTP calls with 120s timeouts) used to run on the Qt GUI thread, beachballing
+  the app for the entire synthesis (~1 minute for a long reply) — the "synthesizing" spinner
+  on the speaker icon was already wired but could never paint because the event loop was
+  blocked. It now animates during the preload phase. The same freeze affected auto-speak on
+  every long final reply.
+- Restored fast time-to-first-voice. The gateway advertises streaming TTS (JSONL wav segments,
+  ~3s to first audio measured live) but the client silently fell back to single-shot
+  whole-message synthesis because `sounddevice` was missing from the build environment — the
+  bundle built from a venv without the `[voice]` extra loses the in-process audio player, and
+  with it both audio streaming and microphone capture. The degradation is now loud:
+  a `#FALLBACK` warning when streaming is advertised but unconsumable, and a build-time
+  preflight banner in `build_macos_app` when `sounddevice` is absent.
+- Speech completion is now signalled exactly once for every dispatched speak — including
+  failures and cancellations. Previously a stopped stream swallowed the completion callback,
+  which could leave a message card stuck on "speaking" and full-voice mode wedged in
+  PROCESSING.
+- Pausing during the synthesizing phase is now honest on the artifact path: playback holds
+  until resume (or cancels on stop) instead of returning False while the UI showed "paused".
+- Stopping during artifact synthesis can no longer start zombie playback after the download
+  completes (generation stop-gate checks between synthesis, download, and playback).
+- Full-file audio meter level extraction (WAV decode + FFT per 33ms slice) is skipped when no
+  meter consumer is registered (the v2 palette never registers one).
+- Removed the stale in-repo `abstractassistant.egg-info` (0.4.11) that shadowed the installed
+  0.5.0 metadata whenever python ran from the repo root — this is why freshly built bundles
+  self-reported 0.4.11.
+
 ### Changed (2026-07-15 — message card + icon readability pass)
 - Message-card speaker/copy buttons now appear only while the mouse is over the card. They keep
   their layout slot and fade via opacity (never show/hide), so revealing them cannot reflow the

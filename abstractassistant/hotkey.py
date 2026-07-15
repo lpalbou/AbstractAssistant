@@ -1,4 +1,4 @@
-"""Optional global hotkey support for the v2 tray shell."""
+"""Optional global hotkey support for the tray shell."""
 
 from __future__ import annotations
 

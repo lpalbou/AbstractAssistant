@@ -244,26 +244,8 @@ def stats_from_history_bundle(bundle: Dict[str, Any]) -> Optional[Dict[str, Any]
     return aggregate_run_stats(stats_by_run)
 
 
-def bundle_run_ids(bundle: Dict[str, Any]) -> List[str]:
-    """All run ids covered by a history bundle (root first)."""
-    if not isinstance(bundle, dict):
-        return []
-    out: List[str] = []
-    root = str(bundle.get("root_run_id") or "").strip()
-    if root:
-        out.append(root)
-    ledgers = bundle.get("ledgers")
-    if isinstance(ledgers, dict):
-        for rid in ledgers.keys():
-            text = str(rid or "").strip()
-            if text and text not in out:
-                out.append(text)
-    return out
-
-
 __all__ = [
     "aggregate_run_stats",
-    "bundle_run_ids",
     "compact_tool_call_for_ui",
     "observe_record",
     "parse_iso_ms",
