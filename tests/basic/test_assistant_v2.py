@@ -451,7 +451,9 @@ def test_mermaid_preview_card_keeps_wide_diagrams_zoomable_inline() -> None:
 
 
 @pytest.mark.basic
-def test_user_message_card_keeps_timestamp_tight_to_single_line_message() -> None:
+def test_message_card_timestamp_sits_in_header_next_to_actions() -> None:
+    """The timestamp lives at the upper right of the bubble, co-located with
+    the hover actions — the old bottom stamp row is gone (vertical space)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     card = MessageCard(
@@ -472,9 +474,102 @@ def test_user_message_card_keeps_timestamp_tight_to_single_line_message() -> Non
     bubble_layout = card._bubble.layout()
     assert bubble_layout is not None
     assert bubble_layout.spacing() == 0
-    stamp_layout = bubble_layout.itemAt(bubble_layout.count() - 1).layout()
-    assert stamp_layout is not None
-    assert stamp_layout.contentsMargins().top() == 0
+
+    stamps = [
+        label
+        for label in card.findChildren(app_module.QLabel)
+        if label.objectName() == "messageTimestamp"
+    ]
+    assert len(stamps) == 1
+
+    header_layout = bubble_layout.itemAt(0).layout()
+    assert header_layout is not None
+    header_widgets = [
+        header_layout.itemAt(i).widget() for i in range(header_layout.count())
+    ]
+    assert stamps[0] in header_widgets
+    copy_buttons = [
+        button
+        for button in card.findChildren(app_module.QPushButton)
+        if button.objectName() == "messageActionButton"
+    ]
+    assert copy_buttons and copy_buttons[0] in header_widgets
+
+    # No bottom stamp row: the last layout entry is the message body widget,
+    # not a trailing timestamp layout.
+    assert bubble_layout.itemAt(bubble_layout.count() - 1).layout() is None
+    card.close()
+
+
+@pytest.mark.basic
+def test_message_card_actions_reveal_on_hover_without_layout_shift() -> None:
+    """Speaker/copy fade in on card hover (opacity, never show/hide) so the
+    card cannot reflow under the cursor; hidden buttons are unclickable."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    card = MessageCard(
+        message={"role": "assistant", "message_id": "m1", "content": "hello"},
+        message_key="id:m1",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        bubble_width=320,
+        on_toggle_voice=lambda _message: None,
+        voice_state="idle",
+    )
+    card.show()
+    app.processEvents()
+
+    buttons = [
+        button
+        for button in card.findChildren(app_module.QPushButton)
+        if button.objectName() == "messageActionButton"
+    ]
+    assert len(buttons) == 2
+    for button in buttons:
+        assert button.isVisibleTo(card)  # keeps its layout slot
+        assert button.graphicsEffect().opacity() == 0.0
+        assert not button.isEnabled()
+
+    card.enterEvent(QEvent(QEvent.Enter))
+    for button in buttons:
+        assert button.graphicsEffect().opacity() == 1.0
+        assert button.isEnabled()
+
+    card.leaveEvent(QEvent(QEvent.Leave))
+    for button in buttons:
+        assert button.graphicsEffect().opacity() == 0.0
+        assert not button.isEnabled()
+    card.close()
+
+
+@pytest.mark.basic
+def test_message_card_actions_stay_pinned_while_voice_is_active() -> None:
+    """An active voice button is a playback indicator: it must not vanish
+    when the mouse leaves the card."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    card = MessageCard(
+        message={"role": "assistant", "message_id": "m1", "content": "hello"},
+        message_key="id:m1",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_args, **_kwargs: None,
+        bubble_width=320,
+        on_toggle_voice=lambda _message: None,
+        voice_state="idle",
+    )
+    card.show()
+    app.processEvents()
+
+    card.set_voice_state("speaking")
+    buttons = [
+        button
+        for button in card.findChildren(app_module.QPushButton)
+        if button.objectName() == "messageActionButton"
+    ]
+    assert all(button.graphicsEffect().opacity() == 1.0 for button in buttons)
+
+    card.set_voice_state("idle")
+    assert all(button.graphicsEffect().opacity() == 0.0 for button in buttons)
     card.close()
 
 

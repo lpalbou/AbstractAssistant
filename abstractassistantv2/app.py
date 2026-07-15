@@ -60,6 +60,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -1064,10 +1065,14 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
     if cached is not None:
         return cached
 
-    pixmap = QPixmap(size, size)
+    # Render at 2x and tag the device pixel ratio (same pattern as the tray
+    # icons above): 1x pixmaps read blurry on Retina displays, which made the
+    # small action icons genuinely hard to parse.
+    pixmap = QPixmap(int(size) * 2, int(size) * 2)
     pixmap.fill(QColor(0, 0, 0, 0))
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
+    painter.scale(2.0, 2.0)
     tint = QColor(color)
     pen = QPen(tint)
     pen.setWidthF(max(1.5, size * 0.085))
@@ -1370,6 +1375,7 @@ def _symbol_icon(name: str, *, color: str = "#dfe7f1", size: int = 18) -> QIcon:
         painter.drawEllipse(QRectF(size * 0.30, size * 0.30, size * 0.40, size * 0.40))
 
     painter.end()
+    pixmap.setDevicePixelRatio(2.0)
     icon = QIcon(pixmap)
     _ICON_CACHE[key] = icon
     return icon
@@ -2458,17 +2464,17 @@ class AttachmentIconChip(QFrame):
         icon = _symbol_icon(
             _attachment_icon_name(self._path),
             color=_attachment_icon_color(self._path),
-            size=18,
+            size=21,
         )
-        icon_label.setPixmap(icon.pixmap(18, 18))
+        icon_label.setPixmap(icon.pixmap(21, 21))
         root.addWidget(icon_label)
 
         remove_button = QPushButton(self)
         remove_button.setObjectName("attachmentRemoveButton")
-        remove_button.setIcon(_symbol_icon("close", color="#f8fbff", size=10))
-        remove_button.setIconSize(QSize(10, 10))
+        remove_button.setIcon(_symbol_icon("close", color="#f8fbff", size=12))
+        remove_button.setIconSize(QSize(12, 12))
         remove_button.setToolTip("Remove attachment")
-        remove_button.setFixedSize(16, 16)
+        remove_button.setFixedSize(18, 18)
         remove_button.clicked.connect(
             lambda _checked=False: self.remove_requested.emit(self._path)
         )
@@ -2776,8 +2782,8 @@ class AssistantHtmlActionBar(QFrame):
         for action in actions:
             button = QPushButton(str(action.label or "").strip() or "Open")
             button.setObjectName("assistantHtmlActionButton")
-            button.setIcon(_symbol_icon("external", color="#f6fbff", size=14))
-            button.setIconSize(QSize(14, 14))
+            button.setIcon(_symbol_icon("external", color="#f6fbff", size=16))
+            button.setIconSize(QSize(16, 16))
             button.setToolTip(str(action.href or "").strip())
             button.clicked.connect(
                 lambda _checked=False, href=action.href: _open_external_href(href)
@@ -2805,18 +2811,24 @@ class MessageCard(QFrame):
         role = str(message.get("role") or "").strip()
         is_user = role == "user"
         copy_tint = "#dfeffb" if is_user else "#8ea1b8"
-        self._copy_icon = _symbol_icon("copy", color=copy_tint, size=15)
-        self._copied_icon = _symbol_icon("check", color="#5ed2a1", size=15)
-        self._voice_icon = _symbol_icon("speaker", color="#8ea1b8", size=15)
-        self._pause_icon = _symbol_icon("pause", color="#5ed2a1", size=15)
-        self._play_icon = _symbol_icon("play", color="#5ed2a1", size=15)
+        self._copy_icon = _symbol_icon("copy", color=copy_tint, size=17)
+        self._copied_icon = _symbol_icon("check", color="#5ed2a1", size=17)
+        self._voice_icon = _symbol_icon("speaker", color="#8ea1b8", size=17)
+        self._pause_icon = _symbol_icon("pause", color="#5ed2a1", size=17)
+        self._play_icon = _symbol_icon("play", color="#5ed2a1", size=17)
         self._spinner_icons = [
-            _symbol_icon(f"spinner{idx}", color="#f0c979", size=15) for idx in range(8)
+            _symbol_icon(f"spinner{idx}", color="#f0c979", size=17) for idx in range(8)
         ]
         self._spinner_frame = 0
         self._copy_button = None
         self._voice_button = None
         self._voice_spinner = None
+        # Hover-revealed actions (operator ask 2026-07-15): the buttons keep
+        # their layout slot permanently (opacity 0 <-> 1, never show/hide) so
+        # revealing them cannot reflow the card under the cursor.
+        self._actions_hovered = False
+        self._voice_state = str(voice_state or "").strip().lower() or "idle"
+        self._action_buttons: List[QPushButton] = []
         self._content = str(message.get("content") or "")
         self._content_blocks, self._html_actions = _assistant_content_blocks(
             self._content
@@ -2849,11 +2861,26 @@ class MessageCard(QFrame):
         # its own internal padding), assistant bubbles keep block breathing room.
         bubble_layout.setSpacing(0 if is_user else 4)
 
+        # Header: [stretch][timestamp][voice][copy] — the timestamp lives at
+        # the upper right, co-located with the hover actions (operator ask
+        # 2026-07-15: the old bottom stamp row cost a line of vertical space
+        # per bubble). The stamp is always visible; the buttons fade in.
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
         header_row.setSpacing(6)
         bubble_layout.addLayout(header_row)
         header_row.addStretch(1)
+
+        ts_val = message.get("ts") or message.get("timestamp")
+        if not ts_val:
+            import datetime as dt_module
+
+            ts_val = dt_module.datetime.now(dt_module.timezone.utc).isoformat()
+        timestamp = _format_message_timestamp(ts_val)
+        if timestamp:
+            stamp = QLabel(timestamp)
+            stamp.setObjectName("messageTimestamp")
+            header_row.addWidget(stamp, 0, Qt.AlignVCenter)
 
         if not is_user and callable(on_toggle_voice):
             voice_button = QPushButton()
@@ -2863,14 +2890,15 @@ class MessageCard(QFrame):
                 voice_button.setFocusPolicy(Qt.NoFocus)
             except Exception:
                 pass
-            voice_button.setIconSize(QSize(15, 15))
-            voice_button.setFixedSize(24, 24)
+            voice_button.setIconSize(QSize(17, 17))
+            voice_button.setFixedSize(28, 28)
             voice_button.setToolTip("Listen to this response / Toggle voice output")
             voice_button.clicked.connect(
                 lambda _checked=False, m=message: on_toggle_voice(m)
             )
             header_row.addWidget(voice_button)
             self._voice_button = voice_button
+            self._register_action_button(voice_button)
             self._apply_voice_button_state(str(voice_state or "").strip())
 
         copy_button = QPushButton()
@@ -2880,12 +2908,14 @@ class MessageCard(QFrame):
         except Exception:
             pass
         copy_button.setIcon(self._copy_icon)
-        copy_button.setIconSize(QSize(15, 15))
-        copy_button.setFixedSize(24, 24)
+        copy_button.setIconSize(QSize(17, 17))
+        copy_button.setFixedSize(28, 28)
         copy_button.setToolTip("Copy message")
         copy_button.clicked.connect(self._copy_message)
         header_row.addWidget(copy_button)
         self._copy_button = copy_button
+        self._register_action_button(copy_button)
+        self._update_action_visibility()
 
         if is_user:
             browser = AutoSizingTextBrowser(min_height=20, max_height=None)
@@ -2995,22 +3025,6 @@ class MessageCard(QFrame):
                 footer_row.addStretch(1)
                 bubble_layout.addLayout(footer_row)
 
-        ts_val = message.get("ts") or message.get("timestamp")
-        if not ts_val:
-            import datetime as dt_module
-
-            ts_val = dt_module.datetime.now(dt_module.timezone.utc).isoformat()
-        timestamp = _format_message_timestamp(ts_val)
-        if timestamp:
-            stamp_row = QHBoxLayout()
-            stamp_row.setContentsMargins(0, 0 if is_user else 2, 2, 0)
-            stamp_row.setSpacing(0)
-            stamp_row.addStretch(1)
-            stamp = QLabel(timestamp)
-            stamp.setObjectName("messageTimestamp")
-            stamp_row.addWidget(stamp)
-            bubble_layout.addLayout(stamp_row)
-
         if is_user:
             bubble_row.addStretch(1)
             bubble_row.addWidget(bubble)
@@ -3035,6 +3049,54 @@ class MessageCard(QFrame):
     def set_voice_state(self, state: str) -> None:
         self._apply_voice_button_state(str(state or "").strip())
 
+    def _register_action_button(self, button: QPushButton) -> None:
+        """Park an action button in its hover-revealed rest state.
+
+        The button keeps its layout slot (opacity animates, never show/hide)
+        so hover cannot reflow the card; a hidden button is also disabled so
+        an invisible target cannot be clicked.
+        """
+        effect = QGraphicsOpacityEffect(button)
+        effect.setOpacity(0.0)
+        button.setGraphicsEffect(effect)
+        button.setEnabled(False)
+        self._action_buttons.append(button)
+
+    def _actions_should_show(self) -> bool:
+        # An active voice button (spinner/pause/play) is a playback state
+        # indicator, not just an affordance: it stays pinned while the mouse
+        # is elsewhere.
+        return self._actions_hovered or self._voice_state in {
+            "synthesizing",
+            "speaking",
+            "paused",
+        }
+
+    def _update_action_visibility(self) -> None:
+        visible = self._actions_should_show()
+        for button in self._action_buttons:
+            effect = button.graphicsEffect()
+            if effect is not None:
+                effect.setOpacity(1.0 if visible else 0.0)
+        if self._copy_button is not None:
+            self._copy_button.setEnabled(visible)
+        if self._voice_button is not None:
+            # While synthesizing the voice button shows a spinner and must not
+            # accept clicks even though it is visible.
+            self._voice_button.setEnabled(
+                visible and self._voice_state != "synthesizing"
+            )
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self._actions_hovered = True
+        self._update_action_visibility()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._actions_hovered = False
+        self._update_action_visibility()
+        super().leaveEvent(event)
+
     def _copy_message(self) -> None:
         if self._copy_button is None:
             return
@@ -3047,14 +3109,14 @@ class MessageCard(QFrame):
         button = self._voice_button
         if button is None:
             return
-        normalized = str(state or "").strip().lower()
+        normalized = str(state or "").strip().lower() or "idle"
+        self._voice_state = normalized
         if self._voice_spinner is not None and normalized != "synthesizing":
             self._voice_spinner.stop()
             self._voice_spinner.deleteLater()
             self._voice_spinner = None
         if normalized == "synthesizing":
             button.setChecked(False)
-            button.setEnabled(False)
             button.setIcon(
                 self._spinner_icons[self._spinner_frame % len(self._spinner_icons)]
             )
@@ -3063,21 +3125,21 @@ class MessageCard(QFrame):
                 self._voice_spinner = QTimer(self)
                 self._voice_spinner.timeout.connect(self._advance_voice_spinner)
                 self._voice_spinner.start(90)
+            self._update_action_visibility()
             return
-        button.setEnabled(True)
         if normalized == "speaking":
             button.setChecked(True)
             button.setIcon(self._pause_icon)
             button.setToolTip("Pause reply audio")
-            return
-        if normalized == "paused":
+        elif normalized == "paused":
             button.setChecked(True)
             button.setIcon(self._play_icon)
             button.setToolTip("Resume reply audio")
-            return
-        button.setChecked(False)
-        button.setIcon(self._voice_icon)
-        button.setToolTip("Speak this reply")
+        else:
+            button.setChecked(False)
+            button.setIcon(self._voice_icon)
+            button.setToolTip("Speak this reply")
+        self._update_action_visibility()
 
     def _advance_voice_spinner(self) -> None:
         if self._voice_button is None or not self._spinner_icons:
@@ -3214,13 +3276,13 @@ class InlineMediaPlayer(QFrame):
             self._kind == "audio"
             and _subprocess_audio_player_command(self._path, offset_ms=0) is not None
         )
-        self._play_icon = _symbol_icon("play", color="#f4f8fc", size=14)
-        self._pause_icon = _symbol_icon("pause", color="#f4f8fc", size=14)
-        self._open_icon = _symbol_icon("external", color="#a9bbcf", size=13)
+        self._play_icon = _symbol_icon("play", color="#f4f8fc", size=16)
+        self._pause_icon = _symbol_icon("pause", color="#f4f8fc", size=16)
+        self._open_icon = _symbol_icon("external", color="#a9bbcf", size=15)
         self._kind_icon = _symbol_icon(
             "file-audio" if self._kind == "audio" else "file-video",
             color="#77d1a8" if self._kind == "audio" else "#f0c979",
-            size=14,
+            size=16,
         )
         self.setObjectName("inlineMediaPlayer")
 
@@ -3233,8 +3295,8 @@ class InlineMediaPlayer(QFrame):
         title_row.setSpacing(6)
         kind_label = QLabel()
         kind_label.setObjectName("mediaTitleIcon")
-        kind_label.setPixmap(self._kind_icon.pixmap(14, 14))
-        kind_label.setFixedSize(16, 16)
+        kind_label.setPixmap(self._kind_icon.pixmap(16, 16))
+        kind_label.setFixedSize(18, 18)
         title_row.addWidget(kind_label, 0, Qt.AlignVCenter)
         title_label = QLabel(self._title)
         title_label.setObjectName("mediaPreviewTitle")
@@ -3243,7 +3305,7 @@ class InlineMediaPlayer(QFrame):
         open_button = QPushButton()
         open_button.setObjectName("mediaIconButton")
         open_button.setIcon(self._open_icon)
-        open_button.setIconSize(QSize(13, 13))
+        open_button.setIconSize(QSize(15, 15))
         open_button.setFixedSize(26, 26)
         open_button.setToolTip("Open externally")
         open_button.clicked.connect(self._open_external)
@@ -3294,7 +3356,7 @@ class InlineMediaPlayer(QFrame):
 
         self._play_button = QPushButton()
         self._play_button.setObjectName("mediaTransportButton")
-        self._play_button.setIconSize(QSize(14, 14))
+        self._play_button.setIconSize(QSize(16, 16))
         self._play_button.setFixedSize(28, 28)
         self._play_button.setToolTip("Play/Pause audio or video playback")
         self._play_button.clicked.connect(self._toggle_playback)
@@ -3647,9 +3709,9 @@ class MermaidPreviewCard(QFrame):
         icon_label = QLabel()
         icon_label.setObjectName("mediaTitleIcon")
         icon_label.setPixmap(
-            _symbol_icon("file-image", color="#79c7ff", size=14).pixmap(14, 14)
+            _symbol_icon("file-image", color="#79c7ff", size=16).pixmap(16, 16)
         )
-        icon_label.setFixedSize(16, 16)
+        icon_label.setFixedSize(18, 18)
         header.addWidget(icon_label, 0, Qt.AlignVCenter)
 
         title_label = QLabel("Diagram")
@@ -4048,7 +4110,7 @@ class ToolApprovalCallCard(QFrame):
         icon_color = "#8fd0ff" if success is not False else "#f0968f"
         icon = QLabel()
         icon.setObjectName("toolApprovalIcon")
-        icon.setPixmap(_symbol_icon("spark", color=icon_color, size=16).pixmap(16, 16))
+        icon.setPixmap(_symbol_icon("spark", color=icon_color, size=18).pixmap(18, 18))
         header.addWidget(icon, 0, Qt.AlignTop)
 
         title_wrap = QVBoxLayout()
@@ -4159,8 +4221,8 @@ class FileOperationCard(QFrame):
         icon.setObjectName("toolApprovalIcon")
         icon.setPixmap(
             _symbol_icon(
-                "file", color=_FILE_ACTION_ICON_COLORS.get(action, "#8fd0ff"), size=16
-            ).pixmap(16, 16)
+                "file", color=_FILE_ACTION_ICON_COLORS.get(action, "#8fd0ff"), size=18
+            ).pixmap(18, 18)
         )
         header.addWidget(icon, 0, Qt.AlignTop)
 
@@ -6432,18 +6494,18 @@ class AssistantPalette(QMainWindow):
 
         new_session = QPushButton()
         new_session.setObjectName("iconButton")
-        new_session.setIcon(_symbol_icon("plus"))
-        new_session.setIconSize(QSize(14, 14))
-        new_session.setFixedSize(24, 24)
+        new_session.setIcon(_symbol_icon("plus", size=16))
+        new_session.setIconSize(QSize(16, 16))
+        new_session.setFixedSize(28, 28)
         new_session.setToolTip("Start a fresh conversation / Clear history")
         new_session.clicked.connect(self._create_session)
         header_actions.addWidget(new_session)
 
         tools = QPushButton()
         tools.setObjectName("iconButton")
-        tools.setIcon(_symbol_icon("spark"))
-        tools.setIconSize(QSize(14, 14))
-        tools.setFixedSize(24, 24)
+        tools.setIcon(_symbol_icon("spark", size=16))
+        tools.setIconSize(QSize(16, 16))
+        tools.setFixedSize(28, 28)
         tools.setToolTip("Configure active agent capabilities & tool permissions")
         tools.clicked.connect(self._open_tool_settings)
         header_actions.addWidget(tools)
@@ -6451,9 +6513,9 @@ class AssistantPalette(QMainWindow):
         self.auto_speak = QPushButton()
         self.auto_speak.setObjectName("topIconToggleButton")
         self.auto_speak.setCheckable(True)
-        self.auto_speak.setIcon(_symbol_icon("speaker"))
-        self.auto_speak.setIconSize(QSize(14, 14))
-        self.auto_speak.setFixedSize(24, 24)
+        self.auto_speak.setIcon(_symbol_icon("speaker", size=16))
+        self.auto_speak.setIconSize(QSize(16, 16))
+        self.auto_speak.setFixedSize(28, 28)
         self.auto_speak.setChecked(bool(self._controller.preferences.auto_speak))
         self.auto_speak.clicked.connect(self._persist_auto_speak)
         self.auto_speak.setToolTip("Toggle automatic voice output (Text-to-Speech)")
@@ -6461,9 +6523,9 @@ class AssistantPalette(QMainWindow):
 
         settings = QPushButton()
         settings.setObjectName("iconButton")
-        settings.setIcon(_symbol_icon("gear"))
-        settings.setIconSize(QSize(14, 14))
-        settings.setFixedSize(24, 24)
+        settings.setIcon(_symbol_icon("gear", size=16))
+        settings.setIconSize(QSize(16, 16))
+        settings.setFixedSize(28, 28)
         settings.setToolTip("Open assistant preferences & gateway connection settings")
         settings.clicked.connect(self._open_settings)
         header_actions.addWidget(settings)
@@ -6539,8 +6601,8 @@ class AssistantPalette(QMainWindow):
 
         self.attach_button = QPushButton()
         self.attach_button.setObjectName("composerIconButton")
-        self.attach_button.setIcon(_symbol_icon("paperclip"))
-        self.attach_button.setIconSize(QSize(16, 16))
+        self.attach_button.setIcon(_symbol_icon("paperclip", size=18))
+        self.attach_button.setIconSize(QSize(18, 18))
         self.attach_button.setFixedSize(36, 36)
         self.attach_button.setToolTip(
             "Attach files, photos, or documents (Drag & Drop supported)"
@@ -6550,8 +6612,8 @@ class AssistantPalette(QMainWindow):
 
         self.mic_button = QPushButton()
         self.mic_button.setObjectName("composerIconButton")
-        self.mic_button.setIcon(_symbol_icon("mic"))
-        self.mic_button.setIconSize(QSize(16, 16))
+        self.mic_button.setIcon(_symbol_icon("mic", size=18))
+        self.mic_button.setIconSize(QSize(18, 18))
         self.mic_button.setFixedSize(36, 36)
         self.mic_button.setToolTip("Use voice input / Speak your query")
         self.mic_button.clicked.connect(self._toggle_listening)
@@ -6570,8 +6632,8 @@ class AssistantPalette(QMainWindow):
 
         self.send_button = QPushButton()
         self.send_button.setObjectName("sendButton")
-        self.send_button.setIcon(_symbol_icon("send", color="#f8fffc"))
-        self.send_button.setIconSize(QSize(18, 18))
+        self.send_button.setIcon(_symbol_icon("send", color="#f8fffc", size=21))
+        self.send_button.setIconSize(QSize(21, 21))
         self.send_button.setFixedSize(38, 38)
         self.send_button.setToolTip("Send message")
         self.send_button.clicked.connect(self._on_send_button_clicked)
@@ -7525,13 +7587,13 @@ class AssistantPalette(QMainWindow):
         if button is None:
             return
         if busy:
-            button.setIcon(_symbol_icon("stop", color="#f8fffc"))
+            button.setIcon(_symbol_icon("stop", color="#f8fffc", size=21))
             button.setToolTip(
                 "Stop this run — typed text steers it instead (right-click: pause/resume)"
             )
             button.setEnabled(True)
         else:
-            button.setIcon(_symbol_icon("send", color="#f8fffc"))
+            button.setIcon(_symbol_icon("send", color="#f8fffc", size=21))
             button.setToolTip("Send message")
 
     def _cancel_active_run(self) -> None:
@@ -8592,9 +8654,8 @@ class AssistantPalette(QMainWindow):
                 color: #9bb0c6;
             }
             QLabel#messageTimestamp {
-                color: rgba(255, 255, 255, 0.42);
+                color: rgba(255, 255, 255, 0.45);
                 font-size: 10px;
-                margin-top: 2px;
             }
             QLabel#thinkingDots {
                 color: #9bb0c6;
@@ -8618,12 +8679,12 @@ class AssistantPalette(QMainWindow):
                 color: #f6fbff;
             }
             QPushButton#messageActionButton {
-                min-height: 24px;
-                max-height: 24px;
-                min-width: 24px;
-                max-width: 24px;
+                min-height: 28px;
+                max-height: 28px;
+                min-width: 28px;
+                max-width: 28px;
                 padding: 0px;
-                border-radius: 12px;
+                border-radius: 14px;
                 border: none;
                 background: rgba(255, 255, 255, 0.05);
             }
@@ -8870,12 +8931,12 @@ class AssistantPalette(QMainWindow):
                 background: rgba(255, 255, 255, 0.22);
             }
             QPushButton#iconButton, QPushButton#composerIconButton {
-                min-height: 24px;
-                max-height: 24px;
-                min-width: 24px;
-                max-width: 24px;
+                min-height: 28px;
+                max-height: 28px;
+                min-width: 28px;
+                max-width: 28px;
                 padding: 0px;
-                border-radius: 8px;
+                border-radius: 9px;
                 background: rgba(255, 255, 255, 0.04);
                 border-color: rgba(166, 187, 214, 0.12);
                 color: #dde6f0;
@@ -8925,12 +8986,12 @@ class AssistantPalette(QMainWindow):
                 color: #e9fff4;
             }
             QPushButton#topIconToggleButton {
-                min-height: 24px;
-                max-height: 24px;
-                min-width: 24px;
-                max-width: 24px;
+                min-height: 28px;
+                max-height: 28px;
+                min-width: 28px;
+                max-width: 28px;
                 padding: 0px;
-                border-radius: 8px;
+                border-radius: 9px;
                 background: rgba(255, 255, 255, 0.04);
                 border-color: rgba(166, 187, 214, 0.12);
                 color: #dfe7f2;

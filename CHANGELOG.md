@@ -4,6 +4,21 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+### Changed (2026-07-15 — message card + icon readability pass)
+- Message-card speaker/copy buttons now appear only while the mouse is over the card. They keep
+  their layout slot and fade via opacity (never show/hide), so revealing them cannot reflow the
+  card under the cursor; while a reply is being synthesized/spoken/paused the speaker button
+  stays pinned visible as a playback indicator. Hidden buttons are also disabled so an invisible
+  target cannot be clicked.
+- The per-message timestamp moved from its own bottom row to the upper right of each bubble,
+  co-located with the hover actions (always visible, muted). The bottom stamp row is gone, which
+  returns one line of vertical space per bubble.
+- All symbol icons are ~15% larger across the app (message actions 15→17px in 24→28px buttons,
+  header plus/capabilities/speaker/settings 14→16px in 24→28px buttons, composer attach/mic
+  16→18px, send/stop 18→21px, media/tool/file card icons scaled to match).
+- Symbol icons now render at 2x device-pixel-ratio (same pattern as the tray icons), so they are
+  crisp instead of blurry on Retina displays.
+
 ### Added
 - Assistant replies in the palette now end with a discreet per-answer stats line —
   `input : … tk | output : … tk | tools : … | files : …` — with investigation tooltips on each
