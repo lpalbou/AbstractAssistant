@@ -148,6 +148,9 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
                     "messages": [],
                 },
                 "use_context": False,
+                # Durable session replay: the gateway seeds context.messages
+                # from the session's prior turns server-side.
+                "use_session_history": True,
                 "_runtime": {
                     "allowed_tools": ["web_search"],
                     "tool_policy": {

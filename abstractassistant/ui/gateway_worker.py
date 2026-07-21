@@ -52,6 +52,9 @@ class GatewayWorker(QThread):
         registry_scope: str = "",
         attach_run_id: Optional[str] = None,
         primary_image_artifact: Optional[Dict[str, Any]] = None,
+        provider_override: Optional[str] = None,
+        model_override: Optional[str] = None,
+        base_url_override: Optional[str] = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
@@ -68,6 +71,11 @@ class GatewayWorker(QThread):
         self._flow_id = str(flow_id or "").strip()
         self._bundle_version = str(bundle_version or "").strip()
         self._registry_scope = str(registry_scope or "").strip()
+        # LOCAL provider/model override for the chat text route (never a gateway
+        # mutation): both must be set to take effect (a half-pin is dropped).
+        self._provider_override = str(provider_override or "").strip()
+        self._model_override = str(model_override or "").strip()
+        self._base_url_override = str(base_url_override or "").strip()
         self._debug = bool(debug)
         self._attach_run_id = str(attach_run_id or "").strip()
         self._primary_image_artifact = (
@@ -992,6 +1000,9 @@ class GatewayWorker(QThread):
                     allowed_tools=self._allowed_tools,
                     tool_policy=self._tool_policy,
                     primary_image_artifact=primary_image_artifact,
+                    provider=self._provider_override,
+                    model=self._model_override,
+                    base_url=self._base_url_override,
                 )
 
                 entry = self._resolve_entrypoint()

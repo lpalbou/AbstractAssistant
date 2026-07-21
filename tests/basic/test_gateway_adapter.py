@@ -87,7 +87,54 @@ def test_adapter_emits_tool_started_with_args_preview() -> None:
     tools = events[0]["tools"]
     assert tools[0]["name"] == "read_file"
     assert "README.md" in tools[0]["arguments_preview"]
+    # Full args text for the activity view rides beside the bounded preview.
+    assert "README.md" in tools[0]["arguments_text"]
 
     # Completed records must NOT re-announce the launch.
     done = dict(rec, status="completed")
     assert not [e for e in adapter.handle_record(done) if e.get("type") == "tool_started"]
+
+
+def test_adapter_emits_cycle_result_with_model_output_not_prompt_echo() -> None:
+    """COMPLETED reason llm_calls surface the model's ACTUAL cycle output
+    (content + reasoning from the RESULT) — never the STARTED payload's
+    messages, which echo the user's prompt (the 2026-07-17 dishonesty:
+    'thinking' showing a repetition of the user's message)."""
+    adapter = GatewayEventAdapter()
+    started = {
+        "run_id": "r1",
+        "node_id": "reason",
+        "status": "started",
+        "effect": {
+            "type": "llm_call",
+            "payload": {"messages": [{"role": "user", "content": "the user prompt"}]},
+        },
+    }
+    adapter.handle_record(started)
+
+    completed = {
+        "run_id": "r1",
+        "node_id": "reason",
+        "status": "completed",
+        "ended_at": "2026-07-17T17:00:00+00:00",
+        "effect": {"type": "llm_call", "payload": {}},
+        "result": {
+            "content": "I should check the README first.",
+            "reasoning": "The user asked about setup; the README likely documents it.",
+        },
+    }
+    events = [
+        e for e in adapter.handle_record(completed) if e.get("type") == "cycle_result"
+    ]
+    assert events
+    ev = events[0]
+    assert ev["iteration"] == 1
+    assert ev["content"] == "I should check the README first."
+    assert "README likely documents" in ev["reasoning"]
+    assert "the user prompt" not in ev["content"]
+
+    # A completed reason call with an empty result emits nothing.
+    silent = dict(completed, result={})
+    assert not [
+        e for e in adapter.handle_record(silent) if e.get("type") == "cycle_result"
+    ]

@@ -232,6 +232,7 @@ class GatewayVoiceManager:
             content_type_fn=self._stt_upload_content_type,
             max_upload_bytes_fn=self._stt_max_upload_bytes,
             stt_model_fn=self._selected_stt_model,
+            stt_provider_fn=self._selected_stt_provider,
         )
         lang = None
         try:
@@ -1232,6 +1233,11 @@ class GatewayVoiceManager:
                 callback()
             except Exception:
                 pass
+        # Report that THIS call fired completion so the caller's finally block
+        # does not fire it a second time (the exactly-once `completion_owned`
+        # contract). Returning None here silently double-fired on_speech_end +
+        # callback via the stream finally.
+        return True
 
     def _configure_stream_playback_callbacks(self, player, playback_drained: threading.Event) -> None:
         speech_start_emitted = threading.Event()
@@ -1780,6 +1786,20 @@ class GatewayVoiceManager:
                 or ""
             ).strip()
             return preferred or None
+
+    def _selected_stt_provider(self) -> Optional[str]:
+        # Local STT override provider only; empty lets the gateway resolve the
+        # provider from its input.voice default (the transcribe endpoint accepts
+        # an optional provider, applied to the STT output spec server-side).
+        selected = str(getattr(self._llm_manager, "current_stt_provider", "") or "").strip()
+        if selected:
+            return selected
+        preferred = str(
+            os.getenv("ABSTRACTASSISTANT_GATEWAY_STT_PROVIDER")
+            or os.getenv("ABSTRACTASSISTANT_STT_PROVIDER")
+            or ""
+        ).strip()
+        return preferred or None
 
     def _stt_upload_content_type(self) -> str:
         try:

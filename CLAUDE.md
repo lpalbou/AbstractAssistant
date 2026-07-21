@@ -6,6 +6,114 @@ This file tracks major development tasks, architectural decisions, and implement
 
 ## TASK COMPLETION LOG
 
+### Task: Model/voice selection is a LOCAL override, never a gateway mutation (2026-07-18)
+
+**Symptom (two reports, one cause)**: (1) chat "failed offline"; (2) picking a
+provider/model in settings "changed the DEFAULT OF THE GATEWAY" instead of being
+a local override for the assistant.
+
+**Root cause (confirmed by run forensics + code)**: the settings tab's
+`_save_route` called `controller.save_route_default` → `gateway_service.save_route_default`
+→ `client.set_capability_default` → HTTP `PUT /api/gateway/config/capability-defaults/{kind}/{modality}`
+— a mutation of the gateway's GLOBAL capability default, shared by every client.
+That default had been set to an online-only `endpoint:ovh-provider` /
+`Meta-Llama-3_3-70B-Instruct`; offline, every chat run failed (`run_03c9e69f`
+DNS `[Errno 8] nodename nor servname`, then `run_a84afc0b` "Circuit breaker
+open"). The assistant sent NO provider/model override, so it inherited the
+corrupted global default. The two problems are the same bug.
+
+**Override channel — DUAL, both required (adversary-corrected)**: the override
+must ride BOTH channels of `build_run_input_data`:
+- TOP-LEVEL `input_data.provider`/`model` — flows through the start node's pins
+  into the ROUTER `llm_call` node (`route_call`). Visual `llm_call` nodes do NOT
+  read `_runtime`, so a `_runtime`-only override leaves the router on the baked
+  gateway default. LIVE-PROVEN both ways on the current gateway: `_runtime`-only
+  → `route_call` payload `provider=None` (baked default, breaks offline at the
+  FIRST call); top-level → `route_call` payload `provider=lmstudio` (override
+  honored). My first-pass `_runtime`-only fix was WRONG for exactly this reason;
+  an earlier note claiming "top-level does NOT override" misread `vars._runtime.provider`
+  (a host mirror that `bundle_host._seed` fills only-when-empty, ~1697-1706) as
+  the router's actual routing.
+- `_runtime.provider`/`model` — covers the `assistant_agent` CHILD subrun (which
+  DOES inherit run-scoped defaults via `setdefault` in `runtime.py`, protected
+  from clobber) and any future run-default-reading node.
+Sending both makes the whole workflow (router + agent) use the override without
+touching the gateway default.
+
+**base_url is best-effort (runtime limitation, reported not owned)**: for a plain
+provider, `MultiLocalAbstractCoreLLMClient._create_client` builds the switched
+client from `dict(self._llm_kwargs)`, which carries the DEFAULT provider's
+`base_url`/`api_key` (`llm_client.py` ~7119). So switching to plain `lmstudio`
+while the baked default is `endpoint:ovh-provider` yields a lmstudio client
+pointed at OVH's URL → "model not found" listing the OVH catalog (also leaks the
+OVH bearer to the new host). Mitigations: `endpoint:<id>` providers self-resolve
+their base_url/key via the runtime's live `resolve_provider_endpoint_profile`
+(reliable); when the baked default is itself a local provider (the normal
+post-fix state), plain-provider overrides work. The assistant sends base_url on
+both channels best-effort. The kwargs-inheritance is a runtime defect to file
+against abstractruntime.
+
+**base_url gotcha (runtime, reported not owned)**: `MultiLocalAbstractCoreLLMClient`
+builds a switched-provider client from `dict(self._llm_kwargs)`, which carries
+the DEFAULT provider's `base_url`. So when the baked default is
+`endpoint:ovh-provider` (base_url=OVH) and you override to plain `lmstudio`, the
+lmstudio client inherits OVH's base_url and 400s "model not found" (lists OVH
+models). Two mitigations: the assistant sends `base_url` in the override too
+(rides `_runtime.base_url`), and `endpoint:` profiles carry their own base_url
+via the runtime's `resolve_provider_endpoint_profile` resolver so they always
+work. When the gateway default is itself a local provider (the normal,
+post-fix state), plain-provider overrides work without a base_url. Live "Model
+unloaded"/"Failed to load model" 400s during testing were LM Studio JIT
+load/unload churn, not the override path.
+
+**Fix (assistant-only, gateway never mutated)**:
+- `preferences.py`: `AssistantPreferences.route_overrides: Dict[route_key, {provider, model, base_url?, options?}]`;
+  `LOCAL_OVERRIDE_ROUTE_KEYS = ("output.text", "output.voice", "input.voice")`;
+  `_normalize_route_overrides` drops half-pins (provider without model).
+- `controller.py`: `route_override` / `save_route_override` / `clear_route_override`
+  write LOCAL prefs only (the gateway-mutating `save_route_default`/`clear_route_default`
+  are GONE). `build_chat_worker` passes the `output.text` override as
+  `provider_override`/`model_override`/`base_url_override`. `_sync_gateway_voice_defaults`
+  now pushes only the LOCAL voice/STT override onto `current_tts_*`/`current_stt_model`
+  (empty = let the gateway default resolve) — it no longer pins the gateway's
+  moving default as if it were the user's choice.
+- `gateway/run_input.py`: `build_run_input_data(provider, model, base_url)` sets
+  BOTH top-level `provider`/`model`/`base_url` (router coverage) AND
+  `_runtime.{provider,model,base_url}` (agent coverage); both provider+model
+  required (half-pin dropped on both channels).
+- `ui/gateway_worker.py`: `provider_override`/`model_override`/`base_url_override`
+  threaded into `build_run_input_data`.
+- `_save_preferences` (General tab) now carries `route_overrides` when rebuilding
+  the prefs object — omitting it silently wiped the overrides on every General
+  save (adversary Q5.4).
+- STT provider threaded: `client.audio_transcribe(provider=...)` (the gateway
+  transcribe route accepts it; the client had dropped it), `GatewaySTTAdapter`
+  gained `stt_provider_fn`, voice manager `_selected_stt_provider`, controller
+  syncs `current_stt_provider` from the `input.voice` override.
+- `app.py` settings: tab "Gateway Defaults" → "Models & Voice"; rows built from
+  `_build_override_rows` (only the 3 overrideable routes; media/embedding removed
+  from the thin client); mode = local override present?; state line shows BOTH
+  the gateway default and this-app override; "Reset to gateway" button
+  (`_reset_route_to_gateway` → `clear_route_override`); radios "Use gateway
+  default" / "Override for this app".
+
+**Scope decision**: media/embedding routes were removed from the assistant
+settings. The assistant only TRIGGERS media generation; it cannot honor a local
+per-run override for media nodes (no proven `_runtime` route-override channel for
+them), so offering it would be dishonest, and reconfiguring the gateway's media
+models belongs to the gateway console — not a thin client forbidden from
+mutating the gateway.
+
+**Testing**: `tests/basic` 268 passed. New: `test_settings_routes.py` rewritten
+for the local-override contract (guards that the gateway-mutating API is never
+reached from the dialog; reset button; only-overrideable-routes listed);
+`test_gateway_run_input.py` override-in-`_runtime` + half-pin-dropped;
+`test_assistant_palette.py` build_chat_worker passes/omits the override. Live:
+override stored in `preferences.json`, gateway capability default byte-unchanged
+before/after, reset clears the override.
+
+---
+
 ### Task: Run Visibility, Run Controls, and Mid-Run Steering (2026-07-10)
 
 **Description**: Gave the assistant (v2 palette primarily; v1 bubble kept in parity) live

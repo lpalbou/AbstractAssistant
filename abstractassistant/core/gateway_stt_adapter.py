@@ -33,6 +33,7 @@ class GatewaySTTAdapter(STTAdapter):
         content_type_fn: Optional[Callable[[], str]] = None,
         max_upload_bytes_fn: Optional[Callable[[], int]] = None,
         stt_model_fn: Optional[Callable[[], Optional[str]]] = None,
+        stt_provider_fn: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._gateway_client_fn = gateway_client_fn
         self._session_id_fn = session_id_fn
@@ -40,16 +41,24 @@ class GatewaySTTAdapter(STTAdapter):
         self._content_type_fn = content_type_fn
         self._max_upload_bytes_fn = max_upload_bytes_fn
         self._stt_model_fn = stt_model_fn
+        self._stt_provider_fn = stt_provider_fn
 
-    def _selected_stt_model(self) -> Optional[str]:
-        if not callable(self._stt_model_fn):
+    @staticmethod
+    def _resolve_selector(fn: Optional[Callable[[], Optional[str]]]) -> Optional[str]:
+        if not callable(fn):
             return None
         try:
-            value = self._stt_model_fn()
+            value = fn()
         except Exception:
             return None
         selected = str(value or "").strip()
         return selected or None
+
+    def _selected_stt_model(self) -> Optional[str]:
+        return self._resolve_selector(self._stt_model_fn)
+
+    def _selected_stt_provider(self) -> Optional[str]:
+        return self._resolve_selector(self._stt_provider_fn)
 
     def transcribe(self, audio_path: str, language: Optional[str] = None, **kwargs) -> str:
         with open(audio_path, "rb") as f:
@@ -103,6 +112,7 @@ class GatewaySTTAdapter(STTAdapter):
                 request_id=str(uuid.uuid4()),
                 language=str(language) if isinstance(language, str) and language.strip() else None,
                 model=self._selected_stt_model(),
+                provider=self._selected_stt_provider(),
                 timeout_s=120.0,
             )
             return str(res.get("text") or "").strip() if isinstance(res, dict) else ""

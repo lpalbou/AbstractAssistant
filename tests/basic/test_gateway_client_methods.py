@@ -68,7 +68,7 @@ def test_gateway_client_new_contract_methods_build_expected_requests(monkeypatch
     )
     gw.clear_capability_default(route_key="output.voice")
     gw.voice_tts(run_id="r1", text="say it", provider="openai", profile="alloy", fmt="wav", model="tts-model")
-    gw.audio_transcribe(run_id="r1", audio_artifact={"$artifact": "aud"}, language="en", model="stt-model")
+    gw.audio_transcribe(run_id="r1", audio_artifact={"$artifact": "aud"}, language="en", model="stt-model", provider="faster-whisper")
     gw.session_prompt_cache_status(session_id="s1", provider="p", model="m", bundle_id="b", flow_id="f")
     gw.session_prompt_cache_prepare(
         session_id="s1",
@@ -178,6 +178,7 @@ def test_gateway_client_new_contract_methods_build_expected_requests(monkeypatch
     assert calls[18]["body"]["model"] == "tts-model"
     assert calls[18]["body"]["profile"] == "alloy"
     assert calls[19]["body"]["model"] == "stt-model"
+    assert calls[19]["body"]["provider"] == "faster-whisper"
     assert "/api/gateway/sessions/s1/prompt_cache/status?" in urls[20]
     assert urls[21] == "http://gateway/api/gateway/sessions/s1/prompt_cache/prepare"
     assert urls[22] == "http://gateway/api/gateway/sessions/s1/prompt_cache/clear"

@@ -29,6 +29,7 @@ from .preferences import (
     AssistantPreferences,
     GatewayConnectionPreferences,
     GatewayConnectionStore,
+    LOCAL_OVERRIDE_ROUTE_KEYS,
     PreferencesStore,
     WorkflowSelection,
 )
@@ -238,7 +239,18 @@ class AssistantController:
     def route_map(self) -> Dict[str, CapabilityRouteRow]:
         return self.gateway_service.route_map()
 
-    def save_route_default(
+    def route_override(self, route_key: str) -> Optional[Dict[str, Any]]:
+        """Return the LOCAL override for a capability route, or None.
+
+        These are the assistant's own per-app overrides of the gateway default.
+        The gateway's global capability defaults are never read or written here.
+        """
+        key = str(route_key or "").strip()
+        overrides = getattr(self.preferences, "route_overrides", None) or {}
+        value = overrides.get(key)
+        return dict(value) if isinstance(value, dict) else None
+
+    def save_route_override(
         self,
         *,
         route_key: str,
@@ -248,22 +260,47 @@ class AssistantController:
         options: Optional[Dict[str, Any]] = None,
         options_text: str = "",
     ) -> None:
-        parsed_options = dict(options) if isinstance(options, dict) else self._parse_options(options_text)
-        self.gateway_service.save_route_default(
-            route_key=route_key,
-            provider=provider,
-            model=model,
-            base_url=base_url,
-            options=parsed_options,
-        )
-        self.invalidate_caches()
-        self.refresh_gateway_capabilities()
-        self._sync_gateway_voice_defaults()
+        """Persist a LOCAL override for this app only.
 
-    def clear_route_default(self, *, route_key: str) -> None:
-        self.gateway_service.clear_route_default(route_key=route_key)
+        This never mutates the gateway's global capability default — the
+        selection rides each run (chat) or voice call as a per-request override.
+        """
+        key = str(route_key or "").strip()
+        if key not in LOCAL_OVERRIDE_ROUTE_KEYS:
+            raise ValueError(f"Route {key!r} cannot be overridden locally by the assistant.")
+        provider_s = str(provider or "").strip()
+        model_s = str(model or "").strip()
+        if not provider_s or not model_s:
+            raise ValueError("A local override needs both a provider and a model.")
+        parsed_options = dict(options) if isinstance(options, dict) else self._parse_options(options_text)
+        entry: Dict[str, Any] = {"provider": provider_s, "model": model_s}
+        base_url_s = str(base_url or "").strip()
+        if base_url_s:
+            entry["base_url"] = base_url_s
+        if parsed_options:
+            entry["options"] = parsed_options
+        overrides = dict(getattr(self.preferences, "route_overrides", None) or {})
+        overrides[key] = entry
+        self._persist_route_overrides(overrides)
+
+    def clear_route_override(self, *, route_key: str) -> None:
+        """Drop the LOCAL override so the gateway default applies again."""
+        key = str(route_key or "").strip()
+        overrides = dict(getattr(self.preferences, "route_overrides", None) or {})
+        if key not in overrides:
+            return
+        overrides.pop(key, None)
+        self._persist_route_overrides(overrides)
+
+    def _persist_route_overrides(self, overrides: Dict[str, Dict[str, Any]]) -> None:
+        import dataclasses
+
+        prefs = dataclasses.replace(self.preferences, route_overrides=overrides)
+        self.preferences_store.save(prefs)
+        self.preferences = prefs
+        # Voice overrides are applied by the voice manager reading these prefs;
+        # invalidate caches so any capability-derived UI refreshes.
         self.invalidate_caches()
-        self.refresh_gateway_capabilities()
         self._sync_gateway_voice_defaults()
 
     def provider_choices(self, *, route_key: str, base_url: str = ""):
@@ -307,6 +344,7 @@ class AssistantController:
         if workflow is None:
             detail = str(self.workflow_status().error or "No runnable gateway workflow is available.").strip()
             raise RuntimeError(detail)
+        text_override = self.route_override("output.text")
         return GatewayWorker(
             llm_manager=self.llm_manager,
             user_text=prompt,
@@ -320,6 +358,9 @@ class AssistantController:
             bundle_version=workflow.bundle_version,
             registry_scope=workflow.registry_scope,
             primary_image_artifact=self.latest_image_artifact(),
+            provider_override=str((text_override or {}).get("provider") or "") or None,
+            model_override=str((text_override or {}).get("model") or "") or None,
+            base_url_override=str((text_override or {}).get("base_url") or "") or None,
             debug=self.debug,
         )
 
@@ -969,22 +1010,27 @@ class AssistantController:
         return f"{safe_id}-{safe_stem}{safe_suffix}"
 
     def _sync_gateway_voice_defaults(self) -> None:
-        try:
-            voice_row = self.route_map().get("output.voice")
-        except Exception:
-            voice_row = None
-        current_tts_provider = ""
-        current_tts_model = ""
-        current_tts_voice = ""
-        current_tts_voice_mode = "profile"
-        if voice_row is not None:
-            current_tts_provider = str(voice_row.provider or "").strip()
-            current_tts_model = str(voice_row.model or "").strip()
-            current_tts_voice = str((voice_row.options or {}).get("voice") or (voice_row.options or {}).get("profile") or "").strip()
-        setattr(self.llm_manager, "current_tts_provider", current_tts_provider)
-        setattr(self.llm_manager, "current_tts_model", current_tts_model)
-        setattr(self.llm_manager, "current_tts_voice", current_tts_voice)
-        setattr(self.llm_manager, "current_tts_voice_mode", current_tts_voice_mode)
+        """Apply the LOCAL voice/STT overrides onto the voice manager.
+
+        Only a local override is pushed as an explicit provider/model/voice; an
+        empty value means "let the gateway default resolve" (the voice manager
+        already falls back to gateway capabilities when these are blank). We
+        never read the gateway's global default here and pin it as if it were
+        the user's choice — that would freeze a moving default and mask offline
+        breakage.
+        """
+        tts_override = self.route_override("output.voice") or {}
+        stt_override = self.route_override("input.voice") or {}
+        tts_provider = str(tts_override.get("provider") or "").strip()
+        tts_model = str(tts_override.get("model") or "").strip()
+        tts_options = tts_override.get("options") if isinstance(tts_override.get("options"), dict) else {}
+        tts_voice = str(tts_options.get("voice") or tts_options.get("profile") or "").strip()
+        setattr(self.llm_manager, "current_tts_provider", tts_provider)
+        setattr(self.llm_manager, "current_tts_model", tts_model)
+        setattr(self.llm_manager, "current_tts_voice", tts_voice)
+        setattr(self.llm_manager, "current_tts_voice_mode", "profile")
+        setattr(self.llm_manager, "current_stt_model", str(stt_override.get("model") or "").strip())
+        setattr(self.llm_manager, "current_stt_provider", str(stt_override.get("provider") or "").strip())
 
     def _normalize_base_url(self, value: str) -> str:
         return str(value or "").strip().rstrip("/") or DEFAULT_GATEWAY_URL

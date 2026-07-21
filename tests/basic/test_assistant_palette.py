@@ -723,7 +723,7 @@ def test_assistant_palette_hidden_final_reply_marks_unread_and_notifies() -> Non
     palette.refresh_history = lambda request=None: history_calls.append(request)
     palette._history_scroll_request = lambda **kwargs: HistoryScrollRequest(**kwargs)
     palette._latest_visible_message_key = lambda role="": "assistant-1"
-    palette._set_history_status = lambda text="", tone="neutral": None
+    palette._set_history_status = lambda text="", tone="neutral", **kw: None
     palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
     palette._refresh_tray_feedback = lambda: refresh_calls.append("refresh")
     palette._notify_completion_ready = lambda content: notifications.append(content)
@@ -753,7 +753,7 @@ def test_assistant_palette_run_activity_event_updates_inline_status() -> None:
     status_calls: list[tuple[str, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append(
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append(
         (text, tone)
     )
 
@@ -776,7 +776,7 @@ def test_assistant_palette_tool_event_updates_inline_status() -> None:
 
     palette = AssistantPalette.__new__(AssistantPalette)
     palette._set_history_status = (
-        lambda text="", tone="neutral", rich=False, tooltip=None: status_calls.append(
+        lambda text="", tone="neutral", rich=False, tooltip=None, **kw: status_calls.append(
             (text, tone, rich, str(tooltip or ""))
         )
     )
@@ -864,7 +864,7 @@ def test_assistant_palette_worker_finished_shows_non_durable_empty_reply_diagnos
     palette._run_has_final_output = False
     palette._controller = _Controller()
     palette._show_thinking_indicator = lambda: False
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append(
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append(
         (text, tone)
     )
     palette.refresh_history = lambda request=None: history_calls.append(request)
@@ -916,7 +916,7 @@ def test_assistant_palette_send_button_stops_active_run() -> None:
     palette._worker = _Worker()
     palette._submit = lambda: submitted.append(True)
     palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append((text, tone))
 
     AssistantPalette._on_send_button_clicked(palette)
 
@@ -954,7 +954,7 @@ def test_assistant_palette_replay_degraded_prevents_finished_fallback() -> None:
     palette._controller = _Controller()
     palette._tray_completion_unread = False
     palette._show_thinking_indicator = lambda: False
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append(
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append(
         (text, tone)
     )
     palette._set_status = lambda text, tone="neutral": status_calls.append(
@@ -1369,11 +1369,7 @@ def test_assistant_palette_controller_returns_catalog_workflow_selection() -> No
 
 
 @pytest.mark.basic
-def test_assistant_palette_controller_build_chat_worker_does_not_pass_text_route_defaults(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
+def _bare_chat_worker_controller(monkeypatch: pytest.MonkeyPatch, captured: dict) -> AssistantController:
     class _WorkerCapture:
         def __init__(self, **kwargs) -> None:
             captured.update(kwargs)
@@ -1395,17 +1391,50 @@ def test_assistant_palette_controller_build_chat_worker_does_not_pass_text_route
         "require_approval_tools": ["execute_command"],
     }
     controller.latest_image_artifact = lambda: None  # type: ignore[method-assign]
+    return controller
+
+
+def test_assistant_palette_controller_build_chat_worker_no_override_forces_no_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With NO local override, the thin client forces no provider/model — the
+    gateway default resolves the run (provider/model overrides are None)."""
+    captured: dict[str, object] = {}
+    controller = _bare_chat_worker_controller(monkeypatch, captured)
+    controller.route_override = lambda key: None  # type: ignore[method-assign]
 
     controller.build_chat_worker(prompt="Hello", attachments=["/tmp/prompt.txt"])
 
-    assert "provider" not in captured
-    assert "model" not in captured
+    assert captured["provider_override"] is None
+    assert captured["model_override"] is None
+    assert captured["base_url_override"] is None
     assert captured["bundle_id"] == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
     assert captured["registry_scope"] == "tenant_catalog"
     assert captured["attachments"] == ["/tmp/prompt.txt"]
     assert captured["allowed_tools"] == ["read_file", "web_search"]
     assert captured["tool_policy"]["require_approval_tools"] == ["execute_command"]
     assert captured["primary_image_artifact"] is None
+
+
+def test_assistant_palette_controller_build_chat_worker_passes_local_text_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A saved output.text LOCAL override rides the worker as a per-run pin —
+    this is the offline-safe path (choose a local model) and never a gateway
+    mutation."""
+    captured: dict[str, object] = {}
+    controller = _bare_chat_worker_controller(monkeypatch, captured)
+    controller.route_override = lambda key: (  # type: ignore[method-assign]
+        {"provider": "lmstudio", "model": "ornith-1.0-35b", "base_url": "http://localhost:1234/v1"}
+        if key == "output.text"
+        else None
+    )
+
+    controller.build_chat_worker(prompt="Hello")
+
+    assert captured["provider_override"] == "lmstudio"
+    assert captured["model_override"] == "ornith-1.0-35b"
+    assert captured["base_url_override"] == "http://localhost:1234/v1"
 
 
 @pytest.mark.basic
@@ -3203,6 +3232,9 @@ def test_gateway_worker_starts_runs_with_catalog_scope_and_version(
                     "messages": [],
                 },
                 "use_context": False,
+                # Durable session replay: the gateway seeds context.messages
+                # from the session's prior turns server-side.
+                "use_session_history": True,
                 "_runtime": {},
                 "max_iterations": 50,
                 "has_primary_image_context": False,
@@ -3223,7 +3255,7 @@ def test_assistant_palette_cycle_event_updates_inline_status() -> None:
     status_calls: list[tuple[str, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append((text, tone))
 
     AssistantPalette._on_worker_event(palette, {"type": "cycle", "iteration": 3})
 
@@ -3237,7 +3269,7 @@ def test_assistant_palette_tool_started_event_updates_inline_status() -> None:
     status_calls: list[tuple[str, str]] = []
 
     palette = AssistantPalette.__new__(AssistantPalette)
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append((text, tone))
 
     AssistantPalette._on_worker_event(
         palette,
@@ -3297,7 +3329,7 @@ def test_assistant_palette_submit_steers_active_run_instead_of_refusing() -> Non
     palette.refresh_history = lambda request=None: refreshed.append(True)
     palette._history_scroll_request = lambda mode="bottom", **kw: None
     palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append((text, tone))
 
     AssistantPalette._submit(palette)
 
@@ -3367,7 +3399,7 @@ def test_assistant_palette_submit_during_stop_teardown_queues_instead_of_steerin
     palette._cancel_requested = True  # user clicked Stop
     palette.prompt_edit = _PromptEditStub("same question again")
     palette._steer_active_run = lambda: steered.append("steered")
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append((text, tone))
 
     AssistantPalette._submit(palette)
 
@@ -3428,7 +3460,7 @@ def test_assistant_palette_stop_restores_send_button_and_marks_teardown() -> Non
     palette._worker = _Worker()
     palette._set_send_button_busy = lambda busy: busy_calls.append(bool(busy))
     palette._set_status = lambda text, tone="neutral": status_calls.append((text, tone))
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append((text, tone))
 
     AssistantPalette._cancel_active_run(palette)
 
@@ -3450,7 +3482,7 @@ def test_assistant_palette_worker_finished_after_stop_reports_run_stopped() -> N
     palette._run_has_final_output = False
     palette._show_thinking_indicator = lambda: False
     palette._set_send_button_busy = lambda busy: None
-    palette._set_history_status = lambda text="", tone="neutral": status_calls.append((text, tone))
+    palette._set_history_status = lambda text="", tone="neutral", **kw: status_calls.append((text, tone))
     palette._refresh_tray_feedback = lambda: None
     palette.refresh_history = lambda request=None: None
     palette._set_status = lambda text, tone="neutral": None

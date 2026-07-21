@@ -14,6 +14,44 @@ from typing import Any, Dict, Optional
 from abstractassistant.config import DEFAULT_GATEWAY_URL
 
 
+# Capability routes the thin client can locally override AND actually applies.
+# Chat text is applied per-run (input_data._runtime.provider/model); voice is
+# applied per-call in the voice manager. Media/embedding routes are deliberately
+# NOT here: the assistant only triggers them and cannot honor a local per-run
+# override for them, so offering it would be dishonest (and configuring the
+# gateway's media models belongs to the gateway console, not a thin client).
+LOCAL_OVERRIDE_ROUTE_KEYS = ("output.text", "output.voice", "input.voice")
+
+
+def _normalize_route_overrides(raw: Any) -> Dict[str, Dict[str, Any]]:
+    """Coerce persisted route overrides to {route_key: {provider, model, base_url, options}}.
+
+    An override is only kept when it carries a non-empty provider AND model —
+    a half-specified override is indistinguishable from "use gateway default"
+    and would silently send a broken pin.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for key, value in raw.items():
+        route_key = str(key or "").strip()
+        if route_key not in LOCAL_OVERRIDE_ROUTE_KEYS or not isinstance(value, dict):
+            continue
+        provider = str(value.get("provider") or "").strip()
+        model = str(value.get("model") or "").strip()
+        if not provider or not model:
+            continue
+        options = value.get("options")
+        entry: Dict[str, Any] = {"provider": provider, "model": model}
+        base_url = str(value.get("base_url") or "").strip()
+        if base_url:
+            entry["base_url"] = base_url
+        if isinstance(options, dict) and options:
+            entry["options"] = dict(options)
+        out[route_key] = entry
+    return out
+
+
 @dataclass(frozen=True)
 class AssistantPreferences:
     hotkey_enabled: bool = True
@@ -26,6 +64,10 @@ class AssistantPreferences:
     window_height: int = 336
     bottom_offset: int = 18
     tool_preferences: Dict[str, str] = field(default_factory=dict)
+    # LOCAL overrides of the gateway's capability defaults, for THIS app only.
+    # The gateway's global defaults are never mutated by the assistant — an
+    # empty map means "use whatever the gateway resolves".
+    route_overrides: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "AssistantPreferences":
@@ -50,6 +92,7 @@ class AssistantPreferences:
                 for name, mode in tool_preferences_raw.items()
                 if str(name).strip() and str(mode).strip().lower() in {"disabled", "approve", "ask"}
             },
+            route_overrides=_normalize_route_overrides(raw.get("route_overrides")),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -66,6 +109,7 @@ class AssistantPreferences:
                 for name, mode in self.tool_preferences.items()
                 if str(name).strip() and str(mode).strip().lower() in {"disabled", "approve", "ask"}
             },
+            "route_overrides": _normalize_route_overrides(self.route_overrides),
         }
 
 

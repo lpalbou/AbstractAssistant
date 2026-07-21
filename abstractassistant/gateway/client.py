@@ -1080,6 +1080,7 @@ class GatewayClient:
         request_id: Optional[str] = None,
         language: Optional[str] = None,
         model: Optional[str] = None,
+        provider: Optional[str] = None,
         timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
@@ -1092,6 +1093,8 @@ class GatewayClient:
             body["language"] = str(language)
         if model:
             body["model"] = str(model)
+        if provider:
+            body["provider"] = str(provider)
         return self._request_json(
             method="POST",
             url=self._url(f"/api/gateway/runs/{rid}/audio/transcribe"),

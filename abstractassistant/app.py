@@ -55,6 +55,7 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -75,6 +76,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QRadioButton,
     QScrollArea,
     QShortcut,
     QSizePolicy,
@@ -3644,14 +3646,18 @@ class ThinkingIndicatorCard(QFrame):
     """One badge at the transcript tail: animated dots + the live run status.
 
     The run-observability text ("Thinking — cycle 3", "Tool: read_file …")
-    renders inside the same pill as the dancing dots, in the dots' muted
-    palette, instead of a separate banner above the transcript.
+    renders inside the same pill as the dancing dots, color-toned by activity
+    (thinking / tool / waiting), and the pill is clickable — it opens the
+    live run-activity view (per-cycle model output, tool calls + results).
     """
+
+    activated = pyqtSignal()
 
     def __init__(
         self,
         status_text: str = "",
         tooltip: str = "",
+        tone: str = "thinking",
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -3668,6 +3674,7 @@ class ThinkingIndicatorCard(QFrame):
         self._bubble = QFrame()
         self._bubble.setObjectName("thinkingBubble")
         self._bubble.setFixedHeight(28)
+        self._bubble.setCursor(Qt.PointingHandCursor)
 
         bubble_layout = QHBoxLayout(self._bubble)
         bubble_layout.setContentsMargins(8, 5, 12, 5)
@@ -3685,11 +3692,32 @@ class ThinkingIndicatorCard(QFrame):
 
         root.addWidget(self._bubble)
         root.addStretch(1)
-        self.set_status(status_text, tooltip=tooltip)
+        self.set_status(status_text, tooltip=tooltip, tone=tone)
 
-    def set_status(self, text: str, tooltip: str = "") -> None:
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        if event.button() == Qt.LeftButton and self._bubble.geometry().contains(
+            event.pos()
+        ):
+            self.activated.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def set_status(self, text: str, tooltip: str = "", tone: str = "thinking") -> None:
         self._raw_text = str(text or "").strip()
-        self._tooltip = str(tooltip or self._raw_text)
+        base_tip = str(tooltip or self._raw_text).strip()
+        hint = "Click for live run activity"
+        self._tooltip = f"{base_tip}\n{hint}" if base_tip else hint
+        normalized_tone = str(tone or "thinking").strip().lower()
+        if normalized_tone not in {"thinking", "tool", "waiting"}:
+            normalized_tone = "thinking"
+        for widget in (self._bubble, self._status):
+            if widget.property("tone") != normalized_tone:
+                widget.setProperty("tone", normalized_tone)
+                style = widget.style()
+                if style is not None:
+                    style.unpolish(widget)
+                    style.polish(widget)
         self._apply_text()
 
     def sync_to_viewport_width(self, width: int) -> None:
@@ -3704,7 +3732,212 @@ class ThinkingIndicatorCard(QFrame):
             display = metrics.elidedText(display, Qt.ElideRight, self._max_text_px)
         self._status.setText(display)
         self._status.setVisible(bool(display))
-        self._bubble.setToolTip(self._tooltip if display else "")
+        self._bubble.setToolTip(self._tooltip)
+
+
+class RunActivityDialog(QDialog):
+    """Live view of the current run's activity: per-cycle model output
+    (its actual intermediate thinking), tool calls with arguments, tool
+    results, and waits — appended in real time while the run progresses.
+
+    Opened by clicking the thinking badge (laurent's ask, 2026-07-17); the
+    abstractcode unfold pattern, as a modeless dialog. Model text renders
+    through the SHARED markdown renderer (tables, code, lists — same as the
+    transcript), never as raw pipe-text (laurent's 18:11 correction).
+    """
+
+    _TONE_COLORS = {
+        "cycle": "#79c7ff",
+        "thinking": "#a5b4fc",
+        "tool": "#fbbf24",
+        "result": "#8bd8b1",
+        "waiting": "#fb923c",
+        "status": "#8fa3ba",
+    }
+
+    def __init__(
+        self,
+        renderer: Optional[MarkdownRenderer] = None,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._renderer = renderer or MarkdownRenderer(theme="friendly_grayscale")
+        self.setWindowTitle("Run Activity")
+        self.setAttribute(Qt.WA_QuitOnClose, False)
+        self.setModal(False)
+        # A working surface, not a toast: the transcript-sized default and the
+        # floor keep _show_aux_dialog's adjustSize from collapsing it.
+        self.setMinimumSize(760, 600)
+        self.resize(920, 720)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._host = QWidget()
+        self._host.setObjectName("activityHost")
+        self._layout = QVBoxLayout(self._host)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(6)
+        self._layout.setAlignment(Qt.AlignTop)
+        self._scroll.setWidget(self._host)
+        root.addWidget(self._scroll, 1)
+
+        # Persistent placeholder toggled by visibility — deleting/recreating
+        # it left a deleted-later ghost painting over the entries.
+        self._empty = QLabel("No run activity yet — send a message to watch it live.")
+        self._empty.setObjectName("activityEmpty")
+        self._empty.setAlignment(Qt.AlignCenter)
+        self._layout.addWidget(self._empty)
+
+        self.setStyleSheet(
+            """
+            QDialog { background: #0b0f17; color: #e8edf4; }
+            QScrollArea { background: transparent; border: none; }
+            QWidget#activityHost { background: transparent; }
+            QLabel { font-size: 12px; color: #cfd8e3; }
+            QLabel#activityEmpty { color: #71839a; padding: 24px; }
+            QFrame#activityEntry {
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: 8px;
+            }
+            QLabel#activityHeader { font-weight: 700; font-size: 12px; }
+            QLabel#activityBody {
+                color: #b9c7d7;
+                font-size: 12px;
+            }
+            QLabel#activityMono {
+                color: #b9c7d7;
+                font-family: Menlo, Monaco, Consolas, monospace;
+                font-size: 11px;
+            }
+            QScrollBar:vertical { width: 6px; background: transparent; }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.12);
+                border-radius: 3px; min-height: 20px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent; border: none; height: 0px;
+            }
+            """
+        )
+
+    def set_entries(self, entries: List[Dict[str, Any]]) -> None:
+        # Remove every entry widget, keeping the persistent placeholder.
+        for index in reversed(range(self._layout.count())):
+            item = self._layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None and widget is not self._empty:
+                self._layout.takeAt(index)
+                widget.setParent(None)
+                widget.deleteLater()
+        self._empty.setVisible(not entries)
+        for entry in entries:
+            self.append_entry(entry, scroll=False)
+        self._scroll_to_bottom()
+
+    def append_entry(self, entry: Dict[str, Any], *, scroll: bool = True) -> None:
+        if not isinstance(entry, dict):
+            return
+        widget = self._build_entry_widget(entry)
+        if widget is not None:
+            self._empty.setVisible(False)
+            self._layout.addWidget(widget)
+            if scroll:
+                self._scroll_to_bottom()
+
+    def _scroll_to_bottom(self) -> None:
+        def _apply() -> None:
+            try:
+                bar = self._scroll.verticalScrollBar()
+                bar.setValue(bar.maximum())
+            except Exception:
+                pass
+
+        QTimer.singleShot(0, _apply)
+
+    def _build_entry_widget(self, entry: Dict[str, Any]) -> Optional[QWidget]:
+        kind = str(entry.get("kind") or "").strip()
+        frame = QFrame()
+        frame.setObjectName("activityEntry")
+        col = QVBoxLayout(frame)
+        col.setContentsMargins(10, 8, 10, 8)
+        col.setSpacing(4)
+
+        def _header(text: str, tone: str) -> None:
+            label = QLabel(text)
+            label.setObjectName("activityHeader")
+            color = self._TONE_COLORS.get(tone, "#8fa3ba")
+            label.setStyleSheet(f"color: {color};")
+            col.addWidget(label)
+
+        def _body(text: str, *, mono: bool = False) -> None:
+            content = str(text or "").strip()
+            if not content:
+                return
+            label = QLabel(content)
+            label.setObjectName("activityMono" if mono else "activityBody")
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            col.addWidget(label)
+
+        def _markdown_body(text: str) -> None:
+            """Model prose renders through the shared markdown pipeline —
+            tables/code/lists look like the transcript, not raw pipe-text."""
+            content = str(text or "").strip()
+            if not content:
+                return
+            browser = AutoSizingTextBrowser(min_height=24, max_height=None)
+            browser.setObjectName("activityMarkdown")
+            browser.setStyleSheet(
+                "background: transparent; border: none; color: #e8edf4; padding: 0px; margin: 0px;"
+            )
+            browser.setHtml(_assistant_html(self._renderer, content))
+            browser.refresh_height()
+            col.addWidget(browser)
+
+        ts = str(entry.get("ts") or "").strip()
+        ts_suffix = f" — {_format_message_timestamp(ts)}" if ts else ""
+
+        if kind == "cycle":
+            _header(f"Cycle {entry.get('n')}{ts_suffix}", "cycle")
+        elif kind == "thinking":
+            _header(f"Model — cycle {entry.get('n')}{ts_suffix}", "thinking")
+            reasoning = str(entry.get("reasoning") or "").strip()
+            content = str(entry.get("content") or "").strip()
+            if reasoning:
+                _markdown_body(reasoning)
+            if content and content != reasoning:
+                _markdown_body(content)
+        elif kind == "tools":
+            _header(f"Tool calls{ts_suffix}", "tool")
+            for tool in entry.get("tools") or []:
+                if not isinstance(tool, dict):
+                    continue
+                name = str(tool.get("name") or "tool")
+                _body(name)
+                args = str(
+                    tool.get("arguments_text") or tool.get("arguments_preview") or ""
+                ).strip()
+                if args:
+                    _body(args, mono=True)
+        elif kind == "tool_result":
+            _header(f"Result — {entry.get('name') or 'tool'}{ts_suffix}", "result")
+            _body(str(entry.get("preview") or ""), mono=True)
+        elif kind == "waiting":
+            _header(f"Waiting{ts_suffix}", "waiting")
+            _body(str(entry.get("text") or ""))
+        elif kind == "status":
+            _header(f"Status{ts_suffix}", "status")
+            _body(str(entry.get("text") or ""))
+        else:
+            return None
+        return frame
 
 
 def _usage_chip(text: str, tone: str, parent: Optional[QWidget] = None) -> QLabel:
@@ -4999,6 +5232,10 @@ class ToolSettingsDialog(QDialog):
 class SettingsDialog(QDialog):
     settings_saved = pyqtSignal()
 
+    # Guard for programmatic combo/radio churn while a route loads
+    # (class-level default: __new__-built instances in tests lack __init__).
+    _loading_route = False
+
     def __init__(
         self,
         *,
@@ -5120,10 +5357,12 @@ class SettingsDialog(QDialog):
         routes_root = QVBoxLayout(routes_tab)
         routes_root.setContentsMargins(0, 0, 0, 0)
         routes_root.setSpacing(8)
-        self.settings_tabs.addTab(routes_tab, "Gateway Defaults")
+        self.settings_tabs.addTab(routes_tab, "Models & Voice")
 
         capability_help = QLabel(
-            "Saved on the connected gateway — shared by every thin client on this account."
+            "Local overrides for THIS app only. The gateway's shared defaults are "
+            "never changed — leave a route on \u201cUse gateway default\u201d to follow "
+            "whatever the gateway serves."
         )
         capability_help.setObjectName("sectionHelp")
         capability_help.setWordWrap(True)
@@ -5181,9 +5420,36 @@ class SettingsDialog(QDialog):
         self.route_help.setObjectName("routeHelp")
         right.addWidget(self.route_help)
 
-        self.show_advanced = QCheckBox("Show advanced route fields")
-        self.show_advanced.stateChanged.connect(self._apply_advanced_visibility)
-        right.addWidget(self.show_advanced)
+        # What actually applies right now — always visible, always honest.
+        self.route_state = QLabel("")
+        self.route_state.setWordWrap(True)
+        self.route_state.setObjectName("statusNote")
+        right.addWidget(self.route_state)
+
+        # ONE mode choice per route: ride the gateway's own default, or pin an
+        # explicit value on the gateway. The editor never pre-selects catalog
+        # entries as if they were configuration (that fabrication is what made
+        # 'not configured' routes show openai models).
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(14)
+        self.route_mode_default = QRadioButton("Use gateway default")
+        self.route_mode_default.setToolTip(
+            "Follow whatever the gateway resolves for this route. No local "
+            "override is stored; the gateway's shared default is not changed."
+        )
+        self.route_mode_custom = QRadioButton("Override for this app")
+        self.route_mode_custom.setToolTip(
+            "Pick a provider and model used by THIS app only. Stored locally and "
+            "sent with each request — the gateway's shared default stays untouched."
+        )
+        self.route_mode_group = QButtonGroup(self)
+        self.route_mode_group.addButton(self.route_mode_default)
+        self.route_mode_group.addButton(self.route_mode_custom)
+        self.route_mode_custom.toggled.connect(self._on_route_mode_toggled)
+        mode_row.addWidget(self.route_mode_default)
+        mode_row.addWidget(self.route_mode_custom)
+        mode_row.addStretch(1)
+        right.addLayout(mode_row)
 
         form = QGridLayout()
         form.setHorizontalSpacing(10)
@@ -5195,70 +5461,77 @@ class SettingsDialog(QDialog):
         self.provider_combo = QComboBox()
         self.provider_combo.setMinimumWidth(220)
         self.provider_combo.currentIndexChanged.connect(
-            self._refresh_models_for_provider
+            self._on_provider_combo_changed
         )
         form.addWidget(self.provider_combo, 0, 1)
 
         form.addWidget(QLabel("Model"), 1, 0)
         self.model_combo = QComboBox()
-        self.model_combo.setEditable(True)
         self.model_combo.setMinimumWidth(220)
         form.addWidget(self.model_combo, 1, 1)
 
-        self.base_url_label = QLabel("Provider base URL")
-        form.addWidget(self.base_url_label, 2, 0)
-        self.base_url_edit = QLineEdit()
-        self.base_url_edit.setPlaceholderText("Optional provider-specific override")
-        self.base_url_edit.editingFinished.connect(self._reload_catalogs_for_base_url)
-        form.addWidget(self.base_url_edit, 2, 1)
-
-        self.options_label = QLabel("Advanced options JSON")
-        form.addWidget(self.options_label, 3, 0)
-        self.options_edit = QPlainTextEdit()
-        self.options_edit.setPlaceholderText('{"key":"value"}')
-        self.options_edit.setFixedHeight(60)
-        form.addWidget(self.options_edit, 3, 1)
-
-        self.voice_label = QLabel("Voice / Profile")
-        form.addWidget(self.voice_label, 4, 0)
+        self.voice_label = QLabel("Voice")
+        form.addWidget(self.voice_label, 2, 0)
         self.voice_combo = QComboBox()
-        self.voice_combo.setEditable(True)
         self.voice_combo.setMinimumWidth(220)
-        form.addWidget(self.voice_combo, 4, 1)
+        form.addWidget(self.voice_combo, 2, 1)
 
         self.resolution_label = QLabel("Upscale resolution")
-        form.addWidget(self.resolution_label, 5, 0)
+        form.addWidget(self.resolution_label, 3, 0)
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItem("2x", "2x")
         self.resolution_combo.addItem("4x", "4x")
         self.resolution_combo.addItem("auto", "auto")
-        form.addWidget(self.resolution_combo, 5, 1)
+        form.addWidget(self.resolution_combo, 3, 1)
 
-        self.route_state = QLabel("")
-        self.route_state.setWordWrap(True)
-        self.route_state.setObjectName("statusNote")
-        right.addWidget(self.route_state)
+        self.show_advanced = QCheckBox("Advanced (base URL, raw options)")
+        self.show_advanced.stateChanged.connect(self._apply_advanced_visibility)
+        right.addWidget(self.show_advanced)
+
+        advanced_form = QGridLayout()
+        advanced_form.setHorizontalSpacing(10)
+        advanced_form.setVerticalSpacing(8)
+        advanced_form.setColumnStretch(1, 1)
+        right.addLayout(advanced_form)
+
+        self.base_url_label = QLabel("Provider base URL")
+        advanced_form.addWidget(self.base_url_label, 0, 0)
+        self.base_url_edit = QLineEdit()
+        self.base_url_edit.setPlaceholderText("Optional provider-specific override")
+        self.base_url_edit.editingFinished.connect(self._reload_catalogs_for_base_url)
+        advanced_form.addWidget(self.base_url_edit, 0, 1)
+
+        self.options_label = QLabel("Options JSON")
+        advanced_form.addWidget(self.options_label, 1, 0)
+        self.options_edit = QPlainTextEdit()
+        self.options_edit.setPlaceholderText('{"key":"value"}')
+        self.options_edit.setFixedHeight(60)
+        advanced_form.addWidget(self.options_edit, 1, 1)
 
         self.route_feedback = QLabel("")
         self.route_feedback.setWordWrap(True)
         self.route_feedback.setObjectName("feedbackNote")
         right.addWidget(self.route_feedback)
+        right.addStretch(1)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
         buttons.addStretch(1)
         self.refresh_button = QPushButton("Reload")
         self.refresh_button.setObjectName("secondaryButton")
-        self.refresh_button.setToolTip("Reload these defaults from the gateway")
+        self.refresh_button.setToolTip("Reload the gateway defaults for these routes")
         self.refresh_button.clicked.connect(self.refresh)
         buttons.addWidget(self.refresh_button)
-        self.reset_button = QPushButton("Use Default")
-        self.reset_button.setObjectName("secondaryButton")
-        self.reset_button.setToolTip("Drop the override and use the gateway default")
-        self.reset_button.clicked.connect(self._clear_route)
-        buttons.addWidget(self.reset_button)
-        self.save_button = QPushButton("Save")
-        self.save_button.setToolTip("Save this route on the gateway")
+        self.reset_route_button = QPushButton("Reset to gateway")
+        self.reset_route_button.setObjectName("secondaryButton")
+        self.reset_route_button.setToolTip(
+            "Drop this app's local override for the selected route and follow the "
+            "gateway default again."
+        )
+        self.reset_route_button.clicked.connect(self._reset_route_to_gateway)
+        buttons.addWidget(self.reset_route_button)
+        self.save_button = QPushButton("Apply")
+        self.save_button.setToolTip("Apply the selected mode for this app")
         self.save_button.clicked.connect(self._save_route)
         buttons.addWidget(self.save_button)
         right.addLayout(buttons)
@@ -5350,13 +5623,15 @@ class SettingsDialog(QDialog):
         self._load_connection_preferences()
         self._refresh_connection_status()
         try:
-            self._route_rows = self._controller.route_rows()
+            self._route_rows = self._build_override_rows()
         except Exception as exc:
             self._route_rows = []
             self.route_feedback.setText(str(exc))
         self.route_list.clear()
         for row in self._route_rows:
             item = QListWidgetItem(row.label)
+            item.setIcon(self._route_dot_icon(configured=bool(row.configured)))
+            item.setToolTip(self._route_state_text(row))
             self.route_list.addItem(item)
         if self._route_rows:
             selected_index = 0
@@ -5383,11 +5658,35 @@ class SettingsDialog(QDialog):
         self.height_spin.setValue(int(prefs.window_height))
         self.bottom_offset_spin.setValue(int(prefs.bottom_offset))
 
+    def _combo_arrow_asset(self) -> str:
+        """Write the combo chevron to a cache file once; QSS needs a file url.
+
+        Without this the platform default arrow renders near-invisible on the
+        dark surface — one of the 'terrible dropdowns' complaints.
+        """
+        try:
+            from pathlib import Path
+
+            path = Path.home() / ".abstractassistant" / "ui" / "combo-chevron.png"
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                icon = _symbol_icon("chevron-down", color="#8b95a7", size=10)
+                icon.pixmap(10, 10).save(str(path), "PNG")
+            return path.as_posix()
+        except Exception:
+            return ""
+
     def _apply_styles(self) -> None:
         # Compact, flat, single-accent (indigo) design: 28px controls, 12px
         # type, quiet cards. The dialog's job is dense configuration, not
         # marketing — no gradients, shadows, or oversized paddings.
-        self.setStyleSheet("""
+        arrow = self._combo_arrow_asset()
+        arrow_qss = (
+            f"QComboBox::down-arrow {{ image: url({arrow}); width: 10px; height: 10px; }}"
+            if arrow
+            else ""
+        )
+        self.setStyleSheet(arrow_qss + """
             QDialog {
                 background: #0b0f17;
                 color: #e8edf4;
@@ -5451,9 +5750,17 @@ class SettingsDialog(QDialog):
                 border-color: #6366f1;
                 background: rgba(255, 255, 255, 0.055);
             }
+            QComboBox {
+                padding-right: 24px;
+            }
             QComboBox::drop-down {
                 border: none;
-                width: 20px;
+                width: 22px;
+            }
+            QComboBox:disabled {
+                color: #6b7280;
+                background: rgba(255, 255, 255, 0.015);
+                border-color: rgba(255, 255, 255, 0.05);
             }
             QComboBox QAbstractItemView {
                 background: #161c28;
@@ -5463,6 +5770,25 @@ class SettingsDialog(QDialog):
                 selection-color: #ffffff;
                 border-radius: 7px;
                 padding: 3px;
+            }
+            QRadioButton {
+                spacing: 7px;
+                font-size: 12px;
+                color: #cfd8e3;
+            }
+            QRadioButton::indicator {
+                width: 14px;
+                height: 14px;
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                background: rgba(255, 255, 255, 0.04);
+            }
+            QRadioButton::indicator:hover {
+                border-color: rgba(129, 140, 248, 0.6);
+            }
+            QRadioButton::indicator:checked {
+                background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0.55 #818cf8, stop:0.65 rgba(129, 140, 248, 0.25), stop:1 rgba(255, 255, 255, 0.04));
+                border-color: #6366f1;
             }
             QPushButton {
                 min-height: 26px;
@@ -5673,6 +5999,56 @@ class SettingsDialog(QDialog):
         self.settings_saved.emit()
         self.refresh()
 
+    # The routes the assistant actually drives AND can locally override, with
+    # app-facing labels (the gateway's own route labels are engine-centric).
+    _OVERRIDE_ROUTE_LABELS = {
+        "output.text": "Chat Model",
+        "output.voice": "Voice Output (Text \u2192 Speech)",
+        "input.voice": "Voice Input (Speech \u2192 Text)",
+    }
+
+    def _build_override_rows(self) -> List[CapabilityRouteRow]:
+        """Build editor rows for the locally-overrideable routes.
+
+        Each row's provider/model/options carry THIS APP's local override (so
+        the existing combo-population logic pre-selects the override value);
+        the gateway's own default for the same route is kept separately in
+        ``self._gateway_default_by_key`` for the read-only state line. The
+        gateway is only READ here (for catalogs + the default display) and never
+        written.
+        """
+        gateway_map: Dict[str, CapabilityRouteRow] = {}
+        try:
+            gateway_map = self._controller.route_map()
+        except Exception as exc:
+            self.route_feedback.setText(str(exc))
+        self._gateway_default_by_key = dict(gateway_map)
+        rows: List[CapabilityRouteRow] = []
+        for key, label in self._OVERRIDE_ROUTE_LABELS.items():
+            gw = gateway_map.get(key)
+            spec = ROUTE_SPECS.get(key)
+            override = self._controller.route_override(key) or {}
+            options = override.get("options") if isinstance(override.get("options"), dict) else {}
+            rows.append(
+                CapabilityRouteRow(
+                    key=key,
+                    label=label,
+                    kind=str(getattr(gw, "kind", "") or ""),
+                    modality=str(getattr(gw, "modality", "") or ""),
+                    task=str(getattr(gw, "task", "") or (spec.task if spec else "")),
+                    provider=str(override.get("provider") or ""),
+                    model=str(override.get("model") or ""),
+                    base_url=str(override.get("base_url") or ""),
+                    options=dict(options or {}),
+                    configured=bool(override),
+                    description=(spec.description if spec else str(getattr(gw, "description", "") or "")),
+                )
+            )
+        return rows
+
+    def _gateway_default_row(self, key: str) -> Optional[CapabilityRouteRow]:
+        return dict(getattr(self, "_gateway_default_by_key", {}) or {}).get(str(key or "").strip())
+
     def _active_row(self) -> Optional[CapabilityRouteRow]:
         idx = int(self.route_list.currentRow())
         if idx < 0 or idx >= len(self._route_rows):
@@ -5684,37 +6060,85 @@ class SettingsDialog(QDialog):
         if row is None:
             self._set_route_editor_enabled(False)
             return
-        self.route_label.setText(row.label)
-        self.route_help.setText(row.description or row.package_hint or "")
-        self.route_state.setText(self._route_state_text(row))
-        self.base_url_edit.setText(row.base_url)
-        self.options_edit.setPlainText(json_dumps(row.options))
-        self.show_advanced.setChecked(bool(row.base_url or row.options))
-        self._populate_providers(row=row)
-        self._set_combo_value(self.provider_combo, row.provider)
-        self._refresh_models_for_provider()
-        self._set_combo_value(self.model_combo, row.model)
-        self._apply_route_specific_state(row)
-        self._apply_advanced_visibility()
-        read_only = bool(row.read_only and not row.overrideable)
-        self.provider_combo.setEnabled(not read_only)
-        self.model_combo.setEnabled(not read_only)
-        self.base_url_edit.setEnabled(not read_only)
-        self.options_edit.setEnabled(not read_only)
-        self.voice_combo.setEnabled(not read_only)
-        self.resolution_combo.setEnabled(not read_only)
-        self.save_button.setEnabled(not read_only)
-        self.reset_button.setEnabled(not read_only)
+        self._loading_route = True
+        try:
+            self.route_feedback.clear()
+            self.route_label.setText(row.label)
+            self.route_help.setText(row.description or row.package_hint or "")
+            self.route_state.setText(self._route_state_text(row))
+            self.base_url_edit.setText(row.base_url)
+            self.options_edit.setPlainText(json_dumps(row.options) if row.options else "")
+            self.show_advanced.setChecked(bool(row.base_url or row.options))
+
+            # Mode from the gateway's truth: an explicit value exists, or not.
+            is_custom = bool(row.configured)
+            self.route_mode_custom.setChecked(is_custom)
+            self.route_mode_default.setChecked(not is_custom)
+
+            self._populate_providers(row=row)
+            self._refresh_models_for_provider(row=row)
+            self._apply_route_specific_state(row)
+            self._apply_advanced_visibility()
+
+            read_only = bool(row.read_only and not row.overrideable)
+            self.route_mode_default.setEnabled(not read_only)
+            self.route_mode_custom.setEnabled(not read_only)
+            self.save_button.setEnabled(not read_only)
+            if read_only:
+                self._set_editor_fields_enabled(False)
+            else:
+                self._apply_route_mode()
+        finally:
+            self._loading_route = False
 
     def _set_route_editor_enabled(self, enabled: bool) -> None:
+        self.route_mode_default.setEnabled(enabled)
+        self.route_mode_custom.setEnabled(enabled)
+        self._set_editor_fields_enabled(enabled)
+        self.save_button.setEnabled(enabled)
+
+    def _set_editor_fields_enabled(self, enabled: bool) -> None:
         self.provider_combo.setEnabled(enabled)
         self.model_combo.setEnabled(enabled)
         self.base_url_edit.setEnabled(enabled)
         self.options_edit.setEnabled(enabled)
         self.voice_combo.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
-        self.save_button.setEnabled(enabled)
-        self.reset_button.setEnabled(enabled)
+
+    def _on_route_mode_toggled(self) -> None:
+        # Radio churn during a programmatic route load must not re-apply.
+        if bool(getattr(self, "_loading_route", False)):
+            return
+        self._apply_route_mode()
+
+    def _apply_route_mode(self) -> None:
+        """Enable the pick controls only in override mode; the default mode
+        shows the gateway default read-only instead of a fabricated selection."""
+        custom = self.route_mode_custom.isChecked()
+        self._set_editor_fields_enabled(custom)
+        self.save_button.setToolTip(
+            "Save this provider/model as a local override for this app"
+            if custom
+            else "Follow the gateway default (drops any local override on Apply)"
+        )
+        # The Reset button only makes sense when an override exists.
+        reset_button = getattr(self, "reset_route_button", None)
+        if reset_button is not None:
+            active = self._active_row()
+            reset_button.setEnabled(bool(active is not None and active.configured))
+
+    def _route_dot_icon(self, *, configured: bool) -> QIcon:
+        size = 10
+        pixmap = QPixmap(size * 2, size * 2)
+        pixmap.setDevicePixelRatio(2.0)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#818cf8") if configured else QColor(255, 255, 255, 56))
+        painter.drawEllipse(2, 2, size - 4, size - 4)
+        painter.end()
+        return QIcon(pixmap)
 
     def _focus_route(self, route_key: str) -> None:
         target = str(route_key or "").strip()
@@ -5729,87 +6153,153 @@ class SettingsDialog(QDialog):
                 break
 
     def _refresh_voice_shortcut_summary(self) -> None:
-        row = next(
+        override = next(
             (item for item in self._route_rows if item.key == "output.voice"), None
         )
-        if row is None:
+        # Prefer the local override; fall back to the gateway default so the
+        # summary is honest about what actually speaks.
+        effective = override if (override is not None and override.configured) else self._gateway_default_row("output.voice")
+        if effective is None or not (str(effective.provider or "").strip() or str(effective.model or "").strip()):
             self.voice_shortcut_summary.setText(
-                "Configure provider, model, and voice/profile used when the assistant speaks replies aloud."
+                "Using the gateway default voice. Override it here for this app only."
             )
             return
-        provider = str(row.provider or "").strip() or "No provider"
-        model = str(row.model or "").strip() or "No model"
+        provider = str(effective.provider or "").strip() or "No provider"
+        model = str(effective.model or "").strip() or "No model"
         voice = (
             str(
-                (row.options or {}).get("voice")
-                or (row.options or {}).get("profile")
+                (effective.options or {}).get("voice")
+                or (effective.options or {}).get("profile")
                 or ""
             ).strip()
             or "Default voice"
         )
-        self.voice_shortcut_summary.setText(f"{provider} / {model} · {voice}")
+        suffix = " (this app)" if (override is not None and override.configured) else " (gateway default)"
+        self.voice_shortcut_summary.setText(f"{provider} / {model} \u00b7 {voice}{suffix}")
 
     def _route_key_label(self, key: str) -> str:
         spec = ROUTE_SPECS.get(str(key or "").strip())
         return spec.label if spec is not None else str(key or "").strip()
 
+    def _source_label(self, source: str) -> str:
+        text = str(source or "").strip().lower()
+        if not text or text == "not_configured":
+            return ""
+        if "abstractcore" in text:
+            return "from the gateway's configuration"
+        if "capability" in text or "gateway" in text:
+            return "saved on the gateway"
+        return f"from {text}"
+
+    def _route_value_summary(self, row: CapabilityRouteRow) -> str:
+        provider = str(row.provider or "").strip()
+        model = str(row.model or "").strip()
+        if not provider and not model:
+            return ""
+        value = " / ".join(part for part in (provider, model) if part)
+        voice = str(
+            (row.options or {}).get("voice") or (row.options or {}).get("profile") or ""
+        ).strip()
+        if voice:
+            value += f" · voice {voice}"
+        return value
+
     def _route_state_text(self, row: CapabilityRouteRow) -> str:
-        parts = [
-            (
-                "Saved on the connected gateway."
-                if row.configured
-                else "No saved override on this route yet."
-            ),
-        ]
-        if row.covered_by:
-            parts.append(
-                f"This route is covered by {self._route_key_label(row.covered_by)}."
+        """Two honest lines: the gateway's own default, then what THIS app uses.
+
+        ``row`` carries the local override (empty when none). The gateway
+        default comes from ``_gateway_default_by_key`` — never conflated with
+        the override, so the user always sees both what the gateway serves and
+        what this app pins on top of it.
+        """
+        gw = self._gateway_default_row(row.key)
+        gw_value = self._route_value_summary(gw) if gw is not None else ""
+        if gw_value:
+            gw_line = f"Gateway default: {gw_value}."
+        else:
+            gw_line = (
+                "Gateway default: not configured — the gateway's engine picks "
+                "its own default at call time."
             )
-        if row.derived_from:
-            parts.append(
-                f"This route inherits from {self._route_key_label(row.derived_from)}."
-            )
-        if row.source:
-            parts.append(f"Gateway source: {row.source}.")
-        return " ".join(parts)
+        override_value = self._route_value_summary(row)
+        if override_value:
+            app_line = f"This app: {override_value} (local override)."
+        else:
+            app_line = "This app: using the gateway default."
+        return f"{gw_line}\n{app_line}"
+
+    _PLACEHOLDER_PROVIDER = "Choose a provider…"
+    _PLACEHOLDER_MODEL = "Choose a model…"
 
     def _populate_providers(self, *, row: CapabilityRouteRow) -> None:
-        self.provider_combo.blockSignals(True)
-        self.provider_combo.clear()
-        try:
-            choices = self._controller.provider_choices(
-                route_key=row.key, base_url=self.base_url_edit.text().strip()
-            )
-        except Exception as exc:
-            self.route_feedback.setText(str(exc))
-            choices = []
-        for choice in choices:
-            self.provider_combo.addItem(choice.label, choice.id)
-        if self.provider_combo.count() == 0 and row.provider:
-            self.provider_combo.addItem(row.provider, row.provider)
-        self.provider_combo.blockSignals(False)
+        """Fill the provider combo from the gateway catalog for this route.
 
-    def _refresh_models_for_provider(self) -> None:
-        row = self._active_row()
-        if row is None:
-            return
-        provider = (
-            self.provider_combo.currentData() or self.provider_combo.currentText()
-        )
-        self.model_combo.clear()
+        A placeholder occupies index 0, so a route with no saved value shows
+        'Choose a provider…' — never the catalog's first entry masquerading
+        as configuration (the openai/gpt-4o-transcribe fabrication).
+        """
+        self.provider_combo.blockSignals(True)
         try:
-            choices = self._controller.model_choices(
-                route_key=row.key,
-                provider=str(provider or ""),
-                base_url=self.base_url_edit.text().strip(),
-            )
-        except Exception as exc:
-            self.route_feedback.setText(str(exc))
+            self.provider_combo.clear()
+            self.provider_combo.addItem(self._PLACEHOLDER_PROVIDER, "")
+            try:
+                choices = self._controller.provider_choices(
+                    route_key=row.key, base_url=self.base_url_edit.text().strip()
+                )
+            except Exception as exc:
+                self.route_feedback.setText(str(exc))
+                choices = []
+            for choice in choices:
+                self.provider_combo.addItem(choice.label, choice.id)
+            saved = str(row.provider or "").strip()
+            if saved:
+                if self.provider_combo.findData(saved) < 0:
+                    self.provider_combo.addItem(f"{saved} (saved)", saved)
+                self._set_combo_value(self.provider_combo, saved)
+            else:
+                self.provider_combo.setCurrentIndex(0)
+        finally:
+            self.provider_combo.blockSignals(False)
+
+    def _on_provider_combo_changed(self) -> None:
+        if bool(getattr(self, "_loading_route", False)):
+            return
+        self._refresh_models_for_provider()
+
+    def _refresh_models_for_provider(self, *, row: Optional[CapabilityRouteRow] = None) -> None:
+        active = row if row is not None else self._active_row()
+        if active is None:
+            return
+        provider = str(self.provider_combo.currentData() or "").strip()
+        self.model_combo.blockSignals(True)
+        try:
+            self.model_combo.clear()
+            self.model_combo.addItem(self._PLACEHOLDER_MODEL, "")
             choices = []
-        for choice in choices:
-            self.model_combo.addItem(choice.label, choice.id)
-        if row.model and self.model_combo.findText(row.model) < 0:
-            self.model_combo.addItem(row.model, row.model)
+            if provider:
+                try:
+                    choices = self._controller.model_choices(
+                        route_key=active.key,
+                        provider=provider,
+                        base_url=self.base_url_edit.text().strip(),
+                    )
+                except Exception as exc:
+                    self.route_feedback.setText(str(exc))
+                    choices = []
+            for choice in choices:
+                self.model_combo.addItem(choice.label, choice.id)
+            saved_model = str(active.model or "").strip()
+            saved_provider = str(active.provider or "").strip()
+            # The saved model belongs with the saved provider — selecting it
+            # under a different provider would fabricate an invalid pair.
+            if saved_model and provider and provider == saved_provider:
+                if self.model_combo.findData(saved_model) < 0:
+                    self.model_combo.addItem(f"{saved_model} (saved)", saved_model)
+                self._set_combo_value(self.model_combo, saved_model)
+            else:
+                self.model_combo.setCurrentIndex(0)
+        finally:
+            self.model_combo.blockSignals(False)
         self._refresh_voice_choices()
 
     def _reload_catalogs_for_base_url(self) -> None:
@@ -5824,37 +6314,52 @@ class SettingsDialog(QDialog):
         ).strip()
         self._populate_providers(row=row)
         if current_provider:
-            if self.provider_combo.findText(current_provider) < 0:
+            if self.provider_combo.findData(current_provider) < 0:
                 self.provider_combo.addItem(current_provider, current_provider)
             self._set_combo_value(self.provider_combo, current_provider)
         self._refresh_models_for_provider()
         if current_model:
-            if self.model_combo.findText(current_model) < 0:
+            if self.model_combo.findData(current_model) < 0:
                 self.model_combo.addItem(current_model, current_model)
             self._set_combo_value(self.model_combo, current_model)
 
     def _refresh_voice_choices(self) -> None:
         row = self._active_row()
-        self.voice_combo.clear()
-        if row is None or row.key != "output.voice":
-            return
-        provider = str(
-            self.provider_combo.currentData() or self.provider_combo.currentText() or ""
-        ).strip()
-        model = str(
-            self.model_combo.currentData() or self.model_combo.currentText() or ""
-        ).strip()
+        self.voice_combo.blockSignals(True)
         try:
-            choices = self._controller.voice_choices(
-                provider=provider,
-                model=model,
-                base_url=self.base_url_edit.text().strip(),
-            )
-        except Exception as exc:
-            self.route_feedback.setText(str(exc))
+            self.voice_combo.clear()
+            if row is None or row.key != "output.voice":
+                return
+            self.voice_combo.addItem("Engine default voice", "")
+            provider = str(self.provider_combo.currentData() or "").strip()
+            model = str(self.model_combo.currentData() or "").strip()
             choices = []
-        for choice in choices:
-            self.voice_combo.addItem(choice.label, choice.id)
+            if provider and model:
+                try:
+                    choices = self._controller.voice_choices(
+                        provider=provider,
+                        model=model,
+                        base_url=self.base_url_edit.text().strip(),
+                    )
+                except Exception as exc:
+                    self.route_feedback.setText(str(exc))
+                    choices = []
+            for choice in choices:
+                self.voice_combo.addItem(choice.label, choice.id)
+            saved_voice = str(
+                (row.options or {}).get("voice")
+                or (row.options or {}).get("profile")
+                or ""
+            ).strip()
+            # A saved voice belongs with the saved provider/model pair.
+            if saved_voice and provider and provider == str(row.provider or "").strip():
+                if self.voice_combo.findData(saved_voice) < 0:
+                    self.voice_combo.addItem(f"{saved_voice} (saved)", saved_voice)
+                self._set_combo_value(self.voice_combo, saved_voice)
+            else:
+                self.voice_combo.setCurrentIndex(0)
+        finally:
+            self.voice_combo.blockSignals(False)
 
     def _apply_route_specific_state(self, row: CapabilityRouteRow) -> None:
         options = dict(row.options)
@@ -5863,13 +6368,6 @@ class SettingsDialog(QDialog):
         self.voice_combo.setVisible(is_voice)
         if is_voice:
             self._refresh_voice_choices()
-            voice_value = str(
-                options.get("voice") or options.get("profile") or ""
-            ).strip()
-            if voice_value:
-                if self.voice_combo.findText(voice_value) < 0:
-                    self.voice_combo.addItem(voice_value, voice_value)
-                self._set_combo_value(self.voice_combo, voice_value)
 
         is_upscale = row.key == "output.image.image_upscale"
         self.resolution_label.setVisible(is_upscale)
@@ -5891,9 +6389,7 @@ class SettingsDialog(QDialog):
             return {}
         options = self._controller.parse_options(self.options_edit.toPlainText())
         if row.key == "output.voice":
-            voice = str(
-                self.voice_combo.currentData() or self.voice_combo.currentText() or ""
-            ).strip()
+            voice = str(self.voice_combo.currentData() or "").strip()
             if voice:
                 options["voice"] = voice
             else:
@@ -5912,19 +6408,28 @@ class SettingsDialog(QDialog):
         return options
 
     def _save_route(self) -> None:
+        """Apply the selected mode as a LOCAL override for this app only.
+
+        Default mode drops the local override (gateway default applies);
+        override mode stores an explicit provider/model locally — never a
+        fabricated pair, and never a write to the gateway's shared default.
+        """
         row = self._active_row()
         if row is None:
             return
+        if self.route_mode_default.isChecked():
+            self._clear_route_override(row, already_note="Already using the gateway default.")
+            return
+
+        provider = str(self.provider_combo.currentData() or "").strip()
+        model = str(self.model_combo.currentData() or "").strip()
+        if not provider or not model:
+            self.route_feedback.setText(
+                "Choose a provider and a model first (or switch back to the gateway default)."
+            )
+            return
         try:
-            provider = str(
-                self.provider_combo.currentData()
-                or self.provider_combo.currentText()
-                or ""
-            ).strip()
-            model = str(
-                self.model_combo.currentData() or self.model_combo.currentText() or ""
-            ).strip()
-            self._controller.save_route_default(
+            self._controller.save_route_override(
                 route_key=row.key,
                 provider=provider,
                 model=model,
@@ -5934,24 +6439,35 @@ class SettingsDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Save failed", str(exc))
             return
-        self.route_feedback.setText("Saved on the connected gateway.")
         self.settings_saved.emit()
+        # refresh() re-selects the row and clears feedback via _load_selected_route,
+        # so set the confirmation AFTER it or the user never sees it.
         self.refresh()
+        self.route_feedback.setText(f"Override saved for this app: {provider} / {model}.")
 
-    def _clear_route(self) -> None:
+    def _reset_route_to_gateway(self) -> None:
+        """Drop the selected route's local override (the 'Reset to gateway' button)."""
         row = self._active_row()
         if row is None:
             return
+        self.route_mode_default.setChecked(True)
+        self._clear_route_override(
+            row, already_note="No local override to reset — already using the gateway default."
+        )
+
+    def _clear_route_override(self, row: CapabilityRouteRow, *, already_note: str) -> None:
+        if not row.configured:
+            self.route_feedback.setText(already_note)
+            return
         try:
-            self._controller.clear_route_default(route_key=row.key)
+            self._controller.clear_route_override(route_key=row.key)
         except Exception as exc:
             QMessageBox.critical(self, "Reset failed", str(exc))
             return
-        self.route_feedback.setText(
-            "This route now uses the gateway-wide default again."
-        )
         self.settings_saved.emit()
+        # Set the confirmation AFTER refresh() (which clears feedback on reselect).
         self.refresh()
+        self.route_feedback.setText("Reset — this app now follows the gateway default.")
 
     def _save_preferences(self) -> None:
         prefs = AssistantPreferences(
@@ -5963,6 +6479,10 @@ class SettingsDialog(QDialog):
             window_height=int(self.height_spin.value()),
             bottom_offset=int(self.bottom_offset_spin.value()),
             tool_preferences=dict(self._controller.preferences.tool_preferences or {}),
+            # Preserve the local route overrides — this General-tab save rebuilds
+            # the whole preferences object, so an omitted field would silently
+            # wipe the user's model/voice overrides.
+            route_overrides=dict(getattr(self._controller.preferences, "route_overrides", None) or {}),
         )
         self._controller.save_preferences(prefs)
         self._apply_hotkey()
@@ -6005,6 +6525,12 @@ class AssistantPalette(QMainWindow):
     _thinking_card = None
     _thinking_status_text = ""
     _thinking_status_tooltip = ""
+    _thinking_status_tone = "thinking"
+    _activity_dialog = None
+    # None (not []) as the class default: a shared mutable class-level list
+    # would leak activity across instances; _append_run_activity lazily
+    # creates the per-instance list.
+    _run_activity_log = None
     # The current history status regardless of where it renders (top label or
     # thinking badge) — generic worker statuses only fill in when this is empty.
     _history_status_text = ""
@@ -6448,6 +6974,7 @@ class AssistantPalette(QMainWindow):
         self._cancel_requested = False
         self._run_busy = True
         self._run_has_final_output = False
+        self._clear_run_activity()
         worker.event_emitted.connect(self._on_worker_event)
         worker.error_occurred.connect(self._on_worker_error)
         worker.finished.connect(self._on_worker_finished)
@@ -6594,6 +7121,7 @@ class AssistantPalette(QMainWindow):
         tone: str = "neutral",
         rich: bool = False,
         tooltip: Optional[str] = None,
+        badge_tone: str = "",
     ) -> None:
         message = str(text or "").strip()
         if not message:
@@ -6606,13 +7134,15 @@ class AssistantPalette(QMainWindow):
         self._history_status_text = message
         if tone == "busy" and self._show_thinking_indicator():
             # Run observability lives in the thinking badge at the transcript
-            # tail — plain text only, in the dots' visual language. Rich tool
-            # statuses carry their plain form in the tooltip.
+            # tail — plain text only, activity-toned (thinking/tool/waiting).
+            # Rich tool statuses carry their plain form in the tooltip.
             if not rich:
                 self._active_tool_history_status = None
             plain = str(tooltip or "").strip() if rich else message
             self._set_thinking_status(
-                plain or message, tooltip=str(tooltip or plain or message)
+                plain or message,
+                tooltip=str(tooltip or plain or message),
+                tone=badge_tone or "thinking",
             )
             self.chat_status_label.clear()
             self.chat_status_label.hide()
@@ -6638,17 +7168,60 @@ class AssistantPalette(QMainWindow):
     def _history_status_showing(self) -> bool:
         return bool(str(self._history_status_text or "").strip())
 
-    def _set_thinking_status(self, text: str, tooltip: str = "") -> None:
+    def _set_thinking_status(self, text: str, tooltip: str = "", tone: str = "") -> None:
         display = str(text or "").strip()
         self._thinking_status_text = display
         self._thinking_status_tooltip = str(tooltip or display)
+        if tone:
+            self._thinking_status_tone = str(tone)
         card = self._thinking_card
         if card is not None:
             try:
-                card.set_status(display, tooltip=self._thinking_status_tooltip)
+                card.set_status(
+                    display,
+                    tooltip=self._thinking_status_tooltip,
+                    tone=self._thinking_status_tone,
+                )
             except RuntimeError:
                 # The card was torn down by a history rebuild mid-update.
                 self._thinking_card = None
+
+    def _append_run_activity(self, entry: Dict[str, Any]) -> None:
+        """Record a live run-activity entry and stream it into the open view."""
+        if not isinstance(entry, dict):
+            return
+        log = self._run_activity_log
+        if log is None:
+            log = []
+            self._run_activity_log = log
+        entry = dict(entry)
+        entry.setdefault("ts", "")
+        log.append(entry)
+        if len(log) > 500:
+            del log[: len(log) - 500]
+        dialog = self._activity_dialog
+        if dialog is not None and dialog.isVisible():
+            try:
+                dialog.append_entry(entry)
+            except RuntimeError:
+                self._activity_dialog = None
+
+    def _clear_run_activity(self) -> None:
+        self._run_activity_log = []
+        dialog = self._activity_dialog
+        if dialog is not None and dialog.isVisible():
+            try:
+                dialog.set_entries([])
+            except RuntimeError:
+                self._activity_dialog = None
+
+    def _open_run_activity(self) -> None:
+        dialog = self._activity_dialog
+        if dialog is None:
+            dialog = RunActivityDialog(renderer=self._renderer, parent=self)
+            self._activity_dialog = dialog
+        dialog.set_entries(list(self._run_activity_log or []))
+        self._show_aux_dialog(dialog)
 
     def _tool_history_label_max_chars(self, *, prefix: str = "") -> int:
         """Approximate the longest single-line tool label that fits the current palette width."""
@@ -6716,6 +7289,7 @@ class AssistantPalette(QMainWindow):
         arguments: Any,
         prefix: str = "",
         tone: str = "busy",
+        badge_tone: str = "tool",
         remember: bool = True,
     ) -> None:
         budget = self._tool_history_label_max_chars(prefix=prefix)
@@ -6729,6 +7303,7 @@ class AssistantPalette(QMainWindow):
             tone=tone,
             rich=True,
             tooltip=f"{prefix}{label}",
+            badge_tone=badge_tone,
         )
         if remember:
             self._active_tool_history_status = {
@@ -6736,6 +7311,7 @@ class AssistantPalette(QMainWindow):
                 "arguments": arguments,
                 "prefix": str(prefix or ""),
                 "tone": str(tone or "busy"),
+                "badge_tone": str(badge_tone or "tool"),
             }
 
     def _refresh_active_tool_history_status_for_width(self) -> None:
@@ -6747,6 +7323,7 @@ class AssistantPalette(QMainWindow):
             arguments=payload.get("arguments"),
             prefix=str(payload.get("prefix") or ""),
             tone=str(payload.get("tone") or "busy"),
+            badge_tone=str(payload.get("badge_tone") or "tool"),
             remember=False,
         )
 
@@ -7123,13 +7700,16 @@ class AssistantPalette(QMainWindow):
                 thinking_card = ThinkingIndicatorCard(
                     status_text=self._thinking_status_text,
                     tooltip=self._thinking_status_tooltip,
+                    tone=self._thinking_status_tone,
                 )
                 thinking_card.sync_to_viewport_width(viewport_width)
+                thinking_card.activated.connect(self._open_run_activity)
                 self._thinking_card = thinking_card
                 self.history_layout.addWidget(thinking_card)
             else:
                 self._thinking_status_text = ""
                 self._thinking_status_tooltip = ""
+                self._thinking_status_tone = "thinking"
             self._sync_history_viewport()
             self._refresh_session_picker(
                 select_session_id=self._active_session_id() or None
@@ -7619,6 +8199,7 @@ class AssistantPalette(QMainWindow):
         self._run_busy = True
         self._run_has_final_output = False
         self._tray_completion_unread = False
+        self._clear_run_activity()
         self._set_status("Running assistant workflow...", tone="busy")
         self._set_history_status("Running assistant workflow...", tone="busy")
         self._refresh_tray_feedback()
@@ -7680,7 +8261,23 @@ class AssistantPalette(QMainWindow):
             # Agent reasoning cycle starting (adapter counts llm_call starts on
             # the reason node): live "the agent is thinking, Nth pass" signal.
             n = payload.get("iteration")
-            self._set_history_status(f"Thinking — cycle {n}", tone="busy")
+            self._set_history_status(
+                f"Thinking — cycle {n}", tone="busy", badge_tone="thinking"
+            )
+            self._append_run_activity({"kind": "cycle", "n": n})
+            return
+        if typ == "cycle_result":
+            # The model's ACTUAL output for the cycle (real thinking, not the
+            # prompt echo) — feeds the clickable run-activity view only.
+            self._append_run_activity(
+                {
+                    "kind": "thinking",
+                    "n": payload.get("iteration"),
+                    "content": str(payload.get("content") or ""),
+                    "reasoning": str(payload.get("reasoning") or ""),
+                    "ts": str(payload.get("ts") or ""),
+                }
+            )
             return
         if typ == "tool_started":
             # Tool launch with args, emitted BEFORE execution (STARTED ledger
@@ -7692,7 +8289,8 @@ class AssistantPalette(QMainWindow):
                 preview = str(tools[0].get("arguments_preview") or "").strip()
                 if preview:
                     label = f"{label} {preview}"
-            self._set_history_status(label, tone="busy")
+            self._set_history_status(label, tone="busy", badge_tone="tool")
+            self._append_run_activity({"kind": "tools", "tools": tools})
             return
         if typ == "replay_degraded":
             message = str(payload.get("message") or "Gateway replay is degraded.").strip()
@@ -7768,9 +8366,23 @@ class AssistantPalette(QMainWindow):
                     name=summary.name,
                     arguments=tool_calls[0].get("arguments"),
                     prefix="Waiting for approval: ",
+                    badge_tone="waiting",
                 )
             else:
-                self._set_history_status("Waiting for tool approval", tone="busy")
+                self._set_history_status(
+                    "Waiting for tool approval", tone="busy", badge_tone="waiting"
+                )
+            self._append_run_activity(
+                {
+                    "kind": "waiting",
+                    "text": "Tool approval requested"
+                    + (
+                        f": {_tool_call_summary(tool_calls[0]).name}"
+                        if tool_calls
+                        else ""
+                    ),
+                }
+            )
             if self._controller.should_auto_approve_tool_batch(tool_calls):
                 if tool_calls:
                     summary = _tool_call_summary(tool_calls[0])
@@ -7813,7 +8425,12 @@ class AssistantPalette(QMainWindow):
                 prompt if len(prompt) <= 120 else f"{prompt[:117].rstrip()}..."
             )
             self._set_history_status(
-                f"Waiting for your input: {short_prompt}", tone="busy"
+                f"Waiting for your input: {short_prompt}",
+                tone="busy",
+                badge_tone="waiting",
+            )
+            self._append_run_activity(
+                {"kind": "waiting", "text": f"Asked for your input: {short_prompt}"}
             )
             self._surface_for_prompt(
                 title="Input needed",
@@ -7873,7 +8490,21 @@ class AssistantPalette(QMainWindow):
                 else {}
             )
             name, arguments = self._tool_message_parts(message)
-            self._set_tool_history_status(name=name, arguments=arguments)
+            self._set_tool_history_status(
+                name=name, arguments=arguments, badge_tone="tool"
+            )
+            preview = str(message.get("content") or "").strip()
+            if len(preview) > 800:
+                #[WARNING:TRUNCATION] bounded result preview for the activity view
+                preview = preview[:799] + "…"
+            self._append_run_activity(
+                {
+                    "kind": "tool_result",
+                    "name": name,
+                    "preview": preview,
+                    "ts": str(message.get("ts") or ""),
+                }
+            )
             return
 
     def _on_worker_error(self, error: str) -> None:
@@ -8538,6 +9169,29 @@ class AssistantPalette(QMainWindow):
                 font-weight: 500;
                 background: transparent;
                 border: none;
+            }
+            /* Activity-toned badge (laurent 2026-07-17: the gray badge was
+               invisible): thinking = accent blue, tool = amber, waiting = orange. */
+            QFrame#thinkingBubble[tone="thinking"] {
+                border-color: rgba(121, 199, 255, 0.30);
+                background: rgba(38, 64, 92, 0.35);
+            }
+            QLabel#thinkingStatusText[tone="thinking"] {
+                color: #79c7ff;
+            }
+            QFrame#thinkingBubble[tone="tool"] {
+                border-color: rgba(251, 191, 36, 0.35);
+                background: rgba(120, 84, 15, 0.22);
+            }
+            QLabel#thinkingStatusText[tone="tool"] {
+                color: #fbbf24;
+            }
+            QFrame#thinkingBubble[tone="waiting"] {
+                border-color: rgba(251, 146, 60, 0.45);
+                background: rgba(124, 45, 18, 0.28);
+            }
+            QLabel#thinkingStatusText[tone="waiting"] {
+                color: #fb923c;
             }
             QFrame#userBubble QLabel#messageRole,
             QFrame#userBubble QLabel#userMessageText {

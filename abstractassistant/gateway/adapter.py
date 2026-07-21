@@ -21,6 +21,18 @@ from .events import (
 from .history_seed import tool_messages_from_record
 from .types import StepRecord, WaitState
 
+# Activity-view texts are bounded so a single verbose cycle cannot bloat the
+# UI event stream; the transcript/ledger keep the full text.
+_ACTIVITY_TEXT_MAX_CHARS = 4000
+
+
+def _bounded_activity_text(text: str) -> str:
+    value = str(text or "")
+    if len(value) <= _ACTIVITY_TEXT_MAX_CHARS:
+        return value
+    #[WARNING:TRUNCATION] bounded for the live activity view; the ledger keeps the full text
+    return value[: _ACTIVITY_TEXT_MAX_CHARS - 1] + "…"
+
 
 class GatewayEventAdapter:
     """Adapter that maps ledger records into AbstractAssistant event dicts."""
@@ -66,6 +78,34 @@ class GatewayEventAdapter:
                 n = int(self._cycles_by_run.get(rid, 0)) + 1
                 self._cycles_by_run[rid] = n
                 events.append({"type": "cycle", "iteration": n})
+            elif status0 == "completed" and etype == "llm_call" and str(rec.get("node_id") or "") == "reason":
+                # The model's ACTUAL output for this cycle (its intermediate
+                # "thinking" between tool rounds) lives on the COMPLETED
+                # record's result — never on the STARTED payload, whose
+                # `messages` are the conversation INTO the model (echoing the
+                # user's prompt as "thinking" was the 2026-07-17 dishonesty).
+                rid = str(rec.get("run_id") or "")
+                n = int(self._cycles_by_run.get(rid, 0))
+                result = rec.get("result") if isinstance(rec.get("result"), dict) else {}
+                content = str(result.get("content") or "").strip()
+                reasoning = ""
+                raw_reasoning = result.get("reasoning")
+                if isinstance(raw_reasoning, str) and raw_reasoning.strip():
+                    reasoning = raw_reasoning.strip()
+                else:
+                    meta0 = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+                    if isinstance(meta0.get("reasoning"), str):
+                        reasoning = str(meta0.get("reasoning")).strip()
+                if content or reasoning:
+                    events.append(
+                        {
+                            "type": "cycle_result",
+                            "iteration": max(1, n),
+                            "content": _bounded_activity_text(content),
+                            "reasoning": _bounded_activity_text(reasoning),
+                            "ts": record_ts,
+                        }
+                    )
             elif status0 == "started" and etype == "tool_calls":
                 payload0 = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
                 tools: List[Dict[str, Any]] = []
@@ -80,7 +120,18 @@ class GatewayEventAdapter:
                     if len(preview) > 120:
                         #[WARNING:TRUNCATION] bounded args preview for the activity line
                         preview = preview[:119] + "…"
-                    tools.append({"name": str(tc.get("name")).strip(), "arguments_preview": preview})
+                    full_args = ""
+                    try:
+                        full_args = _bounded_activity_text(str(args) if args else "")
+                    except Exception:
+                        full_args = ""
+                    tools.append(
+                        {
+                            "name": str(tc.get("name")).strip(),
+                            "arguments_preview": preview,
+                            "arguments_text": full_args,
+                        }
+                    )
                 if tools:
                     events.append({"type": "tool_started", "tools": tools})
 

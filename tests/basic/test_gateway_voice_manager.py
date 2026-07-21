@@ -667,3 +667,34 @@ def test_gateway_voice_manager_stream_playback_is_not_idle_while_paused() -> Non
         vm._speaking = False
 
     assert vm._stream_playback_idle(player) is False
+
+
+@pytest.mark.basic
+def test_gateway_voice_manager_stream_success_fires_completion_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A successful stream must fire on_speech_end + callback exactly once.
+
+    Regression: `_finish_stream_playback` returned None, so its caller's
+    `finally` (`completion_owned` was falsey) fired the terminal signal a
+    SECOND time — a message card that reset then re-armed, and full-voice mode
+    seeing a spurious second completion. The method now reports ownership.
+    """
+    gateway = _StreamingGatewayStub(audio_chunks=1)
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway), debug_mode=False)
+    player = _InProcessPlayerStub()
+    player.auto_end = True
+
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: True)
+    monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
+
+    ends: list[int] = []
+    completions: list[int] = []
+    vm.on_speech_end = lambda: ends.append(1)
+
+    assert vm.speak("stream success exactly once", callback=lambda: completions.append(1)) is True
+    assert gateway.stream_done.wait(timeout=2.0)
+    assert _wait_for(lambda: completions == [1])
+    # Give any stray finally-block completion a chance to (wrongly) fire.
+    time.sleep(0.2)
+    assert ends == [1], f"on_speech_end must fire exactly once, got {ends}"
+    assert completions == [1], f"callback must fire exactly once, got {completions}"

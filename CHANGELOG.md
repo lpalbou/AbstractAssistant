@@ -4,6 +4,108 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed (2026-07-18 — model/voice selection is a LOCAL override, never a gateway mutation)
+- The settings "Models & Voice" tab (was "Gateway Defaults") no longer writes
+  the gateway's SHARED capability defaults when you pick a provider/model. It
+  now stores a LOCAL override for this app only (`route_overrides` in
+  `preferences.json`) and applies it per request. Chat text rides BOTH the
+  top-level `input_data.provider/model` (which reaches the router node) AND
+  `_runtime.provider/model` (which the agent node reads) — an adversarial audit
+  proved a `_runtime`-only override leaves the router on the gateway default, so
+  an online-only default would still break the FIRST call offline. Voice
+  output/input ride the TTS/STT calls (STT now sends the provider too — the
+  gateway transcribe endpoint accepts it and the client was silently dropping
+  it). The gateway's global default is never read-and-pinned or written.
+- Root cause of the "it failed offline" report: the old tab called
+  `set_capability_default`, so selecting a model changed the gateway's GLOBAL
+  default. It had been pointed at an online-only endpoint
+  (`endpoint:ovh-provider` / Meta-Llama-3.3-70B); offline, every chat run failed
+  (DNS error → circuit breaker). Because the assistant sent no override, it
+  inherited that broken global default. Now the assistant never corrupts the
+  gateway default, and you can pin a local model as an offline-safe override.
+- Added a "Reset to gateway" button per route, and the editor now shows two
+  honest lines — the gateway's own default AND what this app pins on top —
+  instead of conflating them.
+- Scope: the tab now offers only the routes the assistant actually drives and
+  can honor as a per-request override — Chat Model, Voice Output (TTS), Voice
+  Input (STT). Media/embedding routes were removed from the thin client (the
+  assistant only triggers them; configuring the gateway's media models belongs
+  to the gateway console, not a thin client that must not mutate the gateway).
+
+### Fixed (2026-07-18 — streaming TTS double-fired its completion signal)
+- A successful streaming TTS playback fired `on_speech_end` + the speak()
+  callback TWICE: `_finish_stream_playback` returned `None`, so the stream
+  worker's `finally` saw `completion_owned` still falsey and fired the terminal
+  signal a second time. Symptom: a message card reset to idle then re-armed,
+  and full-voice mode saw a spurious second completion. `_finish_stream_playback`
+  now returns `True` so the caller honors the exactly-once `completion_owned`
+  contract. Regression test added; found while verifying end-to-end online
+  voice against the live gateway.
+- Verified live (127.0.0.1:8080): bare-default TTS resolves the gateway's
+  configured `supertonic/supertonic-3` via the runtime voice-defaults merge;
+  explicit `piper` no longer inherits a leaked `voice=M1`; streaming first
+  audio ~2s; STT round-trip through the production adapter transcribes
+  correctly with the gateway default model; durable session replay passes
+  end-to-end (turn 2 answers from turn 1's context).
+
+### Fixed (2026-07-17 — run activity view: shared markdown + working size)
+- Model text in the Run Activity view now renders through the SHARED markdown
+  renderer (same pipeline as the transcript): tables render as tables, code as
+  code, lists as lists — no more raw pipe-text. Tool arguments and results
+  deliberately stay monospace (they are data, not prose). The dialog opens at
+  920x720 with a 760x600 floor instead of the unusable small default.
+
+### Added (2026-07-17 — colored, clickable run activity)
+- The thinking badge is now color-toned by activity — thinking (accent blue),
+  tool execution (amber), waiting on you (orange) — instead of the invisible
+  gray pill, and it is clickable: it opens a live Run Activity view showing,
+  per cycle, the model's ACTUAL intermediate output (content + reasoning when
+  the provider reports it), tool calls with their arguments, tool results, and
+  waits — streaming in real time while the run progresses (the abstractcode
+  unfold pattern as a modeless dialog).
+- Honesty fix behind it: the "thinking" text shown previously came from the
+  run-activity fallback echoing the user's own prompt. The adapter now emits
+  a `cycle_result` event from the COMPLETED reason-node llm_call's RESULT
+  (never the STARTED payload, whose messages are the conversation INTO the
+  model), so what the view labels "Model" is what the model actually said.
+
+### Fixed (2026-07-17 — Gateway Defaults settings: honest defaults, real catalogs)
+- The Gateway Defaults route editor no longer fabricates configuration: an
+  unconfigured route (e.g. Speech To Text) used to display the catalog's first
+  entries ("openai / gpt-4o-transcribe") as if they were the active values — one
+  accidental Save away from routing STT through a provider the gateway cannot
+  serve. Each route now has an explicit mode: "Use gateway default" (pick
+  controls disabled; an always-visible "Applies now:" line states the resolved
+  value and its source, or says honestly that nothing is configured and the
+  engine decides) versus "Set explicitly" (dropdowns populated from the
+  gateway's own catalogs, placeholder-first, never auto-selected). One Apply
+  button serves both modes (saving the explicit pair, or clearing the override
+  so the default applies); saving without a real selection is refused inline.
+  A saved model/voice is only ever shown under its own provider — switching
+  provider resets to the placeholder instead of fabricating an invalid pair.
+  Route list shows a configured/default state dot per route; combo dropdown
+  arrows are now visible on the dark surface.
+- Investigated the underlying "couldn't read a text" outage: server-side, not
+  this app — all gateway TTS calls wedge (runs stuck running for hours) since
+  the 23:49 stack rebuild, gateway capability defaults for voice are never
+  merged into bare TTS/STT specs at the runtime layer, and the saved TTS voice
+  option leaks into other providers ("Unknown voice_id: M1" from piper). All
+  three filed with the owning seats (gateway/runtime/core) with evidence.
+
+### Fixed (2026-07-16 — conversation memory: durable server-side session replay)
+- The assistant remembers the conversation again. Since Jul 7 every send started a
+  fresh gateway run whose model context contained ONLY the new prompt — follow-up
+  questions met an assistant that had never seen its own previous answer (the
+  client-side transcript seeding was removed on the assumption of a server-side
+  replay that did not exist). Runs now opt in to the gateway's durable session
+  replay (`use_session_history: true`): at run start the gateway seeds
+  `context.messages` from the session's prior completed turns, reconstructed from
+  the run store (agora `durable-sessions` contract v1, implemented with the
+  gateway and runtime packages). The local transcript stays display-only; history
+  is server-owned, durable, and identical to what the history bundle shows.
+  Requires a gateway running abstractgateway with the seed (and
+  AbstractRuntime>=0.4.30) — older gateways simply ignore the flag.
+
 ### Changed (2026-07-15 — settings redesign + run status merged into the thinking badge)
 - Assistant Settings completely redesigned for density: the internal header (title/subtitle/
   separator duplicated by the window title bar) is gone, controls dropped from 38px to 26px with a
