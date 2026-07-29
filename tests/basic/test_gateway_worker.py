@@ -95,6 +95,130 @@ def test_gateway_worker_does_not_append_empty_runtime_diagnostic() -> None:
 
 
 @pytest.mark.basic
+def test_gateway_worker_attach_seeding_suppresses_answered_but_reprompts_pending_repeat() -> None:
+    """Reattach to a run whose stable wait_key repeated (two approval batches
+    from the same act node): the replay must keep the ANSWERED occurrence
+    silent and re-open ONLY the pending one. Excluding the pending wait by
+    KEY (the old behavior) would also unsuppress its answered predecessor
+    and replay a stale dialog."""
+
+    def _wait_rec(step_id: str) -> dict:
+        return {
+            "run_id": "sub-1",
+            "node_id": "act",
+            "step_id": step_id,
+            "status": "waiting",
+            "effect": {"type": "tool_calls", "payload": {}},
+            "result": {
+                "wait": {
+                    "reason": "user",
+                    "wait_key": "tool_calls:sub-1:act",
+                    "details": {
+                        "mode": "approval_required",
+                        "tool_calls": [{"name": "execute_command", "arguments": {"command": "ls"}}],
+                    },
+                }
+            },
+        }
+
+    resume_rec = {
+        "run_id": "sub-1",
+        "node_id": "act",
+        "step_id": "resume-1",
+        "status": "completed",
+        "effect": {"type": "resume", "payload": {"wait_key": "tool_calls:sub-1:act"}},
+        "result": {},
+    }
+    replay_records = [_wait_rec("step-1"), resume_rec, _wait_rec("step-2")]
+
+    class _Gateway:
+        def get_run_history_bundle(self, **kwargs):
+            return {
+                "ledgers": {
+                    "sub-1": {"items": [{"record": dict(r)} for r in replay_records]},
+                }
+            }
+
+        def get_run(self, *, run_id: str):
+            return {
+                "status": "waiting",
+                "waiting": {"reason": "user", "wait_key": "tool_calls:sub-1:act"},
+            }
+
+    worker = GatewayWorker.__new__(GatewayWorker)
+    super(GatewayWorker, worker).__init__()
+    worker._gateway = _Gateway()
+    worker._adapter = GatewayEventAdapter()
+
+    GatewayWorker._suppress_resolved_waits_for_attach(worker, "run-root")
+
+    events: list[dict] = []
+    for rec in replay_records:
+        events.extend(worker._adapter.handle_record(dict(rec)))
+    requests = [e for e in events if e.get("type") == "tool_request"]
+    assert len(requests) == 1, f"expected exactly the pending approval, got {requests!r}"
+
+
+@pytest.mark.basic
+def test_gateway_worker_attach_seeding_keeps_terminal_replay_silent() -> None:
+    """Attach to a TERMINAL run (not waiting): every historical occurrence is
+    seeded and the full replay — waits, resumes, repeated keys — must emit no
+    approval dialogs."""
+
+    def _wait_rec(step_id: str) -> dict:
+        return {
+            "run_id": "sub-1",
+            "node_id": "act",
+            "step_id": step_id,
+            "status": "waiting",
+            "effect": {"type": "tool_calls", "payload": {}},
+            "result": {
+                "wait": {
+                    "reason": "user",
+                    "wait_key": "tool_calls:sub-1:act",
+                    "details": {
+                        "mode": "approval_required",
+                        "tool_calls": [{"name": "execute_command", "arguments": {"command": "ls"}}],
+                    },
+                }
+            },
+        }
+
+    resume_rec = {
+        "run_id": "sub-1",
+        "node_id": "act",
+        "step_id": "resume-1",
+        "status": "completed",
+        "effect": {"type": "resume", "payload": {"wait_key": "tool_calls:sub-1:act"}},
+        "result": {},
+    }
+    replay_records = [_wait_rec("step-1"), dict(resume_rec), _wait_rec("step-2"), dict(resume_rec, step_id="resume-2")]
+
+    class _Gateway:
+        def get_run_history_bundle(self, **kwargs):
+            return {
+                "ledgers": {
+                    "sub-1": {"items": [{"record": dict(r)} for r in replay_records]},
+                }
+            }
+
+        def get_run(self, *, run_id: str):
+            return {"status": "completed", "waiting": None}
+
+    worker = GatewayWorker.__new__(GatewayWorker)
+    super(GatewayWorker, worker).__init__()
+    worker._gateway = _Gateway()
+    worker._adapter = GatewayEventAdapter()
+
+    GatewayWorker._suppress_resolved_waits_for_attach(worker, "run-root")
+
+    events: list[dict] = []
+    for rec in replay_records:
+        events.extend(worker._adapter.handle_record(dict(rec)))
+    assert not [e for e in events if e.get("type") == "tool_request"]
+
+
+@pytest.mark.basic
 def test_gateway_worker_attaches_tool_call_details_to_run_stats() -> None:
     worker = GatewayWorker.__new__(GatewayWorker)
     super(GatewayWorker, worker).__init__()

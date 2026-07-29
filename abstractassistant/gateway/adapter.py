@@ -38,18 +38,65 @@ class GatewayEventAdapter:
     """Adapter that maps ledger records into AbstractAssistant event dicts."""
 
     def __init__(self) -> None:
-        self._seen_wait_keys: set[str] = set()
+        # Wait-occurrence bookkeeping. A wait_key is STABLE across repeated
+        # waits from the same node (e.g. "tool_calls:<run_id>:act" for EVERY
+        # tool-approval batch of that agent run), so a key alone cannot
+        # identify one question: dedup by key alone silently swallowed the
+        # second approval request and the run parked forever while the UI
+        # showed a running tool (live stall, 2026-07-28). One occurrence =
+        # one waiting ledger record = one step_id.
+        #
+        # Two mark families with different lifetimes:
+        # - seeded marks: occurrences known answered BEFORE this stream
+        #   (reattach replay). Never cleared — a terminal replay must stay
+        #   silent through its resume records.
+        # - live marks: occurrences emitted during this stream. Cleared by
+        #   the wait's resume record — the question was answered, and the
+        #   NEXT wait on the same key is a new question that must prompt.
+        # A mark of "" means "occurrence unknown" and suppresses the key
+        # wholesale (synthetic rehydration records carry no step_id).
+        self._seeded_wait_marks: Dict[str, set] = {}
+        self._live_wait_marks: Dict[str, set] = {}
         self._seen_tool_call_ids: set[str] = set()
         self._cycles_by_run: Dict[str, int] = {}
 
     def seed_seen_wait_keys(self, wait_keys) -> None:
-        """Mark wait keys as already-handled so replaying a run's ledger does
-        not re-emit already-resolved tool-approval / ask-user waits (used on
-        reattach, where the whole ledger replays from the start)."""
+        """Mark whole wait keys as already-handled (every occurrence).
+
+        Wholesale suppression: prefer ``seed_handled_wait_occurrences`` so a
+        pending repeat of the same key can still prompt."""
         for key in wait_keys or []:
             k = str(key or "").strip()
             if k:
-                self._seen_wait_keys.add(k)
+                self._seeded_wait_marks.setdefault(k, set()).add("")
+
+    def seed_handled_wait_occurrences(self, occurrences) -> None:
+        """Mark specific wait occurrences (wait_key, step_id) as handled so a
+        reattach replay does not re-open already-answered dialogs, while a
+        NEW occurrence of the same wait_key still prompts."""
+        for pair in occurrences or []:
+            try:
+                key, step = pair
+            except Exception:
+                continue
+            k = str(key or "").strip()
+            if not k:
+                continue
+            self._seeded_wait_marks.setdefault(k, set()).add(str(step or "").strip())
+
+    def _wait_already_handled(self, wait_key: str, step_id: str) -> bool:
+        for marks in (self._seeded_wait_marks.get(wait_key), self._live_wait_marks.get(wait_key)):
+            if not marks:
+                continue
+            if "" in marks:
+                return True
+            if step_id and step_id in marks:
+                return True
+            if not step_id:
+                # Unknown occurrence (synthetic record): anything already
+                # handled for this key is the same pending question.
+                return True
+        return False
 
     def seed_tool_call_ids(self, call_ids: List[str]) -> None:
         for cid in call_ids:
@@ -61,8 +108,10 @@ class GatewayEventAdapter:
         """Return UI events derived from a single ledger record."""
         events: List[Dict[str, Any]] = []
         record_ts = ""
+        record_step_id = ""
         if isinstance(rec, dict):
             record_ts = str(rec.get("ended_at") or rec.get("started_at") or "").strip()
+            record_step_id = str(rec.get("step_id") or "").strip()
 
         # Realtime run activity (2026-07-10): STARTED records carry the full effect payload
         # BEFORE execution, so the user can see what the agent is doing while the call is
@@ -168,9 +217,21 @@ class GatewayEventAdapter:
                         }
                     )
 
+        # A resume record means the wait it names was ANSWERED: clear the
+        # live marks so the next wait on the same (stable) key re-prompts
+        # instead of being deduped into a permanent stall. Seeded marks
+        # stay — a terminal replay must not re-open its historical waits.
+        if isinstance(rec, dict):
+            eff0 = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+            if str(eff0.get("type") or "").strip().lower() == "resume":
+                payload0 = eff0.get("payload") if isinstance(eff0.get("payload"), dict) else {}
+                resumed_key = str(payload0.get("wait_key") or "").strip()
+                if resumed_key:
+                    self._live_wait_marks.pop(resumed_key, None)
+
         wait = extract_wait_from_record(rec)
         if wait:
-            events.extend(self._wait_events(wait))
+            events.extend(self._wait_events(wait, step_id=record_step_id))
 
         for msg in tool_messages_from_record(rec or {}):
             meta = msg.get("metadata") if isinstance(msg, dict) else None
@@ -201,20 +262,29 @@ class GatewayEventAdapter:
 
         return events
 
-    def _wait_events(self, wait: WaitState) -> List[Dict[str, Any]]:
-        """Convert a wait state into UI events."""
+    def _wait_events(self, wait: WaitState, *, step_id: str = "") -> List[Dict[str, Any]]:
+        """Convert a wait state into UI events.
+
+        Dedup is per OCCURRENCE (wait_key + waiting-record step_id), never
+        per key alone: the runtime reuses stable keys for repeated waits
+        from the same node, and a key-only dedup swallows the second
+        question forever."""
         events: List[Dict[str, Any]] = []
         wait_key = str(wait.get("wait_key") or "").strip()
+        step = str(step_id or "").strip()
         reason = _coerce_wait_reason(wait.get("reason"))
-        if wait_key and wait_key in self._seen_wait_keys:
+        if wait_key and self._wait_already_handled(wait_key, step):
             return []
+
+        def _mark_handled() -> None:
+            if wait_key:
+                self._live_wait_marks.setdefault(wait_key, set()).add(step)
 
         tool_calls = extract_tool_calls_from_wait(wait)
         approval_wait = is_tool_approval_wait(wait)
         if tool_calls or approval_wait:
             events.append({"type": "tool_request", "tool_calls": tool_calls, "wait_key": wait_key})
-            if wait_key:
-                self._seen_wait_keys.add(wait_key)
+            _mark_handled()
             return events
 
         if reason == "event":
@@ -222,14 +292,12 @@ class GatewayEventAdapter:
             if ev_name == "abstract.ask":
                 prompt = str(wait.get("prompt") or "Input required:").strip()
                 events.append({"type": "ask_user", "prompt": prompt, "wait_key": wait_key})
-                if wait_key:
-                    self._seen_wait_keys.add(wait_key)
+                _mark_handled()
                 return events
 
         if reason == "user":
             prompt = str(wait.get("prompt") or "Input required:").strip()
             events.append({"type": "ask_user", "prompt": prompt, "wait_key": wait_key})
-            if wait_key:
-                self._seen_wait_keys.add(wait_key)
+            _mark_handled()
 
         return events

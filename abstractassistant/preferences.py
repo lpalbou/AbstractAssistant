@@ -15,12 +15,27 @@ from abstractassistant.config import DEFAULT_GATEWAY_URL
 
 
 # Capability routes the thin client can locally override AND actually applies.
-# Chat text is applied per-run (input_data._runtime.provider/model); voice is
-# applied per-call in the voice manager. Media/embedding routes are deliberately
-# NOT here: the assistant only triggers them and cannot honor a local per-run
-# override for them, so offering it would be dishonest (and configuring the
-# gateway's media models belongs to the gateway console, not a thin client).
-LOCAL_OVERRIDE_ROUTE_KEYS = ("output.text", "output.voice", "input.voice")
+# Chat text rides the run input (top-level provider/model + _runtime); voice is
+# applied per TTS/STT call in the voice manager; media routes ride dedicated
+# input pins on the managed orchestrator workflow (generate_image/edit/upscale/
+# video/image_to_video/music nodes accept per-run provider+model, and the sound
+# node takes a full output spec) — the override reaches exactly one run and the
+# gateway's own defaults are never written. 3D (output.scene3d.*) is NOT here:
+# the runtime has no scene3d workflow node yet, so the assistant cannot trigger
+# (or override) 3D generation — add it when that node ships.
+# Embedding/rerank stay out: the assistant never issues those calls.
+LOCAL_OVERRIDE_ROUTE_KEYS = (
+    "output.text",
+    "output.voice",
+    "input.voice",
+    "output.image.text_to_image",
+    "output.image.image_to_image",
+    "output.image.image_upscale",
+    "output.video.text_to_video",
+    "output.video.image_to_video",
+    "output.music",
+    "output.sound",
+)
 
 
 def _normalize_route_overrides(raw: Any) -> Dict[str, Dict[str, Any]]:

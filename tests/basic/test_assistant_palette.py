@@ -84,7 +84,12 @@ def _alpha_bbox(pixmap, *, threshold: int = 128) -> tuple[int, int, int, int] | 
 class _GatewayCatalogStub:
     def __init__(self) -> None:
         self.voice_model_calls: list[dict] = []
-        self.visualflows: list[dict] = []
+        # The stored managed flow matches this build's definition, so the
+        # ensure-path drift reconcile finds nothing to republish and these
+        # tests stay about catalog READS (no publish machinery needed).
+        self.visualflows: list[dict] = [
+            {"id": "vf-managed", **normalized_managed_visualflow()}
+        ]
 
     def list_visualflows(self) -> list[dict]:
         return list(self.visualflows)
@@ -291,7 +296,17 @@ class _ManagedWorkflowGatewayStub:
         return list(self._flows)
 
     def create_visualflow(self, **kwargs) -> dict:
-        flow = {"id": "vf123", **kwargs}
+        # Store the canonical visualflow shape (entryNode, not the kwarg
+        # entry_node) — the drift check compares stored vs expected keys.
+        flow = {
+            "id": "vf123",
+            "name": kwargs.get("name"),
+            "description": kwargs.get("description"),
+            "interfaces": kwargs.get("interfaces"),
+            "nodes": kwargs.get("nodes"),
+            "edges": kwargs.get("edges"),
+            "entryNode": kwargs.get("entry_node"),
+        }
         self._flows = [flow]
         self.created.append(dict(kwargs))
         return flow
@@ -312,10 +327,11 @@ class _ManagedWorkflowGatewayStub:
 
     def publish_visualflow(self, **kwargs) -> dict:
         self.published.append(dict(kwargs))
-        self._bundles = [
+        version = str(kwargs.get("bundle_version") or "") or "0.0.0"
+        self._bundles.append(
             {
                 "bundle_id": kwargs["bundle_id"],
-                "bundle_version": "0.0.0",
+                "bundle_version": version,
                 "default_entrypoint": "node-1",
                 "entrypoints": [
                     {
@@ -325,17 +341,26 @@ class _ManagedWorkflowGatewayStub:
                     },
                 ],
             }
-        ]
-        return {"ok": True, "bundle_version": "0.0.0"}
+        )
+        return {"ok": True, "bundle_version": version}
 
     def promote_workflow_catalog_bundle(self, **kwargs) -> dict:
         self.promoted.append(dict(kwargs))
+        make_default = bool(kwargs.get("make_default"))
+        if make_default:
+            for item in self._catalog_items:
+                item["is_default"] = False
         self._catalog_items = [
+            item
+            for item in self._catalog_items
+            if str(item.get("bundle_version")) != str(kwargs["bundle_version"])
+        ]
+        self._catalog_items.append(
             {
                 "bundle_id": kwargs["bundle_id"],
                 "bundle_version": kwargs["bundle_version"],
                 "default_entrypoint": "node-1",
-                "is_default": False,
+                "is_default": make_default,
                 "actions": {"can_run": True},
                 "entrypoints": [
                     {
@@ -345,7 +370,7 @@ class _ManagedWorkflowGatewayStub:
                     },
                 ],
             }
-        ]
+        )
         return {"ok": True}
 
     def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
@@ -412,6 +437,157 @@ def test_assistant_palette_managed_workflow_accepts_prompt_alias_for_media_route
         assert edge["sourceHandle"] == "result"
         assert edge["target"] == target
         assert edge["targetHandle"] == "prompt"
+
+
+@pytest.mark.basic
+def test_assistant_palette_managed_workflow_declares_media_override_pins() -> None:
+    """Per-run media overrides ride start-node pins into each media node
+    (maintainer ruling 2026-07-28: every modality overridable in-app, gateway
+    defaults never written). Absent pins = bare spec = gateway default."""
+    flow = normalized_managed_visualflow()
+    nodes = {str(node.get("id")): node for node in flow["nodes"]}
+    edges = {str(edge.get("id")): edge for edge in flow["edges"]}
+
+    start_pins = {pin["id"] for pin in nodes["start"]["data"]["outputs"]}
+    for pin_id in (
+        "image_provider",
+        "image_model",
+        "image_edit_provider",
+        "image_edit_model",
+        "image_upscale_provider",
+        "image_upscale_model",
+        "video_provider",
+        "video_model",
+        "image_to_video_provider",
+        "image_to_video_model",
+        "music_provider",
+        "music_model",
+        "sound_output",
+    ):
+        assert pin_id in start_pins, f"start node missing override pin {pin_id}"
+
+    # The sound spec has a default on the START pin so a run without the
+    # override behaves exactly like the old static node config.
+    assert nodes["start"]["data"]["pinDefaults"]["sound_output"] == {
+        "modality": "sound",
+        "task": "text_to_audio",
+        "format": "wav",
+    }
+
+    # Each media node receives its own pair (node-local pin names follow the
+    # runtime handlers: image_provider/image_model, video_provider/video_model,
+    # music_provider/music_model; sound takes the whole output spec).
+    expectations = [
+        ("start-image-provider", "image_provider", "generate_image", "image_provider"),
+        ("start-image-model", "image_model", "generate_image", "image_model"),
+        ("start-edit-provider", "image_edit_provider", "edit_image", "image_provider"),
+        ("start-edit-model", "image_edit_model", "edit_image", "image_model"),
+        ("start-upscale-provider", "image_upscale_provider", "upscale_image", "image_provider"),
+        ("start-upscale-model", "image_upscale_model", "upscale_image", "image_model"),
+        ("start-video-provider", "video_provider", "generate_video", "video_provider"),
+        ("start-video-model", "video_model", "generate_video", "video_model"),
+        ("start-image-to-video-provider", "image_to_video_provider", "image_to_video", "video_provider"),
+        ("start-image-to-video-model", "image_to_video_model", "image_to_video", "video_model"),
+        ("start-music-provider", "music_provider", "generate_music", "music_provider"),
+        ("start-music-model", "music_model", "generate_music", "music_model"),
+        ("start-sound-output", "sound_output", "generate_sound", "output"),
+    ]
+    for edge_id, source_handle, target, target_handle in expectations:
+        edge = edges.get(edge_id)
+        assert edge is not None, f"missing override edge {edge_id}"
+        assert edge["source"] == "start"
+        assert edge["sourceHandle"] == source_handle
+        assert edge["target"] == target
+        assert edge["targetHandle"] == target_handle
+        target_pins = {pin["id"] for pin in nodes[target]["data"]["inputs"]}
+        assert target_handle in target_pins, f"{target} missing input pin {target_handle}"
+
+
+@pytest.mark.basic
+def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> None:
+    """A catalog that already serves the managed workflow must NOT freeze its
+    definition: when this app build's workflow differs from the stored flow,
+    ensure_catalog_workflow updates + republishes + promotes (once per
+    process); when they match, nothing is published."""
+    gateway = _ManagedWorkflowGatewayStub()
+    service = AssistantGatewayService(gateway)
+    # First ensure: creates + publishes + promotes (catalog was empty).
+    service.ensure_catalog_workflow()
+    assert len(gateway.published) == 1
+
+    # Same definition stored: a fresh service instance reconciles, finds no
+    # drift, and publishes nothing new.
+    service2 = AssistantGatewayService(gateway)
+    service2.ensure_catalog_workflow()
+    assert len(gateway.published) == 1
+
+    # Drift the STORED flow (simulating an older published definition), then a
+    # fresh service must republish and promote the new definition AS DEFAULT
+    # (the workflow resolver prefers the catalog default; without the flag the
+    # app would keep running the old version forever). The new version must be
+    # a bump PAST every known version (registry + catalog).
+    stored = dict(gateway._flows[0])
+    stored["edges"] = [e for e in stored["edges"] if e.get("id") != "start-sound-output"]
+    gateway._flows = [stored]
+    service3 = AssistantGatewayService(gateway)
+    workflows = service3.ensure_catalog_workflow()
+    assert len(gateway.published) == 2
+    assert gateway.updated, "drifted stored flow must be updated to this build's definition"
+    assert gateway.published[1]["bundle_version"] == "0.0.1"
+    assert gateway.promoted[-1]["make_default"] is True
+    assert workflows[0].bundle_version == "0.0.1"
+
+    # Reconciliation is once per process/service: a second ensure on the same
+    # instance must not re-fetch/re-publish even if the store still drifts.
+    gateway._flows = [stored]
+    service3.ensure_catalog_workflow()
+    assert len(gateway.published) == 2
+
+    # A MISSING stored flow (catalog still serving) is recreated + republished
+    # — the live 2026-07-17 principal-split case where the catalog bundle
+    # survived but its source flow did not. Self-stabilizing: the recreate
+    # stores the current definition, so the next process publishes nothing.
+    gateway._flows = []
+    service4 = AssistantGatewayService(gateway)
+    service4.ensure_catalog_workflow()
+    assert len(gateway.published) == 3
+    assert len(gateway.created) == 2  # initial create + the recreate
+    service5 = AssistantGatewayService(gateway)
+    service5.ensure_catalog_workflow()
+    assert len(gateway.published) == 3
+
+
+@pytest.mark.basic
+def test_assistant_palette_gateway_service_promotes_registry_version_left_behind_by_a_crash() -> None:
+    """Crash recovery: a publish that landed in the bundle registry without
+    its promote (kill between the two calls) leaves the catalog serving an
+    older version. With a CURRENT stored flow, the reconcile promotes the
+    newer registry version instead of leaving the catalog stale."""
+    gateway = _ManagedWorkflowGatewayStub()
+    service = AssistantGatewayService(gateway)
+    service.ensure_catalog_workflow()  # creates + publishes 0.0.0 + promotes
+
+    # Simulate the crashed second half: a newer bundle exists in the registry
+    # but the catalog still serves 0.0.0.
+    gateway._bundles.append(
+        {
+            "bundle_id": MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
+            "bundle_version": "0.0.1",
+            "default_entrypoint": "node-1",
+            "entrypoints": [
+                {"flow_id": "node-1", "name": "Assistant", "interfaces": ["abstractassistant.agent.v1"]},
+            ],
+        }
+    )
+
+    service2 = AssistantGatewayService(gateway)
+    workflows = service2.ensure_catalog_workflow()
+
+    assert gateway.promoted[-1]["bundle_version"] == "0.0.1"
+    assert gateway.promoted[-1]["make_default"] is True
+    # No new publish happened — the registry artifact was only promoted.
+    assert [p.get("bundle_version") for p in gateway.published] == [None]
+    assert workflows[0].bundle_version == "0.0.1"
 
 
 @pytest.mark.basic
@@ -1293,6 +1469,31 @@ def test_assistant_palette_preferences_round_trip(tmp_path: Path) -> None:
 
 
 @pytest.mark.basic
+def test_assistant_palette_preferences_media_route_overrides_round_trip(tmp_path: Path) -> None:
+    """Media route overrides persist like the text/voice ones; unknown routes
+    and half-pins (provider without model) are dropped on normalize."""
+    store = PreferencesStore(tmp_path / "preferences.json")
+    prefs = AssistantPreferences(
+        route_overrides={
+            "output.image.text_to_image": {"provider": "mlx-gen", "model": "AbstractFramework/flux-x"},
+            "output.music": {"provider": "stable-audio-3", "model": "stabilityai/custom"},
+            "output.sound": {"provider": "stable-audio-3", "model": "stabilityai/sfx"},
+            "output.scene3d.text_to_scene3d": {"provider": "x", "model": "y"},  # not offered -> dropped
+            "output.video.text_to_video": {"provider": "mlx-gen"},  # half-pin -> dropped
+        }
+    )
+
+    store.save(prefs)
+    loaded = store.load()
+
+    assert loaded.route_overrides == {
+        "output.image.text_to_image": {"provider": "mlx-gen", "model": "AbstractFramework/flux-x"},
+        "output.music": {"provider": "stable-audio-3", "model": "stabilityai/custom"},
+        "output.sound": {"provider": "stable-audio-3", "model": "stabilityai/sfx"},
+    }
+
+
+@pytest.mark.basic
 def test_assistant_palette_connection_preferences_round_trip(tmp_path: Path) -> None:
     store = GatewayConnectionStore(tmp_path / "gateway_connection.json")
     prefs = GatewayConnectionPreferences(
@@ -1435,6 +1636,30 @@ def test_assistant_palette_controller_build_chat_worker_passes_local_text_overri
     assert captured["provider_override"] == "lmstudio"
     assert captured["model_override"] == "ornith-1.0-35b"
     assert captured["base_url_override"] == "http://localhost:1234/v1"
+    # No media overrides saved -> nothing sent (gateway defaults resolve).
+    assert captured["media_overrides"] is None
+
+
+def test_assistant_palette_controller_build_chat_worker_passes_media_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Saved media route overrides ride the worker per run ({route_key:
+    {provider, model}}); voice routes never do (they ride TTS/STT calls)."""
+    captured: dict[str, object] = {}
+    controller = _bare_chat_worker_controller(monkeypatch, captured)
+    overrides = {
+        "output.image.text_to_image": {"provider": "mlx-gen", "model": "AbstractFramework/flux-x"},
+        "output.sound": {"provider": "stable-audio-3", "model": "stabilityai/custom-sfx"},
+        "output.voice": {"provider": "piper", "model": "en_US-amy-medium"},
+    }
+    controller.route_override = lambda key: overrides.get(key)  # type: ignore[method-assign]
+
+    controller.build_chat_worker(prompt="Hello")
+
+    assert captured["media_overrides"] == {
+        "output.image.text_to_image": {"provider": "mlx-gen", "model": "AbstractFramework/flux-x"},
+        "output.sound": {"provider": "stable-audio-3", "model": "stabilityai/custom-sfx"},
+    }
 
 
 @pytest.mark.basic

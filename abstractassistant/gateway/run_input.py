@@ -4,7 +4,63 @@ Build gateway run input data for assistant-compatible agent workflows.
 Ported from `abstractcode/web/src/lib/run_input.ts` (simplified).
 """
 
+import warnings
 from typing import Any, Dict, List, Optional
+
+from ..assistant_workflow import SOUND_OUTPUT_SPEC
+
+
+# Media route overrides ride dedicated input pins on the managed orchestrator
+# workflow (the media nodes read them as their provider/model inputs; absent
+# pins leave the output spec bare so the gateway default applies). One route
+# key maps to one (provider_pin, model_pin) pair.
+MEDIA_OVERRIDE_INPUT_KEYS: Dict[str, tuple] = {
+    "output.image.text_to_image": ("image_provider", "image_model"),
+    "output.image.image_to_image": ("image_edit_provider", "image_edit_model"),
+    "output.image.image_upscale": ("image_upscale_provider", "image_upscale_model"),
+    "output.video.text_to_video": ("video_provider", "video_model"),
+    "output.video.image_to_video": ("image_to_video_provider", "image_to_video_model"),
+    "output.music": ("music_provider", "music_model"),
+}
+
+# The sound path is an llm_call node whose generation target is its output
+# SPEC object, so the override rides inside that spec (a bare provider/model
+# pin on the node would select the TEXT model, not the audio backend).
+SOUND_OVERRIDE_ROUTE_KEY = "output.sound"
+
+
+def apply_media_overrides(out: Dict[str, Any], media_overrides: Optional[Dict[str, Dict[str, Any]]]) -> None:
+    """Fold per-route media overrides into workflow input pins (in place).
+
+    Every override requires BOTH provider and model — a half-pin is dropped
+    with a warning (same contract as the chat-text override: half overrides
+    are indistinguishable from misconfiguration and would send a broken pin).
+    """
+    if not isinstance(media_overrides, dict):
+        return
+    for route_key, override in media_overrides.items():
+        key = str(route_key or "").strip()
+        if not isinstance(override, dict):
+            continue
+        provider = str(override.get("provider") or "").strip()
+        model = str(override.get("model") or "").strip()
+        if not provider or not model:
+            if provider or model:
+                warnings.warn(f"#FALLBACK: dropping half-specified media override for {key} (need provider AND model)")
+            continue
+        if key == SOUND_OVERRIDE_ROUTE_KEY:
+            spec = dict(SOUND_OUTPUT_SPEC)
+            spec["provider"] = provider
+            spec["model"] = model
+            out["sound_output"] = spec
+            continue
+        pins = MEDIA_OVERRIDE_INPUT_KEYS.get(key)
+        if not pins:
+            warnings.warn(f"#FALLBACK: ignoring media override for unknown route {key}")
+            continue
+        provider_pin, model_pin = pins
+        out[provider_pin] = provider
+        out[model_pin] = model
 
 
 def _to_chat_messages(messages: List[Dict[str, Any]], keep: int) -> List[Dict[str, str]]:
@@ -41,6 +97,7 @@ def build_run_input_data(
     provider: str = "",
     model: str = "",
     base_url: str = "",
+    media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build workflow input without desktop-owned routing or history authority.
 
@@ -65,6 +122,9 @@ def build_run_input_data(
     ``context.messages`` from the session's durable prior turns at run start
     (agora `durable-sessions` contract v1), so the tray and CLI callers pass
     only the prompt plus artifact references and the server owns the replay.
+    ``media_overrides`` maps capability route keys (output.image.*, output.video.*,
+    output.music, output.sound) to {provider, model} — per-run local overrides
+    that ride the managed workflow's media input pins (see apply_media_overrides).
     """
     prompt_s = str(prompt or "")
     system_s = str(system or "")
@@ -163,5 +223,9 @@ def build_run_input_data(
         out["temperature"] = float(temperature)
     if isinstance(seed, int):
         out["seed"] = int(seed)
+
+    # Per-run media model overrides (image/video/music/sound) — local to this
+    # app, delivered as workflow input pins; the gateway default is untouched.
+    apply_media_overrides(out, media_overrides)
 
     return out

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import warnings
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
@@ -137,6 +138,24 @@ def _version_sort_key(value: str) -> tuple[int, ...]:
     return tuple(parts or [0])
 
 
+def _next_patch_version(known_versions: Iterable[str]) -> str:
+    """Next patch after the highest known version ('' when none are known —
+    the gateway then mints its own first version)."""
+    candidates = [str(v or "").strip() for v in known_versions]
+    candidates = [v for v in candidates if v]
+    if not candidates:
+        return ""
+    highest = max(candidates, key=_version_sort_key)
+    parts = highest.split(".")
+    last = parts[-1].strip()
+    digits = "".join(ch for ch in last if ch.isdigit())
+    if not digits:
+        return f"{highest}.1"
+    bumped = str(int(digits) + 1)
+    parts[-1] = last.replace(digits, bumped, 1) if last != digits else bumped
+    return ".".join(parts)
+
+
 def _choice(value: Any, *, fallback_id: str = "", fallback_label: str = "") -> Optional[ChoiceItem]:
     if isinstance(value, str):
         text = value.strip()
@@ -180,6 +199,11 @@ class AssistantGatewayService:
     def __init__(self, gateway_client: Any) -> None:
         self._gateway = gateway_client
         self._last_workflow_status = WorkflowCatalogStatus()
+        # Definition-drift reconciliation runs at most once per process: the
+        # comparison needs a visualflow fetch, and a store that rewrites flows
+        # on save must not cause a publish loop (each reconcile mints a new
+        # bundle patch version).
+        self._managed_flow_reconciled = False
 
     def describe_connection_issue(self, exc: Exception) -> str:
         return self._describe_gateway_exception(exc)
@@ -240,11 +264,56 @@ class AssistantGatewayService:
     def ensure_catalog_workflow(self) -> List[WorkflowOption]:
         options, _error = self._catalog_workflows()
         managed_options = self._managed_catalog_options(options)
-        if managed_options:
+        if managed_options and self._managed_flow_reconciled:
             return managed_options
+        if managed_options:
+            # The catalog serves a managed workflow, but its DEFINITION may be
+            # older than this app build (the old short-circuit here silently
+            # froze the published flow forever — pin/edge changes shipped in
+            # the app never reached the gateway). Reconcile once per process:
+            # compare the stored visualflow against this build's definition
+            # and republish + promote when they differ. A MISSING stored flow
+            # is recreated (it is this app's own managed artifact and the
+            # source for every future publish; live case: the 2026-07-17
+            # principal-split left catalogs serving bundles whose source flow
+            # no longer exists in the current principal's store) — after the
+            # one recreate the store compares clean, so this cannot loop.
+            self._managed_flow_reconciled = True
+            try:
+                payload = normalized_managed_visualflow()
+                flows = self._gateway.list_visualflows()
+                target = self._find_managed_visualflow(flows)
+                if target is not None and not self._visualflow_needs_update(target, payload):
+                    # Stored flow is current. One crash shape remains: a
+                    # publish landed in the bundle registry but the promote
+                    # never reached the catalog — recover by promoting the
+                    # newer registry version.
+                    registry_version = self._latest_bundle_version(MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID)
+                    catalog_versions = [
+                        str(getattr(option, "bundle_version", "") or "") for option in managed_options
+                    ]
+                    catalog_max = max(catalog_versions, key=_version_sort_key) if catalog_versions else ""
+                    if registry_version and _version_sort_key(registry_version) > _version_sort_key(catalog_max):
+                        self._gateway.promote_workflow_catalog_bundle(
+                            bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
+                            bundle_version=registry_version,
+                            scope="tenant_catalog",
+                            make_default=True,
+                        )
+                        options, error = self._catalog_workflows()
+                        refreshed = self._managed_catalog_options(options)
+                        if refreshed:
+                            return refreshed
+                    return managed_options
+            except Exception as exc:
+                warnings.warn(f"#FALLBACK: managed workflow drift check failed; keeping catalog version: {exc}")
+                return managed_options
+            # Definition drifted or the stored flow is missing: fall through
+            # to the create/update + publish + promote path below.
         payload = normalized_managed_visualflow()
         flows = self._gateway.list_visualflows()
         target = self._find_managed_visualflow(flows)
+        self._managed_flow_reconciled = True
 
         changed = False
         if target is None:
@@ -277,20 +346,35 @@ class AssistantGatewayService:
 
         bundle_version = self._latest_bundle_version(MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID)
         if changed or not bundle_version:
+            # The gateway auto-bumps from ITS bundle registry only — which can
+            # lag the tenant CATALOG (live case: the registry lost the 0.0.1
+            # artifact while the catalog still records 0.0.1 with its sha, so
+            # an auto-bumped publish re-minted 0.0.1 and the promote refused
+            # "already exists with a different sha256"). Bump from every
+            # version we can SEE: registry + catalog.
+            known_versions = [bundle_version] + [
+                str(getattr(option, "bundle_version", "") or "")
+                for option in self._managed_catalog_options(options)
+            ]
+            next_version = _next_patch_version(known_versions)
             published = self._gateway.publish_visualflow(
                 flow_id=flow_id,
                 bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
+                bundle_version=next_version or None,
                 overwrite=False,
                 reload_gateway=True,
             )
-            bundle_version = str((published or {}).get("bundle_version") or "").strip() or bundle_version
+            bundle_version = str((published or {}).get("bundle_version") or "").strip() or next_version or bundle_version
         if not bundle_version:
             raise RuntimeError("Assistant workflow publish returned no bundle_version.")
+        # make_default=True: the workflow resolver prefers the catalog's
+        # default option, so a republished version must take the default flag
+        # or the app would keep running the OLD definition forever.
         self._gateway.promote_workflow_catalog_bundle(
             bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
             bundle_version=bundle_version,
             scope="tenant_catalog",
-            make_default=False,
+            make_default=True,
         )
         options, error = self._catalog_workflows()
         managed_options = self._managed_catalog_options(options)

@@ -19,10 +19,20 @@ def normalize_ui_event_name(name: str) -> str:
 
 
 def event_name_from_wait_key(wait_key: str) -> str:
-    """Extract the event name from a wait_key (evt:<name>:...)."""
+    """Extract the event name from a runtime event wait key.
+
+    The runtime's canonical shape is ``evt:{scope}:{scope_id}:{name}``
+    (abstractruntime ``core/event_keys.py``) — the NAME is the fourth
+    segment and may itself contain colons/dots (e.g.
+    ``evt:run:<run_id>:abstract.ask``). Parsing the second segment returned
+    the SCOPE, so ask-shaped event waits never matched. Shorter legacy keys
+    (``evt:<name>``) keep their old reading.
+    """
     wk = str(wait_key or "").strip()
     if wk.startswith("evt:"):
         parts = wk.split(":", 3)
+        if len(parts) == 4:
+            return str(parts[3] or "").strip()
         if len(parts) >= 2:
             return str(parts[1] or "").strip()
     return wk

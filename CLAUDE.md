@@ -6,6 +6,291 @@ This file tracks major development tasks, architectural decisions, and implement
 
 ## TASK COMPLETION LOG
 
+### Task: ROOT CAUSE of minutes-to-first-voice — server per-voice lock never released (2026-07-28, fourth wave; CORRECTS waves 2-3)
+
+**Operator (furious, correctly)**: minutes to first voice on realtime
+streaming, spinner visibly stuck — "stop deviating onto volume, find the root
+cause, benchmark 200/1000/5000 chars time-to-first-voice."
+
+**Benchmark (ordered), first pass, sequential**: 200→1.71s, 1000→13.03s,
+5000→65.80s; first chunk always the same 3.4s first segment. Looked like
+O(total-length) work before first voice.
+
+**Second three-way audit CORRECTED my reading of my own benchmark**:
+- The length-scaling was a MEASUREMENT ARTIFACT. My benchmark `break`s after
+  chunk 1 and issues the next request while the previous run is still
+  synthesizing server-side. The gateway holds a process-wide per-voice lock
+  across the WHOLE stream and keeps synthesizing an abandoned run to
+  completion, so each run queued behind its predecessor. The server-lane
+  auditor reconstructed every number to within 0.3s as
+  queue-behind-predecessor + flat first-segment.
+- REAL isolated numbers (lock free): server ttfb 1.6s / 2.7s / 5.0s for
+  200/1000/5000 chars. Near-realtime. A single utterance on an idle gateway
+  is fine. The 5000-char run, when the lock was free, hit first voice in
+  4.87s — the LARGEST text had the SMALLEST first-voice.
+- abstractvoice mixin/adapter/supertonic runtime EXONERATED (auditor proved
+  first yield is length-independent: chunk 1 after only the 63-char segment 1).
+
+**The mechanism (100% server-side, exact locations filed to gateway c15)**:
+1. One VoiceManager per (engine,model,language); voice/quality not in the key
+   (abstractcore_plugin.py:1251-1266). Lock held across the whole stream
+   (:3828/:3834/:3942-3969). A second request blocks for the predecessor's
+   entire remaining synthesis.
+2. Client disconnect does not cancel: watchdog feeder thread has no stop
+   signal (gateway.py:9459-9468); the response finally's events.close()
+   raises across threads and is swallowed (:9493-9499); the runtime
+   cancel_event (run_facade.py:685-695) never fires.
+3. LIVE-VERIFIED tonight: durable cancel_run flips run status to cancelled in
+   2.1s but does NOT stop the feeder or release the lock — a clean per-size
+   benchmark that cancelled each run after first voice STILL scaled
+   (1.44/9.97/38.57s), and a stream started right after "cancelled" runs
+   waited 196s behind their still-synthesizing feeders. run_facade.py:568
+   creates cancel_event with no setter but GeneratorExit.
+
+**CLIENT verdict: nothing fixable (audit-confirmed).** The client streams and
+disconnects correctly; no client change frees a server-held lock. Shipped the
+correct client ACTION anyway (`stop_speaking`/supersede captures the stream's
+server child_run_id and issues cancel_run): forward-compatible (becomes the
+real mitigation once the server honors cancel) and it stops zombie runs
+lingering. Docstring + CHANGELOG state plainly it does NOT free the lock today
+— no overclaim (I overclaimed twice this night; corrected).
+
+**My errors this night, on the record**: (wave 2) blamed device/pacing;
+(wave 3) closed on "all layers deliver loud audio, volume 6/100" — true but
+NOT the operator's complaint, which was LATENCY; (wave 4, first pass) read my
+own sequential-benchmark artifact as an O(n) server pre-pass. The discipline
+that finally worked: isolate the lock variable (free-lock vs queued), and
+measure whether cancel actually releases the lock (it doesn't).
+
+**Filed**: gateway c15 (open) with per-package asks — gateway (disconnect +
+cancel must trigger cancel_event and release the lock), abstractruntime
+(explicit cancel handle), abstractvoice (per-segment lock / admission queue),
++ a latent GZip hazard (application/x-ndjson not excluded, gateway.py:9503).
+
+**Testing**: 301 passed; new voice-stream-cancel + output-volume-state tests.
+Bundle at 04:17 carries the functional client set (prose cleanup, output-vol
+banner, abort warnings, cancel-on-stop); only a docstring changed after.
+
+---
+
+### Task: Three-way adversarial audio audit — all layers cleared, output volume was 6/100 (2026-07-28, third wave)
+
+**Operator order**: "it was NOT speaking, neither on the MBP nor on the XREAL
+— enroll 3 adversarial subagents and find out if the problem is with you, the
+gateway, or core; only fix what's yours; file bug requests for the rest."
+
+**Verdicts (all with hard numbers, no component at fault for the silence)**:
+- ASSISTANT CLEARED: instrumented the real `speak()` live (monkeypatched
+  player internals) — stream leg consumed, WAV decoded correctly (44100 Hz
+  mono int16, NOT the presumed 22050 — the abstractvoice log line is
+  misleading), resampled to 48 kHz, 209,920 frames at peak 0.3727 physically
+  handed to PortAudio on the OS default output, zero status flags, zero
+  warnings, completion exactly once.
+- GATEWAY CLEARED: both incident runs persisted their full synthesized audio
+  as artifacts — 113.79 s each, peak 0.44/0.50 FS: the exact bytes streamed
+  to the app that night WERE loud speech. Ledgers clean. A 12-combo
+  (profile × quality_preset) energy matrix on BOTH lanes: zero silent combos
+  (min peak 0.297 FS).
+- CORE/VOICE CLEARED: direct in-process supertonic synthesis (M3 × all
+  presets) non-silent; M3 catalog-legal; preset maps to diffusion steps only
+  (low 5 / standard 8 / high 12).
+
+**The measured cause**: macOS output volume 6/100 (not muted) at audit time;
+default output had ALSO changed (incident: XREAL One Pro; audit: MacBook Pro
+Speakers with XREAL still holding the alert-device role). At 6% volume,
+correct playback is inaudible on every sink — consistent with "no sound on
+MBP nor XREAL" while every layer delivered loud audio.
+
+**Assistant-side hardening (mine, shipped)**: the "Speaking on …" banner now
+appends the system output volume and becomes a WARNING when muted or < 15%
+(`output_volume_state()` via osascript, best-effort, None on non-macOS);
+the two warning-free abort paths in the stream player now emit `#FALLBACK`
+(empty mid-stream chunk; undecodable chunk). 297 tests green.
+
+**Filed with owning seats (hub DM, dm:assistant--gateway seq 11)**: gateway —
+load-dependent synthesis slowdown (same text: rtf 0.30/ttfb 1.2 s vs rtf
+1.49/ttfb 9.1 s eight minutes later; rtf > 1 guarantees streaming underrun)
+and a possible sticky engine default voice; abstractvoice — unknown-profile
+mis-route into the cloned-voice lane, constructor-time silent M1 fallback,
+silently-dropped invalid presets, wrong pre-load 24000 Hz self-report, player
+silently opening a NON-default device on default-open failure + idle-only
+default-device switching + the misleading 22050 resample log line.
+
+**Lesson (mine, on the record)**: I had earlier inferred "it played into the
+XREAL" from realtime pacing — the pacing was actually load-bound synthesis
+(rtf 1.49), not playback drain. Inference from timing is not proof of sound;
+the artifact-amplitude check (does the delivered audio CONTAIN sound?) and
+the machine's volume state are the ground truth and took one command each.
+
+---
+
+### Task: "Make it speak" spin-forever — forensics + spoken-prose cleanup + output-device visibility (2026-07-28, second wave)
+
+**Report**: clicking the speaker on a long news-summary reply "just spins".
+Expectation: streaming should start reading almost immediately.
+
+**Forensics (all live, numbers on the exact text)**: the stream lane was
+HEALTHY — first audio chunk at 5.15 s for the exact 2,031-char markdown reply;
+a fresh short-text probe got audio in ~3 s. The user's second attempt ran
+2 m 50 s server-side ≈ realtime playback pacing — it WAS playing. macOS
+default output was **XREAL One Pro** (USB AR glasses): the app spoke a
+3-minute reply into the glasses while the Mac stayed silent — visually
+indistinguishable from a hang (the spinner covers the first ~5-10 s, then the
+subtle pause icon). The first attempt's stream died at exactly 33 s: clicking
+the SPINNING button pauses consumption (`state == "synthesizing"` →
+`voice.pause()`), the client stops reading, and the gateway idle watchdog
+closes the stream — a UX trap under "is it stuck?" clicking.
+
+**Fixes (assistant-side)**:
+- `core/speech_text.py` — `speech_plain_text()`: markdown → spoken prose
+  (headings/list items become their own short sentences so the synthesizer
+  segments early; emphasis/emoji/URLs stripped; links → their text; code
+  blocks announced as omitted; tables → per-row prose; accented prose
+  untouched). Wired into BOTH speak paths (speaker button + auto-speak).
+  Measured: first audio 5.15 s → **2.72 s** on the triggering reply.
+- Output-device visibility: on speech start the palette banner says
+  "Speaking on “<device>” — if you can't hear it, switch the Mac's sound
+  output" (`GatewayVoiceManager.output_device_label()` via sounddevice;
+  banner clears on speech end, and only if it is still the speaking banner).
+
+**Left with the owning seats (reported, not assistant-fixable)**: abstractvoice
+segment sizing still produces oversized mid-stream segments (measured: a
+~12 s speech segment arriving after a ~14 s silent gap; sizing constants are
+hardcoded server-side, first-segment boundary scan overshoots) — the
+2026-07-15 card with tonight's numbers attached.
+
+**Testing**: 293 passed (tests/basic); 7 new speech-text tests.
+
+---
+
+### Task: All-modality in-app overrides + silent dead-voice fix (2026-07-28)
+
+**Maintainer ruling**: settings stay VERY SIMPLE by default (gateway defaults
+apply), but the app must be able to override IN-APP (never mutating the
+gateway) the model for every modality the framework serves. This supersedes
+the 2026-07-18 scope cut that removed media routes from settings.
+
+**Voice ("why can't it speak?") — root cause + fix**: gateway TTS was healthy
+(1.2 s artifact synthesis live) and the full client speak path worked
+headlessly (streamed + played in ~6 s). The one discoverable in-app dead-voice
+mechanism: `AssistantCapabilities.unavailable()` snapshots (failed fetches)
+were cached with a valid `fetched_at` and served FOREVER to `stale_ok` readers
+— `supports_tts()` then said False and `speak()` refused silently (invisible
+`warnings.warn`, card resets to idle). One startup hiccup = dead voice for the
+app's lifetime. Fix: failure snapshots satisfy reads only within a 5 s grace;
+past it, stale_ok readers get the cached answer plus a SINGLE-FLIGHT
+background refresh (GUI thread never blocks) and the next attempt speaks; TTL
+readers refetch synchronously. Plus a visible warning banner when speak()
+refuses (`_toggle_message_voice`) — silent no-ops read as "voice is broken".
+
+**Media overrides — honoring channel (the 2026-07-18 "no proven channel" is
+solved)**: the assistant OWNS its orchestrator workflow, and the runtime's
+media node handlers already accept per-run pins (`image_provider/image_model`
+on generate/edit/upscale image, `video_provider/video_model` on t2v/i2v,
+`music_provider/music_model` on music — executor.py `_input_or_config`;
+`_nonempty_str` means absent pins leave the spec bare → gateway default).
+Implementation: 13 new start-node pins wired by edges into the media nodes;
+`build_run_input_data(media_overrides={route_key: {provider, model}})` maps
+route keys → pins (half-pins dropped, same rule as text); controller gathers
+them from `route_overrides` prefs; settings lists all 7 media routes (labels
+match the gateway console). ROUTE_SPECS/provider_choices/model_choices already
+supported vision+music catalogs (survived the 2026-07-18 cut). 3D: the
+gateway has `output.scene3d.*` routes but the runtime has NO scene3d node —
+the assistant cannot trigger 3D at all, so no override is offered (honesty
+rule) — revisit when the runtime node ships.
+
+**Sound is special, two ways**: (1) the sound node is an `llm_call` whose
+generation target is its output SPEC, so the override rides INSIDE the spec
+object (`sound_output` start pin carrying the whole spec, with the base spec
+as pinDefault — a bare provider/model pin would select the TEXT model). (2)
+The old spec said `modality: "audio"` which abstractcore dispatches to the
+TTS ENGINE registry — a pinned sound provider was rejected ("Unknown
+tts_engine: stable-audio-3") and a bare spec would SPEAK the prompt instead
+of generating a sound effect. `modality: "sound"` routes to the sound-effects
+capability. LIVE-PROVEN both ways on 0.0.3: pinned → completed with
+`abstractmusic:stable-audio-3 / stable-audio-3-small-sfx`; bare → resolved
+the same gateway default.
+
+**Managed workflow reconcile (two real bugs found)**:
+- `ensure_catalog_workflow` returned early whenever the catalog had ANY
+  managed option — the published definition was FROZEN forever; app-shipped
+  workflow changes never reached the gateway. Now it reconciles once per
+  process: fetch stored flow, compare, update + publish + promote on drift;
+  recreate if the stored flow is missing (live case: the 2026-07-17
+  principal-split left the catalog serving a bundle whose source flow no
+  longer existed); promote uses make_default=True because the workflow
+  resolver PREFERS the catalog default — without the flag the app would keep
+  running the old version forever. Publish versions are computed as
+  bump-past-max(registry ∪ catalog): the gateway auto-bump reads only its
+  bundle registry, which lagged the catalog and re-minted 0.0.1 → promote
+  refused "already exists with a different sha256".
+- `GatewayClient.list_visualflows` ALWAYS returned [] on real gateways: the
+  endpoint returns a bare JSON array and `_parse_json` wraps non-dict JSON as
+  `{"value": ...}` — the list check then failed. This is why the gateway had
+  accumulated DUPLICATE managed flows (every fresh-catalog pass re-created
+  one). Fixed the unwrap; deleted the stale June duplicate (d5d4e5a1) from
+  the live gateway; kept c53b1579 (current). Lesson: a JSON plumbing layer
+  that reshapes arrays breaks every list endpoint silently — check the
+  wrapper convention when a list API "returns empty" against a live server.
+
+**Live state after the wave**: catalog serves 0.0.3 (default, media pins +
+sound-modality fix), 0.0.2/0.0.1 remain immutable history. Reconcile verified
+stable (second ensure publishes nothing).
+
+**Testing**: 286 passed. New: media-pin mapping + half-pin drop + settings
+contract (route list, unknown-route guard), workflow pin/edge shape, drift
+republish + crash-recovery promote + once-per-process, capabilities failure
+self-heal (stale_ok non-blocking + TTL sync refetch), preferences round-trip
+for media routes.
+
+---
+
+### Task: Repeated tool-approval waits were swallowed — run parked forever behind a "running tool" line (2026-07-28)
+
+**Symptom (live, operator report)**: a session looked stuck for 10+ minutes on
+"Tool: execute_command …" with the send button showing Stop. Gateway forensics:
+the agent subrun was WAITING on its second `execute_command` approval since
+minute one; three LLM cycles (lmstudio / ornith-1.0-35b, the gateway default —
+the assistant sends no override) had each completed in seconds. The model was
+never the problem; the approval request never reached the app, so even the
+user's "trust enabled tools in this chat" grant could not auto-approve it.
+
+**Root cause**: `GatewayEventAdapter._wait_events` deduplicated waits by
+`wait_key` alone, and the runtime reuses ONE stable key per node
+(`tool_calls:<run_id>:act`) for every approval batch from that node. The
+second wait matched the first's key and was dropped. This is the exact class
+documented 2026-07-22 from abstractcode-tui ("wait identity is
+(wait_key, step_id), never wait_key alone") — recorded then as latent in the
+assistant, now fired live.
+
+**Fix (adapter + worker + events)**:
+- `adapter.py`: dedup is per OCCURRENCE — (wait_key, waiting-record step_id).
+  Marks live in two families: SEEDED (reattach; never cleared, so terminal
+  replays stay silent through their resume records) and LIVE (cleared by the
+  wait's `resume` ledger record — the question was answered, the next wait on
+  the same key is a new question and must prompt). Synthetic rehydration
+  records carry no step_id and dedup against the pending occurrence both ways.
+- `gateway_worker.py`: `_suppress_resolved_waits_for_attach` seeds
+  (wait_key, step_id) pairs and excludes only the PENDING occurrence (the last
+  waiting record carrying the current key). Excluding by key — the old
+  behavior — would also unsuppress the answered predecessors and replay stale
+  dialogs on reattach.
+- `events.py`: `event_name_from_wait_key` now reads the NAME (fourth segment)
+  of the runtime's `evt:{scope}:{scope_id}:{name}` keys; it read the scope, so
+  ask-shaped event waits were never recognized (same stall class, second door).
+
+**Live remediation**: the parked run was unstuck by submitting the approval
+resume through the gateway (`{"approved": true}` on the pending wait), matching
+the user's already-granted session trust; the run completed and answered.
+
+**Testing**: 276 passed (tests/basic). New: adapter re-prompt-after-resume,
+same-occurrence replay dedup, synthetic-vs-real dedup both orders, seeded
+marks surviving resumes, ask_user occurrence contract, worker attach-seeding
+(waiting: exactly the pending dialog re-opens; terminal: fully silent), event
+wait-key name parsing.
+
+---
+
 ### Task: Model/voice selection is a LOCAL override, never a gateway mutation (2026-07-18)
 
 **Symptom (two reports, one cause)**: (1) chat "failed offline"; (2) picking a

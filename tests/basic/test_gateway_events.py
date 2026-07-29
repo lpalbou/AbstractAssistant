@@ -3,6 +3,7 @@ Basic tests for gateway ledger event helpers.
 """
 
 from abstractassistant.gateway.events import (
+    event_name_from_wait_key,
     extract_emit_event,
     extract_flow_end_output,
     extract_tool_calls_from_wait,
@@ -15,6 +16,19 @@ from abstractassistant.gateway.events import (
 def test_normalize_ui_event_name() -> None:
     assert normalize_ui_event_name("abstractcode.message") == "abstract.message"
     assert normalize_ui_event_name("abstract.status") == "abstract.status"
+
+
+def test_event_name_from_wait_key_parses_runtime_shape() -> None:
+    """The runtime's event wait keys are evt:{scope}:{scope_id}:{name}
+    (abstractruntime core/event_keys.py) — the NAME is the fourth segment.
+    Parsing the second segment returned the scope, so abstract.ask event
+    waits were never recognized."""
+    assert event_name_from_wait_key("evt:run:run-123:abstract.ask") == "abstract.ask"
+    assert event_name_from_wait_key("evt:global:global:my-mailbox") == "my-mailbox"
+    assert event_name_from_wait_key("evt:session:sess-1:abstract.ask") == "abstract.ask"
+    # Legacy short shapes keep their old reading; non-event keys pass through.
+    assert event_name_from_wait_key("evt:abstract.ask") == "abstract.ask"
+    assert event_name_from_wait_key("user:r1:ask") == "user:r1:ask"
 
 
 def test_extract_emit_event_and_status() -> None:

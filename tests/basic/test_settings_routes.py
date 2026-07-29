@@ -208,10 +208,27 @@ def _row_index(dlg, key: str) -> int:
 def test_only_overrideable_routes_are_listed() -> None:
     dlg = _dialog()
     keys = {row.key for row in dlg._route_rows}
-    # The thin client only offers the routes it actually drives + can override.
-    assert keys == {"output.text", "output.voice", "input.voice"}
-    # Media/embedding routes are deliberately absent (gateway-console territory).
-    assert "output.image.text_to_image" not in keys
+    # The thin client offers every route it actually drives + can honor as a
+    # per-run local override (maintainer ruling 2026-07-28: all modalities the
+    # framework serves are overrideable in-app; the gateway default is never
+    # written). Media overrides ride the managed workflow's input pins.
+    assert keys == {
+        "output.text",
+        "output.voice",
+        "input.voice",
+        "output.image.text_to_image",
+        "output.image.image_to_image",
+        "output.image.image_upscale",
+        "output.video.text_to_video",
+        "output.video.image_to_video",
+        "output.music",
+        "output.sound",
+    }
+    # 3D stays absent: the runtime has no scene3d workflow node yet, so the
+    # assistant cannot trigger (or honor an override for) 3D generation.
+    assert not any(k.startswith("output.scene3d") for k in keys)
+    # Embedding/rerank stay absent: the assistant never issues those calls.
+    assert not any(k.startswith(("embedding.", "rerank.")) for k in keys)
 
 
 @pytest.mark.basic

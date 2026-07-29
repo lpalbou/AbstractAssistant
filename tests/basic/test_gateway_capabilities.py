@@ -109,3 +109,72 @@ def test_assistant_capabilities_can_use_stale_cache_without_discovery() -> None:
     assert gateway.discovery_calls == 2
 
 
+class _FlakyGatewayStub:
+    """Fails the first discovery call, succeeds afterwards."""
+
+    def __init__(self) -> None:
+        self.discovery_calls = 0
+
+    def discovery_capabilities(self) -> dict:
+        self.discovery_calls += 1
+        if self.discovery_calls == 1:
+            raise RuntimeError("gateway starting up")
+        return _discovery_response()
+
+
+@pytest.mark.basic
+def test_assistant_capabilities_failure_snapshot_self_heals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One failed startup fetch must not pin 'TTS unavailable' for the app's
+    lifetime: after the failure grace window, stale_ok readers still get a
+    non-blocking answer but a background refresh runs, and the NEXT read
+    serves the healthy snapshot (this was the silent dead-voice mechanism)."""
+    import abstractassistant.gateway.capabilities as caps_mod
+
+    # Run the "background" refresh inline so the test is deterministic.
+    refresh_calls: list = []
+
+    def _inline_refresh(gateway) -> None:
+        refresh_calls.append(gateway)
+        get_cached_assistant_capabilities(gateway, force=True)
+
+    monkeypatch.setattr(caps_mod, "_spawn_capabilities_refresh", _inline_refresh)
+
+    gateway = _FlakyGatewayStub()
+    failed = get_cached_assistant_capabilities(gateway)
+    assert failed.error
+    assert failed.tts_available() is False
+    assert gateway.discovery_calls == 1
+
+    # Within the grace window the failure is served as-is (burst absorption).
+    within_grace = get_cached_assistant_capabilities(gateway, stale_ok=True)
+    assert within_grace is failed
+    assert not refresh_calls
+
+    # Age the failure snapshot past the grace window: a stale_ok read returns
+    # the cached failure (non-blocking) but triggers the refresh...
+    failed.fetched_at = failed.fetched_at - 60.0
+    served = get_cached_assistant_capabilities(gateway, stale_ok=True)
+    assert served.error
+    assert refresh_calls
+
+    # ...and the next read sees the healthy snapshot.
+    healed = get_cached_assistant_capabilities(gateway, stale_ok=True)
+    assert not healed.error
+    assert healed.tts_available() is True
+
+
+@pytest.mark.basic
+def test_assistant_capabilities_failed_ttl_read_refetches_synchronously() -> None:
+    """Non-stale_ok readers do not keep a failure alive past the grace window:
+    they refetch synchronously (the pre-existing TTL semantics, but with the
+    short failure grace instead of the full TTL)."""
+    gateway = _FlakyGatewayStub()
+    failed = get_cached_assistant_capabilities(gateway)
+    assert failed.error
+
+    failed.fetched_at = failed.fetched_at - 60.0
+    healed = get_cached_assistant_capabilities(gateway)
+    assert not healed.error
+    assert gateway.discovery_calls == 2
+
+

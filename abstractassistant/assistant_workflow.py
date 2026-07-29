@@ -66,6 +66,37 @@ _NEED_IMAGE_RESPONSE = (
     "Attach an image, then ask again. This request needs a source image for editing, upscaling, or image-to-video."
 )
 
+# Base output spec for the sound path. The client sends the same object (plus
+# provider/model when the user set a local override). Modality is "sound", not
+# "audio": the "audio" alias dispatches to the TTS engine registry at
+# generation time (live 2026-07-28: a pinned sound provider was rejected as
+# "Unknown tts_engine"), while "sound" routes to the sound-effects capability
+# (abstractmusic/stable-audio class) that both honors a pinned provider/model
+# and resolves the gateway's output.sound default when the spec is bare.
+SOUND_OUTPUT_SPEC: Dict[str, Any] = {"modality": "sound", "task": "text_to_audio", "format": "wav"}
+
+# Start-node input keys for per-run media model overrides. Every key is
+# OPTIONAL: absent means the pin resolves to None, the media node leaves its
+# output spec bare, and the gateway default applies (simple by default).
+# When present, the pin value rides into the media node's provider/model
+# inputs — the highest resolution rung — so THIS RUN uses the override
+# without ever touching the gateway's own defaults.
+MEDIA_OVERRIDE_INPUT_PINS = (
+    "image_provider",
+    "image_model",
+    "image_edit_provider",
+    "image_edit_model",
+    "image_upscale_provider",
+    "image_upscale_model",
+    "video_provider",
+    "video_model",
+    "image_to_video_provider",
+    "image_to_video_model",
+    "music_provider",
+    "music_model",
+    "sound_output",
+)
+
 
 def _pin(pin_id: str, label: str, pin_type: str, description: str = "") -> Dict[str, Any]:
     out: Dict[str, Any] = {"id": pin_id, "label": label, "type": pin_type}
@@ -155,6 +186,20 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("resp_schema", "resp_schema", "object"),
             _pin("primary_image_artifact", "primary_image_artifact", "artifact_image"),
             _pin("has_primary_image_context", "has_primary_image_context", "boolean"),
+            # Per-run media model overrides (all optional; absent = gateway default).
+            _pin("image_provider", "image_provider", "string"),
+            _pin("image_model", "image_model", "string"),
+            _pin("image_edit_provider", "image_edit_provider", "string"),
+            _pin("image_edit_model", "image_edit_model", "string"),
+            _pin("image_upscale_provider", "image_upscale_provider", "string"),
+            _pin("image_upscale_model", "image_upscale_model", "string"),
+            _pin("video_provider", "video_provider", "string"),
+            _pin("video_model", "video_model", "string"),
+            _pin("image_to_video_provider", "image_to_video_provider", "string"),
+            _pin("image_to_video_model", "image_to_video_model", "string"),
+            _pin("music_provider", "music_provider", "string"),
+            _pin("music_model", "music_model", "string"),
+            _pin("sound_output", "sound_output", "object"),
         ],
         pin_defaults={
             "use_context": True,
@@ -163,6 +208,10 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             "temperature": 0.2,
             "seed": -1,
             "has_primary_image_context": False,
+            # The sound node's output spec always arrives via this pin; the
+            # default keeps the no-override run identical to the old static
+            # node config (provider/model ride the same object when set).
+            "sound_output": dict(SOUND_OUTPUT_SPEC),
         },
     )
 
@@ -349,6 +398,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
+            _pin("image_provider", "image_provider", "string"),
+            _pin("image_model", "image_model", "string"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -374,6 +425,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
             _pin("image_artifact", "image_artifact", "artifact_image"),
+            _pin("image_provider", "image_provider", "string"),
+            _pin("image_model", "image_model", "string"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -398,6 +451,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("image_artifact", "image_artifact", "artifact_image"),
+            _pin("image_provider", "image_provider", "string"),
+            _pin("image_model", "image_model", "string"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -422,6 +477,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
+            _pin("video_provider", "video_provider", "string"),
+            _pin("video_model", "video_model", "string"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -447,6 +504,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
             _pin("source_image", "source_image", "artifact_image"),
+            _pin("video_provider", "video_provider", "string"),
+            _pin("video_model", "video_model", "string"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -471,6 +530,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
+            _pin("music_provider", "music_provider", "string"),
+            _pin("music_model", "music_model", "string"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -509,7 +570,10 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("meta", "meta", "object"),
             _pin("success", "success", "boolean"),
         ],
-        pin_defaults={"output": {"modality": "audio", "task": "text_to_audio", "format": "wav"}},
+        # The connected start.sound_output edge always delivers the spec (the
+        # start pin has the same default); this node-local default remains as
+        # a safety net for older stored copies of the flow.
+        pin_defaults={"output": dict(SOUND_OUTPUT_SPEC)},
         effect_config={"provider": "", "model": "", "temperature": 0.2},
     )
 
@@ -655,6 +719,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("agent-end-scratchpad", "assistant_agent", "scratchpad", "end_chat", "scratchpad"),
         _edge("switch-image", "route_switch", "case:image", "generate_image", "exec-in", animated=True),
         _edge("route-break-image-prompt", "route_media_prompt", "result", "generate_image", "prompt"),
+        _edge("start-image-provider", "start", "image_provider", "generate_image", "image_provider"),
+        _edge("start-image-model", "start", "image_model", "generate_image", "image_model"),
         _edge("image-end-exec", "generate_image", "exec-out", "end_image", "exec-in", animated=True),
         _edge("route-break-image-response", "route_break", "assistant_message", "end_image", "response"),
         _edge("image-end-success", "generate_image", "success", "end_image", "success"),
@@ -667,6 +733,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("switch-edit", "route_switch", "case:edit_image", "edit_image", "exec-in", animated=True),
         _edge("route-break-edit-prompt", "route_media_prompt", "result", "edit_image", "prompt"),
         _edge("start-edit-source", "start", "primary_image_artifact", "edit_image", "image_artifact"),
+        _edge("start-edit-provider", "start", "image_edit_provider", "edit_image", "image_provider"),
+        _edge("start-edit-model", "start", "image_edit_model", "edit_image", "image_model"),
         _edge("edit-end-exec", "edit_image", "exec-out", "end_edit", "exec-in", animated=True),
         _edge("route-break-edit-response", "route_break", "assistant_message", "end_edit", "response"),
         _edge("edit-end-success", "edit_image", "success", "end_edit", "success"),
@@ -678,6 +746,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("edit-end-outputs", "edit_image", "outputs", "end_edit", "outputs"),
         _edge("switch-upscale", "route_switch", "case:upscale_image", "upscale_image", "exec-in", animated=True),
         _edge("start-upscale-source", "start", "primary_image_artifact", "upscale_image", "image_artifact"),
+        _edge("start-upscale-provider", "start", "image_upscale_provider", "upscale_image", "image_provider"),
+        _edge("start-upscale-model", "start", "image_upscale_model", "upscale_image", "image_model"),
         _edge("upscale-end-exec", "upscale_image", "exec-out", "end_upscale", "exec-in", animated=True),
         _edge("route-break-upscale-response", "route_break", "assistant_message", "end_upscale", "response"),
         _edge("upscale-end-success", "upscale_image", "success", "end_upscale", "success"),
@@ -689,6 +759,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("upscale-end-outputs", "upscale_image", "outputs", "end_upscale", "outputs"),
         _edge("switch-video", "route_switch", "case:video", "generate_video", "exec-in", animated=True),
         _edge("route-break-video-prompt", "route_media_prompt", "result", "generate_video", "prompt"),
+        _edge("start-video-provider", "start", "video_provider", "generate_video", "video_provider"),
+        _edge("start-video-model", "start", "video_model", "generate_video", "video_model"),
         _edge("video-end-exec", "generate_video", "exec-out", "end_video", "exec-in", animated=True),
         _edge("route-break-video-response", "route_break", "assistant_message", "end_video", "response"),
         _edge("video-end-success", "generate_video", "success", "end_video", "success"),
@@ -701,6 +773,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("switch-image-to-video", "route_switch", "case:image_to_video", "image_to_video", "exec-in", animated=True),
         _edge("route-break-image-to-video-prompt", "route_media_prompt", "result", "image_to_video", "prompt"),
         _edge("start-image-to-video-source", "start", "primary_image_artifact", "image_to_video", "source_image"),
+        _edge("start-image-to-video-provider", "start", "image_to_video_provider", "image_to_video", "video_provider"),
+        _edge("start-image-to-video-model", "start", "image_to_video_model", "image_to_video", "video_model"),
         _edge("image-to-video-end-exec", "image_to_video", "exec-out", "end_image_to_video", "exec-in", animated=True),
         _edge("route-break-image-to-video-response", "route_break", "assistant_message", "end_image_to_video", "response"),
         _edge("image-to-video-end-success", "image_to_video", "success", "end_image_to_video", "success"),
@@ -712,6 +786,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("image-to-video-end-outputs", "image_to_video", "outputs", "end_image_to_video", "outputs"),
         _edge("switch-music", "route_switch", "case:music", "generate_music", "exec-in", animated=True),
         _edge("route-break-music-prompt", "route_media_prompt", "result", "generate_music", "prompt"),
+        _edge("start-music-provider", "start", "music_provider", "generate_music", "music_provider"),
+        _edge("start-music-model", "start", "music_model", "generate_music", "music_model"),
         _edge("music-end-exec", "generate_music", "exec-out", "end_music", "exec-in", animated=True),
         _edge("route-break-music-response", "route_break", "assistant_message", "end_music", "response"),
         _edge("music-end-success", "generate_music", "success", "end_music", "success"),
@@ -724,6 +800,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("music-end-outputs", "generate_music", "outputs", "end_music", "outputs"),
         _edge("switch-sound", "route_switch", "case:sound", "generate_sound", "exec-in", animated=True),
         _edge("route-break-sound-prompt", "route_media_prompt", "result", "generate_sound", "prompt"),
+        _edge("start-sound-output", "start", "sound_output", "generate_sound", "output"),
         _edge("sound-end-exec", "generate_sound", "exec-out", "end_sound", "exec-in", animated=True),
         _edge("route-break-sound-response", "route_break", "assistant_message", "end_sound", "response"),
         _edge("sound-end-success", "generate_sound", "success", "end_sound", "success"),

@@ -7,6 +7,7 @@ STT: AbstractVoice VoiceRecognizer (mic + VAD) → GatewaySTTAdapter → gateway
 
 from __future__ import annotations
 
+import re
 import shutil
 import signal
 import subprocess
@@ -48,6 +49,14 @@ class GatewayVoiceManager:
         self._stream_active = False
         self._stream_pause_gate: Optional[threading.Event] = None
         self._stream_stop_gate: Optional[threading.Event] = None
+        # Server-side TTS child run id for the active stream (captured from the
+        # stream's opening event). Stopping a stream must CANCEL this run on
+        # the gateway, not just abandon the local read: an abandoned stream
+        # keeps synthesizing under the gateway's per-voice lock, so the next
+        # speak() queues behind its full remaining synthesis — the head-of-line
+        # stall that turns impatient re-clicks into minutes of dead spinner
+        # (2026-07-28 adversarial audit).
+        self._stream_child_run_id = ""
         # Serializes speak() dispatch (stop previous generation + mint the new
         # one atomically) so two rapid speak() calls cannot interleave and
         # leave an unstoppable generation behind.
@@ -91,6 +100,52 @@ class GatewayVoiceManager:
     def supports_tts(self) -> bool:
         """Return True when Gateway TTS and a local audio player are available."""
         return bool(self._gateway_tts_available() and self._audio_player_available())
+
+    def output_device_label(self) -> str:
+        """Name of the audio output device speech plays on (best effort).
+
+        Playback follows the SYSTEM default output; when that is a headset or
+        AR glasses the Mac's speakers stay silent while the app is genuinely
+        speaking (live 2026-07-28: TTS played into 'XREAL One Pro' while the
+        user heard nothing). Surfacing the device name makes that visible."""
+        try:
+            import sounddevice as sd  # type: ignore
+
+            info = sd.query_devices(kind="output")
+            if isinstance(info, dict):
+                return str(info.get("name") or "").strip()
+            return str(getattr(info, "name", "") or "").strip()
+        except Exception:
+            return ""
+
+    def output_volume_state(self) -> tuple[Optional[int], Optional[bool]]:
+        """(volume 0-100, muted) of the system output, best effort.
+
+        The 2026-07-28 three-way audit cleared every software layer while the
+        machine's output volume sat at 6/100 — playback at that level is
+        indistinguishable from a hang. None/None when the platform offers no
+        cheap query (non-macOS, or osascript unavailable)."""
+        if sys.platform != "darwin":
+            return None, None
+        try:
+            proc = subprocess.run(
+                ["osascript", "-e", "get volume settings"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            text = str(proc.stdout or "")
+            volume: Optional[int] = None
+            muted: Optional[bool] = None
+            match = re.search(r"output volume:\s*(\d+)", text)
+            if match:
+                volume = max(0, min(100, int(match.group(1))))
+            match = re.search(r"output muted:\s*(true|false)", text)
+            if match:
+                muted = match.group(1) == "true"
+            return volume, muted
+        except Exception:
+            return None, None
 
     def supports_stt(self) -> bool:
         """Return True when Gateway STT and local mic/VAD infrastructure are available."""
@@ -366,17 +421,64 @@ class GatewayVoiceManager:
             self._stream_active = True
             self._stream_pause_gate = pause_gate
             self._stream_stop_gate = stop_gate
+            self._stream_child_run_id = ""
             self._paused = False
         return stream_id, pause_gate, stop_gate
+
+    def _record_stream_child_run(self, stream_id: str, child_run_id: str) -> None:
+        """Remember the gateway TTS child run id for the active stream so a
+        stop can cancel server-side synthesis (only if it is still current)."""
+        child = str(child_run_id or "").strip()
+        if not child:
+            return
+        with self._state_lock:
+            if str(self._stream_id or "") == str(stream_id or ""):
+                self._stream_child_run_id = child
+
+    def _cancel_stream_run_async(self, child_run_id: str) -> None:
+        """Best-effort server-side cancel of an abandoned/superseded TTS run.
+
+        Fire-and-forget on a daemon thread: stop_speaking() runs on the GUI
+        thread too, so the network call must never block it.
+
+        This is the correct client ACTION (tell the server to stop the run we
+        abandoned) but is NOT sufficient on its own: live-verified 2026-07-28
+        that `cancel_run` flips the run's status to cancelled quickly yet does
+        NOT stop the in-flight TTS synthesis feeder or release the gateway's
+        per-voice lock — the abandoned synthesis runs to completion and the
+        next speak still queues behind it. Freeing the lock requires the
+        server-side fix (gateway disconnect/cancel must trigger the runtime
+        synthesis cancel_event; per-segment lock granularity). Filed with the
+        gateway. Kept here because it is forward-compatible (it becomes the
+        actual mitigation the moment the server honors cancel) and it already
+        stops zombie runs from lingering in the run store."""
+        child = str(child_run_id or "").strip()
+        if not child:
+            return
+
+        def _worker() -> None:
+            try:
+                gw = self._gateway_client()
+                if gw is not None and hasattr(gw, "cancel_run"):
+                    gw.cancel_run(run_id=child, reason="assistant: TTS stopped/superseded")
+            except Exception:
+                pass
+
+        try:
+            threading.Thread(target=_worker, name="gateway-tts-cancel", daemon=True).start()
+        except Exception:
+            pass
 
     def _stop_stream_control(self) -> None:
         with self._state_lock:
             pause_gate = self._stream_pause_gate
             stop_gate = self._stream_stop_gate
+            child_run_id = str(self._stream_child_run_id or "")
             self._stream_id = ""
             self._stream_active = False
             self._stream_pause_gate = None
             self._stream_stop_gate = None
+            self._stream_child_run_id = ""
         if stop_gate is not None:
             try:
                 stop_gate.set()
@@ -387,6 +489,9 @@ class GatewayVoiceManager:
                 pause_gate.set()
             except Exception:
                 pass
+        # Cancel the abandoned server stream so it stops synthesizing and
+        # releases the per-voice lock (the head-of-line-blocking fix).
+        self._cancel_stream_run_async(child_run_id)
 
     def _clear_stream_control(self, stream_id: str) -> bool:
         with self._state_lock:
@@ -396,6 +501,7 @@ class GatewayVoiceManager:
             self._stream_active = False
             self._stream_pause_gate = None
             self._stream_stop_gate = None
+            self._stream_child_run_id = ""
             return True
 
     def _wait_for_stream_resume(self, pause_gate: threading.Event, stop_gate: threading.Event) -> bool:
@@ -548,6 +654,11 @@ class GatewayVoiceManager:
                     return False
                 if not isinstance(event, dict):
                     continue
+                # Capture the server-side child run id as soon as any event
+                # carries it, so a stop can cancel synthesis server-side.
+                child = event.get("child_run_id")
+                if isinstance(child, str) and child.strip():
+                    self._record_stream_child_run(stream_id, child)
                 event_type = str(event.get("type") or "").strip().lower()
                 if event_type in {"runtime_start", "start"}:
                     stream_opened = True
@@ -556,6 +667,13 @@ class GatewayVoiceManager:
                     raw = event.get("audio_b64")
                     if not isinstance(raw, str) or not raw.strip():
                         if audio_started:
+                            # Mid-stream empty chunk: abort without a fallback
+                            # (replaying delivered audio would duplicate it) —
+                            # but never silently (2026-07-28 audit: this was a
+                            # warning-free abort, invisible in any triage).
+                            warnings.warn(
+                                "#FALLBACK: gateway TTS stream sent an empty audio chunk mid-stream; stopping playback"
+                            )
                             return False
                         return _artifact_fallback()
                     audio_bytes = base64.b64decode("".join(raw.strip().split()), validate=True)
@@ -1262,9 +1380,13 @@ class GatewayVoiceManager:
     def _queue_stream_wav_chunk(self, audio_bytes: bytes, *, playback_drained: threading.Event) -> Optional[float]:
         player = self._ensure_inprocess_audio_player()
         if player is None:
+            warnings.warn("#FALLBACK: in-process audio player vanished mid-stream; stopping playback")
             return None
         decoded = self._decode_wav_audio_bytes(audio_bytes)
         if decoded is None:
+            # None aborts the stream leg: say why (2026-07-28 audit found this
+            # abort chain produced no diagnostic anywhere).
+            warnings.warn("#FALLBACK: gateway TTS chunk was not decodable WAV; stopping playback")
             return None
         samples, sample_rate = decoded
         playback_drained.clear()

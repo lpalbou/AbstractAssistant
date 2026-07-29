@@ -119,6 +119,7 @@ except Exception:  # pragma: no cover - macOS-only enhancement
     _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE = False
 
 from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
+from abstractassistant.core.speech_text import speech_plain_text
 from abstractassistant.core.file_activity import (
     FileOperation,
     distinct_file_count,
@@ -6001,10 +6002,21 @@ class SettingsDialog(QDialog):
 
     # The routes the assistant actually drives AND can locally override, with
     # app-facing labels (the gateway's own route labels are engine-centric).
+    # Media routes ride per-run input pins on the managed workflow; voice rides
+    # the TTS/STT calls; chat rides the run input. 3D is absent because the
+    # runtime has no scene3d workflow node yet — the assistant cannot trigger
+    # it, so offering an override would be dishonest.
     _OVERRIDE_ROUTE_LABELS = {
         "output.text": "Chat Model",
         "output.voice": "Voice Output (Text \u2192 Speech)",
         "input.voice": "Voice Input (Speech \u2192 Text)",
+        "output.image.text_to_image": "Image Generation",
+        "output.image.image_to_image": "Image Edit",
+        "output.image.image_upscale": "Image Upscale / Restore",
+        "output.video.text_to_video": "Video Generation",
+        "output.video.image_to_video": "Image \u2192 Video",
+        "output.music": "Music Generation",
+        "output.sound": "Sound Effects",
     }
 
     def _build_override_rows(self) -> List[CapabilityRouteRow]:
@@ -6362,19 +6374,18 @@ class SettingsDialog(QDialog):
             self.voice_combo.blockSignals(False)
 
     def _apply_route_specific_state(self, row: CapabilityRouteRow) -> None:
-        options = dict(row.options)
         is_voice = row.key == "output.voice"
         self.voice_label.setVisible(is_voice)
         self.voice_combo.setVisible(is_voice)
         if is_voice:
             self._refresh_voice_choices()
 
-        is_upscale = row.key == "output.image.image_upscale"
-        self.resolution_label.setVisible(is_upscale)
-        self.resolution_combo.setVisible(is_upscale)
-        if is_upscale:
-            resolution = str(options.get("resolution") or "2x").strip() or "2x"
-            self._set_combo_value(self.resolution_combo, resolution)
+        # The upscale "resolution" control is hidden: the per-run override pins
+        # carry provider/model only, so showing an option that the run would
+        # silently ignore would be dishonest. Re-enable when the workflow's
+        # upscale node gains a resolution pin.
+        self.resolution_label.setVisible(False)
+        self.resolution_combo.setVisible(False)
 
     def _apply_advanced_visibility(self) -> None:
         visible = bool(self.show_advanced.isChecked())
@@ -8329,7 +8340,9 @@ class AssistantPalette(QMainWindow):
             elif is_final:
                 self._set_history_status()
             if self.auto_speak.isChecked() and is_final:
-                self._controller.voice_manager.speak(str(payload.get("content") or ""))
+                self._controller.voice_manager.speak(
+                    speech_plain_text(str(payload.get("content") or ""))
+                )
             if is_final:
                 content = str(payload.get("content") or "").strip()
                 hidden = not self.isVisible()
@@ -8732,7 +8745,10 @@ class AssistantPalette(QMainWindow):
         voice.stop_speaking()
         if previous_key and previous_key != key:
             self._set_message_voice_card_state(previous_key, "idle")
-        content = str(message.get("content") or "").strip()
+        # Speak prose, not markup: raw markdown reads as noise ("hash hash…")
+        # and its heading/list blocks defeat streaming segmentation — the
+        # first audio segment swallowed a whole header block live (2026-07-28).
+        content = speech_plain_text(str(message.get("content") or ""))
         if not content:
             return
         self._active_spoken_message_key = key
@@ -8747,12 +8763,26 @@ class AssistantPalette(QMainWindow):
             self._active_spoken_message_key = ""
             self._active_spoken_message_phase = "idle"
             self._set_message_voice_card_state(key, "idle")
+            # A silent no-op looked like "voice is broken" with no clue why
+            # (2026-07-28). Refusals must say so where the user is looking.
+            self._set_banner(
+                "Voice couldn't start: gateway speech is unavailable or still "
+                "reconnecting. Try again in a few seconds, or check Settings.",
+                tone="warning",
+            )
 
     def _on_message_speech_finished(self, key: str) -> None:
         if str(self._active_spoken_message_key or "") == str(key or ""):
             self._active_spoken_message_key = ""
             self._active_spoken_message_phase = "idle"
         self._set_message_voice_card_state(str(key or ""), "idle")
+        # Clear the "Speaking on …" banner (and only that banner — another
+        # notice shown meanwhile must survive).
+        try:
+            if self.banner_label.text().startswith("Speaking on"):
+                self._set_banner("")
+        except Exception:
+            pass
 
     def _emit_message_speech_started(self) -> None:
         key = str(self._active_spoken_message_key or "").strip()
@@ -8764,6 +8794,34 @@ class AssistantPalette(QMainWindow):
             return
         self._active_spoken_message_phase = "speaking"
         self._set_message_voice_card_state(str(key or ""), "speaking")
+        # Say WHERE the audio is going and HOW LOUD the system output is:
+        # playback follows the system default output, so a headset/AR-glasses
+        # sink or a near-zero output volume makes correct playback
+        # indistinguishable from a hang (2026-07-28: three-way audit cleared
+        # every software layer; the machine's output volume was 6/100).
+        device = ""
+        volume = None
+        muted = None
+        try:
+            device = str(self._controller.voice_manager.output_device_label() or "").strip()
+            volume, muted = self._controller.voice_manager.output_volume_state()
+        except Exception:
+            device = ""
+        if not device:
+            return
+        text = f"Speaking on \u201c{device}\u201d"
+        tone = "info"
+        if muted is True:
+            text += " — the system output is MUTED; unmute to hear it."
+            tone = "warning"
+        elif isinstance(volume, int) and volume < 15:
+            text += f" — the system output volume is {volume}%; raise it to hear anything."
+            tone = "warning"
+        elif isinstance(volume, int):
+            text += f" (volume {volume}%)."
+        else:
+            text += " — if you can't hear it, check the Mac's sound output."
+        self._set_banner(text, tone=tone)
 
     def _toggle_listening(self) -> None:
         if self._listening:

@@ -16,6 +16,7 @@ from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
+from abstractassistant.gateway.run_input import MEDIA_OVERRIDE_INPUT_KEYS
 from abstractassistant.gateway.tool_usage import (
     extract_sub_run_ids_from_record,
     extract_tool_call_details_from_ledger_items,
@@ -361,8 +362,29 @@ class AssistantController:
             provider_override=str((text_override or {}).get("provider") or "") or None,
             model_override=str((text_override or {}).get("model") or "") or None,
             base_url_override=str((text_override or {}).get("base_url") or "") or None,
+            media_overrides=self.media_route_overrides() or None,
             debug=self.debug,
         )
+
+    def media_route_overrides(self) -> Dict[str, Dict[str, Any]]:
+        """Local media route overrides ({route_key: {provider, model}}) for
+        this app's runs. Voice routes are excluded (they ride the TTS/STT
+        calls, not the workflow input); text rides its own dedicated kwargs."""
+        out: Dict[str, Dict[str, Any]] = {}
+        for route_key in MEDIA_OVERRIDE_INPUT_KEYS:
+            override = self.route_override(route_key)
+            if isinstance(override, dict) and override.get("provider") and override.get("model"):
+                out[route_key] = {
+                    "provider": str(override.get("provider") or "").strip(),
+                    "model": str(override.get("model") or "").strip(),
+                }
+        sound = self.route_override("output.sound")
+        if isinstance(sound, dict) and sound.get("provider") and sound.get("model"):
+            out["output.sound"] = {
+                "provider": str(sound.get("provider") or "").strip(),
+                "model": str(sound.get("model") or "").strip(),
+            }
+        return out
 
     def probe_reattach_candidate(self, *, stale_after_s: float = 600.0) -> Optional[Dict[str, Any]]:
         """Off-thread: decide whether the active session's last run should be

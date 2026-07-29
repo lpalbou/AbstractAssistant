@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import os
+import threading
 import time
 import warnings
 from typing import Any, Dict, List, Optional
@@ -184,6 +185,47 @@ class AssistantCapabilities:
         return max(0, value)
 
 
+# A FAILED capabilities fetch is cached only briefly: serving it like a good
+# snapshot under stale_ok pinned "TTS unavailable" for the whole app lifetime
+# after one startup hiccup — voice went silently dead (2026-07-28).
+_FAILURE_RETRY_GRACE_S = 5.0
+
+
+def _spawn_capabilities_refresh(gateway: Any) -> None:
+    """Refetch capabilities on a background thread (single-flight per client).
+
+    stale_ok readers (voice support checks on the GUI thread) must never block
+    on HTTP; when they see a failure snapshot, the refresh runs here so the
+    NEXT check self-heals."""
+    if getattr(gateway, "_assistant_capabilities_refresh_inflight", False):
+        return
+    try:
+        setattr(gateway, "_assistant_capabilities_refresh_inflight", True)
+    except Exception:
+        return
+
+    def _worker() -> None:
+        try:
+            get_cached_assistant_capabilities(gateway, force=True)
+        except Exception:
+            pass
+        finally:
+            try:
+                setattr(gateway, "_assistant_capabilities_refresh_inflight", False)
+            except Exception:
+                pass
+
+    try:
+        threading.Thread(
+            target=_worker, name="assistant-capabilities-refresh", daemon=True
+        ).start()
+    except Exception:
+        try:
+            setattr(gateway, "_assistant_capabilities_refresh_inflight", False)
+        except Exception:
+            pass
+
+
 def get_cached_assistant_capabilities(
     gateway: Any,
     *,
@@ -191,17 +233,27 @@ def get_cached_assistant_capabilities(
     force: bool = False,
     stale_ok: bool = False,
 ) -> AssistantCapabilities:
-    """Return a short-lived cache of Gateway's assistant contract."""
+    """Return a short-lived cache of Gateway's assistant contract.
+
+    Healthy snapshots satisfy stale_ok readers indefinitely (capabilities
+    rarely change; settings paths force-refresh). FAILURE snapshots do not:
+    they are served only within a short grace window, after which stale_ok
+    readers get the cached failure plus a background refresh (non-blocking
+    self-heal) and TTL readers refetch synchronously."""
 
     now = time.monotonic()
     cached = getattr(gateway, "_assistant_capabilities_cache", None)
-    if (
-        not force
-        and isinstance(cached, AssistantCapabilities)
-        and cached.fetched_at
-        and (bool(stale_ok) or (now - float(cached.fetched_at)) < float(ttl_s))
-    ):
-        return cached
+    if not force and isinstance(cached, AssistantCapabilities) and cached.fetched_at:
+        age = now - float(cached.fetched_at)
+        if cached.error:
+            if age < _FAILURE_RETRY_GRACE_S:
+                return cached
+            if stale_ok:
+                _spawn_capabilities_refresh(gateway)
+                return cached
+            # TTL readers fall through to a synchronous refetch.
+        elif bool(stale_ok) or age < float(ttl_s):
+            return cached
 
     try:
         fn = getattr(gateway, "discovery_capabilities", None)

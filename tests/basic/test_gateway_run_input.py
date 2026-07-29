@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from abstractassistant.gateway.run_input import build_run_input_data
+from abstractassistant.gateway.run_input import (
+    MEDIA_OVERRIDE_INPUT_KEYS,
+    build_run_input_data,
+)
 
 
 @pytest.mark.basic
@@ -84,6 +87,78 @@ def test_build_run_input_requests_durable_session_history_by_default() -> None:
 
     opted_out = build_run_input_data(prompt="hello", use_session_history=False)
     assert opted_out["use_session_history"] is False
+
+
+@pytest.mark.basic
+def test_build_run_input_media_overrides_ride_workflow_pins() -> None:
+    """Media route overrides map to the managed workflow's per-run input pins
+    (provider+model pairs; sound rides a full output spec). Absent routes add
+    no keys, so the gateway default keeps applying."""
+    payload = build_run_input_data(
+        prompt="make a picture",
+        media_overrides={
+            "output.image.text_to_image": {"provider": "mlx-gen", "model": "AbstractFramework/flux-x"},
+            "output.video.image_to_video": {"provider": "mlx-gen", "model": "AbstractFramework/wan-x"},
+            "output.music": {"provider": "stable-audio-3", "model": "stabilityai/custom-music"},
+            "output.sound": {"provider": "stable-audio-3", "model": "stabilityai/custom-sfx"},
+        },
+    )
+
+    assert payload["image_provider"] == "mlx-gen"
+    assert payload["image_model"] == "AbstractFramework/flux-x"
+    assert payload["image_to_video_provider"] == "mlx-gen"
+    assert payload["image_to_video_model"] == "AbstractFramework/wan-x"
+    assert payload["music_provider"] == "stable-audio-3"
+    assert payload["music_model"] == "stabilityai/custom-music"
+    # Sound overrides ride INSIDE the output spec (the sound node is an
+    # llm_call whose generation target is the spec, not the node's provider).
+    assert payload["sound_output"] == {
+        "modality": "sound",
+        "task": "text_to_audio",
+        "format": "wav",
+        "provider": "stable-audio-3",
+        "model": "stabilityai/custom-sfx",
+    }
+    # Routes without an override add no pins at all.
+    assert "video_provider" not in payload
+    assert "image_edit_provider" not in payload
+    assert "image_upscale_provider" not in payload
+    # Media overrides never leak into the chat-text channels.
+    assert "provider" not in payload
+    assert "model" not in payload
+    assert "provider" not in payload["_runtime"]
+
+
+@pytest.mark.basic
+def test_build_run_input_media_override_half_pin_dropped() -> None:
+    payload = build_run_input_data(
+        prompt="hi",
+        media_overrides={
+            "output.image.text_to_image": {"provider": "mlx-gen"},  # no model
+            "output.music": {"model": "stabilityai/custom"},  # no provider
+            "output.sound": {"provider": "stable-audio-3"},  # no model
+        },
+    )
+
+    assert "image_provider" not in payload
+    assert "music_model" not in payload
+    assert "sound_output" not in payload
+
+
+@pytest.mark.basic
+def test_media_override_route_keys_cover_the_settings_contract() -> None:
+    """Every media route offered in settings must have a delivery pin mapping
+    (or the sound special case) — an offered-but-unmapped route would be the
+    dishonest override the 2026-07-18 scope cut existed to prevent."""
+    from abstractassistant.preferences import LOCAL_OVERRIDE_ROUTE_KEYS
+
+    media_keys = {
+        k
+        for k in LOCAL_OVERRIDE_ROUTE_KEYS
+        if k not in {"output.text", "output.voice", "input.voice"}
+    }
+    mapped = set(MEDIA_OVERRIDE_INPUT_KEYS) | {"output.sound"}
+    assert media_keys == mapped
 
 
 @pytest.mark.basic

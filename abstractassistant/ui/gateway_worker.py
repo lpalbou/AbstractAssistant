@@ -55,6 +55,7 @@ class GatewayWorker(QThread):
         provider_override: Optional[str] = None,
         model_override: Optional[str] = None,
         base_url_override: Optional[str] = None,
+        media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
@@ -76,6 +77,9 @@ class GatewayWorker(QThread):
         self._provider_override = str(provider_override or "").strip()
         self._model_override = str(model_override or "").strip()
         self._base_url_override = str(base_url_override or "").strip()
+        # LOCAL media route overrides ({route_key: {provider, model}}) — ride
+        # the managed workflow's media input pins per run.
+        self._media_overrides = dict(media_overrides) if isinstance(media_overrides, dict) else None
         self._debug = bool(debug)
         self._attach_run_id = str(attach_run_id or "").strip()
         self._primary_image_artifact = (
@@ -288,12 +292,14 @@ class GatewayWorker(QThread):
             out["reason"] = str(reason).strip()
         return out
 
-    def _all_ledger_wait_keys(self, bundle: Dict[str, Any]) -> set:
-        """Every wait_key present anywhere in the bundle's ledgers."""
-        keys: set = set()
+    def _all_ledger_wait_occurrences(self, bundle: Dict[str, Any]) -> list:
+        """Every wait occurrence (wait_key, step_id) in the bundle's ledgers,
+        in per-ledger record order (a wait_key repeats across occurrences —
+        one waiting record = one occurrence)."""
+        occurrences: list = []
         ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
         if not isinstance(ledgers, dict):
-            return keys
+            return occurrences
         for ledger in ledgers.values():
             items = ledger.get("items") if isinstance(ledger, dict) else None
             if not isinstance(items, list):
@@ -306,14 +312,18 @@ class GatewayWorker(QThread):
                 if isinstance(wait, dict):
                     key = str(wait.get("wait_key") or "").strip()
                     if key:
-                        keys.add(key)
-        return keys
+                        occurrences.append((key, str(rec.get("step_id") or "").strip()))
+        return occurrences
 
     def _suppress_resolved_waits_for_attach(self, run_id: str) -> None:
-        """On reattach, mark every historical wait as seen EXCEPT the run's
-        currently-pending one, so the full-ledger replay does not re-open
-        already-answered approval / ask-user dialogs (answering a stale wait
-        fails its resume and can leave the run tree in a bad state)."""
+        """On reattach, mark every historical wait OCCURRENCE as seen EXCEPT
+        the run's currently-pending one, so the full-ledger replay does not
+        re-open already-answered approval / ask-user dialogs (answering a
+        stale wait fails its resume and can leave the run tree in a bad
+        state). Occurrences are (wait_key, step_id) pairs — the runtime
+        reuses stable wait keys for repeated waits from the same node, so
+        excluding the pending wait by KEY would also unsuppress its answered
+        predecessors and replay stale dialogs."""
         if self._gateway is None:
             return
         try:
@@ -335,11 +345,19 @@ class GatewayWorker(QThread):
                     current_key = str(waiting.get("wait_key") or "").strip()
         except Exception:
             current_key = ""
-        keys = self._all_ledger_wait_keys(bundle)
+        occurrences = self._all_ledger_wait_occurrences(bundle)
         if current_key:
-            keys.discard(current_key)
-        if keys:
-            self._adapter.seed_seen_wait_keys(keys)
+            # The pending occurrence is the LAST waiting record carrying the
+            # current key (a currently-waiting run's waiting record is the
+            # newest wait state on its ledger). Seed everything but it.
+            last_idx = -1
+            for i, (key, _step) in enumerate(occurrences):
+                if key == current_key:
+                    last_idx = i
+            if last_idx >= 0:
+                occurrences = occurrences[:last_idx] + occurrences[last_idx + 1 :]
+        if occurrences:
+            self._adapter.seed_handled_wait_occurrences(occurrences)
 
     def _find_latest_wait_from_ledgers(self, bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
@@ -1003,6 +1021,7 @@ class GatewayWorker(QThread):
                     provider=self._provider_override,
                     model=self._model_override,
                     base_url=self._base_url_override,
+                    media_overrides=self._media_overrides,
                 )
 
                 entry = self._resolve_entrypoint()

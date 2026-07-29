@@ -565,6 +565,12 @@ class GatewayClient:
             url=self._url("/api/gateway/visualflows"),
             label="list_visualflows failed",
         )
+        # The endpoint returns a bare ARRAY; _parse_json wraps non-dict JSON
+        # as {"value": ...}. Without this unwrap the method returned [] on
+        # every real gateway — the managed-workflow reconcile then never saw
+        # the stored flow and re-created a duplicate on each fresh catalog.
+        if isinstance(payload, dict) and isinstance(payload.get("value"), list):
+            return [item for item in payload["value"] if isinstance(item, dict)]
         return payload if isinstance(payload, list) else []
 
     def create_visualflow(
