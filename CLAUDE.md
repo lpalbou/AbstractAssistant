@@ -6,6 +6,194 @@ This file tracks major development tasks, architectural decisions, and implement
 
 ## TASK COMPLETION LOG
 
+### Task: ROOT CAUSE of "long answers compute the whole voice instead of streaming" — the client pinned the gateway's OWN advertised default model, which the stream route rejects (2026-08-02)
+
+**Operator report**: for long assistant answers TTS "is actually computing the
+full voice/text" — nothing is audible until the whole synthesis finishes.
+Target: time-to-first-voice (TTFV) < 2 s for a multi-thousand-char answer.
+
+**The 2026-07-28 wave-4 diagnosis (server per-voice lock) was NOT this bug.**
+The lock is real and still unfixed server-side, but it is not why long answers
+wait: the client was never on the streaming lane at all.
+
+**Measured through the REAL client path** (`GatewayVoiceManager.speak()` with
+the live gateway; each size preceded by a confirmed-idle probe so nothing
+queued behind a held lock):
+
+| chars | BEFORE (lane) | AFTER (lane) | net req→first bytes | client bytes→device |
+|-------|---------------|--------------|---------------------|---------------------|
+| 200   | 3.33 s (artifact) | **0.82 s** (stream) | 0.65 s | 0.03 s |
+| 1,000 | 17.48 s (artifact) | **0.81 s** (stream) | 0.79 s | 0.02 s |
+| 5,000 | 46.78 s (artifact) | **0.65 s** (stream) | 0.63 s | 0.02 s |
+| 15,000 | **NO AUDIO** — artifact request timed out at 120 s | **0.97 s** (stream) | 0.91 s | 0.05 s |
+
+AFTER is FLAT in length: the server segments internally
+(`first_segment_max_chars: 96`) and returns chunk 0 in ~0.6-0.9 s no matter how
+long the text is. No client-side segmentation or request pipelining was needed.
+
+**Second pass, reverse order** (15,000 measured on the raw stream lane and
+FULLY DRAINED so no abandoned generator was left holding the lock): 15,000 →
+first audio **0.63 s** (server ttfb 0.616 s, 73 chunks, 792 s of audio,
+rtf 0.54); then client path 5,000 → **3.07 s**, 1,000 → **0.71 s**,
+200 → **0.79 s**. The single outlier is honest and instructive: TTFV tracks
+GATEWAY LOAD, not text length. Each run is preceded by an idle probe, and the
+probe predicts the run — every probe was 0.40-0.87 s except the one before that
+5,000 run, which was 1.54 s (the gateway had just drained a 13-minute
+synthesis). The 15,000-char run in the same pass, on a settled gateway, was
+0.63 s. 9 of 10 post-fix measurements are under 1.0 s.
+
+**Live proof of the retry defence** (forced the exact half-pin via
+`ABSTRACTASSISTANT_GATEWAY_TTS_MODEL=supertonic-3`, real client path,
+1,000 chars): stream opened 0.87 s → 404 error 1.63 s → warned → unpinned
+retry opened 1.635 s → first audio bytes 2.34 s → **TTFV 2.38 s**, lane
+`stream`, artifact lane never touched. So even a user pin the gateway cannot
+resolve now costs one round trip (~2.4 s), not 17.5 s / no audio.
+
+**Mechanism (client-side, one line of resolution logic)**:
+`_selected_tts_model()` fell back to the capability contract's advertised
+`active_model` (`supertonic-3`) and sent it as a request pin. The provider has
+no such fallback, so the request was a HALF-PIN (model, no provider).
+`/voice/tts/stream` rejects it — live: `{"type":"error","error":"audio/speech
+failed (404): The model \`supertonic-3\` does not exist or you do not have
+access to it."}` at ~0.4 s, before any audio — and `_run_gateway_stream_playback`
+silently conceded to `_speak_gateway_artifact`, which cannot emit a sample
+before the LAST one is synthesized. Isolated three-way proof on one 200-char
+text with the lock free: unpinned → first audio 1.15 s; model-only pin →
+404, no audio ever; provider+model pair → 0.88 s.
+
+The advertised default is the GATEWAY's choice, not the user's — the exact
+thing `controller._sync_gateway_voice_defaults` refuses to do ("we never read
+the gateway's global default here and pin it as if it were the user's choice")
+and the pair rule `preferences._normalize_route_overrides` already enforces.
+The voice manager was the one place that broke both.
+
+**Shipped (client only, `core/gateway_voice_manager.py`)**:
+1. `_selected_tts_model()` pins a model only when the user (settings override)
+   or an env var chose one; the advertised default is never echoed back.
+2. A stream leg that fails BEFORE any audio while carrying pins retries the
+   stream ONCE with every pin dropped (fresh request id, same pause/stop
+   gates, `allow_unpinned_retry=False` on the nested call so it cannot loop),
+   and only then concedes the artifact lane.
+3. The artifact concession is no longer silent: it warns with the reason and
+   the char count and says plainly that nothing is audible until the whole
+   message has been synthesized. Every `_artifact_fallback()` call site now
+   passes a distinct reason.
+
+**Verified NOT the problem (instrumented, not read)**: the client does not
+buffer — `_queue_stream_wav_chunk` decodes and hands chunk 0 to
+`NonBlockingAudioPlayer.play_audio` (a queue put + stream start, non-blocking)
+on arrival; bytes→device is 0.02-0.05 s at every size; chunks stay ordered.
+The client posts the whole text in one request and lets the server segment.
+
+**Left with the server (proven, not fixable here)**: the per-voice lock is
+held across the whole `tts_stream` generator, so a stream the client abandons
+keeps the lane busy. After this benchmark abandoned two 15,000-char streams,
+the lane stopped answering ANY request — TTS child runs piled up in `waiting`
+and a 12-char probe got `runtime_start` and then nothing until its timeout,
+for ~20 minutes. It is a BACKLOG, not a deadlock: it recovered on its own
+(probe first audio 0.96 s) once the abandoned syntheses finished, and a fully
+drained 15,000-char stream leaves the lane clean. (Adversary A independently
+located the lock:
+`abstractvoice/integrations/abstractcore_plugin.py` `_vm_lock` :1133 held via
+`with lk:` :3834 across the generator body, and across `tts` :3586.)
+Cost to the user, unchanged by this fix: stopping a long answer mid-sentence
+buys the app nothing — the gateway keeps synthesizing the rest and the next
+speech waits behind it.
+Two lane behaviors that should also be reconciled server-side: `/voice/tts`
+ACCEPTS the model-only pin that `/voice/tts/stream` 404s, and discovery's
+`assistant.voice.tts.active_model` (`supertonic-3`) disagrees with
+`/api/gateway/audio/speech/models` (`active_model: tts-1`, `active_provider:
+openai`) — that disagreement is what makes the echo a 404 instead of a no-op.
+
+**Testing**: `tests/basic` 346 passed. New `tests/basic/test_voice_stream_latency.py`
+(11 tests): advertised `active_model` never pinned; explicit settings pin and
+env pin still honored; pre-audio rejection retries unpinned and never reaches
+the artifact lane; exactly-once completion through the retry; a stop during the
+rejected leg skips the retry; no double retry when there was nothing to unpin;
+declining the stream lane outright is never silent; the artifact concession
+warns for long text; playback starts on the FIRST chunk while the stream is
+still open; chunks reach the device in order. Two assertions in
+`test_gateway_voice_manager.py` updated from `model: "tts-model"` to
+`model: None` — that IS the contract change.
+
+**What I could NOT prove**: (1) the target holds only on a settled gateway —
+one of ten post-fix runs (5,000 chars, right after a 13-minute synthesis
+drained) took 3.07 s, and no client change can fix a busy gateway; (2) the
+numbers come from this machine's supertonic lane only — no other TTS engine or
+remote gateway was measured; (3) nothing here was driven through the actual Qt
+UI, only through the real `speak()` path headlessly.
+
+---
+
+### Task: The speaker button could fail in TOTAL silence — every abort after dispatch was invisible (2026-08-02)
+
+**Report**: in the session about the novel *The Garden in the Log*
+(`sess_ec807fb784d942298db98d271e51903e`, active session), clicking the speaker
+on ONE assistant answer played nothing and reported nothing. Other answers in
+the same session spoke.
+
+**Reproduced live, with the exact message** (msg index 29, 3,690 chars raw →
+3,549 after `speech_plain_text`), driving the real `GatewayVoiceManager.speak()`
+against the running gateway and recording every signal the UI could observe:
+- 0.5 s — stream leg rejected: `{"type":"error","error":"audio/speech failed
+  (404): The model supertonic-3 does not exist or you do not have access to
+  it."}`. The client THREW THE ERROR STRING AWAY.
+- 120.5 s — the (post-fix) unpinned retry stream timed out.
+- 240.5 s — the single-shot artifact fallback timed out.
+- UI-visible signals for those four minutes: `on_speech_end` + the completion
+  callback. That is the SAME pair a successful speech fires, so the card just
+  went back to idle. Three `#FALLBACK` warnings were emitted; a GUI cannot see
+  `warnings.warn`.
+
+**Measured, same harness, one 76-char sentence** (why the pin matters):
+pinned `model=supertonic-3` → stream ERROR at 0.15 s, artifact 78.61 s;
+no pin → stream first audio 0.89 s, artifact 0.90 s. (The pin itself is
+adversary B's fix in `_selected_tts_model`; both of us measured it
+independently and got the same 404.)
+
+**Real reply shapes that reduce to nothing** (`speech_plain_text`):
+`![](url)` with no alt text → `""`, emoji-only → `""`, `---` → `""`. The
+palette's `if not content: return` made the speaker button a literal no-op for
+those, with no explanation. (`[](url)` also leaked `'[]( link'` into speech —
+the link regex required a non-empty label.)
+
+**Fixes (client, all mine)**:
+- `GatewayVoiceManager.on_speech_error` + `_note_speech_failure` /
+  `_report_speech_failure` (once per dispatch). `_fire_speech_completion` is
+  the ONLY funnel for a dispatch that ends without playing (the playback
+  lifecycles fire their own `on_speech_end`), so the invariant is enforced
+  there: anything but a user stop reports a cause first. Causes chain in the
+  order they happened, so the banner names the ROOT cause, not the last symptom.
+- Reported paths that were silent: empty text; TTS unsupported (naming WHICH
+  side is missing, incl. the capability-fetch error); pre-audio stream
+  rejection whose fallback also fails; mid-stream empty chunk; undecodable WAV;
+  player vanished; artifact download/playback failure; disk-write failure;
+  external player dying mid-sentence. `stop_speaking()` mutes the superseded
+  generation so a deliberate stop never raises an error banner.
+- `_exception_reason()`: `str(TimeoutError())` is `""` — the literal reason the
+  live failure had nothing to say. Type name is always included.
+- `app.py`: `message_speech_failed` signal → `_on_message_speech_failed` →
+  warning banner + card reset, but NOT if a newer speech is already live.
+  Empty-sanitized reply → explicit banner. Generic "couldn't start" banner only
+  when the manager reported nothing.
+- `_set_banner` normalizes `tone="warning"` → `"warn"`: the stylesheet only
+  styles `warn`, so EVERY warning banner in the app (including the 2026-07-28
+  muted/low-volume speech warnings) had been rendering as a neutral blue notice.
+
+**Server-side, proven not fixed (client cannot)**: the gateway TTS lane WEDGES.
+After the two abandoned streams above, a 12-char unpinned probe timed out at
+60 s and again at 90 s more than 25 minutes later, while
+`discovery/capabilities` (41 ms) and `audio/speech/models` (23 ms) stayed
+instant — the HTTP surface is fine, the synthesis lane is locked. Source:
+`abstractvoice/abstractvoice/integrations/abstractcore_plugin.py` — `_vm_lock`
+(:1133) is held by `with lk:` at :3834 across the WHOLE `tts_stream` generator
+body (acquired :3828) and by `tts` at :3586; a generator the client never
+exhausts never leaves the `with`. This is the 2026-07-28 wave-4 finding firing
+again. The client can now only SAY that it timed out.
+
+**Testing**: `tests/basic` 343 passed. New `tests/basic/test_voice_failure_visibility.py`
+(22 tests) — each verified to FAIL when `_report_speech_failure` is stubbed out.
+
 ### Task: ROOT CAUSE of minutes-to-first-voice — server per-voice lock never released (2026-07-28, fourth wave; CORRECTS waves 2-3)
 
 **Operator (furious, correctly)**: minutes to first voice on realtime

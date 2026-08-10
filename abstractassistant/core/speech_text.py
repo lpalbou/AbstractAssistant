@@ -17,7 +17,9 @@ import re
 _FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`([^`\n]*)`")
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
-_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+# The label may be EMPTY ("[](url)"): requiring one character left the raw
+# brackets in the spoken text ("bracket bracket paren link").
+_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _AUTOLINK_RE = re.compile(r"<(https?://[^>\s]+)>")
 _BARE_URL_RE = re.compile(r"https?://\S+")
 _HEADER_RE = re.compile(r"^\s{0,3}#{1,6}\s+")
@@ -72,7 +74,7 @@ def speech_plain_text(markdown: str) -> str:
     text = _FENCED_CODE_RE.sub(" Code block omitted. ", text)
     text = _INLINE_CODE_RE.sub(r"\1", text)
     text = _IMAGE_RE.sub(r"\1", text)
-    text = _LINK_RE.sub(r"\1", text)
+    text = _LINK_RE.sub(lambda m: m.group(1) or " link ", text)
     text = _AUTOLINK_RE.sub(" link ", text)
     text = _BARE_URL_RE.sub(" link ", text)
 

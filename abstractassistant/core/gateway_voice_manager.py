@@ -36,6 +36,16 @@ class GatewayVoiceManager:
 
         self.on_speech_start = None
         self.on_speech_end = None
+        # Visible failure channel. `warnings.warn` is invisible in a GUI: on
+        # 2026-08-02 a speaker click on a 3,549-char reply spent 0.5 s having
+        # its pinned model rejected (404), 120 s timing out the retried stream
+        # and 120 s timing out the artifact lane, emitted three #FALLBACK
+        # warnings nobody could see, and told the user NOTHING — the card just
+        # went back to idle. Every abort now travels this callback so the UI
+        # can say why. Fires at most once per speak() dispatch.
+        self.on_speech_error: Optional[Callable[[str], None]] = None
+        self._speech_failure_causes: list[str] = []
+        self._speech_failure_reported = False
 
         self._listening = False
         self._recognizer = None
@@ -62,6 +72,8 @@ class GatewayVoiceManager:
         # leave an unstoppable generation behind.
         self._dispatch_lock = threading.Lock()
         self._stream_fallback_warned = False
+        # Reasons the streaming lane was declined outright, warned once each.
+        self._stream_lane_declined_reasons: set[str] = set()
         # Playback readiness (pause waits until a player spawns or fails).
         self._play_ready = threading.Event()
         self._state_lock = threading.Lock()
@@ -536,13 +548,33 @@ class GatewayVoiceManager:
         artifact leg with the same generation gates); otherwise runs the
         stream inline on the caller's worker thread and returns its outcome.
         """
+        # Every `return None` below concedes the whole-message artifact lane
+        # for the rest of this speak(). That is the operator-visible symptom
+        # ("it computes the full voice instead of streaming"), so it is said
+        # once per process rather than inferred from silence.
+        def _no_stream_lane(reason: str) -> None:
+            # Deduped per REASON, not globally: a one-shot flag shared with the
+            # missing-player warning would hide a later, different cause.
+            seen = getattr(self, "_stream_lane_declined_reasons", None)
+            if seen is None:
+                seen = set()
+                self._stream_lane_declined_reasons = seen
+            if reason not in seen:
+                seen.add(reason)
+                warnings.warn(
+                    f"#FALLBACK: not using the gateway TTS streaming lane ({reason}); "
+                    "falling back to single-shot artifact TTS — for a long answer nothing "
+                    "is audible until the whole message has been synthesized"
+                )
+            return None
+
         if not self._gateway_tts_streaming_available():
-            return None
+            return _no_stream_lane("the gateway does not advertise streaming TTS")
         if str(fmt or "").strip().lower() not in {"wav", "wave"}:
-            return None
+            return _no_stream_lane(f"the negotiated audio format is {fmt!r}, and only wav can be streamed")
         stream_fn = getattr(gw, "voice_tts_stream", None)
         if not callable(stream_fn):
-            return None
+            return _no_stream_lane("this gateway client exposes no voice_tts_stream")
         if self._ensure_inprocess_audio_player() is None:
             # Streaming IS advertised by the gateway but we cannot consume it:
             # this silently degrades first-audio latency from seconds to the
@@ -589,6 +621,7 @@ class GatewayVoiceManager:
         request_id: str,
         model: Optional[str],
         callback: Optional[Callable],
+        allow_unpinned_retry: bool = True,
     ) -> bool:
         audio_started = False
         stream_opened = False
@@ -601,11 +634,72 @@ class GatewayVoiceManager:
         # the finally block without ownership fire the completion there —
         # a swallowed completion leaves the UI stuck on "speaking".
         completion_owned = False
+        pinned = any(str(p or "").strip() for p in (provider, voice, profile, model))
 
-        def _artifact_fallback() -> bool:
+        def _retry_stream_unpinned(reason: str) -> Optional[bool]:
+            """Re-run the stream leg with every pin dropped (pre-audio only).
+
+            A pin the stream route cannot resolve (see `_selected_tts_model`)
+            fails the WHOLE stream leg before a single sample, and the artifact
+            lane then synthesizes the entire message before any sound. One
+            unpinned retry costs a round trip and keeps first audio in the
+            ~1 s range; it runs only when pins were actually sent, only before
+            any audio played, and only once per speak().
+            """
             nonlocal completion_owned
+            if not allow_unpinned_retry or not pinned or stop_gate.is_set():
+                return None
+            warnings.warn(
+                f"#FALLBACK: gateway TTS stream rejected the request pins "
+                f"(provider={provider!r} model={model!r} voice={voice!r} profile={profile!r}): "
+                f"{reason}; retrying the stream with gateway defaults"
+            )
+            result = self._run_gateway_stream_playback(
+                stream_id=stream_id,
+                pause_gate=pause_gate,
+                stop_gate=stop_gate,
+                gw=gw,
+                stream_fn=stream_fn,
+                run_id=run_id,
+                text=text,
+                provider=None,
+                voice=None,
+                profile=None,
+                # A fresh request id: the rejected attempt already burned this
+                # one server-side, and an idempotency-keyed gateway would hand
+                # back the same rejection.
+                request_id=str(uuid.uuid4()),
+                model=None,
+                callback=callback,
+                allow_unpinned_retry=False,
+            )
+            # The nested leg always settles completion (its own finally fires
+            # it when nothing else did), so this frame must not fire it again.
+            completion_owned = True
+            return bool(result)
+
+        def _artifact_fallback(reason: str = "", *, retry_unpinned: bool = False) -> bool:
+            nonlocal completion_owned
+            # Keep the streaming cause even when the artifact lane later fails
+            # for its own reason: "the stream was rejected AND the fallback
+            # timed out" is the sentence the user needs.
+            self._note_speech_failure(reason)
             if stop_gate.is_set():
                 return False
+            if retry_unpinned:
+                retried = _retry_stream_unpinned(reason or "stream produced no audio")
+                if retried is not None:
+                    return retried
+            # Loud by design: this is the silent degradation the operator sees
+            # as "it computes the whole voice instead of streaming" — the
+            # artifact lane cannot emit a sample before the LAST one is
+            # synthesized (measured 2026-08-02: 17.5 s for 1,000 chars).
+            warnings.warn(
+                f"#FALLBACK: gateway TTS streaming produced no audio "
+                f"({reason or 'unknown reason'}); using single-shot artifact synthesis for "
+                f"{len(str(text or ''))} chars — nothing is audible until the whole message "
+                "has been synthesized"
+            )
             try:
                 handed = self._speak_gateway_artifact(
                     gw=gw,
@@ -623,10 +717,17 @@ class GatewayVoiceManager:
                     stop_gate=stop_gate,
                 )
             except Exception as e:
-                warnings.warn(f"#FALLBACK: gateway artifact TTS failed after streaming fallback: {e}")
+                detail = self._exception_reason(e)
+                warnings.warn(f"#FALLBACK: gateway artifact TTS failed after streaming fallback: {detail}")
+                self._note_speech_failure(f"the single-shot fallback failed too ({detail})")
                 return False
             if handed:
                 completion_owned = True
+                return handed
+            if not stop_gate.is_set():
+                self._note_speech_failure(
+                    "the single-shot fallback produced no playable audio"
+                )
             return handed
 
         try:
@@ -674,15 +775,22 @@ class GatewayVoiceManager:
                             warnings.warn(
                                 "#FALLBACK: gateway TTS stream sent an empty audio chunk mid-stream; stopping playback"
                             )
+                            # Partial playback: the user heard the beginning and
+                            # then it stopped. Say so — silence after a few
+                            # seconds of speech reads as "it gave up on me".
+                            self._report_speech_failure(
+                                "the gateway stopped sending audio part-way through; "
+                                "only the beginning of the message was spoken"
+                            )
                             return False
-                        return _artifact_fallback()
+                        return _artifact_fallback("first audio chunk was empty")
                     audio_bytes = base64.b64decode("".join(raw.strip().split()), validate=True)
                     if not audio_started:
                         if not self._begin_stream_playback():
-                            return _artifact_fallback()
+                            return _artifact_fallback("stream playback could not start")
                         player = self._ensure_inprocess_audio_player()
                         if player is None:
-                            return _artifact_fallback()
+                            return _artifact_fallback("in-process audio player unavailable")
                         self._configure_stream_playback_callbacks(player, playback_drained)
                         audio_started = True
                     if not self._wait_for_stream_resume(pause_gate, stop_gate):
@@ -701,12 +809,27 @@ class GatewayVoiceManager:
                         )
                         completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
                         return True
-                    return _artifact_fallback()
+                    return _artifact_fallback("stream finished without sending any audio")
                 if event_type in {"error", "cancelled"}:
                     if audio_started:
                         completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
+                        if not stop_gate.is_set():
+                            detail = str(
+                                event.get("error") or event.get("message") or event_type
+                            ).strip()
+                            self._report_speech_failure(
+                                f"the gateway ended the speech stream part-way through "
+                                f"({detail[:200] or event_type}); only part of the message was spoken"
+                            )
                         return False
-                    return _artifact_fallback()
+                    # Pre-audio server rejection: this is where an unresolvable
+                    # pin lands (a 404 on the pinned model), so retry unpinned
+                    # before conceding the whole-message artifact lane.
+                    detail = str(event.get("error") or event.get("message") or event_type).strip()
+                    return _artifact_fallback(
+                        f"stream reported {event_type}: {detail[:200]}",
+                        retry_unpinned=True,
+                    )
             if stop_gate.is_set():
                 return False
             if audio_started:
@@ -717,18 +840,25 @@ class GatewayVoiceManager:
                 )
                 completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
                 return False
-            return _artifact_fallback()
+            return _artifact_fallback("stream ended without sending any audio")
         except Exception as e:
+            detail = self._exception_reason(e)
             if audio_started:
                 completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
-                warnings.warn(f"#FALLBACK: gateway streaming TTS failed after audio started: {e}")
+                warnings.warn(f"#FALLBACK: gateway streaming TTS failed after audio started: {detail}")
+                if not stop_gate.is_set():
+                    self._report_speech_failure(
+                        f"the speech stream broke part-way through ({detail}); "
+                        "only part of the message was spoken"
+                    )
                 return False
-            warnings.warn(f"#FALLBACK: gateway streaming TTS unavailable, using artifact TTS: {e}")
-            return _artifact_fallback()
+            return _artifact_fallback(f"stream transport failed: {detail}", retry_unpinned=True)
         finally:
             self._clear_stream_control(stream_id)
             if not completion_owned:
-                self._fire_speech_completion(callback)
+                # Terminal for this leg with nothing playing: the choke point
+                # reports the recorded cause unless the user asked us to stop.
+                self._fire_speech_completion(callback, cancelled=stop_gate.is_set())
 
     def speak(self, text: str, speed: float = 1.0, callback: Optional[Callable] = None) -> bool:
         """Speak the given text via gateway TTS (asynchronous dispatch).
@@ -745,12 +875,19 @@ class GatewayVoiceManager:
         """
         _ = float(speed or 1.0)
         raw = str(text or "").strip()
+        self._begin_speech_failure_tracking()
         if not raw:
+            self._report_speech_failure(
+                "there is nothing to read aloud in this message (no spoken text "
+                "remains once markdown, code and links are removed)"
+            )
             return False
         if not self.supports_tts():
             # Capability cache is prefetched at startup; this check stays
-            # synchronous so callers get an immediate, honest refusal.
-            warnings.warn("#FALLBACK: gateway TTS unavailable or no local audio player")
+            # synchronous so callers get an immediate, honest refusal — and it
+            # names WHICH side is missing (an unavailable gateway route and a
+            # missing local audio backend need opposite user actions).
+            self._report_speech_failure(self._tts_unsupported_reason())
             return False
         threading.Thread(
             target=self._speak_dispatch,
@@ -766,6 +903,9 @@ class GatewayVoiceManager:
         try:
             with self._dispatch_lock:
                 self.stop_speaking()
+                # stop_speaking() muted the SUPERSEDED generation's reporting;
+                # this dispatch owns the channel from here on.
+                self._begin_speech_failure_tracking()
                 stream_id, pause_gate, stop_gate = self._start_stream_control()
                 # Resolve once per dispatch; speaks are single-active
                 # (stop_speaking above), so a per-instance value is race-free.
@@ -801,12 +941,49 @@ class GatewayVoiceManager:
             handed = self._speak_gateway_artifact(**common)
             if not handed:
                 self._clear_stream_control(stream_id)
-                self._fire_speech_completion(callback)
+                self._fire_speech_completion(
+                    callback,
+                    reason="the gateway returned speech audio but it could not be played locally",
+                    cancelled=stop_gate.is_set(),
+                )
         except Exception as e:
-            warnings.warn(f"#FALLBACK: gateway TTS failed: {e}")
+            detail = self._exception_reason(e)
+            warnings.warn(f"#FALLBACK: gateway TTS failed: {detail}")
             if stream_id:
                 self._clear_stream_control(stream_id)
-            self._fire_speech_completion(callback)
+            self._fire_speech_completion(
+                callback,
+                reason=self._speech_failure_reason
+                or f"the gateway speech request failed ({detail})",
+            )
+
+    @staticmethod
+    def _exception_reason(exc: BaseException) -> str:
+        """Human-readable one-liner for an exception, never empty.
+
+        `str(TimeoutError())` is the empty string — the exact case that made
+        the live 2026-08-02 failure report say nothing at all."""
+        text = str(exc or "").strip()
+        return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+    def _tts_unsupported_reason(self) -> str:
+        """Why supports_tts() said no, in the user's terms."""
+        if not self._audio_player_available():
+            return (
+                "this machine has no audio output backend for speech "
+                "(install 'abstractassistant[voice]' for in-process playback)"
+            )
+        error = ""
+        try:
+            error = str(getattr(self._assistant_capabilities(), "error", "") or "").strip()
+        except Exception:
+            error = ""
+        if error:
+            return f"the gateway could not be reached to check speech support ({error[:200]})"
+        return (
+            "the gateway does not currently offer text-to-speech "
+            "(check the gateway's voice route in Settings)"
+        )
 
     def _speak_gateway_artifact(
         self,
@@ -868,7 +1045,65 @@ class GatewayVoiceManager:
         self._clear_stream_control(stream_id)
         return self._play_audio_bytes(audio_bytes, content_type, callback=callback)
 
-    def _fire_speech_completion(self, callback: Optional[Callable]) -> None:
+    def _begin_speech_failure_tracking(self) -> None:
+        """Arm the per-dispatch failure accounting (one report per speak())."""
+        self._speech_failure_causes = []
+        self._speech_failure_reported = False
+
+    def _note_speech_failure(self, reason: str) -> None:
+        """Record a cause seen in this dispatch, in the order it happened.
+
+        Branches that abort deep in the stream/artifact legs know the real
+        cause; the terminal `_fire_speech_completion` is what the UI observes.
+        The CHAIN matters: "the pinned voice model was rejected, then the
+        fallback timed out" tells the user what to change, while either half
+        alone points at the wrong thing.
+        """
+        text = str(reason or "").strip()
+        if not text:
+            return
+        causes = self._speech_failure_causes
+        if not isinstance(causes, list):
+            causes = []
+            self._speech_failure_causes = causes
+        if causes and causes[-1] == text[:300]:
+            return
+        if len(causes) < 4:
+            causes.append(text[:300])
+
+    @property
+    def _speech_failure_reason(self) -> str:
+        causes = self._speech_failure_causes
+        if not isinstance(causes, list) or not causes:
+            return ""
+        return "; then ".join(causes)
+
+    def _report_speech_failure(self, reason: str) -> None:
+        """Surface a speech failure to the UI, exactly once per dispatch.
+
+        A GUI cannot see `warnings.warn`; without this the user's only signal
+        for a failed speak() is the card flipping back to idle, which reads as
+        "the button does nothing" (2026-08-02 live reproduction)."""
+        if self._speech_failure_reported:
+            return
+        self._speech_failure_reported = True
+        text = str(reason or "").strip() or "speech failed for an unknown reason"
+        warnings.warn(f"#FALLBACK: gateway TTS did not play: {text}")
+        cb = self.on_speech_error
+        if cb is None:
+            return
+        try:
+            cb(text)
+        except Exception:
+            pass
+
+    def _fire_speech_completion(
+        self,
+        callback: Optional[Callable],
+        *,
+        reason: str = "",
+        cancelled: bool = False,
+    ) -> None:
         """Signal the terminal outcome of a dispatched speak() exactly once.
 
         Fired for failures and cancellations that never reached (or never
@@ -876,7 +1111,14 @@ class GatewayVoiceManager:
         on_speech_end to reset their voice state — a swallowed completion
         leaves a message card stuck on "speaking" or full-voice mode wedged
         in PROCESSING.
+
+        This is the ONLY funnel for a dispatch that ends without playing (the
+        playback lifecycles fire their own on_speech_end), so it is also where
+        the "never fail silently" invariant is enforced: anything but a
+        user-requested cancel reports a cause first.
         """
+        if not cancelled:
+            self._report_speech_failure(reason or self._speech_failure_reason)
         try:
             if self.on_speech_end:
                 self.on_speech_end()
@@ -1023,6 +1265,11 @@ class GatewayVoiceManager:
 
     def stop_speaking(self) -> None:
         """Stop any active playback."""
+        # A stop is an ANSWER, not a failure: silence the outgoing generation's
+        # failure report so a superseded speak() cannot raise an error banner
+        # for a run the user (or the next speak) deliberately ended. The next
+        # dispatch re-arms tracking after this call.
+        self._speech_failure_reported = True
         self._stop_stream_control()
         self._stop_meter()
         player = self._inprocess_player
@@ -1150,13 +1397,18 @@ class GatewayVoiceManager:
 
     def _play_audio_bytes(self, audio_bytes: bytes, content_type: str, *, callback: Optional[Callable]) -> bool:
         if not isinstance(audio_bytes, (bytes, bytearray)) or not audio_bytes:
+            self._note_speech_failure(
+                "the gateway returned an empty speech artifact (no audio to play)"
+            )
             return False
         if "wav" in str(content_type or "").lower():
             try:
                 if self._play_audio_bytes_inprocess(audio_bytes, callback=callback):
                     return True
             except Exception as e:
-                warnings.warn(f"#FALLBACK: in-process gateway audio playback failed: {e}")
+                detail = self._exception_reason(e)
+                warnings.warn(f"#FALLBACK: in-process gateway audio playback failed: {detail}")
+                self._note_speech_failure(f"local audio playback failed ({detail})")
         cache_dir = self._audio_cache_dir()
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1174,7 +1426,11 @@ class GatewayVoiceManager:
         try:
             path.write_bytes(bytes(audio_bytes))
         except Exception as e:
-            warnings.warn(f"#FALLBACK: failed to write TTS audio: {e}")
+            detail = self._exception_reason(e)
+            warnings.warn(f"#FALLBACK: failed to write TTS audio: {detail}")
+            self._note_speech_failure(
+                f"the speech audio could not be written to disk for playback ({detail})"
+            )
             return False
 
         self.stop_speaking()
@@ -1218,7 +1474,12 @@ class GatewayVoiceManager:
                 else:
                     raise RuntimeError("No audio player available")
             except Exception as e:
-                warnings.warn(f"#FALLBACK: audio playback failed: {e}")
+                detail = self._exception_reason(e)
+                warnings.warn(f"#FALLBACK: audio playback failed: {detail}")
+                # This thread owns its own completion signalling, so the
+                # `_fire_speech_completion` choke point never sees it: report
+                # here or the card silently returns to idle mid-sentence.
+                self._report_speech_failure(f"audio playback failed ({detail})")
             finally:
                 self._play_proc = None
                 self._playback_backend = "none"
@@ -1381,12 +1642,18 @@ class GatewayVoiceManager:
         player = self._ensure_inprocess_audio_player()
         if player is None:
             warnings.warn("#FALLBACK: in-process audio player vanished mid-stream; stopping playback")
+            self._note_speech_failure(
+                "the local audio player disappeared while speaking; playback stopped"
+            )
             return None
         decoded = self._decode_wav_audio_bytes(audio_bytes)
         if decoded is None:
             # None aborts the stream leg: say why (2026-07-28 audit found this
             # abort chain produced no diagnostic anywhere).
             warnings.warn("#FALLBACK: gateway TTS chunk was not decodable WAV; stopping playback")
+            self._note_speech_failure(
+                "the gateway sent audio this app could not decode (not playable WAV); playback stopped"
+            )
             return None
         samples, sample_rate = decoded
         playback_drained.clear()
@@ -1871,18 +2138,34 @@ class GatewayVoiceManager:
         return "profile"
 
     def _selected_tts_model(self) -> Optional[str]:
+        """Explicit TTS model pin, or None to let the gateway resolve its own.
+
+        NEVER echo the gateway's advertised `active_model` back as a pin. It is
+        the gateway's own default — not the user's choice — and re-sending it
+        WITHOUT a matching provider is a half-pin the stream route rejects:
+        measured live 2026-08-02 against the running gateway,
+        `model="supertonic-3"` with no provider makes /voice/tts/stream answer
+        `error: audio/speech failed (404): The model supertonic-3 does not
+        exist or you do not have access to it` after ~0.4 s and before any
+        audio, which drops the client onto the whole-artifact lane — the entire
+        message is synthesized server-side before one sample plays (TTFV 17.5 s
+        for 1,000 chars, minutes for a long answer). The same request with no
+        model pin streams first audio in ~1 s.
+
+        This mirrors the pair rule the preferences layer already enforces for
+        route overrides (provider AND model, never half) and the controller's
+        own rule: "we never read the gateway's global default here and pin it
+        as if it were the user's choice".
+        """
         selected = str(getattr(self._llm_manager, "current_tts_model", "") or "").strip()
         if selected:
             return selected
-        try:
-            return self._assistant_capabilities().selected_tts_model()
-        except Exception:
-            preferred = str(
-                os.getenv("ABSTRACTASSISTANT_GATEWAY_TTS_MODEL")
-                or os.getenv("ABSTRACTASSISTANT_TTS_MODEL")
-                or ""
-            ).strip()
-            return preferred or None
+        preferred = str(
+            os.getenv("ABSTRACTASSISTANT_GATEWAY_TTS_MODEL")
+            or os.getenv("ABSTRACTASSISTANT_TTS_MODEL")
+            or ""
+        ).strip()
+        return preferred or None
 
     def _selected_tts_provider(self) -> Optional[str]:
         selected = str(getattr(self._llm_manager, "current_tts_provider", "") or "").strip()

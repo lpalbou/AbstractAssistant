@@ -4,6 +4,124 @@ All notable changes to AbstractAssistant will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed (2026-08-02 — the speaker button could fail in total silence: every abort after dispatch was invisible)
+- Reported: in a session about the novel *The Garden in the Log*, clicking the
+  speaker on one assistant answer played nothing AND reported nothing; other
+  answers in the same session spoke.
+- Reproduced end to end against the live gateway with that exact reply
+  (3,549 chars after markdown→prose): the stream leg had its model pin
+  rejected (`audio/speech failed (404)`) at 0.5 s, the retried stream timed
+  out at 120 s, the single-shot fallback timed out at 120 s — four minutes,
+  three `#FALLBACK` warnings, and the ONLY thing the UI did was flip the card
+  back to idle. `warnings.warn` is invisible in a GUI, and the completion
+  callback (fired for failures exactly as for success) reads to the user as
+  "finished".
+- `speak()` now has a visible failure channel (`on_speech_error`), and
+  `_fire_speech_completion` — the single funnel for every dispatch that ends
+  without playing — reports a concrete cause unless the user asked to stop.
+  Causes are chained in the order they happened ("stream reported error: …404…;
+  then stream transport failed: TimeoutError: timed out; then the single-shot
+  fallback failed too"), so the banner names the ROOT cause, not just the last
+  symptom.
+- Covered aborts that previously produced nothing: empty/whitespace text,
+  TTS unsupported (now naming WHICH side is missing — no local audio backend
+  vs an unreachable/voice-less gateway, including the capability fetch error),
+  a pre-audio stream rejection whose fallback also fails, a mid-stream empty
+  chunk, an undecodable WAV chunk, the in-process player vanishing, a failed
+  artifact download/playback, a disk write failure, and the external player
+  dying mid-sentence. A deliberate stop (or being superseded by the next
+  speak) is never reported as a failure.
+- `TimeoutError` stringifies to `""` — the exact reason the live failure had
+  nothing to say. Exception reasons now always carry the type name.
+- The palette turns the report into a warning banner and frees the message
+  card, unless a NEWER speech is already live (a late report from a superseded
+  run must not reset the card that is currently speaking).
+- A reply that reduces to no speakable text (an image with no alt text, an
+  emoji-only or rule-only reply) no longer makes the speaker button a silent
+  no-op: it says "Nothing to read aloud: this reply has no spoken text once
+  images, code and links are removed."
+- `[](url)` (empty link label) leaked raw brackets into the spoken text; the
+  link is now read as "link".
+- Banner tones: callers pass `tone="warning"` but the stylesheet only styles
+  `tone="warn"`, so every warning banner in the app (including the muted /
+  low-volume speech warnings) rendered as an ordinary blue notice. `_set_banner`
+  now normalizes the alias.
+- NOT fixed here, server-side and filed: the gateway's TTS lane wedges. After
+  two abandoned streams the lane stopped answering entirely — a 12-char
+  unpinned probe timed out at 60 s and again at 90 s more than 25 minutes
+  later, while `discovery/capabilities` and `audio/speech/models` answered in
+  20-40 ms. Source:
+  `abstractvoice/integrations/abstractcore_plugin.py` holds the per-VoiceManager
+  lock (`_vm_lock`, :1133) across the WHOLE `tts_stream` generator body
+  (`with lk:` at :3834, acquired :3828) and across `tts` (:3586), so a
+  generator the client never exhausts never releases it. No client change can
+  free it; the client can now only SAY that it timed out.
+
+### Fixed (2026-08-02 — long answers waited for the WHOLE synthesis: the client pinned the gateway's own default model, which the stream route rejects)
+- Time-to-first-voice for a long reply was the full synthesis time (measured
+  through the real client path on the live gateway: 3.3 s @200 chars,
+  17.5 s @1,000, 46.8 s @5,000, and NO AUDIO AT ALL @15,000 — the single-shot
+  request hit its 120 s timeout). Every one of those runs had silently fallen
+  off the streaming lane onto the whole-artifact lane.
+- Root cause: `_selected_tts_model()` fell back to the capability contract's
+  advertised `active_model` and sent it as a request pin — without a provider,
+  because the provider has no such fallback. `/voice/tts/stream` rejects that
+  half-pin (`audio/speech failed (404): The model supertonic-3 does not
+  exist…`) ~0.4 s in and before any audio, and the client conceded to the
+  artifact lane, which cannot emit a sample until the last one is synthesized.
+  The identical request with no model pin streams first audio in ~1 s. The
+  advertised default is the gateway's own choice, never the user's; the
+  preferences layer already enforces the same provider+model pair rule.
+- The client now pins a TTS model only when the user (settings override) or an
+  env var actually chose one. Measured after the fix, same harness, gateway
+  idle-gated between runs: TTFV 0.82 s / 0.81 s / 0.65 s / 0.97 s for
+  200 / 1,000 / 5,000 / 15,000 chars — flat in length, all on the streaming
+  lane, of which client-side decode-and-queue is 0.02-0.05 s. A second,
+  reverse-order pass reproduced it (15,000 → 0.63 s fully drained, 1,000 →
+  0.71 s, 200 → 0.79 s); the one outlier, 5,000 → 3.07 s, followed the only
+  idle probe that was itself slow (1.54 s vs 0.4-0.9 s), so first voice tracks
+  gateway LOAD, not answer length.
+- Defence in depth: a stream leg that fails BEFORE any audio while carrying
+  pins now retries the stream once with the pins dropped, and only then
+  concedes the artifact lane; and choosing the artifact lane is no longer
+  silent — it warns with the reason and the character count, stating that
+  nothing is audible until the whole message has been synthesized. Proven
+  live by forcing the bad pin back on: stream 404 at 1.63 s → unpinned retry
+  → first voice at 2.38 s, artifact lane never touched.
+
+### Fixed (2026-08-02 — multi-attachment layout: images become a gallery, chips wrap)
+- Attaching several documents produced one full-bubble-width card per file,
+  each holding a 50 px thumbnail marooned in a wide empty box, so four
+  illustrations ate four rows and pushed the conversation off-screen.
+  Image previews now pack into a `MediaGallery`: uniform square tiles, as
+  many columns as the bubble affords, rebalanced so rows are never ragged
+  (four images render 4-across at a normal width and 2x2 when narrow rather
+  than the 3 + 1 tail a naive fit produces). Tile size scales with the count
+  (a lone image gets a real 260 px preview instead of a stamp) and the
+  gallery re-grids when the transcript is resized.
+- Audio/video previews keep their own full-width rows — a square tile cannot
+  host a transport bar — so only images are tiled.
+- The fallback "open artifact" chips (shown when no preview can be built) now
+  share one wrapping tray instead of claiming a full row each — and they now
+  cover every artifact that failed to preview, not only the all-or-nothing
+  case. A message mixing images with PDFs previously dropped the PDFs from
+  the bubble entirely, because the fallback ran only when NOTHING previewed.
+- The composer attachment tray wrapped nothing: it was a single non-scrolling
+  row, so every chip past the composer width was silently clipped and
+  unreachable. It now wraps via a new `FlowLayout`, grows the composer to fit
+  up to three rows, and scrolls beyond that.
+- `_attachment_tray_width()` probes its size sources lazily and defensively;
+  the eager version called `self.width()` even when the viewport already had
+  a usable width, which raised on partially-constructed windows.
+
+### Fixed (2026-08-02 — test env: sibling abstractcore was not on the path)
+- `tests/conftest.py` preferred the monorepo's sibling `abstractvoice` and
+  `abstractruntime` but not `abstractcore`, pairing a new sibling runtime with
+  the older installed core. Every GUI/voice test module (7 of them, including
+  the whole palette and voice-manager surface) failed to import with
+  "requires abstractcore>=2.13.38". The sibling core is now preferred too when
+  it is checked out.
+
 ### Investigated (2026-07-28 — ROOT CAUSE of minutes-to-first-voice: server per-voice lock never released; client has no lever)
 - Operator-ordered second adversarial audit (server lane / client path / text
   segmenter) plus a benchmark. Definitive finding, which CORRECTS this

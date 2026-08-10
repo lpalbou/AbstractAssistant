@@ -27,6 +27,7 @@ from PyQt5.QtCore import (
     QEvent,
     QPoint,
     QPointF,
+    QRect,
     QRectF,
     QSize,
     Qt,
@@ -2105,6 +2106,268 @@ class AttachmentTextEdit(QTextEdit):
         super().dropEvent(event)
 
 
+_COMPOSER_BASE_HEIGHT = 56
+_ATTACHMENT_CHIP_SIZE = 36
+_ATTACHMENT_TRAY_SPACING = 6
+_ATTACHMENT_TRAY_MAX_ROWS = 3
+_ATTACHMENT_TRAY_VPADDING = 8  # tray contents margins: 6 top + 2 bottom
+_ATTACHMENT_TRAY_ROW_HEIGHT = _ATTACHMENT_CHIP_SIZE + _ATTACHMENT_TRAY_VPADDING
+
+
+def _attachment_tray_height(rows: int) -> int:
+    """Pixel height of an attachment tray showing ``rows`` wrapped chip rows."""
+    visible = max(1, min(int(rows or 1), _ATTACHMENT_TRAY_MAX_ROWS))
+    return (
+        visible * _ATTACHMENT_CHIP_SIZE
+        + (visible - 1) * _ATTACHMENT_TRAY_SPACING
+        + _ATTACHMENT_TRAY_VPADDING
+    )
+
+
+def _refresh_style(widget: QWidget) -> None:
+    """Re-apply the stylesheet after an objectName/property change."""
+    style = widget.style()
+    if style is None:
+        return
+    style.unpolish(widget)
+    style.polish(widget)
+    widget.update()
+
+
+class FlowLayout(QLayout):
+    """Left-to-right layout that wraps onto a new row when the width runs out.
+
+    Qt ships no wrapping layout, so a row of chips in a QHBoxLayout either
+    squeezes every chip into illegibility or spills past the right edge where
+    it can never be reached. Attachments arrive in unbounded numbers, so both
+    the composer tray and the artifact-chip fallback need real wrapping.
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        *,
+        margin: int = 0,
+        h_spacing: int = 6,
+        v_spacing: int = 6,
+    ) -> None:
+        super().__init__(parent)
+        self._items: List[Any] = []
+        self._h_spacing = max(0, int(h_spacing))
+        self._v_spacing = max(0, int(v_spacing))
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    # -- QLayout plumbing -------------------------------------------------
+    def addItem(self, item) -> None:  # noqa: N802 - Qt override
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):  # noqa: N802 - Qt override
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index: int):  # noqa: N802 - Qt override
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):  # noqa: N802 - Qt override
+        return Qt.Orientations(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt override
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt override
+        return self._do_layout(QRect(0, 0, max(0, int(width)), 0), test_only=True)
+
+    def setGeometry(self, rect) -> None:  # noqa: N802 - Qt override
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt override
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:  # noqa: N802 - Qt override
+        size = QSize(0, 0)
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        return size + QSize(
+            margins.left() + margins.right(), margins.top() + margins.bottom()
+        )
+
+    def rows_for_width(self, width: int) -> int:
+        """Number of wrapped rows this layout needs at ``width`` pixels."""
+        margins = self.contentsMargins()
+        usable = max(1, int(width) - margins.left() - margins.right())
+        rows = 0
+        x = 0
+        for item in self._items:
+            item_width = max(1, item.sizeHint().width())
+            if x > 0 and x + item_width > usable:
+                x = 0
+            if x == 0:
+                rows += 1
+            x += item_width + self._h_spacing
+        return max(1, rows) if self._items else 0
+
+    def _do_layout(self, rect, test_only: bool) -> int:
+        margins = self.contentsMargins()
+        effective = rect.adjusted(
+            margins.left(), margins.top(), -margins.right(), -margins.bottom()
+        )
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        for item in self._items:
+            hint = item.sizeHint()
+            next_x = x + hint.width() + self._h_spacing
+            if next_x - self._h_spacing > effective.right() + 1 and line_height > 0:
+                x = effective.x()
+                y = y + line_height + self._v_spacing
+                next_x = x + hint.width() + self._h_spacing
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x = next_x
+            line_height = max(line_height, hint.height())
+        return y + line_height - rect.y() + margins.bottom()
+
+
+class FlowContainer(QWidget):
+    """Widget host for :class:`FlowLayout` that reports its wrapped height.
+
+    A plain QWidget advertises its layout's ``sizeHint`` and ignores
+    height-for-width, so a wrapped second row would be clipped. This forwards
+    both so parent layouts reserve the real height.
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        *,
+        h_spacing: int = 6,
+        v_spacing: int = 6,
+    ) -> None:
+        super().__init__(parent)
+        self._flow = FlowLayout(self, h_spacing=h_spacing, v_spacing=v_spacing)
+        policy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def flow(self) -> FlowLayout:
+        return self._flow
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt override
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt override
+        return self._flow.heightForWidth(width)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt override
+        width = max(1, self.width())
+        return QSize(width, self._flow.heightForWidth(width))
+
+
+class MediaGallery(QWidget):
+    """Grid of media thumbnails inside a message bubble.
+
+    Stacking one full-width card per attachment wasted the whole bubble width
+    on a 50px thumbnail and pushed the rest of the conversation off-screen.
+    Tiles are square, uniformly sized, and packed into as many columns as the
+    bubble affords, so four attachments read as one gallery rather than four
+    near-empty rows.
+    """
+
+    _SPACING = 6
+    _MIN_TILE = 96
+
+    def __init__(self, *, available_width: int, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("mediaGallery")
+        self._available_width = max(120, int(available_width or 0))
+        self._cards: List[QWidget] = []
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(self._SPACING)
+        self._grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+
+    def add_card(self, card: QWidget) -> None:
+        self._cards.append(card)
+        self._relayout()
+
+    def card_count(self) -> int:
+        return len(self._cards)
+
+    def set_available_width(self, width: int) -> None:
+        width_val = max(120, int(width or 0))
+        if width_val == self._available_width:
+            return
+        self._available_width = width_val
+        self._relayout()
+
+    def tile_size(self) -> int:
+        return self._tile_size(len(self._cards), self._available_width)
+
+    @staticmethod
+    def _base_tile_size(count: int) -> int:
+        """Preferred tile edge for ``count`` items, before width clamping."""
+        if count <= 1:
+            return 260
+        if count == 2:
+            return 176
+        if count <= 4:
+            return 136
+        if count <= 9:
+            return 112
+        return 92
+
+    @classmethod
+    def _columns_for(cls, count: int, width: int) -> int:
+        if count <= 1:
+            return 1
+        # How many tiles fit at the smallest tile we are willing to draw…
+        fits = max(1, (width + cls._SPACING) // (cls._MIN_TILE + cls._SPACING))
+        columns = max(1, min(count, fits))
+        # …then even the rows out. Taking the raw maximum leaves ragged tails
+        # (four images at 3 columns render as 3 + 1); balancing turns that into
+        # a clean 2 x 2.
+        rows = math.ceil(count / columns)
+        return max(1, math.ceil(count / rows))
+
+    @classmethod
+    def _tile_size(cls, count: int, width: int) -> int:
+        if count <= 0:
+            return cls._base_tile_size(1)
+        columns = cls._columns_for(count, width)
+        # Fill the row edge to edge, but never past the per-count ceiling: a
+        # lone image should not balloon to the full bubble width.
+        available = max(48, width - (columns - 1) * cls._SPACING)
+        return max(48, min(cls._base_tile_size(count), available // columns))
+
+    def _relayout(self) -> None:
+        while self._grid.count():
+            self._grid.takeAt(0)
+        count = len(self._cards)
+        if not count:
+            return
+        columns = self._columns_for(count, self._available_width)
+        tile = self._tile_size(count, self._available_width)
+        for index, card in enumerate(self._cards):
+            setter = getattr(card, "set_tile_size", None)
+            if callable(setter):
+                setter(tile)
+            self._grid.addWidget(
+                card, index // columns, index % columns, Qt.AlignLeft | Qt.AlignTop
+            )
+        for column in range(self._grid.columnCount()):
+            self._grid.setColumnStretch(column, 0)
+        self._grid.setColumnStretch(max(columns, 1), 1)
+
+
 class AttachmentIconChip(QFrame):
     remove_requested = pyqtSignal(str)
 
@@ -2411,6 +2674,10 @@ class AssistantHtmlActionBar(QFrame):
 
 
 class MessageCard(QFrame):
+    # Class-level default: getattr(obj, missing, default) raises RuntimeError
+    # on QObjects built via __new__ (see the 2026-07-10 teardown-guard note).
+    _media_gallery: Optional["MediaGallery"] = None
+
     def __init__(
         self,
         *,
@@ -2574,31 +2841,64 @@ class MessageCard(QFrame):
                 AssistantHtmlActionBar(actions=self._html_actions, parent=bubble)
             )
 
-        preview_count = 0
+        # Images become a wrapped square-tile gallery; audio/video keep their
+        # own full-width transport rows because a tile cannot host a scrubber.
+        gallery_width = max(120, int(bubble_width or 0) - 24)
+        gallery: Optional[MediaGallery] = None
+        # Anything that could not be previewed (PDFs, spreadsheets, unknown
+        # types) still needs a chip. The old code only fell back when NOTHING
+        # previewed, so a message mixing images with documents dropped the
+        # documents from the bubble entirely.
+        unpreviewed: List[Dict[str, Any]] = []
         if callable(build_media_preview):
+            image_artifacts = [
+                artifact
+                for artifact in self._media_artifacts
+                if _artifact_media_kind(artifact) == "image"
+            ]
+            tile_size = (
+                MediaGallery._tile_size(len(image_artifacts), gallery_width)
+                if image_artifacts
+                else 0
+            )
             for artifact in self._media_artifacts:
-                preview_widget = build_media_preview(artifact, message)
+                is_image = _artifact_media_kind(artifact) == "image"
+                preview_widget = build_media_preview(
+                    artifact, message, tile_size=tile_size if is_image else 0
+                )
                 if preview_widget is None:
+                    unpreviewed.append(artifact)
                     continue
-                bubble_layout.addWidget(preview_widget)
-                preview_count += 1
+                if is_image:
+                    if gallery is None:
+                        gallery = MediaGallery(
+                            available_width=gallery_width, parent=bubble
+                        )
+                        bubble_layout.addWidget(gallery, 0, Qt.AlignLeft)
+                    preview_widget.setParent(gallery)
+                    gallery.add_card(preview_widget)
+                else:
+                    bubble_layout.addWidget(preview_widget)
+        else:
+            unpreviewed = list(self._media_artifacts)
+        self._media_gallery = gallery
 
-        if preview_count == 0:
-            for artifact in self._media_artifacts:
-                artifact_row = QHBoxLayout()
-                artifact_row.setContentsMargins(0, 0, 0, 0)
-                artifact_row.setSpacing(6)
+        if unpreviewed:
+            # Fallback chips wrap instead of claiming one full row each.
+            chip_host = FlowContainer(bubble)
+            chip_host.setObjectName("artifactChipTray")
+            for artifact in unpreviewed:
                 open_button = QPushButton(_artifact_label(artifact))
                 open_button.setObjectName("artifactChip")
                 open_button.setToolTip("Open media")
+                open_button.setCursor(QCursor(Qt.PointingHandCursor))
                 open_button.clicked.connect(
                     lambda _checked=False, art=dict(artifact): on_open_artifact(
                         art, message
                     )
                 )
-                artifact_row.addWidget(open_button, 0, Qt.AlignLeft)
-                artifact_row.addStretch(1)
-                bubble_layout.addLayout(artifact_row)
+                chip_host.flow().addWidget(open_button)
+            bubble_layout.addWidget(chip_host)
 
         if not is_user:
             footer_metrics = _assistant_footer_metrics(message)
@@ -2661,6 +2961,8 @@ class MessageCard(QFrame):
             browser.refresh_height(width_val - 24)
         for preview in self.findChildren(MermaidPreviewCard):
             preview.set_bubble_width(width_val - 24)
+        for gallery in self.findChildren(MediaGallery):
+            gallery.set_available_width(width_val - 24)
 
     def sync_to_viewport_width(self, viewport_width: int) -> None:
         self.set_bubble_width(_message_bubble_width(viewport_width, role=self._role))
@@ -3502,6 +3804,7 @@ class ArtifactPreviewCard(QFrame):
         *,
         artifact: Dict[str, Any],
         resolve_path: Callable[[], Path],
+        tile_size: Optional[int] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -3510,8 +3813,15 @@ class ArtifactPreviewCard(QFrame):
         self._media_kind = _artifact_media_kind(self._artifact)
         self._title = _artifact_label(self._artifact)
         self._local_path: Optional[Path] = None
+        # Tiled cards live in a MediaGallery grid: they drop the card chrome
+        # (the grid supplies the rhythm) and scale into a square tile.
+        self._tile_size = max(0, int(tile_size or 0)) or None
+        self._source_pixmap: Optional[QPixmap] = None
+        self._image_button: Optional[QPushButton] = None
 
-        self.setObjectName("mediaPreviewCard")
+        self.setObjectName(
+            "mediaPreviewTile" if self._tile_size else "mediaPreviewCard"
+        )
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(6)
@@ -3560,19 +3870,15 @@ class ArtifactPreviewCard(QFrame):
             if pixmap.isNull():
                 self._on_preview_failed("Image preview unavailable.")
                 return
+            self._source_pixmap = pixmap
             button = QPushButton()
             button.setObjectName("mediaImageButton")
             button.setToolTip(str(path))
             button.clicked.connect(self._open_external)
             button.setCursor(QCursor(Qt.PointingHandCursor))
             button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            scaled_size = _image_thumbnail_size(pixmap.size())
-            scaled = pixmap.scaled(
-                scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
-            button.setFixedSize(scaled.size())
-            button.setIcon(QIcon(scaled))
-            button.setIconSize(scaled.size())
+            self._image_button = button
+            self._apply_image_scale()
             self._content_layout.addWidget(button, 0, Qt.AlignLeft)
             return
 
@@ -3585,8 +3891,54 @@ class ArtifactPreviewCard(QFrame):
 
         self._on_preview_failed("Preview unavailable. Open the file instead.")
 
+    def _apply_image_scale(self) -> None:
+        button = self._image_button
+        pixmap = self._source_pixmap
+        if button is None or pixmap is None or pixmap.isNull():
+            return
+        if self._tile_size:
+            tile = QSize(self._tile_size, self._tile_size)
+            scaled = pixmap.scaled(tile, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            # The button keeps the square tile so the grid stays aligned; the
+            # icon keeps the source aspect ratio and centres inside it.
+            button.setFixedSize(tile)
+            button.setIcon(QIcon(scaled))
+            button.setIconSize(scaled.size())
+            self.setFixedSize(tile)
+            return
+        scaled_size = _image_thumbnail_size(pixmap.size())
+        scaled = pixmap.scaled(scaled_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        button.setFixedSize(scaled.size())
+        button.setIcon(QIcon(scaled))
+        button.setIconSize(scaled.size())
+
+    def set_tile_size(self, tile_size: int) -> None:
+        """Re-scale into a square tile of ``tile_size`` px (gallery resize)."""
+        value = max(0, int(tile_size or 0)) or None
+        if value == self._tile_size:
+            return
+        self._tile_size = value
+        self.setObjectName("mediaPreviewTile" if value else "mediaPreviewCard")
+        _refresh_style(self)
+        if value:
+            self.setFixedSize(QSize(value, value))
+        self._apply_image_scale()
+
     def _on_preview_failed(self, message: str) -> None:
         self._clear_content()
+        if self._tile_size:
+            # A tile has no room for prose: keep the grid square and put the
+            # reason in the tooltip.
+            button = QPushButton()
+            button.setObjectName("mediaOpenTile")
+            button.setIcon(_symbol_icon("file", color="#9fb0c4", size=22))
+            button.setIconSize(QSize(22, 22))
+            button.setToolTip(f"{self._title} — {message or 'Preview unavailable.'}")
+            button.setCursor(QCursor(Qt.PointingHandCursor))
+            button.setFixedSize(QSize(self._tile_size, self._tile_size))
+            button.clicked.connect(self._open_external)
+            self._content_layout.addWidget(button, 0, Qt.AlignLeft)
+            return
         label = QLabel(str(message or "Preview unavailable."))
         label.setObjectName("mediaPreviewStatus")
         self._content_layout.addWidget(label)
@@ -6515,6 +6867,10 @@ class AssistantPalette(QMainWindow):
     hotkey_activated = pyqtSignal()
     message_speech_started = pyqtSignal(str)
     message_speech_finished = pyqtSignal(str)
+    # Speech failures arrive on the TTS worker thread; this marshals them onto
+    # the GUI thread so a refusal/abort becomes a banner instead of a
+    # `warnings.warn` nobody can see (2026-08-02).
+    message_speech_failed = pyqtSignal(str)
     connection_status_updated = pyqtSignal(object)
     # Startup work that touches the gateway runs off the GUI thread and lands
     # via these signals (bootstrap warms caches; reattach probes the last run).
@@ -6531,6 +6887,10 @@ class AssistantPalette(QMainWindow):
     # palettes via __new__), while class attributes resolve through normal MRO.
     _cancel_requested = False
     _pending_submit = False
+    # Set when the voice manager surfaced a concrete failure for the current
+    # speak attempt, so the generic "couldn't start" banner never overwrites a
+    # specific cause.
+    _voice_failure_seen = False
     # Live run-observability status routed into the transcript-tail thinking
     # badge (dots + text, one pill) instead of a banner above the transcript.
     _thinking_card = None
@@ -6602,6 +6962,7 @@ class AssistantPalette(QMainWindow):
         self.hotkey_activated.connect(self.toggle_palette)
         self.message_speech_started.connect(self._on_message_speech_started)
         self.message_speech_finished.connect(self._on_message_speech_finished)
+        self.message_speech_failed.connect(self._on_message_speech_failed)
         self.connection_status_updated.connect(self._apply_connection_status)
         self.bootstrap_ready.connect(self._on_bootstrap_ready)
         self.reattach_candidate.connect(self._on_reattach_candidate)
@@ -6609,6 +6970,9 @@ class AssistantPalette(QMainWindow):
         self.listening_stopped.connect(self._on_listen_stop)
         self._controller.voice_manager.on_speech_start = (
             self._emit_message_speech_started
+        )
+        self._controller.voice_manager.on_speech_error = (
+            self.message_speech_failed.emit
         )
 
         self.setWindowTitle("AbstractAssistant")
@@ -6793,20 +7157,21 @@ class AssistantPalette(QMainWindow):
         composer_outer.setContentsMargins(0, 0, 0, 0)
         composer_outer.setSpacing(0)
 
+        # The tray wraps: a single non-scrolling row silently clipped every
+        # chip past the composer width, so attaching many files hid most of
+        # them. It grows to _ATTACHMENT_TRAY_MAX_ROWS, then scrolls.
         self.attachments_tray = QScrollArea()
         self.attachments_tray.setObjectName("attachmentsTray")
         self.attachments_tray.setWidgetResizable(True)
         self.attachments_tray.setFrameShape(QFrame.NoFrame)
         self.attachments_tray.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.attachments_tray.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.attachments_tray.setFixedHeight(42)
+        self.attachments_tray.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.attachments_tray.setFixedHeight(_ATTACHMENT_TRAY_ROW_HEIGHT)
         self.attachments_tray.hide()
-        self.attachments_host = QWidget()
+        self.attachments_host = FlowContainer(h_spacing=6, v_spacing=6)
         self.attachments_host.setObjectName("attachmentsTrayHost")
-        self.attachments_layout = QHBoxLayout(self.attachments_host)
+        self.attachments_layout = self.attachments_host.flow()
         self.attachments_layout.setContentsMargins(8, 6, 8, 2)
-        self.attachments_layout.setSpacing(6)
-        self.attachments_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.attachments_tray.setWidget(self.attachments_host)
         composer_outer.addWidget(self.attachments_tray)
 
@@ -7338,6 +7703,12 @@ class AssistantPalette(QMainWindow):
             remember=False,
         )
 
+    # The banner stylesheet styles tone="warn"; callers have long passed
+    # "warning" (the voice/mute/volume warnings all do), which matches NO rule
+    # and rendered every warning as an ordinary blue notice. Normalize here so
+    # a warning LOOKS like one wherever it is raised.
+    _BANNER_TONE_ALIASES = {"warning": "warn", "caution": "warn", "err": "error"}
+
     def _set_banner(self, text: str = "", tone: str = "info") -> None:
         message = str(text or "").strip()
         if not message:
@@ -7346,8 +7717,10 @@ class AssistantPalette(QMainWindow):
             self.banner_label.setMaximumHeight(0)
             self.banner_label.hide()
             return
+        resolved = str(tone or "info").strip().lower()
+        resolved = self._BANNER_TONE_ALIASES.get(resolved, resolved)
         self.banner_label.setText(message)
-        self.banner_label.setProperty("tone", tone)
+        self.banner_label.setProperty("tone", resolved)
         self.banner_label.setMinimumHeight(0)
         self.banner_label.setMaximumHeight(16777215)
         self._refresh_widget_style(self.banner_label)
@@ -7532,6 +7905,10 @@ class AssistantPalette(QMainWindow):
                 self.banner_label.setMaximumHeight(0)
             self.banner_label.setVisible(show_banner)
         header_height = max(42, int(self.header_card.sizeHint().height()))
+        # Chips re-wrap when the shell width changes, so the tray height must be
+        # recomputed before the composer height is read into the layout maths.
+        if self.attachments_tray.isVisible():
+            self._sync_attachment_tray_height()
         composer_height = int(
             self.composer_card.height() or self.composer_card.sizeHint().height() or 80
         )
@@ -8016,25 +8393,49 @@ class AssistantPalette(QMainWindow):
                 widget.deleteLater()
         if not self._attachments and not self._composer_drop_active:
             self.attachments_tray.hide()
-            self.composer_card.setFixedHeight(56)
+            self.composer_card.setFixedHeight(_COMPOSER_BASE_HEIGHT)
             self._reflow_shell()
             return
         if self._attachments:
             for path in self._attachments:
                 chip = AttachmentIconChip(path=path, parent=self.attachments_host)
                 chip.remove_requested.connect(self._remove_attachment)
-                self.attachments_layout.addWidget(
-                    chip, 0, Qt.AlignLeft | Qt.AlignVCenter
-                )
-            self.attachments_layout.addStretch(1)
+                self.attachments_layout.addWidget(chip)
         else:
             hint = QLabel("Drop files to attach")
             hint.setObjectName("attachmentsDropHint")
-            self.attachments_layout.addWidget(hint, 0, Qt.AlignLeft | Qt.AlignVCenter)
-            self.attachments_layout.addStretch(1)
+            self.attachments_layout.addWidget(hint)
         self.attachments_tray.show()
-        self.composer_card.setFixedHeight(96)
+        self._sync_attachment_tray_height()
         self._reflow_shell()
+
+    def _attachment_tray_width(self) -> int:
+        """Usable chip width in the tray, tolerating a not-yet-laid-out view.
+
+        Sources are probed lazily and defensively: during the first render the
+        viewport has no width yet, and each fallback may itself be unbuilt.
+        """
+        sources = (
+            lambda: self.attachments_tray.viewport().width(),
+            lambda: self.attachments_tray.width(),
+            lambda: self.composer_card.width(),
+            lambda: self.width(),
+        )
+        for source in sources:
+            try:
+                candidate = int(source() or 0)
+            except Exception:
+                continue
+            if candidate > 40:
+                return candidate
+        return 360
+
+    def _sync_attachment_tray_height(self) -> None:
+        """Grow the tray (and composer) to fit wrapped chip rows, then scroll."""
+        rows = self.attachments_layout.rows_for_width(self._attachment_tray_width())
+        height = _attachment_tray_height(rows)
+        self.attachments_tray.setFixedHeight(height)
+        self.composer_card.setFixedHeight(_COMPOSER_BASE_HEIGHT + height)
 
     def _on_send_button_clicked(self) -> None:
         """The composer button sends when idle and stops the run when busy."""
@@ -8581,7 +8982,11 @@ class AssistantPalette(QMainWindow):
         self._open_artifact(artifact, run_id=run_id)
 
     def _build_media_preview(
-        self, artifact: Dict[str, Any], message: Dict[str, Any]
+        self,
+        artifact: Dict[str, Any],
+        message: Dict[str, Any],
+        *,
+        tile_size: int = 0,
     ) -> Optional[QWidget]:
         if not isinstance(artifact, dict):
             return None
@@ -8604,7 +9009,10 @@ class AssistantPalette(QMainWindow):
             return self._controller.download_artifact(run_id=run_id, artifact=artifact)
 
         return ArtifactPreviewCard(
-            artifact=artifact, resolve_path=_resolve, parent=self
+            artifact=artifact,
+            resolve_path=_resolve,
+            tile_size=tile_size,
+            parent=self,
         )
 
     def _open_artifact(self, artifact: Dict[str, Any], *, run_id: str) -> None:
@@ -8748,12 +9156,25 @@ class AssistantPalette(QMainWindow):
         # Speak prose, not markup: raw markdown reads as noise ("hash hash…")
         # and its heading/list blocks defeat streaming segmentation — the
         # first audio segment swallowed a whole header block live (2026-07-28).
-        content = speech_plain_text(str(message.get("content") or ""))
+        raw_content = str(message.get("content") or "")
+        content = speech_plain_text(raw_content)
         if not content:
+            # A reply can be all image/code/emoji: the sanitizer legitimately
+            # reduces it to nothing. Returning here used to make the speaker
+            # button a no-op with no explanation whatsoever.
+            self._set_message_voice_card_state(key, "idle")
+            self._set_banner(
+                "Nothing to read aloud: this reply has no spoken text once "
+                "images, code and links are removed.",
+                tone="warning",
+            )
             return
         self._active_spoken_message_key = key
         self._active_spoken_message_phase = "synthesizing"
         self._set_message_voice_card_state(key, "synthesizing")
+        # The voice manager reports concrete refusals through on_speech_error;
+        # the generic banner below is only for a manager that never did.
+        self._voice_failure_seen = False
         started = voice.speak(
             content, callback=lambda key=key: self.message_speech_finished.emit(key)
         )
@@ -8765,11 +9186,42 @@ class AssistantPalette(QMainWindow):
             self._set_message_voice_card_state(key, "idle")
             # A silent no-op looked like "voice is broken" with no clue why
             # (2026-07-28). Refusals must say so where the user is looking.
-            self._set_banner(
-                "Voice couldn't start: gateway speech is unavailable or still "
-                "reconnecting. Try again in a few seconds, or check Settings.",
-                tone="warning",
-            )
+            if not self._voice_failure_seen:
+                self._set_banner(
+                    "Voice couldn't start: gateway speech is unavailable or still "
+                    "reconnecting. Try again in a few seconds, or check Settings.",
+                    tone="warning",
+                )
+
+    def _on_message_speech_failed(self, reason: str) -> None:
+        """Show WHY speech did not play, where the user is looking.
+
+        Before this, every failure after speak() returned True was reported
+        only via `warnings.warn`: the live 2026-08-02 reproduction of the
+        operator's "Garden in the Log" click spent four minutes on rejected
+        pins and two 120 s timeouts, emitted three such warnings, and the only
+        thing the UI did was flip the card back to idle."""
+        text = str(reason or "").strip()
+        self._voice_failure_seen = True
+        # The failing message's card must not stay stuck on "synthesizing" —
+        # unless a NEWER speak is already live (a late report from the run the
+        # newer one superseded must not reset the newer card).
+        live = False
+        try:
+            voice = self._controller.voice_manager
+            live = bool(voice.is_speaking() or voice.is_paused())
+        except Exception:
+            live = False
+        if not live:
+            key = str(self._active_spoken_message_key or "").strip()
+            if key:
+                self._set_message_voice_card_state(key, "idle")
+            self._active_spoken_message_key = ""
+            self._active_spoken_message_phase = "idle"
+        self._set_banner(
+            f"Voice failed: {text}." if text else "Voice failed for an unknown reason.",
+            tone="warning",
+        )
 
     def _on_message_speech_finished(self, key: str) -> None:
         if str(self._active_spoken_message_key or "") == str(key or ""):
@@ -9366,6 +9818,14 @@ class AssistantPalette(QMainWindow):
                 border-radius: 12px;
                 padding: 6px;
             }
+            QFrame#mediaPreviewTile {
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }
+            QWidget#mediaGallery, QWidget#artifactChipTray {
+                background: transparent;
+            }
             QScrollArea#mermaidPreviewScroll {
                 background: rgba(16, 22, 31, 0.92);
                 border: 1px solid rgba(166, 187, 214, 0.10);
@@ -9400,6 +9860,16 @@ class AssistantPalette(QMainWindow):
                 border: 1px solid rgba(166, 187, 214, 0.10);
             }
             QPushButton#mediaImageButton:hover {
+                background: rgba(255, 255, 255, 0.06);
+                border-color: rgba(121, 199, 255, 0.30);
+            }
+            QPushButton#mediaOpenTile {
+                padding: 0px;
+                border-radius: 8px;
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(166, 187, 214, 0.12);
+            }
+            QPushButton#mediaOpenTile:hover {
                 background: rgba(255, 255, 255, 0.06);
                 border-color: rgba(121, 199, 255, 0.30);
             }

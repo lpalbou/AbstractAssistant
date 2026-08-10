@@ -282,7 +282,10 @@ def test_gateway_voice_manager_uses_advertised_tts_format_and_voice(monkeypatch:
     assert vm.speak("hello from caps") is True
     assert _wait_for(lambda: bool(gateway.tts_kwargs))
     expected_fmt = "wav" if sys.platform == "darwin" and vm._supports_inprocess_audio_player() else "mp3"
-    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": expected_fmt, "model": "tts-model", "quality_preset": None}
+    # model stays None: the advertised active_model is the gateway's own
+    # default, and echoing it back as a pin breaks the stream route
+    # (see tests/basic/test_voice_stream_latency.py).
+    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": expected_fmt, "model": None, "quality_preset": None}
 
 
 @pytest.mark.basic
@@ -301,7 +304,7 @@ def test_gateway_voice_manager_prefers_advertised_streaming_tts(monkeypatch: pyt
     assert gateway.stream_done.wait(timeout=2.0)
     assert _wait_for(lambda: len(player.play_calls) == 1)
     assert gateway.calls == [("voice_tts_stream", 120.0)]
-    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": "wav", "model": "tts-model", "quality_preset": None}
+    assert gateway.tts_kwargs == {"provider": None, "voice": None, "profile": "alloy", "fmt": "wav", "model": None, "quality_preset": None}
 
 
 @pytest.mark.basic

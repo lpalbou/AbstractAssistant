@@ -25,13 +25,21 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_TITLE_MAX = 80  # session-picker title bound (marked when it bites; ADR-0026)
+
+
 def _safe_title(title: str) -> str:
     t = str(title or "").strip()
     if not t:
         return "New session"
-    # Keep dropdown readable.
+    # Keep dropdown readable. ADR-0026 §1: this string is PERSISTED as the
+    # session's title, so a bare cut reads back forever as the whole title —
+    # mark it instead. The conversation itself is never touched.
     t = t.replace("\n", " ").replace("\r", " ").strip()
-    return t[:80] if len(t) > 80 else t
+    if len(t) <= _TITLE_MAX:
+        return t
+    #[WARNING:TRUNCATION] persisted session title bounded for the picker
+    return t[: _TITLE_MAX - 1].rstrip() + "…"
 
 
 @dataclass(frozen=True)
