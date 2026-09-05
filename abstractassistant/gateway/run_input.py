@@ -98,6 +98,10 @@ def build_run_input_data(
     model: str = "",
     base_url: str = "",
     media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+    thinking: str = "",
+    workspace_root: str = "",
+    workspace_access_mode: str = "",
+    workspace_allowed_paths: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Build workflow input without desktop-owned routing or history authority.
 
@@ -125,6 +129,13 @@ def build_run_input_data(
     ``media_overrides`` maps capability route keys (output.image.*, output.video.*,
     output.music, output.sound) to {provider, model} — per-run local overrides
     that ride the managed workflow's media input pins (see apply_media_overrides).
+    ``thinking`` is the reasoning effort (gateway contract
+    ``thinking_control``: none|minimal|low|medium|high|xhigh); it rides
+    ``_runtime.thinking``, the documented inheritance lane every LLM/agent node
+    reads (a top-level pin would need a flow input the orchestrator lacks).
+    ``workspace_root`` / ``workspace_access_mode`` / ``workspace_allowed_paths``
+    scope the run's filesystem tools; the gateway sanitizes them against its own
+    policy and may clamp or refuse them. Blanks send nothing (server-managed).
     """
     prompt_s = str(prompt or "")
     system_s = str(system or "")
@@ -163,6 +174,10 @@ def build_run_input_data(
         runtime_ns["model"] = model_s
         if base_url_s:
             runtime_ns["base_url"] = base_url_s
+
+    thinking_s = str(thinking or "").strip().lower()
+    if thinking_s:
+        runtime_ns["thinking"] = thinking_s
 
     if isinstance(tool_policy, dict):
         auto_raw = tool_policy.get("auto_approve_tools") or tool_policy.get("autoApproveTools") or tool_policy.get("autoApprove")
@@ -227,5 +242,18 @@ def build_run_input_data(
     # Per-run media model overrides (image/video/music/sound) — local to this
     # app, delivered as workflow input pins; the gateway default is untouched.
     apply_media_overrides(out, media_overrides)
+
+    # Workspace scope for the run's filesystem tools (the runtime's
+    # workspace-scoped tools read these keys from run vars; the gateway
+    # sanitizes them at start). Only non-blank values are sent.
+    root_s = str(workspace_root or "").strip()
+    if root_s:
+        out["workspace_root"] = root_s
+    mode_s = str(workspace_access_mode or "").strip().lower()
+    if mode_s:
+        out["workspace_access_mode"] = mode_s
+    allowed = [str(p or "").strip() for p in (workspace_allowed_paths or []) if str(p or "").strip()]
+    if allowed:
+        out["workspace_allowed_paths"] = allowed
 
     return out

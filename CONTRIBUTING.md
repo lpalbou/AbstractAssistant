@@ -34,13 +34,25 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Run the test suite (recommended invocation):
+Run the test suite (recommended invocation, headless):
 
 ```bash
-python -m pytest -q
+QT_QPA_PLATFORM=offscreen PYSTRAY_BACKEND=dummy python -m pytest -q
 ```
 
-Note: the default pytest configuration runs `tests/basic/` (see `pyproject.toml`).
+Note: the default pytest configuration runs `tests/basic/` (see `pyproject.toml`). The suite
+builds the real Qt widgets offscreen, so it needs no display and no gateway.
+
+Where things live:
+
+- `abstractassistant/app.py` — the palette window (wiring only)
+- `abstractassistant/controller.py` — preferences, caches, run scope, run commands
+- `abstractassistant/ui/` — settings pages, approval sheet, activity card, voice strip, shared stylesheet
+- `abstractassistant/core/` — voice conversation loop, tool presentation and risk, voice manager
+- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter
+
+Design tokens are in `abstractassistant/theme.py` and the shared stylesheet in
+`abstractassistant/ui/styles.py`; new UI should use them rather than literal colors.
 
 ## Running locally
 

@@ -2179,18 +2179,22 @@ class GatewayVoiceManager:
         return preferred or None
 
     def _selected_stt_model(self) -> Optional[str]:
+        """Explicit STT model pin, or None to let the gateway resolve its own.
+
+        Same rule as `_selected_tts_model`: the gateway's advertised
+        `active_model` is the gateway's default, not the user's choice, and
+        echoing it back without its provider is a half-pin. A model is pinned
+        only when the user's `input.voice` override or an env var chose one.
+        """
         selected = str(getattr(self._llm_manager, "current_stt_model", "") or "").strip()
         if selected:
             return selected
-        try:
-            return self._assistant_capabilities().selected_stt_model()
-        except Exception:
-            preferred = str(
-                os.getenv("ABSTRACTASSISTANT_GATEWAY_STT_MODEL")
-                or os.getenv("ABSTRACTASSISTANT_STT_MODEL")
-                or ""
-            ).strip()
-            return preferred or None
+        preferred = str(
+            os.getenv("ABSTRACTASSISTANT_GATEWAY_STT_MODEL")
+            or os.getenv("ABSTRACTASSISTANT_STT_MODEL")
+            or ""
+        ).strip()
+        return preferred or None
 
     def _selected_stt_provider(self) -> Optional[str]:
         # Local STT override provider only; empty lets the gateway resolve the

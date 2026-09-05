@@ -1,66 +1,33 @@
 # AbstractAssistant
 
-> Gateway-native desktop assistant for AbstractFramework. It runs as a macOS-first tray app with a
-> compact top-right palette and a small CLI. AbstractGateway owns workflows, multimodal defaults,
-> durable runs, and media routing; the desktop app owns local UX state, mic capture, playback,
-> downloads, and optional hotkey preferences.
+> A macOS-first tray assistant and CLI that is a thin client of AbstractGateway: the gateway owns workflows, durable runs, tools, workspace policy and multimodal defaults; the app owns the interface, local preferences and voice capture/playback. Use these docs to install it, connect it to a gateway, configure it, and understand what runs where.
 
-Key facts:
+Repository: https://github.com/lpalbou/abstractassistant
 
-- CLI entrypoints: `assistant` and `abstractassistant`
-- Default gateway URL: `http://127.0.0.1:8080`
-- Connection settings come from `--gateway-url`, `--gateway-token`, or matching environment variables
-- Published assistant workflow: `abstractassistant-orchestrator`
-- Multimodal defaults are edited through gateway capability-default routes, not local config files
-- Local data lives under `~/.abstractassistant/`
-- Header UX includes a recent-session picker and a live gateway connection orb
-- Preferred validation: `python -m pytest tests/basic -q`
-- Regenerate the full bundle with `python scripts/update_llms_full.py`
+## Core Docs
+- [README.md](README.md): overview, capabilities, quick start, local files
+- [docs/README.md](docs/README.md): documentation index
+- [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
+- [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
+- [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle, module map
+- [docs/api.md](docs/api.md): CLI entry points, environment variables, run input pins, gateway routes used, local files
+- [docs/faq.md](docs/faq.md): recurring questions and known limits
+- [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
-## Context
+## Topic Deep Dives
+- [docs/settings.md](docs/settings.md): every setting, its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 
-- [llms-full.txt](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/llms-full.txt): expanded bundle of the core docs and gateway-native assistant code.
+## Design Records
+- [docs/adr/README.md](docs/adr/README.md): architecture decision records
+- [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary
+- [docs/backlog/overview.md](docs/backlog/overview.md): planned and proposed work
 
-## Docs
+## Contributing
+- [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
+- [SECURITY.md](SECURITY.md): vulnerability reporting
 
-- [README.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/README.md): project overview and quick start.
-- [docs/README.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/README.md): docs hub.
-- [docs/INSTALLATION.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/INSTALLATION.md): install requirements and macOS bundle rebuild helper.
-- [docs/getting-started.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/getting-started.md): first launch, workflows, defaults, recent sessions, and voice.
-- [docs/api.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/api.md): CLI and gateway-facing desktop contract.
-- [docs/architecture.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/architecture.md): component boundaries and source-of-truth rules.
-- [docs/faq.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/faq.md): common conceptual questions.
-- [docs/troubleshooting.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/troubleshooting.md): symptom-oriented fixes.
-- [docs/adr/0001_gateway_native_assistant_v2.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/docs/adr/0001_gateway_native_assistant_v2.md): accepted workflow and gateway-boundary policy.
-
-## Core code
-
-- [abstractassistant/cli.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/cli.py): tray and terminal entrypoints.
-- [abstractassistant/config.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/config.py): gateway URL/token resolution.
-- [abstractassistant/gateway/client.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/gateway/client.py): gateway HTTP client, including artifact and JSONL streaming TTS calls.
-- [abstractassistant/ui/gateway_worker.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/ui/gateway_worker.py): run launch, history replay, waits, and streaming.
-- [abstractassistant/core/gateway_voice_manager.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/core/gateway_voice_manager.py): local mic/playback plus gateway STT/TTS routing; prefers advertised Gateway TTS streaming and falls back to artifact TTS before audio starts.
-- [abstractassistant/app.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/app.py): tray and palette shell.
-- [abstractassistant/controller.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/controller.py): controller for sessions, workflow resolution, preferences, and route defaults.
-- [abstractassistant/gateway_service.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/gateway_service.py): workflow-catalog and capability-default helpers.
-- [abstractassistant/preferences.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/abstractassistant/preferences.py): durable local UX preferences.
-
-## Tests
-
-- [tests/basic/test_assistant_palette.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/basic/test_assistant_palette.py): palette workflow, preferences, and gateway-worker contract coverage.
-- [tests/basic/test_cli_gateway_mode.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/basic/test_cli_gateway_mode.py): CLI gateway-mode parsing and tray launch behavior.
-- [tests/basic/test_gateway_client_methods.py](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/tests/basic/test_gateway_client_methods.py): gateway client route coverage.
-
-## Project
-
-- [pyproject.toml](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/pyproject.toml): dependencies, scripts, and pytest configuration.
-- [CONTRIBUTING.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/CONTRIBUTING.md): development workflow.
-- [SECURITY.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/SECURITY.md): security reporting.
-- [CHANGELOG.md](https://raw.githubusercontent.com/lpalbou/AbstractAssistant/main/CHANGELOG.md): release history.
-
-## Ecosystem
-
-- [AbstractFramework](https://github.com/lpalbou/AbstractFramework)
-- [AbstractGateway](https://github.com/lpalbou/abstractgateway)
-- [AbstractRuntime](https://github.com/lpalbou/abstractruntime)
-- [AbstractCore](https://github.com/lpalbou/abstractcore)
+## Optional
+- [CHANGELOG.md](CHANGELOG.md): release history and migration notes
+- [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md): credits and lineage
+- [pyproject.toml](pyproject.toml): package metadata, entry points, dependencies

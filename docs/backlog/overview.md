@@ -15,6 +15,11 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Next Recommended Work
 
+0. Follow-ups from the 0.5.0 UX pass (2026-09-05): stop publishing/promoting the managed workflow
+   from the client (ship it as a gateway-side catalog package and only check presence); list chats
+   from the gateway session store instead of the local registry; add the per-answer "steps" chip
+   that re-opens the live activity model after a run; add tray icon states for waiting and voice.
+
 1. Finish the remaining v2 runtime-replayer compliance gaps after the strict terminal replay pass:
    cross-client wait race tests, static direct-execution guards, voice/media boundary tests, and
    ledger-only tool details.

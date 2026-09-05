@@ -80,6 +80,12 @@ class Theme:
     danger: str = "#ff6b6e"
     danger_text: str = "#ffb4b4"
     danger_bg: str = "rgba(145, 39, 39, 0.14)"
+    # Attention ("needs YOU"): approval / input waits, tray "waiting" badge.
+    # Distinct from warning (something is off) and from primary (go).
+    attention: str = "#fb923c"
+    attention_text: str = "#ffd0a8"
+    attention_bg: str = "rgba(251, 146, 60, 0.14)"
+    attention_border: str = "rgba(251, 146, 60, 0.42)"
 
     # User-message identity (indigo, distinct from the blue UI accent)
     user_bg: str = "rgba(99, 102, 241, 0.20)"

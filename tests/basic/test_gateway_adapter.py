@@ -259,3 +259,63 @@ def test_adapter_emits_cycle_result_with_model_output_not_prompt_echo() -> None:
     assert not [
         e for e in adapter.handle_record(silent) if e.get("type") == "cycle_result"
     ]
+
+
+def test_adapter_cycle_event_carries_ledger_ts_only_when_present() -> None:
+    """The live activity model computes durations from LEDGER timestamps only:
+    a cycle start carries `ts` when the record has one and nothing otherwise."""
+    adapter = GatewayEventAdapter()
+    bare = {
+        "run_id": "r1",
+        "node_id": "reason",
+        "status": "started",
+        "effect": {"type": "llm_call", "payload": {}},
+    }
+    cycles = [e for e in adapter.handle_record(dict(bare)) if e.get("type") == "cycle"]
+    assert cycles == [{"type": "cycle", "iteration": 1}]
+
+    stamped = dict(bare, started_at="2026-09-05T10:00:00+00:00")
+    cycles = [e for e in adapter.handle_record(stamped) if e.get("type") == "cycle"]
+    assert cycles == [{"type": "cycle", "iteration": 2, "ts": "2026-09-05T10:00:00+00:00"}]
+
+
+def test_adapter_tool_started_entries_carry_call_id_ts_and_raw_arguments() -> None:
+    """tool_started entries expose the call identity (call_id | id |
+    runtime_call_id), the record's started_at and the RAW arguments so the
+    activity model can match results by id and label rows from structured
+    args — each key only when it has a value."""
+    adapter = GatewayEventAdapter()
+    rec = {
+        "run_id": "r1",
+        "node_id": "act",
+        "status": "started",
+        "started_at": "2026-09-05T10:00:01+00:00",
+        "effect": {
+            "type": "tool_calls",
+            "payload": {
+                "tool_calls": [
+                    {"name": "read_file", "call_id": "c1", "arguments": {"file_path": "README.md"}},
+                    {"name": "web_search", "id": "c2", "arguments": '{"query": "x"}'},
+                    {"name": "list_files", "runtime_call_id": "c3"},
+                    {"name": "noop", "arguments": {}},
+                ]
+            },
+        },
+    }
+    events = [e for e in adapter.handle_record(rec) if e.get("type") == "tool_started"]
+    assert events
+    tools = events[0]["tools"]
+    assert [t["name"] for t in tools] == ["read_file", "web_search", "list_files", "noop"]
+    assert [t.get("call_id") for t in tools] == ["c1", "c2", "c3", None]
+    assert all(t["ts"] == "2026-09-05T10:00:01+00:00" for t in tools)
+    assert tools[0]["arguments"] == {"file_path": "README.md"}
+    assert tools[1]["arguments"] == '{"query": "x"}'
+    assert "arguments" not in tools[2] and "arguments" not in tools[3]
+    # The preview/text pair the palette already consumes is unchanged.
+    assert "README.md" in tools[0]["arguments_preview"]
+    assert "README.md" in tools[0]["arguments_text"]
+
+    # A record without timestamps forwards no `ts` at all.
+    bare = {k: v for k, v in rec.items() if k != "started_at"}
+    events = [e for e in adapter.handle_record(bare) if e.get("type") == "tool_started"]
+    assert all("ts" not in t for t in events[0]["tools"])

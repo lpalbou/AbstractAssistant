@@ -1,55 +1,49 @@
 # AbstractAssistant
 
-AbstractAssistant is a gateway-native desktop assistant for the AbstractFramework ecosystem.
+AbstractAssistant is a gateway-native desktop assistant for the AbstractFramework ecosystem: a
+macOS menu-bar app with a compact palette, a hands-free voice conversation mode, and a small CLI.
 
-It ships as a macOS-first tray app with a compact top-right palette and a small CLI. The desktop
-client stays thin: AbstractGateway owns workflow discovery, durable runs, multimodal capability
-defaults, provider connections, and media routing. The assistant keeps only local UX state such as
-sessions, window placement, downloads, and optional hotkey preferences.
-
-High-level flow:
+The desktop client stays thin. AbstractGateway owns workflow discovery, durable runs, provider
+connections, tool execution and policy, workspace policy, and multimodal defaults. The assistant
+keeps only local state: your chats, window placement, downloads, and the overrides you choose for
+this app.
 
 ```text
 Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Providers
 ```
 
-## What You Get
+## What you get
 
-- A tray-first desktop assistant with a compact top-right query palette.
-- Recent-session navigation in the palette header, with compact `yy/mm/dd - topic` labels and a
+- A menu-bar palette whose title tells you what the app is doing, with a recent-chat picker and a
   live gateway connection orb.
-- One published gateway assistant workflow, `abstractassistant-orchestrator`, as the runtime path
-  for tray and CLI turns.
-- Gateway-backed multimodal defaults for text, voice, image, video, sound, and music routes.
-- Local microphone capture and local playback while STT/TTS execution stays on the gateway
-  (microphone capture requires the `voice` extra — see Install).
-- Workflow-routed image, video, sound, and music generation through gateway defaults.
-- Durable tool approvals through gateway waits instead of local side channels.
-- Gateway-backed capability-default editing, including advanced route options where the selected
-  route supports them.
+- Live run activity in the transcript: the current step, elapsed time, recent tool calls with
+  their arguments and durations, and pause / resume / stop controls.
+- Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
+  blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
+- A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
+  Spoken replies stream from the gateway; dictation is a button away.
+- A Settings window with seven sections: Connection, Models & reasoning (including the model's
+  reasoning effort), Voice, Workspace (root and allowed folders), Tools & permissions, Window &
+  shortcuts, About. Every value says whether it is the gateway default or this app's override.
+- Local, persistent overrides for every route the assistant drives (chat, voice, image, video,
+  music, sound) that ride each request without touching the gateway's shared defaults.
+- Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
+- Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
 
 ## Install
-
-```bash
-pip install "abstractassistant"
-```
-
-For local microphone capture (voice conversations and dictation), install the `voice` extra:
 
 ```bash
 pip install "abstractassistant[voice]"
 ```
 
-The base install covers text chat and gateway-backed media; it does not include the local
-audio-input stack. STT/TTS execution stays on the gateway either way.
+The `voice` extra adds local microphone capture (dictation and voice conversations). The base
+install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway
+either way.
 
-Practical requirements:
+Requirements: Python 3.10+, an AbstractGateway you can reach. macOS is the primary tray target;
+Linux and Windows may work but are not packaged to the same standard.
 
-- Python 3.10+
-- An AbstractGateway instance the assistant can reach
-- macOS is the primary tray target; Linux and Windows may work but are not yet packaged to the same standard
-
-## Quick Start
+## Quick start
 
 Start a local gateway for development:
 
@@ -71,64 +65,53 @@ Run a single terminal turn:
 assistant run --prompt "Search the web for the latest OpenAI news and summarize it with sources."
 ```
 
-Optional connection overrides:
+Connection overrides:
 
 ```bash
 assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
 
-The tray app does not ask you to choose a workflow. It uses the published
-`abstractassistant-orchestrator` workflow from the gateway tenant catalog.
+The app uses the published `abstractassistant-orchestrator` workflow from the gateway tenant
+catalog; there is no workflow to choose.
 
-## Defaults And Durability
+## Defaults and durability
 
-Gateway is the source of truth for:
+The gateway is the source of truth for the published workflow, provider and model defaults, tool
+inventory and approval defaults, workspace policy, run history, waits and artifacts.
 
-- the published `abstractassistant-orchestrator` workflow and its catalog entrypoint
-- provider/model defaults for multimodal routes
-- media routing and execution
-- durable run history, waits, and artifacts
+The desktop client stores under `~/.abstractassistant/`:
 
-The desktop client stores only local state under `~/.abstractassistant/`, including:
-
-- `sessions.json`: session registry and active session
-- session transcript snapshots and last run ids
-- `gateway_connection.json`: gateway URL plus bearer-token or session auth state
-- local downloads and tray/palette preferences
-
-The desktop assistant stays intentionally thinner than Flow. Settings exposes
-gateway capability-default routes plus a bounded advanced `options` JSON
-surface. That JSON is passed through unchanged for route features such as
-`count`, `seeds`, `lora_adapters`, `guidance_2`, and `flow_shift` when the
-selected route supports them.
+- `preferences.json` — this app's overrides and preferences (model routes, reasoning effort,
+  workspace grant, voice options, tool modes, hotkey, window size)
+- `gateway_connection.json` — gateway URL and sign-in state
+- `sessions/` — chat snapshots, last run ids and each chat's granted workspace folder
+- downloads and cached audio
 
 ## Documentation
 
 Start with [docs/README.md](docs/README.md).
 
-Core guides:
-
 - [docs/INSTALLATION.md](docs/INSTALLATION.md)
 - [docs/getting-started.md](docs/getting-started.md)
-- [docs/api.md](docs/api.md)
+- [docs/settings.md](docs/settings.md)
+- [docs/voice.md](docs/voice.md)
 - [docs/architecture.md](docs/architecture.md)
+- [docs/api.md](docs/api.md)
 - [docs/faq.md](docs/faq.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
-
-Architecture records:
-
 - [docs/adr/README.md](docs/adr/README.md)
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest tests/basic -q
+QT_QPA_PLATFORM=offscreen python -m pytest tests/basic -q
 ```
 
-## Project Links
+## Project links
 
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Security: [SECURITY.md](SECURITY.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
+- Acknowledgments: [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)
 - License: [LICENSE](LICENSE)

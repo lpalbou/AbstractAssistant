@@ -126,7 +126,12 @@ class GatewayEventAdapter:
                 rid = str(rec.get("run_id") or "")
                 n = int(self._cycles_by_run.get(rid, 0)) + 1
                 self._cycles_by_run[rid] = n
-                events.append({"type": "cycle", "iteration": n})
+                cycle_event: Dict[str, Any] = {"type": "cycle", "iteration": n}
+                if record_ts:
+                    # Ledger timestamp of the cycle start (live activity
+                    # durations are computed ONLY from ledger timestamps).
+                    cycle_event["ts"] = record_ts
+                events.append(cycle_event)
             elif status0 == "completed" and etype == "llm_call" and str(rec.get("node_id") or "") == "reason":
                 # The model's ACTUAL output for this cycle (its intermediate
                 # "thinking" between tool rounds) lives on the COMPLETED
@@ -158,6 +163,9 @@ class GatewayEventAdapter:
             elif status0 == "started" and etype == "tool_calls":
                 payload0 = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
                 tools: List[Dict[str, Any]] = []
+                # STARTED records carry started_at; ended_at is the fallback for
+                # a replayed record. Only a real ledger timestamp is forwarded.
+                tool_started_ts = str(rec.get("started_at") or rec.get("ended_at") or "").strip()
                 for tc in payload0.get("tool_calls") or []:
                     if not (isinstance(tc, dict) and str(tc.get("name") or "").strip()):
                         continue
@@ -174,13 +182,24 @@ class GatewayEventAdapter:
                         full_args = _bounded_activity_text(str(args) if args else "")
                     except Exception:
                         full_args = ""
-                    tools.append(
-                        {
-                            "name": str(tc.get("name")).strip(),
-                            "arguments_preview": preview,
-                            "arguments_text": full_args,
-                        }
-                    )
+                    tool_entry: Dict[str, Any] = {
+                        "name": str(tc.get("name")).strip(),
+                        "arguments_preview": preview,
+                        "arguments_text": full_args,
+                    }
+                    # Identity + timing + structured args for the live activity
+                    # model: results are matched by call_id (FIFO by name when
+                    # absent) and titles use the raw arguments, not their repr.
+                    call_id = str(
+                        tc.get("call_id") or tc.get("id") or tc.get("runtime_call_id") or ""
+                    ).strip()
+                    if call_id:
+                        tool_entry["call_id"] = call_id
+                    if tool_started_ts:
+                        tool_entry["ts"] = tool_started_ts
+                    if isinstance(args, (dict, str)) and args:
+                        tool_entry["arguments"] = args
+                    tools.append(tool_entry)
                 if tools:
                     events.append({"type": "tool_started", "tools": tools})
 
@@ -283,7 +302,10 @@ class GatewayEventAdapter:
         tool_calls = extract_tool_calls_from_wait(wait)
         approval_wait = is_tool_approval_wait(wait)
         if tool_calls or approval_wait:
-            events.append({"type": "tool_request", "tool_calls": tool_calls, "wait_key": wait_key})
+            request = {"type": "tool_request", "tool_calls": tool_calls, "wait_key": wait_key}
+            if step:
+                request["step_id"] = str(step)
+            events.append(request)
             _mark_handled()
             return events
 
@@ -291,13 +313,19 @@ class GatewayEventAdapter:
             ev_name = normalize_ui_event_name(event_name_from_wait_key(wait_key))
             if ev_name == "abstract.ask":
                 prompt = str(wait.get("prompt") or "Input required:").strip()
-                events.append({"type": "ask_user", "prompt": prompt, "wait_key": wait_key})
+                ask = {"type": "ask_user", "prompt": prompt, "wait_key": wait_key}
+                if step:
+                    ask["step_id"] = str(step)
+                events.append(ask)
                 _mark_handled()
                 return events
 
         if reason == "user":
             prompt = str(wait.get("prompt") or "Input required:").strip()
-            events.append({"type": "ask_user", "prompt": prompt, "wait_key": wait_key})
+            ask = {"type": "ask_user", "prompt": prompt, "wait_key": wait_key}
+            if step:
+                ask["step_id"] = str(step)
+            events.append(ask)
             _mark_handled()
 
         return events

@@ -32,6 +32,8 @@ from .preferences import (
     GatewayConnectionStore,
     LOCAL_OVERRIDE_ROUTE_KEYS,
     PreferencesStore,
+    REASONING_EFFORT_LEVELS,
+    WORKSPACE_ACCESS_MODES,
     WorkflowSelection,
 )
 
@@ -69,12 +71,61 @@ class AssistantController:
         self._workflow_cache_at = 0.0
         self._tool_inventory_cache: Optional[Dict[str, Any]] = None
         self._tool_inventory_cache_at = 0.0
+        self._workspace_policy_cache: Optional[Dict[str, Any]] = None
+        self._workspace_policy_cache_at = 0.0
+        self._model_capabilities_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._route_map_cache: Optional[Dict[str, CapabilityRouteRow]] = None
+        self._route_map_cache_at = 0.0
         self._cache_lock = threading.RLock()
         # The gateway voice-default sync does a blocking capability-defaults
         # GET; it runs in prefetch() (off the GUI thread), not in __init__.
 
     def _cache_fresh(self, at: float) -> bool:
         return bool(at) and (time.monotonic() - float(at)) < self._cache_ttl_s
+
+    def settings_caches_warm(self) -> bool:
+        """True when every gateway-backed answer the Settings window reads on
+        open is cached and fresh, so building it cannot block the GUI thread."""
+        try:
+            if self._workspace_policy_cache is None or not self._cache_fresh(self._workspace_policy_cache_at):
+                return False
+            if self._tool_inventory_cache is None or not self._cache_fresh(self._tool_inventory_cache_at):
+                return False
+            cache = getattr(self, "_route_map_cache", None)
+            cache_at = float(getattr(self, "_route_map_cache_at", 0.0) or 0.0)
+            return bool(cache) and self._cache_fresh(cache_at)
+        except Exception:
+            return False
+
+    def warm_settings_caches(self) -> None:
+        """Fetch (off the GUI thread) what the Settings window shows on open."""
+        for name in ("workspace_policy", "tool_inventory"):
+            try:
+                getattr(self, name)()
+            except Exception:
+                pass
+        try:
+            self.route_map()
+        except Exception:
+            pass
+        try:
+            route = self.effective_chat_route() or {}
+            model = str(route.get("model") or "").strip()
+            if model:
+                self.model_capabilities(model)
+        except Exception:
+            pass
+
+    def gateway_is_local(self) -> bool:
+        """Does the gateway run on this machine? Folder pickers only make sense
+        then: paths are resolved on the gateway's host."""
+        try:
+            from urllib.parse import urlsplit
+
+            host = str(urlsplit(str(self.connection.base_url or "")).hostname or "").strip().lower()
+        except Exception:
+            return False
+        return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"} or host.startswith("127.")
 
     @staticmethod
     def _copy_inventory(inventory: Dict[str, Any]) -> Dict[str, Any]:
@@ -94,6 +145,11 @@ class AssistantController:
             self._workflow_cache_at = 0.0
             self._tool_inventory_cache = None
             self._tool_inventory_cache_at = 0.0
+            self._workspace_policy_cache = None
+            self._workspace_policy_cache_at = 0.0
+            self._model_capabilities_cache = {}
+            self._route_map_cache = None
+            self._route_map_cache_at = 0.0
 
     def prefetch(self) -> None:
         """Warm the workflow/tool/capabilities caches off the GUI thread.
@@ -162,6 +218,183 @@ class AssistantController:
         payload = self.preferences.to_dict()
         payload.update(updates)
         return AssistantPreferences.from_dict(payload)
+
+    def update_preferences(self, **updates: Any) -> AssistantPreferences:
+        """Persist a partial preferences change, keeping every other field.
+
+        Every settings surface must go through here (or ``save_preferences``
+        with a full object): rebuilding ``AssistantPreferences`` by hand from a
+        subset of fields silently wipes the fields that were left out — the
+        auto-speak header toggle used to drop the model/voice overrides that way.
+        """
+        prefs = self._copy_preferences(**updates)
+        self.save_preferences(prefs)
+        return prefs
+
+    # ------------------------------------------------------------------ run scope
+
+    def run_scope(self) -> Dict[str, Any]:
+        """Per-run pins: reasoning effort and the workspace grant.
+
+        The workspace root is the user's chosen folder when one is saved; else
+        the folder the gateway gave this SESSION's first run (remembered by the
+        worker), so every turn of a conversation works in one place; else
+        nothing, and the gateway mints a folder for this run.
+        """
+        try:
+            scope = dict(self.preferences.run_scope())
+        except Exception:
+            scope = {}
+        if not str(scope.get("workspace_root") or "").strip():
+            try:
+                session_root = str(self.llm_manager.session_workspace_root() or "").strip()
+            except Exception:
+                session_root = ""
+            if session_root:
+                scope["workspace_root"] = session_root
+        return scope
+
+    def workspace_root_status(self) -> Dict[str, str]:
+        """Where the next run's files go and why: {root, source} with source in
+        {"local", "session", "gateway"} ("gateway" = a fresh folder per run)."""
+        try:
+            local_root = str(self.preferences.run_scope().get("workspace_root") or "").strip()
+        except Exception:
+            local_root = ""
+        if local_root:
+            return {"root": local_root, "source": "local"}
+        try:
+            session_root = str(self.llm_manager.session_workspace_root() or "").strip()
+        except Exception:
+            session_root = ""
+        if session_root:
+            return {"root": session_root, "source": "session"}
+        return {"root": "", "source": "gateway"}
+
+    def system_prompt_for_run(self, addendum: str = "") -> str:
+        """The `system` pin for a run: empty (the workflow's own baked prompt
+        applies) unless an addendum is needed, in which case the workflow's
+        base prompt is repeated in front of it — a bare addendum on the
+        `system` pin would REPLACE the assistant's persona and tool guidance."""
+        extra = str(addendum or "").strip()
+        if not extra:
+            return ""
+        try:
+            from .assistant_workflow import _BASE_SYSTEM_PROMPT
+
+            base = str(_BASE_SYSTEM_PROMPT or "").strip()
+        except Exception:
+            base = ""
+        return f"{base}\n\n{extra}".strip() if base else extra
+
+    def save_tool_preference(self, name: str, mode: str) -> None:
+        """Set one tool's device mode (disabled|approve|ask) keeping the others."""
+        tool = str(name or "").strip()
+        value = str(mode or "").strip().lower()
+        if not tool or value not in {"disabled", "approve", "ask"}:
+            return
+        current = dict(self.preferences.tool_preferences or {})
+        current[tool] = value
+        self.save_tool_preferences(current)
+
+    def reasoning_levels(self) -> List[str]:
+        """The reasoning-effort ladder the gateway advertises
+        (``contracts.common.runs.start.thinking_control.values``), falling
+        back to the contract's known list when the gateway is unreachable."""
+        try:
+            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+            common = getattr(caps, "common", None) or {}
+            control = ((common.get("runs") or {}).get("start") or {}).get("thinking_control") or {}
+            values = control.get("values") if isinstance(control, dict) else None
+            cleaned = [str(v).strip().lower() for v in (values or []) if str(v or "").strip()]
+            if cleaned:
+                return cleaned
+        except Exception:
+            pass
+        return list(REASONING_EFFORT_LEVELS)
+
+    def workspace_access_modes(self) -> List[str]:
+        """Access modes the gateway accepts (its policy's ``allowed_access_modes``
+        when advertised; the contract's known list otherwise)."""
+        policy = self.workspace_policy().get("policy") or {}
+        modes = policy.get("allowed_access_modes") if isinstance(policy, dict) else None
+        cleaned = [str(m).strip().lower() for m in (modes or []) if str(m or "").strip()]
+        return cleaned or list(WORKSPACE_ACCESS_MODES)
+
+    def model_capabilities(self, model_name: str) -> Dict[str, Any]:
+        """Gateway-side capability card for a model (``thinking_support``,
+        ``reasoning_levels``, ...). Cached briefly; {} when unavailable."""
+        name = str(model_name or "").strip()
+        if not name:
+            return {}
+        with self._cache_lock:
+            cached = self._model_capabilities_cache.get(name)
+            if cached is not None and self._cache_fresh(cached[0]):
+                return dict(cached[1])
+        try:
+            payload = self.gateway.discovery_model_capabilities(model_name=name)
+        except Exception:
+            return {}
+        caps = payload.get("capabilities") if isinstance(payload, dict) else None
+        result = dict(caps) if isinstance(caps, dict) else {}
+        if result:
+            with self._cache_lock:
+                self._model_capabilities_cache[name] = (time.monotonic(), result)
+        return dict(result)
+
+    def workspace_policy(self) -> Dict[str, Any]:
+        """The gateway's workspace policy as this principal sees it:
+        ``{"policy": <server policy>, "self": <per-user policy>, "error": str}``.
+
+        Read-only and best-effort: the assistant never writes gateway policy; it
+        only shows what the gateway will do with the local workspace grant.
+        """
+        with self._cache_lock:
+            if self._workspace_policy_cache is not None and self._cache_fresh(self._workspace_policy_cache_at):
+                return json.loads(json.dumps(self._workspace_policy_cache))
+            epoch = self._cache_epoch
+        out: Dict[str, Any] = {"policy": {}, "self": {}, "error": ""}
+        errors: List[str] = []
+        try:
+            payload = self.gateway.workspace_policy()
+            policy = payload.get("policy") if isinstance(payload, dict) else None
+            if isinstance(policy, dict):
+                out["policy"] = dict(policy)
+        except Exception as exc:
+            errors.append(self.gateway_service.describe_connection_issue(exc))
+        try:
+            payload = self.gateway.workspace_policy_self()
+            if isinstance(payload, dict):
+                out["self"] = {k: v for k, v in payload.items() if k != "ok"}
+        except Exception as exc:
+            errors.append(self.gateway_service.describe_connection_issue(exc))
+        out["error"] = "; ".join(e for e in errors if e)
+        if out["policy"] or out["self"]:
+            with self._cache_lock:
+                if epoch == self._cache_epoch:
+                    self._workspace_policy_cache = json.loads(json.dumps(out))
+                    self._workspace_policy_cache_at = time.monotonic()
+        return out
+
+    def effective_chat_route(self) -> Dict[str, str]:
+        """Provider/model that will serve the next chat turn and where it comes
+        from: the local override when one is saved, else the gateway default."""
+        override = self.route_override("output.text") or {}
+        if override.get("provider") and override.get("model"):
+            return {
+                "provider": str(override.get("provider") or ""),
+                "model": str(override.get("model") or ""),
+                "source": "override",
+            }
+        try:
+            row = self.route_map(stale_ok=True).get("output.text")
+        except Exception:
+            row = None
+        return {
+            "provider": str(getattr(row, "provider", "") or ""),
+            "model": str(getattr(row, "model", "") or ""),
+            "source": "gateway",
+        }
 
     def current_connection(self) -> GatewayConnectionPreferences:
         return self.connection
@@ -237,8 +470,22 @@ class AssistantController:
     def route_rows(self) -> List[CapabilityRouteRow]:
         return self.gateway_service.list_capability_routes()
 
-    def route_map(self) -> Dict[str, CapabilityRouteRow]:
-        return self.gateway_service.route_map()
+    def route_map(self, *, stale_ok: bool = False) -> Dict[str, CapabilityRouteRow]:
+        """Gateway capability defaults by route key.
+
+        ``stale_ok`` serves a recent copy without a round trip (the send path
+        runs on the GUI thread and only needs the effective chat route for
+        display); settings surfaces call without it to see the live defaults.
+        """
+        cache = getattr(self, "_route_map_cache", None)
+        cache_at = float(getattr(self, "_route_map_cache_at", 0.0) or 0.0)
+        if stale_ok and isinstance(cache, dict) and cache and self._cache_fresh(cache_at):
+            return dict(cache)
+        rows = self.gateway_service.route_map()
+        if rows:
+            self._route_map_cache = dict(rows)
+            self._route_map_cache_at = time.monotonic()
+        return rows
 
     def route_override(self, route_key: str) -> Optional[Dict[str, Any]]:
         """Return the LOCAL override for a capability route, or None.
@@ -346,11 +593,13 @@ class AssistantController:
             detail = str(self.workflow_status().error or "No runnable gateway workflow is available.").strip()
             raise RuntimeError(detail)
         text_override = self.route_override("output.text")
+        scope = self.run_scope()
+        system_prompt = self.system_prompt_for_run(str(system_prompt_extra or ""))
         return GatewayWorker(
             llm_manager=self.llm_manager,
             user_text=prompt,
             attachments=list(attachments or []),
-            system_prompt_extra=str(system_prompt_extra or "").strip() or None,
+            system_prompt_extra=system_prompt or None,
             allowed_tools=self.allowed_tools_for_run(),
             tool_policy=self.tool_policy_for_run(),
             append_user_message=bool(append_user_message),
@@ -363,6 +612,10 @@ class AssistantController:
             model_override=str((text_override or {}).get("model") or "") or None,
             base_url_override=str((text_override or {}).get("base_url") or "") or None,
             media_overrides=self.media_route_overrides() or None,
+            thinking=str(scope.get("thinking") or ""),
+            workspace_root=str(scope.get("workspace_root") or ""),
+            workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
+            workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
             debug=self.debug,
         )
 
@@ -518,47 +771,89 @@ class AssistantController:
                 name = str(raw.get("name") or "").strip()
                 if not name:
                     continue
-                items.append(
-                    {
-                        "name": name,
-                        "description": str(raw.get("description") or "").strip(),
-                        "toolset": str(raw.get("toolset") or raw.get("toolset_id") or raw.get("toolsetId") or "").strip().lower(),
-                        "when_to_use": str(raw.get("when_to_use") or raw.get("whenToUse") or "").strip(),
-                    }
-                )
+                item: Dict[str, Any] = {
+                    "name": name,
+                    "description": str(raw.get("description") or "").strip(),
+                    "toolset": str(raw.get("toolset") or raw.get("toolset_id") or raw.get("toolsetId") or "").strip().lower(),
+                    "when_to_use": str(raw.get("when_to_use") or raw.get("whenToUse") or "").strip(),
+                    # The gateway's own availability + risk classification. The
+                    # assistant displays these; it never re-derives them.
+                    "available": raw.get("enabled") is not False,
+                    "approval_default": str(raw.get("approval_default") or "").strip().lower(),
+                    "risk_tier": str(raw.get("risk_tier") or "").strip().lower(),
+                    "tier": str(raw.get("tier") or "").strip(),
+                }
+                for flag in (
+                    "mutating",
+                    "destructive_capable",
+                    "remote_write_capable",
+                    "captures_environment",
+                    "comms_send",
+                    "standing_effect",
+                    "grantable",
+                ):
+                    if isinstance(raw.get(flag), bool):
+                        item[flag] = bool(raw.get(flag))
+                if isinstance(raw.get("risk_rank"), int):
+                    item["risk_rank"] = int(raw.get("risk_rank"))
+                if isinstance(raw.get("parameters"), dict):
+                    item["parameters"] = dict(raw.get("parameters"))
+                items.append(item)
 
         if error:
             note = error
 
+        # The gateway's `approval_default` is the policy of record; the local
+        # ToolApprovalPolicy lists are only the fallback for a gateway that
+        # predates the field (a thin client must not out-vote its server).
         policy = ToolApprovalPolicy()
         safe = set(policy.auto_approve_tools)
         require = set(policy.require_approval_tools)
         saved = dict(self.preferences.tool_preferences or {})
-        enriched: List[Dict[str, str]] = []
+        enriched: List[Dict[str, Any]] = []
         seen: set[str] = set()
         for item in sorted(items, key=lambda entry: (str(entry.get("toolset") or ""), str(entry.get("name") or ""))):
             name = str(item.get("name") or "").strip()
             if not name or name in seen:
                 continue
             seen.add(name)
+            gateway_default = str(item.get("approval_default") or "").strip().lower()
+            if gateway_default == "auto":
+                policy_default = "approve"
+            elif gateway_default == "ask":
+                policy_default = "ask"
+            elif name in require:
+                policy_default = "ask"
+            elif name in safe:
+                policy_default = "approve"
+            else:
+                policy_default = "ask"
             if saved.get(name) in {"disabled", "approve", "ask"}:
                 selected_mode = saved[name]
-            elif name in require:
-                selected_mode = "ask"
-            elif name in safe:
-                selected_mode = "approve"
             else:
-                selected_mode = "ask"
-            default_mode = "approve" if name in safe and name not in require else "ask"
+                selected_mode = policy_default
             enriched.append(
                 {
                     **item,
-                    "default_mode": default_mode,
+                    "default_mode": policy_default,
                     "selected_mode": selected_mode,
-                    "policy_default": "ask" if name in require else ("approve" if name in safe else "ask"),
+                    "policy_default": policy_default,
+                    "policy_source": "gateway" if gateway_default in {"auto", "ask"} else "local",
                 }
             )
         return {"items": enriched, "tool_mode": tool_mode or "", "note": note}
+
+    def tool_inventory_by_name(self) -> Dict[str, Dict[str, Any]]:
+        """{tool_name: inventory item} for risk badges on approval cards."""
+        out: Dict[str, Dict[str, Any]] = {}
+        try:
+            inventory = self.tool_inventory()
+        except Exception:
+            return out
+        for item in inventory.get("items") or []:
+            if isinstance(item, dict) and str(item.get("name") or "").strip():
+                out[str(item.get("name")).strip()] = dict(item)
+        return out
 
     def save_tool_preferences(self, statuses: Dict[str, str]) -> None:
         cleaned = {
@@ -578,10 +873,34 @@ class AssistantController:
                 continue
             if str(item.get("selected_mode") or "ask").strip().lower() == "disabled":
                 continue
+            if item.get("available") is False:
+                # Disabled on the gateway: offering it would only produce a
+                # refused call. The Tools settings show it as unavailable.
+                continue
             name = str(item.get("name") or "").strip()
             if name:
                 out.append(name)
         return out
+
+    # Blanket ("trust this chat") grants stop at this gateway risk rank: observe
+    # (1) and act (2) qualify; outreach (3) and destroy (4) always keep asking
+    # unless the user set that tool to Auto by name.
+    TRUST_MAX_RISK_RANK = 2
+
+    @staticmethod
+    def _tool_risk_rank(item: Dict[str, Any]) -> int:
+        try:
+            from .core.tool_risk import risk_rank
+
+            return int(risk_rank(item))
+        except Exception:
+            return 0
+
+    def _tool_trustable(self, item: Dict[str, Any]) -> bool:
+        """May a per-chat blanket grant auto-approve this tool? Tools the
+        gateway classifies as outreach/destroy never qualify; a tool with no
+        tier (a gateway that does not classify) keeps the plain grant."""
+        return self._tool_risk_rank(item) <= self.TRUST_MAX_RISK_RANK
 
     def tool_policy_for_run(self) -> Dict[str, List[str]]:
         inventory = self.tool_inventory()
@@ -595,9 +914,9 @@ class AssistantController:
             if not name:
                 continue
             mode = str(item.get("selected_mode") or "ask").strip().lower()
-            if mode == "disabled":
+            if mode == "disabled" or item.get("available") is False:
                 continue
-            if trust_enabled_for_chat or mode == "approve":
+            if mode == "approve" or (trust_enabled_for_chat and self._tool_trustable(item)):
                 auto.append(name)
             else:
                 require.append(name)
@@ -616,18 +935,31 @@ class AssistantController:
         return bool(sid and sid in self._session_auto_approve_all)
 
     def should_auto_approve_tool_batch(self, tool_calls: Any, *, session_id: Optional[str] = None) -> bool:
+        """A per-chat trust grant auto-approves a batch only when every call is
+        an enabled tool the grant may cover (risk rank ≤ 2, or set to Auto by
+        name); a later outreach/destructive batch still asks."""
         if not self.session_tool_auto_approval_active(session_id=session_id):
             return False
         if not isinstance(tool_calls, list) or not tool_calls:
             return False
-        allowed = set(self.allowed_tools_for_run())
-        if not allowed:
+        inventory = self.tool_inventory()
+        by_name: Dict[str, Dict[str, Any]] = {}
+        for item in inventory.get("items") or []:
+            if isinstance(item, dict) and str(item.get("name") or "").strip():
+                by_name[str(item.get("name")).strip()] = item
+        if not by_name:
             return False
         for call in tool_calls:
             if not isinstance(call, dict):
                 return False
             name = str(call.get("name") or "").strip()
-            if not name or name not in allowed:
+            item = by_name.get(name)
+            if not name or item is None:
+                return False
+            mode = str(item.get("selected_mode") or "ask").strip().lower()
+            if mode == "disabled" or item.get("available") is False:
+                return False
+            if mode != "approve" and not self._tool_trustable(item):
                 return False
         return True
 
@@ -694,8 +1026,20 @@ class AssistantController:
                 pass
         return resolved
 
-    def append_user_message(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-        self.llm_manager.append_message(role="user", content=content, metadata=metadata)
+    def append_user_message(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        """Append the user's turn; returns its message_id so a turn whose run
+        never started can be withdrawn again."""
+        result = self.llm_manager.append_message(role="user", content=content, metadata=metadata)
+        return str(result or "")
+
+    def remove_message(self, message_id: str) -> bool:
+        remover = getattr(self.llm_manager, "remove_message", None)
+        if not callable(remover):
+            return False
+        try:
+            return bool(remover(message_id))
+        except Exception:
+            return False
 
     def last_run_id(self) -> Optional[str]:
         return self.llm_manager.get_last_run_id()

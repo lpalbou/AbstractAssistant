@@ -6,6 +6,63 @@ This file tracks major development tasks, architectural decisions, and implement
 
 ## TASK COMPLETION LOG
 
+### Task: 0.5.0 UX pass — voice conversation, live activity, sidebar settings, modeless approvals, thin-client fixes (2026-09-05)
+
+**Scope**: merged `assistant-v2-gateway-redesign` into `main` (fast-forward), then a two-agent
+adversarial + creative review (reports kept out of the repo) followed by implementation.
+
+**Shipped**:
+- Preferences: `reasoning_effort`, `workspace_root`, `workspace_access_mode`,
+  `workspace_allowed_paths`, `voice_auto_send`, `voice_spoken_replies`, `voice_mode`;
+  `run_scope()`; `controller.update_preferences` for partial saves (the header auto-speak toggle
+  used to wipe overrides).
+- Run input: `_runtime.thinking` and the three workspace pins; the CLI turn sends the same pins
+  and overrides as the tray. Live probe: the gateway accepts and normalizes the pins
+  (`/tmp` → `/private/tmp`); `_runtime` is not echoed by `GET /runs/{id}/input_data` (expected).
+- Per-session workspace: the worker reads back the granted `workspace_root` and stores it in the
+  chat's `session.json`; `run_scope()` re-sends it when no local root is set.
+- Tool inventory carries the gateway's risk metadata; `approval_default` is the policy of record,
+  the local `ToolApprovalPolicy` lists are the fallback; gateway-disabled tools never ride a run.
+- `ui/styles.py` (token stylesheet), `ui/settings/` (sidebar, 7 pages, route editor extracted
+  with test-compat aliases), `ui/approval.py` + `core/tool_presenter.py` (modeless sheet,
+  `decided` signal, queueing, Esc = defer, risk chips, masked JSON), `ui/activity.py`
+  (`RunActivityModel` + card; `ThinkingIndicatorCard` is an alias), `ui/dialogs.py`
+  (modeless ask), `core/voice_conversation.py` + `ui/voice_strip.py` (hands-free loop; `wait`
+  gating; pause during dialogs; spoken-style addendum appended to the base persona).
+- Palette: title = status sink, worker errors → banner, `run_start_failed` restores the turn,
+  `connection` events, banners keyed by source, `_hide_if_inactive` aux registry, geometry caps
+  lifted with the transcript filling the height, shortcuts, copy.
+- Docs consolidated with the coredoc skill (CHANGELOG 0.5.0 user-facing entry, settings.md,
+  voice.md, architecture diagrams, llms files).
+
+**Round 2 (same day)**: the adversarial agent re-reviewed the implementation (30 findings, 8
+must-fix) and the design agent did a screenshot QA pass. Applied: modeless question dialog
+(`Qt.Tool` + stays-on-top, `setModal(False)`); Return on a focused Deny/Decide-later activates
+that button; wait bookkeeping (`resolve_wait` settles the newest open step on a reused key,
+auto-approvals settle their row, adapter events carry `step_id`, deferred asks re-raise through
+one opener, `enqueue` dedupes an undecided `(run_id, wait_key)`); voice honesty (recognizer
+paused while thinking, `requeue` instead of steering a closing run, `mark_sent` for manual mode,
+`detach()` before `stop()` so teardown cannot re-enter, stop-speaking resumes listening); settings
+caches warmed on a thread before the window opens (`settings_caches_warm` /
+`warm_settings_caches`); run-log duplicates; trust doors (rank ≤ 2 for "always allow", chat
+trust and "All auto"; untiered tools keep the plain grant); step rows before header copy for
+stop/steer/pause/resume; ⌘. guard; ⌘N guard; `run_start_failed` keeps typed text and the "Not
+sent" status; worker keeps its reference after an error (sends queue instead of steering);
+Tools Save stores diffs only; reasoning levels the model lacks are greyed; folder pickers only
+for a loopback gateway; allowed paths pre-validated against a whitelist posture; dead QSS blocks
+removed and the run-log colors tokenized.
+
+**Testing**: `tests/basic` 508 passed (346 before). New suites: run scope prefs, lifecycle
+fixes, voice conversation, tool inventory risk, tool presenter, approval sheet, activity model,
+settings pages, palette smoke (real `AssistantPalette` offscreen), ask dialog, round-2 fixes.
+Offscreen screenshots of every window were reviewed for the design pass and re-rendered after
+round 2.
+
+**Not proven**: nothing was driven through the real macOS window (offscreen only); the native
+traffic-light bridge segfaults under the offscreen platform and was disabled in the harness;
+the client still publishes/promotes the managed workflow (backlog).
+
+
 ### Task: ROOT CAUSE of "long answers compute the whole voice instead of streaming" — the client pinned the gateway's OWN advertised default model, which the stream route rejects (2026-08-02)
 
 **Operator report**: for long assistant answers TTS "is actually computing the

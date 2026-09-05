@@ -202,10 +202,62 @@ class LLMManager:
                     actor_id=snap.actor_id,
                     messages=cleaned,
                     last_run_id=run_id,
+                    workspace_root=snap.workspace_root,
                 )
                 self._save_gateway_snapshot(self._gateway_snapshot)
             return history_changed
         except Exception:
+            return False
+
+    def session_workspace_root(self) -> str:
+        """The gateway workspace root remembered for the active session ("" if none)."""
+        try:
+            snap = self._ensure_gateway_snapshot()
+            return str(getattr(snap, "workspace_root", "") or "").strip()
+        except Exception:
+            return ""
+
+    def set_session_workspace_root(self, root: str) -> None:
+        """Remember the folder the gateway ran this session in (see SessionSnapshot)."""
+        value = str(root or "").strip()
+        try:
+            with self._snapshot_lock:
+                snap = self._ensure_gateway_snapshot()
+                if str(getattr(snap, "workspace_root", "") or "") == value:
+                    return
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=list(snap.messages),
+                    last_run_id=snap.last_run_id,
+                    workspace_root=value,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+        except Exception as e:
+            warnings.warn(f"Error saving session workspace root: {e}")
+
+    def remove_message(self, message_id: str) -> bool:
+        """Drop one message from the active transcript (a turn that never started)."""
+        target = str(message_id or "").strip()
+        if not target:
+            return False
+        try:
+            with self._snapshot_lock:
+                snap = self._ensure_gateway_snapshot()
+                kept = [m for m in snap.messages if str((m or {}).get("message_id") or "") != target]
+                if len(kept) == len(snap.messages):
+                    return False
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=kept,
+                    last_run_id=snap.last_run_id,
+                    workspace_root=snap.workspace_root,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                return True
+        except Exception as e:
+            warnings.warn(f"Error removing message: {e}")
             return False
 
     def _ensure_gateway_snapshot(self) -> SessionSnapshot:
@@ -308,17 +360,18 @@ class LLMManager:
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
         ts: Optional[str] = None,
-    ) -> None:
-        """Append a message to the current session transcript."""
+    ) -> str:
+        """Append a message to the current session transcript; returns its message_id."""
         try:
             with self._snapshot_lock:
                 snap = self._ensure_gateway_snapshot()
                 messages = list(snap.messages)
+                message_id = self._fresh_message_id()
                 msg: Dict[str, Any] = {
                     "role": str(role),
                     "content": str(content),
                     "ts": str(ts or "").strip() or datetime.now(timezone.utc).isoformat(),
-                    "message_id": self._fresh_message_id(),
+                    "message_id": message_id,
                 }
                 if metadata:
                     msg["metadata"] = dict(metadata)
@@ -328,8 +381,10 @@ class LLMManager:
                     actor_id=snap.actor_id,
                     messages=messages,
                     last_run_id=snap.last_run_id,
+                    workspace_root=snap.workspace_root,
                 )
                 self._save_gateway_snapshot(self._gateway_snapshot)
+                return message_id
         except Exception as e:
             warnings.warn(f"Error appending message: {e}")
             raise
@@ -344,6 +399,7 @@ class LLMManager:
                     actor_id=snap.actor_id,
                     messages=list(snap.messages),
                     last_run_id=str(run_id or "").strip() or None,
+                    workspace_root=snap.workspace_root,
                 )
                 self._save_gateway_snapshot(self._gateway_snapshot)
         except Exception as e:

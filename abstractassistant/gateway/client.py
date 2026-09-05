@@ -869,6 +869,22 @@ class GatewayClient:
     def discovery_tools(self) -> Dict[str, Any]:
         return self._request_json(method="GET", url=self._url("/api/gateway/discovery/tools"), label="discovery_tools failed")
 
+    def workspace_policy(self) -> Dict[str, Any]:
+        """Operator-configured server workspace policy (read-only, thin-client safe)."""
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/workspace/policy"),
+            label="workspace_policy failed",
+        )
+
+    def workspace_policy_self(self) -> Dict[str, Any]:
+        """The caller's own per-user workspace policy plus the effective posture."""
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/workspace/policy/self"),
+            label="workspace_policy_self failed",
+        )
+
     def get_capability_defaults(self) -> Dict[str, Any]:
         return self._request_json(
             method="GET",

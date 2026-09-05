@@ -96,4 +96,6 @@ Optional assistant-side overrides:
 ## Next
 
 - [getting-started.md](getting-started.md)
+- [settings.md](settings.md)
+- [voice.md](voice.md)
 - [api.md](api.md)

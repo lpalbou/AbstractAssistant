@@ -7,6 +7,7 @@ Runs gateway ledger replay + streaming in a background QThread.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import warnings
@@ -34,7 +35,11 @@ class GatewayWorker(QThread):
     """Worker thread that drives a gateway-first run (ledger replay + SSE)."""
 
     event_emitted = pyqtSignal(object)  # dict payloads
+    # Fatal: the follower is finished. The palette tears the worker down.
     error_occurred = pyqtSignal(str)
+    # Non-fatal: something the user should know (a wait answer that did not
+    # reach the gateway) while the follower keeps running. Never tear down.
+    warning_occurred = pyqtSignal(str)
 
     def __init__(
         self,
@@ -56,6 +61,10 @@ class GatewayWorker(QThread):
         model_override: Optional[str] = None,
         base_url_override: Optional[str] = None,
         media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
+        thinking: str = "",
+        workspace_root: str = "",
+        workspace_access_mode: str = "",
+        workspace_allowed_paths: Optional[List[str]] = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
@@ -80,6 +89,14 @@ class GatewayWorker(QThread):
         # LOCAL media route overrides ({route_key: {provider, model}}) — ride
         # the managed workflow's media input pins per run.
         self._media_overrides = dict(media_overrides) if isinstance(media_overrides, dict) else None
+        # Run scope: reasoning effort (`_runtime.thinking`) and the local
+        # workspace grant; blanks are omitted from the run input.
+        self._thinking = str(thinking or "").strip().lower()
+        self._workspace_root = str(workspace_root or "").strip()
+        self._workspace_access_mode = str(workspace_access_mode or "").strip().lower()
+        self._workspace_allowed_paths = [
+            str(p or "").strip() for p in (workspace_allowed_paths or []) if str(p or "").strip()
+        ]
         self._debug = bool(debug)
         self._attach_run_id = str(attach_run_id or "").strip()
         self._primary_image_artifact = (
@@ -490,8 +507,10 @@ class GatewayWorker(QThread):
             short = suffix[-6:] if len(suffix) > 6 else suffix
             label = f"{label} ({short})"
 
-        if prompt:
-            return f"{label}: {prompt}"
+        # The prompt is deliberately NOT echoed into the status line: the user
+        # just typed it, and the live activity model replaces this placeholder
+        # with the real current step as soon as the first event lands.
+        del prompt
         return label
 
     def _emit_run_activity(self, *, run_id: str, fallback_prompt: str = "") -> None:
@@ -734,7 +753,12 @@ class GatewayWorker(QThread):
             try:
                 self._submit_resume(run_id=rid, wait_key=key, payload=dict(payload or {}))
             except Exception as exc:
-                self.error_occurred.emit(f"Failed to submit runtime wait response: {exc}")
+                # The follower is still alive and still useful; a failed answer
+                # submission is a warning to retry, not a reason to tear down
+                # the worker (which used to leave later waits unanswerable).
+                self.warning_occurred.emit(
+                    f"Your answer did not reach the gateway ({exc}). The run is still waiting; try again."
+                )
 
         threading.Thread(target=_send, name="abstractassistant-wait-submit", daemon=True).start()
 
@@ -926,13 +950,60 @@ class GatewayWorker(QThread):
         if self._offline:
             return
         self._offline = True
+        # `connection` is the UI's signal (rendered as a reconnecting state
+        # while the run stays busy); the legacy `status: offline` stays for
+        # any consumer that still reads it.
+        self.event_emitted.emit({"type": "connection", "state": "offline", "reason": str(reason or "")})
         self.event_emitted.emit({"type": "status", "status": "offline", "reason": str(reason or "")})
 
     def _mark_online(self) -> None:
         if not self._offline:
             return
         self._offline = False
+        self.event_emitted.emit({"type": "connection", "state": "online"})
         self.event_emitted.emit({"type": "status", "status": "thinking"})
+
+    def _remember_workspace_root(self, *, run_id: str, requested: str = "") -> None:
+        """Read back the folder the gateway gave this run and pin it to the session.
+
+        When the run carried no `workspace_root`, the gateway mints a fresh
+        per-run folder; without remembering it, the next turn of the same
+        conversation starts in another empty folder and multi-turn file work
+        silently breaks. The gateway's `input_data` view is the source of
+        truth for what was actually granted (it resolves and may clamp paths).
+        """
+        root = ""
+        try:
+            data = self._gateway.get_run_input_data(run_id=run_id) if self._gateway is not None else None
+            inner = data.get("input_data") if isinstance(data, dict) else None
+            if isinstance(inner, dict):
+                root = str(inner.get("workspace_root") or "").strip()
+            if not root and isinstance(data, dict):
+                workspace = data.get("workspace")
+                if isinstance(workspace, dict):
+                    root = str(workspace.get("root") or workspace.get("workspace_root") or "").strip()
+        except Exception as exc:
+            warnings.warn(f"#FALLBACK: could not read the run's workspace root: {exc}")
+        if not root:
+            return
+        wanted = str(requested or "").strip()
+        same = False
+        if wanted:
+            try:
+                same = os.path.realpath(root) == os.path.realpath(wanted)
+            except Exception:
+                same = root == wanted
+        source = "local" if wanted and same else "gateway"
+        if not wanted:
+            # Only a gateway-minted folder is pinned to the chat; a folder the
+            # user chose stays a preference (clearing it later must not leave
+            # the chat silently glued to it).
+            try:
+                if self._llm_manager is not None and hasattr(self._llm_manager, "set_session_workspace_root"):
+                    self._llm_manager.set_session_workspace_root(root)
+            except Exception:
+                pass
+        self.event_emitted.emit({"type": "workspace", "root": root, "source": source, "run_id": run_id})
 
     def _record_run_stats(self, *, run_id: str, rec: Dict[str, Any]) -> None:
         observe_record(self._stats_by_run, run_id=run_id, rec=rec)
@@ -1022,22 +1093,41 @@ class GatewayWorker(QThread):
                     model=self._model_override,
                     base_url=self._base_url_override,
                     media_overrides=self._media_overrides,
+                    thinking=self._thinking,
+                    workspace_root=self._workspace_root,
+                    workspace_access_mode=self._workspace_access_mode,
+                    workspace_allowed_paths=self._workspace_allowed_paths,
                 )
 
-                entry = self._resolve_entrypoint()
-                run_id = self._gateway.start_run(
-                    flow_id=entry["flow_id"],
-                    input_data=input_data,
-                    bundle_id=entry["bundle_id"],
-                    bundle_version=str(entry.get("bundle_version") or "") or None,
-                    session_id=session_id,
-                    registry_scope=str(entry.get("registry_scope") or "") or None,
-                )
+                try:
+                    entry = self._resolve_entrypoint()
+                    run_id = self._gateway.start_run(
+                        flow_id=entry["flow_id"],
+                        input_data=input_data,
+                        bundle_id=entry["bundle_id"],
+                        bundle_version=str(entry.get("bundle_version") or "") or None,
+                        session_id=session_id,
+                        registry_scope=str(entry.get("registry_scope") or "") or None,
+                    )
+                except Exception as exc:
+                    # Nothing started: the palette restores the composer text,
+                    # drops the phantom user turn and shows the gateway's
+                    # reason (a refused workspace grant, a missing workflow…).
+                    self.event_emitted.emit(
+                        {
+                            "type": "run_start_failed",
+                            "error": str(exc) or exc.__class__.__name__,
+                            "prompt": self._user_text,
+                            "attachments": list(self._attachments),
+                        }
+                    )
+                    return
                 if self._llm_manager:
                     self._llm_manager.set_last_run_id(run_id)
                 self._root_run_id = str(run_id or "")
                 self._follow_run_id = ""
                 self._emit_run_activity(run_id=run_id, fallback_prompt=self._user_text)
+                self._remember_workspace_root(run_id=run_id, requested=self._workspace_root)
 
             self.event_emitted.emit({"type": "status", "status": "thinking"})
             self._offline = False

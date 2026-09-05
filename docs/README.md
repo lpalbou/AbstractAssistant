@@ -1,30 +1,30 @@
-# Documentation
+# AbstractAssistant Documentation
 
-AbstractAssistant is a gateway-native desktop assistant. The desktop app is a tray and top-right
-palette client; AbstractGateway owns workflows, multimodal defaults, durable runs, and provider
-access.
+AbstractAssistant is a macOS-first tray assistant that runs as a thin client of AbstractGateway.
+Start with [getting-started.md](getting-started.md), then use the pages below as references.
 
-## Start Here
+## Core guides
 
-- [INSTALLATION.md](INSTALLATION.md): install requirements and macOS bundle helper
-- [getting-started.md](getting-started.md): first launch, the published assistant workflow,
-  gateway-owned defaults, sessions, and voice/tool behavior
+- [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
+- [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, shortcuts
+- [architecture.md](architecture.md) — components, the gateway boundary, the run lifecycle
+- [api.md](api.md) — CLI entry points, environment variables, gateway routes used, local files
+- [faq.md](faq.md) — recurring questions and known limits
+- [troubleshooting.md](troubleshooting.md) — symptoms, causes and fixes
 
-## Reference
+## Topic deep dives
 
-- [api.md](api.md): CLI surface and gateway-facing desktop contract
-- [architecture.md](architecture.md): component boundaries, source-of-truth rules, and the
-  published workflow contract
-- [faq.md](faq.md): common conceptual questions
-- [troubleshooting.md](troubleshooting.md): symptom-oriented fixes
+- [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored
+- [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 
-## Architecture Decisions
+## Design records
 
-- [adr/README.md](adr/README.md): accepted assistant architecture decisions
+- [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
+- [backlog/overview.md](backlog/overview.md) — planned and proposed work
 
-## Project Info
+## Project
 
-- [../README.md](../README.md): top-level overview
-- [../CONTRIBUTING.md](../CONTRIBUTING.md): contributor workflow
-- [../SECURITY.md](../SECURITY.md): security reporting
-- [../CHANGELOG.md](../CHANGELOG.md): release history
+- [../README.md](../README.md) — overview and quick start
+- [../CHANGELOG.md](../CHANGELOG.md) — release history
+- [../CONTRIBUTING.md](../CONTRIBUTING.md) — development setup and tests
+- [../SECURITY.md](../SECURITY.md) — vulnerability reporting

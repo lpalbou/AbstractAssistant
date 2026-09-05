@@ -6,7 +6,7 @@ Why:
 - `llms-full.txt` is the "single-file context bundle" version, suitable for offline use
   or for pasting into a model context window.
 
-This script intentionally avoids the huge tray UI file (`abstractassistant/app.py`).
+This script intentionally avoids the large UI modules (`abstractassistant/app.py`, `abstractassistant/ui/*`).
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ INCLUDED_FILES: list[str] = [
     "docs/README.md",
     "docs/INSTALLATION.md",
     "docs/getting-started.md",
+    "docs/settings.md",
+    "docs/voice.md",
     "docs/api.md",
     "docs/architecture.md",
     "docs/faq.md",
@@ -37,18 +39,19 @@ INCLUDED_FILES: list[str] = [
     "pyproject.toml",
     "abstractassistant/cli.py",
     "abstractassistant/config.py",
+    "abstractassistant/preferences.py",
+    "abstractassistant/controller.py",
     "abstractassistant/gateway/client.py",
+    "abstractassistant/gateway/run_input.py",
+    "abstractassistant/gateway/adapter.py",
     "abstractassistant/ui/gateway_worker.py",
+    "abstractassistant/core/voice_conversation.py",
+    "abstractassistant/core/tool_risk.py",
     "abstractassistant/core/gateway_voice_manager.py",
     "abstractassistant/core/session_index.py",
     "abstractassistant/core/session_store.py",
-    "abstractassistant/controller.py",
     "abstractassistant/gateway_service.py",
-    "abstractassistant/preferences.py",
     "scripts/update_llms_full.py",
-    "tests/basic/test_assistant_palette.py",
-    "tests/basic/test_cli_gateway_mode.py",
-    "tests/basic/test_gateway_client_methods.py",
 ]
 
 
@@ -74,8 +77,8 @@ def main() -> int:
 
     header = (
         "# AbstractAssistant — llms-full.txt\n\n"
-        "This file is intended for LLMs/agents. It concatenates the most useful docs and core backend code from the\n"
-        "repository into a single, plain-text bundle.\n\n"
+        "> AbstractAssistant is a macOS-first tray assistant and CLI that is a thin client of AbstractGateway.\n"
+        "> This bundle concatenates the documentation set and the core client modules for LLMs and tools.\n\n"
         "Regenerate:\n"
         "  python scripts/update_llms_full.py\n\n"
         "Included files (in order):\n"

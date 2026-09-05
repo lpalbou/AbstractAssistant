@@ -9,9 +9,80 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from abstractassistant.config import DEFAULT_GATEWAY_URL
+
+
+# Reasoning effort ladder — the gateway contract's `thinking_control.values`
+# (`contracts.common.runs.start.thinking_control`). The live list is preferred
+# when the gateway advertises one; this is the offline fallback and validator.
+# "" (empty) always means "gateway default: send nothing".
+REASONING_EFFORT_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh")
+
+# Workspace access modes accepted by the gateway
+# (`routes/gateway.py::_VALID_WORKSPACE_ACCESS_MODES`). "" means server-managed:
+# the run carries no mode and the gateway decides.
+WORKSPACE_ACCESS_MODES = ("workspace_only", "workspace_or_allowed", "all_except_ignored")
+
+
+def normalize_reasoning_effort(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    return value if value in REASONING_EFFORT_LEVELS else ""
+
+
+def normalize_workspace_access_mode(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    return value if value in WORKSPACE_ACCESS_MODES else ""
+
+
+VOICE_MODES = ("wait", "full")
+
+
+def normalize_voice_mode(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    return value if value in VOICE_MODES else "wait"
+
+
+def normalize_workspace_path(raw: Any, *, home: Optional[Path] = None) -> str:
+    """Canonical absolute path for a workspace entry, or "" when unusable.
+
+    The gateway resolves these paths on ITS host, so a relative path is
+    ambiguous and is refused here rather than sent. ``~`` expands against the
+    local home (the assistant runs on the same machine as a local gateway; a
+    remote gateway sees the literal absolute path, which the Workspace settings
+    say plainly). Trailing slashes are dropped so ``/srv/data/`` and
+    ``/srv/data`` are one entry; the root ``/`` is preserved.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    base = Path(home) if home is not None else Path.home()
+    if text == "~":
+        text = str(base)
+    elif text.startswith("~/"):
+        text = str(base / text[2:])
+    elif text.startswith("~"):
+        return ""
+    if not text.startswith("/"):
+        return ""
+    trimmed = text.rstrip("/")
+    return trimmed or "/"
+
+
+def _normalize_workspace_paths(raw: Any) -> List[str]:
+    if isinstance(raw, str):
+        items: List[Any] = [line for line in raw.splitlines()]
+    elif isinstance(raw, (list, tuple, set)):
+        items = list(raw)
+    else:
+        return []
+    out: List[str] = []
+    for item in items:
+        path = normalize_workspace_path(item)
+        if path and path not in out:
+            out.append(path)
+    return out[:32]
 
 
 # Capability routes the thin client can locally override AND actually applies.
@@ -83,6 +154,26 @@ class AssistantPreferences:
     # The gateway's global defaults are never mutated by the assistant — an
     # empty map means "use whatever the gateway resolves".
     route_overrides: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Reasoning effort for the chat model, sent as `_runtime.thinking` on every
+    # run. "" = gateway default (nothing sent). AbstractCore maps a level the
+    # model cannot honor onto its nearest supported level (with a warning), so
+    # a stale choice degrades, never fails.
+    reasoning_effort: str = ""
+    # Local workspace scope for the run's tools, sent as the run-input pins
+    # `workspace_root` / `workspace_access_mode` / `workspace_allowed_paths`.
+    # The gateway sanitizes and may clamp them; blanks mean "server-managed".
+    workspace_root: str = ""
+    workspace_access_mode: str = ""
+    workspace_allowed_paths: List[str] = field(default_factory=list)
+    # Hands-free voice conversation: send each utterance automatically (off =
+    # transcribe into the composer and wait for Enter) and ask the model for
+    # short spoken-style replies while the conversation is on.
+    voice_auto_send: bool = True
+    voice_spoken_replies: bool = True
+    # Microphone gating while the assistant speaks: "wait" pauses capture
+    # (speakers: the assistant never transcribes itself; no barge-in), "full"
+    # keeps the mic open so a spoken "stop" interrupts (headphones).
+    voice_mode: str = "wait"
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "AssistantPreferences":
@@ -108,6 +199,13 @@ class AssistantPreferences:
                 if str(name).strip() and str(mode).strip().lower() in {"disabled", "approve", "ask"}
             },
             route_overrides=_normalize_route_overrides(raw.get("route_overrides")),
+            reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
+            workspace_root=normalize_workspace_path(raw.get("workspace_root")),
+            workspace_access_mode=normalize_workspace_access_mode(raw.get("workspace_access_mode")),
+            workspace_allowed_paths=_normalize_workspace_paths(raw.get("workspace_allowed_paths")),
+            voice_auto_send=bool(raw.get("voice_auto_send", True)),
+            voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
+            voice_mode=normalize_voice_mode(raw.get("voice_mode")),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -125,6 +223,22 @@ class AssistantPreferences:
                 if str(name).strip() and str(mode).strip().lower() in {"disabled", "approve", "ask"}
             },
             "route_overrides": _normalize_route_overrides(self.route_overrides),
+            "reasoning_effort": normalize_reasoning_effort(self.reasoning_effort),
+            "workspace_root": normalize_workspace_path(self.workspace_root),
+            "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
+            "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
+            "voice_auto_send": bool(self.voice_auto_send),
+            "voice_spoken_replies": bool(self.voice_spoken_replies),
+            "voice_mode": normalize_voice_mode(self.voice_mode),
+        }
+
+    def run_scope(self) -> Dict[str, Any]:
+        """The per-run pins derived from these preferences (blank = omitted)."""
+        return {
+            "thinking": normalize_reasoning_effort(self.reasoning_effort),
+            "workspace_root": normalize_workspace_path(self.workspace_root),
+            "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
+            "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
         }
 
 

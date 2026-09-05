@@ -13,7 +13,8 @@ This list is not exhaustive. The source of truth for install-time dependencies i
 
 ## UI and desktop integration
 
-- **PyQt5** — Qt bindings for the tray palette UI
+- **PyQt5** — Qt bindings for the tray palette UI (QtSvg renders the icon set)
+- **Lucide** — the icon glyphs, rendered from inline SVG path data (ISC License, https://lucide.dev)
 - **Pillow** — image utilities (tray icons)
 - **pynput** — optional global hotkey support
 

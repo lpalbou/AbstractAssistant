@@ -1,671 +1,165 @@
 # Changelog
 
-All notable changes to AbstractAssistant will be documented in this file.
+All notable changes to AbstractAssistant are documented in this file. Entries describe what
+changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
 
-### Fixed (2026-08-02 — the speaker button could fail in total silence: every abort after dispatch was invisible)
-- Reported: in a session about the novel *The Garden in the Log*, clicking the
-  speaker on one assistant answer played nothing AND reported nothing; other
-  answers in the same session spoke.
-- Reproduced end to end against the live gateway with that exact reply
-  (3,549 chars after markdown→prose): the stream leg had its model pin
-  rejected (`audio/speech failed (404)`) at 0.5 s, the retried stream timed
-  out at 120 s, the single-shot fallback timed out at 120 s — four minutes,
-  three `#FALLBACK` warnings, and the ONLY thing the UI did was flip the card
-  back to idle. `warnings.warn` is invisible in a GUI, and the completion
-  callback (fired for failures exactly as for success) reads to the user as
-  "finished".
-- `speak()` now has a visible failure channel (`on_speech_error`), and
-  `_fire_speech_completion` — the single funnel for every dispatch that ends
-  without playing — reports a concrete cause unless the user asked to stop.
-  Causes are chained in the order they happened ("stream reported error: …404…;
-  then stream transport failed: TimeoutError: timed out; then the single-shot
-  fallback failed too"), so the banner names the ROOT cause, not just the last
-  symptom.
-- Covered aborts that previously produced nothing: empty/whitespace text,
-  TTS unsupported (now naming WHICH side is missing — no local audio backend
-  vs an unreachable/voice-less gateway, including the capability fetch error),
-  a pre-audio stream rejection whose fallback also fails, a mid-stream empty
-  chunk, an undecodable WAV chunk, the in-process player vanishing, a failed
-  artifact download/playback, a disk write failure, and the external player
-  dying mid-sentence. A deliberate stop (or being superseded by the next
-  speak) is never reported as a failure.
-- `TimeoutError` stringifies to `""` — the exact reason the live failure had
-  nothing to say. Exception reasons now always carry the type name.
-- The palette turns the report into a warning banner and frees the message
-  card, unless a NEWER speech is already live (a late report from a superseded
-  run must not reset the card that is currently speaking).
-- A reply that reduces to no speakable text (an image with no alt text, an
-  emoji-only or rule-only reply) no longer makes the speaker button a silent
-  no-op: it says "Nothing to read aloud: this reply has no spoken text once
-  images, code and links are removed."
-- `[](url)` (empty link label) leaked raw brackets into the spoken text; the
-  link is now read as "link".
-- Banner tones: callers pass `tone="warning"` but the stylesheet only styles
-  `tone="warn"`, so every warning banner in the app (including the muted /
-  low-volume speech warnings) rendered as an ordinary blue notice. `_set_banner`
-  now normalizes the alias.
-- NOT fixed here, server-side and filed: the gateway's TTS lane wedges. After
-  two abandoned streams the lane stopped answering entirely — a 12-char
-  unpinned probe timed out at 60 s and again at 90 s more than 25 minutes
-  later, while `discovery/capabilities` and `audio/speech/models` answered in
-  20-40 ms. Source:
-  `abstractvoice/integrations/abstractcore_plugin.py` holds the per-VoiceManager
-  lock (`_vm_lock`, :1133) across the WHOLE `tts_stream` generator body
-  (`with lk:` at :3834, acquired :3828) and across `tts` (:3586), so a
-  generator the client never exhausts never releases it. No client change can
-  free it; the client can now only SAY that it timed out.
+## [0.5.0] - 2026-09-05
 
-### Fixed (2026-08-02 — long answers waited for the WHOLE synthesis: the client pinned the gateway's own default model, which the stream route rejects)
-- Time-to-first-voice for a long reply was the full synthesis time (measured
-  through the real client path on the live gateway: 3.3 s @200 chars,
-  17.5 s @1,000, 46.8 s @5,000, and NO AUDIO AT ALL @15,000 — the single-shot
-  request hit its 120 s timeout). Every one of those runs had silently fallen
-  off the streaming lane onto the whole-artifact lane.
-- Root cause: `_selected_tts_model()` fell back to the capability contract's
-  advertised `active_model` and sent it as a request pin — without a provider,
-  because the provider has no such fallback. `/voice/tts/stream` rejects that
-  half-pin (`audio/speech failed (404): The model supertonic-3 does not
-  exist…`) ~0.4 s in and before any audio, and the client conceded to the
-  artifact lane, which cannot emit a sample until the last one is synthesized.
-  The identical request with no model pin streams first audio in ~1 s. The
-  advertised default is the gateway's own choice, never the user's; the
-  preferences layer already enforces the same provider+model pair rule.
-- The client now pins a TTS model only when the user (settings override) or an
-  env var actually chose one. Measured after the fix, same harness, gateway
-  idle-gated between runs: TTFV 0.82 s / 0.81 s / 0.65 s / 0.97 s for
-  200 / 1,000 / 5,000 / 15,000 chars — flat in length, all on the streaming
-  lane, of which client-side decode-and-queue is 0.02-0.05 s. A second,
-  reverse-order pass reproduced it (15,000 → 0.63 s fully drained, 1,000 →
-  0.71 s, 200 → 0.79 s); the one outlier, 5,000 → 3.07 s, followed the only
-  idle probe that was itself slow (1.54 s vs 0.4-0.9 s), so first voice tracks
-  gateway LOAD, not answer length.
-- Defence in depth: a stream leg that fails BEFORE any audio while carrying
-  pins now retries the stream once with the pins dropped, and only then
-  concedes the artifact lane; and choosing the artifact lane is no longer
-  silent — it warns with the reason and the character count, stating that
-  nothing is audible until the whole message has been synthesized. Proven
-  live by forcing the bad pin back on: stream 404 at 1.63 s → unpinned retry
-  → first voice at 2.38 s, artifact lane never touched.
-
-### Fixed (2026-08-02 — multi-attachment layout: images become a gallery, chips wrap)
-- Attaching several documents produced one full-bubble-width card per file,
-  each holding a 50 px thumbnail marooned in a wide empty box, so four
-  illustrations ate four rows and pushed the conversation off-screen.
-  Image previews now pack into a `MediaGallery`: uniform square tiles, as
-  many columns as the bubble affords, rebalanced so rows are never ragged
-  (four images render 4-across at a normal width and 2x2 when narrow rather
-  than the 3 + 1 tail a naive fit produces). Tile size scales with the count
-  (a lone image gets a real 260 px preview instead of a stamp) and the
-  gallery re-grids when the transcript is resized.
-- Audio/video previews keep their own full-width rows — a square tile cannot
-  host a transport bar — so only images are tiled.
-- The fallback "open artifact" chips (shown when no preview can be built) now
-  share one wrapping tray instead of claiming a full row each — and they now
-  cover every artifact that failed to preview, not only the all-or-nothing
-  case. A message mixing images with PDFs previously dropped the PDFs from
-  the bubble entirely, because the fallback ran only when NOTHING previewed.
-- The composer attachment tray wrapped nothing: it was a single non-scrolling
-  row, so every chip past the composer width was silently clipped and
-  unreachable. It now wraps via a new `FlowLayout`, grows the composer to fit
-  up to three rows, and scrolls beyond that.
-- `_attachment_tray_width()` probes its size sources lazily and defensively;
-  the eager version called `self.width()` even when the viewport already had
-  a usable width, which raised on partially-constructed windows.
-
-### Fixed (2026-08-02 — test env: sibling abstractcore was not on the path)
-- `tests/conftest.py` preferred the monorepo's sibling `abstractvoice` and
-  `abstractruntime` but not `abstractcore`, pairing a new sibling runtime with
-  the older installed core. Every GUI/voice test module (7 of them, including
-  the whole palette and voice-manager surface) failed to import with
-  "requires abstractcore>=2.13.38". The sibling core is now preferred too when
-  it is checked out.
-
-### Investigated (2026-07-28 — ROOT CAUSE of minutes-to-first-voice: server per-voice lock never released; client has no lever)
-- Operator-ordered second adversarial audit (server lane / client path / text
-  segmenter) plus a benchmark. Definitive finding, which CORRECTS this
-  session's earlier guesses (it was never the volume, and the "it played"
-  pacing inference was wrong):
-- The benchmark's apparent length-scaling (200→1.7 s, 1000→13 s, 5000→66 s)
-  was an ARTIFACT of sequential measurement: each run abandoned its stream
-  after the first chunk, but the gateway keeps synthesizing the abandoned run
-  to completion while holding a process-wide per-voice lock, so the next run
-  queued behind it. Reconstructed to within 0.3 s as queue-behind-predecessor
-  + a flat first-segment synthesis.
-- The REAL isolated numbers (lock free): server time-to-first-byte 1.6 s /
-  2.7 s / 5.0 s for 200 / 1000 / 5000 chars — near-realtime. A single utterance
-  on an idle gateway is fine. The "minutes" happen only when a prior synthesis
-  holds the lock and nothing frees it.
-- Mechanism (all server-side): (1) one VoiceManager lock held across the whole
-  stream (abstractvoice); (2) client disconnect does not cancel — the feeder
-  thread keeps synthesizing, the intended cancel never fires (gateway); (3)
-  even a durable `cancel_run` only flips run status (verified: cancelled in
-  2.1 s) but does NOT stop the feeder or release the lock (a stream started
-  right after still waited 196 s). Filed with the gateway with exact
-  file:line and owning packages (gateway / abstractruntime / abstractvoice).
-- CLIENT verdict: nothing the assistant can do fixes this — confirmed by the
-  audit. The client already streams and disconnects correctly.
-- Shipped anyway (correct client action, forward-compatible, and it stops
-  zombie runs lingering in the run store): `stop_speaking()` / superseding a
-  stream now captures the stream's server child run id and issues `cancel_run`
-  for it. This becomes the actual mitigation the moment the server honors
-  cancel; today it does not free the lock, and the code + changelog say so
-  plainly (no overclaim).
-
-### Fixed (2026-07-28 — three-way adversarial audio audit: all software layers cleared; inaudible-volume state made visible)
-- Operator-ordered adversarial audit of the "TTS never audible" incident, one
-  auditor per component. All three CLEARED with measurements: the client
-  playback path wrote healthy-amplitude PCM (peak 0.37) to the OS default
-  output with zero errors; the gateway's incident-run artifacts still contain
-  the exact streamed audio and it is LOUD (113.8 s, peak 0.44–0.50); direct
-  core synthesis with the incident's exact parameters (M3, quality standard)
-  is non-silent at every preset. The machine's system output volume measured
-  6/100 during the audit — at that level correct playback is
-  indistinguishable from a hang on any output device.
-- The "Speaking on …" banner now includes the system output volume and turns
-  into a warning when the output is muted or below 15% ("raise it to hear
-  anything") — the incident class is now visible at the moment it happens.
-- Two silent-abort paths in the stream player now emit `#FALLBACK` warnings
-  (empty mid-stream chunk; undecodable WAV chunk) — the audit found they
-  aborted with no diagnostic anywhere.
-- Defects surfaced in OTHER packages were filed with the owning seats (bug
-  request on the hub): load-dependent synthesis slowdown that breaks
-  realtime streaming (rtf 1.49 with 9.1 s first byte under load), possible
-  sticky engine default voice, unknown-profile mis-route into the
-  cloned-voice lane, silent M1 fallback, silently-dropped invalid quality
-  presets, wrong pre-load sample-rate self-report, and the audio player's
-  silent non-default-device fallback + idle-only device switching.
-
-### Fixed (2026-07-28 — "make it speak" latency + invisibility: speak prose, say where the audio goes)
-- Replies are now spoken as PLAIN PROSE (`core/speech_text.py`): raw markdown
-  was sent to TTS verbatim — headings/emphasis/emoji read as noise, and
-  markdown blocks defeat the synthesizer's sentence segmentation, inflating
-  the FIRST stream segment. Measured on the live "news summary" reply that
-  triggered the report: first audio 5.15 s (raw) → 2.72 s (prose). Headings
-  and list items become their own short sentences; code blocks are announced
-  as omitted; links/URLs collapse to their text.
-- When playback starts, the palette now shows "Speaking on “<device>” — if
-  you can't hear it, switch the Mac's sound output." Playback follows the
-  system default output device; tonight's "it just spins and never speaks"
-  was the app genuinely speaking a 3-minute reply into XREAL One Pro glasses
-  (the system default) while the Mac stayed silent — that state was
-  indistinguishable from a hang. The banner clears when speech ends.
-- Forensics for the record: streaming TTS itself was healthy (first chunk
-  ~5 s for the exact stuck text; the second attempt's stream ran 2 m 50 s ≈
-  realtime playback pacing, i.e. it WAS playing). The first attempt died at
-  33 s because clicking the spinning voice button PAUSES consumption and the
-  gateway's idle watchdog then closes the stream. Remaining server-side gap
-  (reported to the owning seats, not fixable here): the synthesizer's segment
-  sizing produces oversized mid-stream segments (a ~12 s speech segment
-  arriving after a ~14 s gap).
-
-### Added (2026-07-28 — in-app model overrides for every media modality; gateway defaults stay untouched)
-- The settings "Models & Voice" tab now offers a LOCAL override for every
-  modality the assistant can drive: Chat, Voice Output, Voice Input, Image
-  Generation, Image Edit, Image Upscale/Restore, Video Generation,
-  Image→Video, Music, and Sound Effects (maintainer ruling: simple by default
-  — the gateway default applies unless you explicitly override in-app; the
-  gateway's own defaults are never written). 3D is deliberately absent: the
-  runtime has no scene3d workflow node yet, so the assistant cannot trigger
-  3D generation at all — the override will appear when that node ships.
-- Delivery: media overrides ride per-run INPUT PINS on the managed
-  orchestrator workflow (new start-node pins wired into each media node's
-  provider/model inputs; the sound node takes a full output-spec object).
-  Absent pins leave the spec bare, so the gateway default resolves exactly as
-  before. Live-verified end to end: a pinned sound override generated audio
-  via `abstractmusic:stable-audio-3 / stable-audio-3-small-sfx`, and the same
-  run without the override resolved the gateway's configured default.
-- The managed workflow now RECONCILES on start: the old ensure logic returned
-  early whenever the catalog served any managed version, silently freezing
-  the published definition forever (pin/edge changes shipped in the app never
-  reached the gateway). It now compares the stored flow against this build
-  once per process and republishes + promotes (as catalog default — the
-  resolver prefers the default option) when they differ; the publish version
-  is bumped past every KNOWN version (registry + catalog) because the
-  gateway's auto-bump reads only its bundle registry, which can lag the
-  catalog and collide on an immutable version sha.
-- Fixed `GatewayClient.list_visualflows`: the endpoint returns a bare JSON
-  array which the client's JSON plumbing wraps as `{"value": [...]}` — the
-  method returned an empty list on every real gateway, so the managed-flow
-  reconcile never found the stored flow and re-created a duplicate on each
-  fresh catalog (two stale copies were removed from the live gateway).
-- Fixed the Sound Effects path itself: the sound node's output spec said
-  `modality: "audio"`, which dispatches to the TTS engine registry at
-  generation time (a pinned sound provider was rejected with "Unknown
-  tts_engine"; a bare spec would synthesize speech instead of a sound
-  effect). It now says `modality: "sound"`, which routes to the sound-effects
-  capability and honors both the gateway default and in-app overrides.
-
-### Fixed (2026-07-28 — voice could die silently for the whole app lifetime after one failed capabilities fetch)
-- `speak()` refuses when the cached gateway capabilities say TTS is
-  unavailable — and a FAILED capabilities fetch was cached exactly like a
-  healthy snapshot and served forever to `stale_ok` readers. One hiccup at
-  startup (gateway restarting, transient timeout) made every later speaker
-  click a silent no-op. Failure snapshots now self-heal: they satisfy reads
-  only within a 5-second grace window; after that, voice-support checks get a
-  non-blocking answer plus a single-flight background refresh, so the next
-  attempt speaks. Plain TTL readers refetch synchronously.
-- A refused speak is now VISIBLE: the palette shows a warning banner ("Voice
-  couldn't start …") instead of resetting the card to idle with no clue. The
-  gateway and the full client speak path were verified healthy live
-  (streamed synthesis + local playback in ~6 s); the silent-refusal cache was
-  the only discoverable in-app dead-voice mechanism.
-
-### Fixed (2026-07-28 — second tool approval on the same node was silently swallowed; run parked forever)
-- Live stall: a run whose agent asked for a SECOND `execute_command` approval
-  never surfaced it — the UI kept showing the tool as running while the
-  gateway sat waiting for an answer indefinitely (observed 10+ minutes; the
-  session-trust grant could not fire either because the approval event never
-  reached the app). Root cause: the ledger adapter deduplicated waits by
-  `wait_key` alone, and the runtime reuses ONE stable key
-  (`tool_calls:<run_id>:act`, `user:<run_id>:<node>`) for every wait from the
-  same node — the second question matched the first's key and was dropped.
-- Fix: waits are now deduplicated per OCCURRENCE (wait_key + the waiting
-  record's `step_id`), and a `resume` ledger record (the wait was answered)
-  clears the key's live marks so the next occurrence prompts again. Synthetic
-  rehydration records (no step_id) dedup against the pending occurrence both
-  ways. Reattach seeding (`_suppress_resolved_waits_for_attach`) seeds
-  occurrence pairs instead of bare keys and excludes only the PENDING
-  occurrence — excluding by key would have replayed the answered
-  predecessor's stale dialog; terminal-attach replays stay fully silent
-  because seeded marks (unlike live marks) survive resume records.
-- Also fixed `event_name_from_wait_key`: the runtime's event wait keys are
-  `evt:{scope}:{scope_id}:{name}` and the parser read the SCOPE segment, so
-  ask-shaped event waits (`evt:run:<id>:abstract.ask`) were never recognized
-  (latent sibling of the same stall, flagged 2026-07-22 from abstractcode-tui).
-
-### Fixed (2026-07-18 — model/voice selection is a LOCAL override, never a gateway mutation)
-- The settings "Models & Voice" tab (was "Gateway Defaults") no longer writes
-  the gateway's SHARED capability defaults when you pick a provider/model. It
-  now stores a LOCAL override for this app only (`route_overrides` in
-  `preferences.json`) and applies it per request. Chat text rides BOTH the
-  top-level `input_data.provider/model` (which reaches the router node) AND
-  `_runtime.provider/model` (which the agent node reads) — an adversarial audit
-  proved a `_runtime`-only override leaves the router on the gateway default, so
-  an online-only default would still break the FIRST call offline. Voice
-  output/input ride the TTS/STT calls (STT now sends the provider too — the
-  gateway transcribe endpoint accepts it and the client was silently dropping
-  it). The gateway's global default is never read-and-pinned or written.
-- Root cause of the "it failed offline" report: the old tab called
-  `set_capability_default`, so selecting a model changed the gateway's GLOBAL
-  default. It had been pointed at an online-only endpoint
-  (`endpoint:ovh-provider` / Meta-Llama-3.3-70B); offline, every chat run failed
-  (DNS error → circuit breaker). Because the assistant sent no override, it
-  inherited that broken global default. Now the assistant never corrupts the
-  gateway default, and you can pin a local model as an offline-safe override.
-- Added a "Reset to gateway" button per route, and the editor now shows two
-  honest lines — the gateway's own default AND what this app pins on top —
-  instead of conflating them.
-- Scope: the tab now offers only the routes the assistant actually drives and
-  can honor as a per-request override — Chat Model, Voice Output (TTS), Voice
-  Input (STT). Media/embedding routes were removed from the thin client (the
-  assistant only triggers them; configuring the gateway's media models belongs
-  to the gateway console, not a thin client that must not mutate the gateway).
-
-### Fixed (2026-07-18 — streaming TTS double-fired its completion signal)
-- A successful streaming TTS playback fired `on_speech_end` + the speak()
-  callback TWICE: `_finish_stream_playback` returned `None`, so the stream
-  worker's `finally` saw `completion_owned` still falsey and fired the terminal
-  signal a second time. Symptom: a message card reset to idle then re-armed,
-  and full-voice mode saw a spurious second completion. `_finish_stream_playback`
-  now returns `True` so the caller honors the exactly-once `completion_owned`
-  contract. Regression test added; found while verifying end-to-end online
-  voice against the live gateway.
-- Verified live (127.0.0.1:8080): bare-default TTS resolves the gateway's
-  configured `supertonic/supertonic-3` via the runtime voice-defaults merge;
-  explicit `piper` no longer inherits a leaked `voice=M1`; streaming first
-  audio ~2s; STT round-trip through the production adapter transcribes
-  correctly with the gateway default model; durable session replay passes
-  end-to-end (turn 2 answers from turn 1's context).
-
-### Fixed (2026-07-17 — run activity view: shared markdown + working size)
-- Model text in the Run Activity view now renders through the SHARED markdown
-  renderer (same pipeline as the transcript): tables render as tables, code as
-  code, lists as lists — no more raw pipe-text. Tool arguments and results
-  deliberately stay monospace (they are data, not prose). The dialog opens at
-  920x720 with a 760x600 floor instead of the unusable small default.
-
-### Added (2026-07-17 — colored, clickable run activity)
-- The thinking badge is now color-toned by activity — thinking (accent blue),
-  tool execution (amber), waiting on you (orange) — instead of the invisible
-  gray pill, and it is clickable: it opens a live Run Activity view showing,
-  per cycle, the model's ACTUAL intermediate output (content + reasoning when
-  the provider reports it), tool calls with their arguments, tool results, and
-  waits — streaming in real time while the run progresses (the abstractcode
-  unfold pattern as a modeless dialog).
-- Honesty fix behind it: the "thinking" text shown previously came from the
-  run-activity fallback echoing the user's own prompt. The adapter now emits
-  a `cycle_result` event from the COMPLETED reason-node llm_call's RESULT
-  (never the STARTED payload, whose messages are the conversation INTO the
-  model), so what the view labels "Model" is what the model actually said.
-
-### Fixed (2026-07-17 — Gateway Defaults settings: honest defaults, real catalogs)
-- The Gateway Defaults route editor no longer fabricates configuration: an
-  unconfigured route (e.g. Speech To Text) used to display the catalog's first
-  entries ("openai / gpt-4o-transcribe") as if they were the active values — one
-  accidental Save away from routing STT through a provider the gateway cannot
-  serve. Each route now has an explicit mode: "Use gateway default" (pick
-  controls disabled; an always-visible "Applies now:" line states the resolved
-  value and its source, or says honestly that nothing is configured and the
-  engine decides) versus "Set explicitly" (dropdowns populated from the
-  gateway's own catalogs, placeholder-first, never auto-selected). One Apply
-  button serves both modes (saving the explicit pair, or clearing the override
-  so the default applies); saving without a real selection is refused inline.
-  A saved model/voice is only ever shown under its own provider — switching
-  provider resets to the placeholder instead of fabricating an invalid pair.
-  Route list shows a configured/default state dot per route; combo dropdown
-  arrows are now visible on the dark surface.
-- Investigated the underlying "couldn't read a text" outage: server-side, not
-  this app — all gateway TTS calls wedge (runs stuck running for hours) since
-  the 23:49 stack rebuild, gateway capability defaults for voice are never
-  merged into bare TTS/STT specs at the runtime layer, and the saved TTS voice
-  option leaks into other providers ("Unknown voice_id: M1" from piper). All
-  three filed with the owning seats (gateway/runtime/core) with evidence.
-
-### Fixed (2026-07-16 — conversation memory: durable server-side session replay)
-- The assistant remembers the conversation again. Since Jul 7 every send started a
-  fresh gateway run whose model context contained ONLY the new prompt — follow-up
-  questions met an assistant that had never seen its own previous answer (the
-  client-side transcript seeding was removed on the assumption of a server-side
-  replay that did not exist). Runs now opt in to the gateway's durable session
-  replay (`use_session_history: true`): at run start the gateway seeds
-  `context.messages` from the session's prior completed turns, reconstructed from
-  the run store (agora `durable-sessions` contract v1, implemented with the
-  gateway and runtime packages). The local transcript stays display-only; history
-  is server-owned, durable, and identical to what the history bundle shows.
-  Requires a gateway running abstractgateway with the seed (and
-  AbstractRuntime>=0.4.30) — older gateways simply ignore the flag.
-
-### Changed (2026-07-15 — settings redesign + run status merged into the thinking badge)
-- Assistant Settings completely redesigned for density: the internal header (title/subtitle/
-  separator duplicated by the window title bar) is gone, controls dropped from 38px to 26px with a
-  12px type scale, cards are flat (no gradients/drop shadows/hover accents), the green primary
-  buttons were replaced by the dialog's single indigo accent, action buttons are right-aligned
-  (primary last), and paddings/spacings were halved throughout. The dialog now opens at 620x480
-  instead of 860x640 with the same content.
-- Run observability moved to the bottom of the transcript: the yellow status banner above the
-  history ("Thinking — cycle 3", "Tool: read_file …", steering/pause/approval waits) now renders
-  inside the thinking-dots pill as one badge — dots + status text in the dots' muted palette,
-  eliding to the viewport width with the full text on hover. Non-run statuses (errors, "Run
-  stopped.", bootstrap "Connecting…") keep the top line, which is the only time it appears.
-- The reattach banner shows the thinking badge immediately instead of waiting for the first replay
-  event.
-
-### Fixed (2026-07-15 — empty-state truncation)
-- The "Ask anything" empty state no longer clips in the collapsed palette: oversized margins
-  (48px) shrank to fit the ~110px viewport, and the subtitle renders on one line (Qt's word-wrap
-  heuristic folded it even with room to spare, and the folded line was what got cut).
-
-### Fixed (2026-07-15 — GUI-thread responsiveness + run reattach)
-- The send path no longer blocks the GUI thread on gateway round trips. Workflow-catalog and
-  tool-inventory lookups are cached in the controller (short TTL + explicit invalidation on
-  connection/route/tool-preference changes), and startup warms them on a background thread, so a
-  warm send performs zero blocking gateway calls. Sends are refused (with a "Connecting…" note)
-  until startup finishes rather than freezing on a cold fetch.
-- After a quit or crash mid-run, relaunching now reattaches to the durable run: a still-running or
-  user-waiting run resumes and streams its result, and a run that finished while the app was closed
-  has its answer recovered into the transcript. Already-answered approval/ask dialogs are not
-  re-opened on reattach.
-- Tool-approval and ask-user prompts now bring the palette to the front and post a tray
-  notification when it is hidden or in the background, so a run waiting on you is not missed.
+AbstractAssistant 0.5.0 is the gateway-native release: the desktop app is a thin client of
+AbstractGateway, with a redesigned palette, a hands-free voice conversation mode, a settings
+window that covers what the gateway lets you configure, and tool approvals that never block the
+app.
 
 ### Added
-- App icon: a designed rounded-square mark replaces the procedural icon (bundled asset;
-  transparent corners).
-
-### Changed (2026-07-15 — visual overhaul + voice-by-default + latency control)
-- Icons redrawn. The ~15 hand-drawn QPainter glyphs (inconsistent stroke weights and sizes) are
-  replaced by a coherent Lucide icon set rendered from inline SVG (`abstractassistant/icons.py`),
-  crisp on Retina and with a loud fallback for unknown names. New glyphs are available for future
-  surfaces (agent/entity, chevrons, reconnect, trash, mic-off, etc.).
-- Introduced `abstractassistant/theme.py` as the single source of truth for design tokens
-  (semantic colors, spacing, radii, type scale), replacing scattered color literals over time.
-- Typography: the app now uses the real macOS system font (San Francisco) set programmatically,
-  instead of unresolvable Qt `font-family` aliases that emitted startup warnings and fell back to
-  Helvetica. Markdown headings get a compressed chat scale (were all collapsed to body size), the
-  double body inset is removed, and links/blockquotes use the app accent.
-- Layout: user messages now render narrower than assistant replies (a short prompt is no longer a
-  full-width slab); a fresh session shows a centered empty state; the connection indicator is a
-  flat status dot + ring (was a glossy sphere); the thinking dots use the app accent.
-- Voice ships by default: `abstractvoice[audio-io]` (streaming TTS playback + mic capture) is now a
-  base dependency, and the macOS build fails loudly if local audio I/O is missing rather than
-  shipping a degraded bundle.
-- New "Voice latency" preference (Balanced / Faster / Higher quality) maps to the gateway TTS
-  `quality_preset`, sent only when the gateway advertises support — a client lever to shorten
-  time-to-first-voice.
-
-### Removed (2026-07-15 — gateway-native only: local execution engine removed)
-- The assistant is now purely gateway-native: the unreachable local (non-gateway) execution engine
-  was removed — `core/agent_host.py`, the local AbstractVoice TTS wrapper (`core/tts_manager.py`),
-  and every local branch in `core/llm_manager.py` (local `generate_response`, provider/model
-  selection, token-usage view, save/load session, local session titles). `LLMManager` is now a
-  focused gateway session/transcript manager.
-- Configuration: the `use_gateway` flag and the whole `llm` config section (`default_provider`,
-  `default_model`, `max_tokens`, `temperature`) are gone — the gateway owns provider/model routing.
-  A gateway URL is always required (defaults to `http://127.0.0.1:8080`).
-- Dependencies: `abstractagent` is no longer required; `abstractruntime` is now declared directly
-  (session-memory run-id contract). `abstractcore` no longer pulls provider extras — providers run
-  on the gateway.
-- Dead client-side surfaces deleted after an adversarial audit: the client image-intent pipeline in
-  `gateway/generated_media.py` (ADR 0001 forbids client-side media execution; the gateway-emitted
-  media events remain fully supported), `gateway/templates.py`, `gateway/session_cache.py`
-  (client-side prompt-cache negotiation, also ADR-forbidden), `core/transcript_summary.py`,
-  `core/gateway_selection_store.py`, test-only capability helpers, and unused controller wrappers.
-- Tests: `tests/integration/` (local agent-host tests) removed; the suite is `tests/basic` (232
-  tests).
-
-### Changed (2026-07-15 — single-package consolidation, legacy UI removed)
-- The desktop shell is now a single package. The gateway-native palette that shipped under
-  `abstractassistantv2/` moved into `abstractassistant/` and the legacy Qt "bubble" UI was removed.
-  Module map: `abstractassistantv2/app.py` → `abstractassistant/app.py`, `controller.py` →
-  `abstractassistant/controller.py`, `gateway.py` → `abstractassistant/gateway_service.py` (renamed
-  to avoid colliding with the `abstractassistant/gateway/` client package), and
-  `assistant_workflow.py`, `hotkey.py`, `preferences.py` moved as-is.
-- `AssistantV2Controller` is renamed to `AssistantController`.
-- `launch_tray_app` is now exposed from the package root (`from abstractassistant import
-  launch_tray_app`) with lazy GUI imports, so `import abstractassistant` and `assistant --help`
-  remain free of Qt/voice dependencies.
-- Removed the legacy UI modules (`ui/qt_bubble.py`, `ui/history_dialog.py`, `ui/provider_manager.py`,
-  `ui/ui_styles.py`, `ui/tts_state_manager.py`, `ui/toast_window.py`, `ui/run_state.py`), the unused
-  `web_server.py`, and the `pystray` and `pyperclip` dependencies they required (the palette uses the
-  Qt clipboard and tray directly). No user-facing behavior changes: the shipped `assistant` command
-  already launched the palette.
-
-### Fixed (2026-07-15 — speaker-button freeze + time-to-first-voice regression)
-- Clicking a message speaker button no longer freezes the app. `GatewayVoiceManager.speak()`
-  now dispatches on a worker thread and returns immediately: the whole synthesis + artifact
-  download (two HTTP calls with 120s timeouts) used to run on the Qt GUI thread, beachballing
-  the app for the entire synthesis (~1 minute for a long reply) — the "synthesizing" spinner
-  on the speaker icon was already wired but could never paint because the event loop was
-  blocked. It now animates during the preload phase. The same freeze affected auto-speak on
-  every long final reply.
-- Restored fast time-to-first-voice. The gateway advertises streaming TTS (JSONL wav segments,
-  ~3s to first audio measured live) but the client silently fell back to single-shot
-  whole-message synthesis because `sounddevice` was missing from the build environment — the
-  bundle built from a venv without the `[voice]` extra loses the in-process audio player, and
-  with it both audio streaming and microphone capture. The degradation is now loud:
-  a `#FALLBACK` warning when streaming is advertised but unconsumable, and a build-time
-  preflight banner in `build_macos_app` when `sounddevice` is absent.
-- Speech completion is now signalled exactly once for every dispatched speak — including
-  failures and cancellations. Previously a stopped stream swallowed the completion callback,
-  which could leave a message card stuck on "speaking" and full-voice mode wedged in
-  PROCESSING.
-- Pausing during the synthesizing phase is now honest on the artifact path: playback holds
-  until resume (or cancels on stop) instead of returning False while the UI showed "paused".
-- Stopping during artifact synthesis can no longer start zombie playback after the download
-  completes (generation stop-gate checks between synthesis, download, and playback).
-- Full-file audio meter level extraction (WAV decode + FFT per 33ms slice) is skipped when no
-  meter consumer is registered (the v2 palette never registers one).
-- Removed the stale in-repo `abstractassistant.egg-info` (0.4.11) that shadowed the installed
-  0.5.0 metadata whenever python ran from the repo root — this is why freshly built bundles
-  self-reported 0.4.11.
-
-### Changed (2026-07-15 — message card + icon readability pass)
-- Message-card speaker/copy buttons now appear only while the mouse is over the card. They keep
-  their layout slot and fade via opacity (never show/hide), so revealing them cannot reflow the
-  card under the cursor; while a reply is being synthesized/spoken/paused the speaker button
-  stays pinned visible as a playback indicator. Hidden buttons are also disabled so an invisible
-  target cannot be clicked.
-- The per-message timestamp moved from its own bottom row to the upper right of each bubble,
-  co-located with the hover actions (always visible, muted). The bottom stamp row is gone, which
-  returns one line of vertical space per bubble.
-- All symbol icons are ~15% larger across the app (message actions 15→17px in 24→28px buttons,
-  header plus/capabilities/speaker/settings 14→16px in 24→28px buttons, composer attach/mic
-  16→18px, send/stop 18→21px, media/tool/file card icons scaled to match).
-- Symbol icons now render at 2x device-pixel-ratio (same pattern as the tray icons), so they are
-  crisp instead of blurry on Retina displays.
-
-### Added
-- Assistant replies in the palette now end with a discreet per-answer stats line —
-  `input : … tk | output : … tk | tools : … | files : …` — with investigation tooltips on each
-  segment: token tooltips show exact counts and the number of LLM calls, the tools segment lists
-  every executed tool with what it did (and stays clickable to open the full tool-usage dialog),
-  and the files segment lists which files were created, modified, moved or deleted.
-- File activity is derived by a new conservative classifier
-  (`abstractassistant/core/file_activity.py`) that understands the dedicated file tools
-  (`write_file`, `edit_file`, `delete_file`, `move_file`, …) and simple `execute_command`
-  shell forms (`mkdir`, `touch`, `mv`, `cp`, `rm`, output redirects). Ambiguous commands
-  (globs, substitutions) are deliberately not counted, and failed tool calls are excluded.
-  When a replayed message carries no tool details, the files segment is omitted rather than
-  guessed.
-- User messages now have the same top-right copy button as assistant replies.
-- The `files` stats segment is now clickable (like `tools`) and opens a dedicated
-  "Files affected in this answer" dialog: one scrollable card per file mutation with a colored
-  action chip (CREATED / MODIFIED / MOVED / DELETED), the full path (from → to for moves) and
-  the tool that performed it, hydrated from the run ledger on open.
-- Tool and file usage dialogs were redesigned around informative cards: each tool card shows
-  the tool name, what it did, its key parameters, a per-call execution outcome chip
-  (COMPLETED / FAILED) with the error message when a call failed, and a raw-payload toggle —
-  all in a scrollable card list.
+- **Voice conversation mode** (⌘⇧V, the waveform button, or the tray menu): the assistant
+  listens, sends what you say, speaks the reply and listens again. A status strip above the
+  composer shows listening / heard / thinking / speaking / paused with a live microphone meter,
+  pause and end controls, and every failure names its cause. Push-to-dictate on the microphone
+  button is unchanged. See [docs/voice.md](docs/voice.md).
+- **Live run activity in the transcript.** While a run works, a card at the bottom of the chat
+  shows the current step, elapsed time, and the most recent steps (reasoning cycles, tool calls
+  with their arguments and durations, approvals, pauses, reconnects). It can pause, resume or stop
+  the run and open the full run log. Runs that were reattached never show an invented total time.
+- **Settings window with seven sections**: Connection, Models & reasoning, Voice, Workspace,
+  Tools & permissions, Window & shortcuts, About. Every control states where its value comes
+  from (gateway default vs. this app) and what is stored on this Mac. See
+  [docs/settings.md](docs/settings.md).
+- **Reasoning effort** for the chat model (Gateway default, none, minimal, low, medium, high,
+  extra high), taken from the gateway's `thinking_control` contract and sent with every run.
+  The page shows which model the setting applies to and the reasoning levels that model reports.
+- **Workspace settings**: a workspace root, an access mode, and allowed folders that ride each run;
+  the gateway's own workspace policy is shown read-only next to them. Without a chosen root,
+  the folder the gateway gives the first run of a chat is reused for the rest of that chat, so
+  multi-turn file work stays in one place.
+- **Tool approvals as a modeless sheet.** Approving tools no longer freezes the palette. Each call
+  shows the gateway's risk tier (reads only / makes changes / reaches outside / destructive) and
+  capability flags, the promoted command, path or query, a preview for long content, and a
+  masked full-call view. `Allow once` is the primary action (Return), `Deny` is secondary (⌘D),
+  Esc means "decide later" and the question comes back when you reopen the palette. A batch that
+  arrives while the sheet is open is queued. "Always allow this tool on this Mac" writes the
+  per-tool preference.
+- **Questions from the assistant** open in a modeless dialog with a rendered prompt and a
+  multi-line answer (Return sends, Shift+Return adds a line); "Keep waiting" leaves the run
+  parked, "Continue without answering" sends an empty reply.
+- **Header status**: the palette title shows what the app is doing (Running, Reconnecting,
+  Listening, Speaking, Not sent, Failed) and returns to the app name when idle.
+- **Keyboard shortcuts**: ⌘N new chat, ⌘, settings, ⌘. stop the run, ⌘⇧V voice conversation,
+  Esc stops speech first and hides the palette second.
+- **Terminal turns honor the same local overrides as the tray**: chat model pin, media pins,
+  reasoning effort and workspace grant apply to `assistant run` too.
+- Per-answer statistics under each reply (input/output tokens, tools, files, duration, model),
+  with a clickable tools segment ("Tools used") and files segment ("Files affected") hydrated
+  from the run ledger.
+- Local, persistent model overrides for every route the assistant drives (chat, voice output,
+  voice input, image generation/edit/upscale, video, image-to-video, music, sound). Overrides
+  are stored in `preferences.json` and sent per request; the gateway's shared defaults are never
+  written.
+- Multi-attachment layout: images render as a square-tile gallery, other files as wrapping chips;
+  the composer attachment tray wraps up to three rows and then scrolls.
+- A designed app icon and a coherent Lucide icon set rendered from inline SVG.
 
 ### Changed
-- The footer metric chips (colored `IN/OUT/tools` badges) were replaced by the flat stats line
-  above; duration and model remain as trailing dim segments, and the run's LLM-call count moved
-  into the input-tokens tooltip.
-- Persisted per-run tool details now retain each call's `success`/`error` outcome so replayed
-  messages can report honest tool/file stats.
+- **Tool permission defaults come from the gateway.** The Tools page and the run policy use each
+  tool's gateway `approval_default` and risk tier; the local allow-lists are only a fallback for
+  gateways that do not report them. Tools the gateway has disabled are shown as such and are never
+  offered to a run. Migration: tools you had never configured now follow the gateway's default
+  ("ask" for anything that sends messages, writes remotely or is destructive). Your saved
+  per-tool choices are unchanged.
+- One visual system: a shared token-based stylesheet (`ui/styles.py`) drives every secondary
+  window; gradients and drop shadows are gone; the user bubble uses the app accent instead of
+  indigo; the palette honors the configured size up to the screen and gives the transcript the
+  remaining height.
+- The palette resizes in place and only snaps to the menu-bar corner when summoned; activating
+  a secondary window (settings, approval sheet, run log, tools used) no longer hides the palette.
+- Worker errors are shown as a banner and in the run status instead of a modal dialog, and only
+  raise a notification when the palette is hidden. A failed attempt to answer a wait is reported
+  as a warning while the run keeps going.
+- A run the gateway refuses to start (for example a workspace path outside its policy) is shown
+  as "Not sent" with the gateway's reason; the message returns to the composer and no phantom
+  turn is left in the chat.
+- Losing the gateway mid-run shows "Reconnecting…" while the run stays busy, then "Reconnected".
+- The voice-style instruction used during a conversation is appended to the workflow's own
+  system prompt instead of replacing it.
+- Speech-to-text and text-to-speech pins are sent only when you chose an engine; the gateway's
+  advertised default is never echoed back as a half-specified pin.
+- Long spoken replies start playing within about a second: replies stream from the gateway's
+  streaming TTS lane, and a rejected stream retries once without pins before falling back to
+  whole-message synthesis (which is announced).
+- Speech failures are always visible: the banner names the root cause (rejected model pin,
+  timeout, unplayable audio, nothing to read aloud), the affected message card is released, and
+  the banner says which output device is playing and warns when the system output is muted or
+  very low.
+- Conversation memory is replayed by the gateway from the durable session (the client sends only
+  the prompt and artifact references).
+- The assistant is gateway-native only: the local execution engine, local provider/model
+  configuration, the legacy bubble UI and the separate `abstractassistantv2` package were removed.
+  `assistant` launches the palette; `import abstractassistant` stays free of Qt and voice
+  dependencies.
+- Voice ships by default (`abstractvoice[audio-io]`); the "Voice latency" preference maps to the
+  gateway's TTS quality preset when the gateway advertises it.
+- Copy and tooltips were rewritten for clarity ("New chat", "Tools & permissions", "Switch chat",
+  "Reply ready").
 
 ### Fixed
-- Answer stats were empty for agent workflows: the final message only carried the ROOT run's
-  stats bucket while llm_call/tool_calls effects execute in sub-runs. Stats are now folded by a
-  shared module (`abstractassistant/gateway/run_stats.py`) and aggregated across the whole
-  followed run tree (tokens/calls summed, duration as the wall-clock span across runs).
-- Answers recovered from a run's history bundle (`recovered_history_answer`, e.g. after the
-  final event was missed or on reattach) carried no stats at all — and history reseeding at the
-  end of every run REPLACED the live message's stats with a stats-less copy. Seeded messages now
-  derive `_assistant_stats` from the bundle's ledgers (root + sub-runs); other session turns are
-  left untouched.
-- The live-followed final answer is now authoritative: the post-run history reseed no longer
-  REPLACES a transcript that already carries the run's final answer (that replace could discard
-  the live message and re-materialize it through the `recovered_history_answer` path, losing
-  stats when the gateway's session turns were missing). Reseeding now runs only as a gap filler
-  when no final answer was observed on the stream — and seeded answers derive full stats from
-  the bundle's ledgers, so even that path carries real token/tool/file numbers.
-- No partial stats fallbacks: a bare workflow-meta tool count (no recorded stats) renders no
-  stats segments — messages persisted before stats recording existed show only the model line.
-
-## [0.5.0] - 2026-07-07
-
-### Added
-- The shipped palette (v2) now has a working **Stop** control: while a run is active the
-  composer's send button becomes a Stop button that submits a durable gateway `cancel` for the
-  run and interrupts the local follower.
-
-### Changed
-- The palette header now includes a recent-session picker with compact `yy/mm/dd - topic` labels.
-  When a durable session topic is not available yet, the picker falls back to the first user
-  query.
-- The header connection indicator is now a larger live orb at the far right of the palette and
-  reflects actual gateway connection status instead of only workflow availability.
-- Ask-user prompts no longer resume the run with a silent empty answer on Cancel (both UIs):
-  cancelling now asks whether to send an empty response or keep the run waiting, and a kept
-  wait is re-prompted the next time the window is shown. The legacy bubble's ask dialog also
-  accepts multiline answers.
-- Gateway-mode connection errors now name the gateway (with its URL) instead of "the provider",
-  and the legacy bubble schedules a reattach attempt once the gateway is back. Provider-discovery
-  failures at startup now surface as an OFFLINE status pill (with remediation in the tooltip)
-  instead of a console-only warning under a green READY pill.
-- Refusing to enable text-to-speech (no backend / no TTS support) now explains why in a visible
-  warning instead of silently snapping the toggle back off.
-
-### Fixed
-- The macOS app-bundle build now uses a narrower PyInstaller hidden-import surface for the
-  gateway-native tray app, which avoids force-collecting the full optional `abstractcore`
-  dependency tree during bundle builds.
-- The PyInstaller spec now excludes `pygame` (pulled in via nltk's lazy `timit` corpus import,
-  never imported by the app); its bundled SDL dylibs failed binary processing during COLLECT
-  (`SystemError: ... pygame/.dylibs/libwebp.7.dylib`) and broke the macOS app build.
-- Typing in the legacy Qt bubble was completely broken: `_qt_key` was declared `@classmethod`
-  without a `cls` parameter, so every keypress raised `TypeError` before the character could be
-  inserted. Regression-tested.
-- Tool-approval and ask-user waits are now answered by identity (`run_id` + `wait_key`) instead
-  of a single "last observed wait" slot, so a second approval request arriving while a dialog is
-  open can no longer steal the answer and leave the first run waiting forever (shared
-  `GatewayWorker`, both UIs).
-- An open Messages window now receives new answers: the update path called a nonexistent
-  `refresh_messages` method (swallowed `AttributeError`) and the show-path was a no-op when the
-  history toggle was already checked.
-- `send_message` now refuses to start while a worker run is active — the Enter key bypassed the
-  disabled send button and could rebind a live `QThread` (fatal "Destroyed while thread is still
-  running" class) and stream two runs into one session. Also removed a dead block referencing an
-  undefined `run_id` that raised a swallowed `NameError` on every send.
-- Closing the bubble mid-run no longer calls `QThread.terminate()` with an unbounded `wait()`
-  (crash/hang-on-quit class); the worker is interrupted cooperatively with a bounded wait.
-- "Reconnect gateway" can reattach again: the one-shot startup reattach guard was never reset, so
-  every later reconnect silently skipped re-following the in-flight run.
-- The gateway ledger follower now retries transient connection failures (gateway restart, network
-  blip) with bounded backoff instead of dying on the first error, honors cancellation while
-  streaming (per-SSE-line stop signal), and still fails fast on non-transient HTTP errors. It also
-  clears the OFFLINE state on the idle-timeout path (the stream normally exits via idle, so the
-  pill would otherwise stay OFFLINE for the rest of a healthy run), and an exception raised by the
-  record callback is no longer misclassified as a transient transport error and retried past its
-  cursor (which would silently drop the record).
-- Full voice mode no longer wedges in PROCESSING when a run is already in flight: the send guard's
-  refusal is now observable (`send_message` returns a bool), so the voice loop releases its busy
-  latch and resumes listening instead of going deaf until the in-flight run finishes.
-- Keyed wait answers require both `run_id` and `wait_key` to target a wait by identity (a lone
-  kwarg falls back to the pending wait wholesale rather than stitching a mixed identity), and the
-  pending-wait slot is cleared only on a full `(run_id, wait_key)` match (wait keys such as
-  `voice_input` can repeat across runs). The ask-user crash fallback and legacy input-dialog path
-  now also honor wait identity and the Cancel-keeps-waiting semantics.
-- After a gateway drop mid-run, the legacy bubble now retries reattach with capped backoff
-  (5s/15s/30s/60s) instead of a single fixed 5s attempt, matching what the error message promises.
-- Gateway session snapshots are now mutated under a lock and saved through unique temp files —
-  concurrent appends from the worker/wait-submit/main threads could previously lose messages or
-  interleave two writers into invalid JSON (which then silently loaded as an empty transcript).
-  Snapshot saves also resolve their target file from the snapshot's own session id, so a stale
-  write can no longer land in another session's file.
-- The input placeholder taught the wrong gesture ("Shift+Enter to send"); Enter sends and
-  Shift+Enter inserts a newline. Escape now hides the bubble when voice is idle (the ⨯ button
-  quits the app, so there was no keyboard way to dismiss the window).
-- TTS "paused" no longer renders with the error style in the dormant `TTSStateManager` path, the
-  toast module no longer prints diagnostics at import time, and the markdown code font stack is
-  Menlo-first (`SF Mono` is not resolvable in Qt on macOS).
-- Remote-image thumbnails in the Messages window now marshal downloaded bytes through the
-  button's thread-safe signal (like artifact thumbnails); the previous `QTimer.singleShot` from a
-  plain thread never fired, and its fallback touched `QPixmap` off the GUI thread.
-- Restarting the gateway voice meter now uses fresh per-generation stop/pause events, so an old
-  meter thread that missed the stop flag can no longer resume alongside the new one (flickering
-  tray meter).
-
-- The shipped palette (v2) now cleans up on quit: `QApplication.aboutToQuit` interrupts the
-  running worker (bounded wait), stops the global hotkey listener, and cleans up voice — quitting
-  mid-run no longer risks a "QThread: Destroyed while thread is still running" crash.
-- Voice dictation in the palette now marshals recognizer-thread callbacks (transcription / listen
-  stop) onto the Qt main thread via signals instead of mutating widgets off-thread.
-- `assistant --version` now reports the installed package version instead of a hardcoded string.
-- Dropped unused runtime dependencies `markdown`, `pymdown-extensions`, and `plyer` (only
-  `markdown-it-py` + `pygments` are used); the macOS spec no longer force-collects `pymdownx`.
+- Blanket trust stops at the act tier: "Always allow … on this Mac" is offered only for tools the
+  gateway classifies as observe or act, "Trust enabled tools in this chat" never auto-approves an
+  outreach or destructive call, and "All auto" on the Tools page leaves those tiers on Ask.
+- In the approval sheet, Return activates the Deny or Decide later button when it has focus
+  instead of allowing the batch; the same undecided wait raised twice is shown once.
+- The question dialog is modeless: the palette stays usable while a question is open, and a
+  deferred question comes back once when the palette is shown again.
+- Voice conversation: the microphone is muted while the assistant thinks (the strip said so; now
+  it is true), a turn heard while a run is closing waits for the next listening window instead
+  of steering the closing run, stopping speech with Esc or the strip resumes listening, and
+  ending the mode always closes the microphone.
+- The Settings window fetches the gateway's workspace policy, tool inventory, routes and model
+  card off the GUI thread before it opens.
+- The run log no longer shows each step twice while a run is live.
+- A run the gateway refused to start keeps the "Not sent" status when the follower closes, and
+  text typed meanwhile is kept below the restored message.
+- ⌘. does nothing when no run is active; ⌘N is refused while a run is active.
+- Tools page: Save stores only the tools that differ from the gateway default and is disabled
+  when the gateway reported none.
+- Workspace page: the folder pickers appear only when the gateway runs on this Mac; entries a
+  gateway that forbids client grants would refuse are named at Save time.
+- Toggling auto-speak in the header no longer erases the saved model and voice overrides.
+- Saying "stop" during dictation now closes the microphone instead of only turning the indicator
+  off.
+- Every route override requires both a provider and a model; half-specified overrides are dropped
+  instead of sending a broken pin.
+- A second tool-approval request on the same node is no longer swallowed; waits are answered by
+  identity (`run_id` + `wait_key`).
+- The speaker button no longer freezes the app: synthesis and download run off the GUI thread and
+  completion is signalled exactly once.
+- Answer statistics are aggregated across the whole run tree and survive history reseeding.
+- Banners raised by one source (a workflow problem, a speech notice) are no longer cleared by an
+  unrelated refresh.
+- Warning banners render as warnings (the `warning` tone alias is honored).
+- Test environment: sibling `abstractcore` is preferred alongside sibling `abstractruntime` and
+  `abstractvoice` when the monorepo is checked out.
 
 ### Removed
-- Deleted the dead CustomTkinter modules `ui/toast_manager.py` and `ui/chat_bubble.py`
-  (unimportable: `customtkinter` is not a dependency; nothing imported them).
-- Removed the Python 3.9 classifier (the package requires Python >= 3.10).
+- The stand-alone Tools window; it is the Tools & permissions page of Settings.
+- The upscale-resolution control and free-form options JSON in the route editor, which were saved
+  but never delivered to a run. The chat route keeps its optional provider base URL; the voice
+  route keeps its voice picker.
+- Dead client-side surfaces (client image-intent pipeline, prompt-cache negotiation, transcript
+  summary, legacy selection store) and the unused `markdown`, `pymdown-extensions`, `plyer`,
+  `pystray` and `pyperclip` dependencies.
 
 ### Packaging
-- The macOS bundle declares `NSMicrophoneUsageDescription` so voice mode no longer trips macOS
-  TCC termination on first microphone access.
+- The macOS bundle declares `NSMicrophoneUsageDescription`, excludes `pygame`, and uses a narrow
+  PyInstaller hidden-import surface. `build-macos-app` warns at build time when the local audio
+  stack is missing.
+
+### Preferences file
+`~/.abstractassistant/preferences.json` gained `reasoning_effort`, `workspace_root`,
+`workspace_access_mode`, `workspace_allowed_paths`, `voice_auto_send`, `voice_spoken_replies` and
+`voice_mode`. Missing keys keep their defaults (gateway default, no workspace grant, auto-send on,
+spoken-style replies on, microphone paused while speaking). Each chat's `session.json` may carry
+the `workspace_root` the gateway granted it.
 
 ## [0.4.11] - 2026-06-14
 

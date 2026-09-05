@@ -1,6 +1,16 @@
 # ADR 0001: Canonical Gateway Workflow Assistant
 
-Status: Accepted.
+Status: Accepted (amended 2026-09-05, see below).
+
+> Amendment (2026-09-05): the desktop client never writes the gateway's shared capability
+> defaults. What the user chooses in Settings is a **local, persistent override for this app**
+> (`preferences.json`) that rides each request as explicit pins: provider/model per route,
+> reasoning effort (`_runtime.thinking`), and the workspace grant (`workspace_root`,
+> `workspace_access_mode`, `workspace_allowed_paths`). The gateway resolves, clamps or refuses
+> those pins under its own policy, and remains the source of truth for defaults, tool inventory,
+> approval defaults and workspace policy. Every settings surface shows the gateway default next
+> to the local override. The sentence "Settings may edit gateway capability-default routes" in
+> Enforcement is superseded by this contract; the rest of the decision is unchanged.
 
 ## Context
 

@@ -1,26 +1,29 @@
 # Getting Started
 
-AbstractAssistant is a tray-first gateway client. It does not host providers or durable workflows
-locally. Instead, it connects to AbstractGateway, runs each turn through the published
-`abstractassistant-orchestrator` assistant workflow in the gateway catalog, and uses gateway
-capability defaults.
+AbstractAssistant is a tray-first gateway client. It does not host providers or workflows
+locally: it connects to AbstractGateway, runs each turn through the published
+`abstractassistant-orchestrator` workflow, and follows gateway defaults unless you override them
+for this app.
 
 See also:
 
 - [INSTALLATION.md](INSTALLATION.md)
-- [architecture.md](architecture.md)
+- [settings.md](settings.md)
+- [voice.md](voice.md)
 - [troubleshooting.md](troubleshooting.md)
 
 ## 1. Install
 
 ```bash
-pip install "abstractassistant"
+pip install "abstractassistant[voice]"
 ```
 
-## 2. Start A Gateway
+The `voice` extra adds local microphone capture (dictation and voice conversations). The base
+install covers text chat, spoken replies and gateway-backed media.
 
-For local development, make sure the gateway loads workflow bundles and exposes an auth token the
-assistant can use:
+## 2. Start a gateway
+
+For local development, load the workflow bundles and set a shared token:
 
 ```bash
 export ABSTRACTGATEWAY_FLOWS_DIR="$PWD/abstractgateway/flows/bundles"
@@ -28,10 +31,10 @@ export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
 abstractgateway serve --host 127.0.0.1 --port 8080
 ```
 
-If the gateway cannot expose a published assistant workflow, the assistant fails closed instead of
-falling back to a different runtime path.
+If the gateway cannot expose the published assistant workflow, the assistant says so instead of
+falling back to another runtime path.
 
-## 3. Launch The Assistant
+## 3. Launch
 
 Tray app:
 
@@ -39,111 +42,78 @@ Tray app:
 assistant
 ```
 
-Terminal turn:
+One terminal turn:
 
 ```bash
 assistant run --prompt "Search the web for the latest OpenAI news and summarize it with sources."
 ```
 
-Optional overrides:
+Connection overrides:
 
 ```bash
 assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
 
-## 4. Use The Tray And Palette
+## 4. The palette
 
-The desktop shell is a compact top-right palette with a tray icon.
+Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift+space`).
 
-For hosted gateways with user auth enabled, open **Settings** and use the `Gateway connection`
-section to sign in with a gateway user token. For local/shared setups, a bearer token remains fine.
+- **Header**: the title shows what the app is doing (Running, Reconnecting, Listening, Speaking,
+  Not sent); the chat picker switches between recent chats (`yy/mm/dd - topic`); the buttons
+  start a new chat (⌘N), open Tools & permissions, toggle spoken replies, and open Settings (⌘,);
+  the orb at the right shows whether the gateway is reachable.
+- **Transcript**: your messages and the assistant's replies. Each reply ends with a statistics
+  line (tokens, tools, files, duration, model); the tools and files segments open detail views.
+  While a run works, an activity card at the bottom shows the current step, the elapsed time and
+  the latest steps; it can pause, resume or stop the run and open the full run log.
+- **Composer**: attach files (button or drag and drop), dictate with the microphone, start a voice
+  conversation (⌘⇧V), type, and send with Return (Shift+Return adds a line). During a run the
+  send button becomes Stop (⌘.) and typed text steers the run.
 
-Typical flow:
+## 5. Approvals and questions
 
-1. Open the palette from the tray, or use the global summon hotkey when available.
-2. Use the header session picker to jump across recent sessions. Each item is shown as
-   `yy/mm/dd - topic`. When a durable topic is not available yet, the picker falls back to the
-   first user query for that session.
-3. Check the live connection orb at the far right of the header. Green means the app can reach the
-   gateway right now; red means the gateway connection itself needs attention.
-4. Ask a question or attach files.
-5. Let the published `abstractassistant-orchestrator` workflow decide whether the turn needs normal
-   chat, tools, or media generation.
-6. Approve tool batches when the workflow requests them.
+When the workflow needs a tool you have not pre-approved, an approval sheet opens beside the
+palette. It lists each call with the gateway's risk tier and the command, path or query it will
+use. `Allow once` (Return) runs this batch, `Deny` (⌘D) refuses it, Esc decides later and the
+question returns when you reopen the palette. Tick "Always allow … on this Mac" to stop being
+asked for that tool. The palette stays usable while the sheet is open.
 
-You do not choose a workflow in the normal tray path. The gateway publishes the assistant workflow,
-and the desktop app uses that workflow directly.
+Questions from the assistant open a dialog with the rendered question and a multi-line answer
+box; you can also keep the run waiting or continue without answering.
 
-The default summon hotkey is `cmd+shift+space` when global hotkey support is available on your
-machine. If your platform or permissions do not allow global hooks, the assistant still works from
-the tray icon.
+## 6. Configure
 
-## 5. Configure Defaults In The Right Place
+Open Settings (⌘,). Gateway defaults apply everywhere unless you override them for this app; each
+page says where a value comes from. Common first steps:
 
-Gateway owns multimodal provider/model defaults. The assistant Settings window edits those gateway
-defaults through capability-default routes.
+- **Connection**: gateway URL and sign-in (bearer token or gateway session).
+- **Models & reasoning**: pin a chat model for this app, set the reasoning effort.
+- **Voice**: engines for speech, auto-speak, conversation options.
+- **Workspace**: the folder the assistant may work in and extra allowed folders.
+- **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
 
-Use Settings for three different kinds of state:
-
-- `Gateway connection`: gateway URL plus either a bearer token or a hosted gateway session
-- `Gateway-owned defaults`: text understanding, voice output, STT, image/video/music routes
-- `Local preferences`: hotkey enablement, auto-speak, palette size, bottom gap
-
-Local provider/model selections are not the source of truth. Gateway defaults are.
-
-For gateway image/video routes, Settings keeps the provider/model selectors
-typed and keeps advanced route parameters in the `options` JSON field. Supported
-Gateway/Core vision options include:
-
-- `count`
-- `seeds`
-- `lora_adapters`
-- `guidance_2`
-- `flow_shift` on compatible video routes
-
-## 6. Sessions And Requests
-
-The desktop app remembers:
-
-- the recent-session list shown in the header picker
-- transcript snapshots
-- the last run id
-
-Session topics in the recent-session picker are derived locally from each session's transcript
-(the first user query), so you can scan the list quickly without any network call.
-
-Attachments can be added with the file picker or drag-and-drop.
-
-When the assistant workflow returns media artifacts, the desktop client keeps
-the full response payload and opens downloaded artifacts locally.
+The full reference is [settings.md](settings.md).
 
 ## 7. Voice
 
-Microphone capture and playback happen locally on the desktop. STT and TTS
-requests are sent to gateway routes. When the gateway advertises streaming TTS,
-the assistant plays JSONL audio chunks progressively and still receives the
-final Runtime artifact from the gateway stream. Otherwise it uses the buffered
-artifact-backed TTS route.
+Click a reply's speaker button to hear it, use the microphone button to dictate, or press ⌘⇧V for
+a hands-free conversation. Details and failure handling are in [voice.md](voice.md).
 
-If gateway voice routes are not configured, the assistant disables the affected controls instead of
-quietly falling back to a local speech model.
+## 8. Files and workspace
 
-## 8. Local Data
+Runs read and write files inside a workspace on the gateway host. Choose a folder in Settings →
+Workspace to work in your own files; otherwise the gateway assigns a folder to the first run of a
+chat and later turns of that chat reuse it. The chat picker's tooltip shows the current folder.
 
-By default, local state is stored under `~/.abstractassistant/`.
+## 9. Local data
 
-That data includes:
-
-- session registry and snapshots
-- gateway connection state
-- local downloads
-- palette/tray preferences
-
-Gateway remains the durability source of truth for run history, waits, and generated artifacts.
+`~/.abstractassistant/` holds the chat registry and snapshots, the gateway connection state, local
+preferences and downloaded artifacts. The gateway remains the source of truth for run history,
+waits and generated artifacts.
 
 ## Next
 
-- [api.md](api.md)
+- [settings.md](settings.md)
+- [voice.md](voice.md)
 - [architecture.md](architecture.md)
-- [faq.md](faq.md)
 - [troubleshooting.md](troubleshooting.md)

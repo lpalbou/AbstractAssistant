@@ -94,11 +94,32 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         raise RuntimeError(detail)
 
     llm_manager.append_message(role="user", content=args.prompt)
+    # The terminal turn honors the same local, persistent overrides as the
+    # tray: chat model pin, media pins, reasoning effort and workspace grant.
+    def _call(name: str, *call_args, default=None):
+        fn = getattr(controller, name, None)
+        if not callable(fn):
+            return default
+        try:
+            return fn(*call_args)
+        except Exception:
+            return default
+
+    text_override = dict(_call("route_override", "output.text", default=None) or {})
+    scope = dict(_call("run_scope", default=None) or {})
     input_data = build_run_input_data(
         prompt=args.prompt,
         allowed_tools=controller.allowed_tools_for_run(),
         tool_policy=controller.tool_policy_for_run(),
         primary_image_artifact=controller.latest_image_artifact(),
+        provider=str(text_override.get("provider") or ""),
+        model=str(text_override.get("model") or ""),
+        base_url=str(text_override.get("base_url") or ""),
+        media_overrides=_call("media_route_overrides", default=None) or None,
+        thinking=str(scope.get("thinking") or ""),
+        workspace_root=str(scope.get("workspace_root") or ""),
+        workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
+        workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
     )
 
     run_id = gateway.start_run(

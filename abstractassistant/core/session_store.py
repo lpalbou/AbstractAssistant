@@ -21,14 +21,23 @@ class SessionSnapshot:
     actor_id: str
     messages: List[Dict[str, Any]]
     last_run_id: Optional[str] = None
+    # The folder the gateway ran this session's turns in. The gateway mints a
+    # fresh per-run workspace when a run carries no `workspace_root`, so the
+    # first run's root is remembered here and re-sent on later turns of the
+    # same session — otherwise "write report.md" then "fix paragraph two"
+    # land in two different empty folders.
+    workspace_root: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        out: Dict[str, Any] = {
             "session_id": self.session_id,
             "actor_id": self.actor_id,
             "messages": list(self.messages),
             "last_run_id": self.last_run_id,
         }
+        if str(self.workspace_root or "").strip():
+            out["workspace_root"] = str(self.workspace_root).strip()
+        return out
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "SessionSnapshot":
@@ -48,7 +57,14 @@ class SessionSnapshot:
         last_run_id = str(last_run_id_raw).strip() if last_run_id_raw is not None else None
         if last_run_id == "":
             last_run_id = None
-        return cls(session_id=session_id, actor_id=actor_id, messages=messages, last_run_id=last_run_id)
+        workspace_root = str(raw.get("workspace_root") or "").strip()
+        return cls(
+            session_id=session_id,
+            actor_id=actor_id,
+            messages=messages,
+            last_run_id=last_run_id,
+            workspace_root=workspace_root,
+        )
 
 
 class SessionStore:
