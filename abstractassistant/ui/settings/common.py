@@ -319,10 +319,12 @@ class SettingsPage(QWidget):
         header = QVBoxLayout()
         header.setContentsMargins(20, 16, 20, 8)
         header.setSpacing(3)
-        self.title_label = QLabel(self.title)
+        self.title_label = QLabel(self.title, self)
         self.title_label.setObjectName("sectionTitle")
         header.addWidget(self.title_label)
-        self.subtitle_label = QLabel(self.subtitle)
+        # Parented before `setVisible`: showing a parentless widget opens a real
+        # top-level window (~8 ms and two activation flips per page).
+        self.subtitle_label = QLabel(self.subtitle, self)
         self.subtitle_label.setObjectName("sectionHelp")
         self.subtitle_label.setWordWrap(True)
         _let_shrink(self.subtitle_label)

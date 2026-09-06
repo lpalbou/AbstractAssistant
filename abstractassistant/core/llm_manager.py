@@ -8,13 +8,15 @@ session), the session index, and a cached `GatewayClient`.
 
 from __future__ import annotations
 
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import hashlib
 import json
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from .session_digest import SessionDigestCache
 from .session_index import SessionIndex
 from .session_store import SessionStore, SessionSnapshot
 from ..gateway import GatewayClient, GatewayClientConfig, get_cached_assistant_capabilities
@@ -236,6 +238,149 @@ class LLMManager:
         except Exception as e:
             warnings.warn(f"Error saving session workspace root: {e}")
 
+    def backfill_attachments_from_gateway(self) -> int:
+        """Restore attachments the local transcript lost, from the runtime.
+
+        The runtime — not this cache — is the durable record of a session: each
+        turn of its history bundle carries the artifact refs the client uploaded
+        at submit time, and those outlive the user's own copy of the file. Old
+        transcripts here were written before the client kept the refs, so they
+        show nothing once the local file is gone.
+
+        Merged by exact prompt text, never by position: a runtime `ask_user`
+        answer is a user row locally but not a turn, so the two sequences do not
+        line up. Existing metadata (a still-valid `local_path`) is preserved.
+        Returns the number of messages updated. Safe to call from a worker
+        thread; it never replaces messages, so tool cards survive.
+        """
+        with self._snapshot_lock:
+            snapshot = self._gateway_snapshot
+            last_run_id = str(getattr(snapshot, "last_run_id", "") or "").strip()
+            messages = [dict(m) for m in (getattr(snapshot, "messages", None) or [])]
+        if not messages or not last_run_id:
+            return 0
+        if last_run_id.startswith("session_memory_"):
+            # The synthetic upload run runs the `__session_memory__` workflow
+            # and yields no turns; there is nothing to read back.
+            return 0
+        try:
+            client = self.gateway_client()
+            bundle = client.get_run_history_bundle(
+                run_id=last_run_id,
+                include_subruns=False,
+                include_session=True,
+                session_turn_limit=1000,
+                ledger_mode="tail",
+                ledger_max_items=1,
+            )
+        except Exception as e:
+            warnings.warn(f"#FALLBACK: could not read session attachments: {e}")
+            return 0
+
+        session = bundle.get("session") if isinstance(bundle, dict) else None
+        turns = session.get("turns") if isinstance(session, dict) else None
+        if not isinstance(turns, list):
+            return 0
+        pending: List[Tuple[str, List[Dict[str, Any]]]] = []
+        for turn in turns:
+            if not isinstance(turn, dict):
+                continue
+            refs = [a for a in (turn.get("attachments") or []) if isinstance(a, dict)]
+            prompt = str(turn.get("prompt") or "").strip()
+            if refs and prompt:
+                pending.append((prompt, refs))
+        if not pending:
+            return 0
+
+        updated = 0
+        for message in messages:
+            if not pending:
+                break
+            if str(message.get("role") or "") != "user":
+                continue
+            content = str(message.get("content") or "").strip()
+            index = next(
+                (i for i, (prompt, _) in enumerate(pending) if prompt == content), None
+            )
+            if index is None:
+                continue
+            _prompt, refs = pending.pop(index)
+            metadata = dict(message.get("metadata") or {})
+            existing = metadata.get("attachments")
+            known = {
+                str(item.get("filename") or ""): item
+                for item in (existing or [])
+                if isinstance(item, dict)
+            }
+            if all(str(ref.get("$artifact") or "") in {
+                str(item.get("$artifact") or "") for item in known.values()
+            } for ref in refs) and known:
+                continue
+            merged: List[Dict[str, Any]] = []
+            for ref in refs:
+                item = dict(ref)
+                local = known.get(str(ref.get("filename") or ""))
+                # Keep a local path that still resolves: it needs no download.
+                if isinstance(local, dict) and local.get("local_path"):
+                    item.setdefault("local_path", local["local_path"])
+                merged.append(item)
+            metadata["attachments"] = merged
+            metadata["media"] = merged
+            message["metadata"] = metadata
+            updated += 1
+
+        if not updated:
+            return 0
+        with self._snapshot_lock:
+            snap = self._ensure_gateway_snapshot()
+            self._gateway_snapshot = SessionSnapshot(
+                session_id=snap.session_id,
+                actor_id=snap.actor_id,
+                messages=messages,
+                last_run_id=snap.last_run_id,
+                workspace_root=snap.workspace_root,
+            )
+            self._save_gateway_snapshot(self._gateway_snapshot)
+        return updated
+
+    def merge_message_metadata(self, message_id: str, metadata: Dict[str, Any]) -> bool:
+        """Merge keys into one message's metadata.
+
+        Attachments are shown the moment the user sends, but their durable
+        gateway artifact ids only exist once the upload returns — this writes
+        them onto the message that is already on screen.
+        """
+        target = str(message_id or "").strip()
+        if not target or not isinstance(metadata, dict) or not metadata:
+            return False
+        try:
+            with self._snapshot_lock:
+                snap = self._ensure_gateway_snapshot()
+                updated = False
+                messages: List[Dict[str, Any]] = []
+                for message in snap.messages:
+                    entry = dict(message or {})
+                    if str(entry.get("message_id") or "") == target:
+                        merged = dict(entry.get("metadata") or {})
+                        merged.update(metadata)
+                        entry["metadata"] = merged
+                        updated = True
+                    messages.append(entry)
+                if not updated:
+                    return False
+                self._gateway_snapshot = SessionSnapshot(
+                    session_id=snap.session_id,
+                    actor_id=snap.actor_id,
+                    messages=messages,
+                    last_run_id=snap.last_run_id,
+                    workspace_root=snap.workspace_root,
+                )
+                self._save_gateway_snapshot(self._gateway_snapshot)
+                return True
+        except Exception as e:
+            warnings.warn(f"Error updating message metadata: {e}")
+            return False
+
     def remove_message(self, message_id: str) -> bool:
         """Drop one message from the active transcript (a turn that never started)."""
         target = str(message_id or "").strip()
@@ -285,6 +430,56 @@ class LLMManager:
                 }
             )
         return out
+
+    def session_digests(self) -> List[Dict[str, Any]]:
+        """Rich per-chat metrics for the session switcher (local reads only).
+
+        Safe to call from a worker thread: transcripts are cached by file
+        identity, so only chats that changed are parsed again.
+        """
+        cache = getattr(self, "_session_digest_cache", None)
+        if cache is None:
+            cache = SessionDigestCache()
+            self._session_digest_cache = cache
+        records = [
+            {
+                "session_id": rec.session_id,
+                "title": rec.title,
+                "created_at": rec.created_at,
+                "updated_at": rec.updated_at,
+            }
+            for rec in self._session_index.records()
+        ]
+        digests = cache.warm(records, self._session_index.data_dir_for)
+        out: List[Dict[str, Any]] = []
+        for digest in digests:
+            payload = asdict(digest)
+            # The switcher shows a name, an opening question, or "New chat" —
+            # the digest already carries the transcript's first prompt, so no
+            # second read of a possibly huge transcript is needed here.
+            payload["display_title"] = digest.display_title
+            out.append(payload)
+        return out
+
+    def rename_session(self, session_id: str, title: str) -> None:
+        sid = str(session_id or "").strip()
+        if sid:
+            self._session_index.update_title(sid, title)
+
+    def delete_session(self, session_id: str) -> str:
+        """Delete a chat and its stored transcript; returns the new active id."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            return self.active_session_id
+        cache = getattr(self, "_session_digest_cache", None)
+        if cache is not None:
+            cache.forget(sid)
+        was_active = sid == self.active_session_id
+        new_active = self._session_index.delete_session(sid)
+        if was_active:
+            with self._snapshot_lock:
+                self._gateway_snapshot = self._load_gateway_snapshot(new_active)
+        return new_active
 
     def create_new_session(self) -> str:
         rec = self._session_index.create_session()

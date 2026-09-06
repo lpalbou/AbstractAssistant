@@ -78,7 +78,17 @@ def test_allow_once_emits_once_with_batch_identity() -> None:
     sheet, decisions = _sheet([CMD_CALL])
     sheet.allowOnceButton.click()
     assert decisions == [
-        ("once", {"run_id": "run-a3f9c1", "wait_key": "wait-1", "remember": [], "tool_calls": [CMD_CALL]})
+        (
+            "once",
+            {
+                "run_id": "run-a3f9c1",
+                "wait_key": "wait-1",
+                "remember": [],
+                "tool_calls": [CMD_CALL],
+                # The tier the user saw: it caps a "session" grant made here.
+                "trust_rank": 4,
+            },
+        )
     ]
     assert sheet.approval_scope == "once"
     assert sheet.current_batch == {}
@@ -152,13 +162,15 @@ def test_return_allows_once_even_with_focus_on_an_expander(monkeypatch: pytest.M
 
 @pytest.mark.basic
 def test_shift_return_is_a_no_op_when_blanket_trust_is_refused() -> None:
-    sheet, decisions = _sheet([CMD_CALL])
+    # Refused only when a tool is unlisted or switched off on the gateway.
+    sheet, decisions = _sheet([READ_CALL, {"name": "mystery_tool", "arguments": {}}])
     assert sheet.allow_session_action.isEnabled() is False
     QTest.keyClick(sheet, Qt.Key_Return, Qt.ShiftModifier)
     assert decisions == []
     sheet, decisions = _sheet([READ_CALL])
     QTest.keyClick(sheet, Qt.Key_Return, Qt.ShiftModifier)
     assert [d for d, _ in decisions] == ["session"]
+    assert decisions[0][1]["trust_rank"] == 1
 
 
 @pytest.mark.basic
@@ -210,7 +222,13 @@ def test_enqueue_repopulates_and_answers_each_batch_by_identity() -> None:
 
     sheet.allowOnceButton.click()
     assert [d for d, _ in decisions] == ["deny", "once"]
-    assert decisions[1][1] == {"run_id": "run-2", "wait_key": "wait-2", "remember": [], "tool_calls": [READ_CALL]}
+    assert decisions[1][1] == {
+        "run_id": "run-2",
+        "wait_key": "wait-2",
+        "remember": [],
+        "tool_calls": [READ_CALL],
+        "trust_rank": 1,
+    }
     assert sheet.isVisible() is False
 
     # A later batch on an idle sheet loads immediately and re-shows it.
@@ -322,10 +340,19 @@ def test_remember_is_not_offered_for_a_lone_unavailable_or_unknown_tool() -> Non
 
 
 @pytest.mark.basic
-def test_session_action_disabled_for_destroy_unknown_or_disabled_batches() -> None:
-    sheet, _ = _sheet([CMD_CALL])
-    assert sheet.allow_session_action.isEnabled() is False
-    assert "never get blanket trust" in sheet.allow_session_action.toolTip()
+def test_session_action_states_how_far_the_grant_reaches() -> None:
+    # A destructive batch may still be trusted for the chat — the item says so
+    # and the grant it emits is capped at that tier.
+    sheet, decisions = _sheet([CMD_CALL])
+    assert sheet.allow_session_action.isEnabled() is True
+    assert sheet.allow_session_action.text() == "Allow all enabled tools in this chat, including destructive ones"
+    assert "destructive" in sheet.allow_session_action.toolTip()
+    sheet.allow_session_action.trigger()
+    assert decisions[0][0] == "session" and decisions[0][1]["trust_rank"] == 4
+
+    sheet, _ = _sheet([READ_CALL])
+    assert sheet.allow_session_action.text() == "Allow all enabled tools in this chat"
+    assert "still asks" in sheet.allow_session_action.toolTip()
 
     sheet, _ = _sheet([READ_CALL, {"name": "mystery_tool", "arguments": {}}])
     assert sheet.allow_session_action.isEnabled() is False

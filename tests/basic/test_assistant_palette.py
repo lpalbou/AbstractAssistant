@@ -41,7 +41,7 @@ from abstractassistant.app import (
     _message_bubble_width,
     _message_media_artifacts,
     _refresh_tray_visibility,
-    _session_picker_label,
+    _session_button_text,
     _tray_feedback_icon,
     _tool_call_summary,
     _visible_history_messages,
@@ -793,18 +793,18 @@ def test_assistant_palette_tray_feedback_icon_uses_large_opaque_footprint(
 
 
 @pytest.mark.basic
-def test_assistant_palette_session_picker_label_uses_compact_date_and_topic() -> None:
-    label = _session_picker_label(
-        {
-            "created_at": "2026-06-21T10:14:00+00:00",
-            "updated_at": "2026-06-21T10:59:00+00:00",
-            "title": "Investigate why the menu bar session picker truncates valuable context",
-        }
-    )
-
+def test_assistant_palette_session_button_text_is_short_and_names_the_topic() -> None:
     assert (
-        label == "26/06/21 - Investigate why the menu bar session picker truncates val…"
+        _session_button_text("Investigate why the menu bar session picker truncates context")
+        == "Investigate why the menu…"
     )
+    assert _session_button_text("News") == "News"
+    # The control names the SESSION you are in. Every session is stored with
+    # the placeholder title "New session", so echoing it made the header claim
+    # every session was new — and it is a session, not a "chat".
+    assert _session_button_text("New session") == "Untitled session"
+    assert _session_button_text("") == "Untitled session"
+    assert "new" not in _session_button_text("New session").lower()
 
 
 @pytest.mark.basic

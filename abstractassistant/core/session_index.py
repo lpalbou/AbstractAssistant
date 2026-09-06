@@ -12,6 +12,7 @@ New sessions are created under:
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -92,6 +93,7 @@ class SessionIndex:
         self._path = self._base_dir / "sessions.json"
         self._active_session_id: Optional[str] = None
         self._sessions: List[SessionRecord] = []
+        self._legacy_removed = False
         self._load_or_bootstrap()
 
     @property
@@ -213,6 +215,45 @@ class SessionIndex:
         self._save()
         return rec
 
+    def delete_session(self, session_id: str) -> str:
+        """Remove a chat and its stored transcript. Returns the session id that
+        is active afterwards.
+
+        The chat's own folder under ``sessions/`` is removed; the legacy chat
+        (``path == "."``) shares the app's data folder, so only its
+        ``session.json`` is deleted and a marker keeps it from coming back on
+        the next load. Deleting the last remaining chat creates a fresh one so
+        the app always has somewhere to write.
+        """
+        sid = str(session_id or "").strip()
+        record = self.get(sid)  # raises KeyError for an unknown chat
+        was_active = sid == self.active_session_id
+
+        if record.path == ".":
+            try:
+                (self._base_dir / "session.json").unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+            self._legacy_removed = True
+        else:
+            data_dir = (self._base_dir / Path(record.path)).resolve()
+            sessions_root = (self._base_dir / "sessions").resolve()
+            # Never remove anything outside <data_dir>/sessions/<id>/.
+            if data_dir != sessions_root and sessions_root in data_dir.parents:
+                shutil.rmtree(data_dir, ignore_errors=True)
+
+        self._sessions = [r for r in self._sessions if r.session_id != sid]
+        if not self._sessions:
+            self._active_session_id = ""
+            self._save()
+            return self.create_session().session_id
+        if was_active:
+            self._active_session_id = self.records()[0].session_id
+        self._save()
+        return self.active_session_id
+
     def _load_or_bootstrap(self) -> None:
         data = None
         if self._path.exists():
@@ -236,10 +277,15 @@ class SessionIndex:
                 except Exception:
                     continue
 
-        # Always ensure legacy/base session is present (for back-compat).
-        legacy = self._ensure_legacy_session()
-        if not any(r.session_id == legacy.session_id for r in sessions):
-            sessions.append(legacy)
+        self._legacy_removed = bool(data.get("legacy_removed"))
+        # Always ensure legacy/base session is present (for back-compat) —
+        # unless the user deleted it, which must stay deleted.
+        if self._legacy_removed:
+            legacy = None
+        else:
+            legacy = self._ensure_legacy_session()
+            if not any(r.session_id == legacy.session_id for r in sessions):
+                sessions.append(legacy)
 
         # Filter out missing directories (except legacy ".").
         filtered: List[SessionRecord] = []
@@ -250,6 +296,8 @@ class SessionIndex:
             if (self._base_dir / Path(r.path)).exists():
                 filtered.append(r)
         if not filtered:
+            legacy = legacy or self._ensure_legacy_session()
+            self._legacy_removed = False
             filtered = [legacy]
 
         active = str(data.get("active_session_id") or "").strip()
@@ -295,6 +343,8 @@ class SessionIndex:
             "active_session_id": self.active_session_id,
             "sessions": [r.to_dict() for r in self._sessions],
         }
+        if getattr(self, "_legacy_removed", False):
+            payload["legacy_removed"] = True
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         self._base_dir.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

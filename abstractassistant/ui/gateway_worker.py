@@ -206,6 +206,23 @@ class GatewayWorker(QThread):
             out.append(dict(attachment))
         return out
 
+    def _attachment_preview_items(
+        self, attachments: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Uploaded refs paired with the local path they came from.
+
+        Each item carries the gateway's `$artifact` and `run_id` (so the file
+        can be fetched back forever) plus `local_path` (so the common case
+        needs no fetch at all).
+        """
+        items: List[Dict[str, Any]] = []
+        for index, attachment in enumerate(attachments or []):
+            item = dict(attachment) if isinstance(attachment, dict) else {}
+            if 0 <= index < len(self._attachments):
+                item["local_path"] = str(self._attachments[index])
+            items.append(item)
+        return items
+
     def _pick_primary_image_artifact(self, attachments: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         for attachment in attachments:
             if not isinstance(attachment, dict):
@@ -1058,20 +1075,21 @@ class GatewayWorker(QThread):
                 self._emit_run_activity(run_id=run_id)
             else:
                 attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
+                preview_items = self._attachment_preview_items(attachments)
+                if preview_items and not self._append_user_message:
+                    # The message was already shown with local paths only. Hand
+                    # the durable artifact ids back so its preview survives the
+                    # local file being deleted.
+                    self.event_emitted.emit(
+                        {"type": "attachments_uploaded", "attachments": preview_items}
+                    )
                 if self._append_user_message:
                     try:
-                        metadata = None
-                        if attachments:
-                            preview_items: List[Dict[str, Any]] = []
-                            for index, attachment in enumerate(attachments):
-                                item = dict(attachment) if isinstance(attachment, dict) else {}
-                                if 0 <= index < len(self._attachments):
-                                    item["local_path"] = str(self._attachments[index])
-                                preview_items.append(item)
-                            metadata = {
-                                "attachments": preview_items,
-                                "media": preview_items,
-                            }
+                        metadata = (
+                            {"attachments": preview_items, "media": preview_items}
+                            if preview_items
+                            else None
+                        )
                         self._llm_manager.append_message(
                             role="user",
                             content=self._user_text,

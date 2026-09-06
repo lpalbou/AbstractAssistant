@@ -59,9 +59,16 @@ assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_
 Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift+space`).
 
 - **Header**: the title shows what the app is doing (Running, Reconnecting, Listening, Speaking,
-  Not sent); the chat picker switches between recent chats (`yy/mm/dd - topic`); the buttons
+  Not sent); the chat control names the current chat and opens the chat switcher; the buttons
   start a new chat (⌘N), open Tools & permissions, toggle spoken replies, and open Settings (⌘,);
   the orb at the right shows whether the gateway is reachable.
+- **Chat switcher**: click the chat name in the header. Chats are grouped by recency (today,
+  yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
+  its latest question, when it was last active, and its turns, tool calls, tokens, running time
+  and workspace folder. A chat whose tools failed or whose last question was never answered is
+  flagged. Type to filter by topic, folder or tool name; ↑↓ move, Return opens, Esc closes. The
+  pencil renames a chat and the bin deletes it (with its transcript) after an in-row
+  confirmation; ⌘⌫ asks the same for the selected row.
 - **Transcript**: your messages and the assistant's replies. Each reply ends with a statistics
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and

@@ -44,9 +44,11 @@ chat and later turns of the same chat reuse it.
 Tool execution is gateway-driven and explicit. Tools you never configured follow the gateway's
 approval default, which is "ask" for anything that sends messages, writes remotely or is
 destructive. Pre-approve a tool for this Mac in Settings → Tools & permissions, tick "Always
-allow … on this Mac" in the approval sheet (offered for observe and act tools), or trust the
-enabled tools for the current chat. Chat-wide trust covers the observe and act tiers; outreach
-and destructive calls keep asking unless you set that tool to Auto by name.
+allow … on this Mac" in the approval sheet (offered for observe and act tools), or use the
+chevron next to Allow once to trust the enabled tools for the current chat. Chat-wide trust
+reaches as far as the batch it was granted on: from a read-only batch it still asks before
+anything that reaches outside or destroys, and the menu item names the wider scope when you grant
+it on such a batch.
 
 ## Why is a tool marked "Disabled on gateway"?
 
@@ -74,6 +76,14 @@ never transcribes itself through your speakers. Use Esc, the stop button, or swi
 The current step of the run (thinking cycle, tool call, waiting for you), the elapsed time, and the
 most recent steps with their outcome and duration. It reads the run ledger the gateway streams;
 nothing is estimated. Reattached runs show no total time because the start was not observed.
+
+## How do I find an old chat, and can I delete one?
+
+Click the chat name in the header. The switcher lists every chat with its topic, last activity and
+what it holds (turns, tool calls, tokens, running time, workspace folder), grouped by recency and
+filtered as you type. The pencil renames a chat; the bin deletes it and its transcript after an
+in-row confirmation. Deleting removes that chat's folder under `~/.abstractassistant/sessions/`;
+the gateway keeps its own durable session data.
 
 ## Where are downloads stored?
 

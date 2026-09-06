@@ -197,3 +197,43 @@ def test_gateway_is_local_only_for_loopback_hosts() -> None:
     ):
         controller.connection = SimpleNamespace(base_url=url)
         assert controller.gateway_is_local() is expected, url
+
+
+@pytest.mark.basic
+def test_chat_trust_can_be_granted_up_to_the_tier_the_user_saw() -> None:
+    items = [
+        {"name": "read_file", "selected_mode": "ask", "risk_tier": "observe", "risk_rank": 1},
+        {"name": "send_email", "selected_mode": "ask", "risk_tier": "outreach", "risk_rank": 3},
+        {"name": "delete_tree", "selected_mode": "ask", "risk_tier": "destroy", "risk_rank": 4},
+    ]
+    # Granted while looking at a destructive batch: the chat trusts everything
+    # enabled, which is what "allow all enabled tools in this chat" says.
+    controller = _controller(items)
+    controller.grant_session_tool_auto_approval(max_rank=4)
+    assert controller.session_trust_rank() == 4
+    assert controller.should_auto_approve_tool_batch([{"name": "delete_tree"}]) is True
+    assert controller.should_auto_approve_tool_batch([{"name": "send_email"}]) is True
+    assert controller.tool_policy_for_run()["require_approval_tools"] == []
+
+    # Granted on a read-only batch: the destructive call later still asks.
+    controller = _controller(items)
+    controller.grant_session_tool_auto_approval(max_rank=1)
+    assert controller.should_auto_approve_tool_batch([{"name": "read_file"}]) is True
+    assert controller.should_auto_approve_tool_batch([{"name": "delete_tree"}]) is False
+    assert controller.tool_policy_for_run()["require_approval_tools"] == ["send_email", "delete_tree"]
+
+    # A wider grant later raises the ceiling; a narrower one never lowers it.
+    controller.grant_session_tool_auto_approval(max_rank=4)
+    assert controller.session_trust_rank() == 4
+    controller.grant_session_tool_auto_approval(max_rank=1)
+    assert controller.session_trust_rank() == 4
+
+
+@pytest.mark.basic
+def test_trust_rank_is_per_chat_and_zero_without_a_grant() -> None:
+    controller = _controller([{"name": "read_file", "selected_mode": "ask", "risk_rank": 1}])
+    assert controller.session_trust_rank() == 0
+    controller.grant_session_tool_auto_approval(max_rank=4)
+    assert controller.session_trust_rank() == 4
+    controller.llm_manager.active_session_id = "chat-b"
+    assert controller.session_trust_rank() == 0

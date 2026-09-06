@@ -62,7 +62,10 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 - `preferences.json` — local overrides sent per request (model routes, reasoning effort,
   workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
-- `sessions/` — the transcript snapshot, last run id and granted workspace root of each chat
+- `sessions.json` — the chat registry (id, title, created/updated stamps, active chat)
+- `sessions/` — the transcript snapshot, last run id and granted workspace root of each chat.
+  The chat switcher's metrics (turns, tool calls, tokens, running time) are computed from these
+  files and cached by file identity, so listing chats costs no gateway call
 - downloaded artifacts
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value

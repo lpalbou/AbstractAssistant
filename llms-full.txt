@@ -393,9 +393,16 @@ assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_
 Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift+space`).
 
 - **Header**: the title shows what the app is doing (Running, Reconnecting, Listening, Speaking,
-  Not sent); the chat picker switches between recent chats (`yy/mm/dd - topic`); the buttons
+  Not sent); the chat control names the current chat and opens the chat switcher; the buttons
   start a new chat (⌘N), open Tools & permissions, toggle spoken replies, and open Settings (⌘,);
   the orb at the right shows whether the gateway is reachable.
+- **Chat switcher**: click the chat name in the header. Chats are grouped by recency (today,
+  yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
+  its latest question, when it was last active, and its turns, tool calls, tokens, running time
+  and workspace folder. A chat whose tools failed or whose last question was never answered is
+  flagged. Type to filter by topic, folder or tool name; ↑↓ move, Return opens, Esc closes. The
+  pencil renames a chat and the bin deletes it (with its transcript) after an in-row
+  confirmation; ⌘⌫ asks the same for the selected row.
 - **Transcript**: your messages and the assistant's replies. Each reply ends with a statistics
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and
@@ -538,9 +545,11 @@ them. A grant the gateway still rejects makes the run start fail; the palette th
 | Use gateway defaults | Restore each tool to the gateway's approval default (press Save to keep) | this app |
 
 Off and Ask narrow what the gateway allows; Auto pre-approves on this Mac. Tools you never
-configured follow the gateway's approval default. Blanket grants ("Always allow … on this Mac" in
-the approval sheet, "Trust enabled tools in this chat") cover the observe and act tiers only;
-outreach and destructive tools are approved one call at a time unless you set them to Auto here.
+configured follow the gateway's approval default. "Always allow … on this Mac" in the approval
+sheet is offered for the observe and act tiers only. "Allow all enabled tools in this chat" is
+always offered, and it reaches exactly as far as the batch you granted it on: granted on a
+read-only batch it keeps asking for outreach and destructive calls, granted on a destructive
+batch (the item then says so) it covers everything this page has not switched off, for that chat.
 
 ## Window & shortcuts
 
@@ -825,7 +834,10 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 - `preferences.json` — local overrides sent per request (model routes, reasoning effort,
   workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
-- `sessions/` — the transcript snapshot, last run id and granted workspace root of each chat
+- `sessions.json` — the chat registry (id, title, created/updated stamps, active chat)
+- `sessions/` — the transcript snapshot, last run id and granted workspace root of each chat.
+  The chat switcher's metrics (turns, tool calls, tokens, running time) are computed from these
+  files and cached by file identity, so listing chats costs no gateway call
 - downloaded artifacts
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
@@ -971,9 +983,11 @@ chat and later turns of the same chat reuse it.
 Tool execution is gateway-driven and explicit. Tools you never configured follow the gateway's
 approval default, which is "ask" for anything that sends messages, writes remotely or is
 destructive. Pre-approve a tool for this Mac in Settings → Tools & permissions, tick "Always
-allow … on this Mac" in the approval sheet (offered for observe and act tools), or trust the
-enabled tools for the current chat. Chat-wide trust covers the observe and act tiers; outreach
-and destructive calls keep asking unless you set that tool to Auto by name.
+allow … on this Mac" in the approval sheet (offered for observe and act tools), or use the
+chevron next to Allow once to trust the enabled tools for the current chat. Chat-wide trust
+reaches as far as the batch it was granted on: from a read-only batch it still asks before
+anything that reaches outside or destroys, and the menu item names the wider scope when you grant
+it on such a batch.
 
 ## Why is a tool marked "Disabled on gateway"?
 
@@ -1001,6 +1015,14 @@ never transcribes itself through your speakers. Use Esc, the stop button, or swi
 The current step of the run (thinking cycle, tool call, waiting for you), the elapsed time, and the
 most recent steps with their outcome and duration. It reads the run ledger the gateway streams;
 nothing is estimated. Reattached runs show no total time because the start was not observed.
+
+## How do I find an old chat, and can I delete one?
+
+Click the chat name in the header. The switcher lists every chat with its topic, last activity and
+what it holds (turns, tool calls, tokens, running time, workspace folder), grouped by recency and
+filtered as you type. The pencil renames a chat; the bin deletes it and its transcript after an
+in-row confirmation. Deleting removes that chat's folder under `~/.abstractassistant/sessions/`;
+the gateway keeps its own durable session data.
 
 ## Where are downloads stored?
 
@@ -1487,6 +1509,12 @@ app.
   composer shows listening / heard / thinking / speaking / paused with a live microphone meter,
   pause and end controls, and every failure names its cause. Push-to-dictate on the microphone
   button is unchanged. See [docs/voice.md](docs/voice.md).
+- **Chat switcher.** The header's chat control opens a searchable list of chats grouped by
+  recency. Each row carries the facts needed to pick one: topic, latest question, last activity,
+  turns, tool calls, tokens, running time and workspace folder, with failed tool calls and
+  unanswered questions flagged. Chats can be renamed and deleted (transcript included) from the
+  row, with confirmation. The metrics are computed from local files and cached by file identity,
+  so the list costs no gateway call.
 - **Live run activity in the transcript.** While a run works, a card at the bottom of the chat
   shows the current step, elapsed time, and the most recent steps (reasoning cycles, tool calls
   with their arguments and durations, approvals, pauses, reconnects). It can pause, resume or stop
@@ -1572,9 +1600,12 @@ app.
   "Reply ready").
 
 ### Fixed
-- Blanket trust stops at the act tier: "Always allow … on this Mac" is offered only for tools the
-  gateway classifies as observe or act, "Trust enabled tools in this chat" never auto-approves an
-  outreach or destructive call, and "All auto" on the Tools page leaves those tiers on Ask.
+- Blanket trust is scoped rather than blocked: "Always allow … on this Mac" is offered for the
+  observe and act tiers, and "Allow all enabled tools in this chat" reaches exactly as far as the
+  batch it was granted on (the menu item names the scope, so a grant made on a read-only batch
+  still asks before an outreach or destructive call). "All auto" on the Tools page leaves those
+  tiers on Ask.
+- The activity card's "N earlier steps…" link folds the list back to the recent steps.
 - In the approval sheet, Return activates the Deny or Decide later button when it has focus
   instead of allowing the batch; the same undecided wait raised twice is shown once.
 - The question dialog is modeless: the palette stays usable while a question is open, and a
@@ -3392,6 +3423,35 @@ class AssistantController:
     def list_sessions(self) -> List[Dict[str, str]]:
         return self.llm_manager.list_sessions()
 
+    def session_digests(self) -> List[Dict[str, Any]]:
+        """Per-chat metrics for the switcher. Reads local files only — call it
+        from a worker thread the first time (long transcripts are parsed once
+        and cached by file identity)."""
+        try:
+            return list(self.llm_manager.session_digests() or [])
+        except Exception:
+            # Fall back to the index-only view so the switcher still lists chats.
+            out: List[Dict[str, Any]] = []
+            for record in self.list_sessions() or []:
+                if isinstance(record, dict) and str(record.get("session_id") or "").strip():
+                    out.append(
+                        {
+                            "session_id": str(record.get("session_id")),
+                            "title": str(record.get("title") or "New session"),
+                            "created_at": str(record.get("created_at") or ""),
+                            "updated_at": str(record.get("updated_at") or ""),
+                            "detailed": False,
+                        }
+                    )
+            return out
+
+    def rename_session(self, session_id: str, title: str) -> None:
+        self.llm_manager.rename_session(session_id, title)
+
+    def delete_session(self, session_id: str) -> str:
+        """Delete a chat and its transcript; returns the new active session id."""
+        return str(self.llm_manager.delete_session(session_id) or "")
+
     def create_session(self) -> str:
         return self.llm_manager.create_new_session()
 
@@ -3830,17 +3890,16 @@ class AssistantController:
         except Exception:
             return 0
 
-    def _tool_trustable(self, item: Dict[str, Any]) -> bool:
-        """May a per-chat blanket grant auto-approve this tool? Tools the
-        gateway classifies as outreach/destroy never qualify; a tool with no
-        tier (a gateway that does not classify) keeps the plain grant."""
-        return self._tool_risk_rank(item) <= self.TRUST_MAX_RISK_RANK
+    def _tool_trustable(self, item: Dict[str, Any], ceiling: int) -> bool:
+        """May this chat's grant auto-approve this tool? Only up to the tier
+        the grant was made on; a tool with no tier keeps the plain grant."""
+        return self._tool_risk_rank(item) <= max(0, int(ceiling))
 
     def tool_policy_for_run(self) -> Dict[str, List[str]]:
         inventory = self.tool_inventory()
         auto: List[str] = []
         require: List[str] = []
-        trust_enabled_for_chat = self.session_tool_auto_approval_active()
+        trust_ceiling = self.session_trust_rank()
         for item in inventory.get("items") or []:
             if not isinstance(item, dict):
                 continue
@@ -3850,7 +3909,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 continue
-            if mode == "approve" or (trust_enabled_for_chat and self._tool_trustable(item)):
+            if mode == "approve" or (trust_ceiling and self._tool_trustable(item, trust_ceiling)):
                 auto.append(name)
             else:
                 require.append(name)
@@ -3859,20 +3918,49 @@ class AssistantController:
             "require_approval_tools": require,
         }
 
-    def grant_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
+    def grant_session_tool_auto_approval(
+        self, *, session_id: Optional[str] = None, max_rank: Optional[int] = None
+    ) -> None:
+        """Trust this chat's enabled tools up to ``max_rank``.
+
+        The ceiling is the loudest risk tier the user actually saw when they
+        granted it: approving a batch of file reads never buys blanket trust
+        for a later destructive call, but granting it ON a destructive batch
+        does — the sheet says so on the item they clicked.
+        """
         sid = str(session_id or self.active_session_id or "").strip()
-        if sid:
-            self._session_auto_approve_all.add(sid)
+        if not sid:
+            return
+        self._session_auto_approve_all.add(sid)
+        ranks = getattr(self, "_session_trust_rank", None)
+        if not isinstance(ranks, dict):
+            ranks = {}
+            self._session_trust_rank = ranks
+        wanted = self.TRUST_MAX_RISK_RANK if max_rank is None else int(max_rank)
+        wanted = max(1, min(4, wanted))
+        ranks[sid] = max(int(ranks.get(sid, 0)), wanted)
 
     def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
         sid = str(session_id or self.active_session_id or "").strip()
         return bool(sid and sid in self._session_auto_approve_all)
 
+    def session_trust_rank(self, *, session_id: Optional[str] = None) -> int:
+        """How far this chat's blanket grant reaches (0 when there is none)."""
+        if not self.session_tool_auto_approval_active(session_id=session_id):
+            return 0
+        sid = str(session_id or self.active_session_id or "").strip()
+        ranks = getattr(self, "_session_trust_rank", None)
+        if isinstance(ranks, dict) and sid in ranks:
+            return int(ranks[sid])
+        return int(self.TRUST_MAX_RISK_RANK)
+
     def should_auto_approve_tool_batch(self, tool_calls: Any, *, session_id: Optional[str] = None) -> bool:
         """A per-chat trust grant auto-approves a batch only when every call is
-        an enabled tool the grant may cover (risk rank ≤ 2, or set to Auto by
-        name); a later outreach/destructive batch still asks."""
-        if not self.session_tool_auto_approval_active(session_id=session_id):
+        an enabled tool the grant may cover: a tool set to Auto by name, or one
+        at or below the tier the grant was made on. A batch louder than the
+        grant still asks."""
+        ceiling = self.session_trust_rank(session_id=session_id)
+        if not ceiling:
             return False
         if not isinstance(tool_calls, list) or not tool_calls:
             return False
@@ -3893,7 +3981,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 return False
-            if mode != "approve" and not self._tool_trustable(item):
+            if mode != "approve" and not self._tool_trustable(item, ceiling):
                 return False
         return True
 
@@ -10740,6 +10828,7 @@ New sessions are created under:
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -10820,6 +10909,7 @@ class SessionIndex:
         self._path = self._base_dir / "sessions.json"
         self._active_session_id: Optional[str] = None
         self._sessions: List[SessionRecord] = []
+        self._legacy_removed = False
         self._load_or_bootstrap()
 
     @property
@@ -10941,6 +11031,45 @@ class SessionIndex:
         self._save()
         return rec
 
+    def delete_session(self, session_id: str) -> str:
+        """Remove a chat and its stored transcript. Returns the session id that
+        is active afterwards.
+
+        The chat's own folder under ``sessions/`` is removed; the legacy chat
+        (``path == "."``) shares the app's data folder, so only its
+        ``session.json`` is deleted and a marker keeps it from coming back on
+        the next load. Deleting the last remaining chat creates a fresh one so
+        the app always has somewhere to write.
+        """
+        sid = str(session_id or "").strip()
+        record = self.get(sid)  # raises KeyError for an unknown chat
+        was_active = sid == self.active_session_id
+
+        if record.path == ".":
+            try:
+                (self._base_dir / "session.json").unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+            self._legacy_removed = True
+        else:
+            data_dir = (self._base_dir / Path(record.path)).resolve()
+            sessions_root = (self._base_dir / "sessions").resolve()
+            # Never remove anything outside <data_dir>/sessions/<id>/.
+            if data_dir != sessions_root and sessions_root in data_dir.parents:
+                shutil.rmtree(data_dir, ignore_errors=True)
+
+        self._sessions = [r for r in self._sessions if r.session_id != sid]
+        if not self._sessions:
+            self._active_session_id = ""
+            self._save()
+            return self.create_session().session_id
+        if was_active:
+            self._active_session_id = self.records()[0].session_id
+        self._save()
+        return self.active_session_id
+
     def _load_or_bootstrap(self) -> None:
         data = None
         if self._path.exists():
@@ -10964,10 +11093,15 @@ class SessionIndex:
                 except Exception:
                     continue
 
-        # Always ensure legacy/base session is present (for back-compat).
-        legacy = self._ensure_legacy_session()
-        if not any(r.session_id == legacy.session_id for r in sessions):
-            sessions.append(legacy)
+        self._legacy_removed = bool(data.get("legacy_removed"))
+        # Always ensure legacy/base session is present (for back-compat) —
+        # unless the user deleted it, which must stay deleted.
+        if self._legacy_removed:
+            legacy = None
+        else:
+            legacy = self._ensure_legacy_session()
+            if not any(r.session_id == legacy.session_id for r in sessions):
+                sessions.append(legacy)
 
         # Filter out missing directories (except legacy ".").
         filtered: List[SessionRecord] = []
@@ -10978,6 +11112,8 @@ class SessionIndex:
             if (self._base_dir / Path(r.path)).exists():
                 filtered.append(r)
         if not filtered:
+            legacy = legacy or self._ensure_legacy_session()
+            self._legacy_removed = False
             filtered = [legacy]
 
         active = str(data.get("active_session_id") or "").strip()
@@ -11023,6 +11159,8 @@ class SessionIndex:
             "active_session_id": self.active_session_id,
             "sessions": [r.to_dict() for r in self._sessions],
         }
+        if getattr(self, "_legacy_removed", False):
+            payload["legacy_removed"] = True
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         self._base_dir.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

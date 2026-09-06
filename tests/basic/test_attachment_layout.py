@@ -10,10 +10,11 @@ instead of disappearing.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtGui import QImage
+from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QApplication, QPushButton, QWidget
 
 import abstractassistant.app as app_module
@@ -179,10 +180,15 @@ def test_artifact_preview_card_without_tile_keeps_inline_thumbnail(tmp_path) -> 
 
 @pytest.mark.basic
 def test_message_card_groups_images_into_one_gallery(tmp_path) -> None:
+    """Media the ASSISTANT produced is the answer: it keeps the real gallery.
+
+    (Files the user attached take the compact-chip path instead — see
+    ``test_user_attachments_render_as_compact_chips``.)
+    """
     app = _app()
     paths = [_write_image(tmp_path, f"page{i}.png", 600, 800) for i in range(4)]
     message = {
-        "role": "user",
+        "role": "assistant",
         "content": "here are the 4 illustrations of the novel",
         "metadata": {
             "attachments": [
@@ -346,14 +352,16 @@ def test_message_card_keeps_unpreviewable_documents_visible(tmp_path) -> None:
         },
     }
 
-    def _build(artifact, _message, *, tile_size=0):
-        # Mirrors the real builder: only image/audio/video get a preview.
+    def _build(artifact, _message, *, tile_size=0, compact=False):
+        # A builder that can only preview images: the documents must still
+        # reach the bubble through the fallback tray.
         if app_module._artifact_media_kind(artifact) != "image":
             return None
         return ArtifactPreviewCard(
             artifact=artifact,
             resolve_path=lambda p=artifact["local_path"]: __import__("pathlib").Path(p),
             tile_size=tile_size,
+            compact=compact,
         )
 
     card = MessageCard(
@@ -367,8 +375,12 @@ def test_message_card_keeps_unpreviewable_documents_visible(tmp_path) -> None:
     card.show()
     app.processEvents()
 
-    galleries = card.findChildren(MediaGallery)
-    assert len(galleries) == 1 and galleries[0].card_count() == 2
+    strips = [
+        widget
+        for widget in card.findChildren(FlowContainer)
+        if widget.objectName() == "attachmentChipStrip"
+    ]
+    assert len(strips) == 1 and strips[0].flow().count() == 2
     trays = [
         widget
         for widget in card.findChildren(FlowContainer)
@@ -376,6 +388,249 @@ def test_message_card_keeps_unpreviewable_documents_visible(tmp_path) -> None:
     ]
     assert len(trays) == 1, "the three documents must still be reachable"
     assert trays[0].flow().count() == 3
+    card.close()
+
+
+@pytest.mark.basic
+def test_rounded_thumbnail_keeps_aspect_and_stays_small() -> None:
+    _app()
+    height = app_module._ATTACHMENT_THUMB_HEIGHT
+    max_width = app_module._ATTACHMENT_THUMB_MAX_WIDTH
+    for width, source_height, expected in (
+        # A 16:9 screenshot keeps its shape...
+        (2560, 1440, QSize(int(height * 16 / 9), height)),
+        # ...a tall image is bounded by the height, not stretched...
+        (400, 1600, QSize(max(1, height // 4), height)),
+        # ...and a panorama is clamped by the width instead.
+        (4000, 500, QSize(max_width, max(1, round(max_width * 500 / 4000)))),
+    ):
+        image = QImage(width, source_height, QImage.Format_RGB32)
+        image.fill(0x336699)
+        thumb = app_module._rounded_thumbnail(
+            QPixmap.fromImage(image), height=height, max_width=max_width
+        )
+        # Rendered at 2x for retina, so the LOGICAL size is what layout sees.
+        assert thumb.devicePixelRatio() == 2.0
+        logical = QSize(thumb.width() // 2, thumb.height() // 2)
+        assert abs(logical.width() - expected.width()) <= 1
+        assert abs(logical.height() - expected.height()) <= 1
+        assert logical.height() <= height and logical.width() <= max_width
+
+
+@pytest.mark.basic
+def test_compact_card_shows_the_picture_not_a_glyph(tmp_path) -> None:
+    """The operator's complaint: a small attachment must still BE the image."""
+    app = _app()
+    path = _write_image(tmp_path, "Screenshot 2026-09-06 at 12.43.58 PM.png", 2560, 1440)
+    chip = ArtifactPreviewCard(
+        artifact={"local_path": path, "filename": Path(path).name, "modality": "image"},
+        resolve_path=lambda: Path(path),
+        compact=True,
+    )
+    chip.show()
+    for _ in range(200):
+        app.processEvents()
+        if chip._source_pixmap is not None:
+            break
+
+    assert chip.is_compact()
+    # The pill placeholder gave way to the picture, which carries its own frame.
+    assert chip.objectName() == "mediaPreviewThumb"
+    assert chip._thumb_label is not None
+    assert chip._thumb_label.objectName() == "mediaPreviewChipImage"
+    thumb = chip._thumb_label.pixmap()
+    assert thumb is not None and not thumb.isNull()
+    logical_height = thumb.height() // 2
+    logical_width = thumb.width() // 2
+    # Small — but a real 16:9 thumbnail, not a 260px tile and not a 20px stamp.
+    assert logical_height == app_module._ATTACHMENT_THUMB_HEIGHT
+    assert logical_width == pytest.approx(logical_height * 16 / 9, abs=2)
+    # The picture is the source image, not the type glyph: its middle pixel
+    # carries the fill colour we wrote to disk.
+    middle = thumb.toImage().pixelColor(thumb.width() // 2, thumb.height() // 2)
+    assert (middle.red(), middle.green(), middle.blue()) == (0x33, 0x66, 0x99)
+    # A tile resize request from a gallery cannot re-inflate a compact card.
+    chip.set_tile_size(260)
+    assert chip._thumb_label.pixmap().height() // 2 == app_module._ATTACHMENT_THUMB_HEIGHT
+    assert "2560x1440" in chip.toolTip()
+    chip.deleteLater()
+
+
+@pytest.mark.basic
+def test_compact_card_keeps_the_name_pill_when_there_is_no_picture(tmp_path) -> None:
+    """A PDF — or an image whose file is gone — still reads as an attachment."""
+    app = _app()
+    missing = tmp_path / "Screenshot gone.png"
+    for artifact, resolver in (
+        (
+            {"local_path": str(tmp_path / "q1.pdf"), "filename": "q1.pdf"},
+            lambda: Path(tmp_path / "q1.pdf"),
+        ),
+        (
+            {"local_path": str(missing), "filename": missing.name, "modality": "image"},
+            lambda: Path(missing),
+        ),
+    ):
+        card = ArtifactPreviewCard(
+            artifact=artifact, resolve_path=resolver, compact=True
+        )
+        for _ in range(200):
+            app.processEvents()
+            if card._local_path is not None:
+                break
+        assert card.objectName() == "mediaPreviewChip"
+        names = [
+            widget
+            for widget in card.findChildren(app_module.QLabel)
+            if widget.objectName() == "mediaPreviewChipName"
+        ]
+        assert names and artifact["filename"][:6] in names[0].text()
+        card.deleteLater()
+
+
+@pytest.mark.basic
+def test_compact_chip_click_opens_the_image_preview(tmp_path) -> None:
+    app = _app()
+    path = _write_image(tmp_path, "shot.png", 900, 300)
+    chip = ArtifactPreviewCard(
+        artifact={"local_path": path, "filename": "shot.png", "modality": "image"},
+        resolve_path=lambda: Path(path),
+        compact=True,
+    )
+    for _ in range(200):
+        app.processEvents()
+        if chip._source_pixmap is not None:
+            break
+
+    opened: list = []
+    # Click the THUMBNAIL label, not the frame: the whole card must be the
+    # button, so the press has to propagate from the child up to the card.
+    from PyQt5.QtTest import QTest
+
+    chip.show()
+    app.processEvents()
+    QTest.mouseClick(chip._thumb_label, Qt.LeftButton)
+    app.processEvents()
+    dialog = chip._preview_dialog
+    assert isinstance(dialog, app_module.ImagePreviewDialog)
+    # Modeless: the transcript stays usable behind the preview.
+    assert not dialog.isModal()
+    assert "shot.png" in dialog.windowTitle()
+    dialog.close()
+
+    # A non-image chip has no in-app preview: it hands the file to the OS.
+    doc = ArtifactPreviewCard(
+        artifact={"local_path": str(tmp_path / "report.pdf"), "filename": "report.pdf"},
+        resolve_path=lambda: Path(tmp_path / "report.pdf"),
+        compact=True,
+    )
+    for _ in range(200):
+        app.processEvents()
+        if doc._local_path is not None:
+            break
+    doc._open_external = lambda: opened.append("external")  # type: ignore[method-assign]
+    doc._activate_compact()
+    assert opened == ["external"]
+    assert doc._preview_dialog is None
+    chip.deleteLater()
+    doc.deleteLater()
+
+
+@pytest.mark.basic
+def test_missing_attachment_reports_the_real_reason(tmp_path) -> None:
+    """A deleted attachment must not be reported as "artifact_id is required"."""
+    from abstractassistant.controller import AssistantController
+
+    controller = AssistantController.__new__(AssistantController)
+    gone = tmp_path / "Screenshot 2026-09-06 at 12.43.58 PM.png"
+    with pytest.raises(FileNotFoundError) as excinfo:
+        AssistantController.download_artifact(
+            controller,
+            run_id="",
+            artifact={"local_path": str(gone), "filename": gone.name},
+        )
+    assert "no longer on disk" in str(excinfo.value)
+    assert gone.name in str(excinfo.value)
+
+    # A gateway artifact with no id is still the old programming error.
+    with pytest.raises(ValueError):
+        AssistantController.download_artifact(
+            controller, run_id="run_1", artifact={"filename": "x.png"}
+        )
+
+
+@pytest.mark.basic
+def test_image_preview_dialog_fits_the_screen_without_upscaling() -> None:
+    _app()
+    dialog_cls = app_module.ImagePreviewDialog
+    # A small image is shown at its own size...
+    assert dialog_cls.fit_size(QSize(320, 200)) == QSize(320, 200)
+    # ...a huge one is bounded, keeping its aspect ratio.
+    fitted = dialog_cls.fit_size(QSize(8000, 4000))
+    assert fitted.width() < 8000 and fitted.height() < 4000
+    assert abs(fitted.width() / fitted.height() - 2.0) < 0.02
+
+
+@pytest.mark.basic
+def test_user_attachments_render_as_compact_chips(tmp_path) -> None:
+    """Operator ask 2026-09-06: an attached screenshot must cost one line."""
+    app = _app()
+    path = _write_image(tmp_path, "screenshot.png", 2560, 1440)
+    message = {
+        "role": "user",
+        "content": "i get this with my current apple account, what do you recommend?",
+        "metadata": {
+            "attachments": [
+                {"local_path": path, "filename": "screenshot.png", "modality": "image"}
+            ]
+        },
+    }
+
+    seen: list[bool] = []
+
+    def _build(artifact, _message, *, tile_size=0, compact=False):
+        seen.append(compact)
+        return ArtifactPreviewCard(
+            artifact=artifact,
+            resolve_path=lambda p=artifact["local_path"]: Path(p),
+            tile_size=tile_size,
+            compact=compact,
+        )
+
+    card = MessageCard(
+        message=message,
+        message_key="user-attachment",
+        renderer=app_module.MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *_a, **_k: None,
+        build_media_preview=_build,
+        bubble_width=520,
+    )
+    card.show()
+    app.processEvents()
+
+    assert seen == [True], "user attachments are built compact"
+    assert not card.findChildren(MediaGallery), "no gallery tile for an input file"
+    strips = [
+        widget
+        for widget in card.findChildren(FlowContainer)
+        if widget.objectName() == "attachmentChipStrip"
+    ]
+    assert len(strips) == 1 and strips[0].flow().count() == 1
+    chips = [
+        widget
+        for widget in card.findChildren(ArtifactPreviewCard)
+        if widget.is_compact()
+    ]
+    assert len(chips) == 1
+    # The PICTURE reached the bubble. Without this the test passes when every
+    # thumbnail silently degrades to the icon pill — the exact regression the
+    # operator reported ("it removed ALL thumbnails").
+    assert chips[0]._source_pixmap is not None
+    assert chips[0].objectName() == "mediaPreviewThumb"
+    row_height = strips[0].flow().heightForWidth(496)
+    assert row_height == app_module._ATTACHMENT_THUMB_HEIGHT
+    # ...and it is a small thumbnail, not a 260px block.
+    assert row_height < MediaGallery._base_tile_size(1)
     card.close()
 
 

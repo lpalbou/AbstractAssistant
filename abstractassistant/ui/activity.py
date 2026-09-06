@@ -1478,7 +1478,7 @@ class RunActivityCard(QFrame):
         self._more_link.setFocusPolicy(Qt.NoFocus)
         self._more_link.setCursor(Qt.PointingHandCursor)
         self._more_link.setFlat(True)
-        self._more_link.clicked.connect(self._show_all_steps)
+        self._more_link.clicked.connect(self._toggle_all_steps)
         self._more_link.hide()
         steps_layout.addWidget(self._more_link, 0, Qt.AlignLeft)
         self._rows_host = QWidget(self._steps_host)
@@ -1573,11 +1573,19 @@ class RunActivityCard(QFrame):
             visible = steps
         else:
             visible = steps[-_MAX_COLLAPSED_ROWS:]
+        # The link is a toggle: it opens the full list and folds it back.
         hidden = len(steps) - len(visible)
+        overflow = len(steps) - _MAX_COLLAPSED_ROWS
         if hidden > 0:
             self._more_link.setText(f"{hidden} earlier step{'s' if hidden != 1 else ''}…")
             self._more_link.setToolTip("Show every step of this run")
-        self._more_link.setVisible(hidden > 0)
+            self._more_link.setVisible(True)
+        elif self._show_all and overflow > 0:
+            self._more_link.setText(f"Show only the last {_MAX_COLLAPSED_ROWS} steps")
+            self._more_link.setToolTip("Fold the earlier steps away")
+            self._more_link.setVisible(True)
+        else:
+            self._more_link.setVisible(False)
 
         visible_ids = [step.step_id for step in visible]
         if visible_ids != list(self._rows.keys()):
@@ -1613,11 +1621,16 @@ class RunActivityCard(QFrame):
         for row in self._rows.values():
             row.set_title_budget(budget)
 
-    def _show_all_steps(self) -> None:
-        self._show_all = True
-        if not self._expanded:
+    def _toggle_all_steps(self) -> None:
+        self._show_all = not self._show_all
+        if self._show_all and not self._expanded:
             self.set_expanded(True)
         self.refresh()
+
+    def _show_all_steps(self) -> None:
+        """Open the full step list (kept as the explicit, non-toggling entry)."""
+        if not self._show_all:
+            self._toggle_all_steps()
 
     def _sync_done_glyph(self) -> None:
         model = self._model

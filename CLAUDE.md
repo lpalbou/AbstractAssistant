@@ -6,6 +6,328 @@ This file tracks major development tasks, architectural decisions, and implement
 
 ## TASK COMPLETION LOG
 
+### Task: The runtime had every attachment all along — the client read them and threw them away (2026-09-06)
+
+**Operator, correcting me**: "abstractassistant is a READER of sessions on the runtime. THE
+RUNTIME KNOWS OBVIOUSLY ABOUT THE ATTACHMENTS. and i don't see them in past discussions!"
+
+They were right and I had told them the opposite ("your 5 dead screenshots stay dead"). Corrected
+on the record: all of them are recoverable.
+
+**What the runtime actually is**: there is NO session store — `abstractruntime/.../session_history.py:1-8`
+states that the RUN STORE is the single durable source of a session's conversation, each turn a
+root run. `history_bundle.py:914-930` projects a turn with 13 keys, two of which the client
+ignored: `attachments` (the `$artifact` refs the client uploaded at submit,
+`_extract_context_attachments_from_input` :121-133) and `prompt_metadata`. The local
+`~/.abstractassistant/sessions/*/session.json` is a CACHE, and nothing refreshed it on open.
+
+**The drop**: `gateway/history_seed.py::_seed_from_session_turns` read `prompt`, `answer`,
+`answer_meta`, `stats` and nothing else, so no seeded user message ever carried `$artifact`.
+Everything downstream already worked — `_message_media_artifacts` accepts a ref with no
+`local_path`, and `download_artifact` already prefers the artifact's owner run.
+
+**Attribution is the crux, and only ONE key works**: `session.turns[i].attachments` paired with
+`turns[i].prompt`. `GET /sessions/{sid}/artifacts` lists the files but CANNOT attribute them —
+`turn_id`/`step_id`/`node_id` are all null and every `run_id` is the synthetic
+`session_memory_<sid>` owner. Timestamps are not a proxy either: `artifact_id` is content-addressed
+(`storage/artifacts.py:784-800`) so re-uploading identical bytes rewrites `created_at`, and in the
+real store 30 turn refs collapse to 26 unique ids — one resume PDF is shared by 3 messages.
+Position is not a proxy either: a runtime `ask_user` answer is a local user row but NOT a turn
+(matching by index scored 12/29 on one session). Matching by exact prompt text: **39/39, zero
+mismatches**.
+
+**Shipped**:
+- `history_seed.py`: `_attachment_metadata()` + carrying it into `_push_user` — 6 lines, and every
+  future seed keeps the refs.
+- `llm_manager.backfill_attachments_from_gateway()`: reads the bundle for the session's
+  `last_run_id`, matches by prompt text, merges refs into `metadata.attachments`/`media` keeping any
+  still-valid `local_path` (by filename), saves ONCE. Deliberately NOT `replace_gateway_messages`,
+  which for one real session would have replaced 137 local messages with 72 and destroyed every
+  tool card. Skips a `session_memory_` run (no turns) and warns instead of losing anything if the
+  gateway is down.
+- Controller wrapper + `_backfill_session_attachments()` on a worker thread, fired on session
+  switch and once at bootstrap; the transcript only redraws if something was restored.
+
+**Live proof**: dry run over the real store — 7 sessions, 13 messages, **39 refs, all carrying
+`$artifact`**. Then one of the "dead" ones end to end: `Screenshot 2026-06-27 at 11.34.25 PM.png`,
+whose `/var/folders/.../NSIRD_screencaptureui_GNAGYi/` file macOS deleted, fetched back through
+`download_artifact` → **103,171 bytes, `\x89PNG`**.
+
+**Filed against the backend (not blocking)**: the upload route records no message/turn linkage
+even though the artifact descriptor and the sqlite catalog both have a `turn_id` column
+(`artifacts.py:632`, `:1334`); populating it would make `/sessions/{sid}/artifacts` self-sufficient
+and the prompt-text match unnecessary. Second: `created_at` is reset when identical bytes are
+re-uploaded, so that endpoint's ordering lies about when a file was first attached.
+
+**Testing**: `tests/basic` 552 passed; 4 new tests — seeding keeps a turn's refs and adds no empty
+metadata, prompt-matching beats position (with an `ask_user` row planted to catch index matching),
+an existing `local_path` survives the merge, and the three no-op paths (synthetic run, gateway
+down, nothing new) never rewrite the transcript.
+
+### Task: The operator was testing a build from BEFORE every fix (2026-09-06)
+
+Three rounds of "you didn't fix it" were reported against `/Applications/AbstractAssistant.app`,
+whose executable was dated **00:45** — before the first edit of the day (~12:45). `ps` showed the
+running process was that bundle. I had never rebuilt, and never checked what they were running;
+I took each symptom at face value and rewrote the attachment thumbnail twice off it.
+
+The rebuild ALSO failed silently the first time: `packaging/macos/AbstractAssistant.spec` called
+`importlib_metadata.version("abstractassistant")`, and the package is not pip-installed in this
+environment (every other abstractframework package is). The script exited 0 with a traceback and
+no bundle. Fixed by reading the version from `pyproject.toml` when the metadata is absent, so a
+plain source checkout builds — no environment mutation.
+
+**Lesson, on the record**: before believing a UI bug report, confirm the binary under test is the
+one carrying the change. `ps` + the executable's mtime is two commands.
+
+### Task: The chat switcher closed itself and drew rows on top of each other — a parentless `setVisible` was opening 148 windows (2026-09-06)
+
+**Operator**: "if i click once it shows correctly but disappears after a few seconds. if i click
+again, it shows [overlapping rows] and also disappears… NOT functional at all… it should be
+blazing fast."
+
+**What I found (reproduced offscreen on the real 74-chat store)**: opening showed index-only rows,
+then a BACKGROUND thread computed the metrics and called `set_digests` into the VISIBLE popup
+seconds later, rebuilding all 74 rows underneath the user. Measured: the rebuilt list kept the old
+host height (2544 px) while needing 4214 px, so `QVBoxLayout` squeezed every row from 63 px to
+31 px — exactly the overlap in the screenshot.
+
+**What the adversarial review found that I had WRONG** (it measured on the real cocoa platform;
+offscreen cannot reproduce any of it): the rebuild was the trigger, not the mechanism.
+`SessionRow` built `preview_label` and `metrics_host` PARENTLESS and called `setVisible()` on them
+before `addWidget` — and `setVisible(True)` on a parentless widget **creates and shows a real
+NSWindow**. Two per row: 8.96 ms + 6.72 ms and four window-activation flips each. For 74 chats
+that is **296 activation flips and ~1.2 s per build**, and macOS closes popups when another window
+takes key status — so the popup killed itself. Proven by bisection: the popup closed with 3 chats
+as well as 74, and stopped closing the moment the widgets were parented.
+
+My focus theory was wrong and measured so: with and without `_register_aux_dialog(switcher)`,
+`_hide_if_inactive` ran 592 times and hid the palette **0 times** — it short-circuits because a
+visible `Qt.Popup` DOES report `isActiveWindow() == True` on cocoa. That registration was removed
+rather than shipped on a false premise. `hide()` vs `setParent(None)` in `_clear_rows` was also
+not load-bearing (kept anyway: it cannot flash).
+
+**Shipped**:
+- `session_switcher.py`: `QLabel(preview_text, self)` and `QWidget(self)` — the whole fix.
+  Measured after: build 74 rows **1150-1870 ms → 45-52 ms**, filter keystrokes 339 ms → 10 ms,
+  500 chats 26.9 s → 299 ms, activation flips **296 → 0**, and the row size hint is finally
+  identical fresh vs rebuilt (the 8 px inflation I had papered over with `adjustSize()` was the
+  same parentless show being laid out outside the popup's stylesheet scope).
+- Digests are read SYNCHRONOUSLY on open (42 ms cold / 1.9 ms warm on the real store; the review
+  reproduced this and measured the unacceptable threshold at ~250 MB of transcripts, 3000x away).
+  `session_digests_ready`, `_on_session_digests_ready` and the worker thread are gone.
+- `_refresh_session_picker` no longer pushes into an open popup. This mattered more than I
+  claimed: `refresh_history` calls it on EVERY run event, so streaming a reply with the switcher
+  open used to rebuild 74 rows repeatedly. Rename/delete refresh it explicitly instead
+  (`_refresh_open_session_switcher`), which the review proved closed the popup before the parent
+  fix and does not after.
+- `set_digests` returns early when the digests and the active id are unchanged (reopening is now
+  free instead of a 50 ms rebuild).
+- `_fit_list` kept for its elision half — rows built while the popup is open never get the
+  `resizeEvent` that elides them — with `list_layout.activate()` instead of `adjustSize()`.
+- Header control reads `display_title`: every one of the 74 real chats is titled "New session",
+  so the header said "New chat" for all of them while the row showed the opening question.
+- `ui/settings/common.py`: same parentless-show, one line, 7 settings pages.
+
+**Testing**: `tests/basic` 548 passed. Two new guards, both mutation-checked (reverting the fix
+fails them): rows never deliver a Show event to an unparented widget — an app-level event filter,
+which works offscreen where neither timing nor pixels can see this — and a rebuild under an open
+popup never squeezes a row below its own minimum. Plus a no-op-on-identical-data test.
+
+**Not proven here**: everything above the parenting fix was measured offscreen; the cocoa numbers
+and the popup-closing proof come from the review's harness, not from the shipping app being driven
+by hand.
+
+**Left on the table** (review's own ranking, not taken): updating rows in place instead of
+rebuilding for rename/delete (~1 ms vs 50 ms, and structurally cannot close the popup);
+virtualizing the list (only matters past a few hundred chats); warming the digest cache once on
+the bootstrap thread. `SessionDigestCache.cached()`/`.clear()` are dead outside tests.
+
+### Task: Attachment previews were being thrown away — the gateway had them all along (2026-09-06)
+
+**Operator**: "any attachment is normally attached to the abstractframework runtime… the fact
+that we attached them to a message must have attached them to the runtime — investigate
+../abstractruntime/."
+
+**They were right.** `GatewayWorker._upload_attachments` (:197) POSTs the real BYTES to
+`/api/gateway/attachments/upload` on every send, and the gateway persists them
+content-addressed (`abstractruntime/.../storage/artifacts.py`, blobs keyed by sha256; the store
+currently holds 82k artifacts / 6.6 GB, 51 of them `semantic_kind: attachment`). The client threw
+the returned `$artifact` away: `app.py:6943` sets `append_user_now = True` for every send, so
+`append_user_message=not append_user_now` is always False and the worker's ref-recording branch
+(:1061) is DEAD; the palette instead appended the turn itself with
+`_local_attachment_preview_items`, which emits only `local_path`/`filename`/`modality`.
+
+**Second half of the bug**: the download route is scoped to the run that OWNS the artifact. An
+uploaded attachment belongs to a synthetic `session_memory_<session_id>` run, not to the chat run
+that carried it — proven live: owner run → 200 + bytes, a real but different chat run → 404
+`artifact not found`. `controller.download_artifact` only ever used the run id passed in, so even
+a stored `$artifact` would have 404'd.
+
+**Shipped**: `llm_manager.merge_message_metadata(message_id, metadata)` (a sibling of
+`remove_message`) + a controller wrapper; `GatewayWorker._attachment_preview_items()` pairs each
+uploaded ref with the local path it came from (extracted, so the append and the emit share it) and
+emits `{"type": "attachments_uploaded"}` when the palette already showed the turn;
+`_on_attachments_uploaded` merges the refs into the pending message and refreshes.
+`download_artifact` now prefers `artifact["run_id"]` over the caller's.
+
+**Why not just append later**: the optimistic append is what makes the transcript feel instant and
+it carries `_pending_user_message_id`, the hook `run_start_failed` uses to withdraw a turn that
+never started. Patching the message once the upload returns keeps both.
+
+**Live proof (real client code, real gateway)**: upload a PNG → `$artifact
+848516bdfcb7b90f…`, `run_id session_memory_probe_durability` → DELETE the local file →
+`download_artifact(run_id="a_chat_run_that_does_not_own_it", artifact=item)` → 79 bytes back.
+Preview survives.
+
+**Testing**: `tests/basic` 546 passed; new `test_attachment_durability.py` (4): ref/path pairing
+incl. a short upload list, owner-run precedence with a fallback to the caller's run,
+`merge_message_metadata` merging in place without disturbing siblings or snapshot fields and
+refusing unknown ids/empty payloads, and the palette recording refs only when there is a pending
+turn.
+
+**Still true**: attachments sent BEFORE this change carry no `$artifact`, so the 5 dead
+screenshots in the operator's history stay dead. Only new sends are durable.
+
+### Task: Attached files became SMALL THUMBNAILS — first attempt lost the picture entirely (2026-09-06)
+
+**Operator, first ask**: a screenshot attached to a sent message rendered as a huge box: "not at
+all suited to the chat; make sure it uses the minimum amount of space and looks like a normal
+attachment; possibly make it a lot smaller but clickable for preview."
+
+**Operator, on my first attempt**: "it now removed ALL thumbnails, terrible!" — I had read
+"looks like a normal attachment" as an icon+filename pill with a 20 px stamp. Wrong reading:
+"make **it** a lot smaller" means the THUMBNAIL stays and shrinks. A file chip is what you show
+when there is no picture; it is not a substitute for one.
+
+**Mechanism of the original complaint**: `MessageCard` sent EVERY media artifact — including
+files the user attached — through `MediaGallery`. `_base_tile_size(1)` is 260 px and the tile is
+SQUARE, so a 2560x1440 screenshot became a 260x260 block whose picture occupied a 260x146 band
+with ~114 px of dead letterboxing. The 2026-08 note "a lone image gets a real preview, not a 50px
+stamp" was written for media the assistant GENERATES; it was being applied to inputs too.
+
+**Shipped (`app.py` only)**:
+- `ArtifactPreviewCard(compact=True)`: starts as an icon + elided-name pill and, the moment the
+  file resolves to a readable image, REPLACES that pill with the picture itself — 56 px tall,
+  aspect kept, max 132 px wide (a 16:9 screenshot lands at 100x56, ~12x less area than the
+  260x260 tile). Anything with no picture (a PDF, or an image whose file is gone) keeps the pill.
+  The whole card is the button (child labels let the press propagate up), `set_tile_size` is a
+  no-op so a gallery cannot re-inflate it, and a failed resolve drops the pointing cursor and
+  puts the reason in the tooltip instead of pretending to be clickable.
+- `_rounded_thumbnail(pixmap, height=, max_width=)`: reuses `_image_thumbnail_size` for the
+  bounds, rounds the corners, renders at 2x with `setDevicePixelRatio(2.0)` (same technique
+  `icons.py` already ships). Aspect is KEPT — a centre-crop to a square was the first attempt and
+  it destroys what a screenshot looks like.
+- `ImagePreviewDialog`: modeless full-size look with the source dimensions, `Open` (hands the file
+  to the Mac) and `Close`; `fit_size()` bounds to 82% of the screen and never upscales.
+- `MessageCard`: `role == "user"` → one `attachmentChipStrip` (FlowContainer, wraps); anything
+  else keeps the gallery. `_build_media_preview(compact=True)` previews EVERY kind, so a PDF beside
+  a screenshot still reaches the bubble and the `artifactChip` fallback only fires when the
+  builder itself refuses.
+
+**Boundary that decides the shape**: attachments are INPUTS — small thumbnail, full size one
+click away. Generated images ARE the answer — they keep the 260 px gallery. Role is the
+discriminator.
+
+**Adversarial review (subagent, ordered by the operator) — what it proved**:
+- The 20px centre-crop WAS the bug, quantified: `KeepAspectRatioByExpanding` into 40x40 device px
+  keeps **0.077% of a 2560x1440 source, 1/169th of the old tile's area**, and the centre of a
+  screenshot is its empty middle. Rendered side by side, the 20px chip and the glyph-only pill are
+  indistinguishable. The gate being `role == "user"` is why "ALL thumbnails" was literally true:
+  every image the operator ever attached is on a user message.
+- RULED OUT with repros, not argument: retina DPR (a DPR-2 pixmap in a fixed-size QLabel paints
+  correctly at `QT_SCALE_FACTOR=2`; `icons.py` is the whole app's icon system on that technique),
+  the QSS, reparenting (`parent=palette` → `setParent(strip)` keeps pixmap + connections), the
+  emit-before-connect race (connect precedes the thread start), and emit-after-destroy (swallowed).
+- 5 of the operator's 6 image attachments are ENOENT on disk (4 screencapture temp files + a
+  deleted Desktop file); exactly ONE message in the whole history can still show a picture.
+- Confirmed the missing-file blindness is PRE-EXISTING: the unchanged square-tile path renders
+  `mediaOpenTile` with a file glyph and `source pixmap: None` for the same input.
+
+**Fixes applied from that review**: a compact card whose file never resolved used to swallow the
+click (the `artifactChipTray` fallback and its `QMessageBox` are dead code for user messages now)
+— it reports the reason instead; `_start_resolve()` resolves an existing `local_path` inline
+(one stat call) rather than spawning a thread per attachment per history refresh (18 for one real
+message here), which also removes the ~34 ms pill→picture flash and its reflow; the cleared pill
+widgets are unparented before `deleteLater` so they cannot overdraw the picture for a frame;
+`Qt.IgnoreAspectRatio` (safe only because `_image_thumbnail_size` had already fixed the aspect)
+became `KeepAspectRatio`; a redundant `setParent` before `addWidget` went away; and a false
+comment claiming the pill matches the thumbnail height was corrected.
+**Declined**: extracting a separate `AttachmentThumbCard`. It would duplicate the resolve thread,
+the path bookkeeping and the open paths to remove one boolean — bigger, not simpler.
+
+**Known, pre-existing, NOT introduced here**: a screenshot dragged from the macOS screenshot UI
+lives in `/var/folders/.../TemporaryItems/NSIRD_screencaptureui_*/` and macOS deletes it later.
+`controller.download_artifact` then raises (no `artifact_id` for a local attachment), so its
+preview can never come back — measured across the real session store: 66 attachment paths still
+on disk, 12 gone, and every gone one is a Desktop file the user removed or a screencapture temp
+file. The old square tile showed a bare file glyph for exactly the same files. That error now
+reads `<name> is no longer on disk` instead of `artifact_id is required`. Making attachments
+durable (copying them into the chat folder at send time) is a separate decision, NOT taken —
+put to the operator.
+
+**Testing**: `tests/basic` 540 passed. `test_attachment_layout.py`: thumbnail sizing at three
+aspect ratios (16:9, tall, panorama) with the retina DPR asserted; the compact card ends up as
+`mediaPreviewThumb` carrying the SOURCE pixels (middle pixel equals the colour written to disk —
+this is the assertion that fails if it silently falls back to a glyph); the pill survives for a
+PDF and for a missing image; a click on the thumbnail child opens the modeless dialog while a
+non-image goes to the OS; `fit_size` bounds without upscaling; a user message renders one strip,
+no gallery, exactly one thumbnail tall; a deleted attachment raises `FileNotFoundError` naming
+the file while a gateway artifact with no id stays the old `ValueError`. The existing gallery test
+moved to `role: assistant`.
+The review caught that the MessageCard test PASSED with the picture never loading (it asserted
+only an upper bound on the row height, which a 28px pill satisfies). It now asserts
+`_source_pixmap` and the exact thumbnail height, and was mutation-checked: pointing the message at
+a missing file makes it FAIL, and stubbing out the pill→picture swap breaks the suite.
+
+**Not proven**: offscreen renders only (strip and dialog both rendered and reviewed); the
+operator's own screenshot was unreadable (`/var/folders/...` is sandboxed from this shell), so the
+thumbnail was verified on synthetic 2560x1440 images.
+
+
+### Task: Chat switcher — session picking on facts instead of a truncated first line (2026-09-06)
+
+**Operator**: the combo listing "26/09/05 - what's on today's news ?" is not good enough — the
+picker needs actionable metadata, colors and metrics.
+
+**Shipped**:
+- `core/session_digest.py` (Qt-free): `SessionDigest` + `SessionDigestCache`. Everything comes
+  from local files already on disk — `sessions.json` (id, title, stamps) and each chat's
+  `session.json` (messages, `_assistant_stats.usage`/`duration_ms`/`run_id`, tool metadata,
+  `workspace_root`). Metrics: turns (ask_user replies excluded), answers, tool calls, failed
+  tools, top tools, input/output tokens, wall time (deduped by run id), runs, attachments,
+  preview, first prompt, last role. Cache keyed by (mtime, size) — 72 chats / 9 MB of
+  transcripts are parsed once, then served from memory; `warm()` runs on a worker thread.
+  Formatting helpers (`relative_time`, `recency_group`, `format_count/tokens/duration_ms`,
+  `workspace_label`) take an explicit `now` so they are testable.
+- `ui/session_switcher.py`: popup with search, recency groups, per-row metric chips with icons
+  and tones, an accent spine (active / fresh / warn / idle), ACTIVE badge, keyboard nav
+  (↑↓/Return/Esc/⌘N/⌘⌫), in-row rename, and in-row delete confirmation (no modal).
+- `session_index.delete_session` (removes the chat folder, guarded to stay inside
+  `sessions/`; the legacy `.` chat deletes only its `session.json` and is kept from returning by
+  a `legacy_removed` marker; deleting the last chat mints a fresh one), plus
+  `llm_manager.session_digests/rename_session/delete_session` and the controller wrappers.
+- Palette: the QComboBox became a button that opens the switcher, digests are warmed on a
+  thread (`session_digests_ready`), the chat name is elided to the control's width, and
+  switching/deleting is refused while a run is live.
+
+**Design notes proven by offscreen renders**: index titles are almost always "New session", so
+the digest carries the transcript's first prompt and `display_title` falls back to it (this also
+removed a second full read per chat that the old fallback did); a gateway-minted workspace shows
+as "gateway folder" instead of a 32-hex id; metric chips are capped at 5 and the metrics host is
+width-Ignored, otherwise a long row pushed the time label out of the viewport; the preview is
+hidden when it repeats the title.
+
+**Testing**: `tests/basic` 530 passed. New `test_session_switcher.py` (22): digest arithmetic,
+run dedup, cache re-read only after a change, missing transcript = empty chat (not unknown),
+formatting, filtering, sorting, grouping, keyboard, rename-once, delete confirmation, index
+deletion (folder removed, active preserved, legacy stays deleted across reloads) and the palette
+guards.
+
+**Not proven**: offscreen only; deletion was exercised on temp dirs, never on the real
+`~/.abstractassistant/sessions/`.
+
+
 ### Task: 0.5.0 UX pass — voice conversation, live activity, sidebar settings, modeless approvals, thin-client fixes (2026-09-05)
 
 **Scope**: merged `assistant-v2-gateway-redesign` into `main` (fast-forward), then a two-agent

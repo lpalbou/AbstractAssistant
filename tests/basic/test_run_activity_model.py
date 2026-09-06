@@ -496,7 +496,13 @@ def test_run_activity_card_set_model_builds_recent_rows_and_more_link() -> None:
     card.set_expanded(True)
     assert card.is_expanded() and not card._steps_host.isHidden()
     card._more_link.click()
-    assert len(card._rows) == 6 and card._more_link.isHidden()
+    assert len(card._rows) == 6
+    # The link stays: it folds the earlier steps back away.
+    assert not card._more_link.isHidden()
+    assert card._more_link.text() == "Show only the last 4 steps"
+    card._more_link.click()
+    assert list(card._rows.keys()) == ["cycle:3", "cycle:4", "cycle:5", "cycle:6"]
+    assert card._more_link.text() == "2 earlier steps…"
 
     # Incremental refresh updates rows in place when the visible set is unchanged.
     model.apply_event({"type": "cycle_result", "iteration": 6, "content": "done", "ts": T2})

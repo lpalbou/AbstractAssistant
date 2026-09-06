@@ -83,9 +83,11 @@ them. A grant the gateway still rejects makes the run start fail; the palette th
 | Use gateway defaults | Restore each tool to the gateway's approval default (press Save to keep) | this app |
 
 Off and Ask narrow what the gateway allows; Auto pre-approves on this Mac. Tools you never
-configured follow the gateway's approval default. Blanket grants ("Always allow … on this Mac" in
-the approval sheet, "Trust enabled tools in this chat") cover the observe and act tiers only;
-outreach and destructive tools are approved one call at a time unless you set them to Auto here.
+configured follow the gateway's approval default. "Always allow … on this Mac" in the approval
+sheet is offered for the observe and act tiers only. "Allow all enabled tools in this chat" is
+always offered, and it reaches exactly as far as the batch you granted it on: granted on a
+read-only batch it keeps asking for outreach and destructive calls, granted on a destructive
+batch (the item then says so) it covers everything this page has not switched off, for that chat.
 
 ## Window & shortcuts
 

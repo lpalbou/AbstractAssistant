@@ -67,7 +67,13 @@ from abstractassistant.ui.styles import MONO_STACK, dialog_stylesheet, refresh_s
 SHEET_WIDTH = 560
 SHEET_MIN_HEIGHT = 320
 SHEET_MAX_HEIGHT = 640
-SESSION_TRUST_MAX_RANK = 2  # observe / act only; outreach (3) and destroy (4) never
+# Above this tier the blanket grant is still OFFERED, but it names what it
+# covers: a grant made on a destructive batch is a decision, not a default.
+SESSION_TRUST_PLAIN_MAX_RANK = 2
+SESSION_TRUST_LABELS = {
+    3: "Allow all enabled tools in this chat, including ones that reach outside",
+    4: "Allow all enabled tools in this chat, including destructive ones",
+}
 
 _T = THEME
 _M = METRICS
@@ -938,22 +944,36 @@ class ToolApprovalSheet(QDialog):
         self._fit_height()
 
     def _configure_session_action(self, tier: Dict[str, Any]) -> None:
+        """The blanket grant is always on offer for a batch of listed, enabled
+        tools — but it states how far it reaches, and the grant it emits is
+        capped at the tier the user is looking at."""
         reason = ""
-        label = str(tier.get("label") or "")
+        rank = int(tier.get("rank") or 0)
         if tier.get("unknown"):
             reason = "Not offered: this batch includes a tool the gateway does not list."
-        elif int(tier.get("rank") or 0) > SESSION_TRUST_MAX_RANK:
-            reason = f"Not offered for a batch rated “{label}”: tools that reach outside or destroy never get blanket trust."
         elif any(not card.presentation.available for card in self.card_widgets):
             reason = "Not offered: a tool in this batch is disabled on the gateway."
         self.allow_session_action.setEnabled(not reason)
+        self.allow_session_action.setText(
+            SESSION_TRUST_LABELS.get(rank, "Allow all enabled tools in this chat")
+        )
         if reason:
             self.allow_session_action.setToolTip(reason)
             self.allowMenuButton.setToolTip(reason)
+            return
+        scope = str(tier.get("label") or "").strip().lower()
+        if rank > SESSION_TRUST_PLAIN_MAX_RANK and scope:
+            tip = (
+                f"Auto-approve every tool this Mac has not switched off — up to and including “{scope}” "
+                "calls like the ones above — for the rest of this chat (⇧⏎)"
+            )
         else:
-            tip = "Auto-approve every tool this Mac has not switched off, for the rest of this chat (⇧⏎)"
-            self.allow_session_action.setToolTip(tip)
-            self.allowMenuButton.setToolTip("More ways to allow (⇧⏎ allows all enabled tools in this chat)")
+            tip = (
+                "Auto-approve every tool this Mac has not switched off, for the rest of this chat (⇧⏎). "
+                "A later batch that reaches outside or destroys still asks."
+            )
+        self.allow_session_action.setToolTip(tip)
+        self.allowMenuButton.setToolTip("More ways to allow (⇧⏎ allows all enabled tools in this chat)")
 
     def _fit_height(self) -> None:
         layout = self.layout()
@@ -991,6 +1011,8 @@ class ToolApprovalSheet(QDialog):
             "wait_key": str(batch.get("wait_key") or ""),
             "remember": remember,
             "tool_calls": list(batch.get("tool_calls") or []),
+            # How far a "session" grant may reach: the loudest tier shown here.
+            "trust_rank": int((self.batch_risk or {}).get("rank") or 0),
         }
         self.decided.emit(decision, info)
         self._advance()

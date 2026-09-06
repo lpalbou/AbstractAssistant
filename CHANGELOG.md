@@ -5,6 +5,44 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Fixed
+- **Attachments come back in old sessions.** The runtime keeps every file you ever attached, and
+  its history already reports which turn each one belonged to — the app was reading that history
+  and discarding the attachments. Reopening a session now restores them from the runtime, so a
+  screenshot you attached in June is visible again even though macOS deleted your copy of it.
+  Measured on this machine: 39 attachments across 7 sessions, including screenshots whose local
+  files are long gone.
+- **The header names the session you are in.** It said "New chat" for every session, because it
+  read the stored title — which is the placeholder "New session" for practically all of them —
+  and only ever saw the computed name after you opened the switcher. It now shows the session's
+  name or its opening question, falling back to "Untitled session". Sessions are called sessions
+  throughout the UI now, not "chats".
+- **The chat switcher stays open, renders correctly, and opens instantly.** It used to close
+  itself a few seconds after opening, and come back with rows drawn on top of each other. Two
+  causes: rows were built with widgets that were made visible before being attached to the popup,
+  which opens a real window per widget — 296 window-activation flips and ~1.2s for 74 chats, and
+  macOS closes a popup when another window takes focus; and the metrics arrived on a background
+  thread that rebuilt every row underneath you. Opening now takes about 45ms for 74 chats
+  (previously 1.2–1.9s), the rows carry their metrics on the first open, typing in the filter is
+  ~30x faster, and renaming or deleting a chat from the list no longer closes it. The header
+  control also names the current chat by its opening question instead of showing "New chat" for
+  every unnamed chat.
+- **Attachment previews survive the original file being deleted.** Every file you attach is
+  already uploaded to the gateway and stored there, but the app recorded only its path on your
+  Mac — so a screenshot dragged out of the macOS screenshot UI lost its preview as soon as macOS
+  emptied its temp folder. The message now also records the gateway's copy and falls back to it,
+  and a file that really is unreachable says so ("… is no longer on disk") instead of
+  "artifact_id is required".
+
+### Changed
+- **Files you attach show as small thumbnails, not full-size previews.** A message you send with a
+  screenshot attached now carries a thumbnail about 56px tall, keeping the picture's shape,
+  instead of a 260px square that letterboxed the image and pushed the conversation off-screen.
+  Clicking it opens the image full size in a preview window (Esc closes it, `Open` hands the file
+  to the Mac). Files with no picture to show — a PDF, or an image whose file has since been
+  deleted — appear as an icon-and-name chip and open in their default app. Images the assistant
+  *generates* still get the full gallery: those are the answer, not an input.
+
 ## [0.5.0] - 2026-09-05
 
 AbstractAssistant 0.5.0 is the gateway-native release: the desktop app is a thin client of
@@ -18,6 +56,12 @@ app.
   composer shows listening / heard / thinking / speaking / paused with a live microphone meter,
   pause and end controls, and every failure names its cause. Push-to-dictate on the microphone
   button is unchanged. See [docs/voice.md](docs/voice.md).
+- **Chat switcher.** The header's chat control opens a searchable list of chats grouped by
+  recency. Each row carries the facts needed to pick one: topic, latest question, last activity,
+  turns, tool calls, tokens, running time and workspace folder, with failed tool calls and
+  unanswered questions flagged. Chats can be renamed and deleted (transcript included) from the
+  row, with confirmation. The metrics are computed from local files and cached by file identity,
+  so the list costs no gateway call.
 - **Live run activity in the transcript.** While a run works, a card at the bottom of the chat
   shows the current step, elapsed time, and the most recent steps (reasoning cycles, tool calls
   with their arguments and durations, approvals, pauses, reconnects). It can pause, resume or stop
@@ -103,9 +147,12 @@ app.
   "Reply ready").
 
 ### Fixed
-- Blanket trust stops at the act tier: "Always allow … on this Mac" is offered only for tools the
-  gateway classifies as observe or act, "Trust enabled tools in this chat" never auto-approves an
-  outreach or destructive call, and "All auto" on the Tools page leaves those tiers on Ask.
+- Blanket trust is scoped rather than blocked: "Always allow … on this Mac" is offered for the
+  observe and act tiers, and "Allow all enabled tools in this chat" reaches exactly as far as the
+  batch it was granted on (the menu item names the scope, so a grant made on a read-only batch
+  still asks before an outreach or destructive call). "All auto" on the Tools page leaves those
+  tiers on Ask.
+- The activity card's "N earlier steps…" link folds the list back to the recent steps.
 - In the approval sheet, Return activates the Deny or Decide later button when it has focus
   instead of allowing the batch; the same undecided wait raised twice is shown once.
 - The question dialog is modeless: the palette stays usable while a question is open, and a

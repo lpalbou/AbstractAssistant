@@ -458,11 +458,50 @@ class AssistantController:
     def list_sessions(self) -> List[Dict[str, str]]:
         return self.llm_manager.list_sessions()
 
+    def session_digests(self) -> List[Dict[str, Any]]:
+        """Per-chat metrics for the switcher. Reads local files only, cached by
+        file identity, so it is fast enough to call on the GUI thread (42 ms for
+        74 chats cold, under 2 ms warm)."""
+        try:
+            return list(self.llm_manager.session_digests() or [])
+        except Exception:
+            # Fall back to the index-only view so the switcher still lists chats.
+            out: List[Dict[str, Any]] = []
+            for record in self.list_sessions() or []:
+                if isinstance(record, dict) and str(record.get("session_id") or "").strip():
+                    out.append(
+                        {
+                            "session_id": str(record.get("session_id")),
+                            "title": str(record.get("title") or "New session"),
+                            "created_at": str(record.get("created_at") or ""),
+                            "updated_at": str(record.get("updated_at") or ""),
+                            "detailed": False,
+                        }
+                    )
+            return out
+
+    def rename_session(self, session_id: str, title: str) -> None:
+        self.llm_manager.rename_session(session_id, title)
+
+    def delete_session(self, session_id: str) -> str:
+        """Delete a chat and its transcript; returns the new active session id."""
+        return str(self.llm_manager.delete_session(session_id) or "")
+
     def create_session(self) -> str:
         return self.llm_manager.create_new_session()
 
     def switch_session(self, session_id: str) -> None:
         self.llm_manager.switch_session(session_id)
+
+    def backfill_session_attachments(self) -> int:
+        """Restore the active session's attachments from the runtime."""
+        backfill = getattr(self.llm_manager, "backfill_attachments_from_gateway", None)
+        if not callable(backfill):
+            return 0
+        try:
+            return int(backfill() or 0)
+        except Exception:
+            return 0
 
     def session_messages(self) -> List[Dict[str, Any]]:
         return self.llm_manager.session_messages()
@@ -896,17 +935,16 @@ class AssistantController:
         except Exception:
             return 0
 
-    def _tool_trustable(self, item: Dict[str, Any]) -> bool:
-        """May a per-chat blanket grant auto-approve this tool? Tools the
-        gateway classifies as outreach/destroy never qualify; a tool with no
-        tier (a gateway that does not classify) keeps the plain grant."""
-        return self._tool_risk_rank(item) <= self.TRUST_MAX_RISK_RANK
+    def _tool_trustable(self, item: Dict[str, Any], ceiling: int) -> bool:
+        """May this chat's grant auto-approve this tool? Only up to the tier
+        the grant was made on; a tool with no tier keeps the plain grant."""
+        return self._tool_risk_rank(item) <= max(0, int(ceiling))
 
     def tool_policy_for_run(self) -> Dict[str, List[str]]:
         inventory = self.tool_inventory()
         auto: List[str] = []
         require: List[str] = []
-        trust_enabled_for_chat = self.session_tool_auto_approval_active()
+        trust_ceiling = self.session_trust_rank()
         for item in inventory.get("items") or []:
             if not isinstance(item, dict):
                 continue
@@ -916,7 +954,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 continue
-            if mode == "approve" or (trust_enabled_for_chat and self._tool_trustable(item)):
+            if mode == "approve" or (trust_ceiling and self._tool_trustable(item, trust_ceiling)):
                 auto.append(name)
             else:
                 require.append(name)
@@ -925,20 +963,49 @@ class AssistantController:
             "require_approval_tools": require,
         }
 
-    def grant_session_tool_auto_approval(self, *, session_id: Optional[str] = None) -> None:
+    def grant_session_tool_auto_approval(
+        self, *, session_id: Optional[str] = None, max_rank: Optional[int] = None
+    ) -> None:
+        """Trust this chat's enabled tools up to ``max_rank``.
+
+        The ceiling is the loudest risk tier the user actually saw when they
+        granted it: approving a batch of file reads never buys blanket trust
+        for a later destructive call, but granting it ON a destructive batch
+        does — the sheet says so on the item they clicked.
+        """
         sid = str(session_id or self.active_session_id or "").strip()
-        if sid:
-            self._session_auto_approve_all.add(sid)
+        if not sid:
+            return
+        self._session_auto_approve_all.add(sid)
+        ranks = getattr(self, "_session_trust_rank", None)
+        if not isinstance(ranks, dict):
+            ranks = {}
+            self._session_trust_rank = ranks
+        wanted = self.TRUST_MAX_RISK_RANK if max_rank is None else int(max_rank)
+        wanted = max(1, min(4, wanted))
+        ranks[sid] = max(int(ranks.get(sid, 0)), wanted)
 
     def session_tool_auto_approval_active(self, *, session_id: Optional[str] = None) -> bool:
         sid = str(session_id or self.active_session_id or "").strip()
         return bool(sid and sid in self._session_auto_approve_all)
 
+    def session_trust_rank(self, *, session_id: Optional[str] = None) -> int:
+        """How far this chat's blanket grant reaches (0 when there is none)."""
+        if not self.session_tool_auto_approval_active(session_id=session_id):
+            return 0
+        sid = str(session_id or self.active_session_id or "").strip()
+        ranks = getattr(self, "_session_trust_rank", None)
+        if isinstance(ranks, dict) and sid in ranks:
+            return int(ranks[sid])
+        return int(self.TRUST_MAX_RISK_RANK)
+
     def should_auto_approve_tool_batch(self, tool_calls: Any, *, session_id: Optional[str] = None) -> bool:
         """A per-chat trust grant auto-approves a batch only when every call is
-        an enabled tool the grant may cover (risk rank ≤ 2, or set to Auto by
-        name); a later outreach/destructive batch still asks."""
-        if not self.session_tool_auto_approval_active(session_id=session_id):
+        an enabled tool the grant may cover: a tool set to Auto by name, or one
+        at or below the tier the grant was made on. A batch louder than the
+        grant still asks."""
+        ceiling = self.session_trust_rank(session_id=session_id)
+        if not ceiling:
             return False
         if not isinstance(tool_calls, list) or not tool_calls:
             return False
@@ -959,7 +1026,7 @@ class AssistantController:
             mode = str(item.get("selected_mode") or "ask").strip().lower()
             if mode == "disabled" or item.get("available") is False:
                 return False
-            if mode != "approve" and not self._tool_trustable(item):
+            if mode != "approve" and not self._tool_trustable(item, ceiling):
                 return False
         return True
 
@@ -992,8 +1059,17 @@ class AssistantController:
 
         artifact_id = str(artifact.get("$artifact") or artifact.get("artifact_id") or "").strip()
         if not artifact_id:
+            if local_path:
+                # An attachment the user picked from disk with no gateway copy:
+                # there is nothing to download, the file itself is gone (a
+                # screenshot dragged out of the macOS screenshot UI lives in a
+                # temp folder macOS empties).
+                raise FileNotFoundError(f"{Path(local_path).name} is no longer on disk")
             raise ValueError("artifact_id is required")
-        rid = str(run_id or "").strip()
+        # The artifact download route is scoped to the run that OWNS the
+        # artifact. An uploaded attachment belongs to the session's own upload
+        # run, not to the chat run that carried it, so its recorded run_id wins.
+        rid = str(artifact.get("run_id") or run_id or "").strip()
         if not rid:
             raise ValueError("run_id is required")
 
@@ -1031,6 +1107,15 @@ class AssistantController:
         never started can be withdrawn again."""
         result = self.llm_manager.append_message(role="user", content=content, metadata=metadata)
         return str(result or "")
+
+    def merge_message_metadata(self, message_id: str, metadata: Dict[str, Any]) -> bool:
+        merger = getattr(self.llm_manager, "merge_message_metadata", None)
+        if not callable(merger):
+            return False
+        try:
+            return bool(merger(message_id, metadata))
+        except Exception:
+            return False
 
     def remove_message(self, message_id: str) -> bool:
         remover = getattr(self.llm_manager, "remove_message", None)

@@ -52,6 +52,17 @@ def _push_assistant(out: List[Dict[str, Any]], *, content: str, ts: str, run_id:
     out.append(msg)
 
 
+def _attachment_metadata(attachments: Any) -> Optional[Dict[str, Any]]:
+    """Message metadata carrying a turn's attachment refs, or None.
+
+    Both keys are written because the transcript renderer reads either one.
+    """
+    items = [item for item in (attachments or []) if isinstance(item, dict)]
+    if not items:
+        return None
+    return {"attachments": items, "media": items}
+
+
 def _seed_from_session_turns(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
     turns = bundle.get("session", {}).get("turns") if isinstance(bundle.get("session"), dict) else None
     if not isinstance(turns, list) or not turns:
@@ -68,7 +79,16 @@ def _seed_from_session_turns(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
         answer_meta = turn.get("answer_meta")
         stats = turn.get("stats")
         if prompt.strip():
-            _push_user(out, content=prompt, ts=ts_user, run_id=run_id)
+            # The runtime is the durable record of a turn's attachments: each
+            # one is an artifact ref it can serve forever. Dropping them here
+            # is why reopening an old session showed no attachments at all.
+            _push_user(
+                out,
+                content=prompt,
+                ts=ts_user,
+                run_id=run_id,
+                meta=_attachment_metadata(turn.get("attachments")),
+            )
         if answer.strip():
             meta: Dict[str, Any] = {"_repl": {}}
             if isinstance(answer_meta, dict):

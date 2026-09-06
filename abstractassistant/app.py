@@ -151,6 +151,7 @@ from .core.voice_conversation import (
 )
 from .core import tool_presenter as _presenter
 from .ui.activity import ACTIVITY_QSS, RunActivityCard, RunActivityModel
+from .ui.session_switcher import SessionSwitcher
 from .theme import THEME
 from .ui.approval import (
     APPROVAL_QSS,
@@ -473,56 +474,20 @@ def _assistant_action_href_allowed(href: Any) -> bool:
     return scheme in {"http", "https", "mailto", "data", "file"}
 
 
-def _session_picker_date_label(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return "--/--/--"
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if parsed.tzinfo is not None:
-            parsed = parsed.astimezone()
-        return parsed.strftime("%y/%m/%d")
-    except Exception:
-        match = re.match(r"(\d{4})-(\d{2})-(\d{2})", text)
-        if match:
-            year, month, day = match.groups()
-            return f"{year[-2:]}/{month}/{day}"
-    return "--/--/--"
+def _session_button_text(title: Any, *, limit: int = 26) -> str:
+    """The header control's label: the SESSION's topic, short enough for the bar.
 
-
-def _session_picker_topic(value: Any, *, limit: int = 58) -> str:
-    text = " ".join(
-        str(value or "").replace("\r", " ").replace("\n", " ").split()
-    ).strip()
-    if not text:
-        return "New session"
+    The control names the session you are in, so it falls back to "Untitled
+    session" and never to "New …" — every session on disk is stored with the
+    placeholder title "New session", which made the header claim every one of
+    them was new.
+    """
+    text = " ".join(str(title or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    if not text or text.lower() in {"new session", "new chat"}:
+        return "Untitled session"
     if len(text) <= limit:
         return text
     return f"{text[: max(0, limit - 1)].rstrip()}…"
-
-
-def _session_picker_label(session: Dict[str, Any]) -> str:
-    stamp = session.get("created_at") or session.get("updated_at") or ""
-    topic = _session_picker_topic(session.get("title"))
-    return f"{_session_picker_date_label(stamp)} - {topic}"
-
-
-def _session_picker_tooltip(session: Dict[str, Any]) -> str:
-    title = " ".join(
-        str(session.get("title") or "New session")
-        .replace("\r", " ")
-        .replace("\n", " ")
-        .split()
-    ).strip()
-    title = title or "New session"
-    created = str(session.get("created_at") or "").strip()
-    updated = str(session.get("updated_at") or "").strip()
-    lines = [title]
-    if created:
-        lines.append(f"Created: {created}")
-    if updated and updated != created:
-        lines.append(f"Updated: {updated}")
-    return "\n".join(lines)
 
 
 class _AssistantHtmlActionParser(HTMLParser):
@@ -1399,6 +1364,15 @@ def _local_attachment_preview_items(paths: List[str]) -> List[Dict[str, Any]]:
 _IMAGE_PREVIEW_HEIGHT = 50
 _IMAGE_PREVIEW_MAX_WIDTH = 220
 
+# What a message the USER sent shows for its files: the picture itself, kept
+# small (a 260px gallery tile is right for media the assistant MADE and wrong
+# for an input), clickable for the full-size preview. Files with no picture to
+# show fall back to a shorter icon + name pill.
+_ATTACHMENT_THUMB_HEIGHT = 56
+_ATTACHMENT_THUMB_MAX_WIDTH = 132
+_ATTACHMENT_CHIP_GLYPH = 20
+_ATTACHMENT_CHIP_MAX_TEXT = 168
+
 
 def _image_thumbnail_size(
     size: QSize,
@@ -1414,6 +1388,37 @@ def _image_thumbnail_size(
         bounded_width, bounded_height, Qt.KeepAspectRatio
     )
     return QSize(max(1, scaled.width()), max(1, scaled.height()))
+
+
+def _rounded_thumbnail(
+    pixmap: QPixmap, *, height: int, max_width: int, radius: int = 6
+) -> QPixmap:
+    """Small, corner-rounded thumbnail of ``pixmap``, rendered at 2x for retina.
+
+    The aspect ratio is kept — a screenshot has to still look like that
+    screenshot at 56px, which a square crop of its middle does not.
+    """
+    target = _image_thumbnail_size(pixmap.size(), height=height, max_width=max_width)
+    span = QSize(target.width() * 2, target.height() * 2)
+    canvas = QPixmap(span)
+    canvas.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    try:
+        clip = QPainterPath()
+        clip.addRoundedRect(
+            QRectF(0, 0, span.width(), span.height()), radius * 2, radius * 2
+        )
+        painter.setClipPath(clip)
+        painter.drawPixmap(
+            QRect(0, 0, span.width(), span.height()),
+            pixmap.scaled(span, Qt.KeepAspectRatio, Qt.SmoothTransformation),
+        )
+    finally:
+        painter.end()
+    canvas.setDevicePixelRatio(2.0)
+    return canvas
 
 
 def _message_key(message: Dict[str, Any]) -> str:
@@ -2716,12 +2721,30 @@ class MessageCard(QFrame):
         # own full-width transport rows because a tile cannot host a scrubber.
         gallery_width = max(120, int(bubble_width or 0) - 24)
         gallery: Optional[MediaGallery] = None
+        chip_strip: Optional[FlowContainer] = None
         # Anything that could not be previewed (PDFs, spreadsheets, unknown
         # types) still needs a chip. The old code only fell back when NOTHING
         # previewed, so a message mixing images with documents dropped the
         # documents from the bubble entirely.
         unpreviewed: List[Dict[str, Any]] = []
-        if callable(build_media_preview):
+        if callable(build_media_preview) and is_user:
+            # Files the USER attached are inputs they already know they sent:
+            # they get one line of compact chips, not a 260px gallery tile that
+            # pushes the conversation off-screen (operator ask 2026-09-06).
+            # The picture is one click away, in ImagePreviewDialog.
+            for artifact in self._media_artifacts:
+                preview_widget = build_media_preview(
+                    artifact, message, tile_size=0, compact=True
+                )
+                if preview_widget is None:
+                    unpreviewed.append(artifact)
+                    continue
+                if chip_strip is None:
+                    chip_strip = FlowContainer(bubble)
+                    chip_strip.setObjectName("attachmentChipStrip")
+                    bubble_layout.addWidget(chip_strip)
+                chip_strip.flow().addWidget(preview_widget)
+        elif callable(build_media_preview):
             image_artifacts = [
                 artifact
                 for artifact in self._media_artifacts
@@ -3676,6 +3699,7 @@ class ArtifactPreviewCard(QFrame):
         artifact: Dict[str, Any],
         resolve_path: Callable[[], Path],
         tile_size: Optional[int] = None,
+        compact: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -3684,31 +3708,141 @@ class ArtifactPreviewCard(QFrame):
         self._media_kind = _artifact_media_kind(self._artifact)
         self._title = _artifact_label(self._artifact)
         self._local_path: Optional[Path] = None
+        # Compact cards are small attachment thumbnails: no square tile, no card
+        # chrome, full size one click away.
+        self._compact = bool(compact)
         # Tiled cards live in a MediaGallery grid: they drop the card chrome
         # (the grid supplies the rhythm) and scale into a square tile.
-        self._tile_size = max(0, int(tile_size or 0)) or None
+        self._tile_size = None if self._compact else (max(0, int(tile_size or 0)) or None)
         self._source_pixmap: Optional[QPixmap] = None
         self._image_button: Optional[QPushButton] = None
+        self._thumb_label: Optional[QLabel] = None
+        self._preview_dialog: Optional["ImagePreviewDialog"] = None
+        self._content_layout: Optional[QVBoxLayout] = None
+        self._compact_layout: Optional[QHBoxLayout] = None
+        self._failure_reason: str = ""
 
-        self.setObjectName(
-            "mediaPreviewTile" if self._tile_size else "mediaPreviewCard"
-        )
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(6)
+        if self._compact:
+            self.setObjectName("mediaPreviewChip")
+            self._build_compact_chip()
+        else:
+            self.setObjectName(
+                "mediaPreviewTile" if self._tile_size else "mediaPreviewCard"
+            )
+            root = QVBoxLayout(self)
+            root.setContentsMargins(0, 0, 0, 0)
+            root.setSpacing(6)
 
-        self._content_layout = QVBoxLayout()
-        self._content_layout.setContentsMargins(0, 0, 0, 0)
-        self._content_layout.setSpacing(6)
-        root.addLayout(self._content_layout)
+            self._content_layout = QVBoxLayout()
+            self._content_layout.setContentsMargins(0, 0, 0, 0)
+            self._content_layout.setSpacing(6)
+            root.addLayout(self._content_layout)
 
-        self._status_label = QLabel("Loading preview…")
-        self._status_label.setObjectName("mediaPreviewStatus")
-        self._content_layout.addWidget(self._status_label)
+            self._status_label = QLabel("Loading preview…")
+            self._status_label.setObjectName("mediaPreviewStatus")
+            self._content_layout.addWidget(self._status_label)
 
         self.path_ready.connect(self._on_path_ready)
         self.preview_failed.connect(self._on_preview_failed)
+        self._start_resolve()
+
+    def _start_resolve(self) -> None:
+        """Resolve the file, on a thread only when that can actually block.
+
+        A file the user attached from disk needs no download: resolving it is
+        one stat call, so it happens inline and the card is painted once, with
+        its picture. Threading it instead cost one OS thread per attachment per
+        history refresh (18 for one real message here) and made every card
+        flash its placeholder first.
+        """
+        local_path = str(
+            self._artifact.get("local_path") or self._artifact.get("path") or ""
+        ).strip()
+        try:
+            if local_path and Path(local_path).expanduser().exists():
+                self._on_path_ready(local_path)
+                return
+        except OSError:
+            pass  # unreadable parent directory: let the resolver report it
         threading.Thread(target=self._load_preview_path, daemon=True).start()
+
+    def _build_compact_chip(self) -> None:
+        """Icon + name pill, the placeholder every compact card starts as.
+
+        An image replaces it with its own thumbnail as soon as the file
+        resolves (`_apply_compact_thumbnail`); anything else — a PDF, or an
+        image whose file is gone — keeps the pill, which is what an attachment
+        looks like when there is no picture to show.
+        """
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setProperty("hovered", "false")
+        self.setToolTip(self._title)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 4, 10, 4)
+        row.setSpacing(7)
+        self._compact_layout = row
+
+        glyph = QLabel(self)
+        glyph.setObjectName("mediaPreviewChipThumb")
+        glyph.setFixedSize(_ATTACHMENT_CHIP_GLYPH, _ATTACHMENT_CHIP_GLYPH)
+        glyph.setAlignment(Qt.AlignCenter)
+        glyph.setPixmap(
+            _symbol_icon(
+                _attachment_icon_name(self._title),
+                color=_attachment_icon_color(self._title),
+                size=_ATTACHMENT_CHIP_GLYPH,
+            ).pixmap(_ATTACHMENT_CHIP_GLYPH, _ATTACHMENT_CHIP_GLYPH)
+        )
+        row.addWidget(glyph, 0, Qt.AlignVCenter)
+
+        name = QLabel(self)
+        name.setObjectName("mediaPreviewChipName")
+        name.setText(
+            QFontMetrics(name.font()).elidedText(
+                self._title, Qt.ElideMiddle, _ATTACHMENT_CHIP_MAX_TEXT
+            )
+        )
+        row.addWidget(name, 0, Qt.AlignVCenter)
+
+    def _apply_compact_thumbnail(self, path: Path) -> None:
+        """Swap the placeholder pill for the picture itself."""
+        pixmap = QPixmap(str(path)) if self._media_kind == "image" else QPixmap()
+        if pixmap.isNull():
+            self.setToolTip(f"{self._title} — click to open")
+            return
+        self._source_pixmap = pixmap
+        thumbnail = _rounded_thumbnail(
+            pixmap,
+            height=_ATTACHMENT_THUMB_HEIGHT,
+            max_width=_ATTACHMENT_THUMB_MAX_WIDTH,
+        )
+
+        while self._compact_layout.count():
+            item = self._compact_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                # Unparent before deleteLater: a merely scheduled deletion keeps
+                # painting the pill over the picture until the next event loop.
+                widget.setParent(None)
+                widget.deleteLater()
+        self._compact_layout.setContentsMargins(0, 0, 0, 0)
+
+        label = QLabel(self)
+        label.setObjectName("mediaPreviewChipImage")
+        label.setPixmap(thumbnail)
+        self._thumb_label = label
+        self._compact_layout.addWidget(label)
+
+        # The picture carries its own frame, so the pill chrome goes away.
+        self.setObjectName("mediaPreviewThumb")
+        _refresh_style(self)
+        self.setToolTip(
+            f"{self._title} — {pixmap.width()}x{pixmap.height()} — click to preview"
+        )
+
+    def is_compact(self) -> bool:
+        return bool(self._compact)
 
     def _load_preview_path(self) -> None:
         try:
@@ -3725,6 +3859,8 @@ class ArtifactPreviewCard(QFrame):
             pass
 
     def _clear_content(self) -> None:
+        if self._content_layout is None:
+            return
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
             widget = item.widget()
@@ -3734,6 +3870,11 @@ class ArtifactPreviewCard(QFrame):
     def _on_path_ready(self, raw_path: str) -> None:
         path = Path(str(raw_path or "")).expanduser()
         self._local_path = path
+
+        if self._compact:
+            self._apply_compact_thumbnail(path)
+            return
+
         self._clear_content()
 
         if self._media_kind == "image":
@@ -3783,8 +3924,55 @@ class ArtifactPreviewCard(QFrame):
         button.setIcon(QIcon(scaled))
         button.setIconSize(scaled.size())
 
+    def _activate_compact(self) -> None:
+        """Click: preview images in-app, hand anything else to the OS."""
+        if self._local_path is None:
+            QMessageBox.warning(
+                self.window(),
+                "Open failed",
+                self._failure_reason or f"{self._title} is not available.",
+            )
+            return
+        pixmap = self._source_pixmap
+        if self._media_kind == "image" and pixmap is not None and not pixmap.isNull():
+            dialog = ImagePreviewDialog(
+                pixmap=pixmap,
+                path=self._local_path,
+                title=self._title,
+                parent=self.window(),
+            )
+            # Held so the modeless dialog is not garbage collected the moment
+            # this method returns.
+            self._preview_dialog = dialog
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            return
+        self._open_external()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._compact and event.button() == Qt.LeftButton:
+            self._activate_compact()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._compact:
+            self.setProperty("hovered", "true")
+            _refresh_style(self)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._compact:
+            self.setProperty("hovered", "false")
+            _refresh_style(self)
+        super().leaveEvent(event)
+
     def set_tile_size(self, tile_size: int) -> None:
         """Re-scale into a square tile of ``tile_size`` px (gallery resize)."""
+        if self._compact:
+            return
         value = max(0, int(tile_size or 0)) or None
         if value == self._tile_size:
             return
@@ -3796,6 +3984,16 @@ class ArtifactPreviewCard(QFrame):
         self._apply_image_scale()
 
     def _on_preview_failed(self, message: str) -> None:
+        if self._compact:
+            # A chip has no room for prose: the reason goes in the tooltip, and
+            # is repeated on click. Clicking a dead chip must never be a silent
+            # no-op — that reads as a broken app.
+            reason = str(message or "Preview unavailable.")
+            self._failure_reason = reason
+            self.setToolTip(
+                reason if self._title in reason else f"{self._title} — {reason}"
+            )
+            return
         self._clear_content()
         if self._tile_size:
             # A tile has no room for prose: keep the grid square and put the
@@ -3822,6 +4020,130 @@ class ArtifactPreviewCard(QFrame):
         if self._local_path is None:
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._local_path)))
+
+
+_IMAGE_PREVIEW_STYLE = """
+    QDialog#imagePreviewDialog {
+        background: #0f151d;
+        color: #e8edf4;
+    }
+    QLabel#imagePreviewImage {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(166, 187, 214, 0.12);
+        border-radius: 10px;
+    }
+    QLabel#imagePreviewMeta {
+        color: #9fb0c4;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    QPushButton#imagePreviewButton {
+        min-height: 26px;
+        border-radius: 9px;
+        padding: 4px 14px;
+        border: 1px solid rgba(166, 187, 214, 0.20);
+        background: #1c2430;
+        color: #f3f7fb;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    QPushButton#imagePreviewButton:hover {
+        background: #232d3b;
+        border-color: rgba(121, 199, 255, 0.30);
+    }
+"""
+
+
+class ImagePreviewDialog(QDialog):
+    """Full-size look at an image the transcript only shows as a chip.
+
+    Modeless (the app's rule since the 2026-09-05 round-2 pass): the preview
+    must never block the conversation behind it. Esc closes it.
+    """
+
+    def __init__(
+        self,
+        *,
+        pixmap: QPixmap,
+        path: Optional[Path] = None,
+        title: str = "",
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._path = Path(path) if path is not None else None
+        label_title = str(title or "").strip() or (
+            self._path.name if self._path is not None else "Preview"
+        )
+        self.setObjectName("imagePreviewDialog")
+        self.setWindowTitle(label_title)
+        self.setModal(False)
+        self.setStyleSheet(_IMAGE_PREVIEW_STYLE)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 10)
+        root.setSpacing(8)
+
+        image = QLabel(self)
+        image.setObjectName("imagePreviewImage")
+        image.setAlignment(Qt.AlignCenter)
+        image.setPixmap(
+            pixmap.scaled(
+                self.fit_size(pixmap.size()),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+        )
+        root.addWidget(image, 1, Qt.AlignCenter)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(8)
+        meta = QLabel(
+            f"{label_title} · {max(0, pixmap.width())}x{max(0, pixmap.height())}", self
+        )
+        meta.setObjectName("imagePreviewMeta")
+        footer.addWidget(meta, 0, Qt.AlignVCenter)
+        footer.addStretch(1)
+        if self._path is not None:
+            open_button = QPushButton("Open", self)
+            open_button.setObjectName("imagePreviewButton")
+            open_button.setToolTip(str(self._path))
+            open_button.clicked.connect(self._open_external)
+            footer.addWidget(open_button)
+        close_button = QPushButton("Close", self)
+        close_button.setObjectName("imagePreviewButton")
+        close_button.clicked.connect(self.close)
+        footer.addWidget(close_button)
+        root.addLayout(footer)
+        # Size to the picture up front: a dialog that opens at its default
+        # geometry and only then settles reads as a flicker.
+        self.resize(self.sizeHint())
+
+    @staticmethod
+    def fit_size(size: QSize) -> QSize:
+        """Bound an image to most of the screen, never upscaling a small one."""
+        width = max(1, int(size.width() or 0))
+        height = max(1, int(size.height() or 0))
+        bound_width, bound_height = 1100, 780
+        try:
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                available = screen.availableGeometry()
+                bound_width = max(320, int(available.width() * 0.82))
+                bound_height = max(240, int(available.height() * 0.82))
+        except Exception:
+            pass
+        if width <= bound_width and height <= bound_height:
+            return QSize(width, height)
+        scaled = QSize(width, height).scaled(
+            bound_width, bound_height, Qt.KeepAspectRatio
+        )
+        return QSize(max(1, scaled.width()), max(1, scaled.height()))
+
+    def _open_external(self) -> None:
+        if self._path is None:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._path)))
 
 
 # The live-run indicator is ui/activity.py's RunActivityCard; the old names
@@ -4512,6 +4834,7 @@ class AssistantPalette(QMainWindow):
     voice_level_received = pyqtSignal(float)
     voice_speech_finished = pyqtSignal()
     settings_ready = pyqtSignal(str)
+    session_attachments_restored = pyqtSignal(int)
 
     # Run-teardown state (2026-07-10). Class-level defaults on purpose:
     # `getattr(self, ..., default)` on a missing attribute raises RuntimeError
@@ -4602,6 +4925,7 @@ class AssistantPalette(QMainWindow):
         self.listening_stopped.connect(self._on_listen_stop)
         self.voice_level_received.connect(self._on_voice_level)
         self.voice_speech_finished.connect(self._on_voice_speech_finished)
+        self.session_attachments_restored.connect(self._on_session_attachments_restored)
         self._voice_conversation: Optional[VoiceConversation] = None
         self._voice_conversation_active = False
         self._voice_level_last_emit = 0.0
@@ -4686,7 +5010,7 @@ class AssistantPalette(QMainWindow):
             zoom_button.setObjectName("trafficButton")
             zoom_button.setProperty("tone", "zoom")
             zoom_button.setFixedSize(12, 12)
-            zoom_button.setToolTip("Maximize chat")
+            zoom_button.setToolTip("Maximize window")
             zoom_button.clicked.connect(self._toggle_zoom)
             traffic_group.addWidget(zoom_button, 0, Qt.AlignVCenter)
 
@@ -4701,15 +5025,21 @@ class AssistantPalette(QMainWindow):
         self.title_label = title
         title_row.addWidget(title, 2, Qt.AlignVCenter)
 
-        self.session_picker = QComboBox()
+        # The chat control opens the switcher (search, metrics, rename,
+        # delete) — a dropdown of truncated first questions could not say
+        # which chat holds the work.
+        self.session_picker = QPushButton("Untitled session")
         self.session_picker.setObjectName("sessionPicker")
         self.session_picker.setFixedHeight(28)
-        self.session_picker.setMinimumWidth(110)
+        self.session_picker.setMinimumWidth(136)
         self.session_picker.setMaximumWidth(248)
         self.session_picker.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.session_picker.setMinimumContentsLength(14)
-        self.session_picker.setToolTip("Switch chat")
-        self.session_picker.currentIndexChanged.connect(self._on_session_picker_changed)
+        self.session_picker.setCursor(Qt.PointingHandCursor)
+        self.session_picker.setIcon(_symbol_icon("chevron-down", color=THEME.text_muted, size=12))
+        self.session_picker.setIconSize(QSize(12, 12))
+        self.session_picker.setLayoutDirection(Qt.RightToLeft)  # chevron on the right
+        self.session_picker.setToolTip("Switch session")
+        self.session_picker.clicked.connect(self._open_session_switcher)
         title_row.addWidget(self.session_picker, 1, Qt.AlignVCenter)
 
         header_actions = QHBoxLayout()
@@ -4722,7 +5052,7 @@ class AssistantPalette(QMainWindow):
         new_session.setIcon(_symbol_icon("plus", size=16))
         new_session.setIconSize(QSize(16, 16))
         new_session.setFixedSize(28, 28)
-        new_session.setToolTip("New chat (⌘N)")
+        new_session.setToolTip("New session (⌘N)")
         new_session.clicked.connect(self._create_session)
         header_actions.addWidget(new_session)
 
@@ -4987,6 +5317,9 @@ class AssistantPalette(QMainWindow):
         self._refresh_workflows()
         self._refresh_capability_state()
         self._refresh_submission_state()
+        # The gateway is reachable now: the session on screen can get back any
+        # attachments its local transcript is missing.
+        self._backfill_session_attachments()
         # Clear the transient "Connecting…" banner unless a refresh replaced it
         # with something more specific (e.g. a gateway-unavailable message).
         try:
@@ -5087,68 +5420,140 @@ class AssistantPalette(QMainWindow):
     def _active_session_id(self) -> str:
         return str(getattr(self._controller, "active_session_id", "") or "").strip()
 
+    def _session_records(self) -> List[Dict[str, Any]]:
+        """The session list for the header and the switcher.
+
+        Digests, always — they are the only records that carry `display_title`,
+        and without them the header read the stored title, which is the
+        placeholder "New session" for practically every session on disk. They
+        are a cached local read (42 ms cold, under 2 ms warm), so loading them
+        on demand here is cheaper than being wrong.
+        """
+        digests = self._state("_session_digests")
+        if not (isinstance(digests, list) and digests):
+            self._warm_session_digests()
+            digests = self._state("_session_digests")
+        if isinstance(digests, list) and digests:
+            return list(digests)
+        try:
+            return [dict(rec) for rec in (self._controller.list_sessions() or []) if isinstance(rec, dict)]
+        except Exception:
+            return []
+
     def _refresh_session_picker(
         self, *, select_session_id: Optional[str] = None
     ) -> None:
-        combo = getattr(self, "session_picker", None)
-        if combo is None:
+        button = self._state("session_picker")
+        if button is None:
             return
-        try:
-            sessions = list(self._controller.list_sessions() or [])
-        except Exception:
-            sessions = []
-
         active = str(select_session_id or self._active_session_id() or "").strip()
-        selected_index = 0
-
-        combo.blockSignals(True)
+        records = self._session_records()
+        title = ""
+        for record in records:
+            if str(record.get("session_id") or "") == active:
+                # `title` is "New session" for almost every chat on disk — the
+                # digest's display_title falls back to the opening question, so
+                # the header names the chat the way the switcher row does.
+                title = str(record.get("display_title") or record.get("title") or "")
+                break
+        self._session_button_title = _session_button_text(title)
         try:
-            combo.clear()
-            for session in sessions:
-                if not isinstance(session, dict):
-                    continue
-                session_id = str(session.get("session_id") or "").strip()
-                if not session_id:
-                    continue
-                combo.addItem(_session_picker_label(session), session_id)
-                item_index = combo.count() - 1
-                combo.setItemData(
-                    item_index, _session_picker_tooltip(session), Qt.ToolTipRole
-                )
-                if active and session_id == active:
-                    selected_index = item_index
-            if combo.count() <= 0:
-                combo.addItem("No sessions yet")
-                combo.setEnabled(False)
-            else:
-                combo.setEnabled(True)
-                combo.setCurrentIndex(min(selected_index, combo.count() - 1))
-        finally:
-            combo.blockSignals(False)
-
-    def _on_session_picker_changed(self, index: int) -> None:
-        combo = getattr(self, "session_picker", None)
-        if combo is None:
+            button.setEnabled(True)
+        except Exception:
             return
-        session_id = str(combo.itemData(int(index)) or "").strip()
-        if not session_id:
+        self._elide_session_button()
+        self._refresh_workspace_hint()
+
+    def _elide_session_button(self) -> None:
+        """Fit the session name to the control, leaving room for the chevron."""
+        button = self._state("session_picker")
+        if button is None:
+            return
+        full = str(self._state("_session_button_title", "") or "Untitled session")
+        try:
+            metrics = QFontMetrics(button.font())
+            available = max(40, button.width() - 36)
+            button.setText(metrics.elidedText(full, Qt.ElideRight, available))
+            button.setToolTip(button.toolTip() or "Switch session")
+        except Exception:
+            pass
+
+    def _warm_session_digests(self) -> None:
+        """Re-read the chat metrics.
+
+        Synchronous on purpose: the digests come from local files behind a cache
+        keyed by file identity, measured on the real store at 42 ms for 74 chats
+        cold and 1 ms once warm. The background version this replaces landed its
+        result seconds AFTER the popup was already open and rebuilt every row
+        underneath the user — which squeezed the rows on top of each other and
+        cost the palette its activation (the popup then vanished).
+        """
+        try:
+            digests = self._controller.session_digests()
+        except Exception:
+            digests = []
+        self._session_digests = list(digests) if isinstance(digests, list) else []
+
+    def _invalidate_session_digests(self) -> None:
+        """The transcript changed: the next read recomputes what is stale.
+
+        `SessionDigestCache` is keyed by file identity, so only the session
+        that actually changed is parsed again.
+        """
+        self._session_digests = []
+
+    def _open_session_switcher(self) -> None:
+        """Open the chat switcher under the header control."""
+        switcher = self._state("_session_switcher")
+        if switcher is None:
+            switcher = SessionSwitcher(parent=self)
+            switcher.session_chosen.connect(self._switch_to_session)
+            switcher.new_chat_requested.connect(self._create_session)
+            switcher.rename_requested.connect(self._rename_session)
+            switcher.delete_requested.connect(self._delete_session)
+            self._session_switcher = switcher
+        self._warm_session_digests()
+        switcher.set_digests(
+            self._session_records(), active_session_id=self._active_session_id()
+        )
+        button = self._state("session_picker")
+        try:
+            origin = button.mapToGlobal(QPoint(0, button.height() + 6))
+        except Exception:
+            origin = self.mapToGlobal(QPoint(0, 40))
+        switcher.open_at(origin, screen_geometry=self._available_screen_geometry())
+
+    def _refresh_open_session_switcher(self) -> None:
+        """Re-render the popup's rows after a rename or a delete it triggered."""
+        switcher = self._state("_session_switcher")
+        if switcher is None:
+            return
+        try:
+            if switcher.isVisible():
+                switcher.set_digests(
+                    self._session_records(),
+                    active_session_id=self._active_session_id(),
+                )
+        except RuntimeError:
+            self._session_switcher = None
+
+    def _switch_to_session(self, session_id: str) -> None:
+        target = str(session_id or "").strip()
+        if not target:
             return
         current = self._active_session_id()
-        if session_id == current:
+        if target == current:
             return
-        if self._worker is not None:
+        if self._state("_worker") is not None:
             self._set_banner(
-                "Wait for the current reply to finish (or stop it) before switching chats.",
+                "Wait for the current reply to finish (or stop it) before switching sessions.",
                 tone="info",
             )
-            self._refresh_session_picker(select_session_id=current or None)
             return
         try:
-            self._controller.switch_session(session_id)
+            self._controller.switch_session(target)
         except Exception as exc:
-            QMessageBox.warning(
-                self, "Session switch", f"Failed to switch session:\n{exc}"
-            )
+            self._set_banner(f"Could not switch session: {exc}", tone="error")
             self._refresh_session_picker(select_session_id=current or None)
             return
         self._tray_completion_unread = False
@@ -5156,6 +5561,67 @@ class AssistantPalette(QMainWindow):
         self._set_history_status()
         self._set_status("Ready")
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
+        self._backfill_session_attachments()
+
+    def _backfill_session_attachments(self) -> None:
+        """Ask the runtime for attachments this session's transcript is missing.
+
+        A gateway call, so it runs off the GUI thread; the transcript is already
+        on screen and only redraws if something was actually restored.
+        """
+
+        def _work() -> None:
+            restored = self._controller.backfill_session_attachments()
+            if restored:
+                self.session_attachments_restored.emit(int(restored))
+
+        try:
+            threading.Thread(
+                target=_work, name="session-attachments", daemon=True
+            ).start()
+        except Exception:
+            pass
+
+    def _on_session_attachments_restored(self, _count: int) -> None:
+        self.refresh_history()
+
+    def _rename_session(self, session_id: str, title: str) -> None:
+        try:
+            self._controller.rename_session(session_id, title)
+        except Exception as exc:
+            self._set_banner(f"Could not rename the session: {exc}", tone="error")
+            return
+        self._session_digests = []
+        self._warm_session_digests()
+        self._refresh_session_picker()
+        self._refresh_open_session_switcher()
+
+    def _delete_session(self, session_id: str) -> None:
+        target = str(session_id or "").strip()
+        if not target:
+            return
+        if self._state("_worker") is not None and target == self._active_session_id():
+            self._set_banner(
+                "This session is running. Stop the run (⌘.) before deleting it.",
+                tone="info",
+            )
+            return
+        was_active = target == self._active_session_id()
+        try:
+            new_active = self._controller.delete_session(target)
+        except Exception as exc:
+            self._set_banner(f"Could not delete the session: {exc}", tone="error")
+            return
+        self._session_digests = []
+        if was_active:
+            self._tray_completion_unread = False
+            self._set_history_status()
+            self._set_status("Ready")
+            self.refresh_history(request=self._history_scroll_request(mode="bottom"))
+        self._set_banner("Session deleted.", tone="info", key="session")
+        self._warm_session_digests()
+        self._refresh_session_picker(select_session_id=new_active or None)
+        self._refresh_open_session_switcher()
 
     def _state(self, name: str, default: Any = None) -> Any:
         """Instance state that tolerates a palette built via ``__new__`` (tests):
@@ -5582,8 +6048,9 @@ class AssistantPalette(QMainWindow):
         QTimer.singleShot(0, self._resize_visible_history_cards)
         QTimer.singleShot(0, self._sync_native_traffic_lights)
         QTimer.singleShot(0, self._refresh_active_tool_history_status_for_width)
-        # Re-elide the header status to the width the title now has.
+        # Re-elide the header status and the chat name to their new widths.
         QTimer.singleShot(0, lambda: self._set_status(self._status_text, self._status_tone))
+        QTimer.singleShot(0, self._elide_session_button)
         if preserve_request is not None:
             self._commit_history_scroll_request(preserve_request)
 
@@ -6544,6 +7011,8 @@ class AssistantPalette(QMainWindow):
         self._pending_user_message_id = str(
             self._controller.append_user_message(prompt, metadata=metadata) or ""
         )
+        # This turn may be what finally names the session in the header.
+        self._invalidate_session_digests()
         self._pending_submission = {"prompt": prompt, "attachments": list(attachments)}
         self._run_start_failed = False
         conversation = self._state("_voice_conversation")
@@ -6752,6 +7221,9 @@ class AssistantPalette(QMainWindow):
             return
         if typ == "user_message_appended":
             self._on_user_message_appended(str(payload.get("content") or ""))
+            return
+        if typ == "attachments_uploaded":
+            self._on_attachments_uploaded(payload.get("attachments"))
             return
         if typ == "assistant":
             is_final = bool(payload.get("final"))
@@ -6980,6 +7452,8 @@ class AssistantPalette(QMainWindow):
         start_failed = bool(self._state("_run_start_failed", False))
         self._run_start_failed = False
         self._worker = None
+        # The run added turns, tools and tokens: the session's metrics moved.
+        self._invalidate_session_digests()
         self._run_busy = False
         self._cancel_requested = False
         self._run_paused = False
@@ -7018,6 +7492,23 @@ class AssistantPalette(QMainWindow):
     def _on_user_message_appended(self, _content: str = "") -> None:
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
 
+    def _on_attachments_uploaded(self, attachments: Any) -> None:
+        """Record the gateway's durable ids on the turn already on screen.
+
+        The message is written the instant the user sends (so the transcript
+        never lags), which is before the upload has returned an artifact id.
+        Storing the id now is what lets the preview outlive the local file —
+        macOS deletes screenshots dragged out of its screenshot UI.
+        """
+        items = [item for item in (attachments or []) if isinstance(item, dict)]
+        message_id = str(self._state("_pending_user_message_id", "") or "")
+        if not items or not message_id:
+            return
+        if self._controller.merge_message_metadata(
+            message_id, {"attachments": items, "media": items}
+        ):
+            self.refresh_history()
+
     def _open_artifact_from_message(
         self, artifact: Dict[str, Any], message: Dict[str, Any]
     ) -> None:
@@ -7040,10 +7531,17 @@ class AssistantPalette(QMainWindow):
         message: Dict[str, Any],
         *,
         tile_size: int = 0,
+        compact: bool = False,
     ) -> Optional[QWidget]:
         if not isinstance(artifact, dict):
             return None
-        if _artifact_media_kind(artifact) not in {"image", "audio", "video"}:
+        # A compact chip carries its own type glyph, so every attachment gets
+        # one — a PDF next to a screenshot reads as the same kind of thing.
+        if not compact and _artifact_media_kind(artifact) not in {
+            "image",
+            "audio",
+            "video",
+        }:
             return None
 
         metadata = (
@@ -7065,6 +7563,7 @@ class AssistantPalette(QMainWindow):
             artifact=artifact,
             resolve_path=_resolve,
             tile_size=tile_size,
+            compact=compact,
             parent=self,
         )
 
@@ -7813,12 +8312,19 @@ class AssistantPalette(QMainWindow):
         self._deferred_tool_request = None
         approved = decision in {"once", "session"}
         if decision == "session":
-            self._controller.grant_session_tool_auto_approval()
-            self._set_banner(
-                "Trusting enabled tools in this chat. Disabled tools stay disabled; gateway limits still apply.",
-                tone="info",
-                key="trust",
-            )
+            rank = int(details.get("trust_rank") or 0) or None
+            self._controller.grant_session_tool_auto_approval(max_rank=rank)
+            if rank and rank >= 3:
+                message = (
+                    "Trusting enabled tools in this chat, including ones that reach outside or destroy. "
+                    "Disabled tools stay disabled; gateway limits still apply."
+                )
+            else:
+                message = (
+                    "Trusting enabled tools in this chat. Calls that reach outside or destroy will still ask; "
+                    "disabled tools stay disabled and gateway limits still apply."
+                )
+            self._set_banner(message, tone="info", key="trust")
         worker = self._state("_worker")
         if worker is not None:
             try:
@@ -8212,41 +8718,29 @@ class AssistantPalette(QMainWindow):
             QLabel#windowTitle[tone="info"] { color: #b9c7d7; }
             QLabel#windowTitle[tone="warn"] { color: #f0c979; }
             QLabel#windowTitle[tone="error"] { color: #ffb4b4; }
-            QComboBox#sessionPicker {
+            QPushButton#sessionPicker {
                 min-height: 28px;
                 max-height: 28px;
-                padding: 0px 30px 0px 12px;
+                padding: 0px 10px;
                 border-radius: 14px;
                 border: 1px solid rgba(130, 150, 178, 0.28);
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(42, 52, 67, 0.98),
-                    stop:1 rgba(23, 29, 39, 0.98));
+                background: rgba(28, 36, 48, 0.98);
                 color: #eef4fb;
                 font-size: 12px;
                 font-weight: 600;
+                text-align: center;
             }
-            QComboBox#sessionPicker:hover {
+            QPushButton#sessionPicker:hover {
                 border-color: rgba(121, 199, 255, 0.42);
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(47, 59, 76, 0.99),
-                    stop:1 rgba(25, 32, 43, 0.99));
+                background: rgba(36, 48, 65, 0.99);
             }
-            QComboBox#sessionPicker:disabled {
+            QPushButton#sessionPicker:pressed {
+                background: rgba(19, 25, 34, 0.99);
+            }
+            QPushButton#sessionPicker:disabled {
                 color: #8390a2;
                 border-color: rgba(130, 150, 178, 0.16);
                 background: rgba(24, 30, 39, 0.88);
-            }
-            QComboBox#sessionPicker::drop-down {
-                border: none;
-                width: 26px;
-            }
-            QComboBox#sessionPicker QAbstractItemView {
-                background: rgba(21, 27, 37, 0.99);
-                color: #eef4fb;
-                border: 1px solid rgba(130, 150, 178, 0.20);
-                selection-background-color: #243447;
-                border-radius: 12px;
-                padding: 6px;
             }
             QLabel#controlLabel {
                 color: #71839a;
@@ -8399,8 +8893,37 @@ class AssistantPalette(QMainWindow):
                 border: none;
                 padding: 0px;
             }
-            QWidget#mediaGallery, QWidget#artifactChipTray {
+            QWidget#mediaGallery, QWidget#artifactChipTray, QWidget#attachmentChipStrip {
                 background: transparent;
+            }
+            QFrame#mediaPreviewChip {
+                background: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(166, 187, 214, 0.16);
+                border-radius: 9px;
+            }
+            QFrame#mediaPreviewChip[hovered="true"] {
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(121, 199, 255, 0.36);
+            }
+            QFrame#mediaPreviewThumb {
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }
+            QFrame#mediaPreviewThumb[hovered="true"] {
+                background: rgba(121, 199, 255, 0.20);
+                border-radius: 8px;
+            }
+            QLabel#mediaPreviewChipThumb, QLabel#mediaPreviewChipImage {
+                background: transparent;
+                border: none;
+            }
+            QLabel#mediaPreviewChipName {
+                background: transparent;
+                border: none;
+                color: #e4edf7;
+                font-size: 11px;
+                font-weight: 600;
             }
             QScrollArea#mermaidPreviewScroll {
                 background: rgba(16, 22, 31, 0.92);
