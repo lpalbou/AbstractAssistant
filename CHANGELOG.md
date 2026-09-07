@@ -5,7 +5,66 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Added
+- **A theme picker, under Settings → Appearance.** The choice applies to every window — chat,
+  settings, dialogs, the approval sheet, the session switcher — takes effect immediately, and is
+  remembered on this Mac.
+- **Colour themes shared with the rest of the framework.** The same palettes the web clients use
+  (Tokyo Night, Nord, Dracula, Gruvbox, Catppuccin, Rose Pine, Solarized, Everforest and more —
+  dark and light) are available to the app, and the choice is remembered across relaunches. They
+  are read from `abstractuic`'s stylesheet rather than copied, so a palette added or retuned there
+  appears here with no code change; a packaged app carries the palettes as of its build.
+- **The tray icon shows the assistant's voice again.** While a reply is spoken the menu-bar icon
+  becomes a live histogram of the audio actually going to your speakers, and it goes back to its
+  normal state the moment speech ends — finished, stopped, paused, or replaced by another reply.
+  This worked in 0.4.10 and was lost in the gateway rewrite. It now covers auto-speak and voice
+  conversations as well as the per-message speaker button.
+
+### Changed
+- **Reasoning effort now belongs to the chat model.** It used to be a page-level control that sat
+  below the model list, so it looked like it applied to whichever route was selected — including
+  the voice, image, video and music models, none of which reasons. It is now a row in the chat
+  model's own form, beside its provider and model, and it exists nowhere else.
+- **Settings no longer clips.** At the window's own default size, `Apply` sat off the right edge
+  and only 5 of the 7 reasoning levels could be clicked, with no horizontal scrollbar to reach
+  them. The route actions moved to the page footer like every other page's, the reasoning ladder
+  became a menu, and the window's minimum is now measured against its widest page — nothing is
+  unreachable at any size.
+- **Tighter vertical rhythm in replies.** Line spacing and the gaps around headings, paragraphs,
+  lists and tables were tuned for a web page, not a chat bubble: a heading cost 40px of air. The
+  same reply is now about 10% shorter with no change to type sizes.
+- **The window is 15% shorter.** A height you have already chosen is adjusted once and never
+  again, and a height you set in Settings afterwards is left alone.
+- **Files you attach show as small thumbnails, not full-size previews.** A message you send with a
+  screenshot attached now carries a thumbnail about 56px tall, keeping the picture's shape,
+  instead of a 260px square that letterboxed the image and pushed the conversation off-screen.
+  Clicking it opens the image full size in a preview window (Esc closes it, `Open` hands the file
+  to the Mac). Files with no picture to show — a PDF, or an image whose file has since been
+  deleted — appear as an icon-and-name chip and open in their default app. Images the assistant
+  *generates* still get the full gallery: those are the answer, not an input.
+
 ### Fixed
+- **"All auto" / "All ask" no longer touch tools hidden by the search filter** — with a filter
+  applied they could pre-approve a mutating tool that was not on screen. They now apply only to
+  what is visible and say how many were left alone.
+- **Saving tool permissions no longer drops modes for tools the gateway is not currently listing.**
+  The saved map was rebuilt from whatever the gateway reported at that moment, so a permission set
+  for a tool from another connection silently vanished.
+- **Saving on the Appearance page no longer grows the window.** Its height field could not go below
+  320px while the app's own default is 286, so opening the page and pressing Save added 34px.
+- **The app no longer disappears on desktops with no system tray.** Modern GNOME and Wayland
+  have no tray unless the AppIndicator extension is installed; the app used to notice, hide its
+  only window and keep running with no icon, no window and no message. It now shows the window,
+  says why, and the reason reaches a plain `pip` install instead of only a frozen macOS build.
+  On Linux the tray menu no longer opens twice (the desktop already shows it, and the second copy
+  landed at a position Wayland cannot report), and the speaking animation is slowed off macOS
+  where every frame costs a platform round trip. macOS no longer reports the tray as never ready
+  when the optional `pyobjc` bridge is absent — and it is now a declared dependency. The
+  macOS-only "Sound settings…" button is hidden where it does nothing.
+- **The audio meter had never produced a reading.** Its band computation was called with one
+  argument missing and the resulting error was swallowed, so anything driven by it was silently
+  frozen — measured live: 193 audio chunks, 193 exceptions, zero readings. Failures in that path
+  now say so once instead of disappearing.
 - **Attachments come back in old sessions.** The runtime keeps every file you ever attached, and
   its history already reports which turn each one belonged to — the app was reading that history
   and discarding the attachments. Reopening a session now restores them from the runtime, so a
@@ -33,15 +92,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   emptied its temp folder. The message now also records the gateway's copy and falls back to it,
   and a file that really is unreachable says so ("… is no longer on disk") instead of
   "artifact_id is required".
-
-### Changed
-- **Files you attach show as small thumbnails, not full-size previews.** A message you send with a
-  screenshot attached now carries a thumbnail about 56px tall, keeping the picture's shape,
-  instead of a 260px square that letterboxed the image and pushed the conversation off-screen.
-  Clicking it opens the image full size in a preview window (Esc closes it, `Open` hands the file
-  to the Mac). Files with no picture to show — a PDF, or an image whose file has since been
-  deleted — appear as an icon-and-name chip and open in their default app. Images the assistant
-  *generates* still get the full gallery: those are the answer, not an input.
 
 ## [0.5.0] - 2026-09-05
 

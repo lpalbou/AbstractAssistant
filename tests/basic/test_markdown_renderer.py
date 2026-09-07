@@ -441,3 +441,73 @@ def test_image_thumbnail_size_keeps_ratio_with_fixed_preview_height() -> None:
     assert landscape == QSize(200, 50)
     assert portrait.height() == 50
     assert portrait.width() in {12, 13}
+
+
+@pytest.mark.basic
+def test_a_shell_block_is_not_rendered_in_one_flat_colour() -> None:
+    """Pygments' bash lexer tags command names, flags and arguments alike as
+    plain ``Token.Text`` — 16 of 26 tokens on a real pipeline — so a shell
+    block rendered almost entirely in one colour while the same style made
+    Python perfectly legible. The operator's report was exactly this.
+    """
+    from pygments.lexers import get_lexer_by_name
+    from pygments.token import Name, Operator, Text
+
+    from abstractassistant.utils.markdown_renderer import _ShellReadabilityFilter
+
+    code = (
+        "find /path -type f -size +500M -printf '%s' 2>/dev/null \\\n"
+        "  | sort -nr\n"
+        "sudo systemctl restart nginx\n"
+    )
+    lexer = get_lexer_by_name("bash")
+    lexer.add_filter(_ShellReadabilityFilter())
+    tokens = [(t, v) for t, v in lexer.get_tokens(code) if v.strip()]
+
+    commands = [v for t, v in tokens if t is Name.Function]
+    flags = [v for t, v in tokens if t is Name.Attribute]
+    plain = [v for t, v in tokens if t in Text]
+
+    # The command being run is the first thing a reader looks for.
+    assert "find" in commands and "sort" in commands
+    # `sudo` introduces another command, which must also be tagged.
+    assert "sudo" in commands and "systemctl" in commands
+    # Flags carry the meaning of the invocation.
+    assert {"-type", "-size", "-printf", "-nr"} <= set(flags)
+    # A redirection is an operator, not part of the path it writes to.
+    assert any(t is Operator and v == ">" for t, v in tokens)
+    assert "/dev/null" in plain
+    # Arguments stay plain: colouring everything is as unreadable as colouring
+    # nothing.
+    assert "/path" in plain
+
+    # Fewer than half the meaningful tokens are now undifferentiated.
+    assert len(plain) < len(tokens) / 2, f"{len(plain)} of {len(tokens)} tokens still plain"
+
+
+@pytest.mark.basic
+def test_the_renderer_actually_applies_the_shell_pass() -> None:
+    """The filter must be wired into the shell path, not merely exist: a bash
+    block has to come out with its command and flags coloured, and a block in
+    another language must be left to its own lexer.
+    """
+    import re
+
+    from abstractassistant.utils.markdown_renderer import MarkdownRenderer
+
+    renderer = MarkdownRenderer(theme="friendly_grayscale")
+
+    def colour_of(html_text: str, word: str) -> str:
+        match = re.search(
+            rf'<span style="color: (#[0-9A-Fa-f]{{6}})">{re.escape(word)}</span>', html_text
+        )
+        return (match.group(1).upper() if match else "")
+
+    for language in ("bash", "sh", "shell", "zsh"):
+        rendered = renderer.render(f"```{language}\nfind /tmp -type f\n```")
+        assert colour_of(rendered, "find") == "#8BD5FF", f"{language}: command not coloured"
+        assert colour_of(rendered, "-type") == "#FF6FAE", f"{language}: flag not coloured"
+
+    # Python keeps its own tagging: `find` there is a name, not a command.
+    python_html = renderer.render("```python\nfind = 1\n```")
+    assert colour_of(python_html, "find") != "#8BD5FF"

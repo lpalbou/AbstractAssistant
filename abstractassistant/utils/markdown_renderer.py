@@ -10,6 +10,7 @@ import re
 
 from markdown_it import MarkdownIt
 from pygments import highlight as pygments_highlight
+from pygments.filter import Filter
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
 from pygments.style import Style
@@ -132,6 +133,71 @@ class _AbstractAssistantCodeStyle(Style):
         Generic.Output: "#c8d2df",
         Error: "#ff8f8f",
     }
+
+
+# Words that introduce ANOTHER command, so the next word is still a command.
+_SHELL_COMMAND_WRAPPERS = frozenset(
+    {"sudo", "doas", "env", "time", "nohup", "xargs", "command", "exec", "nice", "watch", "then", "do", "else"}
+)
+# After any of these, the next word starts a new command.
+_SHELL_COMMAND_BREAKERS = frozenset({"|", "||", "&&", ";", ";;", "&", "(", ")", "{", "}", "!", "|&"})
+_SHELL_FLAG_RE = re.compile(r"^-{1,2}[A-Za-z0-9][A-Za-z0-9-]*$")
+_SHELL_COMMAND_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.+-]*$")
+_SHELL_REDIRECT_RE = re.compile(r"^(&?>>|&?>|<<<|<<|<|\d?>>|\d?>)(.*)$", re.S)
+
+
+class _ShellReadabilityFilter(Filter):
+    """Re-tag the parts of a shell command that Pygments leaves as plain text.
+
+    The bash lexer emits ``Token.Text`` for command names, sub-commands, flags
+    and arguments alike — on a real pipeline that is 16 of 26 tokens, so the
+    block renders in one flat colour while the same style makes Python
+    perfectly legible. This tags what a reader actually scans for: the command
+    being run, its flags, and its redirections.
+    """
+
+    def filter(self, lexer, stream):  # noqa: A003 (Pygments API)
+        expect_command = True
+        for ttype, value in stream:
+            if ttype not in Text or not value.strip():
+                if ttype in Punctuation or ttype in Operator:
+                    if value.strip() in _SHELL_COMMAND_BREAKERS:
+                        expect_command = True
+                elif "\n" in value and ttype in Text:
+                    # A real newline ends the command; a backslash-newline
+                    # (String.Escape) continues it.
+                    expect_command = True
+                yield ttype, value
+                continue
+
+            lead_len = len(value) - len(value.lstrip())
+            trail_len = len(value) - len(value.rstrip())
+            lead = value[:lead_len]
+            word = value[lead_len : len(value) - trail_len]
+            trail = value[len(value) - trail_len :] if trail_len else ""
+            if lead:
+                yield ttype, lead
+
+            redirect = _SHELL_REDIRECT_RE.match(word)
+            if redirect:
+                operator, rest = redirect.groups()
+                yield Operator, operator
+                if rest:
+                    yield ttype, rest
+                expect_command = False
+            elif _SHELL_FLAG_RE.match(word):
+                yield Name.Attribute, word
+            elif expect_command and _SHELL_COMMAND_RE.match(word):
+                yield Name.Function, word
+                expect_command = word in _SHELL_COMMAND_WRAPPERS
+            else:
+                yield ttype, word
+                expect_command = False
+
+            if trail:
+                yield ttype, trail
+                if "\n" in trail:
+                    expect_command = True
 
 
 @dataclass(frozen=True)
@@ -598,6 +664,14 @@ def split_markdown_mermaid_blocks(text: str) -> list[MarkdownRenderBlock]:
     return blocks
 
 
+def _themed_panel(fragment: str) -> str:
+    """A colour fragment of the code panel, in the active palette."""
+    from ..retint import retint_stylesheet
+    from ..theme import DEFAULT_THEME, THEME
+
+    return retint_stylesheet(str(fragment or ""), source=DEFAULT_THEME, target=THEME)
+
+
 class MarkdownRenderer:
     """Markdown renderer with CommonMark/GFM parsing for Qt rich text."""
 
@@ -632,6 +706,8 @@ class MarkdownRenderer:
             )
         except ClassNotFound:
             lexer = TextLexer(stripall=False)
+        if str(language or "").lower() in _SHELL_LANGUAGES:
+            lexer.add_filter(_ShellReadabilityFilter())
         return pygments_highlight(code, lexer, self.formatter)
 
     def _render_shell_with_embedded_json(self, code: str, language: str) -> str | None:
@@ -656,10 +732,10 @@ class MarkdownRenderer:
             f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
             f'class="codepanel" data-code-language="{safe_language}" style="{_CODE_PANEL_STYLE}">'
             f"<tr>"
-            f'<td width="4" bgcolor="{_CODE_PANEL_ACCENT_BG}"></td>'
-            f'<td bgcolor="{_CODE_PANEL_BODY_BG}" style="{_CODE_PANEL_CELL_STYLE}">'
-            f'<pre class="codehilite" style="{_CODE_BLOCK_PRE_STYLE}">'
-            f'<code style="{_CODE_BLOCK_CODE_STYLE}">{highlighted}</code>'
+            f'<td width="4" bgcolor="{_themed_panel(_CODE_PANEL_ACCENT_BG)}"></td>'
+            f'<td bgcolor="{_themed_panel(_CODE_PANEL_BODY_BG)}" style="{_themed_panel(_CODE_PANEL_CELL_STYLE)}">'
+            f'<pre class="codehilite" style="{_themed_panel(_CODE_BLOCK_PRE_STYLE)}">'
+            f'<code style="{_themed_panel(_CODE_BLOCK_CODE_STYLE)}">{highlighted}</code>'
             "</pre></td></tr></table>"
         )
 
@@ -697,10 +773,22 @@ class MarkdownRenderer:
             return f"<pre>{safe_text}</pre><p><em>Markdown rendering error: {safe_error}</em></p>"
 
     def _get_base_css(self) -> str:
+        """The reply stylesheet, in the palette that is active right now.
+
+        Markdown is rendered to HTML with its colours baked in, so a theme
+        switch has to re-render the transcript — and this is what makes the
+        re-render come out in the new palette. See `retint.py`.
+        """
+        from ..retint import retint_stylesheet
+        from ..theme import DEFAULT_THEME, THEME
+
+        return retint_stylesheet(self._base_css(), source=DEFAULT_THEME, target=THEME)
+
+    def _base_css(self) -> str:
         return """
         .markdown-content {
             font-size: 13px;
-            line-height: 1.6;
+            line-height: 1.45;
             color: #edf2f8;
             background: transparent;
             padding: 0;
@@ -709,22 +797,22 @@ class MarkdownRenderer:
         .markdown-content h1, .markdown-content h2, .markdown-content h3,
         .markdown-content h4, .markdown-content h5, .markdown-content h6 {
             color: #f8fafc;
-            margin-top: 24px;
-            margin-bottom: 16px;
+            margin-top: 14px;
+            margin-bottom: 7px;
             font-weight: 600;
-            line-height: 1.25;
+            line-height: 1.2;
         }
 
         .markdown-content h1 {
             font-size: 2.2em;
-            border-bottom: 2px solid #4a5568;
-            padding-bottom: 8px;
+            border-bottom: 2px solid rgba(166, 187, 214, 0.30);
+            padding-bottom: 5px;
         }
 
         .markdown-content h2 {
             font-size: 1.7em;
-            border-bottom: 1px solid #4a5568;
-            padding-bottom: 4px;
+            border-bottom: 1px solid rgba(166, 187, 214, 0.30);
+            padding-bottom: 3px;
         }
 
         .markdown-content h3 {
@@ -738,11 +826,11 @@ class MarkdownRenderer:
         }
         
         .markdown-content p {
-            margin-bottom: 16px;
+            margin-bottom: 10px;
         }
         
         .markdown-content ul, .markdown-content ol {
-            margin-bottom: 16px;
+            margin-bottom: 10px;
             padding-left: 20px;
         }
 
@@ -780,7 +868,7 @@ class MarkdownRenderer:
         }
 
         .markdown-content .mermaid-diagram {
-            margin: 12px 0 16px 0;
+            margin: 8px 0 10px 0;
             padding: 12px;
             border-radius: 12px;
             border: 1px solid rgba(148, 163, 184, 0.18);
@@ -834,7 +922,7 @@ class MarkdownRenderer:
         .markdown-content blockquote {
             border-left: 3px solid #79c7ff;
             padding-left: 16px;
-            margin: 16px 0;
+            margin: 10px 0;
             color: #cbd5e0;
             font-style: italic;
         }
@@ -842,7 +930,7 @@ class MarkdownRenderer:
         .markdown-content table {
             border-collapse: collapse;
             width: 100%;
-            margin-bottom: 16px;
+            margin-bottom: 10px;
         }
 
         .markdown-content table.codepanel {
@@ -859,7 +947,7 @@ class MarkdownRenderer:
         }
 
         .markdown-content th, .markdown-content td {
-            border: 1px solid #4a5568;
+            border: 1px solid rgba(166, 187, 214, 0.30);
             padding: 8px 12px;
             text-align: left;
         }
@@ -886,8 +974,8 @@ class MarkdownRenderer:
         
         .markdown-content hr {
             border: none;
-            border-top: 2px solid #4a5568;
-            margin: 24px 0;
+            border-top: 2px solid rgba(166, 187, 214, 0.30);
+            margin: 14px 0;
         }
         
         /* Syntax highlighting adjustments for dark theme */

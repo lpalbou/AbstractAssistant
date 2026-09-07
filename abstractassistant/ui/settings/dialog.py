@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QStackedWidget,
@@ -28,7 +30,10 @@ from ..styles import alpha, dialog_stylesheet
 from .pages import AboutPage, ConnectionPage, ModelsPage, ToolsPage, VoicePage, WindowPage, WorkspacePage
 
 
-SETTINGS_QSS = f"""
+def build_settings_qss() -> str:
+    """Rebuilt on demand: frozen at import, Settings kept the palette it was
+    born with and never followed a theme switch."""
+    return f"""
     QListWidget#navList {{
         background: {alpha(THEME.text_strong, 0.02)};
         border: none;
@@ -90,7 +95,10 @@ SETTINGS_QSS = f"""
     QLabel#routeLabel {{ font-size: {METRICS.font_body}px; font-weight: 700; color: {THEME.text_strong}; }}
     QLabel#routeHelp {{ color: {THEME.text_muted}; font-size: {METRICS.font_caption}px; }}
     QListWidget#routeList {{ background: {alpha(THEME.text_strong, 0.025)}; }}
-"""
+    """
+
+
+SETTINGS_QSS: str = build_settings_qss()
 
 
 class SettingsDialog(QDialog):
@@ -103,8 +111,12 @@ class SettingsDialog(QDialog):
         self._controller = controller
         self._apply_hotkey = apply_hotkey
         self.setWindowTitle("Settings")
-        self.setMinimumSize(720, 520)
-        self.resize(840, 600)
+        # Sized to the settings, and not resizable: there is nothing here that
+        # benefits from being dragged, and every size the user could pick was a
+        # size some page did not fit (Apply and half the reasoning levels used
+        # to sit off the right edge, with no horizontal scrollbar to reach
+        # them). `_fit_to_content` sets the real size once the pages exist.
+        self.setSizeGripEnabled(False)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -180,9 +192,31 @@ class SettingsDialog(QDialog):
         self.bottom_offset_spin = window.bottom_offset_spin
         self.settings_tabs = self.stack  # older name
 
-        self.setStyleSheet(dialog_stylesheet() + SETTINGS_QSS)
+        self.restyle()
         self.nav.setCurrentRow(0)
         self.refresh()
+        self.resize(880, 640)  # provisional; the real size is set on first show
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or this is the first paint)."""
+        self.setStyleSheet(dialog_stylesheet() + build_settings_qss())
+        # Nav icons are QListWidgetItem icons, not widget icons, so the
+        # palette's icon sweep cannot reach them — they kept the tint they
+        # were built with and washed out on a light theme.
+        for row in range(self.nav.count()):
+            item = self.nav.item(row)
+            page = self.pages.get(str(item.data(Qt.UserRole) or ""))
+            if page is not None:
+                item.setIcon(symbol_icon(page.icon, color=THEME.text_secondary, size=14))
+        # The type scale follows the user's text size, so control heights and
+        # label widths move with it — a window fixed to the old scale would
+        # clip the new one. Re-fit, but only once the first fit has happened
+        # (before that the pages have no usable hints).
+        if getattr(self, "_sized", False):
+            # Deferred: the sheet was set a moment ago and the widgets have not
+            # re-polished yet, so measuring now reads the OLD control sizes and
+            # comes out a few pixels short.
+            QTimer.singleShot(0, self._refit)
 
     # ---- routing
     @property
@@ -239,6 +273,81 @@ class SettingsDialog(QDialog):
             self.page_voice._refresh_summaries()
         except Exception:
             pass
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().showEvent(event)
+        # Size on the first show, not at construction: before the pages are
+        # laid out their hints are inflated, and the window came out 180px
+        # wider than anything in it needed.
+        if not getattr(self, "_sized", False):
+            self._sized = True
+            self._fit_to_content()
+
+    def _refit(self) -> None:
+        """Re-measure after the type scale changed."""
+        # A fixed window cannot grow into new content hints, so release the
+        # constraint before measuring.
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        self._fit_to_content()
+
+    def _fit_to_content(self) -> None:
+        """Fix the window to the largest page.
+
+        The chrome (nav rail, header, footer, margins) is MEASURED — the
+        difference between the window and a page's viewport at the current
+        size — rather than guessed from constants that drift.
+        """
+        page = self.stack.currentWidget()
+        if page is None or not hasattr(page, "scroll"):
+            return
+        chrome_h = max(0, self.height() - page.scroll.viewport().height())
+        # A wrapped label reports the width of its longest UNWRAPPED line as a
+        # minimum — one help sentence demanded 638px while rendering at 249px,
+        # which is what pushed the Models page past the viewport. Wrapping is
+        # exactly the licence to be narrower, so give them a real floor first.
+        for label in self.findChildren(QLabel):
+            if label.wordWrap() and label.minimumWidth() == 0:
+                label.setMinimumWidth(min(label.minimumSizeHint().width(), 240))
+
+        # Width: the widest page, so nothing is ever cut off horizontally —
+        # there is no horizontal scrollbar to reach anything that overflows.
+        # A page still parked at the stack's placeholder size reports a stale
+        # hint (the route list re-measures its own width on resize), so each
+        # page is brought to the front and laid out before it is measured.
+        # This runs before the first paint, so nothing flickers.
+        # Chrome (nav rail, margins, and the vertical scrollbar when a page
+        # has one) is MEASURED per page rather than guessed from constants,
+        # and the WIDEST wins: measuring it once on whichever page happened to
+        # be current sized the window for a page without a scrollbar and then
+        # clipped every page that has one.
+        restore = self.stack.currentWidget()
+        widths = []
+        chromes = []
+        for candidate in self.pages.values():
+            self.stack.setCurrentWidget(candidate)
+            host = candidate.scroll.widget()
+            for target in (self, candidate, host):
+                layout = target.layout()
+                if layout is not None:
+                    layout.activate()
+            widths.append(host.minimumSizeHint().width())
+            chromes.append(max(0, self.width() - candidate.scroll.viewport().width()))
+        if restore is not None:
+            self.stack.setCurrentWidget(restore)
+        width = max(widths, default=640)
+        chrome_w = max(chromes, default=0)
+        # Height: a comfortable window, not the tallest page — Tools lists every
+        # tool the gateway offers and is thousands of pixels long, so that one
+        # scrolls by design.
+        screen = QApplication.primaryScreen()
+        room = int(screen.availableGeometry().height() * 0.82) if screen else 760
+        # 20% shorter than the first cut, which was taller than anything here
+        # needed. Long pages (Tools lists every tool the gateway offers) scroll.
+        self.setFixedSize(
+            max(820, min(width + chrome_w, 1000)),
+            max(496, min(576, room)),
+        )
 
     def refresh(self) -> None:
         for page in self.pages.values():

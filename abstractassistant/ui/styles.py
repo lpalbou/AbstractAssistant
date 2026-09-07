@@ -22,8 +22,11 @@ Type floor: nothing here is set below ``METRICS.font_caption`` (11 px).
 
 from __future__ import annotations
 
+import re
+
 from typing import Dict, Tuple
 
+from abstractassistant.icons import icon_image_path
 from abstractassistant.theme import METRICS, THEME
 
 
@@ -97,10 +100,56 @@ def _tone_rules() -> str:
     return "\n".join(rules)
 
 
+# Selectors that target a window itself, or a popup Qt creates as its own
+# top-level window rather than as a child — prefixing either would stop it
+# matching anything.
+_UNSCOPED_PREFIXES = ("QMainWindow", "QDialog", "QToolTip", "QMenu")
+
+_RULE_HEAD = re.compile(r"(?m)^([ \t]*)([^{}\n][^{}]*?)[ \t]*\{")
+
+
+def scope_stylesheet(qss: str, scope: str) -> str:
+    """Confine every rule in ``qss`` to descendants of ``scope``.
+
+    The chat window and every secondary window are one object tree — a dialog
+    is a CHILD of the palette — so the palette's 22k stylesheet cascades into
+    all of them. Its bare type selectors (`QPushButton`, `QComboBox`, …) then
+    styled Settings: 50px buttons where the dialog asks for 30, 44px combos
+    where it asks for 28.
+
+    Prefixing must be UNIFORM. Scoping only the bare selectors lifts them
+    above the palette's own `#id` rules (an ancestor adds specificity), which
+    turned every button in the chat window into a fat generic one — the
+    composer glyphs doubled and the stats chips grew boxes. Prefixing every
+    selector equally leaves the sheet's internal ordering untouched and simply
+    stops it reaching anything outside ``scope``.
+    """
+
+    def _rewrite(match: "re.Match[str]") -> str:
+        indent, selectors = match.group(1), match.group(2)
+        parts = []
+        for part in selectors.split(","):
+            text = part.strip()
+            # A rule that already targets the scope itself (the window and
+            # its root surface) must stay as it is, not become a descendant
+            # of itself.
+            if text and text != scope and not text.startswith(_UNSCOPED_PREFIXES):
+                text = f"{scope} {text}"
+            parts.append(text)
+        return f"{indent}{', '.join(parts)} {{"
+
+    return _RULE_HEAD.sub(_rewrite, qss)
+
+
 def dialog_stylesheet() -> str:
     """The one stylesheet every secondary window applies."""
     t = THEME
     m = METRICS
+    # Half the control, minus its two 1px borders, so the pair fills the field.
+    half = max(10, (m.control_sm - 2) // 2)
+    up_arrow = icon_image_path("chevron-up", color=t.text_secondary, size=9)
+    down_arrow = icon_image_path("chevron-down", color=t.text_secondary, size=9)
+    up_arrow_off = icon_image_path("chevron-up", color=t.text_faint, size=9)
     return f"""
         QDialog, QWidget#dialogRoot {{
             background: {t.surface_sunken};
@@ -255,10 +304,49 @@ def dialog_stylesheet() -> str:
             padding: 3px;
             outline: none;
         }}
-        QSpinBox::up-button, QSpinBox::down-button {{
-            width: 14px;
+        /* Spin arrows are subcontrols, so they need an IMAGE — with none, Qt
+           draws its native arrow, a dark glyph on a dark field that reads as
+           nothing at all. QDoubleSpinBox has to be named explicitly: it is not
+           a QSpinBox, and it was left with the bare native control. */
+        QSpinBox::up-button, QSpinBox::down-button,
+        QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+            subcontrol-origin: border;
+            width: 18px;
+            height: {half}px;
             border: none;
-            background: transparent;
+            border-left: 1px solid {t.border_subtle};
+            background: {t.overlay_faint};
+        }}
+        QSpinBox::up-button, QDoubleSpinBox::up-button {{
+            subcontrol-position: top right;
+            border-top-right-radius: 6px;
+        }}
+        QSpinBox::down-button, QDoubleSpinBox::down-button {{
+            subcontrol-position: bottom right;
+            border-top: 1px solid {t.border_subtle};
+            border-bottom-right-radius: 6px;
+        }}
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+        QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {{
+            background: {t.overlay_hover};
+        }}
+        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed,
+        QDoubleSpinBox::up-button:pressed, QDoubleSpinBox::down-button:pressed {{
+            background: {t.overlay_active};
+        }}
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+            image: url({up_arrow});
+            width: 9px;
+            height: 9px;
+        }}
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+            image: url({down_arrow});
+            width: 9px;
+            height: 9px;
+        }}
+        QSpinBox::up-arrow:disabled, QSpinBox::down-arrow:disabled,
+        QDoubleSpinBox::up-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{
+            image: url({up_arrow_off});
         }}
         QCheckBox, QRadioButton {{
             spacing: 7px;
@@ -325,7 +413,7 @@ def dialog_stylesheet() -> str:
         QPushButton#primaryButton {{
             background: {t.primary};
             border-color: {t.primary};
-            color: {t.text_strong};
+            color: {t.primary_text};
         }}
         QPushButton#primaryButton:hover {{
             background: {t.primary_hover};

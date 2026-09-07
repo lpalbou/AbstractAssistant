@@ -232,3 +232,66 @@ def test_seed_recovers_missing_assistant_from_subworkflow_artifact() -> None:
     )
     assert [m.get("role") for m in msgs] == ["user", "assistant"]
     assert msgs[-1]["content"] == "Recovered assistant answer"
+
+
+def test_stats_already_stored_are_healed_when_the_bundle_knows_more() -> None:
+    """Answers folded before the run tree was walked recorded the ROOT run
+    only: no tokens, no tool calls, one llm_call — while the agent subrun had
+    done twelve cycles and twenty tool calls. The fold was fixed forward, but
+    seeding SKIPPED any message that already carried stats, so those rows were
+    wrong permanently (23 of them in the operator's history).
+    """
+    from abstractassistant.gateway.history_seed import _attach_bundle_stats, _stats_are_richer
+
+    poor = {
+        "run_id": "run-1",
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "tool_calls": 0,
+        "llm_calls": 1,
+        "duration_ms": 94949,
+    }
+    messages = [
+        {
+            "role": "assistant",
+            "run_id": "run-1",
+            "content": "done",
+            "metadata": {"_assistant_stats": dict(poor)},
+        }
+    ]
+
+    rich = {
+        "usage": {"input_tokens": 163749, "output_tokens": 2237, "total_tokens": 165986},
+        "tool_calls": 20,
+        "llm_calls": 12,
+        "duration_ms": 94954,
+    }
+    import abstractassistant.gateway.history_seed as seed
+
+    original = seed.stats_from_history_bundle
+    seed.stats_from_history_bundle = lambda _bundle: dict(rich)
+    try:
+        _attach_bundle_stats(messages, {"ledgers": {}}, run_id="run-1")
+        healed = messages[0]["metadata"]["_assistant_stats"]
+        assert healed["tool_calls"] == 20, "the subrun's tool calls never reached the row"
+        assert healed["usage"]["input_tokens"] == 163749
+        assert healed["run_id"] == "run-1"
+
+        # ...and a row that is ALREADY good is never downgraded, even if the
+        # bundle can only see less (a truncated or partial replay).
+        good = [
+            {
+                "role": "assistant",
+                "run_id": "run-1",
+                "content": "done",
+                "metadata": {"_assistant_stats": dict(rich, run_id="run-1")},
+            }
+        ]
+        seed.stats_from_history_bundle = lambda _bundle: dict(poor)
+        _attach_bundle_stats(good, {"ledgers": {}}, run_id="run-1")
+        kept = good[0]["metadata"]["_assistant_stats"]
+        assert kept["tool_calls"] == 20 and kept["usage"]["input_tokens"] == 163749
+    finally:
+        seed.stats_from_history_bundle = original
+
+    assert _stats_are_richer(rich, poor)
+    assert not _stats_are_richer(poor, rich)

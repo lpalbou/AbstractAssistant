@@ -77,3 +77,43 @@ def test_compact_tool_message_label_html_reads_metadata_arguments() -> None:
     assert 'font-weight:400' in label
     assert "fetch_url" in label
     assert "max_chars=4000" in label
+
+
+def test_the_footer_shows_a_total_rather_than_claiming_zero_tokens() -> None:
+    """`input : 0 tk` is a CLAIM, and a false one.
+
+    Some servers report usage in the Responses dialect
+    (`input_tokens`/`output_tokens`); the provider layer normalizes by reading
+    Chat-Completions names only, so both halves arrive as 0 while the total
+    survives. 47.5% of runs in the operator's store are affected. Until that is
+    fixed upstream (docs/backlog/proposed/0011), show the number we actually
+    have instead of two that we do not.
+    """
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    import abstractassistant.app as app_module
+
+    def footer(usage):
+        return app_module._assistant_footer_items(
+            {
+                "role": "assistant",
+                "content": "hi",
+                "metadata": {"_assistant_stats": {"usage": usage, "tool_calls": 0, "duration_ms": 9400}},
+            }
+        )
+
+    lost_split = footer({"input_tokens": 0, "output_tokens": 0, "total_tokens": 4157})
+    assert any("total : 4,157 tk" in item for item in lost_split), lost_split
+    assert not any(item.startswith("input :") for item in lost_split), lost_split
+    assert not any(item.startswith("output :") for item in lost_split), lost_split
+
+    # A real split is still shown as a split.
+    known = footer({"input_tokens": 4084, "output_tokens": 73, "total_tokens": 4157})
+    assert any("input : 4,084 tk" in item for item in known), known
+    assert any("output : 73 tk" in item for item in known), known
+    assert not any(item.startswith("total :") for item in known), known
+
+    # A genuinely empty usage claims nothing at all.
+    empty = footer({"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+    assert not any("tk" in item for item in empty), empty

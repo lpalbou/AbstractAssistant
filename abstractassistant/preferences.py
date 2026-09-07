@@ -39,6 +39,52 @@ def normalize_workspace_access_mode(raw: Any) -> str:
 VOICE_MODES = ("wait", "full")
 
 
+def _clamp_int(raw: Any, default: int, low: int, high: int) -> int:
+    try:
+        return max(low, min(high, int(raw)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _clamp_float(raw: Any, default: float, low: float, high: float) -> float:
+    try:
+        return max(low, min(high, round(float(raw), 2)))
+    except (TypeError, ValueError):
+        return default
+
+
+#: Bumped when a layout change must retune a height a user already saved.
+LAYOUT_VERSION = 1
+
+
+def _migrated_window_height(raw: Dict[str, Any]) -> int:
+    """The saved window height, shortened once when the layout got tighter.
+
+    Applied on read and stamped with `LAYOUT_VERSION` on write, so a height the
+    user chose is adjusted exactly once — never every launch. A height typed
+    into Settings afterwards is theirs and is left alone.
+    """
+    stored = raw.get("window_height")
+    height = max(240, int(stored or 286))
+    if stored and int(raw.get("layout_version") or 0) < LAYOUT_VERSION:
+        height = max(240, int(round(height * 0.85)))
+    return height
+
+
+def normalize_ui_theme(raw: Any) -> str:
+    """The saved colour theme id, or the app's own theme when unknown.
+
+    A theme that has been renamed or removed upstream must not brick the UI,
+    so anything unrecognized falls back to the app's own palette.
+    """
+    from .ui_themes import DEFAULT_THEME_ID, THEME_SPECS
+
+    text = str(raw or "").strip().lower()
+    if text and (text == DEFAULT_THEME_ID or text in THEME_SPECS):
+        return text
+    return DEFAULT_THEME_ID
+
+
 def normalize_voice_mode(raw: Any) -> str:
     value = str(raw or "").strip().lower()
     return value if value in VOICE_MODES else "wait"
@@ -147,7 +193,8 @@ class AssistantPreferences:
     # steps → quicker first audio), "high" is richer, "standard" is balanced.
     voice_quality: str = "standard"
     window_width: int = 500
-    window_height: int = 336
+    # 2026-09-06: the shell was 15% taller than the content needed.
+    window_height: int = 286
     bottom_offset: int = 18
     tool_preferences: Dict[str, str] = field(default_factory=dict)
     # LOCAL overrides of the gateway's capability defaults, for THIS app only.
@@ -174,6 +221,19 @@ class AssistantPreferences:
     # (speakers: the assistant never transcribes itself; no barge-in), "full"
     # keeps the mic open so a spoken "stop" interrupts (headphones).
     voice_mode: str = "wait"
+    # Colour theme, shared with the framework's other clients (see ui_themes).
+    ui_theme: str = "abstract-glass"
+    # Reading comfort in the transcript. Sizes are px, line height is a
+    # multiplier; the gaps are the space after a paragraph and between list
+    # items. Defaults are the app's tuned rhythm.
+    text_size: int = 13
+    line_spacing: float = 1.20
+    paragraph_spacing: int = 3
+    bullet_spacing: int = 3
+    # Bumped when a layout change should retune sizes a user already saved.
+    # New objects are already current — only a STORED file without the marker
+    # is migrated, and `to_dict` stamps it, so it can never compound.
+    layout_version: int = LAYOUT_VERSION
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "AssistantPreferences":
@@ -191,7 +251,7 @@ class AssistantPreferences:
             auto_speak=bool(raw.get("auto_speak", False)),
             voice_quality=voice_quality,
             window_width=max(420, int(raw.get("window_width") or 500)),
-            window_height=max(240, int(raw.get("window_height") or 336)),
+            window_height=_migrated_window_height(raw),
             bottom_offset=max(0, int(raw.get("bottom_offset") or 18)),
             tool_preferences={
                 str(name).strip(): str(mode).strip().lower()
@@ -206,6 +266,12 @@ class AssistantPreferences:
             voice_auto_send=bool(raw.get("voice_auto_send", True)),
             voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
             voice_mode=normalize_voice_mode(raw.get("voice_mode")),
+            ui_theme=normalize_ui_theme(raw.get("ui_theme")),
+            text_size=_clamp_int(raw.get("text_size"), 13, 10, 22),
+            line_spacing=_clamp_float(raw.get("line_spacing"), 1.20, 1.0, 2.2),
+            paragraph_spacing=_clamp_int(raw.get("paragraph_spacing"), 3, 0, 28),
+            bullet_spacing=_clamp_int(raw.get("bullet_spacing"), 3, 0, 16),
+            layout_version=LAYOUT_VERSION,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -230,6 +296,12 @@ class AssistantPreferences:
             "voice_auto_send": bool(self.voice_auto_send),
             "voice_spoken_replies": bool(self.voice_spoken_replies),
             "voice_mode": normalize_voice_mode(self.voice_mode),
+            "ui_theme": normalize_ui_theme(self.ui_theme),
+            "text_size": _clamp_int(self.text_size, 13, 10, 22),
+            "line_spacing": _clamp_float(self.line_spacing, 1.20, 1.0, 2.2),
+            "paragraph_spacing": _clamp_int(self.paragraph_spacing, 3, 0, 28),
+            "bullet_spacing": _clamp_int(self.bullet_spacing, 3, 0, 16),
+            "layout_version": LAYOUT_VERSION,
         }
 
     def run_scope(self) -> Dict[str, Any]:

@@ -147,6 +147,15 @@ class AskUserDialog(QDialog):
         self.prompt_view.refresh_height()
         self.answer_edit.setFocus()
 
+    def restyle(self) -> None:
+        """Re-read the palette after a theme switch.
+
+        The dialog is modeless and can sit open across a switch, and without
+        this the sweep in ``apply_theme`` skipped it — it kept the palette it
+        was built with.
+        """
+        self.setStyleSheet(dialog_stylesheet())
+
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(560, 340)
 

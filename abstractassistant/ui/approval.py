@@ -79,7 +79,11 @@ _T = THEME
 _M = METRICS
 
 # Every value below is a THEME/METRICS token; the module carries no literals.
-APPROVAL_QSS = f"""
+def build_approval_qss() -> str:
+    """Rebuilt on demand so a theme switch reaches this sheet too."""
+    _T = THEME
+    _M = METRICS
+    return f"""
     QFrame#toolApprovalCallCard {{
         background: {_T.overlay_faint};
         border: 1px solid {_T.border_subtle};
@@ -213,7 +217,10 @@ APPROVAL_QSS = f"""
     QMenu::item:disabled {{
         color: {_T.text_faint};
     }}
-"""
+    """
+
+
+APPROVAL_QSS: str = build_approval_qss()
 
 
 # --------------------------------------------------------------------------- #
@@ -601,9 +608,13 @@ class ToolApprovalSheet(QDialog):
         self._host_items: List[QWidget] = []
 
         self._build_chrome()
-        self.setStyleSheet(dialog_stylesheet() + APPROVAL_QSS)
+        self.restyle()
         self._install_shortcuts()
         self._load_batch(self._batch(tool_calls, risks, run_id, wait_key))
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or this is the first paint)."""
+        self.setStyleSheet(dialog_stylesheet() + build_approval_qss())
 
     # -- construction ------------------------------------------------------ #
 

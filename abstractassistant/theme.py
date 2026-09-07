@@ -69,6 +69,9 @@ class Theme:
 
     # One action-green family (send, primary CTAs)
     primary: str = "#2e8b63"
+    # The label on a filled primary button. Its own token because a palette's
+    # accent can be light (sage, cyan, yellow) and white-on-light is unreadable.
+    primary_text: str = "#f8fafc"
     primary_hover: str = "#37a272"
     primary_pressed: str = "#236749"
     positive: str = "#5ed2a1"
@@ -116,6 +119,53 @@ class Metrics:
     font_display: int = 20
 
 
-# Module-level singletons (the app is single-theme today).
+# Module-level singletons. Every module does `from .theme import THEME`, which
+# binds the OBJECT, so switching themes mutates this instance in place rather
+# than rebinding the name — otherwise half the app would keep the old palette.
 THEME = Theme()
 METRICS = Metrics()
+
+#: The app's own palette, kept intact so a stylesheet written against it can be
+#: translated to another theme (see `ui/retint.py`) however many times the user
+#: switches.
+DEFAULT_THEME = Theme()
+
+
+#: The shipped type ramp and control sizes, kept so the user's text size can be
+#: re-derived from a fixed base however many times it is changed.
+BASE_METRICS = Metrics()
+
+
+def activate_metrics(text_size: int) -> None:
+    """Scale the whole app's type ramp and controls to the user's text size.
+
+    Every window reads the same ``METRICS`` instance, so this mutates it in
+    place exactly as ``activate`` does for colours. Without it the Appearance
+    setting reached only the chat transcript — Settings and every dialog kept
+    a fixed scale, which is precisely the mismatch the operator reported.
+
+    Control heights move with the type: 17px text in a 28px control clips.
+    """
+    base = BASE_METRICS
+    try:
+        wanted = int(text_size)
+    except (TypeError, ValueError):
+        wanted = base.font_body
+    delta = max(-3, min(9, wanted - base.font_body))
+    for name in ("font_caption", "font_ui", "font_body", "font_title", "font_display"):
+        # A 9px floor: below that the small print stops being readable at all.
+        object.__setattr__(METRICS, name, max(9, getattr(base, name) + delta))
+    for name in ("control_sm", "control_md", "control_lg"):
+        object.__setattr__(METRICS, name, max(20, getattr(base, name) + delta))
+    for name in ("icon_sm", "icon_md", "icon_lg"):
+        object.__setattr__(METRICS, name, max(12, getattr(base, name) + (delta // 2)))
+
+
+def activate(theme: Theme) -> None:
+    """Make ``theme`` the palette every module already holds a reference to."""
+    for name, value in vars(theme).items():
+        if name == "code":
+            continue
+        object.__setattr__(THEME, name, value)
+    for name, value in vars(theme.code).items():
+        object.__setattr__(THEME.code, name, value)

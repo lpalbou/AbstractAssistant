@@ -6,6 +6,316 @@ This file tracks major development tasks, architectural decisions, and implement
 
 ## TASK COMPLETION LOG
 
+### Task: "input : 0 tk | output : 0 tk" on answers that plainly cost tokens (2026-09-07)
+
+**Operator**: "the metadata shown for AI answers is often wrong... be sure to retrieve the
+correct data!"
+
+**Three defects, only one of them ours.** Measured across 80 root runs / 43 sessions /
+**625 completed `llm_call` records** / 6 providers, plus all 157 stats-carrying answers in the
+local cache.
+
+- **A (abstractcore, live, 47.5% of runs).** `openai_compatible_provider.py:372-373` builds usage
+  by reading Chat-Completions names ONLY. A server answering in the Responses dialect has both
+  halves zeroed while `total_tokens` — the key both dialects share — survives. Proven by one HTTP
+  call to the airelay proxy: envelope is Chat-Completions, usage keys are
+  `input_tokens/output_tokens/total_tokens`, no `prompt_tokens`. **38 of 80 runs display zeros;
+  all 38 are airelay, all 42 others exact.** `endpoint:m4-max` uses the SAME provider class and is
+  100% correct — the discriminator is the server's key shape, not the provider.
+  Hidden magnitudes: one run showed 0/0 for a true 591,265 / 7,186.
+- **B (ours, historical, frozen).** Answers folded before the run tree was walked recorded the
+  ROOT run only — reproduced exactly: stored `duration 94949, llm_calls 1, tools 0, usage 0/0/0`
+  vs the true `94954, 12, 20, 163749/2237`. The fold was fixed forward long ago, but
+  `history_seed._attach_bundle_stats` SKIPPED any message already carrying stats, so those rows
+  were wrong permanently.
+- **C (abstractruntime).** 22/22 `route_call` records carry `usage: null` on every provider
+  (`llm_client.py:5768-5777`), so every run undercounts by its routing call.
+
+**Shipped here** (the operator chose to FILE A and C rather than patch two sibling packages):
+- The footer stops claiming zero. When the split is unavailable but a total exists it renders
+  `total : 4,157 tk` instead of `input : 0 tk | output : 0 tk` — zero is a claim, and a false one.
+  A real split still renders as a split; a genuinely empty usage still claims nothing.
+- `_attach_bundle_stats` re-derives stats for messages that already have them and replaces only
+  when the fresh figures are **richer** (`_stats_are_richer`). Legacy root-only folds heal on the
+  next seed; a good row can never be downgraded by a partial replay. My first cut added an
+  `_stats_are_impoverished` predicate that flagged 104 of 157 rows — including correct answers
+  that simply used no tools — so it was dropped: the derivation happens once per seed anyway, and
+  "only if richer" is the whole rule.
+- `docs/backlog/proposed/0011_token_usage_lost_upstream.md` carries A and C with the live proof,
+  the per-provider table, the simulated patch (201 repairs / 0 regressions) and the reason the
+  client-side `raw_response` preference was rejected as a fix (contingent: 295 records have no
+  `raw_response`, so it fails silently for a future provider).
+
+**Verified NOT wrong** (checked because "often wrong" could have meant any field): duration median
+error **3 ms** over 86 runs; tools correct on the current workflow; the files chip omitted rather
+than faked when tool details are missing; billing unaffected (it reads `total_tokens`).
+
+**Testing**: `tests/basic` 608 passed. Both changes mutation-checked — restoring the zero claim
+fails the footer test, restoring the skip-if-stats fails the healing test.
+
+---
+
+### Task: A run parked on the user is now impossible to miss; the history gap is filed (2026-09-07)
+
+**Operator's decisions** (asked, not assumed): file the history-replay contract question rather
+than patch abstractruntime; leave their machine's script alone; add a persistent notice + tray
+badge for a run waiting on the user; no transcript marker for turns the model cannot see.
+Consequence stated on the record: interrupted turns stay invisible to the model, with nothing on
+screen indicating it.
+
+**Shipped — "needs you" is now impossible to miss.** A run parked on an approval or an ask had no
+persistent signal at all: one sat 15m52s in silence because its approval event never arrived and
+the dialog alone was the only channel. Now `_pending_user_waits` (wait_key -> kind + label) is
+raised when a wait is surfaced and cleared when it is ANSWERED — "Decide later" deliberately
+leaves it pending, an auto-approved batch never creates one, and a run ending clears all of them.
+While it is non-empty:
+- the palette keeps a banner ("The assistant is waiting for you to approve a tool — <tool>",
+  "(N pending)" when several), re-asserted when a transient notice above it clears and again when
+  the window is reopened;
+- `_tray_feedback_state()` returns `waiting`, which outranks `busy` (busy resolves itself; this
+  cannot until the user acts) and yields to `speaking` only because that is seconds long. The
+  badge is a STILL amber disc with an exclamation — deliberately unlike busy's motion, because a
+  spinning badge reads as progress.
+
+**Filed, not fixed** (operator's call): `docs/backlog/proposed/0010_interrupted_turns_invisible_to_the_model.md`
+— `abstractruntime/.../session_history.py:158,164` drops any turn that is not `completed` AND has
+no answer, so the cancelled French request was invisible to the next run's model. Evidence in the
+item: the model's first `llm_call` carried **1** message vs **9** for a healthy session; a
+codeword experiment (cancelled turn's codeword appeared 0 times); the two filters proven to bind
+independently; 13% of 200 recent root runs affected across 25 of 104 sessions. The sting: that
+run had SUCCEEDED — the LaunchAgent is loaded and `~/mesure.tsv` has rows an hour apart.
+
+**Two test-harness bugs found and fixed on the way**, both mine, both order-dependent:
+- `test_run_lifecycle_fixes.py` aborted the process rendering a tray icon: nothing held a
+  reference to the `QApplication`, so it was collected and the next `QPixmap` aborted. Bisected by
+  reducing to a two-line probe. The suite's other Qt files keep a module-level `_APP`; this one
+  now does too.
+- `test_speaking_icon_tracks_the_level_and_is_never_cached` asserted the icon cache GREW when it
+  rendered "idle" — true only if nothing had cached "idle" first. It now clears the process-global
+  cache at its start. It was order-dependent before; a new test merely exposed it.
+
+**Testing**: `tests/basic` 606 passed, in fixed and random order. Both halves of the wait signal
+are mutation-checked (removing the badge, or the re-assert, fails the test).
+
+---
+
+### Task: Reopening on a cancelled run showed it as completed, with live run controls (2026-09-07)
+
+**Operator**, on the screen after relaunch: "doesn't seem to be in a normal state" — a green
+"The workflow completed, but it returned no written reply." over a session whose run they had
+STOPPED 30 minutes earlier, with a live activity card (pause / steps) still on screen.
+
+Both defects are on the boot reattach path, and both are real:
+
+- **The banner reported the wrong ending.** `_on_worker_finished` chose its no-reply message from
+  `_cancel_requested`, which only knows about a stop THIS process issued. `_on_reattach_candidate`
+  sets it to False, so a run cancelled before the relaunch came back described as "completed".
+  The worker already emits the run's own terminal status; it was being discarded. Now recorded as
+  `_last_run_status` and used: cancelled -> "Run stopped.", failed -> "The run failed before it
+  wrote a reply.", else the completed copy. Reset when a new run starts so it cannot leak forward.
+- **A finished run presented as a live one.** `probe_reattach_candidate` reattaches to a TERMINAL
+  run on purpose — to recover an answer written while the app was closed — but the handler set
+  `_run_busy = True`, put the send button in Stop, and said "Reattached to the run in progress…"
+  for all of them. A terminal candidate is now RECOVERED: no busy button, no run controls,
+  "Catching up on the last run…".
+
+**Verified against the real run** (`ea80bff6`, the one cancelled at 23:54): probe returns
+`status: cancelled`; after attach `_run_busy=False`, send button not busy, status "Catching up on
+the last run…"; after the replay `_last_run_status='cancelled'` and the banner reads
+"Run stopped." Rendered and looked at, not inferred.
+
+**Not a bug** (checked because it appears in the screenshot): the amber send button is
+`observer-night`'s accent `#e8a54a`, which is the operator's saved theme.
+
+**Testing**: `tests/basic` 605 passed. New
+`test_reattaching_to_a_run_cancelled_before_the_relaunch` drives both halves through the real
+handlers; each fix reverted individually makes it fail.
+
+---
+
+### Task: A run parked 16 minutes on an approval nobody was shown — and I caused the trigger (2026-09-07)
+
+**Operator**: "i am unsure stopping or steering an ongoing cycle work... analyze the last session
+- which was a test - and where i ask to record measures every hour. what went wrong?"
+
+**Session** `sess_7a24b7fc12be402899ece560b34b25ee`, root run `ea80bff6`, agent subrun `a077788b`.
+
+**What the run store shows** (all times local/CEST):
+- 23:36:35 run starts. Seven reason/act cycles, each `execute_command`, all healthy: reason
+  6-27s, tools 0.3-12s.
+- Six tool-approval waits. Five resolved in 0.27-10s (auto-approved: the chat had a trust grant).
+- 23:38:22.795 the sixth wait is created — `ioreg -r -d 1 -w 0 -c AGXAccelerator`.
+- **Then nothing for 15m52s.** Not a slow model, not a slow tool: a `timeout=30` tool that never
+  started. The run was parked in `waiting`, and the approval dialog was never shown.
+- 23:54:15 the operator cancels. Run ends `cancelled`.
+
+**The trigger was mine.** I quit and relaunched the app at **23:38:21** to ship a rebuild. The
+wait arrived **1.8 seconds later**, into a client that was still starting.
+
+**The bug it exposed** (`ui/gateway_worker.py::_suppress_resolved_waits_for_attach`): on reattach
+the worker seeds every historical wait occurrence as "already handled" EXCEPT the pending one —
+and it identified the pending one by reading `get_run(run_id).waiting.wait_key` for the ROOT run.
+The root's pending wait is `subworkflow:a077788b…`; the approval the user must answer lives on the
+CHILD ledger as `tool_approval:a077788b…:act:4d7eb7e2…`. The keys can never match, so the pending
+child approval was seeded as handled and the adapter never emitted it. Replaying the REAL bundle:
+**old rule → 0 approval dialogs, new rule → exactly 1** (and no spurious ask_user from the
+subworkflow wait).
+
+**Fix**: `_answered_wait_occurrences()` pairs waits to resumes by the `wait_key` the resume record
+carries (Nth wait for a key ↔ Nth resume for that key, per ledger) and seeds only the ANSWERED
+ones. Unanswered = still pending = must be re-raised. No dependence on which run is "current", so
+root/child can no longer disagree.
+
+**Steering, answered on the record**: the steer was echoed locally ("You steered: …") but the text
+appears nowhere in either ledger or in the run input. Guidance folds in at the agent's next
+reasoning cycle — a run parked in a wait has no next cycle, so steering could not have helped
+here. **Stopping did work**: cancel landed and the run was `cancelled` within the same second.
+(Unresolved: the screenshot 18s later still read "Stopping…", so the terminal status may not have
+propagated promptly. One frame is not proof; not chased.)
+
+**Also fixed, unrelated and pre-existing**: `test_session_switcher.py` anchored its digests to
+`now - 5 minutes`, which lands on YESTERDAY just after midnight — two tests failed at 00:0x.
+Anchored to local noon instead (grouping compares local dates). Verified: at 00:02 the old anchor
+groups as "Yesterday", the new one as "Today".
+
+**Testing**: `tests/basic` 604 passed. New `test_attach_reprompts_a_pending_approval_that_belongs_to_a_SUBRUN`
+reproduces the production shape (root waiting on `subworkflow:`, child holding an answered and an
+unanswered approval) — it FAILED with 0 requests before the fix, and reverting the fix fails it
+again. The existing stable-key test still passes.
+
+**Lesson recorded**: check the gateway for a run active in the last ~2h before quitting the app.
+The run store is durable so a restart loses no work, but an approval arriving while no client is
+listening is the dangerous window.
+
+---
+
+### Task: A theme switch that only reached half the app — icons, a stylesheet leak, and a save that lied (2026-09-06)
+
+**Operator**: "what is that disgusting brown that has nothing to do with our themes? ALL windows
+must follow our theme. inspect, fix, test, iterate until it works, then rebuild. also reduce the
+height by 20% of settings."
+
+**The brown**: `ui_themes.build_theme` derived `primary=_mix(success, bg, 0.25)`, so the Save
+button was khaki on every palette (everforest-dark `#889d6e`, gruvbox `#949626`, nord `#869c79`).
+Now `primary=accent` with a new `primary_text` picked black or white by perceived brightness —
+label contrast 5.2:1 worst case (catppuccin-latte), 11.5:1 best (monokai).
+
+**Why the theme "didn't apply even after reselecting"** — three separate causes, all measured:
+- **The save lied.** `apply_theme` returns whether the choice was WRITTEN; `_on_theme_changed`
+  discarded it and always said "Theme applied and saved on this device." A failed write left the
+  app looking switched and `preferences.json` still on `abstract-glass` — exactly the operator's
+  file. The page now reports the failure, and `apply_theme` says why instead of returning a bare
+  `False`. (Found by the adversarial agent, reproduced by making `update_preferences` raise.)
+- **Icons never followed a switch.** An icon is a rendered bitmap baked at widget construction;
+  the restyle sweep only touches stylesheets. After switching to a light theme the composer and
+  toolbar glyphs stayed near-white on near-white — invisible until restart. Measured glyph
+  luminance, switched vs booted: composerIconButton 0.884 vs 0.009, and 4 of 6 others likewise.
+  Fixed two ways: `icons.themed_color()` puts every tint (including the 13 hard-coded literals
+  like `#8ea1b8`) through the same retint the stylesheets use, and `retint_widget_icons()`
+  rebuilds already-built icons on a switch, via a `QIcon.cacheKey() -> (name, requested colour,
+  size)` registry — a QIcon carries no attributes and a widget cannot be asked what glyph it
+  holds. Now switched == booted for every watched button.
+- **Two palettes were frozen at import**: the voice strip's per-state glyph tones (module
+  constant) and `RunActivityDialog._TONE_COLORS` (class attribute). Both are functions now, and a
+  test walks the AST of every module to keep new ones out.
+
+**The layout ("what the fuck is that layout?")**: the palette's 22k stylesheet has bare type
+selectors (`QPushButton`, `QComboBox`, `QLineEdit`, …) and Settings is its CHILD in the object
+tree, so they cascaded in and won — footer buttons 50px against the 30px the dialog asks for,
+combos 44px against 28px. Scoping them to `QMainWindow#assistantPalette` made it WORSE (higher
+specificity); the fix is `QWidget#rootSurface`, the palette's central widget, which no dialog is
+inside. Measured after: buttons 30, combos 28, palette controls untouched.
+
+**Settings sizing**: height 620 -> 496 (the 20% asked for), and the fit was measuring pages that
+had never been laid out — a page parked in the stack reports a stale width hint because the route
+list re-measures itself on resize — so the window came out 38px too narrow for Models with no
+horizontal scrollbar to reach the rest. `_fit_to_content` now brings each page to the front and
+lays it out before measuring (before the first paint, so nothing flickers), and the About page's
+three-link row got `setWordWrap(True)` — unwrappable, it had been the widest thing in Settings
+and padded every other page. Result 839x496, no page clipped.
+
+**Chat contrast, per theme**: the bubbles were opaque literals, which retint to whatever token is
+nearest — a different distance from the card in every palette (separation swung 1.29-2.18), and
+the user bubble's base was `accent`, so on the light themes it came out PINK (`light` -> `#f4d0d9`).
+Both are now an alpha of a token (`border_subtle` 0.28/0.50, `user_bg` 0.30/0.60), so the step is
+relative to the card and inverts correctly: separation 1.39-1.84 across all 22 themes, rim
+2.26-4.48, and the user bubble is the palette's info colour rather than its accent.
+
+**Testing**: `tests/basic` 598 passed. New `test_theme_reaches_every_window.py` (5): every window
+follows a switch while ALREADY OPEN (background and text measured apart — averaging them cancels
+out and reads as inverted), no palette frozen at import, the choice survives a relaunch, icons
+match a restart, no bare type selector leaks. Plus cross-theme bubble contrast, the settings fit,
+and the save-honesty test. **Every new test was mutation-checked** — the fix reverted, the test
+confirmed failing, the fix restored.
+
+**Not proven**: offscreen only, and the offscreen plugin resolves fonts at 100 DPI rather than
+macOS's, so the pixel dimensions here are ~40% larger than the real window (the adversarial agent
+measured 576 for the same dialog that reports 496 here). Nothing was driven through the real
+macOS window. The bundle was rebuilt and verified (no source newer than the binary).
+
+---
+
+### Task: The tray voice histogram, restored — and the meter behind it had never worked (2026-09-06)
+
+**Operator**: "when abstractassistant was speaking, it used to show the realtime voice
+histogram/curve in the sys tray icon. when the voice stops (whether because finished or
+interrupted by the user), it would resume the normal icon state."
+
+**Archaeology (release 01ee6c1, v0.4.10)**: `update_voice_meter(level)` fed a decaying
+`_voice_meter`; `update_icon_status` mapped a status, zeroed the meter when leaving a voice state,
+and started an animation timer re-rendering the tray via
+`IconGenerator.apply_heartbeat_effect(base, status, voice_meter=meter)`. Speaking levels came from
+`voice_manager.set_audio_meter_callback`, listening levels from `listen(on_audio_level=…)`. The
+gateway rewrite replaced the tray with a Qt-painted idle/busy/complete set and never reconnected
+the meter. `apply_heartbeat_effect` / `_draw_voice_bars` survive in `utils/icon_generator.py` as
+DEAD CODE (PIL; the tray is Qt-painted, so reusing them would have been wrong).
+
+**The bug under the bug**: `gateway_voice_manager._emit_audio_meter_from_chunk` called
+`_compute_band_levels(arr, sample_rate, rms)` — the def requires a 4th argument, `np`. Every call
+raised TypeError into a bare `except: pass`. Live instrumentation: **193 chunks, 193 exceptions,
+0 readings**, on BOTH the streaming and artifact lanes. The meter had never emitted a value, so a
+faithful restoration would have drawn five static bars at 15 fps. Fixed by passing `np`; the
+swallow now warns once instead of hiding a recurrence.
+
+**Design correction from the adversarial review**: my first cut tracked a `_speech_active` flag set
+by `on_speech_start` and cleared in each ending. That was wrong three ways, each proven live:
+auto-speak and voice conversations never set `_active_spoken_message_key`, so the keyed start hook
+never fired for them (the two paths where the tray matters most); a superseded speech left the icon
+dark for the whole of the replacing message; and PAUSE never ends, pinning a 15 fps timer forever.
+0.4.10 had it right by polling. `_tray_feedback_state()` now asks `voice_manager.is_speaking()`,
+so every ending — finished, stopped, superseded, paused, failed, quit — is the same property and
+self-heals within a frame. The flag and its five clear-sites are gone.
+
+**Also corrected on the record**: my comment and test docstring claimed a deliberate stop "skips
+the completion callback". Measured: `stop_speaking()` DOES fire it (~2.6 s later). The polling
+design makes it moot, but the claim was false.
+
+**Shipped**: `_tray_feedback_icon(state="speaking", levels=…)` drawing 5 bars, cache-bypassed
+(a live meter is a new picture per frame — 0.052 ms median to render, 0.08% of a core at 15 fps,
+and 500 renders insert 0 cache entries); `_tray_voice_bars()` normalizing a scalar or per-band
+reading; `_decayed_speech_meter()` fading over 0.35 s so a stalled player falls to silence instead
+of freezing; a keyless `speech_activity_changed` signal off `on_speech_start`/`on_speech_end`;
+`_install_speech_meter()` reclaiming the callback after a voice conversation (whose `stop()` nulls
+it); `shutdown()` handing it back so the audio thread cannot emit into a deleted QObject.
+Output levels feed the TRAY ONLY — the composer strip is the microphone meter, and the band
+floor (0.4 + 0.6·amp) would have pegged it at 40% for every reply.
+
+**Live proof (real manager, real gateway)**: 322 readings, 261 non-zero, peak 0.623, **261
+distinct bar patterns** — the histogram genuinely animates; `on_speech_start` with
+`is_speaking()=True` at 5.96 s, `on_speech_end` with False at 9.41 s, so the tray returns to
+normal. Threading verified by the review: `pyqtSignal(object)` from the audio thread delivers
+queued, 500/500 slots on MainThread, 0.5 µs per emit — no lock needed (0.4.10's was the wrong
+tool here).
+
+**Testing**: `tests/basic` 560 passed. 8 new tests, two mutation-checked: restoring the arity bug
+fails the meter test, and the icon-follows-the-player test covers four endings plus a player that
+cannot be asked.
+
+**NOT restored**: listening (`listening` / `listening_paused` with mic levels) was half of the
+0.4.10 behaviour. Speaking-only is deliberate — it is what was asked for — but it is a known gap.
+Cosmetic gap: `_compute_band_levels` compresses its range (live bands 0.06–0.56 of a possible 1.0),
+so the bars move but never reach full height; per-frame normalization would fix it.
+
 ### Task: The runtime had every attachment all along — the client read them and threw them away (2026-09-06)
 
 **Operator, correcting me**: "abstractassistant is a READER of sessions on the runtime. THE

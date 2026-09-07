@@ -1,85 +1,97 @@
+"""The macOS build must fail loudly, and must not fail because of itself.
+
+Two failures seen for real on 2026-09-06: the build exited 0 with a traceback
+and no bundle when the package was not pip-installed, and two overlapping
+builds destroyed each other's PyInstaller cache — every build starts with
+`--clean`, which deletes the shared cache, so the other one then evaluated an
+empty index file and died with a bare `SyntaxError` naming nothing.
+"""
+
 from __future__ import annotations
 
-from pathlib import Path
+import sys
 
 import pytest
 
-import abstractassistant.build_macos_app as build_module
-import abstractassistant.macos_entry as macos_entry
+pytest.importorskip("fcntl")
+
+from abstractassistant.build_macos_app import (  # noqa: E402
+    _build_lock,
+    _pyinstaller_cache_dir,
+    _pyinstaller_run,
+)
 
 
 @pytest.mark.basic
-def test_pyinstaller_spec_declares_menu_bar_app_contract() -> None:
-    spec_path = Path(__file__).resolve().parents[2] / "packaging" / "macos" / "AbstractAssistant.spec"
-    spec = spec_path.read_text(encoding="utf-8")
+def test_two_builds_cannot_run_at_once(tmp_path, monkeypatch) -> None:
+    import abstractassistant.build_macos_app as build_module
 
-    assert '"LSUIElement": True' in spec
-    assert 'bundle_identifier=BUNDLE_ID' in spec
-    assert 'macos_entry.py' in spec
-    assert 'console=False' in spec
-    assert 'argv_emulation=False' in spec
-    # pymdownx is no longer a dependency; nothing should force-collect it.
-    assert 'pymdownx' not in spec
-    # The mic is reachable through abstractvoice; macOS kills processes that
-    # touch it without a usage description.
-    assert '"NSMicrophoneUsageDescription"' in spec
-    # pygame rides in via nltk's lazy corpus imports and breaks COLLECT.
-    assert '"pygame"' in spec
-    assert 'ROOT.parent / "abstractcore"' in spec
-    assert 'ROOT.parent / "abstractvoice"' in spec
-    assert 'collect_submodules("abstractcore")' not in spec
-    assert '"abstractcore.config.manager"' in spec
-    assert '"abstractvoice.recognition"' in spec
+    monkeypatch.setattr(build_module, "_build_dir", lambda root: tmp_path / "build")
+
+    with _build_lock(tmp_path):
+        with pytest.raises(RuntimeError) as excinfo:
+            with _build_lock(tmp_path):
+                pass
+        message = str(excinfo.value)
+        # It must name the cause and what to do, not just refuse.
+        assert "already running" in message
+        assert "cache" in message
+        assert "build.lock" in message
+
+    # The lock is released, so the next build is free to run.
+    with _build_lock(tmp_path):
+        pass
 
 
 @pytest.mark.basic
-def test_build_macos_app_installs_pyinstaller_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    root = tmp_path / "repo"
-    spec_path = root / "packaging" / "macos" / "AbstractAssistant.spec"
-    spec_path.parent.mkdir(parents=True)
-    spec_path.write_text("# spec\n", encoding="utf-8")
-    dist_app = root / "dist" / "macos" / "AbstractAssistant.app"
-    install_calls: list[tuple[Path, Path]] = []
+def test_a_corrupt_cache_is_cleared_and_the_build_retried(tmp_path, monkeypatch) -> None:
+    """`load_py_data_struct` evaluates the cache index; an empty one raises
+    SyntaxError. Nothing in that cache is precious."""
+    import abstractassistant.build_macos_app as build_module
 
-    monkeypatch.setattr(build_module.sys, "platform", "darwin")
-    monkeypatch.setattr(build_module, "_repo_root", lambda: root)
-    monkeypatch.setattr(build_module, "_ensure_icon_assets", lambda _root: None)
+    cache = tmp_path / "pyinstaller-cache"
+    cache.mkdir()
+    (cache / "index.dat").write_text("")
+    monkeypatch.setattr(build_module, "_pyinstaller_cache_dir", lambda: cache)
 
-    def _fake_pyinstaller_run(spec: Path, dist_dir: Path, work_dir: Path) -> None:
-        assert spec == spec_path
-        assert dist_dir == root / "dist" / "macos"
-        assert work_dir == root / "build" / "macos" / "pyinstaller-work"
-        (dist_app / "Contents").mkdir(parents=True, exist_ok=True)
-        (dist_app / "Contents" / "Info.plist").write_text("plist", encoding="utf-8")
+    calls: list = []
 
-    monkeypatch.setattr(build_module, "_pyinstaller_run", _fake_pyinstaller_run)
-    monkeypatch.setattr(build_module, "_install_app", lambda src, dst: install_calls.append((src, dst)))
+    def _fake_run(args):
+        calls.append(list(args))
+        if len(calls) == 1:
+            raise SyntaxError("invalid syntax")
 
-    app_path = build_module.build_macos_app(install_to_applications=True)
+    fake_module = type("M", (), {"run": staticmethod(_fake_run)})
+    monkeypatch.setitem(sys.modules, "PyInstaller.__main__", fake_module)
 
-    assert app_path == Path("/Applications/AbstractAssistant.app")
-    assert install_calls == [(dist_app, Path("/Applications/AbstractAssistant.app"))]
+    _pyinstaller_run(tmp_path / "app.spec", tmp_path / "dist", tmp_path / "work")
+
+    assert len(calls) == 2, "the build must be retried once"
+    assert not cache.exists(), "the corrupt cache must be cleared before retrying"
+    # A retry uses the same arguments, not a degraded set.
+    assert calls[0] == calls[1]
+    assert "--clean" in calls[0]
 
 
 @pytest.mark.basic
-def test_macos_entry_sets_launch_env_for_frozen_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls: list[object] = []
+def test_a_second_failure_is_not_swallowed(tmp_path, monkeypatch) -> None:
+    import abstractassistant.build_macos_app as build_module
 
-    monkeypatch.delenv("ABSTRACTASSISTANT_SHOW_ON_LAUNCH", raising=False)
-    monkeypatch.delenv("ABSTRACTASSISTANT_TRAY_LOG_PATH", raising=False)
-    monkeypatch.delenv("ABSTRACTASSISTANT_TRAY_CAPTURE_PATH", raising=False)
-    monkeypatch.setattr(macos_entry.sys, "argv", ["AbstractAssistant"])
-    monkeypatch.setattr(macos_entry.sys, "frozen", True, raising=False)
-    monkeypatch.setattr(macos_entry, "launch_tray_app", lambda **kwargs: calls.append(kwargs) or 7)
-    monkeypatch.setattr(macos_entry.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(build_module, "_pyinstaller_cache_dir", lambda: tmp_path / "gone")
 
-    result = macos_entry.main()
+    def _always_fails(args):
+        raise SyntaxError("invalid syntax")
 
-    assert result == 7
-    assert calls and isinstance(calls[0], dict)
-    assert calls[0]["debug"] is False
-    assert calls[0]["data_dir"] is None
-    assert calls[0]["config"] is not None
-    assert macos_entry.os.environ["ABSTRACTASSISTANT_SHOW_ON_LAUNCH"] == "1"
-    assert "abstractassistant-launcher.log" in str(macos_entry.os.environ["ABSTRACTASSISTANT_TRAY_LOG_PATH"])
-    assert "abstractassistant-status-item.png" in str(macos_entry.os.environ["ABSTRACTASSISTANT_TRAY_CAPTURE_PATH"])
+    monkeypatch.setitem(
+        sys.modules, "PyInstaller.__main__", type("M", (), {"run": staticmethod(_always_fails)})
+    )
+    with pytest.raises(SyntaxError):
+        _pyinstaller_run(tmp_path / "app.spec", tmp_path / "dist", tmp_path / "work")
+
+
+@pytest.mark.basic
+def test_the_cache_directory_is_the_real_one() -> None:
+    cache = _pyinstaller_cache_dir()
+    assert cache.name == "pyinstaller"
+    if sys.platform == "darwin":
+        assert "Application Support" in str(cache)

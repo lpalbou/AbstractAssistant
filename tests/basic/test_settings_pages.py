@@ -9,6 +9,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from abstractassistant.gateway_service import CapabilityRouteRow, ChoiceItem
@@ -146,16 +147,35 @@ def test_sidebar_has_seven_sections_and_switches_pages() -> None:
 
 
 @pytest.mark.basic
-def test_reasoning_dial_reflects_gateway_levels_and_saves_locally() -> None:
+def test_reasoning_belongs_to_the_chat_model_not_the_page() -> None:
+    """Reasoning is a property of the model that reasons — it sits in the chat
+    route's own form, beside its provider and model, and is not offered for a
+    voice, image, video, music or sound-effect model."""
     dlg, ctl = _dialog()
-    control = dlg.page_models.reasoning_control
-    assert control.values() == ["", "none", "low", "medium", "high"]
-    assert control.value() == ""  # gateway default until chosen
-    dlg.page_models._on_reasoning_changed("high")
+    editor = dlg.page_models.route_editor
+    assert not hasattr(dlg.page_models, "reasoning_control"), "no page-level dial"
+
+    dlg.show_section("models", "output.text")
+    assert editor.reasoning_combo.isVisibleTo(editor)
+    assert editor.reasoning_label.isVisibleTo(editor)
+    combo = editor.reasoning_combo
+    values = [combo.itemData(i) for i in range(combo.count())]
+    assert values == ["", "none", "low", "medium", "high"]
+    assert combo.currentData() == ""  # gateway default until chosen
+    editor._on_reasoning_changed("high")
     assert ctl.preferences.reasoning_effort == "high"
-    note = dlg.page_models.reasoning_note.text()
+    note = editor.reasoning_note.text()
     assert "qwen/qwen3.8-27b" in note and "low, medium, xhigh" in note
     assert "Currently sending: High" in note
+
+    # Every other route hides it: none of those models reasons.
+    for key in ("output.voice", "input.voice", "output.image", "output.video", "output.music"):
+        rows = [r for r in editor.rows() if r.key == key]
+        if not rows:
+            continue
+        dlg.show_section("models", key)
+        assert not editor.reasoning_combo.isVisibleTo(editor), key
+        assert not editor.reasoning_label.isVisibleTo(editor), key
 
 
 @pytest.mark.basic
@@ -163,7 +183,11 @@ def test_reasoning_dial_falls_back_to_the_contract_ladder_without_a_gateway() ->
     ctl = _Controller()
     ctl.reasoning_levels = lambda: []  # type: ignore[method-assign]
     dlg, _ = _dialog(ctl)
-    assert dlg.page_models.reasoning_control.values() == ["", "none", "minimal", "low", "medium", "high", "xhigh"]
+    editor = dlg.page_models.route_editor
+    combo = editor.reasoning_combo
+    assert [combo.itemData(i) for i in range(combo.count())] == [
+        "", "none", "minimal", "low", "medium", "high", "xhigh"
+    ]
 
 
 @pytest.mark.basic
@@ -258,3 +282,225 @@ def test_settings_dialog_uses_the_shared_stylesheet_without_gradients() -> None:
     sheet = dlg.styleSheet()
     assert "QListWidget#navList" in sheet
     assert "qlineargradient" not in sheet
+
+
+@pytest.mark.basic
+def test_no_settings_page_is_clipped_at_any_size() -> None:
+    """Apply and half the reasoning levels used to sit off the right edge at
+    the dialog's own default size, with the horizontal scrollbar disabled —
+    unreachable, with nothing to say so."""
+    dlg, _ = _dialog()
+    for width, height in ((820, 520), (840, 600), (1180, 760)):
+        dlg.resize(width, height)
+        dlg.show()
+        _app().processEvents()
+        for name in ("connection", "models", "voice", "workspace", "tools", "window", "about"):
+            dlg.show_section(name)
+            _app().processEvents()
+            page = dlg.stack.currentWidget()
+            viewport = page.scroll.viewport().width()
+            needed = page.scroll.widget().minimumSizeHint().width()
+            assert needed <= viewport, (
+                f"{name} at {width}x{height}: needs {needed}px, has {viewport}px"
+            )
+    dlg.close()
+
+
+@pytest.mark.basic
+def test_the_route_actions_live_in_the_page_footer() -> None:
+    """Inside the card they were pushed off-screen; every other page's actions
+    are in the footer."""
+    dlg, _ = _dialog()
+    page = dlg.page_models
+    labels = {b.text() for b in page.actions()}
+    assert {"Reload", "Reset to gateway", "Apply"} <= labels
+    assert page.footer_frame.isVisibleTo(page)
+
+
+@pytest.mark.basic
+def test_the_window_sizes_itself_to_its_own_pages_and_stays_that_size() -> None:
+    """The dialog is not resizable, so the size it picks IS the contract.
+
+    It picked one 38px too narrow for the Models page: a page parked in the
+    stack reports a stale width hint (the route list re-measures itself on
+    resize), so the fit measured pages that had never been laid out. The
+    route set here is production-sized — with one route the page is far too
+    narrow for the bug to appear at all.
+    """
+
+    class _WideController(_Controller):
+        def provider_choices(self, **kwargs):
+            return [ChoiceItem(id="endpoint:airelay", label="endpoint:airelay"), ChoiceItem(id="mlx-gen", label="mlx-gen")]
+
+        def model_choices(self, **kwargs):
+            # Real model ids are long; they set the combo's width, and with a
+            # short stub id the page is far too narrow for the bug to appear.
+            return [
+                ChoiceItem(
+                    id="AbstractFramework/wan2.2-i2v-a14b-diffusers-8bit",
+                    label="AbstractFramework/wan2.2-i2v-a14b-diffusers-8bit",
+                )
+            ]
+
+        def route_map(self, **kwargs):
+            rows = {}
+            for key, label, provider, model in (
+                ("input.text", "Main Chat Model", "endpoint:airelay", "gpt-5.6-terra"),
+                ("input.image", "Image Understanding", "endpoint:airelay", "gpt-5.6-terra"),
+                ("input.voice", "Speech To Text", "faster-whisper", "large-v3"),
+                ("output.text", "Text Output", "endpoint:airelay", "gpt-5.6-terra"),
+                ("output.image.text_to_image", "Image Generation", "mlx-gen", "AbstractFramework/flux.2-klein-9b-8bit"),
+                ("output.voice", "Voice output (TTS)", "supertonic", "supertonic-3"),
+                ("output.sound", "Sound Generation", "stable-audio-3", "stabilityai/stable-audio-3-small-sfx"),
+            ):
+                kind, _, rest = key.partition(".")
+                modality, _, task = rest.partition(".")
+                rows[key] = CapabilityRouteRow(
+                    key=key, label=label, kind=kind, modality=modality, task=task,
+                    provider=provider, model=model, configured=True,
+                )
+            return rows
+
+    dlg, _ = _dialog(_WideController())
+    dlg.show()
+    _app().processEvents()
+
+    assert dlg.minimumSize() == dlg.maximumSize(), "the settings window must not be resizable"
+    # Shorter than the first cut, which was taller than any page needed.
+    assert dlg.height() <= 576, f"settings window is {dlg.height()}px tall"
+    assert dlg.height() >= 460, "too short to show a page without scrolling everything"
+
+    for name in ("connection", "models", "voice", "workspace", "tools", "window", "about"):
+        dlg.show_section(name)
+        _app().processEvents()
+        page = dlg.stack.currentWidget()
+        needed = page.scroll.widget().minimumSizeHint().width()
+        viewport = page.scroll.viewport().width()
+        # There is no horizontal scrollbar, so anything past the viewport is
+        # simply unreachable.
+        assert needed <= viewport, f"{name} needs {needed}px, the window gives {viewport}px"
+    dlg.close()
+
+
+@pytest.mark.basic
+def test_the_fit_measures_pages_that_have_never_been_laid_out() -> None:
+    """A page parked in the stack sits at a placeholder size, and a child that
+    measures itself on resize (the route list does exactly this) reports a
+    stale width until the page is actually laid out. Measuring in that state
+    made the window 38px too narrow for the Models page, with no horizontal
+    scrollbar to reach the rest.
+    """
+    from PyQt5.QtCore import QSize
+    from PyQt5.QtWidgets import QScrollArea, QVBoxLayout, QWidget
+
+    class _GrowsOnLayout(QWidget):
+        """Reports a small width hint until it is given real geometry.
+
+        This is the route list's behaviour in miniature: it re-measures its
+        own width from its longest row in ``resizeEvent``, so its hint is
+        meaningless until the page it lives on has actually been laid out.
+        """
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._min = 120
+
+        def minimumSizeHint(self):  # noqa: N802 (Qt API)
+            return QSize(self._min, 200)
+
+        def resizeEvent(self, event):  # noqa: N802 (Qt API)
+            super().resizeEvent(event)
+            if self.width() > 200 and self._min != 760:
+                self._min = 760
+                self.updateGeometry()
+
+    class _LatePage(QWidget):
+        def __init__(self, parent=None) -> None:
+            super().__init__(parent)
+            box = QVBoxLayout(self)
+            box.setContentsMargins(0, 0, 0, 0)
+            self.scroll = QScrollArea(self)
+            self.scroll.setWidgetResizable(True)
+            self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.scroll.setWidget(_GrowsOnLayout())
+            box.addWidget(self.scroll)
+
+    dlg, _ = _dialog()
+    late = _LatePage(dlg)
+    dlg.pages["late"] = late
+    dlg.stack.addWidget(late)
+
+    dlg.show()
+    _app().processEvents()
+    dlg.stack.setCurrentWidget(late)
+    _app().processEvents()
+
+    needed = late.scroll.widget().minimumSizeHint().width()
+    viewport = late.scroll.viewport().width()
+    assert needed <= viewport, f"page needs {needed}px, the window gives {viewport}px"
+    dlg.close()
+
+
+@pytest.mark.basic
+def test_a_theme_that_could_not_be_saved_is_never_reported_as_saved() -> None:
+    """`apply_theme` returns whether the choice was WRITTEN, and the page threw
+    that away — so a theme could apply on screen, fail to persist, and still
+    say "saved on this device". The next launch came back on the old theme
+    with nothing having warned. This is how a preferences file kept
+    `abstract-glass` while the operator picked theme after theme.
+    """
+    class _Failing(_Controller):
+        def apply_theme(self, theme_id, **kwargs):
+            self.attempted = theme_id
+            return False  # applied on screen, not written to disk
+
+    class _Working(_Controller):
+        def apply_theme(self, theme_id, **kwargs):
+            self.attempted = theme_id
+            return True
+
+    for controller, should_warn in ((_Failing(), True), (_Working(), False)):
+        dlg, _ = _dialog(controller)
+        dlg.show_section("window")
+        _app().processEvents()
+        page = dlg.page_window
+        index = page.theme_combo.findData("gruvbox")
+        assert index >= 0
+        page.theme_combo.setCurrentIndex(index)
+        _app().processEvents()
+
+        assert controller.attempted == "gruvbox"
+        said = page.feedback.text()
+        if should_warn:
+            assert "could not be saved" in said, f"silent failure: {said!r}"
+        else:
+            assert "saved" in said.lower() and "could not" not in said, said
+        dlg.close()
+
+
+@pytest.mark.basic
+def test_the_spin_controls_have_visible_arrows() -> None:
+    """A spin box's arrows are SUBCONTROLS: no widget to setIcon on, and QSS
+    cannot take a QIcon. Without an explicit image Qt falls back to its native
+    arrow — a dark glyph on a dark field, which is invisible. QDoubleSpinBox
+    is not a QSpinBox and has to be named separately; it was the one control
+    left with the bare native arrows.
+    """
+    import os
+    import re
+
+    from abstractassistant.ui.styles import dialog_stylesheet
+
+    _app()
+    css = dialog_stylesheet()
+    for control in ("QSpinBox", "QDoubleSpinBox"):
+        for part in ("up-arrow", "down-arrow"):
+            match = re.search(
+                rf"{control}::{part}[^{{]*\{{([^}}]*)\}}", css
+            )
+            assert match, f"{control}::{part} has no rule at all"
+            body = match.group(1)
+            url = re.search(r"image:\s*url\(([^)]+)\)", body)
+            assert url, f"{control}::{part} has no image; Qt will draw its invisible native arrow"
+            assert os.path.exists(url.group(1)), f"{control}::{part} points at a missing file"
+        assert re.search(rf"{control}::up-button", css), f"{control} up-button is unstyled"

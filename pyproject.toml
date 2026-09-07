@@ -38,6 +38,9 @@ dependencies = [
     # Only used for an optional local config read (STT language hint); all
     # provider execution happens on the gateway, so no provider extras.
     "abstractcore>=2.13.38",
+    # The native menu-bar bridge (status-item metrics, traffic lights) imports
+    # AppKit; without it macOS reports the tray as never ready.
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",

@@ -349,15 +349,62 @@ class GatewayWorker(QThread):
                         occurrences.append((key, str(rec.get("step_id") or "").strip()))
         return occurrences
 
+    def _answered_wait_occurrences(self, bundle: Dict[str, Any]) -> list:
+        """Wait occurrences that were ANSWERED, per ledger.
+
+        A resume record carries the `wait_key` it answers, so within one
+        ledger the Nth waiting record for a key is answered by the Nth resume
+        for that key. Anything left over is still pending.
+
+        This replaces asking the run for its "current" wait, which read the
+        ROOT run while the approval the user must answer lives on the AGENT
+        SUBRUN: the root waits on `subworkflow:<child>` and never on
+        `tool_approval:<child>:act:<hash>`, so the pending child approval was
+        seeded as already-handled and its dialog never re-opened. One real run
+        sat parked on that for 16 minutes.
+        """
+        answered: list = []
+        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
+        if not isinstance(ledgers, dict):
+            return answered
+        for ledger in ledgers.values():
+            items = ledger.get("items") if isinstance(ledger, dict) else None
+            if not isinstance(items, list):
+                continue
+            waits: Dict[str, list] = {}
+            resumes: Dict[str, int] = {}
+            for it in items:
+                rec = it.get("record") if isinstance(it, dict) else None
+                if not isinstance(rec, dict):
+                    continue
+                wait = extract_wait_from_record(rec)
+                if isinstance(wait, dict):
+                    key = str(wait.get("wait_key") or "").strip()
+                    if key:
+                        waits.setdefault(key, []).append(str(rec.get("step_id") or "").strip())
+                    continue
+                effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+                if str(effect.get("type") or "") == "resume":
+                    payload = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
+                    key = str(payload.get("wait_key") or "").strip()
+                    if key:
+                        resumes[key] = resumes.get(key, 0) + 1
+            for key, steps in waits.items():
+                for step in steps[: resumes.get(key, 0)]:
+                    answered.append((key, step))
+        return answered
+
     def _suppress_resolved_waits_for_attach(self, run_id: str) -> None:
-        """On reattach, mark every historical wait OCCURRENCE as seen EXCEPT
-        the run's currently-pending one, so the full-ledger replay does not
-        re-open already-answered approval / ask-user dialogs (answering a
-        stale wait fails its resume and can leave the run tree in a bad
-        state). Occurrences are (wait_key, step_id) pairs — the runtime
-        reuses stable wait keys for repeated waits from the same node, so
-        excluding the pending wait by KEY would also unsuppress its answered
-        predecessors and replay stale dialogs."""
+        """On reattach, mark the ANSWERED wait occurrences as seen so the
+        full-ledger replay does not re-open dialogs the user already dealt
+        with (answering a stale wait fails its resume and can leave the run
+        tree in a bad state) — and leave every UNANSWERED one alone, so a
+        still-pending approval is raised again.
+
+        Occurrences are (wait_key, step_id) pairs: the runtime reuses stable
+        wait keys for repeated waits from the same node, so a key alone cannot
+        tell an answered wait from its pending successor.
+        """
         if self._gateway is None:
             return
         try:
@@ -370,26 +417,7 @@ class GatewayWorker(QThread):
             )
         except Exception:
             return
-        current_key = ""
-        try:
-            info = self._gateway.get_run(run_id=run_id)
-            if isinstance(info, dict) and str(info.get("status") or "").strip().lower() == "waiting":
-                waiting = info.get("waiting")
-                if isinstance(waiting, dict):
-                    current_key = str(waiting.get("wait_key") or "").strip()
-        except Exception:
-            current_key = ""
-        occurrences = self._all_ledger_wait_occurrences(bundle)
-        if current_key:
-            # The pending occurrence is the LAST waiting record carrying the
-            # current key (a currently-waiting run's waiting record is the
-            # newest wait state on its ledger). Seed everything but it.
-            last_idx = -1
-            for i, (key, _step) in enumerate(occurrences):
-                if key == current_key:
-                    last_idx = i
-            if last_idx >= 0:
-                occurrences = occurrences[:last_idx] + occurrences[last_idx + 1 :]
+        occurrences = self._answered_wait_occurrences(bundle)
         if occurrences:
             self._adapter.seed_handled_wait_occurrences(occurrences)
 

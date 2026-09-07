@@ -219,8 +219,12 @@ def test_sort_digests_puts_the_most_recent_activity_first() -> None:
 
 
 def _digests():
-    now = datetime.now(timezone.utc)
-    stamp = lambda delta: (now - delta).isoformat()  # noqa: E731
+    # Anchored to local NOON, not to "now". `now - 5 minutes` crosses into
+    # yesterday just after midnight, and the row that must be in the "Today"
+    # group silently lands in "Yesterday" — this suite failed exactly that way
+    # at 00:0x. Grouping compares LOCAL dates, so the anchor must be local.
+    noon = datetime.now().astimezone().replace(hour=12, minute=0, second=0, microsecond=0)
+    stamp = lambda delta: (noon - delta).astimezone(timezone.utc).isoformat()  # noqa: E731
     return [
         SessionDigest(
             session_id="today",

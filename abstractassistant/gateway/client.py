@@ -432,6 +432,7 @@ class GatewayClient:
         session_turn_limit: int = 50,
         ledger_mode: str = "tail",
         ledger_max_items: int = 2000,
+        timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
@@ -450,6 +451,7 @@ class GatewayClient:
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/history_bundle", query=query),
             label="get_run_history_bundle failed",
+            timeout_s=timeout_s,
         )
 
     def get_ledger(self, *, run_id: str, after: int, limit: int) -> Dict[str, Any]:

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import warnings
+from pathlib import Path
 
 from PyQt5.QtCore import QByteArray, QPointF, Qt
 from PyQt5.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
@@ -31,6 +32,83 @@ except Exception:  # pragma: no cover - import safety
 
 _ICON_CACHE: dict = {}
 _MISSING_WARNED: set = set()
+
+# QIcon.cacheKey() -> the (name, requested colour, size) it was built from.
+# A QIcon cannot carry attributes and a widget cannot be asked what glyph it
+# holds, so this is how a theme switch finds out what to re-render: look up
+# the icon a widget already has, and rebuild it from the same request against
+# the new palette. `requested` is the colour the CALL SITE asked for, never
+# the translated one, so translations never compound.
+_SPEC_BY_ICON: dict = {}
+
+
+def _remember_spec(icon, name, requested: str, size: int) -> None:
+    try:
+        _SPEC_BY_ICON[icon.cacheKey()] = (str(name), str(requested), int(size))
+    except Exception:
+        pass
+
+
+def icon_image_path(name: str, *, color: str = "", size: int = 10) -> str:
+    """A PNG on disk for a glyph, for use in a stylesheet's ``image: url(...)``.
+
+    A spin box's arrows are SUBCONTROLS: there is no widget to call setIcon on,
+    and QSS cannot take a QIcon. With no image Qt falls back to the native
+    arrow, which is a dark glyph on a dark field — the operator's "the vertical
+    + - are not visible on the right". Files are cached per (glyph, colour,
+    size), so a theme switch writes a new one and the old stays harmless.
+    """
+    import hashlib
+    import tempfile
+
+    tint = themed_color(color) if color else ""
+    key = hashlib.sha1(f"{name}|{tint}|{size}".encode("utf-8")).hexdigest()[:16]
+    folder = Path(tempfile.gettempdir()) / "abstractassistant-glyphs"
+    target = folder / f"{key}.png"
+    if not target.exists():
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            icon = symbol_icon(name, color=color, size=size)
+            icon.pixmap(int(size), int(size)).save(str(target), "PNG")
+        except Exception:
+            return ""
+    # QSS url() wants forward slashes on every platform.
+    return target.as_posix()
+
+
+def retint_widget_icons(root) -> int:
+    """Rebuild every icon under ``root`` against the active palette.
+
+    Icons are baked at widget construction, so without this a theme switch
+    left the composer and toolbar glyphs in the OLD palette — near-white on
+    near-white after switching to a light theme, i.e. invisible. Returns how
+    many were rebuilt.
+    """
+    from PyQt5.QtWidgets import QWidget
+
+    changed = 0
+    widgets = [root] + (root.findChildren(QWidget) if hasattr(root, "findChildren") else [])
+    for widget in widgets:
+        getter = getattr(widget, "icon", None)
+        setter = getattr(widget, "setIcon", None)
+        if not callable(getter) or not callable(setter):
+            continue
+        try:
+            current = getter()
+            if current is None or current.isNull():
+                continue
+            spec = _SPEC_BY_ICON.get(current.cacheKey())
+        except Exception:
+            continue
+        if spec is None:
+            continue
+        name, requested, size = spec
+        try:
+            setter(symbol_icon(name, color=requested, size=size))
+            changed += 1
+        except Exception:
+            continue
+    return changed
 
 # Glyphs drawn as a solid fill (media transport reads better filled at small
 # sizes); everything else is a 2px round stroke in the Lucide house style.
@@ -328,11 +406,44 @@ def _render_spinner(frame: int, color: str, size: int) -> QPixmap:
     return pixmap
 
 
-def symbol_icon(name: str, *, color: str = "#edf2f8", size: int = 18) -> QIcon:
+def themed_color(color: str) -> str:
+    """A glyph tint expressed in the ACTIVE palette.
+
+    Call sites hand this function colours written against the shipped dark
+    palette — tokens like ``THEME.text_secondary`` (already correct) and a
+    long tail of hard-coded literals like ``#8ea1b8`` (never correct after a
+    switch). Both go through the same translation the stylesheets use, so a
+    near-white glyph becomes a near-black one on a light theme instead of
+    disappearing into the background.
+    """
+    from .retint import retint_stylesheet
+    from .theme import DEFAULT_THEME, THEME
+
+    text = str(color or "").strip()
+    if not text:
+        return text
+    try:
+        return retint_stylesheet(text, source=DEFAULT_THEME, target=THEME)
+    except Exception:
+        return text
+
+
+def symbol_icon(name: str, *, color: str = "", size: int = 18) -> QIcon:
     """Return a cached QIcon for a named glyph, tinted and Retina-crisp."""
+    # Default to the palette's own text colour: a hard-coded near-white glyph
+    # is invisible on a light theme.
+    if not color:
+        from .theme import THEME
+
+        color = THEME.text_primary
+
+    requested = str(color or "").strip()
+    color = themed_color(requested)
+
     key = (str(name or "").strip().lower(), str(color or "").strip().lower(), int(size))
     cached = _ICON_CACHE.get(key)
     if cached is not None:
+        _remember_spec(cached, name, requested, size)
         return cached
 
     resolved = _resolve(key[0])
@@ -344,6 +455,7 @@ def symbol_icon(name: str, *, color: str = "#edf2f8", size: int = 18) -> QIcon:
             frame = 0
         icon = QIcon(_render_spinner(frame, color, size))
         _ICON_CACHE[key] = icon
+        _remember_spec(icon, name, requested, size)
         return icon
 
     paths = _ICON_PATHS.get(resolved)
@@ -355,6 +467,7 @@ def symbol_icon(name: str, *, color: str = "#edf2f8", size: int = 18) -> QIcon:
             warnings.warn(f"#FALLBACK: unknown icon '{resolved}' (rendering a dot)")
         icon = QIcon(_render_dot(color, size))
         _ICON_CACHE[key] = icon
+        _remember_spec(icon, name, requested, size)
         return icon
 
     document = _svg_document(paths, color, resolved in _FILLED)
@@ -370,6 +483,7 @@ def symbol_icon(name: str, *, color: str = "#edf2f8", size: int = 18) -> QIcon:
     pixmap.setDevicePixelRatio(2.0)
     icon = QIcon(pixmap)
     _ICON_CACHE[key] = icon
+    _remember_spec(icon, name, requested, size)
     return icon
 
 

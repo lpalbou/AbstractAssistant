@@ -1783,13 +1783,19 @@ class GatewayVoiceManager:
             level = min(1.0, max(0.0, rms * 3.0))
             bands = []
             if sample_rate and sample_rate > 0:
-                bands = self._compute_band_levels(arr, int(sample_rate), rms)
+                # `np` is a required argument: without it every call raised
+                # TypeError into the swallow below, so this meter had never
+                # produced a single reading (193 chunks, 193 exceptions, in a
+                # live measurement) and anything drawing it stayed frozen.
+                bands = self._compute_band_levels(arr, int(sample_rate), rms, np)
             if bands:
                 cb(bands)
             else:
                 cb(level)
-        except Exception:
-            pass
+        except Exception as e:
+            if not self._audio_meter_warned:
+                self._audio_meter_warned = True
+                warnings.warn(f"#FALLBACK: audio meter unavailable: {e!r}")
 
     def _spawn_player(self, path: Path):
         if sys.platform == "darwin":

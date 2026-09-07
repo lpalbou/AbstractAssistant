@@ -13,8 +13,9 @@ import json
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
+from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
+    QSizePolicy,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -33,8 +34,26 @@ from PyQt5.QtWidgets import (
 )
 
 from ...gateway_service import ROUTE_SPECS, CapabilityRouteRow
+from ...preferences import REASONING_EFFORT_LEVELS
 from ...theme import THEME
-from .common import safe_call
+from .common import LABEL_COLUMN_MIN, safe_attr, safe_call
+
+
+def _prefs(controller: Any) -> Any:
+    return safe_attr(controller, "preferences", None)
+
+
+def _update_prefs(controller: Any, **updates: Any) -> bool:
+    return safe_call(controller, "update_preferences", default=None, **updates) is not None
+
+_REASONING_LABELS = {
+    "none": "None",
+    "minimal": "Minimal",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "Extra high",
+}
 
 
 def json_dumps(value: Dict[str, Any]) -> str:
@@ -100,10 +119,10 @@ class RouteOverrideEditor(QWidget):
         self.route_list.setMinimumWidth(180)
         self.route_list.setMaximumWidth(220)
         self.route_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.route_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.route_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.route_list.setWordWrap(True)
         self.route_list.currentRowChanged.connect(self._load_selected_route)
-        panel.addWidget(self.route_list, 0)
+        panel.addWidget(self.route_list, 0, Qt.AlignTop)
 
         right = QVBoxLayout()
         right.setSpacing(8)
@@ -146,27 +165,47 @@ class RouteOverrideEditor(QWidget):
         right.addLayout(mode_row)
 
         form = QGridLayout()
-        form.setHorizontalSpacing(10)
+        form.setHorizontalSpacing(12)
         form.setVerticalSpacing(8)
         form.setColumnStretch(1, 1)
+        # The same label column as every other settings page, so this form does
+        # not read as a third indent level.
+        form.setColumnMinimumWidth(0, LABEL_COLUMN_MIN)
         right.addLayout(form)
 
         form.addWidget(QLabel("Provider"), 0, 0)
         self.provider_combo = QComboBox()
-        self.provider_combo.setMinimumWidth(220)
         self.provider_combo.currentIndexChanged.connect(self._on_provider_combo_changed)
         form.addWidget(self.provider_combo, 0, 1)
 
         form.addWidget(QLabel("Model"), 1, 0)
         self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(220)
         form.addWidget(self.model_combo, 1, 1)
 
         self.voice_label = QLabel("Voice")
         form.addWidget(self.voice_label, 2, 0)
         self.voice_combo = QComboBox()
-        self.voice_combo.setMinimumWidth(220)
         form.addWidget(self.voice_combo, 2, 1)
+
+        # Reasoning belongs to the model that reasons. It is a property of the
+        # chat model, like its provider and its name — not of the page, and not
+        # of a voice, image, video, music or sound-effect model, none of which
+        # has anything to think about.
+        self.reasoning_label = QLabel("Reasoning")
+        form.addWidget(self.reasoning_label, 3, 0)
+        # A combo, not a 7-button ladder: the ladder could not shrink below
+        # 508px, which pushed Apply off the screen at the dialog's own default
+        # size — and it makes provider/model/reasoning read as one unit.
+        self.reasoning_combo = QComboBox()
+        self.reasoning_combo.currentIndexChanged.connect(self._on_reasoning_combo_changed)
+        form.addWidget(self.reasoning_combo, 3, 1)
+        self.reasoning_note = QLabel("")
+        self.reasoning_note.setObjectName("routeHelp")
+        # One line, elided: the full sentence is three lines of small print and
+        # it dominated the form (and ran off the bottom of the page).
+        self.reasoning_note.setWordWrap(False)
+        self.reasoning_note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        form.addWidget(self.reasoning_note, 4, 1)
 
         # Hidden: the per-run override pins carry provider/model only, so an
         # upscale resolution would be saved and silently ignored.
@@ -207,17 +246,12 @@ class RouteOverrideEditor(QWidget):
         self.route_feedback.setWordWrap(True)
         self.route_feedback.setObjectName("feedbackNote")
         right.addWidget(self.route_feedback)
-        right.addStretch(1)
 
-        buttons = QHBoxLayout()
-        buttons.setSpacing(8)
-        buttons.addStretch(1)
         self.refresh_button = QPushButton("Reload")
         self.refresh_button.setObjectName("secondaryButton")
         self.refresh_button.setAutoDefault(False)
         self.refresh_button.setToolTip("Reload the gateway defaults for these routes")
         self.refresh_button.clicked.connect(self.refresh)
-        buttons.addWidget(self.refresh_button)
         self.reset_route_button = QPushButton("Reset to gateway")
         self.reset_route_button.setObjectName("secondaryButton")
         self.reset_route_button.setAutoDefault(False)
@@ -226,14 +260,15 @@ class RouteOverrideEditor(QWidget):
             "gateway default again."
         )
         self.reset_route_button.clicked.connect(self._reset_route_to_gateway)
-        buttons.addWidget(self.reset_route_button)
         self.save_button = QPushButton("Apply")
         self.save_button.setObjectName("primaryButton")
         self.save_button.setAutoDefault(False)
         self.save_button.setToolTip("Apply the selected mode for this app")
         self.save_button.clicked.connect(self._save_route)
-        buttons.addWidget(self.save_button)
-        right.addLayout(buttons)
+
+    def action_buttons(self) -> List[QPushButton]:
+        """The buttons this editor owns, for the page footer to host."""
+        return [self.refresh_button, self.reset_route_button, self.save_button]
 
     # ------------------------------------------------------------------ data
 
@@ -253,6 +288,7 @@ class RouteOverrideEditor(QWidget):
             item.setIcon(self._route_dot_icon(configured=bool(row.configured)))
             item.setToolTip(self._route_state_text(row))
             self.route_list.addItem(item)
+        self._sync_reasoning_options()
         self._fit_list_height()
         if self._route_rows:
             selected_index = 0
@@ -272,15 +308,32 @@ class RouteOverrideEditor(QWidget):
             self._set_route_editor_enabled(False)
 
     def _fit_list_height(self) -> None:
-        """Show every route without an inner scrollbar: the list is the
-        card's spine, so the form column stretches to match it."""
+        """Size the list to the rows it actually has.
+
+        Every row is measured, not row 0 multiplied by the count: row 0 is the
+        shortest label ("Chat model") and word wrap is on, so one wrapped name
+        made the list a line too short per wrap — and with the scrollbar off,
+        the routes at the bottom became unreachable. The height is fixed, not a
+        minimum, so the list stops claiming the card's whole height.
+        """
         count = self.route_list.count()
         if count <= 0:
-            self.route_list.setMinimumHeight(0)
+            self.route_list.setFixedHeight(0)
             return
-        row_h = max(24, int(self.route_list.sizeHintForRow(0) or 0))
+        # Width first, from the longest route name: at a fixed 180px "Voice
+        # output (TTS)" wrapped onto two lines, which then made the measured
+        # height wrong as well.
+        content = int(self.route_list.sizeHintForColumn(0) or 0)
         frame = 2 * self.route_list.frameWidth()
-        self.route_list.setMinimumHeight(row_h * count + frame + 10)
+        self.route_list.setFixedWidth(max(180, min(268, content + frame + 22)))
+        total = sum(max(24, int(self.route_list.sizeHintForRow(i) or 0)) for i in range(count))
+        self.route_list.setFixedHeight(total + frame + 10)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(event)
+        # The list narrows with the dialog, so a name that fits at one width
+        # wraps at another: re-measure instead of trusting the first pass.
+        self._fit_list_height()
 
     def rows(self) -> List[CapabilityRouteRow]:
         return list(self._route_rows)
@@ -557,7 +610,128 @@ class RouteOverrideEditor(QWidget):
         finally:
             self.voice_combo.blockSignals(False)
 
+    def _sync_reasoning_options(self) -> None:
+        """Build the level buttons once per refresh.
+
+        Never while a route is being selected: rebuilding these widgets inside
+        the list's `currentRowChanged` handler aborts the process.
+        """
+        levels = safe_call(self._controller, "reasoning_levels", default=None) or list(REASONING_EFFORT_LEVELS)
+        self._reasoning_options = [("", "Gateway default")] + [
+            (lvl, _REASONING_LABELS.get(lvl, lvl)) for lvl in levels
+        ]
+        self.reasoning_combo.blockSignals(True)
+        self.reasoning_combo.clear()
+        for value, label in self._reasoning_options:
+            self.reasoning_combo.addItem(label, value)
+        self.reasoning_combo.blockSignals(False)
+
+    def _refresh_reasoning(self) -> None:
+        options = list(getattr(self, "_reasoning_options", None) or [("", "Gateway default")])
+        levels = [value for value, _label in options if value]
+        prefs = _prefs(self._controller)
+        current = str(safe_attr(prefs, "reasoning_effort", "") or "")
+        if current not in dict(options):
+            current = ""
+        supported = self._model_reasoning_levels()
+        model = self.reasoning_combo.model()
+        self.reasoning_combo.blockSignals(True)
+        for index in range(self.reasoning_combo.count()):
+            value = str(self.reasoning_combo.itemData(index) or "")
+            # A level this model does not report stays listed but unselectable
+            # — except the one already saved, so the caption can explain that
+            # AbstractCore maps it to the nearest level it can honor.
+            usable = (
+                not value
+                or supported is None
+                or value in supported
+                or value == current
+            )
+            item = model.item(index) if hasattr(model, "item") else None
+            if item is not None:
+                item.setEnabled(usable)
+            self.reasoning_combo.setItemData(
+                index,
+                ""
+                if usable
+                else "Not reported by this model; AbstractCore maps it to the nearest level it can honor.",
+                Qt.ToolTipRole,
+            )
+        self.reasoning_combo.setCurrentIndex(max(0, self.reasoning_combo.findData(current)))
+        self.reasoning_combo.blockSignals(False)
+        self._set_reasoning_note(self._reasoning_caption(current))
+
+    def _set_reasoning_note(self, text: str) -> None:
+        """One elided line on screen, the whole sentence in the tooltip."""
+        full = str(text or "")
+        self.reasoning_note.setToolTip(full)
+        metrics = QFontMetrics(self.reasoning_note.font())
+        width = max(120, self.reasoning_note.width() or 320)
+        self.reasoning_note.setText(metrics.elidedText(full, Qt.ElideRight, width))
+
+    def _model_reasoning_levels(self) -> Optional[set]:
+        """The reasoning levels the effective chat model reports, or None when
+        no capability card lists any (then every level stays selectable)."""
+        route = safe_call(self._controller, "effective_chat_route", default=None) or {}
+        model = str(route.get("model") or "").strip()
+        card = safe_call(self._controller, "model_capabilities", model, default=None) if model else None
+        if not isinstance(card, dict) or card.get("thinking_support") is not True:
+            return None
+        levels = {str(v).strip().lower() for v in (card.get("reasoning_levels") or []) if str(v).strip()}
+        return levels or None
+
+    def _reasoning_caption(self, current: str) -> str:
+        route = safe_call(self._controller, "effective_chat_route", default=None) or {}
+        provider = str(route.get("provider") or "").strip()
+        model = str(route.get("model") or "").strip()
+        source = "this app's override" if route.get("source") == "override" else "the gateway default"
+        if not model:
+            target = "the gateway's default chat model"
+        else:
+            target = f"{provider + ' / ' if provider else ''}{model} ({source})"
+        card = safe_call(self._controller, "model_capabilities", model, default=None) if model else None
+        lines = [f"Applies to {target}."]
+        if isinstance(card, dict) and card:
+            supports = card.get("thinking_support")
+            levels = [str(v) for v in (card.get("reasoning_levels") or []) if str(v)]
+            if supports is True and levels:
+                lines.append(f"This model reports reasoning levels {', '.join(levels)}; other levels map to the nearest one AbstractCore can honor.")
+            elif supports is True:
+                lines.append("This model reports reasoning support; the level is passed as a best-effort hint.")
+            elif supports is False:
+                lines.append("This model does not report reasoning support — the setting is sent, but the model may ignore it.")
+        elif model:
+            lines.append("No capability card for this model; AbstractCore maps an unsupported level to the nearest one it can honor.")
+        if current:
+            lines.append(f"Currently sending: {_REASONING_LABELS.get(current, current)}.")
+        return " ".join(lines)
+
+    def _on_reasoning_combo_changed(self, _index: int) -> None:
+        if bool(getattr(self, "_loading_route", False)):
+            return
+        self._on_reasoning_changed(str(self.reasoning_combo.currentData() or ""))
+
+    def _on_reasoning_changed(self, value: str) -> None:
+        if _update_prefs(self._controller, reasoning_effort=value):
+            self._feedback("Saved on this device." if value else "Following the gateway default.")
+            self.changed.emit()
+        else:
+            self._feedback("Could not save the reasoning effort.", tone="error")
+        prefs = _prefs(self._controller)
+        self.reasoning_note.setText(self._reasoning_caption(str(safe_attr(prefs, "reasoning_effort", value) or "")))
+
+    def _feedback(self, text: str, *, tone: str = "") -> None:
+        self.route_feedback.setText(str(text or ""))
+        self.route_feedback.setProperty("tone", tone or "")
+        self.route_feedback.style().unpolish(self.route_feedback)
+        self.route_feedback.style().polish(self.route_feedback)
+
     def _apply_route_specific_state(self, row: CapabilityRouteRow) -> None:
+        is_chat = row.key == "output.text"
+        for widget in (self.reasoning_label, self.reasoning_combo, self.reasoning_note):
+            widget.setVisible(is_chat)
+        if is_chat:
+            self._refresh_reasoning()
         is_voice = row.key == "output.voice"
         self.voice_label.setVisible(is_voice)
         self.voice_combo.setVisible(is_voice)

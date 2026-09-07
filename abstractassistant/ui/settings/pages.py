@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -326,103 +327,22 @@ class ModelsPage(SettingsPage):
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
 
-        routes = self.add_card(
-            Card(
-                "Models",
-                "Each entry shows the gateway's default and this app's override, if any. Chat and voice overrides are sent with each request; image, video, music and sound overrides are handed to the assistant's workflow.",
-            )
-        )
+        # A card WITHOUT a title: the surface is what makes the form read as a
+        # panel, but a card titled "Models" inside a page titled
+        # "Models & reasoning" was a third heading for one thing.
+        routes = self.add_card(Card())
         self.route_editor = RouteOverrideEditor(controller, routes)
         self.route_editor.changed.connect(self._on_routes_changed)
         routes.add_widget(self.route_editor)
-
-        reasoning = self.add_card(
-            Card(
-                "Reasoning effort",
-                "How hard the chat model thinks before answering. “Gateway default” sends nothing and lets the gateway decide.",
-            )
-        )
-        self.reasoning_control = SegmentedControl([("", "Gateway default")])
-        self.reasoning_control.changed.connect(self._on_reasoning_changed)
-        reasoning.add_widget(self.reasoning_control)
-        self.reasoning_note = QLabel("")
-        self.reasoning_note.setObjectName("cardHelp")
-        self.reasoning_note.setWordWrap(True)
-        reasoning.add_widget(self.reasoning_note)
+        # The actions live in the footer, like every other page — inside the
+        # card they were pushed off-screen at the dialog's own default width.
+        self.add_actions(*self.route_editor.action_buttons())
 
     def refresh(self) -> None:
         self.route_editor.refresh()
-        self._refresh_reasoning()
 
     def _on_routes_changed(self) -> None:
         self.changed.emit()
-        self._refresh_reasoning()
-
-    def _refresh_reasoning(self) -> None:
-        levels = safe_call(self.controller, "reasoning_levels", default=None) or list(REASONING_EFFORT_LEVELS)
-        options = [("", "Gateway default")] + [(lvl, _REASONING_LABELS.get(lvl, lvl)) for lvl in levels]
-        self.reasoning_control.set_options(options)
-        prefs = _prefs(self.controller)
-        current = str(safe_attr(prefs, "reasoning_effort", "") or "")
-        self.reasoning_control.set_value(current if current in dict(options) else "")
-        supported = self._model_reasoning_levels()
-        if supported is not None:
-            # Levels the chat model's capability card does not list are greyed
-            # out (a saved one stays selected so the caption can say it maps).
-            for lvl in levels:
-                ok = lvl in supported
-                self.reasoning_control.set_option_enabled(
-                    lvl,
-                    ok or lvl == current,
-                    "" if ok else f"Not reported by this model; AbstractCore maps it to the nearest level it can honor.",
-                )
-        self.reasoning_note.setText(self._reasoning_caption(current))
-
-    def _model_reasoning_levels(self) -> Optional[set]:
-        """The reasoning levels the effective chat model reports, or None when
-        no capability card lists any (then every level stays selectable)."""
-        route = safe_call(self.controller, "effective_chat_route", default=None) or {}
-        model = str(route.get("model") or "").strip()
-        card = safe_call(self.controller, "model_capabilities", model, default=None) if model else None
-        if not isinstance(card, dict) or card.get("thinking_support") is not True:
-            return None
-        levels = {str(v).strip().lower() for v in (card.get("reasoning_levels") or []) if str(v).strip()}
-        return levels or None
-
-    def _reasoning_caption(self, current: str) -> str:
-        route = safe_call(self.controller, "effective_chat_route", default=None) or {}
-        provider = str(route.get("provider") or "").strip()
-        model = str(route.get("model") or "").strip()
-        source = "this app's override" if route.get("source") == "override" else "the gateway default"
-        if not model:
-            target = "the gateway's default chat model"
-        else:
-            target = f"{provider + ' / ' if provider else ''}{model} ({source})"
-        card = safe_call(self.controller, "model_capabilities", model, default=None) if model else None
-        lines = [f"Applies to {target}."]
-        if isinstance(card, dict) and card:
-            supports = card.get("thinking_support")
-            levels = [str(v) for v in (card.get("reasoning_levels") or []) if str(v)]
-            if supports is True and levels:
-                lines.append(f"This model reports reasoning levels {', '.join(levels)}; other levels map to the nearest one AbstractCore can honor.")
-            elif supports is True:
-                lines.append("This model reports reasoning support; the level is passed as a best-effort hint.")
-            elif supports is False:
-                lines.append("This model does not report reasoning support — the setting is sent, but the model may ignore it.")
-        elif model:
-            lines.append("No capability card for this model; AbstractCore maps an unsupported level to the nearest one it can honor.")
-        if current:
-            lines.append(f"Currently sending: {_REASONING_LABELS.get(current, current)}.")
-        return " ".join(lines)
-
-    def _on_reasoning_changed(self, value: str) -> None:
-        if _update_prefs(self.controller, reasoning_effort=value):
-            self.say("Saved on this device." if value else "Following the gateway default.")
-            self.changed.emit()
-        else:
-            self.say("Could not save the reasoning effort.", tone="error")
-        prefs = _prefs(self.controller)
-        self.reasoning_note.setText(self._reasoning_caption(str(safe_attr(prefs, "reasoning_effort", value) or "")))
 
 
 # ================================================================== Voice
@@ -452,12 +372,25 @@ class VoicePage(SettingsPage):
         self.device_summary = QLabel("")
         self.device_summary.setObjectName("rowValue")
         self.device_summary.setWordWrap(True)
-        sound_button = button("Sound settings…", "secondary", on_click=self._open_sound_settings)
+        # The button opens macOS System Settings; elsewhere it did nothing at
+        # all, so it is not offered.
+        is_macos = platform.system().lower() == "darwin"
+        trailing = []
+        if is_macos:
+            trailing.append(
+                button("Sound settings…", "secondary", on_click=self._open_sound_settings)
+            )
         routes.add_row(
             "Output device",
             self.device_summary,
-            trailing=[sound_button],
-            help_text="Playback follows the Mac's default output; a headset or a muted output makes a working voice inaudible.",
+            trailing=trailing,
+            help_text=(
+                "Playback follows the Mac's default output; a headset or a muted "
+                "output makes a working voice inaudible."
+                if is_macos
+                else "Playback follows the system default output; a headset or a "
+                "muted output makes a working voice inaudible."
+            ),
         )
 
         behaviour = self.add_card(Card("Replies"))
@@ -484,8 +417,8 @@ class VoicePage(SettingsPage):
         conversation.add_row("Sending", self.voice_auto_send, help_text="Off: your words land in the message box and Return sends them.")
         self.voice_spoken_replies = QCheckBox("Ask for short, spoken-style replies")
         conversation.add_row("Reply style", self.voice_spoken_replies, help_text="Adds a voice-style instruction to each request while the conversation runs.")
-        self.voice_mode_wait = QRadioButton("Pause the mic while the assistant speaks (speakers)")
-        self.voice_mode_full = QRadioButton("Keep the mic open; say “stop” to interrupt (headphones)")
+        self.voice_mode_wait = QRadioButton("Pause the mic while speaking")
+        self.voice_mode_full = QRadioButton("Keep the mic open")
         modes = QVBoxLayout()
         modes.setContentsMargins(0, 0, 0, 0)
         modes.setSpacing(6)
@@ -496,7 +429,11 @@ class VoicePage(SettingsPage):
         conversation.add_row(
             "Barge-in",
             host,
-            help_text="With speakers, the open-mic option may transcribe the assistant's own voice.",
+            help_text=(
+                "Pause on speakers; keep it open with headphones and say “stop” "
+                "to interrupt. With speakers, the open-mic option may transcribe "
+                "the assistant's own voice."
+            ),
         )
 
         self.save_button_voice = button("Save", "primary", on_click=self._save)
@@ -961,8 +898,15 @@ class ToolsPage(SettingsPage):
 
     def _set_group(self, toolset: str, mode: str) -> None:
         skipped: List[str] = []
+        hidden = 0
         for name, info in self._rows.items():
             if info["toolset"] != toolset or not info["available"]:
+                continue
+            # Only what the user can actually see: with a filter applied this
+            # used to pre-approve mutating tools that were not on screen.
+            row = info.get("row")
+            if row is not None and not row.isVisibleTo(self):
+                hidden += 1
                 continue
             if mode == "approve" and int(info.get("rank") or 0) > self.ALL_AUTO_MAX_RANK:
                 skipped.append(name)
@@ -972,6 +916,12 @@ class ToolsPage(SettingsPage):
             self.say(
                 "Left on Ask (outreach or destructive): " + ", ".join(sorted(skipped)) + ". Set them to Auto individually if you mean it.",
                 tone="warning",
+            )
+        elif hidden:
+            self.say(
+                f"Applied to the {len(self._rows) - hidden} tool(s) shown; "
+                f"{hidden} hidden by the filter were left alone.",
+                tone="info",
             )
 
     def _apply_filter(self) -> None:
@@ -990,11 +940,16 @@ class ToolsPage(SettingsPage):
             return
         # Only rows that differ from the gateway's default are stored, so a
         # tool left on its default keeps following the gateway if that changes.
-        statuses = {
-            name: str(info["control"].value() or "ask")
-            for name, info in self._rows.items()
-            if str(info["control"].value() or "ask") != str(info.get("default_mode") or "ask")
-        }
+        # Start from what is already saved: the gateway's inventory varies with
+        # what is connected, and rebuilding the map from this refresh alone
+        # silently dropped saved modes for tools it did not list this time.
+        statuses = dict(safe_attr(_prefs(self.controller), "tool_preferences", {}) or {})
+        for name, info in self._rows.items():
+            chosen = str(info["control"].value() or "ask")
+            if chosen != str(info.get("default_mode") or "ask"):
+                statuses[name] = chosen
+            else:
+                statuses.pop(name, None)
         saver = getattr(self.controller, "save_tool_preferences", None)
         if callable(saver):
             try:
@@ -1029,8 +984,8 @@ _APPROVAL_SHORTCUTS = (
 
 
 class WindowPage(SettingsPage):
-    title = "Window & shortcuts"
-    nav_title = "Window"
+    title = "Appearance & window"
+    nav_title = "Appearance"
     subtitle = "Applies to this app on this Mac."
     icon = "keyboard"
 
@@ -1038,12 +993,69 @@ class WindowPage(SettingsPage):
         super().__init__(controller, parent)
         self._apply_hotkey = apply_hotkey
 
+        appearance = self.add_card(
+            Card(
+                "Theme",
+                "The colour palettes the rest of AbstractFramework uses. The choice "
+                "applies to every window here — chat, settings, dialogs — and is "
+                "remembered on this Mac.",
+            )
+        )
+        self.theme_combo = QComboBox()
+        self.theme_combo.setMinimumContentsLength(18)
+        self._populate_themes()
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        appearance.add_row(
+            "Theme",
+            self.theme_combo,
+            stretch_control=False,
+            help_text="Light palettes are grouped at the end of the list.",
+        )
+
+        reading = self.add_card(
+            Card(
+                "Reading",
+                "How replies are set in the chat. Takes effect immediately.",
+            )
+        )
+        self.text_size = QSpinBox()
+        self.text_size.setRange(10, 22)
+        self.text_size.setSuffix(" px")
+        self.text_size.valueChanged.connect(self._on_typography_changed)
+        reading.add_row("Text size", self.text_size, stretch_control=False)
+        self.line_spacing = QDoubleSpinBox()
+        self.line_spacing.setRange(1.0, 2.2)
+        self.line_spacing.setSingleStep(0.05)
+        self.line_spacing.setDecimals(2)
+        self.line_spacing.valueChanged.connect(self._on_typography_changed)
+        reading.add_row(
+            "Line spacing",
+            self.line_spacing,
+            stretch_control=False,
+            help_text="Space between the lines of one paragraph, as a multiple of the text size.",
+        )
+        self.paragraph_spacing = QSpinBox()
+        self.paragraph_spacing.setRange(0, 28)
+        self.paragraph_spacing.setSuffix(" px")
+        self.paragraph_spacing.valueChanged.connect(self._on_typography_changed)
+        reading.add_row("Paragraph gap", self.paragraph_spacing, stretch_control=False)
+        self.bullet_spacing = QSpinBox()
+        self.bullet_spacing.setRange(0, 16)
+        self.bullet_spacing.setSuffix(" px")
+        self.bullet_spacing.valueChanged.connect(self._on_typography_changed)
+        reading.add_row(
+            "Bullet gap",
+            self.bullet_spacing,
+            stretch_control=False,
+            help_text="Space between items of a list.",
+        )
+
         summon = self.add_card(Card("Global shortcut"))
         self.hotkey_enabled = QCheckBox("Summon the assistant from anywhere")
         summon.add_row("Summon", self.hotkey_enabled)
         self.hotkey_edit = QLineEdit()
         self.hotkey_edit.setPlaceholderText("cmd+shift+space")
-        self.hotkey_edit.setMinimumWidth(220)
+        self.hotkey_edit.setMinimumWidth(160)
         summon.add_row(
             "Key combination",
             self.hotkey_edit,
@@ -1057,7 +1069,9 @@ class WindowPage(SettingsPage):
         self.width_spin.setSuffix(" px")
         window.add_row("Width", self.width_spin, stretch_control=False)
         self.height_spin = QSpinBox()
-        self.height_spin.setRange(320, 880)
+        # Must reach the app's own default (286): a floor above it meant
+        # pressing Save on this page silently grew the window.
+        self.height_spin.setRange(240, 880)
         self.height_spin.setSuffix(" px")
         window.add_row("Expanded height", self.height_spin, stretch_control=False, help_text="Height of the window once the chat opens fully.")
         self.bottom_offset_spin = QSpinBox()
@@ -1094,12 +1108,86 @@ class WindowPage(SettingsPage):
             grid.addWidget(label, row, 1, Qt.AlignLeft | Qt.AlignVCenter)
         return host
 
+    def _populate_themes(self) -> None:
+        from ...ui_themes import theme_options
+
+        self.theme_combo.blockSignals(True)
+        self.theme_combo.clear()
+        last_group = None
+        for theme_id, label, group in theme_options():
+            if last_group is not None and group != last_group:
+                self.theme_combo.insertSeparator(self.theme_combo.count())
+            last_group = group
+            self.theme_combo.addItem(label, theme_id)
+        self.theme_combo.blockSignals(False)
+
+    def _select_current_theme(self) -> None:
+        from ...preferences import normalize_ui_theme
+
+        current = normalize_ui_theme(safe_attr(_prefs(self.controller), "ui_theme", ""))
+        index = self.theme_combo.findData(current)
+        self.theme_combo.blockSignals(True)
+        self.theme_combo.setCurrentIndex(max(0, index))
+        self.theme_combo.blockSignals(False)
+
+    def _on_theme_changed(self, _index: int) -> None:
+        theme_id = str(self.theme_combo.currentData() or "")
+        if not theme_id:
+            return
+        # The palette owns the switch: it repaints every window and re-renders
+        # the transcript, then saves the choice.
+        applier = getattr(self.controller, "apply_theme", None)
+        if not callable(applier):
+            self.say("Could not apply the theme.", tone="error")
+            self.changed.emit()
+            return
+        # The return value is the SAVE, not the repaint. Ignoring it is how a
+        # theme could be applied on screen and silently not written: the app
+        # looked switched, and the next launch came back on the old one with
+        # nothing having said so.
+        if applier(theme_id):
+            self.say("Theme applied and saved on this device.")
+        else:
+            self.say(
+                "Theme applied, but it could not be saved — it will revert on the next launch.",
+                tone="error",
+            )
+        self.changed.emit()
+
+    def _on_typography_changed(self, _value=None) -> None:
+        if bool(getattr(self, "_loading_typography", False)):
+            return
+        applier = getattr(self.controller, "apply_typography", None)
+        if not callable(applier):
+            self.say("Could not apply the text settings.", tone="error")
+            return
+        ok = applier(
+            text_size=int(self.text_size.value()),
+            line_spacing=float(self.line_spacing.value()),
+            paragraph_spacing=int(self.paragraph_spacing.value()),
+            bullet_spacing=int(self.bullet_spacing.value()),
+        )
+        self.say("Saved on this device." if ok else "Could not save the text settings.",
+                 tone="" if ok else "error")
+
+    def _load_typography(self, prefs: Any) -> None:
+        self._loading_typography = True
+        try:
+            self.text_size.setValue(int(safe_attr(prefs, "text_size", 13) or 13))
+            self.line_spacing.setValue(float(safe_attr(prefs, "line_spacing", 1.45) or 1.45))
+            self.paragraph_spacing.setValue(int(safe_attr(prefs, "paragraph_spacing", 10)))
+            self.bullet_spacing.setValue(int(safe_attr(prefs, "bullet_spacing", 3)))
+        finally:
+            self._loading_typography = False
+
     def refresh(self) -> None:
+        self._select_current_theme()
         prefs = _prefs(self.controller)
+        self._load_typography(prefs)
         self.hotkey_enabled.setChecked(bool(safe_attr(prefs, "hotkey_enabled", True)))
         self.hotkey_edit.setText(str(safe_attr(prefs, "hotkey_sequence", "cmd+shift+space") or "cmd+shift+space"))
         self.width_spin.setValue(int(safe_attr(prefs, "window_width", 500) or 500))
-        self.height_spin.setValue(int(safe_attr(prefs, "window_height", 336) or 336))
+        self.height_spin.setValue(int(safe_attr(prefs, "window_height", 286) or 286))
         self.bottom_offset_spin.setValue(int(safe_attr(prefs, "bottom_offset", 18) or 18))
 
     def _save_preferences(self) -> None:
@@ -1149,6 +1237,9 @@ class AboutPage(SettingsPage):
         self.data_label = QLabel("")
         self.data_label.setObjectName("rowValue")
         self.data_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # A path is arbitrarily long and the window is sized to its widest
+        # page: unwrapped, one deep data folder pushed every other page wider.
+        self.data_label.setWordWrap(True)
         reveal = button("Reveal in Finder", "secondary", on_click=self._reveal)
         card.add_row("Data folder", self.data_label, trailing=[reveal])
         links = self.add_card(Card("Links"))
@@ -1159,6 +1250,10 @@ class AboutPage(SettingsPage):
             f' &nbsp;·&nbsp; <a {link_style} href="https://github.com/lpalbou/abstractassistant/blob/main/docs/README.md">Documentation</a>'
         )
         self.links_label.setOpenExternalLinks(True)
+        # Three links on one unwrappable line made this the widest thing in
+        # Settings, and the window is sized to its widest page — so every
+        # other page was padded out to fit a row of links.
+        self.links_label.setWordWrap(True)
         links.add_widget(self.links_label)
         self.copy_button = button("Copy diagnostics", "secondary", tooltip="Versions, connection (no secrets), workflow and preferences", on_click=self._copy_diagnostics)
         self.add_actions(self.copy_button)

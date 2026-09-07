@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
+import os
 import shutil
 import subprocess
 import sys
@@ -88,6 +91,45 @@ def _ensure_icon_assets(root: Path) -> tuple[Path, Path]:
     return png_path, icns_path
 
 
+def _pyinstaller_cache_dir() -> Path:
+    """Where PyInstaller keeps its shared binary cache on this machine."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "pyinstaller"
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "pyinstaller"
+
+
+@contextlib.contextmanager
+def _build_lock(root: Path):
+    """Refuse to run two builds at once.
+
+    They share one PyInstaller cache and each starts by deleting it
+    (`--clean`), so a second build wipes the first one's index mid-read and it
+    dies on `eval('')` — an empty cache file — with a SyntaxError that names
+    nothing. One at a time, and say so plainly.
+    """
+    lock_dir = _build_dir(root)
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / "build.lock"
+    handle = lock_path.open("w")
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise RuntimeError(
+                f"another AbstractAssistant build is already running (lock: {lock_path}). "
+                "Builds share PyInstaller's cache and corrupt it if they overlap — "
+                "wait for the other one to finish, or delete the lock if it is stale."
+            ) from None
+        handle.write(f"{os.getpid()}\n")
+        handle.flush()
+        yield
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 def _pyinstaller_run(spec_path: Path, dist_dir: Path, work_dir: Path) -> None:
     try:
         from PyInstaller.__main__ import run as pyinstaller_run
@@ -96,17 +138,26 @@ def _pyinstaller_run(spec_path: Path, dist_dir: Path, work_dir: Path) -> None:
             "PyInstaller is required to build the macOS app. Install it with: "
             'pip install "pyinstaller>=6.21.0"'
         ) from exc
-    pyinstaller_run(
-        [
-            "--noconfirm",
-            "--clean",
-            "--distpath",
-            str(dist_dir),
-            "--workpath",
-            str(work_dir),
-            str(spec_path),
-        ]
-    )
+
+    args = [
+        "--noconfirm",
+        "--clean",
+        "--distpath",
+        str(dist_dir),
+        "--workpath",
+        str(work_dir),
+        str(spec_path),
+    ]
+    try:
+        pyinstaller_run(list(args))
+    except SyntaxError:
+        # A truncated cache index: `load_py_data_struct` evaluates the file and
+        # an empty one raises SyntaxError from "<string>", line 0. Nothing here
+        # is precious, so drop it and build once more.
+        cache = _pyinstaller_cache_dir()
+        print(f"PyInstaller cache looks corrupt; clearing {cache} and retrying")
+        shutil.rmtree(cache, ignore_errors=True)
+        pyinstaller_run(list(args))
 
 
 def _install_app(source_app: Path, target_app: Path) -> None:
@@ -144,12 +195,36 @@ def _require_voice_io() -> None:
         ) from exc
 
 
+def _sync_shared_themes(root: Path) -> None:
+    """Carry abstractuic's palettes into the bundle.
+
+    The app reads `theme.css` so palettes added upstream appear with no code
+    change, but a packaged .app has no sibling checkout to read — so the build
+    copies the current stylesheet into the assets the spec already bundles.
+    Missing checkout is not fatal: the app falls back to its vendored snapshot.
+    """
+    source = root.parent / "abstractuic" / "ui-kit" / "src" / "theme.css"
+    target = root / "abstractassistant" / "assets" / "uic-theme.css"
+    if not source.is_file():
+        print(f"note: {source} not found; bundling the vendored palettes instead")
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+    print(f"themes: {source} -> {target}")
+
+
 def build_macos_app(*, install_to_applications: bool = True) -> Path:
     if sys.platform != "darwin":
         raise RuntimeError("macOS app builds are only supported on macOS")
     _require_voice_io()
     root = _repo_root()
+    with _build_lock(root):
+        return _build_locked(root, install_to_applications=install_to_applications)
+
+
+def _build_locked(root: Path, *, install_to_applications: bool) -> Path:
     _ensure_icon_assets(root)
+    _sync_shared_themes(root)
     spec_path = _spec_path(root)
     if not spec_path.exists():
         raise RuntimeError(f"Missing PyInstaller spec file: {spec_path}")

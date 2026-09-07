@@ -131,7 +131,7 @@ from abstractassistant.core.tool_display import (
     compact_tool_call_label_html,
 )
 from abstractassistant.gateway.run_stats import parse_iso_ms, parse_usage_summary
-from abstractassistant.icons import symbol_icon as _symbol_icon
+from abstractassistant.icons import retint_widget_icons, symbol_icon as _symbol_icon
 from abstractassistant.gateway.tool_usage import (
     extract_tool_call_details_from_scratchpad,
 )
@@ -144,24 +144,25 @@ from abstractassistant.utils.markdown_renderer import (
 from .controller import AssistantController
 from .gateway_service import ROUTE_SPECS, CapabilityRouteRow
 from .hotkey import GlobalHotkeyManager
-from .preferences import AssistantPreferences
+from .preferences import AssistantPreferences, normalize_ui_theme
 from .core.voice_conversation import (
     VOICE_CONVERSATION_SYSTEM_PROMPT,
     VoiceConversation,
 )
 from .core import tool_presenter as _presenter
-from .ui.activity import ACTIVITY_QSS, RunActivityCard, RunActivityModel
+from .ui.activity import RunActivityCard, RunActivityModel, build_activity_qss
 from .ui.session_switcher import SessionSwitcher
-from .theme import THEME
+from .theme import DEFAULT_THEME, THEME, activate_metrics
+from .retint import parse_color, retint_stylesheet
 from .ui.approval import (
-    APPROVAL_QSS,
+    build_approval_qss,
     ToolApprovalCallCard as _ToolApprovalCallCard,
     ToolApprovalSheet,
     ToolCallCard,
 )
 from .ui.dialogs import AskUserDialog
 from .ui.settings import SettingsDialog, ToolSettingsDialog
-from .ui.styles import dialog_stylesheet
+from .ui.styles import dialog_stylesheet, scope_stylesheet
 from .ui.voice_strip import VOICE_STRIP_HEIGHT, VoiceStrip
 
 _HTML_ACTION_FENCE_RE = re.compile(
@@ -170,6 +171,14 @@ _HTML_ACTION_FENCE_RE = re.compile(
 _TRAY_BUSY_FRAME_COUNT = 36
 _TRAY_BUSY_FRAME_INTERVAL_MS = 60
 _TRAY_FEEDBACK_ICON_SIZE = 44
+# Live voice meter in the tray while the assistant speaks.
+_TRAY_VOICE_BAR_COUNT = 5
+# ~15 fps on macOS, where updating the status item is a local call. Elsewhere
+# every frame costs a platform round trip — an HICON rebuild plus a shell IPC
+# call on Windows, a D-Bus republish of the whole pixmap on Linux — so the
+# animation is slowed rather than shipped as a background load.
+_TRAY_VOICE_FRAME_INTERVAL_MS = 66 if sys.platform == "darwin" else 200
+_TRAY_VOICE_DECAY_S = 0.35
 _TRAY_VISIBILITY_RETRY_DELAYS_MS = (0, 180, 720, 1600)
 _ZOOMED_SHELL_GROWTH = 1.4
 
@@ -251,7 +260,10 @@ class TrayVisibilityState:
 
     @property
     def ready(self) -> bool:
-        if sys.platform == "darwin":
+        # `native_item_count < 0` means AppKit could not be asked at all (pyobjc
+        # missing). Falling back to Qt's own answer keeps a pip install usable
+        # instead of reporting "never ready" forever.
+        if sys.platform == "darwin" and self.native_item_count >= 0:
             return (
                 self.native_item_count > 0
                 and self.native_button_size[0] > 0
@@ -280,7 +292,10 @@ _tool_call_summary = _presenter.tool_call_summary
 
 def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     base = renderer.render(content)
-    themed_override = """
+    # `!important` beats the renderer's own stylesheet, so this block decides
+    # the reply's colours — it has to be translated to the active theme too, or
+    # a light theme renders light text on a light card.
+    themed_override = _typographic(_themed("""
     <style>
     .markdown-content,
     .markdown-content p,
@@ -291,23 +306,23 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     .markdown-content td,
     .markdown-content th {
         color: #edf2f8 !important;
-        font-size: 13px !important;
-        line-height: 1.45 !important;
+        font-size: @@SIZE@@px !important;
+        line-height: @@LINE@@ !important;
     }
     /* Compressed heading scale for a chat column: headings differ from body
        by weight AND a modest size step, instead of all collapsing to 13px. */
-    .markdown-content h1 { color: #f8fafc !important; font-size: 17px !important; font-weight: 700 !important; margin: 12px 0 6px 0 !important; line-height: 1.3 !important; border: none !important; }
-    .markdown-content h2 { color: #f8fafc !important; font-size: 15px !important; font-weight: 700 !important; margin: 12px 0 6px 0 !important; line-height: 1.3 !important; border: none !important; }
-    .markdown-content h3 { color: #edf2f8 !important; font-size: 14px !important; font-weight: 600 !important; margin: 10px 0 4px 0 !important; line-height: 1.3 !important; }
+    .markdown-content h1 { color: #f8fafc !important; font-size: @@H1@@px !important; font-weight: 700 !important; margin: 12px 0 6px 0 !important; line-height: 1.3 !important; border: none !important; }
+    .markdown-content h2 { color: #f8fafc !important; font-size: @@H2@@px !important; font-weight: 700 !important; margin: 12px 0 6px 0 !important; line-height: 1.3 !important; border: none !important; }
+    .markdown-content h3 { color: #edf2f8 !important; font-size: @@H3@@px !important; font-weight: 600 !important; margin: 10px 0 4px 0 !important; line-height: 1.3 !important; }
     .markdown-content h4,
     .markdown-content h5,
-    .markdown-content h6 { color: #edf2f8 !important; font-size: 13px !important; font-weight: 600 !important; margin: 8px 0 4px 0 !important; line-height: 1.3 !important; }
+    .markdown-content h6 { color: #edf2f8 !important; font-size: @@SIZE@@px !important; font-weight: 600 !important; margin: 8px 0 4px 0 !important; line-height: 1.3 !important; }
     .markdown-content p {
-        margin: 0 0 8px 0 !important;
+        margin: 0 0 @@PARA@@px 0 !important;
     }
     .markdown-content ul,
     .markdown-content ol {
-        margin: 0 0 8px 0 !important;
+        margin: 0 0 @@PARA@@px 0 !important;
         padding-left: 18px !important;
     }
     .markdown-content ul ul,
@@ -324,7 +339,7 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         list-style-type: square !important;
     }
     .markdown-content li {
-        margin-bottom: 3px !important;
+        margin-bottom: @@BULLET@@px !important;
     }
     .markdown-content li p {
         margin: 0 !important;
@@ -438,7 +453,7 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
         color: #b7c3d4 !important;
     }
     </style>
-    """
+    """))
     return themed_override + base
 
 
@@ -446,12 +461,15 @@ def _user_html(content: str) -> str:
     import html
 
     escaped = html.escape(content.strip())
+    # The user bubble is a tinted surface, so its text follows the palette's
+    # strongest text colour — hard-coding white made it unreadable the moment
+    # the tint was light.
     themed_override = (
         "<style>"
         ".user-content {"
-        "  color: #ffffff !important;"
-        "  font-size: 13px !important;"
-        "  line-height: 1.45 !important;"
+        f"  color: {THEME.text_strong} !important;"
+        f"  font-size: {TYPOGRAPHY.size}px !important;"
+        f"  line-height: {TYPOGRAPHY.line} !important;"
         "  white-space: pre-wrap !important;"
         "  text-align: left !important;"
         "  margin: 0px !important;"
@@ -608,6 +626,84 @@ def _asset_path(name: str) -> Optional[Path]:
     return None
 
 
+
+
+@dataclass(frozen=True)
+class Typography:
+    """How the transcript reads: size, line height, and the gaps between blocks."""
+
+    size: int = 13
+    line: float = 1.20
+    paragraph: int = 3
+    bullet: int = 3
+
+    @classmethod
+    def from_preferences(cls, prefs: Any) -> "Typography":
+        return cls(
+            size=int(getattr(prefs, "text_size", 13) or 13),
+            line=float(getattr(prefs, "line_spacing", 1.20) or 1.20),
+            paragraph=int(getattr(prefs, "paragraph_spacing", 3)),
+            bullet=int(getattr(prefs, "bullet_spacing", 3)),
+        )
+
+    @property
+    def heading_1(self) -> int:
+        return self.size + 4
+
+    @property
+    def heading_2(self) -> int:
+        return self.size + 2
+
+    @property
+    def heading_3(self) -> int:
+        return self.size + 1
+
+
+#: The rhythm the transcript is rendered with. Replaced when the user changes
+#: it in Settings, so every message rebuilt afterwards uses the new one.
+TYPOGRAPHY = Typography()
+
+
+def _typographic(css: str) -> str:
+    """Fill the reading-rhythm placeholders from the active typography.
+
+    Placeholders rather than an f-string: the block is 150 lines of CSS full of
+    braces, and doubling every one of them to make it a format string is a
+    large edit with nothing to gain.
+    """
+    t = TYPOGRAPHY
+    for token, value in (
+        ("@@SIZE@@", t.size),
+        ("@@LINE@@", t.line),
+        ("@@PARA@@", t.paragraph),
+        ("@@BULLET@@", t.bullet),
+        ("@@H1@@", t.heading_1),
+        ("@@H2@@", t.heading_2),
+        ("@@H3@@", t.heading_3),
+    ):
+        css = css.replace(token, str(value))
+    return css
+
+
+def _themed(qss: str) -> str:
+    """A stylesheet written against the app's own palette, in the active theme.
+
+    Most of the chrome below is colour literals rather than tokens; translating
+    them is what lets a theme reach every window without rewriting 22k
+    characters of stylesheet by hand. See `ui/retint.py`.
+    """
+    return retint_stylesheet(qss, source=DEFAULT_THEME, target=THEME)
+
+
+def _solid(color: str) -> str:
+    """A QPalette-safe opaque colour: `QColor` cannot parse an `rgba()` string."""
+    parsed = parse_color(color)
+    if parsed is None:
+        return color
+    (r, g, b), _alpha = parsed
+    return "#%02x%02x%02x" % (r, g, b)
+
+
 def _qt_icon() -> QIcon:
     # Prefer the designed app icon (transparent rounded-square art); fall back
     # to the procedural icon only if the asset is missing.
@@ -656,15 +752,61 @@ def _zoomed_shell_size(
     return max(420, width), max(320, height)
 
 
+def _tray_voice_bars(levels: Any, *, count: int = _TRAY_VOICE_BAR_COUNT) -> List[float]:
+    """Normalize a meter — a level, or per-band levels — into ``count`` bars.
+
+    The gateway's meter is whatever the player produced for the chunk being
+    heard, so its length varies; the icon needs a fixed number of bars.
+    """
+    if isinstance(levels, (list, tuple)):
+        values = []
+        for value in levels:
+            try:
+                values.append(max(0.0, min(1.0, float(value))))
+            except (TypeError, ValueError):
+                values.append(0.0)
+    else:
+        try:
+            values = [max(0.0, min(1.0, float(levels or 0.0)))]
+        except (TypeError, ValueError):
+            values = [0.0]
+    if not values:
+        return [0.0] * count
+    if len(values) == count:
+        return values
+    if len(values) == 1:
+        # One level: shape it into a symmetric burst so the icon reads as a
+        # voice rather than a row of identical blocks.
+        peak = values[0]
+        shape = (0.45, 0.78, 1.0, 0.78, 0.45)
+        return [peak * shape[i % len(shape)] for i in range(count)]
+    # Resample by averaging each source window into its target bar.
+    out: List[float] = []
+    for index in range(count):
+        start = int(index * len(values) / count)
+        end = max(start + 1, int((index + 1) * len(values) / count))
+        window = values[start:end] or [values[min(start, len(values) - 1)]]
+        out.append(sum(window) / len(window))
+    return out
+
+
 def _tray_feedback_icon(
-    *, state: str = "idle", frame: int = 0, size: int = _TRAY_FEEDBACK_ICON_SIZE
+    *,
+    state: str = "idle",
+    frame: int = 0,
+    size: int = _TRAY_FEEDBACK_ICON_SIZE,
+    levels: Any = None,
 ) -> QIcon:
     normalized_state = str(state or "idle").strip().lower() or "idle"
     normalized_frame = int(frame or 0) % _TRAY_BUSY_FRAME_COUNT
+    bars = _tray_voice_bars(levels) if normalized_state == "speaking" else []
+    # A live meter is a new picture every frame: caching it would grow without
+    # bound and still miss, so the speaking state renders straight through.
     key = (normalized_state, normalized_frame, int(size))
-    cached = _TRAY_ICON_CACHE.get(key)
-    if cached is not None:
-        return cached
+    if normalized_state != "speaking":
+        cached = _TRAY_ICON_CACHE.get(key)
+        if cached is not None:
+            return cached
 
     pixmap = QPixmap(size, size)
     pixmap.fill(QColor(0, 0, 0, 0))
@@ -778,7 +920,37 @@ def _tray_feedback_icon(
             painter.setBrush(Qt.NoBrush)
             painter.drawArc(rect, int(-start_deg * 16), int(-span_deg * 16))
 
-    if normalized_state == "busy":
+    if normalized_state == "speaking":
+        # The assistant's own voice, live: bar heights are the audio the player
+        # is putting on the speakers right now.
+        peak = max(bars) if bars else 0.0
+        _state_disc(
+            inner=QColor("#e6d9ff"),
+            mid=QColor("#a074ff"),
+            edge=QColor("#5326b8"),
+            ring=QColor("#d9c6ff"),
+            ring_alpha=int(126 + (40 * peak)),
+            glow=QColor("#a97cff"),
+            glow_alpha=int(26 + (26 * peak)),
+        )
+        span = size * 0.50
+        bar_width = span / ((len(bars) * 1.8) or 1.0)
+        gap = (span - (bar_width * len(bars))) / max(1, len(bars) - 1)
+        left = center.x() - (span / 2.0)
+        painter.setPen(Qt.NoPen)
+        for index, value in enumerate(bars):
+            # Every bar keeps a floor so silence still reads as "speaking",
+            # never as an empty icon.
+            height = size * (0.075 + (0.30 * value))
+            rect = QRectF(
+                left + (index * (bar_width + gap)),
+                center.y() - (height / 2.0),
+                bar_width,
+                height,
+            )
+            painter.setBrush(QColor(255, 255, 255, int(206 + (49 * value))))
+            painter.drawRoundedRect(rect, bar_width / 2.0, bar_width / 2.0)
+    elif normalized_state == "busy":
         phase = float(normalized_frame) / float(_TRAY_BUSY_FRAME_COUNT)
         loop = phase * math.tau
         sweep = math.degrees(loop + (0.14 * math.sin(loop * 2.0)))
@@ -846,6 +1018,31 @@ def _tray_feedback_icon(
         painter.drawEllipse(orbit_center, size * 0.078, size * 0.078)
         painter.setBrush(QColor("#effcff"))
         painter.drawEllipse(orbit_center, size * 0.047, size * 0.047)
+    elif normalized_state == "waiting":
+        # Deliberately still: "busy" animates, and a badge that spins reads as
+        # progress. This one means the run has STOPPED and needs the user.
+        amber = QColor("#e0af68")
+        _state_disc(
+            inner=QColor("#ffe9c4"),
+            mid=amber,
+            edge=QColor("#8a5a12"),
+            ring=QColor("#ffd79a"),
+            ring_alpha=150,
+            glow=QColor("#f0bf7a"),
+            glow_alpha=34,
+        )
+        pen = QPen(QColor("#3a2400"))
+        pen.setWidthF(size * 0.085)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawLine(
+            QPointF(center.x(), center.y() - size * 0.155),
+            QPointF(center.x(), center.y() + size * 0.045),
+        )
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#3a2400"))
+        painter.drawEllipse(QPointF(center.x(), center.y() + size * 0.145), size * 0.049, size * 0.049)
     elif normalized_state == "complete":
         mint = QColor("#2ccf9b")
         gold = QColor("#ffd36c")
@@ -919,7 +1116,8 @@ def _tray_feedback_icon(
     painter.end()
     pixmap.setDevicePixelRatio(2.0)
     icon = QIcon(pixmap)
-    _TRAY_ICON_CACHE[key] = icon
+    if normalized_state != "speaking":
+        _TRAY_ICON_CACHE[key] = icon
     return icon
 
 
@@ -1636,24 +1834,46 @@ def _assistant_footer_metrics(message: Dict[str, Any]) -> List[Dict[str, Any]]:
         tool_calls = len(tool_call_details)
 
     if usage is not None:
-        metrics.append(
-            {
-                "kind": "tokens_in",
-                "label": f"input : {_format_metric_count(usage['input_tokens'])} tk",
-                "plain": f"input : {_format_metric_count(usage['input_tokens'])} tk",
-                "tooltip": _tokens_in_tooltip(usage, llm_calls),
-                "clickable": False,
-            }
-        )
-        metrics.append(
-            {
-                "kind": "tokens_out",
-                "label": f"output : {_format_metric_count(usage['output_tokens'])} tk",
-                "plain": f"output : {_format_metric_count(usage['output_tokens'])} tk",
-                "tooltip": _tokens_out_tooltip(usage),
-                "clickable": False,
-            }
-        )
+        split_known = bool(usage["input_tokens"] or usage["output_tokens"])
+        if not split_known and usage["total_tokens"]:
+            # The split is genuinely unavailable: some servers report usage in
+            # the Responses dialect (`input_tokens`/`output_tokens`) which the
+            # provider layer normalizes by reading Chat-Completions names only,
+            # so the halves arrive as 0 while the total survives. Printing
+            # "input : 0 tk" is a CLAIM, and a false one — show the number we
+            # actually have. See docs/backlog/proposed/0011.
+            total_label = f"total : {_format_metric_count(usage['total_tokens'])} tk"
+            metrics.append(
+                {
+                    "kind": "tokens_total",
+                    "label": total_label,
+                    "plain": total_label,
+                    "tooltip": (
+                        "Total tokens for this answer. This provider did not report "
+                        "the input/output split."
+                    ),
+                    "clickable": False,
+                }
+            )
+        else:
+            metrics.append(
+                {
+                    "kind": "tokens_in",
+                    "label": f"input : {_format_metric_count(usage['input_tokens'])} tk",
+                    "plain": f"input : {_format_metric_count(usage['input_tokens'])} tk",
+                    "tooltip": _tokens_in_tooltip(usage, llm_calls),
+                    "clickable": False,
+                }
+            )
+            metrics.append(
+                {
+                    "kind": "tokens_out",
+                    "label": f"output : {_format_metric_count(usage['output_tokens'])} tk",
+                    "plain": f"output : {_format_metric_count(usage['output_tokens'])} tk",
+                    "tooltip": _tokens_out_tooltip(usage),
+                    "clickable": False,
+                }
+            )
     if tool_calls is not None:
         tools_label = f"tools : {_format_metric_count(tool_calls)}"
         metrics.append(
@@ -2683,7 +2903,7 @@ class MessageCard(QFrame):
             browser = AutoSizingTextBrowser(min_height=20, max_height=None)
             browser.setObjectName("userMessageText")
             browser.setStyleSheet(
-                "background: transparent; border: none; color: #ffffff; padding: 0px; margin: 0px;"
+                f"background: transparent; border: none; color: {THEME.text_strong}; padding: 0px; margin: 0px;"
             )
             browser.setHtml(_user_html(self._content))
             browser.refresh_height()
@@ -4022,7 +4242,9 @@ class ArtifactPreviewCard(QFrame):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._local_path)))
 
 
-_IMAGE_PREVIEW_STYLE = """
+def _image_preview_style() -> str:
+    """Rebuilt on demand so the preview follows the theme."""
+    return _themed("""
     QDialog#imagePreviewDialog {
         background: #0f151d;
         color: #e8edf4;
@@ -4051,7 +4273,7 @@ _IMAGE_PREVIEW_STYLE = """
         background: #232d3b;
         border-color: rgba(121, 199, 255, 0.30);
     }
-"""
+    """)
 
 
 class ImagePreviewDialog(QDialog):
@@ -4077,7 +4299,7 @@ class ImagePreviewDialog(QDialog):
         self.setObjectName("imagePreviewDialog")
         self.setWindowTitle(label_title)
         self.setModal(False)
-        self.setStyleSheet(_IMAGE_PREVIEW_STYLE)
+        self.restyle()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 10)
@@ -4118,6 +4340,10 @@ class ImagePreviewDialog(QDialog):
         # Size to the picture up front: a dialog that opens at its default
         # geometry and only then settles reads as a flicker.
         self.resize(self.sizeHint())
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or first paint)."""
+        self.setStyleSheet(_image_preview_style())
 
     @staticmethod
     def fit_size(size: QSize) -> QSize:
@@ -4164,14 +4390,19 @@ class RunActivityDialog(QDialog):
     transcript), never as raw pipe-text (laurent's 18:11 correction).
     """
 
-    _TONE_COLORS = {
-        "cycle": THEME.accent,
-        "thinking": THEME.accent_text,
-        "tool": THEME.warning,
-        "result": THEME.positive,
-        "waiting": THEME.attention,
-        "status": THEME.text_muted,
-    }
+    @staticmethod
+    def _tone_colors() -> Dict[str, str]:
+        """Read per row, not frozen on the class: as a class attribute these
+        kept the palette the module was imported with, so the run log stayed
+        on the old theme's colours after a switch."""
+        return {
+            "cycle": THEME.accent,
+            "thinking": THEME.accent_text,
+            "tool": THEME.warning,
+            "result": THEME.positive,
+            "waiting": THEME.attention,
+            "status": THEME.text_muted,
+        }
 
     def __init__(
         self,
@@ -4227,6 +4458,10 @@ class RunActivityDialog(QDialog):
             """.format(THEME=THEME)
         )
 
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or first paint)."""
+        self.setStyleSheet(dialog_stylesheet() + build_activity_qss())
     def set_entries(self, entries: List[Dict[str, Any]]) -> None:
         # Remove every entry widget, keeping the persistent placeholder.
         for index in reversed(range(self._layout.count())):
@@ -4272,7 +4507,7 @@ class RunActivityDialog(QDialog):
         def _header(text: str, tone: str) -> None:
             label = QLabel(text)
             label.setObjectName("activityHeader")
-            color = self._TONE_COLORS.get(tone, THEME.text_muted)
+            color = self._tone_colors().get(tone, THEME.text_muted)
             label.setStyleSheet(f"color: {color};")
             col.addWidget(label)
 
@@ -4472,7 +4707,10 @@ class FileOperationCard(QFrame):
 
 # Post-hoc tool/file dialogs share the application stylesheet plus the
 # approval card rules (usageStatusChip / usageCardError live there now).
-_USAGE_DIALOG_STYLE = dialog_stylesheet() + APPROVAL_QSS
+def _usage_dialog_style() -> str:
+    """Rebuilt on demand: frozen at import, these dialogs stayed dark inside a
+    light app."""
+    return dialog_stylesheet() + build_approval_qss()
 ToolApprovalDialog = ToolApprovalSheet
 
 
@@ -4579,11 +4817,15 @@ class ToolUsageDialog(QDialog):
         buttons.addWidget(close)
         root.addLayout(buttons)
 
-        self.setStyleSheet(_USAGE_DIALOG_STYLE)
+        self.restyle()
         self.update_tool_usage(
             tool_calls=calls, source=source_s, run_ids=run_ids_s, error=error_s
         )
 
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or first paint)."""
+        self.setStyleSheet(_usage_dialog_style())
     def set_loading(self) -> None:
         if _assistant_tool_calls_for_message(self._message):
             self._hint_label.setText(
@@ -4721,11 +4963,15 @@ class FileActivityDialog(QDialog):
         buttons.addWidget(close)
         root.addLayout(buttons)
 
-        self.setStyleSheet(_USAGE_DIALOG_STYLE)
+        self.restyle()
         self.update_file_activity(
             tool_calls=tool_calls, source=source, run_ids=run_ids, error=error
         )
 
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or first paint)."""
+        self.setStyleSheet(_usage_dialog_style())
     def set_loading(self) -> None:
         if _assistant_file_operations_for_message(self._message):
             self._hint_label.setText(
@@ -4835,6 +5081,11 @@ class AssistantPalette(QMainWindow):
     voice_speech_finished = pyqtSignal()
     settings_ready = pyqtSignal(str)
     session_attachments_restored = pyqtSignal(int)
+    # Meter readings arrive on the audio thread; this hops them to the GUI.
+    speech_level_received = pyqtSignal(object)
+    # The player started or stopped: no message key, so auto-speak and the
+    # voice conversation reach the tray too.
+    speech_activity_changed = pyqtSignal()
 
     # Run-teardown state (2026-07-10). Class-level defaults on purpose:
     # `getattr(self, ..., default)` on a missing attribute raises RuntimeError
@@ -4842,6 +5093,14 @@ class AssistantPalette(QMainWindow):
     # palettes via __new__), while class attributes resolve through normal MRO.
     _cancel_requested = False
     _pending_submit = False
+    # wait_key -> {"kind": "approval"|"ask", "label": str}. A run parked on the
+    # user is invisible once its dialog is closed or missed: one sat 16 minutes
+    # in silence. While this is non-empty the palette keeps a notice and the
+    # tray keeps a badge, whatever else happens.
+    _pending_user_waits: Optional[Dict[str, Dict[str, Any]]] = None
+    # How the run the palette is following ENDED, per the run itself.
+    # `_cancel_requested` only knows about a stop this process issued.
+    _last_run_status = ""
     # Set when the voice manager surfaced a concrete failure for the current
     # speak attempt, so the generic "couldn't start" banner never overwrites a
     # specific cause.
@@ -4871,6 +5130,28 @@ class AssistantPalette(QMainWindow):
     ) -> None:
         super().__init__()
         self._controller = controller
+        # The saved theme must be live before ANY widget is built:
+        # a widget that reads THEME in its constructor (the voice strip did)
+        # otherwise keeps the default palette for the life of the process, not applied
+        # after a flash of the default palette.
+        try:
+            from . import ui_themes
+            from .theme import activate as _activate
+
+            saved = ui_themes.build_theme(
+                normalize_ui_theme(getattr(self._controller.preferences, "ui_theme", ""))
+            )
+            if saved is not None:
+                _activate(saved)
+        except Exception:
+            pass
+        try:
+            global TYPOGRAPHY
+
+            TYPOGRAPHY = Typography.from_preferences(controller.preferences)
+            activate_metrics(TYPOGRAPHY.size)
+        except Exception:
+            pass
         self._debug = bool(debug)
         self._renderer = MarkdownRenderer(theme="friendly_grayscale")
         self._tray = None
@@ -4899,6 +5180,9 @@ class AssistantPalette(QMainWindow):
         self._active_tool_history_status: Optional[Dict[str, Any]] = None
         self._tray_animation_frame = 0
         self._tray_completion_unread = False
+        # Live output meter for the tray while the assistant speaks.
+        self._speech_meter: Any = 0.0
+        self._speech_meter_ts = 0.0
         self._connection_status_state = "unknown"
         self._connection_status_detail = "Checking gateway connection."
         self._hotkey_tooltip_note = ""
@@ -4926,17 +5210,26 @@ class AssistantPalette(QMainWindow):
         self.voice_level_received.connect(self._on_voice_level)
         self.voice_speech_finished.connect(self._on_voice_speech_finished)
         self.session_attachments_restored.connect(self._on_session_attachments_restored)
+        self.speech_level_received.connect(self._on_speech_level)
+        self.speech_activity_changed.connect(self._refresh_tray_feedback)
         self._voice_conversation: Optional[VoiceConversation] = None
         self._voice_conversation_active = False
         self._voice_level_last_emit = 0.0
         self._auto_speak_before_voice: Optional[bool] = None
         self._workspace_root_label = ""
-        self._controller.voice_manager.on_speech_start = (
-            self._emit_message_speech_started
-        )
+        self._controller.voice_manager.on_speech_start = self._on_voice_speech_activity
+        self._controller.voice_manager.on_speech_end = self._on_voice_speech_activity
         self._controller.voice_manager.on_speech_error = (
             self.message_speech_failed.emit
         )
+        self._install_speech_meter()
+        # Settings reaches the theme switch through the controller rather than
+        # walking the widget tree.
+        try:
+            self._controller.apply_theme = self.apply_theme
+            self._controller.apply_typography = self.apply_typography
+        except Exception:
+            pass
 
         self.setWindowTitle("AbstractAssistant")
         self.setWindowIcon(_qt_icon())
@@ -5347,9 +5640,18 @@ class AssistantPalette(QMainWindow):
             worker = self._controller.build_attach_worker(run_id)
         except Exception:
             return
+        # A run that has already ended is RECOVERED, not followed: it gets no
+        # Stop button, no pause control and no "in progress" copy. The probe
+        # reattaches to a terminal run to pull back an answer written while
+        # the app was closed, and presenting that as a live run showed run
+        # controls for something that had finished half an hour earlier.
+        ended = str(payload.get("status") or "").strip().lower()
+        recovering = ended in {"completed", "failed", "cancelled"}
+
         self._worker = worker
         self._cancel_requested = False
-        self._run_busy = True
+        self._last_run_status = ended if recovering else ""
+        self._run_busy = not recovering
         self._run_has_final_output = False
         self._clear_run_activity()
         self._activity_model = RunActivityModel(run_id=run_id, reattached=True)
@@ -5359,9 +5661,14 @@ class AssistantPalette(QMainWindow):
         if warning_signal is not None:
             warning_signal.connect(self._on_worker_warning)
         worker.finished.connect(self._on_worker_finished)
-        self._set_send_button_busy(True)
-        self._set_status("Reattached to the run in progress…", tone="busy")
-        self._set_history_status("Reattached to the run in progress…", tone="busy")
+        self._set_send_button_busy(not recovering)
+        message = (
+            "Catching up on the last run…"
+            if recovering
+            else "Reattached to the run in progress…"
+        )
+        self._set_status(message, tone="busy")
+        self._set_history_status(message, tone="busy")
         self._refresh_tray_feedback()
         worker.start()
         # Show the thinking badge (with the reattach status) right away instead
@@ -5567,11 +5874,21 @@ class AssistantPalette(QMainWindow):
         """Ask the runtime for attachments this session's transcript is missing.
 
         A gateway call, so it runs off the GUI thread; the transcript is already
-        on screen and only redraws if something was actually restored.
+        on screen and only redraws if something was actually restored. Offline
+        it is a no-op: the call is bounded, one at a time, and its failure is
+        never shown — the session renders from local files either way.
         """
+        if bool(self._state("_attachment_backfill_running", False)):
+            # Switching sessions with an unreachable gateway must not leave a
+            # thread per switch waiting on a socket.
+            return
+        self._attachment_backfill_running = True
 
         def _work() -> None:
-            restored = self._controller.backfill_session_attachments()
+            try:
+                restored = self._controller.backfill_session_attachments()
+            finally:
+                self._attachment_backfill_running = False
             if restored:
                 self.session_attachments_restored.emit(int(restored))
 
@@ -5580,7 +5897,7 @@ class AssistantPalette(QMainWindow):
                 target=_work, name="session-attachments", daemon=True
             ).start()
         except Exception:
-            pass
+            self._attachment_backfill_running = False
 
     def _on_session_attachments_restored(self, _count: int) -> None:
         self.refresh_history()
@@ -6001,10 +6318,59 @@ class AssistantPalette(QMainWindow):
         self._refresh_widget_style(self.banner_label)
         self.banner_label.show()
 
+    def _note_user_wait(self, *, wait_key: str, kind: str, label: str) -> None:
+        """Record that a run is parked on the user until they answer."""
+        key = str(wait_key or "").strip()
+        if not key:
+            return
+        waits = self._state("_pending_user_waits") or {}
+        waits = dict(waits)
+        waits[key] = {"kind": str(kind or "approval"), "label": str(label or "")}
+        self._pending_user_waits = waits
+        self._refresh_wait_notice()
+
+    def _clear_user_wait(self, wait_key: str = "") -> None:
+        """Answered (or the run ended): drop the wait, or all of them."""
+        waits = dict(self._state("_pending_user_waits") or {})
+        if not waits:
+            return
+        key = str(wait_key or "").strip()
+        if key:
+            waits.pop(key, None)
+        else:
+            waits.clear()
+        self._pending_user_waits = waits
+        self._refresh_wait_notice()
+
+    def _refresh_wait_notice(self) -> None:
+        """Raise or clear the "needs you" notice, and repaint the tray."""
+        waits = self._state("_pending_user_waits") or {}
+        if waits:
+            first = next(iter(waits.values()))
+            label = str(first.get("label") or "").strip()
+            what = (
+                "waiting for your input"
+                if str(first.get("kind")) == "ask"
+                else "waiting for you to approve a tool"
+            )
+            extra = f" ({len(waits)} pending)" if len(waits) > 1 else ""
+            detail = f" — {label}" if label else ""
+            self._set_banner(
+                f"The assistant is {what}{detail}{extra}.", tone="attention", key="wait"
+            )
+        else:
+            self._clear_banner("wait")
+        self._refresh_tray_feedback()
+
     def _clear_banner(self, key: str) -> None:
         """Clear the banner only if ``key`` raised it."""
         if str(self._state("_banner_key", "") or "") == str(key or ""):
             self._set_banner("")
+            # A transient notice (a speech device, a warning) may sit on top of
+            # the "needs you" one; when it goes, the wait is still true, so say
+            # it again rather than leaving the run silently parked.
+            if str(key or "") != "wait" and self._state("_pending_user_waits"):
+                self._refresh_wait_notice()
 
     def attach_tray(self, tray: QSystemTrayIcon) -> None:
         self._tray = tray
@@ -6019,6 +6385,10 @@ class AssistantPalette(QMainWindow):
         QTimer.singleShot(0, self._sync_native_traffic_lights)
         QTimer.singleShot(0, self._restore_deferred_history_scroll_on_show)
         self._request_connection_status_refresh()
+        # Reopening the window must show a run that is still parked on the
+        # user, whatever notice happened to be on screen when it was hidden.
+        if self._state("_pending_user_waits"):
+            QTimer.singleShot(0, self._refresh_wait_notice)
         # Re-prompt a wait the user deferred (ask-user "Keep waiting", or the
         # approval sheet's "Decide later").
         deferred = self._state("_deferred_ask_payload")
@@ -6073,6 +6443,15 @@ class AssistantPalette(QMainWindow):
         Destroyed while thread is still running"). The run stays durable
         server-side; we only stop the local follower.
         """
+        # Hand back the meter callback: it holds a bound signal of this window,
+        # and the audio thread must not emit into a deleted QObject.
+        manager = getattr(self._state("_controller"), "voice_manager", None)
+        setter = getattr(manager, "set_audio_meter_callback", None)
+        if callable(setter):
+            try:
+                setter(None)
+            except Exception:
+                pass
         worker = getattr(self, "_worker", None)
         if worker is not None:
             try:
@@ -6972,6 +7351,7 @@ class AssistantPalette(QMainWindow):
             self._worker = None
         self._pending_submit = False
         self._cancel_requested = False
+        self._last_run_status = ""
         prompt = self.prompt_edit.toPlainText().strip()
         if not prompt and not self._attachments:
             return
@@ -7150,6 +7530,11 @@ class AssistantPalette(QMainWindow):
             self._run_busy = (
                 status_lower not in inactive_statuses and not self._run_has_final_output
             )
+            if status_lower in {"cancelled", "failed", "completed"}:
+                # What the RUN said it ended as. `_cancel_requested` only
+                # knows about a stop THIS process issued, so a run cancelled
+                # before a relaunch came back described as "completed".
+                self._last_run_status = status_lower
             # Raw gateway status words become header copy ("thinking" → "Thinking…").
             header_copy = {
                 "thinking": "Thinking…",
@@ -7342,6 +7727,7 @@ class AssistantPalette(QMainWindow):
                         model.resolve_wait(wait_key, "auto_approved")
                     except Exception:
                         pass
+                self._clear_user_wait(wait_key)
                 _answer_tool_approval(True)
                 return
             self._surface_for_prompt(
@@ -7458,6 +7844,7 @@ class AssistantPalette(QMainWindow):
         self._cancel_requested = False
         self._run_paused = False
         self._set_send_button_busy(False)
+        self._clear_user_wait()
         if not start_failed:
             # (A model already finished as failed/stopped keeps that status.)
             self._finish_activity("stopped" if was_stopped else "completed")
@@ -7466,13 +7853,19 @@ class AssistantPalette(QMainWindow):
             # No spoken reply is coming (stopped, or nothing to say): listen again.
             conversation.run_finished(will_speak=False)
         if not self._run_has_final_output:
-            # A user-stopped run legitimately has no final answer — say so
-            # instead of the misleading "completed but returned no written reply".
-            fallback = (
-                "Run stopped."
-                if was_stopped
-                else "The workflow completed, but it returned no written reply."
-            )
+            # A stopped run legitimately has no final answer — say so instead
+            # of the misleading "completed but returned no written reply".
+            # The run's OWN terminal status counts too: reattaching after a
+            # relaunch to a run that was cancelled in the previous process
+            # reported it as completed, because only this process's stop flag
+            # was consulted.
+            ended_as = str(self._state("_last_run_status", "") or "")
+            if was_stopped or ended_as == "cancelled":
+                fallback = "Run stopped."
+            elif ended_as == "failed":
+                fallback = "The run failed before it wrote a reply."
+            else:
+                fallback = "The workflow completed, but it returned no written reply."
             self._run_has_final_output = True
             self._set_history_status(fallback, tone="info")
         self._refresh_tray_feedback()
@@ -7796,6 +8189,11 @@ class AssistantPalette(QMainWindow):
         if key:
             self.message_speech_started.emit(key)
 
+    def _on_voice_speech_activity(self) -> None:
+        """The player started or stopped. Runs on the audio thread."""
+        self._emit_message_speech_started()
+        self.speech_activity_changed.emit()
+
     def _on_message_speech_started(self, key: str) -> None:
         if str(self._active_spoken_message_key or "") != str(key or ""):
             return
@@ -7902,7 +8300,7 @@ class AssistantPalette(QMainWindow):
             voice_manager=self._controller.voice_manager,
             on_send=self._voice_send,
             on_state=self._on_voice_state,
-            on_level=self.voice_level_received.emit,
+            on_level=self.speech_level_received.emit,
             schedule=lambda delay, fn: QTimer.singleShot(int(delay * 1000), fn),
             auto_send=bool(getattr(prefs, "voice_auto_send", True)),
             voice_mode=str(getattr(prefs, "voice_mode", "wait") or "wait"),
@@ -7957,6 +8355,9 @@ class AssistantPalette(QMainWindow):
         self.voice_strip.set_state("off")
         self.voice_strip.hide()
         self._sync_composer_height()
+        # `conversation.stop()` drops the voice manager's meter callback; take
+        # it back so the tray still shows later speech.
+        self._install_speech_meter()
         self._refresh_capability_state()
         if self._status_tone not in {"error", "busy"}:
             self._set_status("Ready")
@@ -8205,6 +8606,16 @@ class AssistantPalette(QMainWindow):
             self._aux_dialog_registry = registry
         registry[:] = [d for d in registry if d is not None and d is not dialog]
         registry.append(dialog)
+        # Re-apply the window's own stylesheet once it is on screen. A dialog
+        # parented to the palette resolves its style against the ancestor
+        # chain, and Qt caches that resolution before the dialog's own sheet
+        # is in play: the sheet is set, the string is correct, and every child
+        # still renders UNSTYLED (a white QLineEdit on a dark dialog) until it
+        # is applied a second time. This was invisible while the palette's
+        # stylesheet leaked in and styled those widgets instead.
+        restyle = getattr(dialog, "restyle", None)
+        if callable(restyle):
+            QTimer.singleShot(0, restyle)
 
     # ------------------------------------------------------------ waits (modeless)
 
@@ -8233,6 +8644,8 @@ class AssistantPalette(QMainWindow):
             alive = sheet is not None and sheet.isVisible()
         except RuntimeError:
             alive = False
+        label = _tool_call_summary(tool_calls[0]).name if tool_calls else ""
+        self._note_user_wait(wait_key=wait_key, kind="approval", label=label)
         if alive and hasattr(sheet, "enqueue"):
             sheet.enqueue(list(tool_calls or []), run_id=run_id, wait_key=wait_key, risks=risks)
             return
@@ -8310,6 +8723,9 @@ class AssistantPalette(QMainWindow):
             self._resume_voice_after_dialog()
             return
         self._deferred_tool_request = None
+        # Answered (approved or denied) — the run is no longer parked on the
+        # user. "defer" returned above on purpose: it stays pending.
+        self._clear_user_wait(wait_key)
         approved = decision in {"once", "session"}
         if decision == "session":
             rank = int(details.get("trust_rank") or 0) or None
@@ -8425,6 +8841,11 @@ class AssistantPalette(QMainWindow):
             f"Waiting for your input: {short_prompt}",
             tone="busy",
             badge_tone="waiting",
+        )
+        self._note_user_wait(
+            wait_key=str(payload.get("wait_key") or "").strip() or "ask",
+            kind="ask",
+            label=short_prompt,
         )
         if not reraise:
             self._append_run_activity(
@@ -8592,19 +9013,73 @@ class AssistantPalette(QMainWindow):
             self.prompt_edit.setToolTip(tooltip)
             self.send_button.setToolTip(tooltip)
 
+    def _voice_is_speaking(self) -> bool:
+        """Is the player putting audio on the speakers right now?
+
+        Asked of the player, never tracked as a flag. 0.4.10 polled this too,
+        and for good reason: speech ends in more ways than it starts — stopped,
+        superseded, paused, failed, quit — and a flag has to be cleared in
+        every one of them. Paused counts as not speaking, so a pause hands the
+        icon back and resuming takes it again.
+        """
+        manager = getattr(self._state("_controller"), "voice_manager", None)
+        try:
+            return bool(manager is not None and manager.is_speaking())
+        except Exception:
+            return False
+
     def _tray_feedback_state(self) -> str:
+        # Speaking wins: it is the only state the user can hear, and the icon
+        # is what tells them where the voice is coming from.
+        if self._voice_is_speaking():
+            return "speaking"
+        # A run parked on the user outranks "working": working resolves itself,
+        # this one cannot until the user answers it.
+        if self._state("_pending_user_waits"):
+            return "waiting"
         if self._show_thinking_indicator():
             return "busy"
         if self._tray_completion_unread:
             return "complete"
         return "idle"
 
+    def _decayed_speech_meter(self, *, now: Optional[float] = None) -> Any:
+        """The last meter, faded toward silence by how old it is.
+
+        Levels arrive per audio chunk, not per frame, and stop arriving the
+        moment playback stalls or ends — without decay the bars would freeze
+        at whatever the last chunk happened to be.
+        """
+        level = self._state("_speech_meter", 0.0)
+        stamp = float(self._state("_speech_meter_ts", 0.0) or 0.0)
+        if stamp <= 0.0:
+            return 0.0
+        elapsed = max(0.0, (time.monotonic() if now is None else float(now)) - stamp)
+        if elapsed >= _TRAY_VOICE_DECAY_S:
+            return 0.0
+        scale = 1.0 - (elapsed / _TRAY_VOICE_DECAY_S)
+        if isinstance(level, (list, tuple)):
+            return [max(0.0, float(value) * scale) for value in level]
+        try:
+            return max(0.0, float(level) * scale)
+        except (TypeError, ValueError):
+            return 0.0
+
     def _refresh_tray_feedback(self) -> None:
-        tray = self._tray
+        # `_state`, not attribute access: speech now reaches this before the
+        # tray exists, and `self._tray` on a __new__-built palette raises.
+        tray = self._state("_tray")
         if tray is None:
             return
         state = self._tray_feedback_state()
-        if state == "busy":
+        if state in {"busy", "speaking"}:
+            interval = (
+                _TRAY_VOICE_FRAME_INTERVAL_MS
+                if state == "speaking"
+                else _TRAY_BUSY_FRAME_INTERVAL_MS
+            )
+            if self._tray_feedback_timer.interval() != interval:
+                self._tray_feedback_timer.setInterval(interval)
             if not self._tray_feedback_timer.isActive():
                 self._tray_feedback_timer.start()
         else:
@@ -8612,12 +9087,20 @@ class AssistantPalette(QMainWindow):
             self._tray_animation_frame = 0
         try:
             tray.setIcon(
-                _tray_feedback_icon(state=state, frame=self._tray_animation_frame)
+                _tray_feedback_icon(
+                    state=state,
+                    frame=self._tray_animation_frame,
+                    levels=(
+                        self._decayed_speech_meter() if state == "speaking" else None
+                    ),
+                )
             )
         except Exception:
             pass
         tooltip = "AbstractAssistant"
-        if state == "busy":
+        if state == "speaking":
+            tooltip = "AbstractAssistant • Speaking"
+        elif state == "busy":
             tooltip = "AbstractAssistant • Thinking..."
         elif state == "complete":
             tooltip = "AbstractAssistant • Reply ready"
@@ -8627,13 +9110,43 @@ class AssistantPalette(QMainWindow):
             pass
 
     def _advance_tray_feedback(self) -> None:
-        if self._tray_feedback_state() != "busy":
+        state = self._tray_feedback_state()
+        if state not in {"busy", "speaking"}:
             self._tray_feedback_timer.stop()
             return
-        self._tray_animation_frame = (
-            self._tray_animation_frame + 1
-        ) % _TRAY_BUSY_FRAME_COUNT
+        if state == "busy":
+            # The speaking icon draws the meter, not a frame counter.
+            self._tray_animation_frame = (
+                self._tray_animation_frame + 1
+            ) % _TRAY_BUSY_FRAME_COUNT
         self._refresh_tray_feedback()
+
+    def _on_speech_level(self, level: Any) -> None:
+        """A meter reading for the assistant's own voice.
+
+        Feeds the tray only: the composer's voice strip is the MICROPHONE
+        meter, fed by `listen(on_audio_level=…)`, and these are output levels.
+        """
+        self._speech_meter = level
+        self._speech_meter_ts = time.monotonic()
+        if not self._tray_feedback_timer.isActive():
+            # First reading of a speech the start hook did not announce.
+            self._refresh_tray_feedback()
+
+    def _install_speech_meter(self) -> None:
+        """Own the voice manager's meter callback.
+
+        The hands-free conversation installs its own while it runs and clears
+        it on stop, so this is re-asserted afterwards; without it the tray
+        would go quiet for every speech after the first conversation ended.
+        """
+        manager = getattr(self._controller, "voice_manager", None)
+        setter = getattr(manager, "set_audio_meter_callback", None)
+        if callable(setter):
+            try:
+                setter(self.speech_level_received.emit)
+            except Exception:
+                pass
 
     def _notify(
         self,
@@ -8682,13 +9195,102 @@ class AssistantPalette(QMainWindow):
     def _scroll_history_to_latest(self) -> None:
         self._apply_history_scroll_request(self._history_scroll_request(mode="bottom"))
 
+    def apply_typography(self, **updates: Any) -> bool:
+        """Change the transcript's reading rhythm and re-render it."""
+        global TYPOGRAPHY
+        if updates:
+            try:
+                self._controller.update_preferences(**updates)
+            except Exception:
+                return False
+        TYPOGRAPHY = Typography.from_preferences(self._controller.preferences)
+        # Text size is not a transcript setting: it is THE app's type scale.
+        # Scaling METRICS moves every window's type and control heights with
+        # it, which is what "the same appearance everywhere" means.
+        activate_metrics(TYPOGRAPHY.size)
+        # The rhythm is baked into each message's HTML, so the transcript has
+        # to be re-rendered rather than restyled.
+        self._renderer = MarkdownRenderer(theme="friendly_grayscale")
+        self._apply_styles()
+        self._restyle_every_window()
+        try:
+            self.refresh_history()
+        except Exception:
+            pass
+        return True
+
+    def _restyle_every_window(self) -> None:
+        """Make every window re-read the palette and the type scale.
+
+        Windows are asked, never rebuilt: a theme or text-size change must not
+        disturb a run, a transcript or an open dialog.
+        """
+        targets = list(QApplication.topLevelWidgets()) + self.findChildren(QWidget)
+        for widget in targets:
+            restyle = getattr(widget, "restyle", None)
+            if callable(restyle) and widget is not self:
+                try:
+                    restyle()
+                except Exception:
+                    continue
+        # Stylesheets are not the whole app: an icon is a rendered bitmap,
+        # baked with the palette that was live when its widget was built. A
+        # restyle sweep never touched them, so after switching to a light
+        # theme the composer and toolbar glyphs stayed near-white — invisible
+        # on their own background — until the app was restarted.
+        for root in {id(w): w for w in targets + [self]}.values():
+            try:
+                retint_widget_icons(root)
+            except Exception:
+                continue
+
+    def apply_theme(self, theme_id: str, *, persist: bool = True) -> bool:
+        """Switch the whole app to ``theme_id``.
+
+        Every module holds the same `THEME` object, so the palette is mutated in
+        place and then each window is asked to re-read it. Nothing is recreated:
+        a theme switch must not disturb a run, a transcript or a dialog.
+        """
+        from . import ui_themes
+        from .theme import DEFAULT_THEME as _DEFAULT, activate as _activate
+
+        wanted = normalize_ui_theme(theme_id)
+        theme = ui_themes.build_theme(wanted) or _DEFAULT
+        _activate(theme)
+
+        self._renderer = MarkdownRenderer(theme="friendly_grayscale")
+        self._apply_styles()
+        # Top-level windows AND our own children: the voice strip is a child,
+        # so a top-level-only sweep never reached it.
+        self._restyle_every_window()
+        # Markdown is rendered to HTML per message with the palette baked in,
+        # so the transcript has to be re-rendered, not merely restyled.
+        try:
+            self.refresh_history()
+        except Exception:
+            pass
+        if persist:
+            try:
+                self._controller.update_preferences(ui_theme=wanted)
+            except Exception as exc:
+                # Say why. Returning a bare False left the caller with nothing
+                # to show, and the choice was lost at the next launch.
+                self._set_status(f"Theme not saved: {exc}", tone="warn")
+                return False
+        return True
+
     def _apply_styles(self) -> None:
         palette = self.palette()
-        palette.setColor(QPalette.Window, QColor("#0c1016"))
-        palette.setColor(QPalette.Base, QColor("#161b23"))
-        palette.setColor(QPalette.Text, QColor("#e8edf4"))
+        palette.setColor(QPalette.Window, QColor(_solid(THEME.surface_sunken)))
+        palette.setColor(QPalette.Base, QColor(_solid(THEME.surface_raised)))
+        palette.setColor(QPalette.Text, QColor(_solid(THEME.text_primary)))
         self.setPalette(palette)
-        self.setStyleSheet("""
+        # Scoped to the palette's own root surface. A dialog is a CHILD of this
+        # window in Qt's object tree, so an unscoped sheet cascades into every
+        # one of them and its bare type selectors win — Settings rendered 50px
+        # buttons where it asks for 30. Dialogs are NOT inside `rootSurface`,
+        # so scoping here is what keeps them their own.
+        self.setStyleSheet(scope_stylesheet(_themed("""
             QMainWindow#assistantPalette, QWidget#rootSurface {
                 background: transparent;
                 color: #e8edf4;
@@ -8764,14 +9366,27 @@ class AssistantPalette(QMainWindow):
                 background: rgba(145, 39, 39, 0.14);
                 color: #ffb4b4;
             }
+            /* A message has to be visibly a message. The old fill separated
+               from the card behind it by a luminance ratio of 1.04 — the
+               bubble was effectively invisible. These are the surface and
+               border tokens' own colours, so they translate with the theme. */
+            /* Both bubbles are an ALPHA OF A TOKEN, never an opaque literal.
+               An opaque literal retints to whatever token happens to be
+               nearest, which sits a different distance from the card in every
+               palette — separation swung 1.29 to 2.18 across themes, and the
+               user bubble's old base was `accent`, so on the light themes it
+               came out PINK. As an alpha the step is relative to the card and
+               inverts correctly, and the rim carries the separation. */
             QFrame#assistantBubble, QFrame#userBubble {
                 border-radius: 16px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                background: rgba(22, 28, 38, 0.65);
+                border: 1px solid rgba(166, 187, 214, 0.50);
+                background: rgba(166, 187, 214, 0.28);
             }
+            /* The user's own turns keep their own identity: `user_bg`, the
+               palette's info colour, not the accent. */
             QFrame#userBubble {
-                background: rgba(121, 199, 255, 0.10);
-                border-color: rgba(121, 199, 255, 0.28);
+                background: rgba(99, 102, 241, 0.30);
+                border-color: rgba(99, 102, 241, 0.60);
             }
             QFrame#userBubble QLabel#messageRole,
             QFrame#userBubble QLabel#userMessageText {
@@ -9281,7 +9896,7 @@ class AssistantPalette(QMainWindow):
                 color: #8bd8b1;
                 background: rgba(83, 198, 145, 0.12);
             }
-            """ + ACTIVITY_QSS)
+            """ + build_activity_qss()), "QWidget#rootSurface"))
 
 
 def json_dumps(value: Dict[str, Any]) -> str:
@@ -9294,7 +9909,12 @@ def json_dumps(value: Dict[str, Any]) -> str:
 
 def _handle_tray_activation(*, palette, menu: Optional[QMenu], reason) -> None:
     if reason == QSystemTrayIcon.Context:
-        if menu is not None:
+        # Linux shows the menu itself — the D-Bus host renders the exported
+        # dbusmenu, and the XEmbed path pops it before emitting Context — so
+        # popping our own would show two, at a position Wayland cannot even
+        # report. Windows needs it (Qt disables native menus for QApplication)
+        # and macOS routes through its own decoy-menu fallback.
+        if menu is not None and not sys.platform.startswith("linux"):
             try:
                 menu.popup(QCursor.pos())
             except Exception:
@@ -9448,7 +10068,15 @@ def _refresh_tray_visibility(
     except Exception:
         available = True
     if not available:
-        _bundle_tray_log(f"{reason or 'refresh'}: system tray unavailable")
+        # Say it out loud, not only into the frozen-build log: on a desktop
+        # with no tray host this is the difference between "the app is broken"
+        # and a sentence naming the cause.
+        message = (
+            "system tray unavailable on this desktop "
+            "(GNOME needs the AppIndicator extension; Wayland has no XEmbed tray)"
+        )
+        _bundle_tray_log(f"{reason or 'refresh'}: {message}")
+        warnings.warn(f"#FALLBACK: {message}")
         native_item_count, native_button_size, native_image_size = (
             _native_status_item_metrics()
         )
@@ -9654,8 +10282,24 @@ def launch_tray_app(
         _handle_tray_activation(palette=palette, menu=menu, reason=reason)
 
     tray.activated.connect(_on_tray_activated)
-    _refresh_tray_visibility(tray=tray, palette=palette, reason="startup")
+    tray_state = _refresh_tray_visibility(tray=tray, palette=palette, reason="startup")
     _schedule_tray_visibility_refresh(tray=tray, palette=palette)
+    if not tray_state.available:
+        # There is no tray to click, so the window IS the app: show it whatever
+        # the launch mode says, and name the reason where the user is looking.
+        # Without this the process ran on with no icon and no window at all.
+        show_on_launch = True
+        try:
+            palette.setWindowFlags(palette.windowFlags() & ~Qt.Tool)
+            palette._set_banner(
+                "No system tray on this desktop, so the assistant stays in this "
+                "window. On GNOME, install the AppIndicator extension to get the "
+                "tray icon back.",
+                tone="warn",
+                key="tray",
+            )
+        except Exception:
+            pass
     if show_on_launch:
         try:
             app.applicationStateChanged.connect(  # type: ignore[attr-defined]

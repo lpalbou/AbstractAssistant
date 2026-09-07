@@ -214,7 +214,7 @@ def _build_qss() -> str:
     QPushButton#rowConfirmNo:hover {{ background: {THEME.overlay_hover}; }}
 
     QPushButton#switcherPrimary {{
-        color: {THEME.text_strong};
+        color: {THEME.primary_text};
         background: {THEME.primary};
         border: none;
         border-radius: 9px;
@@ -238,7 +238,12 @@ def _build_qss() -> str:
     """
 
 
-SESSION_SWITCHER_QSS: str = _build_qss()
+def build_switcher_qss() -> str:
+    """Rebuilt on demand so a theme switch reaches the popup too."""
+    return _build_qss()
+
+
+SESSION_SWITCHER_QSS: str = build_switcher_qss()
 
 
 def _metric(icon: str, text: str, tooltip: str, tone: str = "") -> QWidget:
@@ -575,7 +580,7 @@ class SessionSwitcher(QDialog):
         self.setObjectName("sessionSwitcher")
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet(dialog_stylesheet() + SESSION_SWITCHER_QSS)
+        self.restyle()
         self.resize(SWITCHER_WIDTH, SWITCHER_HEIGHT)
 
         self._digests: List[SessionDigest] = []
@@ -649,6 +654,13 @@ class SessionSwitcher(QDialog):
         hint.setObjectName("switcherHint")
         footer_row.addWidget(hint, 1, Qt.AlignVCenter)
         root.addWidget(footer)
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or this is the first paint)."""
+        self.setStyleSheet(dialog_stylesheet() + build_switcher_qss())
+        # Called from __init__ too, before any row exists.
+        for row in getattr(self, "_rows", ()) or ():
+            refresh_style(row)
 
     # -------------------------------------------------------------- rendering
 

@@ -10,7 +10,7 @@ import json
 import warnings
 from typing import Any, Callable, Dict, List, Optional
 
-from .run_stats import stats_from_history_bundle
+from .run_stats import parse_usage_summary, stats_from_history_bundle
 
 
 def _now_iso() -> str:
@@ -527,6 +527,40 @@ def seed_messages_from_history_bundle(
     return out
 
 
+def _usage_numbers(stats: Any) -> tuple:
+    """(input, output, total) from a stats dict, zeros when absent."""
+    if not isinstance(stats, dict):
+        return (0, 0, 0)
+    usage = stats.get("usage")
+    if not isinstance(usage, dict):
+        usage = stats.get("tokens") if isinstance(stats.get("tokens"), dict) else {}
+    parsed = parse_usage_summary(usage) or {}
+    return (
+        int(parsed.get("input_tokens") or 0),
+        int(parsed.get("output_tokens") or 0),
+        int(parsed.get("total_tokens") or 0),
+    )
+
+
+def _stats_are_richer(fresh: Dict[str, Any], existing: Dict[str, Any]) -> bool:
+    """Only replace stored stats when the recomputed ones say strictly MORE.
+
+    Answers folded before the run tree was walked recorded the ROOT run only:
+    no tokens, no tool calls, one llm_call — while the agent subrun underneath
+    had done twelve cycles and twenty tool calls. That fold was fixed forward,
+    but seeding SKIPPED any message already carrying stats, so those rows were
+    wrong permanently. Re-deriving heals them; comparing first is what stops a
+    re-derivation from ever making a good row worse.
+    """
+    new_tokens, old_tokens = _usage_numbers(fresh), _usage_numbers(existing)
+    try:
+        new_tools = int(fresh.get("tool_calls") or 0)
+        old_tools = int(existing.get("tool_calls") or 0)
+    except Exception:
+        new_tools = old_tools = 0
+    return sum(new_tokens) > sum(old_tokens) or new_tools > old_tools
+
+
 def _attach_bundle_stats(messages: List[Dict[str, Any]], bundle: Dict[str, Any], *, run_id: str) -> None:
     """Attach ledger-derived answer stats to this bundle's assistant message.
 
@@ -535,6 +569,10 @@ def _attach_bundle_stats(messages: List[Dict[str, Any]], bundle: Dict[str, Any],
     seeded copy (and recovered answers would never carry stats at all). Only
     the target run's messages are touched: other session turns keep their own
     `_repl.stats` from the gateway.
+
+    A message that ALREADY carries stats is re-derived and kept only if the
+    fresh figures are richer — see `_stats_are_richer`. Skipping those rows
+    outright is what froze the old root-only folds as permanently wrong.
     """
     rid = str(run_id or "").strip()
     if not rid:
@@ -547,8 +585,7 @@ def _attach_bundle_stats(messages: List[Dict[str, Any]], bundle: Dict[str, Any],
         if str(msg.get("run_id") or "").strip() != rid:
             continue
         meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
-        if isinstance(meta.get("_assistant_stats"), dict):
-            continue
+        existing = meta.get("_assistant_stats")
         if not computed:
             computed = True
             try:
@@ -558,6 +595,9 @@ def _attach_bundle_stats(messages: List[Dict[str, Any]], bundle: Dict[str, Any],
                 stats = None
         if not isinstance(stats, dict):
             return
+        if isinstance(existing, dict) and not _stats_are_richer(stats, existing):
+            # Never downgrade a row that is already at least as good.
+            continue
         meta = dict(meta)
         meta["_assistant_stats"] = {"run_id": rid, **stats}
         msg["metadata"] = meta

@@ -507,7 +507,10 @@ def test_approval_qss_uses_tokens_only() -> None:
     assert "QFrame#toolApprovalCallCard" in APPROVAL_QSS
     assert "QLabel#usageStatusChip" in APPROVAL_QSS
     sheet, _ = _sheet([CMD_CALL], show=False)
-    assert sheet.styleSheet().endswith(APPROVAL_QSS)
+    # The LIVE builder, not the import-frozen constant: the type scale follows
+    # the user's text size, so anything captured at import is stale the moment
+    # a window is built with a non-default size.
+    assert sheet.styleSheet().endswith(approval_module.build_approval_qss())
     assert isinstance(sheet.findChild(QFrame, "toolApprovalCallCard"), QFrame)
 
 

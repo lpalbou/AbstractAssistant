@@ -1150,7 +1150,12 @@ def _build_activity_qss() -> str:
     )
 
 
-ACTIVITY_QSS: str = _build_activity_qss()
+def build_activity_qss() -> str:
+    """Rebuilt on demand so a theme switch reaches the activity card too."""
+    return _build_activity_qss()
+
+
+ACTIVITY_QSS: str = build_activity_qss()
 
 
 # --------------------------------------------------------------------------- #

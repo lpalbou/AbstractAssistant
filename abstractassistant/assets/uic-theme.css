@@ -1,0 +1,3015 @@
+/* AbstractUIC UI Kit: Shared theme tokens for AbstractFramework thin clients */
+
+/* Base tokens (aligned with AbstractFlow; extended for thin clients) */
+:root {
+  color-scheme: dark;
+
+  /* Colors */
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  --text-primary: #eee;
+  --text-secondary: #aaa;
+  --text-muted: #666;
+  --accent: #e94560;
+  --success: #27ae60;
+  --warning: #f39c12;
+  --error: #e74c3c;
+  --info: #60a5fa;
+
+  /* Fonts (no remote imports; prefer system fonts) */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Typography / density (controlled by thin-client Settings; avoid per-app drift) */
+  --font-scale: 1;
+  --header-density: 1;
+
+  --font-size-xxs: calc(10px * var(--font-scale));
+  --font-size-xs: calc(11px * var(--font-scale));
+  --font-size-sm: calc(12px * var(--font-scale));
+  --font-size-md: calc(13px * var(--font-scale));
+  --font-size-base: calc(14px * var(--font-scale));
+  --font-size-lg: calc(16px * var(--font-scale));
+  --font-size-xl: calc(18px * var(--font-scale));
+
+  --line-height-base: 1.5;
+
+  /* Sizes */
+  --header-height: calc(48px * var(--header-density));
+  --footer-height: calc(32px * var(--header-density));
+  --header-pad-x: 16px;
+  --header-pad-y: calc(8px * var(--header-density));
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  /* General UI surfaces */
+  --ui-surface-1: rgba(0, 0, 0, 0.16);
+  --ui-surface-2: rgba(255, 255, 255, 0.06);
+  --ui-surface-3: rgba(0, 0, 0, 0.25);
+  --ui-border-1: rgba(255, 255, 255, 0.10);
+  --ui-border-2: rgba(255, 255, 255, 0.14);
+  --ui-shadow-1: 0 10px 30px rgba(0, 0, 0, 0.35);
+
+  /* Entity-semantic tokens (one visual language for summoned-entity surfaces
+   * across the entity app, gateway console, and flow — c594 contract).
+   * Dark values are the shipped truth operators learned in the Observer
+   * entity view (abstractobserver/src/entity/entity.css); the light-theme
+   * variants live in the grouped light block below. Named for MEANING, not
+   * color — values may tune per theme, the vocabulary is the contract.
+   * Consumption rule: these are MARK colors (node rings, lanes, diamonds,
+   * chrome); as text they clear 4.5:1 only on primary/secondary surfaces
+   * (scar reads below AA as text on several dark themes) — entity-colored
+   * labels pair the mark with --text-primary text, and identity/bond/accent
+   * are one warm family: never color-alone coding between them. */
+  /* Code/JSON syntax tokens (dark set = the VSCode-dark palette the shared
+   * JSON viewers shipped as literals; promoted to tokens 2026-07-11 so light
+   * themes can override — the literals stay as fallbacks in component CSS
+   * for consumers loading components without theme.css). */
+  --syntax-key: #9cdcfe;
+  --syntax-string: #ce9178;
+  --syntax-number: #b5cea8;
+  --syntax-keyword: #569cd6;
+
+  --entity-identity: #e7b45a;
+  --entity-memory: #6ea8d8;
+  --entity-diary: #7bc98c;
+  --entity-standing: #c084dd;
+  --entity-scar: #e05555;
+  --entity-bond: #f0c060;
+  --entity-accent: #e8a54a;
+
+  /* Semantic tints (hue-matched to the base colors above — subtle/border
+   * variants must never drift to a different hue family than their base) */
+  --accent-subtle: rgba(233, 69, 96, 0.12);
+  --info-subtle: rgba(96, 165, 250, 0.12);
+  --success-subtle: rgba(39, 174, 96, 0.12);
+  --warning-subtle: rgba(243, 156, 18, 0.12);
+  --error-subtle: rgba(231, 76, 60, 0.12);
+
+  /* Semantic borders (used for selection + pills) */
+  --accent-border: rgba(233, 69, 96, 0.35);
+  --info-border: rgba(96, 165, 250, 0.35);
+  --success-border: rgba(39, 174, 96, 0.35);
+  --warning-border: rgba(243, 156, 18, 0.35);
+  --error-border: rgba(231, 76, 60, 0.35);
+  --muted-border: rgba(148, 163, 184, 0.22);
+
+  /* Chips / badges */
+  --ui-chip-bg: rgba(0, 0, 0, 0.22);
+  --ui-chip-border: rgba(255, 255, 255, 0.12);
+  --ui-chip-text: rgba(255, 255, 255, 0.92);
+
+  /* Small overlay surfaces (tabs, pills) */
+  --ui-overlay-bg: rgba(0, 0, 0, 0.18);
+  --ui-overlay-bg-hover: rgba(255, 255, 255, 0.08);
+  --ui-overlay-border: rgba(255, 255, 255, 0.14);
+  --ui-pill-bg: rgba(0, 0, 0, 0.22);
+  --ui-pill-border: rgba(255, 255, 255, 0.12);
+
+  /* Markdown/code surfaces */
+  --ui-code-bg: rgba(0, 0, 0, 0.18);
+  --ui-code-border: rgba(255, 255, 255, 0.08);
+  --ui-code-block-bg: rgba(0, 0, 0, 0.25);
+  --ui-code-block-border: rgba(255, 255, 255, 0.08);
+
+  /* Compatibility aliases used by multiple thin clients */
+  --bg: var(--bg-primary);
+  --bg-surface: var(--bg-secondary);
+  --bg-elevated: var(--bg-tertiary);
+  --bg-card: var(--bg-secondary);
+  --panel: var(--bg-secondary);
+  --panel2: var(--bg-tertiary);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --danger: var(--error);
+  --ok: var(--success);
+
+  /* Strokes */
+  --border: var(--bg-tertiary);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-accent: rgba(233, 69, 96, 0.55);
+}
+
+@supports (color: color-mix(in srgb, black 50%, white)) {
+  :root {
+    /* Prefer a theme-tinted translucent card surface when supported. */
+    --bg-card: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  }
+}
+
+/* Shared Gateway browser-session sign-in card */
+.af-gateway-signin,
+.af-gateway-signin *,
+.af-gateway-signin *::before,
+.af-gateway-signin *::after {
+  /* The card must not depend on a host app's global box-sizing reset
+   * (found by the bare test-app render 2026-07-12: content-box hosts got a
+   * clipped card). */
+  box-sizing: border-box;
+}
+
+.af-gateway-signin {
+  display: block;
+  width: min(760px, 100%);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  background: var(--bg-card, var(--bg-secondary));
+  box-shadow: var(--ui-shadow-1);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.af-gateway-signin h2 {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  line-height: 1.25;
+}
+
+.af-gateway-signin p {
+  margin: 14px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.af-gateway-signin input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--ui-border-2);
+  border-radius: var(--radius-sm);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  padding: 9px 11px;
+  font: inherit;
+}
+
+.af-gateway-signin input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: 0;
+}
+
+.af-gateway-signin input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+}
+
+.af-gateway-signin button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  min-height: 38px;
+  padding: 8px 14px;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.af-gateway-signin button:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.af-gateway-signin button:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.af-gateway-signin button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.af-gateway-signin__hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+
+.af-gateway-signin__kicker {
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.af-gateway-signin__mark {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), color-mix(in srgb, var(--error) 20%, transparent));
+  color: var(--text-primary);
+  font-size: 32px;
+  font-weight: 900;
+}
+
+.af-gateway-signin__status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.af-gateway-signin__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  border: 1px solid var(--ui-overlay-border);
+  background: var(--ui-overlay-bg);
+}
+
+.af-gateway-signin__status--ok {
+  color: var(--success);
+  border-color: var(--success-border);
+}
+
+.af-gateway-signin__status--warn {
+  color: var(--warning);
+  border-color: var(--warning-border);
+}
+
+.af-gateway-signin__status--err {
+  color: var(--error);
+  border-color: var(--error-border);
+}
+
+.af-gateway-signin__source {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.af-gateway-signin__form {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+/* Narrow drawers (360-480px): a fixed 150px label column leaves too little
+ * for the gateway URL — labels stack above their inputs instead
+ * (design adversary B, 2026-07-13). */
+@media (max-width: 520px) {
+  .af-gateway-signin__form {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .af-gateway-signin__label {
+    margin-top: 6px;
+  }
+}
+
+.af-gateway-signin__label {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  /* 600, not 800: labels must not compete with the kicker/buttons for
+   * hierarchy — uppercase + tracking already carry the label look
+   * (design adversary A, 2026-07-13). */
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.af-gateway-signin__token-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-gateway-signin__token-input input {
+  flex: 1;
+}
+
+.af-gateway-signin__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.af-gateway-signin__message {
+  margin-top: 14px;
+  overflow-wrap: anywhere;
+}
+
+.af-gateway-signin__message--error {
+  color: var(--error);
+}
+
+.af-gateway-signin__message--ok {
+  color: var(--success);
+}
+
+/* Shared gateway connect modal (GatewayConnectModal).
+ * CONTRACT (maintainer 2026-07-12): the connection surface is a CENTERED
+ * MODAL over a dimmed + BLURRED backdrop, and the Gateway URL is always
+ * visible (the modal passes showGatewayUrl). Apps must use
+ * GatewayConnectModal for connect/disconnect UX; embedding the bare card is
+ * for already-modal contexts only and must keep the URL visible. */
+.af-connect-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: var(--z-connect-modal, 1000);
+}
+
+.af-connect-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  /* dvh tracks the REAL viewport under mobile URL bars / open keyboards
+   * (design adversary B); vh line above stays as the older-browser fallback. */
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.af-gateway-signin__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+/* Accent-tinted surface + theme text, NOT solid accent + inverted text:
+ * mid-saturation accents (light themes' blues) sit at ~3.5:1 against BOTH
+ * white and near-black, so a solid-accent button mathematically cannot hold
+ * 4.5:1 label contrast across 21 themes (measured 2026-07-12: 7 themes
+ * failed, incl. the default). The tint keeps the accent identity; the label
+ * keeps every theme's own body-text contrast. */
+.af-gateway-signin__primary {
+  background: color-mix(in srgb, var(--accent) 22%, var(--ui-overlay-bg));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.af-gateway-signin__secondary {
+  background: var(--bg-tertiary);
+}
+
+@media (max-width: 680px) {
+  .af-gateway-signin {
+    padding: 18px;
+  }
+
+  .af-gateway-signin__hero {
+    gap: 16px;
+  }
+
+  .af-gateway-signin__mark {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    font-size: 26px;
+  }
+
+  .af-gateway-signin__form {
+    grid-template-columns: 1fr;
+  }
+}
+
+:root.theme-light,
+:root.theme-solarized-light,
+:root.theme-catppuccin-latte,
+:root.theme-rose-pine-dawn,
+:root.theme-one-light,
+:root.theme-everforest-light {
+  color-scheme: light;
+
+  /* Entity-semantic tokens, light variants: same hue identities as the dark
+   * set (identity/bond/accent stay warm golds, memory blue, diary green,
+   * standing purple, scar red), darkened so each holds ≥4.5:1 against every
+   * light theme's PRIMARY and SECONDARY backgrounds (measured worst cases
+   * #ffffff and solarized #eee8d5) and ≥3:1 as non-text marks on tertiary
+   * surfaces. Bond keeps ≥1.2x luminance separation from identity so the
+   * warm-gold pair survives red-green color-vision deficiency (the dark pair
+   * separates by luminance too). A scar that vanishes on light would break
+   * the one-visual-language goal (c529). */
+  --entity-identity: #7d5c0e;
+  --entity-memory: #2a6396;
+  --entity-diary: #2a7340;
+  --entity-standing: #8f44b3;
+  --entity-scar: #b23230;
+  --entity-bond: #66530d;
+  --entity-accent: #8f5a0e;
+
+  /* Code/JSON syntax tokens, light variants: dark enough to hold ≥4.5:1 on
+   * every light theme's primary/secondary backgrounds (worst cases #ffffff
+   * and solarized #eee8d5). Same role identities as the dark set. */
+  --syntax-key: #0451a5;
+  --syntax-string: #a31515;
+  --syntax-number: #096b47;
+  --syntax-keyword: #6f42c1;
+}
+
+:root.theme-light {
+  --bg-primary: #f7f7fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e6e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --accent: #e94560;
+  --success: #12883e;
+  --warning: #b16105;
+  --error: #dc2626;
+  --info: #2563eb;
+
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --border-default: rgba(15, 23, 42, 0.12);
+  --border-accent: rgba(233, 69, 96, 0.45);
+
+  --ui-surface-1: rgba(15, 23, 42, 0.03);
+  --ui-surface-2: rgba(15, 23, 42, 0.05);
+  --ui-surface-3: rgba(15, 23, 42, 0.04);
+  --ui-border-1: rgba(15, 23, 42, 0.10);
+  --ui-border-2: rgba(15, 23, 42, 0.14);
+  --ui-shadow-1: 0 10px 30px rgba(15, 23, 42, 0.12);
+
+  --ui-overlay-bg: rgba(15, 23, 42, 0.04);
+  --ui-overlay-bg-hover: rgba(15, 23, 42, 0.06);
+  --ui-overlay-border: rgba(15, 23, 42, 0.12);
+  --ui-pill-bg: rgba(15, 23, 42, 0.04);
+  --ui-pill-border: rgba(15, 23, 42, 0.12);
+
+  --ui-chip-bg: rgba(15, 23, 42, 0.04);
+  --ui-chip-border: rgba(15, 23, 42, 0.12);
+  --ui-chip-text: rgba(15, 23, 42, 0.92);
+
+  --ui-code-bg: rgba(15, 23, 42, 0.05);
+  --ui-code-border: rgba(15, 23, 42, 0.10);
+  --ui-code-block-bg: rgba(15, 23, 42, 0.05);
+  --ui-code-block-border: rgba(15, 23, 42, 0.10);
+
+  --accent-subtle: rgba(233, 69, 96, 0.10);
+  --info-subtle: rgba(37, 99, 235, 0.10);
+  --success-subtle: rgba(18, 136, 62, 0.10);
+  --warning-subtle: rgba(177, 97, 5, 0.10);
+  --error-subtle: rgba(220, 38, 38, 0.10);
+
+  --accent-border: rgba(233, 69, 96, 0.30);
+  --info-border: rgba(37, 99, 235, 0.30);
+  --success-border: rgba(18, 136, 62, 0.30);
+  --warning-border: rgba(177, 97, 5, 0.30);
+  --error-border: rgba(220, 38, 38, 0.30);
+  --muted-border: rgba(15, 23, 42, 0.18);
+}
+
+:root.theme-nord {
+  --bg-primary: #2e3440;
+  --bg-secondary: #3b4252;
+  --bg-tertiary: #434c5e;
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted: #99b3cd;
+  --accent: #88c0d0;
+  --success: #a3be8c;
+  --warning: #ebcb8b;
+  --error: #d89fa4;
+  --info: #9bb0cb;
+
+  --accent-subtle: rgba(136, 192, 208, 0.12);
+  --info-subtle: rgba(155, 176, 203, 0.12);
+  --success-subtle: rgba(163, 190, 140, 0.12);
+  --warning-subtle: rgba(235, 203, 139, 0.12);
+  --error-subtle: rgba(216, 159, 164, 0.12);
+
+  --accent-border: rgba(136, 192, 208, 0.35);
+  --info-border: rgba(155, 176, 203, 0.35);
+  --success-border: rgba(163, 190, 140, 0.35);
+  --warning-border: rgba(235, 203, 139, 0.35);
+  --error-border: rgba(216, 159, 164, 0.35);
+  --border-accent: rgba(136, 192, 208, 0.55);
+
+  /* Per-theme syntax overrides: this theme's bg-secondary is lighter than
+   * the default dark, so the shared VSCode-dark set falls under 4.5:1
+   * (contrast audit 2026-07-13). */
+  --syntax-string: #d6a38e;
+  --syntax-keyword: #7fb4e0;
+}
+
+/* Tool policy editor (allowlist + approve/ask) */
+.af-tool-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-surface-1);
+  box-shadow: var(--ui-shadow-1);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.af-tool-policy__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.af-tool-policy__title {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.af-tool-policy__subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.af-tool-policy__mode {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-overlay-bg);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.af-tool-policy__mode-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+}
+
+.af-tool-policy__mode-value {
+  font-weight: 800;
+}
+
+.af-tool-policy__mode-detail {
+  grid-column: 1 / -1;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.af-tool-policy__mode.is-safe {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.af-tool-policy__mode.is-warn {
+  border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, var(--ui-overlay-bg));
+}
+
+.af-tool-policy__mode.is-danger {
+  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+  background: color-mix(in srgb, var(--error) 14%, var(--ui-overlay-bg));
+}
+
+.af-tool-policy__mode.is-info {
+  border-color: color-mix(in srgb, var(--info) 50%, transparent);
+  background: color-mix(in srgb, var(--info) 12%, var(--ui-overlay-bg));
+}
+
+.af-tool-policy__note {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.af-tool-policy__controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Narrow containers: the three-column control row (filter + segmented +
+ * bulk) overflows under ~520px — stack it (design adversary B). */
+@media (max-width: 520px) {
+  .af-tool-policy__controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.af-tool-policy__segmented {
+  display: inline-flex;
+  background: var(--ui-overlay-bg);
+  border: 1px solid var(--ui-overlay-border);
+  border-radius: var(--radius-lg);
+  padding: 2px;
+  gap: 2px;
+}
+
+.af-tool-policy__seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.af-tool-policy__seg-btn.is-active {
+  background: var(--ui-surface-2);
+  color: var(--text-primary);
+}
+
+.af-tool-policy__seg-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.af-tool-policy__count {
+  padding: 6px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-overlay-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-align: center;
+}
+
+.af-tool-policy__bulk {
+  display: inline-flex;
+  gap: 6px;
+  justify-self: end;
+}
+
+.af-tool-policy__bulk button {
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-overlay-bg);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.af-tool-policy__bulk button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.af-tool-policy__filter input {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+}
+
+/* Kit-wide placeholder harmonization (operator fix 2026-07-13): placeholders
+ * render in the app stack at muted color — never the UA form font, never
+ * Firefox's extra dimming. */
+.af-gateway-signin input::placeholder,
+.af-tool-policy__filter input::placeholder,
+.af-select-search-input::placeholder,
+.af-steer__input::placeholder,
+.af-critical__phrase input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+  font-family: inherit;
+}
+
+.af-tool-policy__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.af-tool-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-surface-2);
+}
+
+.af-tool-row.is-enabled {
+  border-color: var(--accent-border);
+}
+
+.af-tool-row__check input {
+  width: 16px;
+  height: 16px;
+}
+
+.af-tool-row__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-tool-row__name {
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.af-tool-row__badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-chip-border);
+  background: var(--ui-chip-bg);
+  color: var(--ui-chip-text);
+  font-size: var(--font-size-xxs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.af-tool-row__desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.af-tool-row__hint {
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.af-tool-row__approval select {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  padding: 6px 8px;
+  font-size: var(--font-size-xs);
+}
+
+.af-tool-policy__empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+:root.theme-dracula {
+  --bg-primary: #282a36;
+  --bg-secondary: #343746;
+  --bg-tertiary: #44475a;
+  --text-primary: #f8f8f2;
+  --text-secondary: #d4d4de;
+  --text-muted: #96a0c2;
+  --accent: #ff79c6;
+  --success: #50fa7b;
+  --warning: #f1fa8c;
+  --error: #ff7979;
+  --info: #8be9fd;
+
+  --accent-subtle: rgba(255, 121, 198, 0.12);
+  --info-subtle: rgba(139, 233, 253, 0.12);
+  --success-subtle: rgba(80, 250, 123, 0.12);
+  --warning-subtle: rgba(241, 250, 140, 0.12);
+  --error-subtle: rgba(255, 121, 121, 0.12);
+
+  --accent-border: rgba(255, 121, 198, 0.35);
+  --info-border: rgba(139, 233, 253, 0.35);
+  --success-border: rgba(80, 250, 123, 0.35);
+  --warning-border: rgba(241, 250, 140, 0.35);
+  --error-border: rgba(255, 121, 121, 0.35);
+  --border-accent: rgba(255, 121, 198, 0.55);
+
+  /* Per-theme syntax overrides: this theme's bg-secondary is lighter than
+   * the default dark, so the shared VSCode-dark set falls under 4.5:1
+   * (contrast audit 2026-07-13). */
+  --syntax-keyword: #66a6da;
+  --syntax-string: #cf937a;
+}
+
+:root.theme-gruvbox {
+  --bg-primary: #282828;
+  --bg-secondary: #3c3836;
+  --bg-tertiary: #504945;
+  --text-primary: #ebdbb2;
+  --text-secondary: #d5c4a1;
+  --text-muted: #ada296;
+  --accent: #fe8019;
+  --success: #b8bb26;
+  --warning: #fabd2f;
+  --error: #fc7f70;
+  --info: #89a99d;
+
+  --accent-subtle: rgba(254, 128, 25, 0.12);
+  --info-subtle: rgba(137, 169, 157, 0.12);
+  --success-subtle: rgba(184, 187, 38, 0.12);
+  --warning-subtle: rgba(250, 189, 47, 0.12);
+  --error-subtle: rgba(252, 127, 112, 0.12);
+
+  --accent-border: rgba(254, 128, 25, 0.35);
+  --info-border: rgba(137, 169, 157, 0.35);
+  --success-border: rgba(184, 187, 38, 0.35);
+  --warning-border: rgba(250, 189, 47, 0.35);
+  --error-border: rgba(252, 127, 112, 0.35);
+  --border-accent: rgba(254, 128, 25, 0.55);
+
+  /* Per-theme syntax overrides: this theme's bg-secondary is lighter than
+   * the default dark, so the shared VSCode-dark set falls under 4.5:1
+   * (contrast audit 2026-07-13). */
+  --syntax-keyword: #6ba8db;
+  --syntax-string: #cf947c;
+}
+
+:root.theme-monokai {
+  --bg-primary: #272822;
+  --bg-secondary: #2d2e27;
+  --bg-tertiary: #3e3d32;
+  --text-primary: #f8f8f2;
+  --text-secondary: #e2e2dc;
+  --text-muted: #9a9581;
+  --accent: #66d9ef;
+  --success: #a6e22e;
+  --warning: #e6db74;
+  --error: #fb5d95;
+  --info: #a1efe4;
+
+  --accent-subtle: rgba(102, 217, 239, 0.12);
+  --info-subtle: rgba(161, 239, 228, 0.12);
+  --success-subtle: rgba(166, 226, 46, 0.12);
+  --warning-subtle: rgba(230, 219, 116, 0.12);
+  --error-subtle: rgba(251, 93, 149, 0.12);
+
+  --accent-border: rgba(102, 217, 239, 0.35);
+  --info-border: rgba(161, 239, 228, 0.35);
+  --success-border: rgba(166, 226, 46, 0.35);
+  --warning-border: rgba(230, 219, 116, 0.35);
+  --error-border: rgba(251, 93, 149, 0.35);
+  --border-accent: rgba(102, 217, 239, 0.55);
+}
+
+:root.theme-solarized-dark {
+  --bg-primary: #002b36;
+  --bg-secondary: #073642;
+  --bg-tertiary: #0b4b5a;
+  --text-primary: #eee8d5;
+  --text-secondary: #93a1a1;
+  --text-muted: #879ca3;
+  --accent: #268bd2;
+  --success: #8ea300;
+  --warning: #c49500;
+  --error: #e87775;
+  --info: #2ca9a0;
+
+  --accent-subtle: rgba(38, 139, 210, 0.12);
+  --info-subtle: rgba(44, 169, 160, 0.12);
+  --success-subtle: rgba(142, 163, 0, 0.12);
+  --warning-subtle: rgba(196, 149, 0, 0.12);
+  --error-subtle: rgba(232, 119, 117, 0.12);
+
+  --accent-border: rgba(38, 139, 210, 0.35);
+  --info-border: rgba(44, 169, 160, 0.35);
+  --success-border: rgba(142, 163, 0, 0.35);
+  --warning-border: rgba(196, 149, 0, 0.35);
+  --error-border: rgba(232, 119, 117, 0.35);
+  --border-accent: rgba(38, 139, 210, 0.55);
+
+  /* Per-theme syntax overrides: this theme's bg-secondary is lighter than
+   * the default dark, so the shared VSCode-dark set falls under 4.5:1
+   * (contrast audit 2026-07-13). */
+  --syntax-keyword: #5a9ed7;
+}
+
+:root.theme-solarized-light {
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --bg-tertiary: #e3ddc9;
+  --text-primary: #073642;
+  --text-secondary: #566b72;
+  --text-muted: #637880;
+  --accent: #268bd2;
+  --success: #6a7a00;
+  --warning: #916e00;
+  --error: #dc322f;
+  --info: #228179;
+
+  --bg-card: rgba(255, 255, 255, 0.88);
+  --border-default: rgba(7, 54, 66, 0.18);
+  --border-accent: rgba(38, 139, 210, 0.35);
+
+  /* Semantic tints/borders must follow the theme's own hues: without these,
+   * the dark :root defaults (blue-family rgba) leak into a cream theme and
+   * clash with the solarized palette (2026-07-11 adversarial find). */
+  --accent-subtle: rgba(38, 139, 210, 0.10);
+  --info-subtle: rgba(34, 129, 121, 0.10);
+  --success-subtle: rgba(106, 122, 0, 0.10);
+  --warning-subtle: rgba(145, 110, 0, 0.10);
+  --error-subtle: rgba(220, 50, 47, 0.10);
+
+  --accent-border: rgba(38, 139, 210, 0.30);
+  --info-border: rgba(34, 129, 121, 0.30);
+  --success-border: rgba(106, 122, 0, 0.30);
+  --warning-border: rgba(145, 110, 0, 0.30);
+  --error-border: rgba(220, 50, 47, 0.30);
+  --muted-border: rgba(7, 54, 66, 0.18);
+
+  --ui-overlay-bg: rgba(7, 54, 66, 0.04);
+  --ui-overlay-bg-hover: rgba(7, 54, 66, 0.06);
+  --ui-overlay-border: rgba(7, 54, 66, 0.14);
+  --ui-pill-bg: rgba(7, 54, 66, 0.04);
+  --ui-pill-border: rgba(7, 54, 66, 0.14);
+
+  --ui-chip-bg: rgba(7, 54, 66, 0.04);
+  --ui-chip-border: rgba(7, 54, 66, 0.14);
+  --ui-chip-text: rgba(7, 54, 66, 0.92);
+
+  --ui-code-bg: rgba(7, 54, 66, 0.04);
+  --ui-code-border: rgba(7, 54, 66, 0.14);
+  --ui-code-block-bg: rgba(7, 54, 66, 0.04);
+  --ui-code-block-border: rgba(7, 54, 66, 0.14);
+}
+
+/* The Observer entity app's palette (contributed 2026-07-10): warm amber
+ * accent over a deep blue-black field — kit components rendered inside the
+ * entity view (sign-in card, pickers) match its chrome with this theme. */
+:root.theme-observer-night {
+  --bg-primary: #0b0f14;
+  --bg-secondary: #10161e;
+  --bg-tertiary: #161e28;
+  --text-primary: #d7dee8;
+  --text-secondary: #8593a5;
+  --text-muted: #748096;
+  --accent: #e8a54a;
+  --success: #7bc98c;
+  --warning: #e0af68;
+  --error: #d9705a;
+  --info: #6ea8d8;
+
+  --accent-subtle: rgba(232, 165, 74, 0.12);
+  --info-subtle: rgba(110, 168, 216, 0.12);
+  --success-subtle: rgba(123, 201, 140, 0.12);
+  --warning-subtle: rgba(224, 175, 104, 0.12);
+  --error-subtle: rgba(217, 112, 90, 0.12);
+
+  --accent-border: rgba(232, 165, 74, 0.35);
+  --info-border: rgba(110, 168, 216, 0.35);
+  --success-border: rgba(123, 201, 140, 0.35);
+  --warning-border: rgba(224, 175, 104, 0.35);
+  --error-border: rgba(217, 112, 90, 0.35);
+  --border-accent: rgba(232, 165, 74, 0.55);
+}
+
+:root.theme-tokyo-night {
+  --bg-primary: #1a1b26;
+  --bg-secondary: #24283b;
+  --bg-tertiary: #414868;
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --text-muted: #878fb4;
+  --accent: #7aa2f7;
+  --success: #9ece6a;
+  --warning: #e0af68;
+  --error: #f7768e;
+  --info: #2ac3de;
+
+  --accent-subtle: rgba(122, 162, 247, 0.12);
+  --info-subtle: rgba(42, 195, 222, 0.12);
+  --success-subtle: rgba(158, 206, 106, 0.12);
+  --warning-subtle: rgba(224, 175, 104, 0.12);
+  --error-subtle: rgba(247, 118, 142, 0.12);
+
+  --accent-border: rgba(122, 162, 247, 0.35);
+  --info-border: rgba(42, 195, 222, 0.35);
+  --success-border: rgba(158, 206, 106, 0.35);
+  --warning-border: rgba(224, 175, 104, 0.35);
+  --error-border: rgba(247, 118, 142, 0.35);
+  --border-accent: rgba(122, 162, 247, 0.55);
+}
+
+:root.theme-catppuccin-mocha {
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-tertiary: #313244;
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #7e8297;
+  --accent: #cba6f7;
+  --success: #a6e3a1;
+  --warning: #f9e2af;
+  --error: #f38ba8;
+  --info: #89b4fa;
+
+  --accent-subtle: rgba(203, 166, 247, 0.12);
+  --info-subtle: rgba(137, 180, 250, 0.12);
+  --success-subtle: rgba(166, 227, 161, 0.12);
+  --warning-subtle: rgba(249, 226, 175, 0.12);
+  --error-subtle: rgba(243, 139, 168, 0.12);
+
+  --accent-border: rgba(203, 166, 247, 0.35);
+  --info-border: rgba(137, 180, 250, 0.35);
+  --success-border: rgba(166, 227, 161, 0.35);
+  --warning-border: rgba(249, 226, 175, 0.35);
+  --error-border: rgba(243, 139, 168, 0.35);
+  --border-accent: rgba(203, 166, 247, 0.55);
+}
+
+:root.theme-catppuccin-macchiato {
+  --bg-primary: #24273a;
+  --bg-secondary: #1e2030;
+  --bg-tertiary: #363a4f;
+  --text-primary: #cad3f5;
+  --text-secondary: #b8c0e0;
+  --text-muted: #8087a2;
+  --accent: #c6a0f6;
+  --success: #a6da95;
+  --warning: #eed49f;
+  --error: #ed8796;
+  --info: #8aadf4;
+
+  --accent-subtle: rgba(198, 160, 246, 0.12);
+  --info-subtle: rgba(138, 173, 244, 0.12);
+  --success-subtle: rgba(166, 218, 149, 0.12);
+  --warning-subtle: rgba(238, 212, 159, 0.12);
+  --error-subtle: rgba(237, 135, 150, 0.12);
+
+  --accent-border: rgba(198, 160, 246, 0.35);
+  --info-border: rgba(138, 173, 244, 0.35);
+  --success-border: rgba(166, 218, 149, 0.35);
+  --warning-border: rgba(238, 212, 159, 0.35);
+  --error-border: rgba(237, 135, 150, 0.35);
+  --border-accent: rgba(198, 160, 246, 0.55);
+}
+
+:root.theme-catppuccin-frappe {
+  --bg-primary: #303446;
+  --bg-secondary: #292c3c;
+  --bg-tertiary: #414559;
+  --text-primary: #c6d0f5;
+  --text-secondary: #b5bfe2;
+  --text-muted: #8c93ad;
+  --accent: #ca9ee6;
+  --success: #a6d189;
+  --warning: #e5c890;
+  --error: #e78284;
+  --info: #8caaee;
+
+  --accent-subtle: rgba(202, 158, 230, 0.12);
+  --info-subtle: rgba(140, 170, 238, 0.12);
+  --success-subtle: rgba(166, 209, 137, 0.12);
+  --warning-subtle: rgba(229, 200, 144, 0.12);
+  --error-subtle: rgba(231, 130, 132, 0.12);
+
+  --accent-border: rgba(202, 158, 230, 0.35);
+  --info-border: rgba(140, 170, 238, 0.35);
+  --success-border: rgba(166, 209, 137, 0.35);
+  --warning-border: rgba(229, 200, 144, 0.35);
+  --error-border: rgba(231, 130, 132, 0.35);
+  --border-accent: rgba(202, 158, 230, 0.55);
+}
+
+:root.theme-rose-pine {
+  --bg-primary: #191724;
+  --bg-secondary: #1f1d2e;
+  --bg-tertiary: #26233a;
+  --text-primary: #e0def4;
+  --text-secondary: #908caa;
+  --text-muted: #88859e;
+  --accent: #c4a7e7;
+  --success: #9ccfd8;
+  --warning: #f6c177;
+  --error: #eb6f92;
+  --info: #3d90b1;
+
+  --accent-subtle: rgba(196, 167, 231, 0.12);
+  --info-subtle: rgba(61, 144, 177, 0.12);
+  --success-subtle: rgba(156, 207, 216, 0.12);
+  --warning-subtle: rgba(246, 193, 119, 0.12);
+  --error-subtle: rgba(235, 111, 146, 0.12);
+
+  --accent-border: rgba(196, 167, 231, 0.35);
+  --info-border: rgba(61, 144, 177, 0.35);
+  --success-border: rgba(156, 207, 216, 0.35);
+  --warning-border: rgba(246, 193, 119, 0.35);
+  --error-border: rgba(235, 111, 146, 0.35);
+  --border-accent: rgba(196, 167, 231, 0.55);
+}
+
+:root.theme-rose-pine-moon {
+  --bg-primary: #232136;
+  --bg-secondary: #2a273f;
+  --bg-tertiary: #393552;
+  --text-primary: #e0def4;
+  --text-secondary: #938fac;
+  --text-muted: #9390a7;
+  --accent: #c4a7e7;
+  --success: #9ccfd8;
+  --warning: #f6c177;
+  --error: #eb6f92;
+  --info: #459bbd;
+
+  --accent-subtle: rgba(196, 167, 231, 0.12);
+  --info-subtle: rgba(69, 155, 189, 0.12);
+  --success-subtle: rgba(156, 207, 216, 0.12);
+  --warning-subtle: rgba(246, 193, 119, 0.12);
+  --error-subtle: rgba(235, 111, 146, 0.12);
+
+  --accent-border: rgba(196, 167, 231, 0.35);
+  --info-border: rgba(69, 155, 189, 0.35);
+  --success-border: rgba(156, 207, 216, 0.35);
+  --warning-border: rgba(246, 193, 119, 0.35);
+  --error-border: rgba(235, 111, 146, 0.35);
+  --border-accent: rgba(196, 167, 231, 0.55);
+}
+
+:root.theme-one-dark {
+  --bg-primary: #282c34;
+  --bg-secondary: #21252b;
+  --bg-tertiary: #3a3f4b;
+  --text-primary: #abb2bf;
+  --text-secondary: #9da5b4;
+  --text-muted: #848c9a;
+  --accent: #61afef;
+  --success: #98c379;
+  --warning: #e5c07b;
+  --error: #e06c75;
+  --info: #c678dd;
+
+  --accent-subtle: rgba(97, 175, 239, 0.12);
+  --info-subtle: rgba(198, 120, 221, 0.12);
+  --success-subtle: rgba(152, 195, 121, 0.12);
+  --warning-subtle: rgba(229, 192, 123, 0.12);
+  --error-subtle: rgba(224, 108, 117, 0.12);
+
+  --accent-border: rgba(97, 175, 239, 0.35);
+  --info-border: rgba(198, 120, 221, 0.35);
+  --success-border: rgba(152, 195, 121, 0.35);
+  --warning-border: rgba(229, 192, 123, 0.35);
+  --error-border: rgba(224, 108, 117, 0.35);
+  --border-accent: rgba(97, 175, 239, 0.55);
+}
+
+:root.theme-everforest-dark {
+  --bg-primary: #2b3339;
+  --bg-secondary: #323c41;
+  --bg-tertiary: #3a464c;
+  --text-primary: #d3c6aa;
+  --text-secondary: #a7c080;
+  --text-muted: #9da8a0;
+  --accent: #83c092;
+  --success: #a7c080;
+  --warning: #dbbc7f;
+  --error: #e88b8d;
+  --info: #7fbbb3;
+
+  --accent-subtle: rgba(131, 192, 146, 0.12);
+  --info-subtle: rgba(127, 187, 179, 0.12);
+  --success-subtle: rgba(167, 192, 128, 0.12);
+  --warning-subtle: rgba(219, 188, 127, 0.12);
+  --error-subtle: rgba(232, 139, 141, 0.12);
+
+  --accent-border: rgba(131, 192, 146, 0.35);
+  --info-border: rgba(127, 187, 179, 0.35);
+  --success-border: rgba(167, 192, 128, 0.35);
+  --warning-border: rgba(219, 188, 127, 0.35);
+  --error-border: rgba(232, 139, 141, 0.35);
+  --border-accent: rgba(167, 192, 128, 0.55);
+
+  /* Per-theme syntax overrides: this theme's bg-secondary is lighter than
+   * the default dark, so the shared VSCode-dark set falls under 4.5:1
+   * (contrast audit 2026-07-13). */
+  --syntax-keyword: #6faadc;
+  --syntax-string: #d1977f;
+}
+
+:root.theme-catppuccin-latte {
+  --bg-primary: #eff1f5;
+  --bg-secondary: #e6e9ef;
+  --bg-tertiary: #ccd0da;
+  --text-primary: #4c4f69;
+  --text-secondary: #5c5f77;
+  --text-muted: #6f758b;
+  --accent: #8839ef;
+  --success: #358423;
+  --warning: #a46915;
+  --error: #d20f39;
+  --info: #1e66f5;
+
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --border-default: rgba(76, 79, 105, 0.12);
+  --border-accent: rgba(136, 57, 239, 0.35);
+
+  --ui-surface-1: rgba(76, 79, 105, 0.03);
+  --ui-surface-2: rgba(76, 79, 105, 0.05);
+  --ui-surface-3: rgba(76, 79, 105, 0.04);
+  --ui-border-1: rgba(76, 79, 105, 0.10);
+  --ui-border-2: rgba(76, 79, 105, 0.14);
+  --ui-shadow-1: 0 10px 30px rgba(76, 79, 105, 0.12);
+
+  --ui-overlay-bg: rgba(76, 79, 105, 0.04);
+  --ui-overlay-bg-hover: rgba(76, 79, 105, 0.06);
+  --ui-overlay-border: rgba(76, 79, 105, 0.12);
+  --ui-pill-bg: rgba(76, 79, 105, 0.04);
+  --ui-pill-border: rgba(76, 79, 105, 0.12);
+
+  --ui-chip-bg: rgba(76, 79, 105, 0.04);
+  --ui-chip-border: rgba(76, 79, 105, 0.12);
+  --ui-chip-text: rgba(76, 79, 105, 0.92);
+
+  --ui-code-bg: rgba(76, 79, 105, 0.05);
+  --ui-code-border: rgba(76, 79, 105, 0.10);
+  --ui-code-block-bg: rgba(76, 79, 105, 0.05);
+  --ui-code-block-border: rgba(76, 79, 105, 0.10);
+
+  --accent-subtle: rgba(136, 57, 239, 0.10);
+  --info-subtle: rgba(30, 102, 245, 0.10);
+  --success-subtle: rgba(53, 132, 35, 0.10);
+  --warning-subtle: rgba(164, 105, 21, 0.10);
+  --error-subtle: rgba(210, 15, 57, 0.10);
+
+  --accent-border: rgba(136, 57, 239, 0.30);
+  --info-border: rgba(30, 102, 245, 0.30);
+  --success-border: rgba(53, 132, 35, 0.30);
+  --warning-border: rgba(164, 105, 21, 0.30);
+  --error-border: rgba(210, 15, 57, 0.30);
+  --muted-border: rgba(76, 79, 105, 0.18);
+}
+
+:root.theme-rose-pine-dawn {
+  --bg-primary: #faf4ed;
+  --bg-secondary: #fffaf3;
+  --bg-tertiary: #f2e9e1;
+  --text-primary: #575279;
+  --text-secondary: #6e6a86;
+  --text-muted: #787289;
+  --accent: #907aa9;
+  --success: #286983;
+  --warning: #a76711;
+  --error: #af5971;
+  --info: #497e88;
+
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --border-default: rgba(87, 82, 121, 0.12);
+  --border-accent: rgba(144, 122, 169, 0.35);
+
+  --ui-surface-1: rgba(87, 82, 121, 0.03);
+  --ui-surface-2: rgba(87, 82, 121, 0.05);
+  --ui-surface-3: rgba(87, 82, 121, 0.04);
+  --ui-border-1: rgba(87, 82, 121, 0.10);
+  --ui-border-2: rgba(87, 82, 121, 0.14);
+  --ui-shadow-1: 0 10px 30px rgba(87, 82, 121, 0.12);
+
+  --ui-overlay-bg: rgba(87, 82, 121, 0.04);
+  --ui-overlay-bg-hover: rgba(87, 82, 121, 0.06);
+  --ui-overlay-border: rgba(87, 82, 121, 0.12);
+  --ui-pill-bg: rgba(87, 82, 121, 0.04);
+  --ui-pill-border: rgba(87, 82, 121, 0.12);
+
+  --ui-chip-bg: rgba(87, 82, 121, 0.04);
+  --ui-chip-border: rgba(87, 82, 121, 0.12);
+  --ui-chip-text: rgba(87, 82, 121, 0.92);
+
+  --ui-code-bg: rgba(87, 82, 121, 0.05);
+  --ui-code-border: rgba(87, 82, 121, 0.10);
+  --ui-code-block-bg: rgba(87, 82, 121, 0.05);
+  --ui-code-block-border: rgba(87, 82, 121, 0.10);
+
+  --accent-subtle: rgba(144, 122, 169, 0.10);
+  --info-subtle: rgba(73, 126, 136, 0.10);
+  --success-subtle: rgba(40, 105, 131, 0.10);
+  --warning-subtle: rgba(167, 103, 17, 0.10);
+  --error-subtle: rgba(175, 89, 113, 0.10);
+
+  --accent-border: rgba(144, 122, 169, 0.30);
+  --info-border: rgba(73, 126, 136, 0.30);
+  --success-border: rgba(40, 105, 131, 0.30);
+  --warning-border: rgba(167, 103, 17, 0.30);
+  --error-border: rgba(175, 89, 113, 0.30);
+  --muted-border: rgba(87, 82, 121, 0.18);
+}
+
+:root.theme-one-light {
+  --bg-primary: #fafafa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e5e5e6;
+  --text-primary: #383a42;
+  --text-secondary: #4f525d;
+  --text-muted: #74757d;
+  --accent: #4078f2;
+  --success: #418240;
+  --warning: #9d6c01;
+  --error: #de3121;
+  --info: #a626a4;
+
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --border-default: rgba(56, 58, 66, 0.12);
+  --border-accent: rgba(64, 120, 242, 0.35);
+
+  --ui-surface-1: rgba(56, 58, 66, 0.03);
+  --ui-surface-2: rgba(56, 58, 66, 0.05);
+  --ui-surface-3: rgba(56, 58, 66, 0.04);
+  --ui-border-1: rgba(56, 58, 66, 0.10);
+  --ui-border-2: rgba(56, 58, 66, 0.14);
+  --ui-shadow-1: 0 10px 30px rgba(56, 58, 66, 0.12);
+
+  --ui-overlay-bg: rgba(56, 58, 66, 0.04);
+  --ui-overlay-bg-hover: rgba(56, 58, 66, 0.06);
+  --ui-overlay-border: rgba(56, 58, 66, 0.12);
+  --ui-pill-bg: rgba(56, 58, 66, 0.04);
+  --ui-pill-border: rgba(56, 58, 66, 0.12);
+
+  --ui-chip-bg: rgba(56, 58, 66, 0.04);
+  --ui-chip-border: rgba(56, 58, 66, 0.12);
+  --ui-chip-text: rgba(56, 58, 66, 0.92);
+
+  --ui-code-bg: rgba(56, 58, 66, 0.05);
+  --ui-code-border: rgba(56, 58, 66, 0.10);
+  --ui-code-block-bg: rgba(56, 58, 66, 0.05);
+  --ui-code-block-border: rgba(56, 58, 66, 0.10);
+
+  --accent-subtle: rgba(64, 120, 242, 0.10);
+  --info-subtle: rgba(166, 38, 164, 0.10);
+  --success-subtle: rgba(65, 130, 64, 0.10);
+  --warning-subtle: rgba(157, 108, 1, 0.10);
+  --error-subtle: rgba(222, 49, 33, 0.10);
+
+  --accent-border: rgba(64, 120, 242, 0.30);
+  --info-border: rgba(166, 38, 164, 0.30);
+  --success-border: rgba(65, 130, 64, 0.30);
+  --warning-border: rgba(157, 108, 1, 0.30);
+  --error-border: rgba(222, 49, 33, 0.30);
+  --muted-border: rgba(56, 58, 66, 0.18);
+}
+
+:root.theme-everforest-light {
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #fffbef;
+  --bg-tertiary: #e8e0cc;
+  --text-primary: #5c6a72;
+  --text-secondary: #67767e;
+  --text-muted: #6b7a6f;
+  --accent: #2e8f6a;
+  --success: #488252;
+  --warning: #9b6b21;
+  --error: #ea0e09;
+  --info: #317ca5;
+
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --border-default: rgba(92, 106, 114, 0.12);
+  --border-accent: rgba(46, 143, 106, 0.35);
+
+  --ui-surface-1: rgba(92, 106, 114, 0.03);
+  --ui-surface-2: rgba(92, 106, 114, 0.05);
+  --ui-surface-3: rgba(92, 106, 114, 0.04);
+  --ui-border-1: rgba(92, 106, 114, 0.10);
+  --ui-border-2: rgba(92, 106, 114, 0.14);
+  --ui-shadow-1: 0 10px 30px rgba(92, 106, 114, 0.12);
+
+  --ui-overlay-bg: rgba(92, 106, 114, 0.04);
+  --ui-overlay-bg-hover: rgba(92, 106, 114, 0.06);
+  --ui-overlay-border: rgba(92, 106, 114, 0.12);
+  --ui-pill-bg: rgba(92, 106, 114, 0.04);
+  --ui-pill-border: rgba(92, 106, 114, 0.12);
+
+  --ui-chip-bg: rgba(92, 106, 114, 0.04);
+  --ui-chip-border: rgba(92, 106, 114, 0.12);
+  --ui-chip-text: rgba(92, 106, 114, 0.92);
+
+  --ui-code-bg: rgba(92, 106, 114, 0.05);
+  --ui-code-border: rgba(92, 106, 114, 0.10);
+  --ui-code-block-bg: rgba(92, 106, 114, 0.05);
+  --ui-code-block-border: rgba(92, 106, 114, 0.10);
+
+  --accent-subtle: rgba(46, 143, 106, 0.10);
+  --info-subtle: rgba(49, 124, 165, 0.10);
+  --success-subtle: rgba(72, 130, 82, 0.10);
+  --warning-subtle: rgba(155, 107, 33, 0.10);
+  --error-subtle: rgba(234, 14, 9, 0.10);
+
+  --accent-border: rgba(46, 143, 106, 0.30);
+  --info-border: rgba(49, 124, 165, 0.30);
+  --success-border: rgba(72, 130, 82, 0.30);
+  --warning-border: rgba(155, 107, 33, 0.30);
+  --error-border: rgba(234, 14, 9, 0.30);
+  --muted-border: rgba(92, 106, 114, 0.18);
+}
+
+/* ------------------------------------------------------------------------- */
+/* AbstractFlow-style custom select (searchable popover)                      */
+/* ------------------------------------------------------------------------- */
+
+.af-select {
+  display: inline-flex;
+  position: relative; /* anchors the sibling clear button */
+}
+
+.af-select--panel {
+  display: flex;
+  width: 100%;
+}
+
+/* Reserve room for the clear button so it never overlaps the value/caret. */
+.af-select-trigger--clearable {
+  padding-right: 44px;
+}
+
+.af-select--pin {
+  display: inline-flex;
+}
+
+.af-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.14));
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-primary);
+  border-radius: var(--radius-md, 8px);
+  padding: 0 10px;
+  line-height: 1;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+}
+
+.af-select-trigger:hover:not(:disabled) {
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+.af-select--pin .af-select-trigger {
+  height: 20px;
+  max-width: 160px;
+  font-size: var(--font-size-xs);
+  padding: 0 8px;
+}
+
+.af-select--panel .af-select-trigger {
+  /* min-height, not height: font-scale 1.3+ must grow the trigger, never
+   * clip the value (design adversary B; matches the signin buttons). */
+  min-height: 34px;
+  width: 100%;
+}
+
+.af-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: left;
+}
+
+.af-select-value--placeholder {
+  color: var(--text-secondary);
+}
+
+/* Legacy in-trigger clear span — kept UNCHANGED while AbstractFlow's fork
+ * still renders it (the fork loads this CSS live; restyling the shared class
+ * would rewire it from under them — adversary find 2026-07-12). Deleted when
+ * the fork deletes (backlog 0001). */
+.af-select-clear {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+/* The kit component's clear affordance: a real focusable button, SIBLING of
+ * the trigger (a role=button span nested inside the trigger <button> was
+ * invalid interactive nesting and could never receive keyboard focus). */
+.af-select-clear-btn {
+  position: absolute;
+  right: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.af-select-clear:hover,
+.af-select-clear-btn:hover {
+  color: var(--text-primary);
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+.af-select-caret {
+  color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.af-select-caret--open {
+  color: var(--text-primary);
+}
+
+.af-select-popover {
+  z-index: 10000;
+  background: var(--bg-card, var(--bg-secondary));
+  border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  box-shadow: var(--ui-shadow-1, 0 10px 30px rgba(0, 0, 0, 0.35));
+  overflow: hidden;
+}
+
+.af-select-popover--top {
+  transform: translateY(-100%);
+}
+
+.af-select-search {
+  padding: 10px;
+  border-bottom: 1px solid var(--ui-border-1, rgba(255, 255, 255, 0.10));
+  background: var(--ui-surface-2, rgba(255, 255, 255, 0.06));
+}
+
+.af-select-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-border-2, rgba(255, 255, 255, 0.14));
+  background: var(--ui-code-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+}
+
+.af-select-custom-error {
+  margin-top: 6px;
+  color: var(--error);
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+}
+
+.af-select-options {
+  /* Clamp to the real viewport so a 400px-tall window never overflows the
+   * popover below the fold (design adversary B; the TSX positioner owns the
+   * finer available-space math). */
+  max-height: min(340px, calc(100dvh - 120px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+
+.af-select-empty {
+  padding: 10px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.af-select-group {
+  padding: 8px 10px 6px 10px;
+  font-size: var(--font-size-xxs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.af-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+}
+
+.af-select-option--highlighted {
+  background: var(--accent-subtle, rgba(233, 69, 96, 0.12));
+}
+
+.af-select-option--selected {
+  background: var(--ui-surface-2, rgba(255, 255, 255, 0.06));
+}
+
+.af-select-option--disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  opacity: 0.58;
+}
+
+.af-select-option--disabled.af-select-option--highlighted {
+  background: var(--ui-surface-1, rgba(255, 255, 255, 0.04));
+}
+
+.af-select-option-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.af-select-option-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-select-option-reason {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.25;
+}
+
+.af-select-check {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ThemeSelect swatch previews */
+.af-theme-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.af-theme-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.af-theme-label--placeholder {
+  color: var(--text-secondary);
+}
+
+.af-theme-option-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.af-theme-option-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.af-theme-swatches {
+  display: inline-flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.af-theme-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid var(--ui-border-1, rgba(255, 255, 255, 0.10));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+/* Phase capability matrix (entity config object: phases x tools/skills/mcp) */
+.af-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ui-border-1);
+  background: var(--ui-surface-1);
+  box-shadow: var(--ui-shadow-1);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.af-matrix__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.af-matrix__title {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.af-matrix__subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.af-matrix__pending-note {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.af-matrix__refusal {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--error-border);
+  background: var(--error-subtle);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.af-matrix__scroll {
+  overflow-x: auto;
+}
+
+.af-matrix__table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
+
+.af-matrix__phase {
+  text-align: left;
+  padding: 6px 10px;
+  vertical-align: bottom;
+}
+
+.af-matrix__phase-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.af-matrix__phase-hint {
+  display: block;
+  font-size: var(--font-size-xxs);
+  font-weight: 500;
+  color: var(--text-muted);
+  max-width: 180px;
+}
+
+.af-matrix__section-label {
+  text-align: left;
+  padding: 12px 10px 4px;
+  font-size: var(--font-size-xxs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--ui-border-1);
+}
+
+.af-matrix__item {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.af-matrix__cell-td {
+  padding: 4px 6px;
+  border-top: 1px solid var(--ui-border-1);
+}
+
+.af-matrix__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 132px;
+}
+
+.af-matrix__cell.is-absent,
+.af-matrix__cell.is-unavailable {
+  align-items: flex-start;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.af-matrix__cell-mark {
+  font-weight: 700;
+}
+
+.af-matrix__cell-note {
+  font-size: var(--font-size-xxs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.af-matrix__cell-reason {
+  font-size: var(--font-size-xxs);
+  color: var(--text-secondary);
+}
+
+.af-matrix__cell.is-review {
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-subtle);
+}
+
+.af-matrix__approve-btn {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--warning-border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.af-matrix__approve-btn:hover:not(:disabled) {
+  background: var(--warning-subtle);
+}
+
+.af-matrix__tristate {
+  display: inline-flex;
+  background: var(--ui-overlay-bg);
+  border: 1px solid var(--ui-overlay-border);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 2px;
+}
+
+.af-matrix__tri-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xxs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+}
+
+.af-matrix__tri-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.af-matrix__tri-btn.is-active.is-grant {
+  background: var(--success-subtle);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--success-border);
+}
+
+.af-matrix__tri-btn.is-active.is-deny {
+  background: var(--error-subtle);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--error-border);
+}
+
+.af-matrix__tri-btn.is-active.is-clear {
+  background: var(--ui-overlay-bg-hover);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--ui-border-2);
+}
+
+.af-matrix__cell-meta {
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: var(--font-size-xxs);
+  color: var(--text-muted);
+}
+
+.af-matrix__prov.is-operator {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.af-matrix__standing {
+  color: var(--warning);
+  font-weight: 600;
+  cursor: help;
+}
+
+.af-matrix__cell.is-indeterminate .af-matrix__value-mark {
+  color: var(--warning);
+  font-style: italic;
+}
+
+.af-matrix__cell.is-pending .af-matrix__prov {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.af-matrix__empty {
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* Critical action dialog (server blast-radius facts required) */
+.af-critical__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.af-critical {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--error-border);
+  background: var(--bg-card, var(--bg-secondary));
+  box-shadow: var(--ui-shadow-1);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.af-critical__title {
+  /* lg, not base: the title must outrank the consequence box in the scan
+   * order (design adversary A). */
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.af-critical__consequence {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--error-border);
+  background: var(--error-subtle);
+}
+
+.af-critical__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.af-critical__facts dt {
+  color: var(--text-muted);
+}
+
+.af-critical__facts dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+  /* Server facts carry long ids/paths — they wrap, never escape the dialog
+   * (design adversary B). */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.af-critical__fallback {
+  font-size: var(--font-size-sm);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-subtle);
+  color: var(--text-primary);
+}
+
+.af-critical__phrase {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.af-critical__phrase input {
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  /* Typed-confirm phrases compare exactly — mono makes the typing legible;
+   * explicit so the UA form default never decides. */
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.af-critical__error {
+  font-size: var(--font-size-sm);
+  color: var(--error);
+}
+
+.af-critical__disabled-reason {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.af-critical__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.af-critical__actions button {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.af-critical__actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.af-critical__cancel {
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+}
+
+.af-critical__confirm {
+  border: 1px solid var(--error-border);
+  background: var(--error-subtle);
+  color: var(--text-primary);
+}
+
+.af-critical__confirm.is-degraded {
+  border-color: var(--warning-border);
+  background: var(--warning-subtle);
+}
+
+/* Steer composer (hooks H4 — speak to a live run) */
+.af-steer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.af-steer__row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.af-steer__input {
+  flex: 1;
+  resize: vertical;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.af-steer__input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+.af-steer__send {
+  align-self: flex-end;
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.af-steer__send:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.af-steer__status {
+  min-height: 16px;
+  font-size: var(--font-size-xs);
+}
+
+.af-steer__hint {
+  color: var(--text-muted);
+}
+
+.af-steer__ok {
+  color: var(--success);
+}
+
+.af-steer__err {
+  color: var(--error);
+}
+
+/* Disclosure list (dual-key selection tree; flat rows with depth) */
+.af-disclosure {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.af-disclosure--empty {
+  padding: 12px;
+}
+
+.af-disclosure__empty {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.af-disclosure__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  /* Depth indent rides a var so rows stay flat DOM. */
+  padding-left: calc(8px + var(--af-disclosure-depth, 0) * 16px);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  min-width: 0;
+}
+
+.af-disclosure__row:hover {
+  background: var(--ui-overlay-bg);
+}
+
+.af-disclosure__row:focus-visible {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+.af-disclosure__row--selected {
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+}
+
+/* Same-entity echo: subtle wash only — never the selection ring. */
+.af-disclosure__row[data-entity-selected] {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.af-disclosure__row--static {
+  cursor: default;
+  color: var(--text-secondary);
+}
+
+.af-disclosure__chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.af-disclosure__chevron:hover {
+  color: var(--text-primary);
+  background: var(--ui-overlay-bg);
+}
+
+.af-disclosure__chevron--spacer {
+  cursor: default;
+  pointer-events: none;
+  /* Consumers theming .af-disclosure__chevron must not paint a phantom
+   * button on non-expandable rows (flow's integration find, c1343). */
+  background: transparent;
+}
+
+.af-disclosure__content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Amendment (b): muted name-collision hint after the main content. */
+.af-disclosure__hint {
+  flex: none;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Amendment (c): badge-rail helper — overflow fades instead of wrapping,
+ * with padding reserved so the fade never eats the last badge's edge. */
+.af-disclosure__rail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 14px;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 14px), transparent);
+}
+
+/* Chips (AfChip / AfChipButton) — one derivation recipe from --af-chip-hue.
+ * Text mixes 45% hue / 55% --text-primary (the measured AA recipe); no
+ * filled variant exists by contract. */
+.af-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--af-chip-hue) 35%, transparent);
+  background: color-mix(in srgb, var(--af-chip-hue) 12%, transparent);
+  color: color-mix(in srgb, var(--af-chip-hue) 45%, var(--text-primary) 55%);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.af-chip--sm {
+  padding: 0 6px;
+  font-size: var(--font-size-xxs);
+}
+
+.af-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.af-chip--button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.af-chip--button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--af-chip-hue) 20%, transparent);
+}
+
+.af-chip--button:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}
+
+.af-chip--button[aria-pressed="true"],
+.af-chip--button[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--af-chip-hue) 22%, transparent);
+  border-color: color-mix(in srgb, var(--af-chip-hue) 55%, transparent);
+}
+
+.af-chip--button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.af-chip__remove {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin-right: -3px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.af-chip__remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--af-chip-hue) 25%, transparent);
+}
+
+/* Class-only consumers (no React component setting the inline var) get a
+ * neutral hue instead of invalid-at-computed-value borderless chips
+ * (adversary find 2026-07-14). */
+.af-chip {
+  --af-chip-hue: var(--text-secondary);
+}
+
+/* --- ProviderModelPicker (mode toggle + cascade over ProviderModelSelect) --- */
+
+.af-pmp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.af-pmp__seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: 999px;
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  align-self: flex-start;
+}
+
+.af-pmp__seg-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.af-pmp__seg-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.af-pmp__seg-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 22%, var(--ui-overlay-bg));
+  color: var(--text-primary);
+}
+
+.af-pmp__seg-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.af-pmp__hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ---------------------------------------------------------------------
+ * Unified top-right corner (plans/unified-top-bar.md, 2026-07-13)
+ *
+ * The .af-topbar-* and .af-drawer-* class families are DOCUMENTED PUBLIC
+ * API: non-React consumers (the gateway console) render their own HTML to
+ * these classes. Markup shapes are documented in ui-kit/README.md.
+ *
+ * GENERATED-COPY CONSUMER (card 0023, gateway c2245): the gateway console
+ * serves a VERBATIM generated copy of THEME_SPECS + the per-theme token
+ * blocks (abstractgateway/console_theme_sync.py), drift-pinned in the
+ * gateway suite. A theme add/rename here reaches the console via their
+ * re-sync; a stale copy fails THEIR tests loud — never silently forks.
+ *
+ * Z-ORDER TOKENS (behavior contract statement 13): bottom→top
+ *   app content < drawers (--z-drawer) < connect modal (--z-connect-modal,
+ *   the pre-existing 1000) < transient popovers (--z-popover).
+ * ------------------------------------------------------------------- */
+
+:root {
+  --z-drawer: 900;
+  --z-connect-modal: 1000;
+  --z-popover: 1100;
+}
+
+.af-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.af-topbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--ui-border-1);
+  border-radius: var(--radius-md);
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.af-topbar__btn:hover {
+  color: var(--text-primary);
+  border-color: var(--ui-border-2);
+}
+
+.af-topbar__btn.is-active {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 22%, var(--ui-overlay-bg));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.af-topbar__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--ui-border-1);
+  border-radius: 999px;
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.af-topbar__pill:hover:not(:disabled) {
+  border-color: var(--ui-border-2);
+  filter: brightness(1.08);
+}
+
+.af-topbar__pill:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.af-topbar__pill--disconnected {
+  background: color-mix(in srgb, var(--accent) 22%, var(--ui-overlay-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.af-topbar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.af-topbar__dot--connected {
+  background: var(--success);
+}
+
+.af-topbar__dot--disconnected {
+  background: var(--error);
+}
+
+.af-topbar__dot--loading {
+  background: var(--warning);
+}
+
+/* --- AfDrawer (right-edge, non-modal, keep-alive) --- */
+
+.af-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-drawer);
+  display: flex;
+  flex-direction: column;
+  max-width: 100vw;
+  border-left: 1px solid var(--ui-border-1);
+  background: var(--bg-card, var(--bg-secondary));
+  box-shadow: var(--ui-shadow-1);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+@media (max-width: 680px) {
+  .af-drawer {
+    width: 100vw !important;
+  }
+}
+
+.af-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ui-border-1);
+}
+
+.af-drawer__title {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.af-drawer__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.af-drawer__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.af-drawer__close:hover {
+  color: var(--text-primary);
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.06));
+}
+
+.af-drawer__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* --- AfAppearanceDialog --- */
+
+.af-appearance-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.af-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--ui-border-1);
+  background: var(--bg-card, var(--bg-secondary));
+  box-shadow: var(--ui-shadow-1);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.af-appearance__title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+.af-appearance__note {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.af-appearance__grid {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+@media (max-width: 520px) {
+  .af-appearance__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+
+.af-appearance__label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.af-appearance__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.af-appearance__close {
+  border: 0;
+  border-radius: var(--radius-sm);
+  min-height: 34px;
+  padding: 7px 14px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.af-appearance__close:hover {
+  filter: brightness(1.12);
+}
+
+/* ---------------------------------------------------------------------
+ * Kit-wide interaction polish (design adversaries A+B, 2026-07-13)
+ * ------------------------------------------------------------------- */
+
+/* One shared micro-transition so state changes stop snapping; guarded for
+ * reduced-motion below. */
+.af-gateway-signin button,
+.af-select-trigger,
+.af-select-option,
+.af-steer__send,
+.af-critical__actions button,
+.af-chip--button,
+.af-disclosure__row,
+.af-disclosure__chevron,
+.af-tool-policy__seg-btn,
+.af-tool-policy__bulk button,
+.af-pmp__seg-btn,
+.af-topbar__btn,
+.af-topbar__pill,
+.af-drawer__close,
+.af-appearance__close {
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, filter 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-gateway-signin button,
+  .af-select-trigger,
+  .af-select-option,
+  .af-steer__send,
+  .af-critical__actions button,
+  .af-chip--button,
+  .af-disclosure__row,
+  .af-disclosure__chevron,
+  .af-tool-policy__seg-btn,
+  .af-tool-policy__bulk button,
+  .af-pmp__seg-btn,
+  .af-topbar__btn,
+  .af-topbar__pill,
+  .af-drawer__close,
+  .af-appearance__close {
+    transition: none;
+  }
+}
+
+/* Hover/active feedback the kit's own buttons were missing (panel-chat's
+ * buttons already had it — the inconsistency read cheap). */
+.af-steer__send:hover:not(:disabled),
+.af-critical__actions button:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.af-steer__send:active:not(:disabled),
+.af-critical__actions button:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+/* iOS Safari auto-zooms focused inputs below 16px — keep the kit's inputs
+ * at >=16px on coarse pointers (the connect modal at 375px was zooming). */
+@media (pointer: coarse) {
+  .af-gateway-signin input:not([type="checkbox"]),
+  .af-select-search-input,
+  .af-steer__input,
+  .af-critical__phrase input,
+  .af-tool-policy__filter input {
+    font-size: max(var(--font-size-base), 16px);
+  }
+}
+
+/* ============================================================
+ * AfPhaseRadio (backlog 0027) — the four-position phase radio.
+ * Phase tints ride the entity-semantic tokens (dark+light sets both
+ * defined above): visit=memory blue, work=diary green, personal=identity
+ * gold, sleep=standing violet. Armed renders as an underline dot
+ * (armed != in-phase); alarm moves color + border + text together.
+ * ============================================================ */
+.af-phase-radio {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.af-phase-radio__btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: calc(var(--font-size-base) - 2px);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  position: relative;
+  transition: filter 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.af-phase-radio__btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+.af-phase-radio__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.af-phase-radio__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.af-phase-radio__btn[data-phase="visit"].af-phase-radio__btn--on {
+  border-color: var(--entity-memory);
+  color: var(--entity-memory);
+  background: color-mix(in srgb, var(--entity-memory) 14%, var(--bg-card));
+}
+.af-phase-radio__btn[data-phase="work"].af-phase-radio__btn--on {
+  border-color: var(--entity-diary);
+  color: var(--entity-diary);
+  background: color-mix(in srgb, var(--entity-diary) 14%, var(--bg-card));
+}
+.af-phase-radio__btn[data-phase="personal"].af-phase-radio__btn--on {
+  border-color: var(--entity-identity);
+  color: var(--entity-identity);
+  background: color-mix(in srgb, var(--entity-identity) 16%, var(--bg-card));
+}
+.af-phase-radio__btn[data-phase="sleep"].af-phase-radio__btn--on {
+  border-color: var(--entity-standing);
+  color: var(--entity-standing);
+  background: color-mix(in srgb, var(--entity-standing) 14%, var(--bg-card));
+}
+/* armed != in-phase: a standing-grant dot under the label */
+.af-phase-radio__btn--armed::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 2px;
+  width: 5px;
+  height: 2.5px;
+  border-radius: 2px;
+  background: var(--entity-identity);
+}
+/* process-axis variants (entity c2110): resting = pushed but dimmer (the
+ * phase is current, its process idles between ticks); suppressed = unpushed
+ * with a faint standing tint (process alive, phase not current) — visibly
+ * NOT a pushed state, radio semantics hold. */
+.af-phase-radio__btn--resting {
+  filter: saturate(0.6) brightness(0.82);
+}
+.af-phase-radio__btn--suppressed {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+.af-phase-radio__btn--suppressed[data-phase="personal"] {
+  border-color: color-mix(in srgb, var(--entity-identity) 45%, var(--border));
+}
+.af-phase-radio__btn--suppressed[data-phase="visit"] {
+  border-color: color-mix(in srgb, var(--entity-memory) 45%, var(--border));
+}
+.af-phase-radio__btn--suppressed[data-phase="work"] {
+  border-color: color-mix(in srgb, var(--entity-diary) 45%, var(--border));
+}
+.af-phase-radio__btn--suppressed[data-phase="sleep"] {
+  border-color: color-mix(in srgb, var(--entity-standing) 45%, var(--border));
+}
+/* the loudest pixel: color + border + text move together; label carries
+ * the alarm words (e.g. "alive · NO GRANT") */
+.af-phase-radio__btn--alarm {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, var(--bg-card));
+  font-weight: 700;
+}
+.af-phase-radio__btn--busy {
+  opacity: 0.7;
+}
+
+/* AfCognitionBloom — the Cognitive Monitor panel (words bloom + effort
+ * facts). Co-designed with abstractentity (commons c2229-c2238). The effort
+ * column is a fact table, deliberately quieter than the bloom. */
+.af-cognition-bloom {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.af-cognition-bloom__canvas {
+  flex: 0 0 auto;
+  border-radius: 12px;
+}
+.af-cognition-bloom__effort {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  min-width: 168px;
+}
+.af-cognition-bloom__effort-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.af-cognition-bloom__effort-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  color: var(--text-muted);
+  align-self: center;
+}
+.af-cognition-bloom__effort-value {
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  color: var(--text-primary);
+}
+.af-cognition-bloom__effort-note {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 200px;
+}
+
+/* AfConductGauge — slot (b) of the Cognitive Monitor pair (focus/effort/
+ * attention/rigor from mechanical facts; operator ruling 2026-07-15). */
+.af-conduct-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.af-conduct-gauge__canvas {
+  border-radius: 12px;
+}
+.af-conduct-gauge__note {
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 200px;
+  text-align: center;
+}
+
+/* AfMemoryHintChip — G1 render half: a memory hint carrying its book-entry
+ * key renders as a click-to-open affordance (rule zero: no resolve-on-
+ * display; plans/improving-entity-capabilities.md, uic section). */
+.af-memory-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.af-memory-hint__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 100%;
+}
+.af-memory-hint__btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.af-memory-hint__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.af-memory-hint__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.af-memory-hint--text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.af-memory-hint__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.af-memory-hint__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.af-memory-hint__id,
+.af-memory-hint__cmd {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.af-memory-hint__act {
+  color: var(--accent);
+  flex: none;
+}
+.af-memory-hint__err {
+  font-size: 11px;
+  color: var(--danger, #e05555);
+}

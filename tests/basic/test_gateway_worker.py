@@ -796,3 +796,97 @@ def test_gateway_worker_history_seed_failure_emits_replay_degraded() -> None:
             "message": "Gateway history replay failed: history unavailable",
         }
     ]
+
+
+@pytest.mark.basic
+def test_attach_reprompts_a_pending_approval_that_belongs_to_a_SUBRUN() -> None:
+    """Reattach while the pending approval sits on the AGENT SUBRUN.
+
+    This is the production shape, and the one that parked a real run for 16
+    minutes: the root run's own pending wait is `subworkflow:<child>`, while
+    the approval the user has to answer lives on the child ledger with a
+    `tool_approval:<child>:act:<hash>` key. Excluding "the pending wait" by
+    reading the ROOT run's waiting key therefore matches nothing on the child,
+    so every child approval — including the unanswered one — got seeded as
+    already handled and the dialog never opened again.
+    """
+    root_wait = {
+        "run_id": "run-root",
+        "node_id": "assistant_agent",
+        "step_id": "root-step",
+        "status": "waiting",
+        "effect": {"type": "start_subworkflow", "payload": {}},
+        "result": {"wait": {"reason": "user", "wait_key": "subworkflow:sub-1"}},
+    }
+
+    def _approval(step_id: str, key: str) -> dict:
+        return {
+            "run_id": "sub-1",
+            "node_id": "act",
+            "step_id": step_id,
+            "status": "waiting",
+            "effect": {"type": "tool_calls", "payload": {}},
+            "result": {
+                "wait": {
+                    "reason": "user",
+                    "wait_key": key,
+                    "details": {
+                        "mode": "approval_required",
+                        "tool_calls": [
+                            {"name": "execute_command", "arguments": {"command": "ioreg -r"}}
+                        ],
+                    },
+                }
+            },
+        }
+
+    def _resume(step_id: str, key: str) -> dict:
+        return {
+            "run_id": "sub-1",
+            "node_id": "act",
+            "step_id": step_id,
+            "status": "completed",
+            "effect": {"type": "resume", "payload": {"wait_key": key}},
+            "result": {"resumed": True},
+        }
+
+    answered = "tool_approval:sub-1:act:aaaa"
+    pending = "tool_approval:sub-1:act:bbbb"
+    child_records = [
+        _approval("step-a", answered),
+        _resume("resume-a", answered),
+        _approval("step-b", pending),  # never answered — the run is parked here
+    ]
+
+    class _Gateway:
+        def get_run_history_bundle(self, **kwargs):
+            return {
+                "ledgers": {
+                    "run-root": {"items": [{"record": dict(root_wait)}]},
+                    "sub-1": {"items": [{"record": dict(r)} for r in child_records]},
+                }
+            }
+
+        def get_run(self, *, run_id: str):
+            # The ROOT is what the worker asks about, and the root is waiting
+            # on its subworkflow — never on the child's tool approval.
+            return {
+                "status": "waiting",
+                "waiting": {"reason": "user", "wait_key": "subworkflow:sub-1"},
+            }
+
+    worker = GatewayWorker.__new__(GatewayWorker)
+    super(GatewayWorker, worker).__init__()
+    worker._gateway = _Gateway()
+    worker._adapter = GatewayEventAdapter()
+
+    GatewayWorker._suppress_resolved_waits_for_attach(worker, "run-root")
+
+    events: list[dict] = []
+    for rec in [root_wait, *child_records]:
+        events.extend(worker._adapter.handle_record(dict(rec)))
+    requests = [e for e in events if e.get("type") == "tool_request"]
+    assert len(requests) == 1, (
+        f"the unanswered approval must be re-raised, got {len(requests)} requests"
+    )
+    assert requests[0].get("wait_key") == pending

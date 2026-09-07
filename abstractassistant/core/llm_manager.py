@@ -272,6 +272,11 @@ class LLMManager:
                 session_turn_limit=1000,
                 ledger_mode="tail",
                 ledger_max_items=1,
+                # This is an optional enrichment of a transcript that already
+                # renders, so it must not hold a thread for the client's full
+                # timeout when the gateway is unreachable — the app is meant to
+                # work offline.
+                timeout_s=8.0,
             )
         except Exception as e:
             warnings.warn(f"#FALLBACK: could not read session attachments: {e}")

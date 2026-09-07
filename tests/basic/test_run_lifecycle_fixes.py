@@ -4,6 +4,12 @@ system prompt."""
 
 from __future__ import annotations
 
+import os
+
+# Before ANY PyQt import: a tray icon is a real QPixmap render, and it aborts
+# the process if Qt came up on the platform plugin the desktop would use.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +22,8 @@ from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.core.session_store import SessionSnapshot, SessionStore
 from abstractassistant.preferences import AssistantPreferences
 from abstractassistant.ui.gateway_worker import GatewayWorker
+
+_APP = None
 
 
 class _Signal:
@@ -305,3 +313,189 @@ def test_run_activity_summary_never_echoes_the_prompt() -> None:
     summary = worker._build_run_activity_summary(run_id="run-1234567", fallback_prompt="write report.md")
     assert summary == "Running (234567)"
     assert "report.md" not in summary
+
+
+@pytest.mark.basic
+def test_reattaching_to_a_run_cancelled_before_the_relaunch() -> None:
+    """Reopening the app on a run that was CANCELLED in a previous process.
+
+    Two things went wrong on that screen, both visible in one screenshot: the
+    banner said "The workflow completed, but it returned no written reply" for
+    a run the user had stopped half an hour earlier, and the palette showed
+    live run controls (Stop, pause) for a run that had already ended. The stop
+    flag only knows about a cancel THIS process issued, and the reattach path
+    announced every recovery as a run "in progress".
+    """
+    pytest.importorskip("PyQt5.QtWidgets")
+    from PyQt5.QtWidgets import QApplication
+
+    import abstractassistant.app as app_module
+
+    QApplication.instance() or QApplication([])
+
+    palette = app_module.AssistantPalette.__new__(app_module.AssistantPalette)
+    recorded: list = []
+    palette._set_status = lambda text="", **kw: recorded.append(("status", text))
+    palette._set_history_status = lambda text="", **kw: recorded.append(("history", text))
+    palette._refresh_tray_feedback = lambda *a, **k: None
+    palette._clear_run_activity = lambda: None
+    palette._invalidate_session_digests = lambda: None
+    palette._show_thinking_indicator = lambda: False
+    palette.refresh_history = lambda *a, **k: None
+    palette._set_banner = lambda *a, **k: None
+    palette._finish_activity = lambda outcome: recorded.append(("activity", outcome))
+    palette._set_send_button_busy = lambda busy: recorded.append(("busy", bool(busy)))
+    palette.sender = lambda: None
+    palette._worker = None
+
+    # --- the run reports how it ended, exactly as the worker emits it
+    app_module.AssistantPalette._on_worker_event(
+        palette, {"type": "status", "status": "cancelled"}
+    )
+    assert palette._last_run_status == "cancelled"
+
+    # --- and the finish must say so, without this process having stopped it
+    assert palette._cancel_requested is False
+    palette._run_has_final_output = False
+    app_module.AssistantPalette._on_worker_finished(palette)
+
+    said = [text for kind, text in recorded if kind == "history"]
+    assert "Run stopped." in said, said
+    assert not any("returned no written reply" in t for t in said), said
+
+    # --- a terminal run is recovered quietly: no busy send button, no
+    #     "in progress" copy that implies it can still be steered or stopped
+    recorded.clear()
+    palette._worker = None
+    palette._controller = SimpleNamespace(
+        last_run_id=lambda: "run-x",
+        build_attach_worker=lambda run_id: SimpleNamespace(
+            event_emitted=_Signal(), error_occurred=_Signal(), finished=_Signal(),
+            start=lambda: None,
+        ),
+    )
+    for signal in ("event_emitted", "error_occurred", "finished"):
+        pass
+    worker = palette._controller.build_attach_worker("run-x")
+    for name in ("event_emitted", "error_occurred", "finished"):
+        getattr(worker, name).connect = lambda *a, **k: None
+    palette._controller.build_attach_worker = lambda run_id: worker
+    app_module.RunActivityModel  # the handler builds one
+
+    app_module.AssistantPalette._on_reattach_candidate(
+        palette, {"run_id": "run-x", "status": "cancelled"}
+    )
+    assert palette._run_busy is False, "a finished run must not present as busy"
+    assert ("busy", False) in recorded, "the Stop button must not appear for a finished run"
+    copy = [t for kind, t in recorded if kind in {"status", "history"}]
+    assert not any("in progress" in t for t in copy), copy
+
+
+@pytest.mark.basic
+def test_a_run_parked_on_the_user_is_impossible_to_miss() -> None:
+    """A run waiting on an approval had no persistent signal at all.
+
+    One sat parked for 15m52s in complete silence: the approval event never
+    reached the client, and nothing on screen or in the tray said the run was
+    stopped and needed an answer. The dialog alone is not enough — it can be
+    missed, deferred, or (as happened) never arrive.
+    """
+    pytest.importorskip("PyQt5.QtWidgets")
+    from PyQt5.QtWidgets import QApplication
+
+    import abstractassistant.app as app_module
+
+    # Rendering a tray icon needs a QApplication, and something must HOLD it:
+    # an unreferenced QApplication is collected and the next QPixmap aborts
+    # the process.
+    global _APP
+    _APP = QApplication.instance() or QApplication([])
+
+    class _Label:
+        """Just enough of QLabel for `_set_banner`.
+
+        Creating real widgets here aborts the process under the offscreen
+        platform in this suite, and none of the behaviour under test needs
+        one — the notice is text plus visibility.
+        """
+
+        def __init__(self) -> None:
+            self._text = ""
+            self._visible = False
+            self.props: dict = {}
+
+        def setText(self, text) -> None:  # noqa: N802 (Qt API)
+            self._text = str(text)
+
+        def text(self) -> str:
+            return self._text
+
+        def clear(self) -> None:
+            self._text = ""
+
+        def setMinimumHeight(self, _value) -> None:  # noqa: N802
+            pass
+
+        def setMaximumHeight(self, _value) -> None:  # noqa: N802
+            pass
+
+        def setProperty(self, key, value) -> None:  # noqa: N802
+            self.props[key] = value
+
+        def show(self) -> None:
+            self._visible = True
+
+        def hide(self) -> None:
+            self._visible = False
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return self._visible
+
+    palette = app_module.AssistantPalette.__new__(app_module.AssistantPalette)
+    palette.banner_label = _Label()
+    palette._refresh_widget_style = lambda _w: None
+    palette._voice_is_speaking = lambda: False
+    palette._show_thinking_indicator = lambda: False
+    palette._tray_completion_unread = False
+
+    state = app_module.AssistantPalette._tray_feedback_state
+    note = app_module.AssistantPalette._note_user_wait
+    clear = app_module.AssistantPalette._clear_user_wait
+
+    assert state(palette) == "idle"
+    assert not palette.banner_label.isVisible()
+
+    note(palette, wait_key="w1", kind="approval", label="execute_command")
+    assert state(palette) == "waiting"
+    said = palette.banner_label.text()
+    assert "waiting for you to approve" in said and "execute_command" in said
+
+    # "Waiting on you" outranks "working": working resolves itself, this
+    # cannot until the user answers.
+    palette._show_thinking_indicator = lambda: True
+    assert state(palette) == "waiting"
+    palette._show_thinking_indicator = lambda: False
+
+    # A transient notice may cover it, but the tray never lies, and the notice
+    # comes back when that transient one goes.
+    app_module.AssistantPalette._set_banner(palette, "Speaking on a device", tone="info", key="speech")
+    assert state(palette) == "waiting"
+    app_module.AssistantPalette._clear_banner(palette, "speech")
+    assert "waiting for you to approve" in palette.banner_label.text()
+
+    # A second wait is counted; answering one leaves the other standing.
+    note(palette, wait_key="w2", kind="ask", label="Which branch?")
+    assert "2 pending" in palette.banner_label.text()
+    clear(palette, "w1")
+    assert state(palette) == "waiting"
+
+    # Answering the last one puts everything back.
+    clear(palette, "w2")
+    assert state(palette) == "idle"
+    assert not palette.banner_label.isVisible()
+
+    # The badge must be its OWN picture, not a recoloured idle or busy disc.
+    waiting = app_module._tray_feedback_icon(state="waiting").pixmap(44, 44).toImage()
+    idle = app_module._tray_feedback_icon(state="idle").pixmap(44, 44).toImage()
+    busy = app_module._tray_feedback_icon(state="busy").pixmap(44, 44).toImage()
+    assert waiting != idle and waiting != busy

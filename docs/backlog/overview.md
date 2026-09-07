@@ -7,8 +7,8 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 4
-- Proposed: 3
+- Planned: 5
+- Proposed: 5
 - Completed: 1
 - Deprecated: 0
 - Recurrent: 0

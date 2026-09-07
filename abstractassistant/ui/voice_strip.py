@@ -27,17 +27,22 @@ from .styles import alpha, refresh_style
 
 VOICE_STRIP_HEIGHT = 30
 
-# state -> (glyph, glyph tone, default text)
-_STATE_VIEW = {
-    "starting": ("loader", THEME.text_muted, "Starting the microphone…"),
-    "listening": ("mic", THEME.positive, "Listening…"),
-    "heard": ("loader", THEME.accent, "Heard you — sending in a moment…"),
-    "thinking": ("spark", THEME.accent, "Thinking… (mic paused)"),
-    "speaking": ("speaker", THEME.positive, "Speaking… press Esc to stop"),
-    "paused": ("mic-off", THEME.text_muted, "Microphone paused"),
-    "error": ("alert", THEME.danger, "Voice conversation stopped"),
-    "off": ("mic-off", THEME.text_muted, ""),
-}
+def _state_view() -> dict:
+    """state -> (glyph, glyph tone, default text).
+
+    Read per call, not frozen at import: as a module constant the glyph tones
+    kept the palette the app started with and ignored every theme switch.
+    """
+    return {
+        "starting": ("loader", THEME.text_muted, "Starting the microphone…"),
+        "listening": ("mic", THEME.positive, "Listening…"),
+        "heard": ("loader", THEME.accent, "Heard you — sending in a moment…"),
+        "thinking": ("spark", THEME.accent, "Thinking… (mic paused)"),
+        "speaking": ("speaker", THEME.positive, "Speaking… press Esc to stop"),
+        "paused": ("mic-off", THEME.text_muted, "Microphone paused"),
+        "error": ("alert", THEME.danger, "Voice conversation stopped"),
+        "off": ("mic-off", THEME.text_muted, ""),
+    }
 
 _METER_STATES = {"listening", "speaking", "heard"}
 
@@ -85,7 +90,12 @@ def _build_strip_qss() -> str:
     """
 
 
-VOICE_STRIP_QSS: str = _build_strip_qss()
+def build_strip_qss() -> str:
+    """Rebuilt on demand so a theme switch reaches the strip too."""
+    return _build_strip_qss()
+
+
+VOICE_STRIP_QSS: str = build_strip_qss()
 
 
 class LevelMeter(QWidget):
@@ -185,8 +195,12 @@ class VoiceStrip(QFrame):
         self.end_button = _button("end", "x", "End the voice conversation (⌘⇧V)")
         self.end_button.clicked.connect(self.end_requested.emit)
 
-        self.setStyleSheet(VOICE_STRIP_QSS)
+        self.restyle()
         self.set_state("off")
+
+    def restyle(self) -> None:
+        """Re-read the palette (the theme changed, or this is the first paint)."""
+        self.setStyleSheet(build_strip_qss())
 
     @property
     def state(self) -> str:
@@ -194,7 +208,8 @@ class VoiceStrip(QFrame):
 
     def set_state(self, state: str, text: str = "") -> None:
         normalized = str(state or "off").strip().lower()
-        glyph, tone, default_text = _STATE_VIEW.get(normalized, _STATE_VIEW["off"])
+        view = _state_view()
+        glyph, tone, default_text = view.get(normalized, view["off"])
         self._state = normalized
         self.setProperty("state", normalized)
         self.status.setProperty("state", normalized)

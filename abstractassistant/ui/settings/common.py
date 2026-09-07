@@ -238,13 +238,15 @@ class SegmentedControl(QFrame):
         for button in self._buttons:
             self._group.removeButton(button)
         # Empty the layout completely (buttons AND the trailing stretch), and
-        # detach old buttons now: deleteLater alone leaves them painted under
-        # the new ones until the event loop runs.
+        # hide old buttons now: deleteLater alone leaves them painted under the
+        # new ones until the event loop runs. Hide rather than reparent to
+        # None — an unparented widget is a top-level window, and showing or
+        # destroying one mid-signal is what aborts under cocoa.
         while layout.count():
             item = layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                widget.hide()
                 widget.deleteLater()
         self._buttons = []
         items = list(options)
@@ -367,6 +369,11 @@ class SettingsPage(QWidget):
     def add_card(self, card: Card, stretch: int = 0) -> Card:
         self.body.addWidget(card, stretch)
         return card
+
+    def add_widget(self, widget: QWidget, stretch: int = 0) -> QWidget:
+        """A page body that is one widget rather than a column of cards."""
+        self.body.addWidget(widget, stretch)
+        return widget
 
     def add_actions(self, *widgets: QWidget) -> None:
         """Place buttons in the page footer (right-aligned, in order)."""
