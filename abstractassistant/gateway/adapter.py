@@ -19,6 +19,7 @@ from .events import (
     parse_status_payload,
 )
 from .history_seed import tool_messages_from_record
+from .tool_usage import tool_call_uid
 from .types import StepRecord, WaitState
 
 # Activity-view texts are bounded so a single verbose cycle cannot bloat the
@@ -195,6 +196,11 @@ class GatewayEventAdapter:
                     ).strip()
                     if call_id:
                         tool_entry["call_id"] = call_id
+                    # The identity the activity card pairs a start with its result
+                    # on. `call_id` is the model's number and repeats across turns.
+                    call_uid = tool_call_uid(tc)
+                    if call_uid:
+                        tool_entry["call_uid"] = call_uid
                     if tool_started_ts:
                         tool_entry["ts"] = tool_started_ts
                     if isinstance(args, (dict, str)) and args:
@@ -254,11 +260,16 @@ class GatewayEventAdapter:
 
         for msg in tool_messages_from_record(rec or {}):
             meta = msg.get("metadata") if isinstance(msg, dict) else None
-            call_id = str(meta.get("call_id") or "").strip() if isinstance(meta, dict) else ""
-            if call_id:
-                if call_id in self._seen_tool_call_ids:
+            # Replay guard, keyed on the call's UNIQUE identity. Keyed on `call_id`
+            # it swallowed every result after the first whenever the model numbered
+            # its calls per response ("0", "0", "0"): the live card showed one tool
+            # finishing and the rest spinning forever. A record with no unique id
+            # (older runtimes) is never deduped — a repeated row beats a lost one.
+            call_uid = str(meta.get("call_uid") or "").strip() if isinstance(meta, dict) else ""
+            if call_uid:
+                if call_uid in self._seen_tool_call_ids:
                     continue
-                self._seen_tool_call_ids.add(call_id)
+                self._seen_tool_call_ids.add(call_uid)
             events.append({"type": "tool", "message": msg})
 
         out = extract_flow_end_output(rec)

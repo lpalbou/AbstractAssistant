@@ -30,6 +30,14 @@ from pygments.token import (
 )
 from pygments.util import ClassNotFound
 
+from ..core.link_targets import (
+    exists_locally,
+    file_href,
+    find_file_url_spans,
+    find_path_spans,
+    path_from_code_span,
+    unfence_lone_targets,
+)
 from .mermaid_renderer import mermaid_block_to_data_uri
 
 _MARKDOWNISH_RE = re.compile(
@@ -48,7 +56,11 @@ _LIST_ITEM_RE = re.compile(
 )
 _BARE_URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>'\"]+")
 _SHELL_DATA_FLAG_RE = re.compile(r"(?:^|[ \t])(?:-d|--data(?:-raw|-binary)?)\s+")
-_AUTOLINK_SKIP_TAGS = {"a", "code", "pre", "script", "style"}
+# Inside these, text is never rewritten. `code` is NOT here: an inline code span that
+# IS a link target (`/Users/x/clip.mp4`, `https://…`) becomes a link, which is how
+# models habitually write paths. Fenced blocks stay untouched through `pre`.
+_AUTOLINK_SKIP_TAGS = {"a", "pre", "script", "style"}
+_INLINE_TAGS = {"em", "strong", "b", "i", "u", "s", "del", "ins", "mark", "span", "code", "a", "sub", "sup"}
 _SHELL_LANGUAGES = {"bash", "shell", "sh", "zsh", "console"}
 _JSONISH_LANGUAGES = {"json", "jsonc"}
 _APP_CODE_THEMES = {"monokai", "friendly_grayscale"}
@@ -436,28 +448,69 @@ def _split_url_trailing_punctuation(url: str) -> tuple[str, str]:
     return link, trailing
 
 
-def _autolink_text_node(text: str) -> str:
+def _url_anchor(url: str) -> str:
+    href = url if re.match(r"(?i)^https?://", url) else f"https://{url}"
+    return f'<a href="{html.escape(href, quote=True)}">{html.escape(url, quote=False)}</a>'
+
+
+def _file_anchor(path: str, label: str | None = None) -> str:
+    """A local path as a link. The LABEL stays the text exactly as written, so a
+    selection copies something the user can paste; the href is the canonical file URL."""
+    href = file_href(path)
+    shown = html.escape(path if label is None else label, quote=False)
+    if not href:
+        return shown
+    return f'<a class="aa-file" href="{html.escape(href, quote=True)}">{shown}</a>'
+
+
+# Longer than any real URL. Also what keeps `_split_url_trailing_punctuation`
+# (it counts brackets per stripped character) from going quadratic on a run of
+# thousands of closers, which froze the GUI thread for seconds per render.
+_MAX_AUTOLINK_URL_CHARS = 2048
+
+
+def _autolink_text_node(text: str, *, open_ended: bool = False, closes_inline: bool = False) -> str:
     raw = str(text or "")
     if not raw:
         return ""
 
+    # (start, end, html) — URLs first: a path inside a URL belongs to the URL.
+    links: list[tuple[int, int, str]] = []
+    for match in _BARE_URL_RE.finditer(raw):
+        if len(match.group(0)) > _MAX_AUTOLINK_URL_CHARS:
+            continue
+        url, _trailing = _split_url_trailing_punctuation(match.group(0))
+        if url:
+            links.append((match.start(), match.start() + len(url), _url_anchor(url)))
+    path_spans = find_path_spans(raw, open_ended=open_ended, closes_inline=closes_inline)
+    for span in [*find_file_url_spans(raw), *path_spans]:
+        if any(span.start < end and start < span.end for start, end, _ in links):
+            continue
+        links.append((span.start, span.end, _file_anchor(span.path, raw[span.start : span.end])))
+    links.sort(key=lambda item: item[0])
+
     rendered: list[str] = []
     pos = 0
-    for match in _BARE_URL_RE.finditer(raw):
-        rendered.append(html.escape(raw[pos : match.start()], quote=False))
-        url, trailing = _split_url_trailing_punctuation(match.group(0))
-        if not url:
-            rendered.append(html.escape(match.group(0), quote=False))
-            pos = match.end()
+    for start, end, anchor in links:
+        if start < pos:
             continue
-        href = url if re.match(r"(?i)^https?://", url) else f"https://{url}"
-        safe_href = html.escape(href, quote=True)
-        safe_label = html.escape(url, quote=False)
-        rendered.append(f'<a href="{safe_href}">{safe_label}</a>')
-        rendered.append(html.escape(trailing, quote=False))
-        pos = match.end()
+        rendered.append(html.escape(raw[pos:start], quote=False))
+        rendered.append(anchor)
+        pos = end
     rendered.append(html.escape(raw[pos:], quote=False))
     return "".join(rendered)
+
+
+def _autolink_code_span(code_text: str) -> str | None:
+    """The anchor for an inline code span that IS one link target, else None."""
+    text = str(code_text or "").strip()
+    if not text:
+        return None
+    url_match = _BARE_URL_RE.fullmatch(text)
+    if url_match:
+        return _url_anchor(text)
+    path = path_from_code_span(text, exists=exists_locally)
+    return _file_anchor(path, text) if path else None
 
 
 class _HtmlTextAutolinker(HTMLParser):
@@ -466,12 +519,17 @@ class _HtmlTextAutolinker(HTMLParser):
         self.parts: list[str] = []
         self._text_buffer: list[str] = []
         self._skip_depth = 0
+        # An inline <code> being collected: [start_tag, text…]. None = not in one.
+        self._code_span: list[str] | None = None
+        # True while inside a <code> that turned out to contain markup.
+        self._code_abandoned = False
 
     def result(self) -> str:
+        self._abandon_code_span()
         self._flush_text()
         return "".join(self.parts)
 
-    def _flush_text(self) -> None:
+    def _flush_text(self, *, open_ended: bool = False, closes_inline: bool = False) -> None:
         if not self._text_buffer:
             return
         raw = "".join(self._text_buffer)
@@ -479,13 +537,32 @@ class _HtmlTextAutolinker(HTMLParser):
         if self._skip_depth > 0:
             self.parts.append(raw)
             return
-        self.parts.append(_autolink_text_node(html.unescape(raw)))
+        self.parts.append(
+            _autolink_text_node(html.unescape(raw), open_ended=open_ended, closes_inline=closes_inline)
+        )
+
+    def _abandon_code_span(self) -> None:
+        """Markup inside an inline code span: emit what was collected, verbatim."""
+        if self._code_span is not None:
+            self.parts.extend(self._code_span)
+            self._code_span = None
 
     def handle_starttag(self, tag: str, attrs) -> None:
-        self._flush_text()
+        name = str(tag or "").lower()
+        if self._code_span is not None:
+            self._abandon_code_span()
+            self._skip_depth += 1  # the rest of this <code> is left alone
+            self._code_abandoned = True
+        # Text running straight into inline markup has no known end (see
+        # `find_path_spans(open_ended=…)`); a block tag is a real boundary.
+        self._flush_text(open_ended=name in _INLINE_TAGS)
         raw = self.get_starttag_text()
-        self.parts.append(raw if raw is not None else f"<{tag}>")
-        if str(tag or "").lower() in _AUTOLINK_SKIP_TAGS:
+        raw = raw if raw is not None else f"<{tag}>"
+        if name == "code" and self._skip_depth == 0:
+            self._code_span = [raw]
+            return
+        self.parts.append(raw)
+        if name in _AUTOLINK_SKIP_TAGS:
             self._skip_depth += 1
 
     def handle_startendtag(self, tag: str, attrs) -> None:
@@ -494,19 +571,34 @@ class _HtmlTextAutolinker(HTMLParser):
         self.parts.append(raw if raw is not None else f"<{tag} />")
 
     def handle_endtag(self, tag: str) -> None:
-        self._flush_text()
+        name = str(tag or "").lower()
+        if name == "code" and self._code_span is not None:
+            start_tag, body = self._code_span[0], "".join(self._code_span[1:])
+            self._code_span = None
+            anchor = _autolink_code_span(html.unescape(body))
+            self.parts.append(f"{start_tag}{anchor if anchor else body}</code>")
+            return
+        self._flush_text(closes_inline=name in _INLINE_TAGS)
         self.parts.append(f"</{tag}>")
-        if str(tag or "").lower() in _AUTOLINK_SKIP_TAGS and self._skip_depth > 0:
+        if name == "code" and self._code_abandoned:
+            self._code_abandoned = False
+            if self._skip_depth > 0:
+                self._skip_depth -= 1
+            return
+        if name in _AUTOLINK_SKIP_TAGS and self._skip_depth > 0:
             self._skip_depth -= 1
 
+    def _text_sink(self) -> list[str]:
+        return self._code_span if self._code_span is not None else self._text_buffer
+
     def handle_data(self, data: str) -> None:
-        self._text_buffer.append(str(data or ""))
+        self._text_sink().append(str(data or ""))
 
     def handle_entityref(self, name: str) -> None:
-        self._text_buffer.append(f"&{name};")
+        self._text_sink().append(f"&{name};")
 
     def handle_charref(self, name: str) -> None:
-        self._text_buffer.append(f"&#{name};")
+        self._text_sink().append(f"&#{name};")
 
     def handle_comment(self, data: str) -> None:
         self._flush_text()
@@ -754,7 +846,9 @@ class MarkdownRenderer:
 
     def render(self, markdown_text: str) -> str:
         try:
-            prepared = _replace_mermaid_fences(_prepare_markdown_source(markdown_text))
+            prepared = _replace_mermaid_fences(
+                _prepare_markdown_source(unfence_lone_targets(markdown_text))
+            )
             html_content = _autolink_html_text(
                 _unwrap_generated_code_panels(self._markdown.render(prepared))
             )

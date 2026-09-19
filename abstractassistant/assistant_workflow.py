@@ -2,12 +2,38 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 
 MANAGED_ASSISTANT_WORKFLOW_NAME = "AbstractAssistant Orchestrator"
 MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID = "abstractassistant-orchestrator"
 MANAGED_ASSISTANT_WORKFLOW_MARKER = "managed-by=abstractassistant;scope=tenant-catalog"
+
+# BUMP THIS whenever the managed workflow below changes in a way that must reach
+# gateways. It is what lets two builds of the app coexist on one machine.
+#
+# The app reconciles its managed workflow at launch: if the gateway's stored copy
+# differs from this build's, it republishes and promotes. With nothing ordering the two,
+# an OLDER build "fixed the drift" by DOWNGRADING a newer workflow — and the newer build
+# put it back on its next launch. Measured 2026-09-17: the installed app (Sep 7 build) and
+# the source tree flipped the catalog default four times in 17 minutes. Every flip makes
+# the gateway rebuild its host: 40-60 s of failed health probes while a 15 GB model
+# reloads, and every in-process prompt cache gone. A build now publishes only when its
+# revision is >= the stored one; a NEWER stored workflow is used as it is.
+#   1 = everything before revisions existed (no marker in the description)
+#   2 = route_call pins `tools: []` / `temperature: 0.0` (2026-09-17)
+MANAGED_ASSISTANT_WORKFLOW_REVISION = 2
+_REVISION_MARKER_PREFIX = "workflow-revision="
+
+
+def managed_workflow_revision_of(flow: Any) -> int:
+    """The revision a stored managed workflow declares (1 when it declares none)."""
+    description = str((flow or {}).get("description") or "") if isinstance(flow, dict) else ""
+    match = re.search(re.escape(_REVISION_MARKER_PREFIX) + r"(\d+)", description)
+    return int(match.group(1)) if match else 1
+
+
 ASSISTANT_INTERFACE = "abstractassistant.agent.v1"
 
 _BASE_SYSTEM_PROMPT = (
@@ -261,6 +287,16 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("system", "system", "string"),
             _pin("prompt", "prompt", "string"),
             _pin("resp_schema", "resp_schema", "object"),
+            # DECLARED so they can be pinned shut. An llm_call node inherits every
+            # same-named key of the previous exec node's output, and the node before
+            # this one is `start`, whose output carries the agent's `tools` (30) and
+            # `temperature` (0.2). Undeclared, the router ran with all 30 tool schemas
+            # and AbstractCore's tools+structured TWO-PASS flow: an unstructured
+            # tool-enabled generation first, then the structured one — 12-28 s per
+            # turn for a routing decision (measured 2026-09-16, Qwen3.8-27B). A
+            # declared pin's default outranks the inherited key.
+            _pin("tools", "tools", "tools"),
+            _pin("temperature", "temperature", "number"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -272,6 +308,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         pin_defaults={
             "system": _ROUTER_SYSTEM_PROMPT,
             "resp_schema": _ROUTER_SCHEMA,
+            "tools": [],
+            "temperature": 0.0,
         },
         effect_config={"provider": "", "model": "", "temperature": 0.0, "structured_output_fallback": True},
     )
@@ -819,7 +857,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         "name": MANAGED_ASSISTANT_WORKFLOW_NAME,
         "description": (
             "Canonical catalog workflow for the compact AbstractAssistant tray surface. "
-            f"{MANAGED_ASSISTANT_WORKFLOW_MARKER}"
+            f"{MANAGED_ASSISTANT_WORKFLOW_MARKER};"
+            f"{_REVISION_MARKER_PREFIX}{MANAGED_ASSISTANT_WORKFLOW_REVISION}"
         ),
         "interfaces": [ASSISTANT_INTERFACE],
         "nodes": nodes,

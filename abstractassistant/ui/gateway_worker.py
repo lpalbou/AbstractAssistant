@@ -270,8 +270,10 @@ class GatewayWorker(QThread):
                 ),
             )
             try:
+                # `call_uid`, not `call_id`: the adapter's replay guard keys on the
+                # unique identity (the model's `call_id` repeats across turns).
                 tool_ids = [
-                    str(m.get("metadata", {}).get("call_id") or "")
+                    str(m.get("metadata", {}).get("call_uid") or "")
                     for m in messages
                     if isinstance(m, dict) and str(m.get("role") or "") == "tool"
                 ]

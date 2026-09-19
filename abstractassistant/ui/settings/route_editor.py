@@ -1,22 +1,38 @@
 """Local model/voice route overrides — the editor extracted from the old Settings tabs.
 
 Contract (unchanged): the gateway's capability defaults are READ here and never
-written. A route is either "Use gateway default" (nothing stored, nothing
-sent) or "Override for this app" (a provider AND model stored in
-preferences.json and sent with each request). The editor shows both truths on
-one state line and never pre-selects a catalog entry as if it were configured.
+written. A route either follows the gateway default (nothing stored, nothing
+sent) or carries a provider AND model stored in preferences.json and sent with
+each request. The editor shows both truths on one state line and never
+pre-selects a catalog entry as if it were configured.
+
+SHAPE (2026-09-18, operator ask): the first item of the Provider list IS
+"Gateway default" — the same design abstractflow uses — so there is no mode to
+arm before a choice counts, and nothing to grey out. A selection applies the
+moment it is made, which is what removed the Apply / Reset / Reload buttons:
+picking "Gateway default" IS the reset, and the lists retry themselves when
+they are opened.
+
+The radio pair this replaced was DISABLED from the second `refresh()` of a
+session onward — `route_list.clear()` emits `currentRowChanged(-1)`, which
+disabled the form, and nothing ever turned it back on. app.py caches the
+Settings window and refreshes it on every reopen, so from the second opening
+the page was dead. That is NOT network-dependent: it reproduces against a live
+gateway. Being offline is only what sent the operator to Settings and made the
+lists empty once they arrived. `_load_selected_route` re-enables on the way in;
+`test_the_form_survives_reopening_settings` pins it.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QSizePolicy,
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QGridLayout,
@@ -25,10 +41,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPlainTextEdit,
-    QPushButton,
-    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -60,6 +73,16 @@ def json_dumps(value: Dict[str, Any]) -> str:
     if not value:
         return ""
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def _reason(exc: BaseException) -> str:
+    """A short cause for a settings line. ``str(TimeoutError())`` is ``""``, so
+    the type name is the floor — an empty parenthesis explains nothing."""
+    text = " ".join(str(exc).split())
+    if len(text) > 120:
+        #[WARNING:TRUNCATION] one settings line; the full text is not shown here
+        text = text[:119].rstrip(" ,;:") + "…"
+    return text or type(exc).__name__
 
 
 # The routes the assistant actually drives AND can locally override, with
@@ -95,14 +118,49 @@ _ROUTE_HELP = {
 _BASE_URL_ROUTES = {"output.text"}
 
 
+class _CatalogCombo(QComboBox):
+    """A list that retries its own fetch when the user opens it — but only when
+    the last fetch came back empty.
+
+    Opening the list is the moment the user asks "what can I pick?", and it is
+    the only moment a retry is worth a round trip. A catalog that loaded stays
+    put (no network on every click); an empty one is retried, so the page
+    recovers the instant the gateway answers again instead of making the user
+    leave Settings and come back. This is what replaced the Reload button.
+    """
+
+    def __init__(self, reload_if_empty: Callable[[], None], parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._reload_if_empty = reload_if_empty
+
+    def showPopup(self) -> None:  # noqa: N802 - Qt override
+        try:
+            self._reload_if_empty()
+        except Exception:
+            pass
+        super().showPopup()
+
+
 class RouteOverrideEditor(QWidget):
-    """Route list + override form. ``changed`` fires after a save or reset."""
+    """Route list + override form. ``changed`` fires after a choice is applied."""
 
     changed = pyqtSignal()
 
-    _PLACEHOLDER_PROVIDER = "Choose a provider…"
+    # Item 0 of the provider list. Choosing it is how a route goes back to the
+    # gateway default — there is no separate reset.
+    _GATEWAY_DEFAULT = "Gateway default"
     _PLACEHOLDER_MODEL = "Choose a model…"
     _loading_route = False
+    # Whether the last fetch produced anything to pick. False is what makes a
+    # list retry itself when it is opened.
+    _providers_loaded = False
+    _models_loaded = False
+    # Why a fetch came back empty, for the line that explains a short list.
+    _gateway_unread = ""
+    _catalog_unread = ""
+    # Which row `_load_selected_route` last ran for, so refresh() can load it
+    # exactly once instead of twice.
+    _loaded_row: Optional[int] = None
 
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -143,27 +201,6 @@ class RouteOverrideEditor(QWidget):
         self.route_state.setObjectName("statusNote")
         right.addWidget(self.route_state)
 
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(14)
-        self.route_mode_default = QRadioButton("Use gateway default")
-        self.route_mode_default.setToolTip(
-            "Follow whatever the gateway resolves for this route. No local "
-            "override is stored; the gateway's shared default is not changed."
-        )
-        self.route_mode_custom = QRadioButton("Override for this app")
-        self.route_mode_custom.setToolTip(
-            "Pick a provider and model used by THIS app only. Stored locally and "
-            "sent with each request — the gateway's shared default stays untouched."
-        )
-        self.route_mode_group = QButtonGroup(self)
-        self.route_mode_group.addButton(self.route_mode_default)
-        self.route_mode_group.addButton(self.route_mode_custom)
-        self.route_mode_custom.toggled.connect(self._on_route_mode_toggled)
-        mode_row.addWidget(self.route_mode_default)
-        mode_row.addWidget(self.route_mode_custom)
-        mode_row.addStretch(1)
-        right.addLayout(mode_row)
-
         form = QGridLayout()
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(8)
@@ -173,18 +210,23 @@ class RouteOverrideEditor(QWidget):
         form.setColumnMinimumWidth(0, LABEL_COLUMN_MIN)
         right.addLayout(form)
 
+        # Three lists, each with the gateway's own answer as its first item.
+        # Nothing here is ever disabled: "Gateway default" is always reachable,
+        # including when the catalogs behind the other items could not be read.
         form.addWidget(QLabel("Provider"), 0, 0)
-        self.provider_combo = QComboBox()
+        self.provider_combo = _CatalogCombo(self._retry_provider_catalog)
         self.provider_combo.currentIndexChanged.connect(self._on_provider_combo_changed)
         form.addWidget(self.provider_combo, 0, 1)
 
         form.addWidget(QLabel("Model"), 1, 0)
-        self.model_combo = QComboBox()
+        self.model_combo = _CatalogCombo(self._retry_model_catalog)
+        self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
         form.addWidget(self.model_combo, 1, 1)
 
         self.voice_label = QLabel("Voice")
         form.addWidget(self.voice_label, 2, 0)
         self.voice_combo = QComboBox()
+        self.voice_combo.currentIndexChanged.connect(self._on_voice_combo_changed)
         form.addWidget(self.voice_combo, 2, 1)
 
         # Reasoning belongs to the model that reasons. It is a property of the
@@ -247,28 +289,15 @@ class RouteOverrideEditor(QWidget):
         self.route_feedback.setObjectName("feedbackNote")
         right.addWidget(self.route_feedback)
 
-        self.refresh_button = QPushButton("Reload")
-        self.refresh_button.setObjectName("secondaryButton")
-        self.refresh_button.setAutoDefault(False)
-        self.refresh_button.setToolTip("Reload the gateway defaults for these routes")
-        self.refresh_button.clicked.connect(self.refresh)
-        self.reset_route_button = QPushButton("Reset to gateway")
-        self.reset_route_button.setObjectName("secondaryButton")
-        self.reset_route_button.setAutoDefault(False)
-        self.reset_route_button.setToolTip(
-            "Drop this app's local override for the selected route and follow the "
-            "gateway default again."
-        )
-        self.reset_route_button.clicked.connect(self._reset_route_to_gateway)
-        self.save_button = QPushButton("Apply")
-        self.save_button.setObjectName("primaryButton")
-        self.save_button.setAutoDefault(False)
-        self.save_button.setToolTip("Apply the selected mode for this app")
-        self.save_button.clicked.connect(self._save_route)
+    def action_buttons(self) -> List[QWidget]:
+        """None: a choice applies when it is made.
 
-    def action_buttons(self) -> List[QPushButton]:
-        """The buttons this editor owns, for the page footer to host."""
-        return [self.refresh_button, self.reset_route_button, self.save_button]
+        Apply / Reset / Reload were three buttons for one question. Picking a
+        model applies it, picking "Gateway default" resets it, and an empty list
+        retries itself when opened — so there is nothing left for a footer to
+        host.
+        """
+        return []
 
     # ------------------------------------------------------------------ data
 
@@ -281,7 +310,7 @@ class RouteOverrideEditor(QWidget):
             self._route_rows = self._build_override_rows()
         except Exception as exc:
             self._route_rows = []
-            self.route_feedback.setText(str(exc))
+            self._feedback(f"Could not build the route list: {_reason(exc)}", tone="error")
         self.route_list.clear()
         for row in self._route_rows:
             item = QListWidgetItem(row.label)
@@ -297,10 +326,17 @@ class RouteOverrideEditor(QWidget):
                     if item.key == selected_key:
                         selected_index = idx
                         break
+            # `clear()` above already reset the current row to -1, so this
+            # ALWAYS emits currentRowChanged and loads the route. The old code
+            # called `_load_selected_route(0)` unconditionally afterwards on
+            # the belief that row 0 would not re-emit — so every catalog fetch
+            # on this page was paid TWICE, at up to 30 s each when the gateway
+            # is unreachable. The sentinel keeps the load guaranteed without
+            # depending on Qt's emit behaviour either way.
+            self._loaded_row = None
             self.route_list.setCurrentRow(selected_index)
-            if selected_index == 0:
-                # currentRowChanged does not fire when the row is already 0.
-                self._load_selected_route(0)
+            if self._loaded_row != selected_index:
+                self._load_selected_route(selected_index)
         else:
             self.route_label.setText("No gateway routes available")
             self.route_help.setText("Connect to a gateway account that can read capability defaults.")
@@ -350,10 +386,14 @@ class RouteOverrideEditor(QWidget):
 
     def _build_override_rows(self) -> List[CapabilityRouteRow]:
         gateway_map: Dict[str, CapabilityRouteRow] = {}
+        self._gateway_unread = ""
         try:
             gateway_map = self._controller.route_map()
         except Exception as exc:
-            self.route_feedback.setText(str(exc))
+            # Not fatal: every route is still listed and still choosable. What
+            # is unknown is what the gateway would resolve, and the state line
+            # says so rather than claiming "not configured".
+            self._gateway_unread = _reason(exc)
         self._gateway_default_by_key = dict(gateway_map or {})
         rows: List[CapabilityRouteRow] = []
         for key, label in OVERRIDE_ROUTE_LABELS.items():
@@ -393,8 +433,15 @@ class RouteOverrideEditor(QWidget):
         if row is None:
             self._set_route_editor_enabled(False)
             return
+        self._loaded_row = int(self.route_list.currentRow())
         self._loading_route = True
         try:
+            # Re-enable on the way IN. `route_list.clear()` inside refresh()
+            # emits currentRowChanged(-1), which disables the form; before this
+            # line nothing ever turned it back on, so the SECOND refresh of a
+            # session (after applying a choice, or reloading) left the page
+            # permanently greyed until Settings was closed and reopened.
+            self._set_route_editor_enabled(True)
             self.route_feedback.clear()
             self.route_label.setText(row.label)
             self.route_help.setText(_ROUTE_HELP.get(row.key) or row.description or row.package_hint or "")
@@ -403,47 +450,28 @@ class RouteOverrideEditor(QWidget):
             self.options_edit.setPlainText(json_dumps(row.options) if row.options else "")
             self.show_advanced.setChecked(bool(row.base_url))
 
-            is_custom = bool(row.configured)
-            self.route_mode_custom.setChecked(is_custom)
-            self.route_mode_default.setChecked(not is_custom)
-
             self._populate_providers(row=row)
             self._refresh_models_for_provider(row=row)
             self._apply_route_specific_state(row)
             self._apply_advanced_visibility()
-            self._apply_route_mode()
         finally:
             self._loading_route = False
 
     def _set_route_editor_enabled(self, enabled: bool) -> None:
-        self.route_mode_default.setEnabled(enabled)
-        self.route_mode_custom.setEnabled(enabled)
-        self._set_editor_fields_enabled(enabled)
-        self.save_button.setEnabled(enabled)
+        """Only ever called with False, and only when the route list itself is
+        empty — there is nothing to pick for a route that is not there.
 
-    def _set_editor_fields_enabled(self, enabled: bool) -> None:
+        A route that IS listed is always editable: greying the form out is how
+        the previous design locked the operator out of choosing a model on a
+        train, and "Gateway default" needs no gateway to be selectable.
+        """
         self.provider_combo.setEnabled(enabled)
         self.model_combo.setEnabled(enabled)
         self.base_url_edit.setEnabled(enabled)
         self.options_edit.setEnabled(enabled)
         self.voice_combo.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
-
-    def _on_route_mode_toggled(self) -> None:
-        if bool(getattr(self, "_loading_route", False)):
-            return
-        self._apply_route_mode()
-
-    def _apply_route_mode(self) -> None:
-        custom = self.route_mode_custom.isChecked()
-        self._set_editor_fields_enabled(custom)
-        self.save_button.setToolTip(
-            "Save this provider/model as a local override for this app"
-            if custom
-            else "Follow the gateway default (drops any local override on Apply)"
-        )
-        active = self._active_row()
-        self.reset_route_button.setEnabled(bool(active is not None and active.configured))
+        self.reasoning_combo.setEnabled(enabled)
 
     def _route_dot_icon(self, *, configured: bool) -> QIcon:
         size = 10
@@ -489,6 +517,10 @@ class RouteOverrideEditor(QWidget):
         if gw_value:
             origin = f" (derived from {_DERIVED_LABELS.get(derived, derived)})" if derived and derived != row.key else ""
             gw_line = f"Gateway default{origin}: {gw_value}."
+        elif self._gateway_unread:
+            # "Not configured" would be a claim about the gateway. All we know
+            # is that we could not ask it.
+            gw_line = f"Gateway default: could not be read ({self._gateway_unread})."
         else:
             gw_line = (
                 "Gateway default: not configured — the gateway's engine picks "
@@ -507,28 +539,86 @@ class RouteOverrideEditor(QWidget):
         self.provider_combo.blockSignals(True)
         try:
             self.provider_combo.clear()
-            self.provider_combo.addItem(self._PLACEHOLDER_PROVIDER, "")
+            # Item 0 is the gateway's own answer, and it is the item a route
+            # with no override sits on. It needs no catalog and no network.
+            self.provider_combo.addItem(self._GATEWAY_DEFAULT, "")
+            self._catalog_unread = ""
             try:
                 choices = self._controller.provider_choices(route_key=row.key, base_url=self.base_url_edit.text().strip())
             except Exception as exc:
-                self.route_feedback.setText(str(exc))
+                self._catalog_unread = _reason(exc)
                 choices = []
             for choice in choices or []:
                 self.provider_combo.addItem(choice.label, choice.id)
+            self._providers_loaded = self.provider_combo.count() > 1
             saved = str(row.provider or "").strip()
             if saved:
                 if self.provider_combo.findData(saved) < 0:
+                    # Chosen once, not listed now (the gateway is unreachable, or
+                    # the provider went away): keep it selectable so the choice
+                    # is not silently lost.
                     self.provider_combo.addItem(f"{saved} (saved)", saved)
                 self._set_combo_value(self.provider_combo, saved)
             else:
                 self.provider_combo.setCurrentIndex(0)
+            self._note_empty_catalog()
         finally:
             self.provider_combo.blockSignals(False)
+
+    def _note_empty_catalog(self) -> None:
+        """Say why the list is short, rather than leaving one bare item to
+        read as "there is nothing to choose"."""
+        if self._providers_loaded:
+            self._feedback("")
+            return
+        because = f" ({self._catalog_unread})" if self._catalog_unread else ""
+        self._feedback(
+            f"No providers to list{because}. “{self._GATEWAY_DEFAULT}” still works — "
+            "open this list again to retry.",
+            tone="warning",
+        )
+
+    def _retry_provider_catalog(self) -> None:
+        """Re-fetch when the list is opened and holds nothing to pick."""
+        if self._providers_loaded or self._loading_route:
+            return
+        row = self._active_row()
+        if row is None:
+            return
+        if self._gateway_unread:
+            # The gateway's own defaults were unreadable too, so recover the
+            # whole page — the state lines are as stale as the lists are.
+            self.refresh()
+            return
+        wanted = str(self.provider_combo.currentData() or "")
+        self._populate_providers(row=row)
+        self._set_combo_value(self.provider_combo, wanted)
+
+    def _retry_model_catalog(self) -> None:
+        if self._models_loaded or self._loading_route:
+            return
+        if not str(self.provider_combo.currentData() or "").strip():
+            return
+        self._refresh_models_for_provider()
 
     def _on_provider_combo_changed(self) -> None:
         if bool(getattr(self, "_loading_route", False)):
             return
+        # Repopulating the model list can restore the saved model (when the
+        # provider is the one already stored), so apply AFTER it, not before.
         self._refresh_models_for_provider()
+        self._apply_selection()
+
+    def _on_model_combo_changed(self) -> None:
+        if bool(getattr(self, "_loading_route", False)):
+            return
+        self._refresh_voice_choices()
+        self._apply_selection()
+
+    def _on_voice_combo_changed(self) -> None:
+        if bool(getattr(self, "_loading_route", False)):
+            return
+        self._apply_selection()
 
     def _refresh_models_for_provider(self, *, row: Optional[CapabilityRouteRow] = None) -> None:
         active = row if row is not None else self._active_row()
@@ -538,7 +628,9 @@ class RouteOverrideEditor(QWidget):
         self.model_combo.blockSignals(True)
         try:
             self.model_combo.clear()
-            self.model_combo.addItem(self._PLACEHOLDER_MODEL, "")
+            # With no provider the model question does not arise yet, and the
+            # answer is the gateway's; with one, a model is what is still owed.
+            self.model_combo.addItem(self._GATEWAY_DEFAULT if not provider else self._PLACEHOLDER_MODEL, "")
             choices = []
             if provider:
                 try:
@@ -546,10 +638,11 @@ class RouteOverrideEditor(QWidget):
                         route_key=active.key, provider=provider, base_url=self.base_url_edit.text().strip()
                     )
                 except Exception as exc:
-                    self.route_feedback.setText(str(exc))
+                    self._catalog_unread = _reason(exc)
                     choices = []
             for choice in choices or []:
                 self.model_combo.addItem(choice.label, choice.id)
+            self._models_loaded = (not provider) or self.model_combo.count() > 1
             saved_model = str(active.model or "").strip()
             saved_provider = str(active.provider or "").strip()
             if saved_model and provider and provider == saved_provider:
@@ -578,6 +671,8 @@ class RouteOverrideEditor(QWidget):
             if self.model_combo.findData(current_model) < 0:
                 self.model_combo.addItem(current_model, current_model)
             self._set_combo_value(self.model_combo, current_model)
+        # The base URL rides the override, so a new one is part of the choice.
+        self._apply_selection()
 
     def _refresh_voice_choices(self) -> None:
         row = self._active_row()
@@ -596,7 +691,7 @@ class RouteOverrideEditor(QWidget):
                         provider=provider, model=model, base_url=self.base_url_edit.text().strip()
                     )
                 except Exception as exc:
-                    self.route_feedback.setText(str(exc))
+                    self._feedback(f"Could not list the voices: {_reason(exc)}", tone="warning")
                     choices = []
             for choice in choices or []:
                 self.voice_combo.addItem(choice.label, choice.id)
@@ -669,10 +764,31 @@ class RouteOverrideEditor(QWidget):
         width = max(120, self.reasoning_note.width() or 320)
         self.reasoning_note.setText(metrics.elidedText(full, Qt.ElideRight, width))
 
+    def _effective_chat_route(self) -> Dict[str, str]:
+        """What will serve the next chat turn, answered from what this editor
+        ALREADY holds.
+
+        `controller.effective_chat_route()` re-reads the gateway's capability
+        defaults, and when that read fails nothing caches the failure — so with
+        an unreachable gateway the reasoning caption alone fired several 30 s
+        blocking requests per route load, on the GUI thread. The two facts it
+        needs are the route row (fetched once by `_build_override_rows`) and the
+        stored override (a preferences read), both of which are already here.
+        """
+        row = next((item for item in self._route_rows if item.key == "output.text"), None)
+        if row is not None and row.configured and row.provider and row.model:
+            return {"provider": row.provider, "model": row.model, "source": "override"}
+        gw = self._gateway_default_row("output.text")
+        return {
+            "provider": str(getattr(gw, "provider", "") or ""),
+            "model": str(getattr(gw, "model", "") or ""),
+            "source": "gateway",
+        }
+
     def _model_reasoning_levels(self) -> Optional[set]:
         """The reasoning levels the effective chat model reports, or None when
         no capability card lists any (then every level stays selectable)."""
-        route = safe_call(self._controller, "effective_chat_route", default=None) or {}
+        route = self._effective_chat_route()
         model = str(route.get("model") or "").strip()
         card = safe_call(self._controller, "model_capabilities", model, default=None) if model else None
         if not isinstance(card, dict) or card.get("thinking_support") is not True:
@@ -681,7 +797,7 @@ class RouteOverrideEditor(QWidget):
         return levels or None
 
     def _reasoning_caption(self, current: str) -> str:
-        route = safe_call(self._controller, "effective_chat_route", default=None) or {}
+        route = self._effective_chat_route()
         provider = str(route.get("provider") or "").strip()
         model = str(route.get("model") or "").strip()
         source = "this app's override" if route.get("source") == "override" else "the gateway default"
@@ -769,17 +885,31 @@ class RouteOverrideEditor(QWidget):
 
     # ------------------------------------------------------------------ actions
 
-    def _save_route(self) -> None:
+    def _apply_selection(self) -> None:
+        """Make what is on screen true, now.
+
+        There is no Apply button, so there is no window in which the lists say
+        one thing and the next request does another. The rule is the one the
+        override channel already enforces: an override is a provider AND a
+        model, and anything less means "follow the gateway".
+        """
         row = self._active_row()
         if row is None:
             return
-        if self.route_mode_default.isChecked():
-            self._clear_route_override(row, already_note="Already using the gateway default.")
-            return
         provider = str(self.provider_combo.currentData() or "").strip()
         model = str(self.model_combo.currentData() or "").strip()
-        if not provider or not model:
-            self.route_feedback.setText("Choose a provider and a model first (or switch back to the gateway default).")
+        if not provider:
+            self._clear_override(note="Following the gateway default.")
+            return
+        if not model:
+            # A half-pin is dropped by the override channel, so storing one
+            # would show a pin that never rides a request.
+            if self._models_loaded:
+                note = f"Choose a model to run on {provider}, or set Provider back to “{self._GATEWAY_DEFAULT}”."
+            else:
+                because = f" ({self._catalog_unread})" if self._catalog_unread else ""
+                note = f"No models to list for {provider}{because}. Open the Model list again to retry."
+            self._clear_override(note=note, tone="warning")
             return
         try:
             self._controller.save_route_override(
@@ -790,31 +920,56 @@ class RouteOverrideEditor(QWidget):
                 options=self._merged_options(),
             )
         except Exception as exc:
-            QMessageBox.critical(self, "Save failed", str(exc))
+            self._feedback(f"Could not save this choice: {exc}", tone="error")
             return
-        self.changed.emit()
-        self.refresh()
-        self.route_feedback.setText(f"Override saved for this app: {provider} / {model}.")
+        self._after_change(f"This app now uses {provider} / {model}.")
 
-    def _reset_route_to_gateway(self) -> None:
+    def _clear_override(self, *, note: str, tone: str = "") -> None:
         row = self._active_row()
         if row is None:
             return
-        self.route_mode_default.setChecked(True)
-        self._clear_route_override(row, already_note="No local override to reset — already using the gateway default.")
-
-    def _clear_route_override(self, row: CapabilityRouteRow, *, already_note: str) -> None:
         if not row.configured:
-            self.route_feedback.setText(already_note)
+            # Nothing stored: say where we stand without pretending to act.
+            self._feedback(note, tone=tone)
             return
         try:
             self._controller.clear_route_override(route_key=row.key)
         except Exception as exc:
-            QMessageBox.critical(self, "Reset failed", str(exc))
+            self._feedback(f"Could not clear this override: {exc}", tone="error")
             return
+        self._after_change(note or "Following the gateway default.", tone=tone)
+
+    def _after_change(self, note: str, tone: str = "") -> None:
+        """Repaint what the change affected — WITHOUT re-reading the gateway.
+
+        A full refresh is an HTTP round trip and rebuilds every combo; doing
+        that on each selection would fight the user's next click and, offline,
+        would replace a working page with an empty one.
+        """
+        idx = int(self.route_list.currentRow())
+        if 0 <= idx < len(self._route_rows):
+            row = self._route_rows[idx]
+            override = safe_call(self._controller, "route_override", row.key, default=None) or {}
+            options = override.get("options") if isinstance(override.get("options"), dict) else {}
+            updated = dataclasses.replace(
+                row,
+                provider=str(override.get("provider") or ""),
+                model=str(override.get("model") or ""),
+                base_url=str(override.get("base_url") or ""),
+                options=dict(options or {}),
+                configured=bool(override),
+            )
+            self._route_rows[idx] = updated
+            item = self.route_list.item(idx)
+            if item is not None:
+                item.setIcon(self._route_dot_icon(configured=bool(updated.configured)))
+                item.setToolTip(self._route_state_text(updated))
+            self.route_state.setText(self._route_state_text(updated))
+            if updated.key == "output.text":
+                # The reasoning caption names the model it applies to.
+                self._set_reasoning_note(self._reasoning_caption(str(self.reasoning_combo.currentData() or "")))
+        self._feedback(note, tone=tone)
         self.changed.emit()
-        self.refresh()
-        self.route_feedback.setText("Reset — this app now follows the gateway default.")
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
         target = str(value or "").strip()

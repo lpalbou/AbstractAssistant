@@ -147,13 +147,28 @@ def test_markdown_renderer_autolink_does_not_rewrite_existing_links_or_code() ->
     renderer = MarkdownRenderer()
     html = renderer.render(
         "[Existing](https://example.com/one)\n\n"
-        "`https://example.com/code`\n\n"
+        "`curl https://example.com/code`\n\n"
         "```text\nhttps://example.com/fenced\n```\n"
     )
 
     assert html.count('<a href="https://example.com/one">Existing</a>') == 1
     assert 'href="https://example.com/code"' not in html
     assert 'href="https://example.com/fenced"' not in html
+
+
+@pytest.mark.basic
+def test_markdown_renderer_links_an_inline_code_span_that_is_the_target_itself() -> None:
+    """CONTRACT CHANGE 2026-09-17 (operator ask). Inline code used to be exempt from
+    autolinking wholesale, and that is how models write paths and URLs — so the one
+    thing in an answer the user wanted to click ("saved at `/Users/…/clip.mp4`") was
+    the one thing that never linked. A span links only when ALL of it is one target;
+    code that merely CONTAINS a URL (the test above) is still left exactly as written."""
+    renderer = MarkdownRenderer()
+    html = renderer.render("`https://example.com/code` and `/Users/someone/Movies/clip.mp4`")
+
+    assert '<a href="https://example.com/code">https://example.com/code</a>' in html
+    assert 'href="file:///Users/someone/Movies/clip.mp4"' in html
+    assert html.count("<code>") == 2  # still rendered as code, the link sits inside
 
 
 @pytest.mark.basic

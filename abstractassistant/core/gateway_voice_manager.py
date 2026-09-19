@@ -54,6 +54,8 @@ class GatewayVoiceManager:
         self._paused = False
         self._play_proc: Optional[subprocess.Popen] = None
         self._inprocess_player = None
+        # "" = follow the system default output (see set_output_device).
+        self._output_device_spec = ""
         self._playback_backend = "none"
         self._stream_id = ""
         self._stream_active = False
@@ -114,12 +116,20 @@ class GatewayVoiceManager:
         return bool(self._gateway_tts_available() and self._audio_player_available())
 
     def output_device_label(self) -> str:
-        """Name of the audio output device speech plays on (best effort).
+        """Name of the device speech will actually play on.
 
-        Playback follows the SYSTEM default output; when that is a headset or
-        AR glasses the Mac's speakers stay silent while the app is genuinely
-        speaking (live 2026-07-28: TTS played into 'XREAL One Pro' while the
-        user heard nothing). Surfacing the device name makes that visible."""
+        NOT `sd.query_devices(kind="output")`: PortAudio resolves "the default" once,
+        at initialization, so in a long-running app that answer is the default from
+        launch — it kept naming the built-in speakers after the user had switched to
+        AR glasses. This resolves the CHOSEN device, or the system's live default when
+        none is pinned (see abstractvoice.tts.audio_devices).
+        """
+        try:
+            from abstractvoice.tts.audio_devices import describe_device_spec
+
+            return describe_device_spec(self.output_device_spec() or None)
+        except Exception:
+            pass
         try:
             import sounddevice as sd  # type: ignore
 
@@ -246,6 +256,81 @@ class GatewayVoiceManager:
                 rec.resume_transcriptions()
         except Exception:
             pass
+
+    def _can_refresh_audio_devices(self) -> bool:
+        """Whether PortAudio may be re-initialized right now.
+
+        `_listening` alone is NOT a sufficient gate: `stop_listening()` clears it BEFORE
+        `rec.stop()` closes the microphone stream, so a refresh inside that window
+        invalidates a live InputStream (PaErrorCode -9988, measured). The recognizer
+        object survives until after the stream is closed, so it closes the window.
+        """
+        if bool(getattr(self, "_listening", False)):
+            return False
+        return getattr(self, "_recognizer", None) is None
+
+    def set_output_device(self, spec: Optional[str]) -> None:
+        """Choose the speaker for spoken replies. ""/None follows the system default.
+
+        Applies to the live player immediately, so a choice made in Settings is
+        audible on the next sentence rather than after a restart.
+        """
+        value = str(spec or "").strip()
+        self._output_device_spec = value
+        player = self._inprocess_player
+        if player is not None:
+            try:
+                player.set_output_device(value or None)
+            except Exception:
+                pass
+
+    def output_device_spec(self) -> str:
+        return str(getattr(self, "_output_device_spec", "") or "")
+
+    def available_output_devices(self) -> list:
+        """Every output device the system can see right now (for the picker)."""
+        try:
+            from abstractvoice.tts.audio_devices import list_output_devices
+
+            return list(list_output_devices())
+        except Exception:
+            return []
+
+    def play_test_tone(self, spec: Optional[str] = None, *, seconds: float = 0.6) -> str:
+        """Play a short tone on `spec` (default: the configured device).
+
+        Returns "" on success or a sentence naming what went wrong. This is the only
+        honest answer to "which speaker will my replies come out of": the device the
+        stream actually opens on, proven by hearing it.
+        """
+        try:
+            import numpy as np
+
+            from abstractvoice.tts import NonBlockingAudioPlayer
+        except Exception as exc:
+            return f"Audio playback is unavailable ({self._exception_reason(exc)})."
+
+        target = spec if spec is not None else self.output_device_spec()
+        problems: list[str] = []
+        player = NonBlockingAudioPlayer(sample_rate=48000, debug_mode=self.debug_mode)
+        player.on_output_device_problem = problems.append
+        try:
+            player.set_output_device(str(target or "").strip() or None)
+            player.start_stream()
+            duration = max(0.2, min(2.0, float(seconds)))
+            t = np.linspace(0, duration, int(48000 * duration), endpoint=False)
+            envelope = np.minimum(1.0, np.minimum(t * 40, (duration - t) * 40))
+            tone = (0.18 * np.sin(2 * np.pi * 660 * t) * envelope).astype(np.float32)
+            player.play_audio(tone, sample_rate=48000)
+            time.sleep(duration + 0.25)
+        except Exception as exc:
+            return problems[0] if problems else f"Could not play on this device ({self._exception_reason(exc)})."
+        finally:
+            try:
+                player.stop_stream()
+            except Exception:
+                pass
+        return problems[0] if problems else ""
 
     def set_quality_preset(self, preset: str) -> None:
         """Set the TTS quality/latency preset (low|standard|high)."""
@@ -1409,6 +1494,14 @@ class GatewayVoiceManager:
                 detail = self._exception_reason(e)
                 warnings.warn(f"#FALLBACK: in-process gateway audio playback failed: {detail}")
                 self._note_speech_failure(f"local audio playback failed ({detail})")
+        # The external player (`afplay` and friends) always plays on the SYSTEM default
+        # and takes no device argument, so a chosen device cannot be honoured here. It is
+        # still better than silence — but the user picked a device, so they are told.
+        if self.output_device_spec():
+            self._note_speech_failure(
+                "this reply is playing on the system default output: the fallback player "
+                "cannot use the audio device you selected"
+            )
         cache_dir = self._audio_cache_dir()
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1707,7 +1800,17 @@ class GatewayVoiceManager:
             from abstractvoice.tts import NonBlockingAudioPlayer
         except Exception:
             return None
-        player = NonBlockingAudioPlayer(debug_mode=self.debug_mode)
+        player = NonBlockingAudioPlayer(
+            debug_mode=self.debug_mode,
+            output_device=self.output_device_spec() or None,
+        )
+        # A wrong speaker used to be silent in every sense: the player fell back to
+        # another device without a word, so "I hear nothing" had no explanation
+        # anywhere. Route that into the same failure channel the rest of speech uses.
+        player.on_output_device_problem = self._note_speech_failure
+        # Refreshing the device list restarts PortAudio, which invalidates EVERY open
+        # stream in this process — a live microphone included.
+        player.allow_device_refresh = self._can_refresh_audio_devices
         prev = getattr(player, "on_audio_chunk", None)
 
         def _on_chunk(chunk, sample_rate: int) -> None:

@@ -41,6 +41,7 @@ from PyQt5.QtGui import (
     QColor,
     QCursor,
     QDesktopServices,
+    QImageReader,
     QFont,
     QFontMetrics,
     QIcon,
@@ -87,6 +88,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QTextBrowser,
     QTextEdit,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -150,6 +152,14 @@ from .core.voice_conversation import (
     VoiceConversation,
 )
 from .core import tool_presenter as _presenter
+from .core.link_targets import (
+    click_action,
+    describe_link,
+    file_href,
+    local_path_from_href,
+    mentioned_local_files,
+    path_kind,
+)
 from .ui.activity import RunActivityCard, RunActivityModel, build_activity_qss
 from .ui.session_switcher import SessionSwitcher
 from .theme import DEFAULT_THEME, THEME, activate_metrics
@@ -603,10 +613,91 @@ def _assistant_content_blocks(
     return blocks, actions
 
 
+def _reveal_in_file_manager(path: str) -> bool:
+    """Select `path` in Finder (macOS) or open its folder elsewhere. Never runs it."""
+    target = str(path or "").strip()
+    if not target:
+        return False
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["/usr/bin/open", "-R", target])
+            return True
+        if sys.platform.startswith("win"):
+            subprocess.Popen(["explorer", f"/select,{target}"])
+            return True
+        return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(target) or target)))
+    except Exception:
+        return False
+
+
+def activate_message_link(href: str, *, force_reveal: bool = False) -> str:
+    """Act on a link the user clicked in a message. Returns "" or why nothing opened.
+
+    The link text was written by a model, so this is the ONE place that decides
+    what a click may do (policy: `core/link_targets.py`). Web links go to the
+    browser. A local path is resolved through its symlinks first — `clip.mp4`
+    pointing at an app bundle must be judged as the app — then opened only when
+    its kind is inert to open; anything else is shown in Finder instead of run.
+    """
+    text = str(href or "").strip()
+    if not text:
+        return "Empty link."
+    if text.startswith(("/", "~/")):
+        # `[clip](/Users/…)` — markdown emits the path as a scheme-less href.
+        text = file_href(text) or text
+    scheme = str(urlparse(text).scheme or "").strip().lower()
+    if scheme in {"http", "https", "mailto"}:
+        try:
+            opened = bool(QDesktopServices.openUrl(QUrl.fromEncoded(text.encode("utf-8"))))
+        except Exception:
+            opened = False
+        return "" if opened else "Could not open this link."
+    if scheme != "file":
+        return f"“{scheme or 'This'}” links are not opened from a message."
+
+    local = local_path_from_href(text)
+    if local is None:
+        return "This link points at another computer, so it was not opened."
+    try:
+        real = os.path.realpath(local)
+        if not os.path.exists(real):
+            return f"Not found: {local}"
+        is_dir = os.path.isdir(real)
+    except (OSError, ValueError) as exc:
+        # ValueError: an embedded NUL. Nothing may escape this function — it runs
+        # inside a Qt slot, where an uncaught exception aborts the whole app.
+        return f"Could not reach {local}: {exc}"
+
+    # A folder WITH an extension is a bundle (.app, .workflow, .pkg…): opening it
+    # launches it. Plain folders open in Finder; bundles are only ever revealed.
+    is_plain_folder = is_dir and not os.path.splitext(os.path.basename(real))[1]
+    may_open = is_plain_folder or (not is_dir and click_action(real) == "open")
+    if force_reveal or not may_open:
+        return "" if _reveal_in_file_manager(real) else f"Could not show {local} in Finder."
+    if not is_dir and path_kind(real) == "text" and sys.platform == "darwin":
+        # Text and SOURCE files go to the text editor, never to their default app:
+        # where python.org's Python Launcher is installed, "opening" a .py RUNS it.
+        try:
+            subprocess.Popen(["/usr/bin/open", "-t", real])
+            return ""
+        except Exception:
+            return f"Could not open {local}."
+    try:
+        opened = bool(QDesktopServices.openUrl(QUrl.fromLocalFile(real)))
+    except Exception:
+        opened = False
+    return "" if opened else f"Could not open {local}."
+
+
 def _open_external_href(href: str) -> bool:
     text = str(href or "").strip()
     if not _assistant_action_href_allowed(text):
         return False
+    scheme = str(urlparse(text).scheme or "").strip().lower()
+    if scheme in {"http", "https", "mailto", "file"}:
+        # Same policy as an inline link: an action button must not be a way to
+        # run something an inline link would only have revealed.
+        return activate_message_link(text) == ""
     try:
         return bool(QDesktopServices.openUrl(QUrl.fromEncoded(text.encode("utf-8"))))
     except Exception:
@@ -1538,6 +1629,32 @@ def _message_media_artifacts(message: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def _human_file_size(size_bytes: int) -> str:
+    size = float(max(0, int(size_bytes)))
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return ""
+
+
+def _mentioned_file_caption(path: str) -> str:
+    """"Video · 3.4 MB" — what kind of thing the chip is, and how big."""
+    from .core.link_targets import path_kind
+
+    noun = {
+        "image": "Image",
+        "video": "Video",
+        "audio": "Audio",
+        "document": "Document",
+        "text": "Text",
+    }.get(path_kind(path), "File")
+    try:
+        return f"{noun} · {_human_file_size(os.path.getsize(path))}"
+    except OSError:
+        return noun
+
+
 def _local_attachment_preview_items(paths: List[str]) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     for raw_path in paths or []:
@@ -1570,6 +1687,9 @@ _ATTACHMENT_THUMB_HEIGHT = 56
 _ATTACHMENT_THUMB_MAX_WIDTH = 132
 _ATTACHMENT_CHIP_GLYPH = 20
 _ATTACHMENT_CHIP_MAX_TEXT = 168
+# A file the ANSWER points at is identified by its name — there is no sentence of
+# the user's own to say which file it was — so its chip shows far more of it.
+_MENTION_CHIP_MAX_TEXT = 340
 
 
 def _image_thumbnail_size(
@@ -1994,7 +2114,14 @@ class AutoSizingTextBrowser(QTextBrowser):
         self.setFrameShape(QFrame.NoFrame)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setOpenExternalLinks(True)
+        # Clicks are OURS. `setOpenExternalLinks(True)` hands every href straight
+        # to the OS, and for a model-written `file:` link "open" can mean "run"
+        # (an .app, a .command, a share on another host). With both switched off
+        # QTextBrowser neither navigates nor opens; `anchorClicked` decides.
+        self.setOpenExternalLinks(False)
+        self.setOpenLinks(False)
+        self.anchorClicked.connect(self._on_anchor_clicked)
+        self.highlighted[QUrl].connect(self._on_anchor_hovered)
         self.document().setDocumentMargin(0)
         try:
             self.setTextInteractionFlags(
@@ -2002,6 +2129,64 @@ class AutoSizingTextBrowser(QTextBrowser):
             )
         except Exception:
             pass
+
+    def _on_anchor_clicked(self, url: QUrl) -> None:
+        href = bytes(url.toEncoded()).decode("utf-8", "replace")
+        reveal = bool(QApplication.keyboardModifiers() & Qt.ControlModifier)  # ⌘ on macOS
+        try:
+            problem = activate_message_link(href, force_reveal=reveal)
+        except Exception as exc:  # a slot must never raise: Qt aborts the process
+            problem = f"Could not open this link: {exc}"
+        if problem:
+            QToolTip.showText(QCursor.pos(), problem, self)
+
+    def _on_anchor_hovered(self, url: QUrl) -> None:
+        href = bytes(url.toEncoded()).decode("utf-8", "replace") if not url.isEmpty() else ""
+        if href:
+            # Escaped: Qt renders a tooltip that LOOKS like HTML as HTML, and the
+            # href is model-written — `<img src=…>` in a path would be fetched.
+            QToolTip.showText(QCursor.pos(), _tooltip_html(describe_link(href).split("\n")), self)
+        else:
+            QToolTip.hideText()
+
+    def loadResource(self, kind: int, url: QUrl):  # noqa: N802
+        """Inline `data:` images only (that is all a reply ever embeds — mermaid).
+
+        The default loader reads ANY url a message names, on the GUI thread, while
+        the message renders: `<img src="file:///home/…">` or a path on an autofs /
+        network mount blocks the whole app for the mount timeout, and a model can
+        be made to write one by a page it quotes.
+        """
+        if str(url.scheme() or "").lower() != "data":
+            return None
+        return super().loadResource(kind, url)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        href = str(self.anchorAt(event.pos()) or "").strip()
+        if not href:
+            super().contextMenuEvent(event)
+            return
+        local = local_path_from_href(href)
+        menu = QMenu(self)
+        if local is not None:
+            open_action = menu.addAction("Open" if click_action(local) == "open" else "Show in Finder")
+            reveal_action = menu.addAction("Show in Finder") if click_action(local) == "open" else None
+            copy_action = menu.addAction("Copy Path")
+            copy_value = local
+        else:
+            open_action = menu.addAction("Open Link")
+            reveal_action = None
+            copy_action = menu.addAction("Copy Link")
+            copy_value = href
+        chosen = menu.exec_(event.globalPos())
+        if chosen is None:
+            return
+        if chosen is copy_action:
+            QApplication.clipboard().setText(copy_value)
+            return
+        problem = activate_message_link(href, force_reveal=chosen is reveal_action)
+        if problem:
+            QToolTip.showText(event.globalPos(), problem, self)
 
     def refresh_height(self, width: Optional[int] = None) -> None:
         if width is None:
@@ -2936,6 +3121,40 @@ class MessageCard(QFrame):
             bubble_layout.addWidget(
                 AssistantHtmlActionBar(actions=self._html_actions, parent=bubble)
             )
+
+        # Files the ANSWER points at ("saved at /Users/…/clip.mp4") get the same
+        # compact chip a user attachment gets: a thumbnail for a picture, icon +
+        # name otherwise, one click to open. The inline link stays too — the chip
+        # is the deliverable made visible, not a replacement for the sentence.
+        # Only inert kinds that exist right now earn one (`mentioned_local_files`).
+        if not is_user and callable(build_media_preview):
+            attached = {
+                str(artifact.get(key) or "").strip()
+                for artifact in self._media_artifacts
+                for key in ("local_path", "path", "filename")
+            }
+            mention_strip: Optional[FlowContainer] = None
+            for item in _local_attachment_preview_items(
+                mentioned_local_files(self._content)
+            ):
+                if item["local_path"] in attached or item["filename"] in attached:
+                    continue  # already shown as generated media
+                item["mentioned"] = True
+                item["caption"] = _mentioned_file_caption(item["local_path"])
+                # Glyph, caption, paddings and the bubble's own margins take ~200px;
+                # the name gets what is left, so a narrow window elides instead of
+                # clipping the chip against the bubble's edge.
+                item["chip_max_text"] = max(
+                    80, min(_MENTION_CHIP_MAX_TEXT, int(bubble_width or 0) - 200)
+                )
+                chip = build_media_preview(item, message, tile_size=0, compact=True)
+                if chip is None:
+                    continue
+                if mention_strip is None:
+                    mention_strip = FlowContainer(bubble)
+                    mention_strip.setObjectName("attachmentChipStrip")
+                    bubble_layout.addWidget(mention_strip)
+                mention_strip.flow().addWidget(chip)
 
         # Images become a wrapped square-tile gallery; audio/video keep their
         # own full-width transport rows because a tile cannot host a scrubber.
@@ -4016,17 +4235,35 @@ class ArtifactPreviewCard(QFrame):
         )
         row.addWidget(glyph, 0, Qt.AlignVCenter)
 
+        mentioned = bool(self._artifact.get("mentioned"))
         name = QLabel(self)
         name.setObjectName("mediaPreviewChipName")
         name.setText(
             QFontMetrics(name.font()).elidedText(
-                self._title, Qt.ElideMiddle, _ATTACHMENT_CHIP_MAX_TEXT
+                self._title,
+                Qt.ElideMiddle,
+                int(self._artifact.get("chip_max_text") or 0)
+                or (_MENTION_CHIP_MAX_TEXT if mentioned else _ATTACHMENT_CHIP_MAX_TEXT),
             )
         )
         row.addWidget(name, 0, Qt.AlignVCenter)
 
+        caption = str(self._artifact.get("caption") or "").strip()
+        if caption:
+            meta = QLabel(caption, self)
+            meta.setObjectName("mediaPreviewChipMeta")
+            row.addWidget(meta, 0, Qt.AlignVCenter)
+
     def _apply_compact_thumbnail(self, path: Path) -> None:
         """Swap the placeholder pill for the picture itself."""
+        if self._media_kind == "image" and self._artifact.get("mentioned"):
+            # A file the MODEL named: read the header first. A few KB of PNG can
+            # declare 30000x30000 pixels, and this runs on the GUI thread every time
+            # the transcript is rebuilt (each run event).
+            declared = QImageReader(str(path)).size()
+            if not declared.isValid() or declared.width() * declared.height() > 40_000_000:
+                self.setToolTip(f"{self._title} — click to open")
+                return
         pixmap = QPixmap(str(path)) if self._media_kind == "image" else QPixmap()
         if pixmap.isNull():
             self.setToolTip(f"{self._title} — click to open")
@@ -4167,6 +4404,13 @@ class ArtifactPreviewCard(QFrame):
             dialog.show()
             dialog.raise_()
             dialog.activateWindow()
+            return
+        if self._artifact.get("mentioned"):
+            # A file the ANSWER named, not one the user attached: same rules as the
+            # inline link it sits under (editor for text, reveal for anything live).
+            problem = activate_message_link(file_href(str(self._local_path)))
+            if problem:
+                QMessageBox.warning(self.window(), "Open failed", problem)
             return
         self._open_external()
 
@@ -9539,6 +9783,13 @@ class AssistantPalette(QMainWindow):
                 color: #e4edf7;
                 font-size: 11px;
                 font-weight: 600;
+            }
+            QLabel#mediaPreviewChipMeta {
+                background: transparent;
+                border: none;
+                color: #8ea1b8;
+                font-size: 11px;
+                font-weight: 500;
             }
             QScrollArea#mermaidPreviewScroll {
                 background: rgba(16, 22, 31, 0.92);

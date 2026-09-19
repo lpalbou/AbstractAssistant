@@ -57,6 +57,7 @@ class AssistantController:
         self.voice_manager = GatewayVoiceManager(llm_manager=self.llm_manager, debug_mode=self.debug)
         self.voice_manager.set_voice_mode("wait")
         self.voice_manager.set_quality_preset(getattr(self.preferences, "voice_quality", "standard"))
+        self.voice_manager.set_output_device(getattr(self.preferences, "audio_output_device", ""))
         self._session_auto_approve_all: set[str] = set()
         # Short-lived caches so the send path and startup don't re-fetch the
         # workflow catalog + tool inventory on the GUI thread every time
@@ -211,6 +212,10 @@ class AssistantController:
         self.preferences_store.save(prefs)
         try:
             self.voice_manager.set_quality_preset(getattr(prefs, "voice_quality", "standard"))
+        except Exception:
+            pass
+        try:
+            self.voice_manager.set_output_device(getattr(prefs, "audio_output_device", ""))
         except Exception:
             pass
 
@@ -1277,8 +1282,11 @@ class AssistantController:
                                 pending.append(sub_run_id)
 
                 for call in extract_tool_call_details_from_ledger_items(items, run_id=rid):
-                    call_id = str(call.get("call_id") or call.get("id") or "").strip()
-                    key = call_id or f"{rid}:{len(out)}:{call.get('name')}"
+                    # Dedupe guards against an overlapping ledger page, so it keys on
+                    # the call's UNIQUE identity. It used to key on `call_id`, the
+                    # model's per-response number: three calls all numbered "0" were
+                    # "duplicates", and the dialog listed one tool under "tools : 3".
+                    key = str(call.get("call_uid") or "").strip() or f"{rid}:{len(out)}:{call.get('name')}"
                     if key in seen_calls:
                         continue
                     seen_calls.add(key)

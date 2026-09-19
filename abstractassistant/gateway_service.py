@@ -13,6 +13,8 @@ from .assistant_workflow import (
     MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
     MANAGED_ASSISTANT_WORKFLOW_MARKER,
     MANAGED_ASSISTANT_WORKFLOW_NAME,
+    MANAGED_ASSISTANT_WORKFLOW_REVISION,
+    managed_workflow_revision_of,
     normalized_managed_visualflow,
 )
 
@@ -283,6 +285,8 @@ class AssistantGatewayService:
                 payload = normalized_managed_visualflow()
                 flows = self._gateway.list_visualflows()
                 target = self._find_managed_visualflow(flows)
+                if target is not None and self._stored_workflow_is_newer(target):
+                    return managed_options
                 if target is not None and not self._visualflow_needs_update(target, payload):
                     # Stored flow is current. One crash shape remains: a
                     # publish landed in the bundle registry but the promote
@@ -612,6 +616,23 @@ class AssistantGatewayService:
             if MANAGED_ASSISTANT_WORKFLOW_MARKER in description:
                 return dict(item)
         return None
+
+    def _stored_workflow_is_newer(self, stored: Dict[str, Any]) -> bool:
+        """True when the gateway already serves a NEWER managed workflow than this build.
+
+        Never downgrade it: see `MANAGED_ASSISTANT_WORKFLOW_REVISION` for the measured
+        cost of two builds each "correcting" the other. The newer workflow is a superset
+        of what this build knows how to drive, so it is simply used.
+        """
+        stored_revision = managed_workflow_revision_of(stored)
+        if stored_revision <= MANAGED_ASSISTANT_WORKFLOW_REVISION:
+            return False
+        warnings.warn(
+            f"#FALLBACK: the gateway serves a newer AbstractAssistant workflow (revision "
+            f"{stored_revision}) than this build ships ({MANAGED_ASSISTANT_WORKFLOW_REVISION}); "
+            f"using it as it is instead of republishing an older one."
+        )
+        return True
 
     def _visualflow_needs_update(self, current: Dict[str, Any], expected: Dict[str, Any]) -> bool:
         keys = ("name", "description", "interfaces", "nodes", "edges", "entryNode")

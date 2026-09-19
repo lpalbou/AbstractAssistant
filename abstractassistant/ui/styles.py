@@ -150,6 +150,10 @@ def dialog_stylesheet() -> str:
     up_arrow = icon_image_path("chevron-up", color=t.text_secondary, size=9)
     down_arrow = icon_image_path("chevron-down", color=t.text_secondary, size=9)
     up_arrow_off = icon_image_path("chevron-up", color=t.text_faint, size=9)
+    # Settings is answered almost entirely with drop-downs, so the one mark
+    # that says "this opens a list" has to be visible.
+    combo_arrow = icon_image_path("chevron-down", color=t.text_muted, size=11)
+    combo_arrow_off = icon_image_path("chevron-down", color=t.text_faint, size=11)
     return f"""
         QDialog, QWidget#dialogRoot {{
             background: {t.surface_sunken};
@@ -291,8 +295,22 @@ def dialog_stylesheet() -> str:
             padding-right: 24px;
         }}
         QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: center right;
             border: none;
             width: 22px;
+        }}
+        /* Same trap as the spin arrows: styling ::drop-down leaves Qt drawing
+           its NATIVE arrow — a dark glyph on a dark field, which reads as
+           nothing, so every drop-down in Settings looked like a text box. A
+           subcontrol needs an IMAGE. */
+        QComboBox::down-arrow {{
+            image: url({combo_arrow});
+            width: 11px;
+            height: 11px;
+        }}
+        QComboBox::down-arrow:disabled {{
+            image: url({combo_arrow_off});
         }}
         QComboBox QAbstractItemView {{
             background: {t.surface_raised};

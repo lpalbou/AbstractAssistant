@@ -11,6 +11,7 @@ import warnings
 from typing import Any, Callable, Dict, List, Optional
 
 from .run_stats import parse_usage_summary, stats_from_history_bundle
+from .tool_usage import pair_results_with_calls, tool_call_uid
 
 
 def _now_iso() -> str:
@@ -400,17 +401,11 @@ def tool_messages_from_record(rec: Dict[str, Any], *, run_id: Optional[str] = No
     if not isinstance(tool_calls, list):
         return []
     results = results if isinstance(results, list) else []
-    by_call_id: Dict[str, Any] = {}
-    for res in results:
-        if not isinstance(res, dict):
-            continue
-        cid = str(res.get("call_id") or res.get("id") or "").strip()
-        if cid:
-            by_call_id[cid] = res
+    paired = pair_results_with_calls(tool_calls, results)
 
     out: List[Dict[str, Any]] = []
     rid = str(run_id or rec.get("run_id") or "").strip() or None
-    for tc in tool_calls:
+    for tc_index, tc in enumerate(tool_calls):
         if not isinstance(tc, dict):
             continue
         name = str(tc.get("name") or "").strip()
@@ -420,7 +415,7 @@ def tool_messages_from_record(rec: Dict[str, Any], *, run_id: Optional[str] = No
             continue
         call_id = str(tc.get("call_id") or tc.get("id") or tc.get("runtime_call_id") or "").strip()
         args = tc.get("arguments")
-        res = by_call_id.get(call_id) if call_id else None
+        res = paired[tc_index]
         success = bool(res.get("success")) if isinstance(res, dict) and "success" in res else None
         error = str(res.get("error") or "").strip() if isinstance(res, dict) else ""
         output = res.get("output") if isinstance(res, dict) else None
@@ -438,6 +433,8 @@ def tool_messages_from_record(rec: Dict[str, Any], *, run_id: Optional[str] = No
         meta = {
             "name": name,
             "call_id": call_id or None,
+            # The call's identity. `call_id` is the model's number and repeats.
+            "call_uid": tool_call_uid(tc) or None,
             "success": success,
             "error": error or None,
             "arguments": args,

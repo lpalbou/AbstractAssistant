@@ -102,6 +102,12 @@ def compact_tool_call_for_ui(
     call_id = str(call.get("call_id") or call.get("id") or "").strip()
     if call_id:
         compacted["call_id"] = call_id
+    # The call's identity. `call_id` is the model's per-response number and repeats
+    # ("0", "0", "0"); without this a persisted call can never be told from its
+    # neighbours again once the ledger is gone.
+    call_uid = str(call.get("runtime_call_id") or call.get("call_uid") or "").strip()
+    if call_uid:
+        compacted["call_uid"] = call_uid
     # Preserve execution outcome: downstream stats (e.g. file activity) must be
     # able to exclude failed calls after the details are persisted/replayed.
     if isinstance(call.get("success"), bool):

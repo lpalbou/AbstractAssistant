@@ -547,6 +547,16 @@ class RunActivityModel:
         return f"tool:{name}#{k}"
 
     @staticmethod
+    def _tool_identity(entry: Dict[str, Any]) -> tuple[str, bool]:
+        """(id, is_unique). The runtime's `call_uid` is unique per executed call; the
+        model's `call_id` is only a per-response number ("0", "0", "0" over three
+        turns), so it may name a row ONLY while that row is still running."""
+        uid = str(entry.get("call_uid") or "").strip()
+        if uid:
+            return uid, True
+        return str(entry.get("call_id") or "").strip(), False
+
+    @staticmethod
     def _tool_args(entry: Dict[str, Any]) -> Any:
         args = entry.get("arguments")
         if isinstance(args, dict) or (isinstance(args, str) and args.strip()):
@@ -563,10 +573,17 @@ class RunActivityModel:
             if not name:
                 continue
             call_id = str(entry.get("call_id") or "").strip()
+            identity, unique = self._tool_identity(entry)
             args = self._tool_args(entry)
-            step_id = self._tool_step_id(name, call_id)
+            step_id = self._tool_step_id(name, identity)
             ts = str(entry.get("ts") or payload.get("ts") or "").strip()
             step = self.step(step_id)
+            if step is not None and not unique and step.status != "running":
+                # A reused model id: the row it names already FINISHED, so this is a
+                # new call. Updating that row would overwrite the first tool with
+                # the second (the footer said 3 tools, the card showed 1).
+                step_id = self._tool_step_id(name, "")
+                step = None
             title_plain = compact_tool_call_label(name, args)
             title_html = compact_tool_call_label_html(name, args)
             args_text = str(entry.get("arguments_text") or "") or _args_text(args)
@@ -608,14 +625,17 @@ class RunActivityModel:
             match = re.match(r"\s*\[([^\]]+)\]:", str(message.get("content") or ""))
             name = _one_line(match.group(1)) if match else "tool"
         call_id = str(meta.get("call_id") or "").strip()
+        identity, unique = self._tool_identity(meta)
         ts = str(message.get("ts") or payload.get("ts") or "").strip()
         content = str(message.get("content") or "")
         success = meta.get("success")
         error = str(meta.get("error") or "").strip()
 
         step: Optional[ActivityStep] = None
-        if call_id:
-            step = self.step(f"tool:{call_id}")
+        if identity:
+            step = self.step(f"tool:{identity}")
+            if step is not None and not unique and step.status != "running":
+                step = None  # that row belongs to an earlier call with the same number
         if step is None:
             for candidate in self.steps:  # FIFO: the oldest running call by name
                 if (
@@ -629,9 +649,12 @@ class RunActivityModel:
             args = meta.get("arguments")
             if args is None:
                 args = meta.get("args")
+            fresh_id = self._tool_step_id(name, identity)
+            if self.step(fresh_id) is not None:
+                fresh_id = self._tool_step_id(name, "")
             step = self._append(
                 ActivityStep(
-                    step_id=self._tool_step_id(name, call_id),
+                    step_id=fresh_id,
                     kind="tool",
                     title_plain=compact_tool_call_label(name, args),
                     title_html=compact_tool_call_label_html(name, args),

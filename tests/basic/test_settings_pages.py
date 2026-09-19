@@ -250,7 +250,8 @@ def test_voice_page_saves_conversation_options() -> None:
     dlg.show_section("voice")
     page = dlg.page_voice
     assert "MacBook Pro Speakers" in page.device_summary.text()
-    page.voice_mode_full.setChecked(True)
+    # Barge-in is a list, like every other choice on the page (2026-09-18).
+    page.voice_mode_combo.setCurrentIndex(page.voice_mode_combo.findData("full"))
     page.voice_auto_send.setChecked(False)
     page._save()
     assert ctl.preferences.voice_mode == "full"
@@ -307,14 +308,18 @@ def test_no_settings_page_is_clipped_at_any_size() -> None:
 
 
 @pytest.mark.basic
-def test_the_route_actions_live_in_the_page_footer() -> None:
-    """Inside the card they were pushed off-screen; every other page's actions
-    are in the footer."""
+def test_the_models_page_has_no_actions_to_host() -> None:
+    """Reload / Reset to gateway / Apply were three buttons for one question.
+
+    Since 2026-09-18 a choice applies when it is made, "Gateway default" is the
+    first item of the provider list (so it IS the reset), and an empty list
+    retries itself when opened — leaving the footer nothing to hold. This
+    replaced the earlier contract that those three lived in the footer.
+    """
     dlg, _ = _dialog()
     page = dlg.page_models
-    labels = {b.text() for b in page.actions()}
-    assert {"Reload", "Reset to gateway", "Apply"} <= labels
-    assert page.footer_frame.isVisibleTo(page)
+    assert page.actions() == []
+    assert not page.footer_frame.isVisibleTo(page)
 
 
 @pytest.mark.basic

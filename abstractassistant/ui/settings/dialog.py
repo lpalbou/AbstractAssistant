@@ -1,9 +1,14 @@
 """The Settings window: a sidebar of sections and one page at a time.
 
 The dialog keeps the attribute names older code and tests reach for
-(`route_list`, `provider_combo`, `save_button`, `hotkey_enabled`, …) as
-aliases onto the page widgets, and the three route methods delegate to the
-route editor, so `test_settings_routes.py` runs unchanged.
+(`route_list`, `provider_combo`, `hotkey_enabled`, …) as aliases onto the page
+widgets.
+
+Deliberately NOT aliased any more: `route_mode_default` / `route_mode_custom`
+(the radio pair is gone — the provider list's first item is "Gateway default")
+and `save_button` / `reset_route_button` / `refresh_button` (a choice applies
+when it is made). An alias for a control that no longer exists would let a test
+pass against a UI the user cannot operate.
 """
 
 from __future__ import annotations
@@ -166,11 +171,9 @@ class SettingsDialog(QDialog):
         self.route_editor = editor
         for name in (
             "route_list", "route_label", "route_help", "route_state", "route_feedback",
-            "route_mode_default", "route_mode_custom", "route_mode_group",
             "provider_combo", "model_combo", "voice_combo", "voice_label",
-            "resolution_combo", "resolution_label", "show_advanced",
+            "reasoning_combo", "resolution_combo", "resolution_label", "show_advanced",
             "base_url_edit", "base_url_label", "options_edit", "options_label",
-            "refresh_button", "reset_route_button", "save_button",
         ):
             setattr(self, name, getattr(editor, name))
         conn = self.page_connection
@@ -222,12 +225,6 @@ class SettingsDialog(QDialog):
     @property
     def _route_rows(self) -> List[Any]:
         return self.route_editor.rows()
-
-    def _save_route(self) -> None:
-        self.route_editor._save_route()
-
-    def _reset_route_to_gateway(self) -> None:
-        self.route_editor._reset_route_to_gateway()
 
     def _refresh_models_for_provider(self, *, row=None) -> None:
         self.route_editor._refresh_models_for_provider(row=row)

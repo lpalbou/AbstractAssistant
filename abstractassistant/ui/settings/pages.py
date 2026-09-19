@@ -37,7 +37,6 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QRadioButton,
     QSizePolicy,
     QSpinBox,
     QVBoxLayout,
@@ -321,7 +320,10 @@ _REASONING_LABELS = {
 class ModelsPage(SettingsPage):
     title = "Models & reasoning"
     nav_title = "Models"
-    subtitle = "The gateway's defaults apply unless this app overrides them. Overrides stay on this device and ride each request; the gateway's shared defaults are never changed."
+    subtitle = (
+        "Every list starts with the gateway's own default. Pick anything else and it applies "
+        "to this app only — kept on this Mac, sent with each request, and never written to the gateway."
+    )
     icon = "cpu"
 
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
@@ -348,6 +350,26 @@ class ModelsPage(SettingsPage):
 # ================================================================== Voice
 
 
+class _OutputDeviceCombo(QComboBox):
+    """The device list, rebuilt every time it is opened.
+
+    Audio devices come and go while this window is open — glasses, headphones, a dock —
+    so a list captured when Settings was built is stale almost immediately. Repopulating
+    on open is what removes the need for a Refresh button.
+    """
+
+    def __init__(self, reload_devices, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._reload_devices = reload_devices
+
+    def showPopup(self) -> None:  # noqa: N802 - Qt override
+        try:
+            self._reload_devices()
+        except Exception:
+            pass
+        super().showPopup()
+
+
 class VoicePage(SettingsPage):
     title = "Voice"
     subtitle = "Speech runs on the gateway; audio is captured and played on this Mac."
@@ -369,29 +391,33 @@ class VoicePage(SettingsPage):
         self.stt_summary.setWordWrap(True)
         stt_button = button("Change…", "secondary", on_click=lambda: self.navigate.emit("models", "input.voice"))
         routes.add_row("Speech → text", self.stt_summary, trailing=[stt_button])
+        # WHICH SPEAKER. Until 2026-09-18 this row only NAMED the system default and
+        # offered a shortcut to macOS Sound settings — and playback did not reliably
+        # follow that default either, so replies came out of the built-in speakers
+        # while the user was wearing AR glasses, with nothing on screen saying so.
+        self.output_device_combo = _OutputDeviceCombo(
+            lambda: self._reload_output_devices(announce=False)
+        )
+        self.output_device_combo.setMinimumWidth(280)
+        is_macos = platform.system().lower() == "darwin"
+        routes.add_row(
+            "Output device",
+            self.output_device_combo,
+            trailing=[button("Test", "secondary", on_click=self._test_output_device)],
+            stretch_control=False,
+            help_text=(
+                "Where spoken replies play. The list is the devices this Mac can play to, "
+                "refreshed each time you open it. AirPlay speakers are not in it \u2014 macOS "
+                "does not offer them to apps \u2014 so pick them in the Sound menu and leave "
+                "this on \u201cSystem default\u201d, which follows whatever the Mac is using."
+                if is_macos
+                else "Where spoken replies play. \u201cSystem default\u201d follows the system output."
+            ),
+        )
         self.device_summary = QLabel("")
         self.device_summary.setObjectName("rowValue")
         self.device_summary.setWordWrap(True)
-        # The button opens macOS System Settings; elsewhere it did nothing at
-        # all, so it is not offered.
-        is_macos = platform.system().lower() == "darwin"
-        trailing = []
-        if is_macos:
-            trailing.append(
-                button("Sound settings…", "secondary", on_click=self._open_sound_settings)
-            )
-        routes.add_row(
-            "Output device",
-            self.device_summary,
-            trailing=trailing,
-            help_text=(
-                "Playback follows the Mac's default output; a headset or a muted "
-                "output makes a working voice inaudible."
-                if is_macos
-                else "Playback follows the system default output; a headset or a "
-                "muted output makes a working voice inaudible."
-            ),
-        )
+        routes.add_row("Playing on", self.device_summary)
 
         behaviour = self.add_card(Card("Replies"))
         self.auto_speak = QCheckBox("Speak replies automatically")
@@ -417,18 +443,15 @@ class VoicePage(SettingsPage):
         conversation.add_row("Sending", self.voice_auto_send, help_text="Off: your words land in the message box and Return sends them.")
         self.voice_spoken_replies = QCheckBox("Ask for short, spoken-style replies")
         conversation.add_row("Reply style", self.voice_spoken_replies, help_text="Adds a voice-style instruction to each request while the conversation runs.")
-        self.voice_mode_wait = QRadioButton("Pause the mic while speaking")
-        self.voice_mode_full = QRadioButton("Keep the mic open")
-        modes = QVBoxLayout()
-        modes.setContentsMargins(0, 0, 0, 0)
-        modes.setSpacing(6)
-        modes.addWidget(self.voice_mode_wait)
-        modes.addWidget(self.voice_mode_full)
-        host = QWidget()
-        host.setLayout(modes)
+        # A two-option question is a list, like every other choice in Settings —
+        # not a stack of radio buttons that has to be read twice to be answered.
+        self.voice_mode_combo = QComboBox()
+        self.voice_mode_combo.addItem("Pause the mic while speaking", "wait")
+        self.voice_mode_combo.addItem("Keep the mic open", "full")
         conversation.add_row(
             "Barge-in",
-            host,
+            self.voice_mode_combo,
+            stretch_control=False,
             help_text=(
                 "Pause on speakers; keep it open with headphones and say “stop” "
                 "to interrupt. With speakers, the open-mic option may transcribe "
@@ -447,8 +470,9 @@ class VoicePage(SettingsPage):
         self.voice_auto_send.setChecked(bool(safe_attr(prefs, "voice_auto_send", True)))
         self.voice_spoken_replies.setChecked(bool(safe_attr(prefs, "voice_spoken_replies", True)))
         mode = str(safe_attr(prefs, "voice_mode", "wait") or "wait")
-        self.voice_mode_full.setChecked(mode == "full")
-        self.voice_mode_wait.setChecked(mode != "full")
+        mode_index = self.voice_mode_combo.findData("full" if mode == "full" else "wait")
+        self.voice_mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
+        self._reload_output_devices(announce=False)
         self._refresh_summaries()
 
     def _refresh_summaries(self) -> None:
@@ -478,20 +502,86 @@ class VoicePage(SettingsPage):
                 bits.append(f"{volume}%")
             self.device_summary.setText(" · ".join(bits))
 
-    def _open_sound_settings(self) -> None:
-        if platform.system().lower() == "darwin":
-            QDesktopServices.openUrl(QUrl("x-apple.systempreferences:com.apple.Sound-Settings.extension"))
+    def _reload_output_devices(self, announce: bool = True) -> None:
+        """Fill the picker from the devices the system can see right now.
+
+        A device connected after launch is listed too, and labelled: PortAudio freezes
+        its device list at initialization, so the player re-enumerates when it must —
+        but the user has to be able to SEE the headset before choosing it.
+        """
+        prefs = _prefs(self.controller)
+        stored = str(safe_attr(prefs, "audio_output_device", "") or "").strip()
+        stored_name = str(safe_attr(prefs, "audio_output_device_name", "") or "").strip()
+        voice = safe_attr(self.controller, "voice_manager", None)
+        devices = safe_call(voice, "available_output_devices", default=[]) or []
+
+        combo = self.output_device_combo
+        combo.blockSignals(True)
+        combo.clear()
+        default_name = ""
+        for device in devices:
+            if getattr(device, "is_system_default", False):
+                default_name = str(getattr(device, "name", "") or "")
+                break
+        combo.addItem(f"System default ({default_name})" if default_name else "System default", "")
+        seen = {""}
+        for device in devices:
+            key = str(getattr(device, "key", "") or "")
+            name = str(getattr(device, "name", "") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            label = name if getattr(device, "index", None) is not None else f"{name} (connected after launch)"
+            combo.addItem(label, key)
+        if stored and stored not in seen:
+            # Chosen once, not here now: keep it selectable so the choice is not
+            # silently lost the moment the headset is unplugged.
+            combo.addItem(f"{stored_name or stored} (not connected)", stored)
+        index = combo.findData(stored)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+        if announce:
+            self._refresh_summaries()
+
+    def _test_output_device(self) -> None:
+        voice = safe_attr(self.controller, "voice_manager", None)
+        if voice is None or not callable(getattr(voice, "play_test_tone", None)):
+            self.say("Audio playback is unavailable in this build.", tone="error")
+            return
+        spec = str(self.output_device_combo.currentData() or "")
+        label = self.output_device_combo.currentText()
+        try:
+            problem = str(voice.play_test_tone(spec) or "")
+        except Exception as exc:  # a settings button must never take the app down
+            problem = str(exc)
+        if problem:
+            self.say(problem, tone="error")
+        else:
+            self.say(f"Played a test tone on {label}.")
 
     def _save(self) -> None:
+        device_key = str(self.output_device_combo.currentData() or "")
+        device_name = ""
+        if device_key:
+            voice = safe_attr(self.controller, "voice_manager", None)
+            for device in (safe_call(voice, "available_output_devices", default=[]) or []):
+                if str(getattr(device, "key", "") or "") == device_key:
+                    device_name = str(getattr(device, "name", "") or "")
+                    break
+            if not device_name:
+                device_name = str(safe_attr(_prefs(self.controller), "audio_output_device_name", "") or "")
         ok = _update_prefs(
             self.controller,
             auto_speak=bool(self.auto_speak.isChecked()),
             voice_quality=str(self.voice_quality_combo.currentData() or "standard"),
             voice_auto_send=bool(self.voice_auto_send.isChecked()),
             voice_spoken_replies=bool(self.voice_spoken_replies.isChecked()),
-            voice_mode="full" if self.voice_mode_full.isChecked() else "wait",
+            voice_mode=str(self.voice_mode_combo.currentData() or "wait"),
+            audio_output_device=device_key,
+            audio_output_device_name=device_name,
         )
         if ok:
+            self._refresh_summaries()
             self.say("Saved on this device.")
             self.changed.emit()
         else:

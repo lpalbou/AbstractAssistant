@@ -6,6 +6,30 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## [Unreleased]
 
 ### Added
+- **Choose which speaker the assistant talks to.** Settings → Voice now has a plain dropdown of
+  the devices this Mac can play to — “System default”, or any of them by name — with a **Test**
+  button that plays a short tone on the selected one before you commit to it. The list rebuilds
+  every time you open it, so a headset plugged in a moment ago is simply there. The row used to
+  be read-only text with a button that sent you out to macOS Sound settings; it no longer leaves
+  the app. Your choice is remembered per device rather than per position, so it survives reboots
+  and reconnections, and a device that is unplugged stays selected and is shown as “not
+  connected” instead of being silently forgotten. A row underneath names the speaker replies will
+  actually use. AirPlay speakers are not in the list — macOS does not offer them to apps — so
+  pick those in the Sound menu and leave this on “System default”, which follows the Mac.
+- **Files and links in an answer are clickable.** When the assistant says "the video is saved at
+  `/Users/…/clip.mp4`", the path is now a link, and the file also appears as a small chip under
+  the answer — a thumbnail for a picture, otherwise an icon with the name, kind and size — one
+  click to open. It works however the model writes it: in backticks, in plain text, or alone in
+  a code block; web addresses in backticks link too. Hovering says what a click will do;
+  right-click offers Open, Show in Finder and Copy Path; ⌘-click always shows the file in Finder.
+  Commands and code listings that merely mention a path are left exactly as written.
+- **A click can open a file, never run one.** What the assistant writes may be repeating a web
+  page, so its links are treated as untrusted. Pictures, video, audio and documents open
+  normally; text and source files open in your text editor (never "with their default app",
+  which for a script can mean running it); anything else — apps, scripts, installers, shortcuts,
+  unknown types — is only shown in Finder. A link to a file on another computer is refused, and a
+  shortcut is judged by what it really points to. Before this, the message area handed every link
+  straight to macOS; the buttons the assistant can add under an answer now follow the same rules.
 - **A theme picker, under Settings → Appearance.** The choice applies to every window — chat,
   settings, dialogs, the approval sheet, the session switcher — takes effect immediately, and is
   remembered on this Mac.
@@ -44,6 +68,44 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   *generates* still get the full gallery: those are the answer, not an input.
 
 ### Fixed
+- **Launching the app could freeze the gateway for a minute and make the next answers slow.**
+  At launch the app checks that the gateway has its workflow and republishes it when the
+  stored copy differs. Nothing said which copy was NEWER, so two builds of the app on one Mac —
+  an installed one and a newer one — each "corrected" the other on every launch. Each republish
+  makes the gateway rebuild itself: about a minute of "Connecting to gateway…", and everything
+  it had cached for your conversations thrown away, which is why a follow-up question could
+  take two minutes instead of a few seconds. The workflow now carries a revision number and a
+  build never replaces a newer one; it simply uses it. (An app built before this change still
+  does; rebuilding it ends the back-and-forth.)
+- **Running the test suite could rewrite a live gateway's workflow.** Several interface tests
+  build a real app window, which connects using the gateway address and token found in the
+  environment — on a developer machine, the real local gateway. The suite now removes those
+  settings before anything starts and refuses network connections to the gateway port and to
+  anything outside the machine, with a test that checks the refusal itself.
+- **Spoken replies came out of the MacBook Pro speakers whatever you selected.** With the Mac's
+  sound output set to AR glasses or headphones, the assistant still spoke through the built-in
+  speakers, and nothing on screen said so — Settings even displayed the wrong device name. The
+  audio engine resolves “the default output” once, when the app starts, and never revisits it,
+  so any change you made afterwards was invisible to it. The app now asks macOS which device is
+  current each time it speaks, and opens that one explicitly. If the device you picked is not
+  available, replies fall back to the system default **and say so** instead of playing somewhere
+  you are not listening.
+- **"tools : 3" under an answer, one tool in the list it opens.** The assistant had used three
+  tools; the *Tools used* window showed the first and dropped the rest, and while the answer was
+  being written the activity card showed a single tool stuck on "running". Many models number
+  their tool calls per reply — 0, 0, 0 across three replies — and the app took that number for a
+  unique id, so the second and third call looked like repeats of the first. Calls are now told
+  apart by the id the gateway gives each one. Every tool is listed, each with its own result, in
+  the window, in the live activity card and in *Files affected*; answers already in your history
+  are corrected the next time you open their tools list.
+- **Every message waited 12-28 seconds before the assistant even started on it.** Before it
+  answers, the assistant makes one small routing decision — chat, image, voice, video… That step
+  was unintentionally handed all of the agent's tools (30 of them) along with the agent's
+  temperature, which made the framework run it as two generations instead of one and read ~4,600
+  tokens where about 300 were meant. On a 27B local model that was most of the delay on short
+  questions, and it grew with every turn. The routing step now runs with no tools and at its own
+  temperature; replayed on a small local model it takes about a second, and stays there. The app
+  republishes its workflow on the next launch — nothing to do by hand.
 - **"All auto" / "All ask" no longer touch tools hidden by the search filter** — with a filter
   applied they could pre-approve a mutating tool that was not on screen. They now apply only to
   what is visible and say how many were left alone.

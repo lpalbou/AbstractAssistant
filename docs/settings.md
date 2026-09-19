@@ -32,11 +32,18 @@ session out).
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
 
-For each route the state line shows two facts: the gateway default (with the route it is derived
-from when the gateway says so) and what this app uses. `Use gateway default` stores nothing;
-`Override for this app` requires both a provider and a model. Provider, model and voice catalogs
-are read from the gateway. The chat route accepts an optional provider base URL; the voice route
-adds a voice picker. `Reset to gateway` drops the override.
+Each route is three lists — Provider, Model and (for the chat route) Reasoning — and the first
+item of every one of them is **Gateway default**. There is no mode to switch and no Apply: a
+choice applies the moment it is made, and selecting `Gateway default` for the provider is how a
+route goes back to following the gateway. An override needs both a provider and a model, so a
+provider on its own stores nothing and the page says which half is missing.
+
+The state line above the lists shows two facts: the gateway default (with the route it is derived
+from when the gateway says so) and what this app uses. Provider, model and voice catalogs are read
+from the gateway; when it cannot be reached the lists hold `Gateway default` alone, say why, and
+re-fetch when you open them again — a previously saved choice stays selected and marked `(saved)`
+rather than being discarded. The chat route accepts an optional provider base URL; the voice route
+adds a voice picker.
 
 Where overrides travel: the chat model rides the run input (top-level pins and `_runtime`);
 voice overrides ride each speech request; image, video, music and sound overrides ride the
@@ -48,12 +55,12 @@ nearest supported level.
 | Control | Meaning | Stored |
 |---|---|---|
 | Text → speech / Speech → text | The engines that speak and listen, with "gateway default" or "this app"; `Change…` opens the route in Models & reasoning | gateway / this app |
-| Output device | The Mac's current default output and volume; playback follows the system output | read locally |
+| Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Auto-speak final answers (also the speaker toggle in the header) | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
 | Send each utterance automatically | Conversation mode: send what you say as a turn; off, words land in the message box | this app `voice_auto_send` |
 | Ask for short, spoken-style replies | Adds a voice-style instruction to each request while a conversation runs | this app `voice_spoken_replies` |
-| Barge-in | Pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
+| Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
 
 See [voice.md](voice.md) for how the conversation loop behaves.
 

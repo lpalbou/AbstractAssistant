@@ -221,6 +221,15 @@ class AssistantPreferences:
     # (speakers: the assistant never transcribes itself; no barge-in), "full"
     # keeps the mic open so a spoken "stop" interrupts (headphones).
     voice_mode: str = "wait"
+    # WHICH SPEAKER spoken replies come out of. "" follows the Mac's current
+    # default output; otherwise a device UID (`BuiltInSpeakerDevice`,
+    # `AppleUSBAudioEngine:XREAL:…`), which survives reboots and reconnections in a
+    # way an index never does. A pinned device that is not connected falls back to
+    # the system default AND says so — it never plays somewhere else in silence.
+    audio_output_device: str = ""
+    # The device's human name as it was when chosen, so Settings can show
+    # "Sony WH-1000XM5 (not connected)" instead of a bare UID.
+    audio_output_device_name: str = ""
     # Colour theme, shared with the framework's other clients (see ui_themes).
     ui_theme: str = "abstract-glass"
     # Reading comfort in the transcript. Sizes are px, line height is a
@@ -266,6 +275,8 @@ class AssistantPreferences:
             voice_auto_send=bool(raw.get("voice_auto_send", True)),
             voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
             voice_mode=normalize_voice_mode(raw.get("voice_mode")),
+            audio_output_device=str(raw.get("audio_output_device") or "").strip(),
+            audio_output_device_name=str(raw.get("audio_output_device_name") or "").strip(),
             ui_theme=normalize_ui_theme(raw.get("ui_theme")),
             text_size=_clamp_int(raw.get("text_size"), 13, 10, 22),
             line_spacing=_clamp_float(raw.get("line_spacing"), 1.20, 1.0, 2.2),
@@ -296,6 +307,8 @@ class AssistantPreferences:
             "voice_auto_send": bool(self.voice_auto_send),
             "voice_spoken_replies": bool(self.voice_spoken_replies),
             "voice_mode": normalize_voice_mode(self.voice_mode),
+            "audio_output_device": str(self.audio_output_device or "").strip(),
+            "audio_output_device_name": str(self.audio_output_device_name or "").strip(),
             "ui_theme": normalize_ui_theme(self.ui_theme),
             "text_size": _clamp_int(self.text_size, 13, 10, 22),
             "line_spacing": _clamp_float(self.line_spacing, 1.20, 1.0, 2.2),
