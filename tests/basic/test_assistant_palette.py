@@ -1017,7 +1017,9 @@ def test_assistant_palette_tool_status_budget_tracks_palette_width() -> None:
     large = AssistantPalette._tool_history_label_max_chars(palette)
 
     assert small < large
-    assert large >= 120
+    # The wide palette escapes the narrow cap (96 chars); the exact count
+    # depends on the platform font, so it is not pinned here.
+    assert large > 96
 
 
 @pytest.mark.basic
@@ -3349,7 +3351,14 @@ def test_assistant_palette_tray_activation_opens_palette_on_primary_click() -> N
 
 
 @pytest.mark.basic
-def test_assistant_palette_tray_activation_opens_menu_only_on_context_click() -> None:
+@pytest.mark.parametrize("platform, expected", [("darwin", ["menu"]), ("win32", ["menu"]), ("linux", [])])
+def test_assistant_palette_tray_activation_opens_menu_only_on_context_click(
+    monkeypatch: pytest.MonkeyPatch, platform: str, expected: list
+) -> None:
+    # Linux desktops render the tray menu themselves, so the app must not pop a second one.
+    import abstractassistant.app as app_module
+
+    monkeypatch.setattr(app_module.sys, "platform", platform)
     events: list[str] = []
 
     class _Palette:
@@ -3364,7 +3373,7 @@ def test_assistant_palette_tray_activation_opens_menu_only_on_context_click() ->
         palette=_Palette(), menu=_Menu(), reason=QSystemTrayIcon.Context
     )
 
-    assert events == ["menu"]
+    assert events == expected
 
 
 class _GatewayWorkerStub:
