@@ -36,7 +36,7 @@ def _links(markdown: str) -> List[tuple[str, str]]:
 
 # --------------------------------------------------------------------------- detection
 
-CLIP = "/Users/albou/Pictures/macbook_pro_camera/capture_20260917_213045_0001.mp4"
+CLIP = "/Users/example/Pictures/macbook_pro_camera/capture_20260917_213045_0001.mp4"
 
 
 def test_the_reported_answer_gets_a_clickable_path() -> None:
@@ -71,7 +71,7 @@ def test_a_url_keeps_its_path_and_a_named_link_is_left_alone() -> None:
 
 
 def test_inline_code_links_only_when_the_whole_span_is_the_target() -> None:
-    assert _links("Run `ls /Users/albou/docs` first") == []          # a command, not a path
+    assert _links("Run `ls /Users/example/docs` first") == []          # a command, not a path
     assert _links("Open `https://abstractframework.ai`") == [("https://abstractframework.ai", "https://abstractframework.ai")]
     assert _links("`/usr/bin/env python`") == []                      # spaced, and does not exist
 
@@ -86,7 +86,7 @@ def test_a_spaced_path_in_backticks_links_only_if_it_exists(tmp_path: Path) -> N
 
 
 def test_fenced_code_is_never_rewritten() -> None:
-    markdown = "```bash\ncat /Users/albou/secret.txt\ncurl https://example.com/x\n```"
+    markdown = "```bash\ncat /Users/example/secret.txt\ncurl https://example.com/x\n```"
     assert _links(markdown) == []
 
 
@@ -97,7 +97,7 @@ def test_the_label_is_the_path_as_written_so_a_selection_copies_a_real_path() ->
 
 
 def test_hrefs_are_percent_encoded_and_round_trip() -> None:
-    path = "/Users/albou/Mes Vidéos/été #1.mp4"
+    path = "/Users/example/Mes Vidéos/été #1.mp4"
     href = lt.file_href(path)
     assert " " not in href and "#" not in href
     assert lt.local_path_from_href(href) == path
@@ -311,7 +311,7 @@ def test_compiler_style_line_suffix_links_the_file_not_the_suffix(tree: Path) ->
     [
         "PATH=/usr/local/bin:/usr/bin:/bin",          # one link over a list is wrong
         "scp build@ci:/Users/ci/out/app.zip .",       # another machine
-        "C:/Users/albou/file.txt",                    # Windows
+        "C:/Users/example/file.txt",                    # Windows
         "${HOME}/tmp/out.txt and $TMPDIR/tmp/run.json",  # template tails
         "Delete /Users/a/build/*.txt",                # glob
         "rm /tmp/cache/file?.bin",
@@ -347,7 +347,7 @@ def test_detection_is_linear_in_hostile_input() -> None:
 
 
 def test_a_path_longer_than_path_max_is_not_linked_as_a_stump() -> None:
-    long_path = "/Users/albou/" + "/".join(f"segment_{i:03d}" for i in range(120)) + "/file.txt"
+    long_path = "/Users/example/" + "/".join(f"segment_{i:03d}" for i in range(120)) + "/file.txt"
     assert len(long_path) > 1024
     assert _paths(f"see {long_path} ok") == []
 
