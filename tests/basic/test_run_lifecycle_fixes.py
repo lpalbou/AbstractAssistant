@@ -153,6 +153,7 @@ def _worker(gateway, **extra) -> GatewayWorker:
     worker._base_url_override = ""
     worker._media_overrides = None
     worker._thinking = ""
+    worker._speculation = None
     worker._workspace_root = extra.get("workspace_root", "")
     worker._workspace_access_mode = ""
     worker._workspace_allowed_paths = []

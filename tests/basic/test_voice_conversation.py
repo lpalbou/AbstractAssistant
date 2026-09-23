@@ -98,6 +98,24 @@ def test_start_failure_is_an_error_state_with_the_cause() -> None:
 
 
 @pytest.mark.basic
+@pytest.mark.parametrize("state", ["speaking", "paused"])
+def test_typed_send_during_reply_ignores_late_audio_completion(state):
+    conv, voice, sent, _states = _loop()
+    conv.start()
+    conv.heard("first question")
+    conv.run_finished(will_speak=True)
+    conv.state = state
+    conv.mark_sent()
+    assert conv.state == "thinking"
+    assert conv.turns == 2
+    assert voice.paused
+    conv.speech_finished()
+    assert conv.state == "thinking"
+    assert voice.paused
+    assert sent == ["first question"]
+
+
+@pytest.mark.basic
 def test_full_turn_listen_send_think_speak_listen() -> None:
     conv, _voice, sent, states = _loop()
     conv.start()

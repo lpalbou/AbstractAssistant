@@ -234,6 +234,26 @@ class _QueuedInProcessPlayerStub(_InProcessPlayerStub):
             self.on_audio_start()
 
 
+@pytest.mark.basic
+def test_stream_playback_timeout_is_reported_and_stopped(monkeypatch):
+    gateway = _StreamingGatewayStub()
+    vm = GatewayVoiceManager(llm_manager=_ManagerStub(gateway))
+    player = _InProcessPlayerStub()
+    errors, completed = [], []
+    vm.on_speech_error = errors.append
+    monkeypatch.setattr(vm, "_audio_player_available", lambda: True)
+    monkeypatch.setattr(vm, "_supports_inprocess_audio_player", lambda: True)
+    monkeypatch.setattr(vm, "_ensure_inprocess_audio_player", lambda: player)
+    monkeypatch.setattr(vm, "_wait_for_stream_playback_drain", lambda *a, **kw: False)
+    with pytest.warns(UserWarning, match="local audio output did not finish"):
+        assert vm.speak("hello", callback=lambda: completed.append(True))
+        assert _wait_for(lambda: bool(completed))
+    assert len(errors) == 1
+    assert completed == [True]
+    assert player.stop_calls == 1
+    assert not vm.is_speaking()
+
+
 def _wav_bytes() -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:

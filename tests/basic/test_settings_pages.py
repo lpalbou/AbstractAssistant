@@ -191,6 +191,40 @@ def test_reasoning_dial_falls_back_to_the_contract_ladder_without_a_gateway() ->
 
 
 @pytest.mark.basic
+def test_mtp_selector_preserves_off_and_rejects_stale_discovery(tmp_path) -> None:
+    dlg, ctl = _dialog()
+    dlg.show_section("models", "output.text")
+    editor = dlg.page_models.route_editor
+    combo = editor.speculation_combo
+    assert [combo.itemData(i) for i in range(combo.count())] == [None, False]
+    assert "unknown" in editor.speculation_note.text()
+    payload = {"execution": {"speculation": {
+        "supported": True, "ready": False, "reason": "head_not_loaded",
+        "supported_depths": [2, 3, 4, 5], "default": {"mode": "native_mtp", "num_draft_tokens": 2},
+        "requires_reload": True,
+    }}}
+    editor._apply_speculation_payload(editor._speculation_epoch, payload)
+    assert combo.count() == 6
+    assert "depth 2" in combo.itemText(0)
+    combo.setCurrentIndex(1)
+    assert ctl.preferences.speculation is False
+    editor._apply_speculation_payload(editor._speculation_epoch - 1, {})
+    assert combo.count() == 6
+    assert combo.currentData() is False
+    combo.setCurrentIndex(3)
+    assert ctl.preferences.speculation == {"mode": "native_mtp", "num_draft_tokens": 3, "require_acceleration": True}
+    editor._apply_speculation_payload(editor._speculation_epoch, {})
+    assert combo.currentText() == "Depth 3 (saved; unavailable)"
+    combo.setCurrentIndex(0)
+    assert ctl.preferences.speculation is None
+    editor._apply_speculation_payload(editor._speculation_epoch, payload)
+    dlg.show()
+    _app().processEvents()
+    assert editor.grab().save(str(tmp_path / "assistant-mtp-selector.png"))
+    dlg.close()
+
+
+@pytest.mark.basic
 def test_workspace_page_refuses_relative_paths_and_auto_switches_mode() -> None:
     dlg, ctl = _dialog()
     page = dlg.page_workspace

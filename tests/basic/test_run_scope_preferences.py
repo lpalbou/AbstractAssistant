@@ -155,6 +155,7 @@ def test_controller_build_chat_worker_passes_run_scope_from_preferences(monkeypa
     captured: dict = {}
     prefs = AssistantPreferences(
         reasoning_effort="xhigh",
+        speculation=False,
         workspace_root="/Users/me/site",
         workspace_access_mode="workspace_only",
         workspace_allowed_paths=["/srv/data"],
@@ -164,6 +165,7 @@ def test_controller_build_chat_worker_passes_run_scope_from_preferences(monkeypa
     controller.build_chat_worker(prompt="Hello")
 
     assert captured["thinking"] == "xhigh"
+    assert captured["speculation"] is False
     assert captured["workspace_root"] == "/Users/me/site"
     assert captured["workspace_access_mode"] == "workspace_only"
     assert captured["workspace_allowed_paths"] == ["/srv/data"]

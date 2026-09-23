@@ -29,10 +29,11 @@ session out).
 | Control | Meaning | Stored |
 |---|---|---|
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
+| MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
 
-Each route is three lists — Provider, Model and (for the chat route) Reasoning — and the first
+Each route has Provider and Model lists, plus Reasoning and MTP depth for the chat route. The first
 item of every one of them is **Gateway default**. There is no mode to switch and no Apply: a
 choice applies the moment it is made, and selecting `Gateway default` for the provider is how a
 route goes back to following the gateway. An override needs both a provider and a model, so a
@@ -48,7 +49,15 @@ adds a voice picker.
 Where overrides travel: the chat model rides the run input (top-level pins and `_runtime`);
 voice overrides ride each speech request; image, video, music and sound overrides ride the
 managed workflow's input pins. A level the model cannot honor is mapped by AbstractCore to the
-nearest supported level.
+nearest supported reasoning level.
+
+MTP is native multi-token prediction, not a reasoning level. Its choices come from the
+gateway's execution capability card, not the model's name. The app shows whether the head is
+ready or a reload is needed; an unavailable saved choice remains visible. Selecting a depth
+requests that exact depth with `require_acceleration=true`: the execution host must honor it
+or report an error, not silently run without MTP. This control neither downloads a head nor
+changes the gateway's shared default. Leaving it on Gateway default follows the Core policy
+on the execution host (fresh configurations use depth 2 only for compatible models).
 
 ## Voice
 

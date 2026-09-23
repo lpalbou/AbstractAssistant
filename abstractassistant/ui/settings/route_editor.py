@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import threading
 from typing import Any, Callable, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -48,6 +49,7 @@ from PyQt5.QtWidgets import (
 
 from ...gateway_service import ROUTE_SPECS, CapabilityRouteRow
 from ...preferences import REASONING_EFFORT_LEVELS
+from ...speculation import speculation_options
 from ...theme import THEME
 from .common import LABEL_COLUMN_MIN, safe_attr, safe_call
 
@@ -145,6 +147,7 @@ class RouteOverrideEditor(QWidget):
     """Route list + override form. ``changed`` fires after a choice is applied."""
 
     changed = pyqtSignal()
+    _speculation_loaded = pyqtSignal(int, object)
 
     # Item 0 of the provider list. Choosing it is how a route goes back to the
     # gateway default — there is no separate reset.
@@ -165,6 +168,8 @@ class RouteOverrideEditor(QWidget):
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._controller = controller
+        self._speculation_epoch = 0
+        self._speculation_loaded.connect(self._apply_speculation_payload)
         self._route_rows: List[CapabilityRouteRow] = []
         self._gateway_default_by_key: Dict[str, CapabilityRouteRow] = {}
 
@@ -248,6 +253,16 @@ class RouteOverrideEditor(QWidget):
         self.reasoning_note.setWordWrap(False)
         self.reasoning_note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         form.addWidget(self.reasoning_note, 4, 1)
+        self.speculation_label = QLabel("MTP depth")
+        self.speculation_combo = QComboBox()
+        self.speculation_combo.currentIndexChanged.connect(self._on_speculation_changed)
+        self.speculation_note = QLabel("")
+        self.speculation_note.setObjectName("routeHelp")
+        self.speculation_note.setTextFormat(Qt.PlainText)
+        self.speculation_note.setWordWrap(True)
+        form.addWidget(self.speculation_label, 5, 0)
+        form.addWidget(self.speculation_combo, 5, 1)
+        form.addWidget(self.speculation_note, 6, 1)
 
         # Hidden: the per-run override pins carry provider/model only, so an
         # upscale resolution would be saved and silently ignored.
@@ -472,6 +487,7 @@ class RouteOverrideEditor(QWidget):
         self.voice_combo.setEnabled(enabled)
         self.resolution_combo.setEnabled(enabled)
         self.reasoning_combo.setEnabled(enabled)
+        self.speculation_combo.setEnabled(enabled)
 
     def _route_dot_icon(self, *, configured: bool) -> QIcon:
         size = 10
@@ -836,6 +852,51 @@ class RouteOverrideEditor(QWidget):
         prefs = _prefs(self._controller)
         self.reasoning_note.setText(self._reasoning_caption(str(safe_attr(prefs, "reasoning_effort", value) or "")))
 
+    def _refresh_speculation(self) -> None:
+        self._speculation_epoch += 1
+        epoch = self._speculation_epoch
+        self._apply_speculation_payload(epoch, {})
+        route = self._effective_chat_route()
+        fetch = getattr(self._controller, "execution_capabilities", None)
+        if not callable(fetch) or not route.get("model"):
+            return
+        self.speculation_note.setText("Checking MTP capability…")
+        # Discovery is read-only and stays off the Qt thread. Stale results from
+        # another provider/model selection can never replace the current choices.
+        def discover():
+            try:
+                payload = fetch(route.get("provider", ""), route["model"])
+            except Exception as exc:
+                payload = {"error": str(exc)}
+            try:
+                self._speculation_loaded.emit(epoch, payload)
+            except RuntimeError:
+                pass  # Widget closed while the read was in flight.
+        threading.Thread(target=discover, name="assistant-mtp-discovery", daemon=True).start()
+
+    def _apply_speculation_payload(self, epoch: int, payload: Any) -> None:
+        if epoch != self._speculation_epoch:
+            return
+        current = safe_attr(_prefs(self._controller), "speculation", None)
+        options, note = speculation_options(payload, current)
+        self.speculation_combo.blockSignals(True)
+        self.speculation_combo.clear()
+        selected = 0
+        for index, (value, label) in enumerate(options):
+            self.speculation_combo.addItem(label, value)
+            if value == current:
+                selected = index
+        self.speculation_combo.setCurrentIndex(selected)
+        self.speculation_combo.blockSignals(False)
+        self.speculation_note.setText(str(payload.get("error") or note) if isinstance(payload, dict) else note)
+
+    def _on_speculation_changed(self, _index: int) -> None:
+        value = self.speculation_combo.currentData()
+        if _update_prefs(self._controller, speculation=value):
+            self.changed.emit()
+        else:
+            self._feedback("Could not save the MTP override.", tone="error")
+
     def _feedback(self, text: str, *, tone: str = "") -> None:
         self.route_feedback.setText(str(text or ""))
         self.route_feedback.setProperty("tone", tone or "")
@@ -844,10 +905,12 @@ class RouteOverrideEditor(QWidget):
 
     def _apply_route_specific_state(self, row: CapabilityRouteRow) -> None:
         is_chat = row.key == "output.text"
-        for widget in (self.reasoning_label, self.reasoning_combo, self.reasoning_note):
+        for widget in (self.reasoning_label, self.reasoning_combo, self.reasoning_note,
+                       self.speculation_label, self.speculation_combo, self.speculation_note):
             widget.setVisible(is_chat)
         if is_chat:
             self._refresh_reasoning()
+            self._refresh_speculation()
         is_voice = row.key == "output.voice"
         self.voice_label.setVisible(is_voice)
         self.voice_combo.setVisible(is_voice)
@@ -968,6 +1031,19 @@ class RouteOverrideEditor(QWidget):
             if updated.key == "output.text":
                 # The reasoning caption names the model it applies to.
                 self._set_reasoning_note(self._reasoning_caption(str(self.reasoning_combo.currentData() or "")))
+                # MTP depth and the reasoning LEVELS are properties of the
+                # provider/model just chosen, not of the page. Both were
+                # discovered ONLY in `_load_selected_route`, so repainting the
+                # caption here while leaving the combos alone left them
+                # answering for the PREVIOUS route: with no override yet that
+                # route is provider "", which the gateway reports as
+                # `native_mtp_backend_unavailable` with no depths -- so picking
+                # an MLX model with an MTP head offered nothing but "Off" until
+                # the page was closed and reopened.
+                # `_refresh_speculation` fetches off the GUI thread; the
+                # capability card `_refresh_reasoning` reads is controller-cached.
+                self._refresh_reasoning()
+                self._refresh_speculation()
         self._feedback(note, tone=tone)
         self.changed.emit()
 

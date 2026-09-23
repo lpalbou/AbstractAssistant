@@ -62,6 +62,7 @@ class GatewayWorker(QThread):
         base_url_override: Optional[str] = None,
         media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         thinking: str = "",
+        speculation: Any = None,
         workspace_root: str = "",
         workspace_access_mode: str = "",
         workspace_allowed_paths: Optional[List[str]] = None,
@@ -92,6 +93,8 @@ class GatewayWorker(QThread):
         # Run scope: reasoning effort (`_runtime.thinking`) and the local
         # workspace grant; blanks are omitted from the run input.
         self._thinking = str(thinking or "").strip().lower()
+        from abstractassistant.speculation import normalize_speculation
+        self._speculation = normalize_speculation(speculation)
         self._workspace_root = str(workspace_root or "").strip()
         self._workspace_access_mode = str(workspace_access_mode or "").strip().lower()
         self._workspace_allowed_paths = [
@@ -1142,6 +1145,7 @@ class GatewayWorker(QThread):
                     base_url=self._base_url_override,
                     media_overrides=self._media_overrides,
                     thinking=self._thinking,
+                    speculation=self._speculation,
                     workspace_root=self._workspace_root,
                     workspace_access_mode=self._workspace_access_mode,
                     workspace_allowed_paths=self._workspace_allowed_paths,

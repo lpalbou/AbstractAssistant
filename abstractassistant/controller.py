@@ -75,6 +75,7 @@ class AssistantController:
         self._workspace_policy_cache: Optional[Dict[str, Any]] = None
         self._workspace_policy_cache_at = 0.0
         self._model_capabilities_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._execution_capabilities_cache: Dict[tuple[str, str], tuple[float, Dict[str, Any]]] = {}
         self._route_map_cache: Optional[Dict[str, CapabilityRouteRow]] = None
         self._route_map_cache_at = 0.0
         self._cache_lock = threading.RLock()
@@ -149,6 +150,7 @@ class AssistantController:
             self._workspace_policy_cache = None
             self._workspace_policy_cache_at = 0.0
             self._model_capabilities_cache = {}
+            self._execution_capabilities_cache = {}
             self._route_map_cache = None
             self._route_map_cache_at = 0.0
 
@@ -346,6 +348,24 @@ class AssistantController:
             with self._cache_lock:
                 self._model_capabilities_cache[name] = (time.monotonic(), result)
         return dict(result)
+
+    def execution_capabilities(self, provider: str, model: str) -> Dict[str, Any]:
+        """Read-only instance-aware discovery; callers perform network work off the GUI thread."""
+        key = (str(provider or "").strip(), str(model or "").strip())
+        if not key[1]:
+            return {}
+        with self._cache_lock:
+            epoch = self._cache_epoch
+            cached = self._execution_capabilities_cache.get(key)
+            if cached is not None and self._cache_fresh(cached[0]):
+                return dict(cached[1])
+        payload = self.gateway.discovery_model_capabilities(provider=key[0], model_name=key[1])
+        result = dict(payload) if isinstance(payload, dict) else {}
+        with self._cache_lock:
+            if epoch != self._cache_epoch:
+                return {}
+            self._execution_capabilities_cache[key] = (time.monotonic(), result)
+        return result
 
     def workspace_policy(self) -> Dict[str, Any]:
         """The gateway's workspace policy as this principal sees it:
@@ -657,6 +677,7 @@ class AssistantController:
             base_url_override=str((text_override or {}).get("base_url") or "") or None,
             media_overrides=self.media_route_overrides() or None,
             thinking=str(scope.get("thinking") or ""),
+            speculation=scope.get("speculation"),
             workspace_root=str(scope.get("workspace_root") or ""),
             workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
             workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),

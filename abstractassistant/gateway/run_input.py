@@ -99,6 +99,7 @@ def build_run_input_data(
     base_url: str = "",
     media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     thinking: str = "",
+    speculation: Any = None,
     workspace_root: str = "",
     workspace_access_mode: str = "",
     workspace_allowed_paths: Optional[List[str]] = None,
@@ -178,6 +179,9 @@ def build_run_input_data(
     thinking_s = str(thinking or "").strip().lower()
     if thinking_s:
         runtime_ns["thinking"] = thinking_s
+    if speculation is not None:
+        from abstractassistant.speculation import normalize_speculation
+        runtime_ns["speculation"] = normalize_speculation(speculation)
 
     if isinstance(tool_policy, dict):
         auto_raw = tool_policy.get("auto_approve_tools") or tool_policy.get("autoApproveTools") or tool_policy.get("autoApprove")

@@ -12,6 +12,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from abstractassistant.config import DEFAULT_GATEWAY_URL
+from abstractassistant.speculation import normalize_speculation
+
+
+def _load_speculation(value: Any) -> Any:
+    """A saved MTP choice that no longer validates falls back to inheriting
+    the gateway default instead of making the preferences file unloadable."""
+    try:
+        return normalize_speculation(value)
+    except ValueError:
+        return None
 
 
 # Reasoning effort ladder — the gateway contract's `thinking_control.values`
@@ -206,6 +216,7 @@ class AssistantPreferences:
     # model cannot honor onto its nearest supported level (with a warning), so
     # a stale choice degrades, never fails.
     reasoning_effort: str = ""
+    speculation: Optional[Any] = None  # None inherits; False pins MTP off.
     # Local workspace scope for the run's tools, sent as the run-input pins
     # `workspace_root` / `workspace_access_mode` / `workspace_allowed_paths`.
     # The gateway sanitizes and may clamp them; blanks mean "server-managed".
@@ -269,6 +280,7 @@ class AssistantPreferences:
             },
             route_overrides=_normalize_route_overrides(raw.get("route_overrides")),
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
+            speculation=_load_speculation(raw.get("speculation")),
             workspace_root=normalize_workspace_path(raw.get("workspace_root")),
             workspace_access_mode=normalize_workspace_access_mode(raw.get("workspace_access_mode")),
             workspace_allowed_paths=_normalize_workspace_paths(raw.get("workspace_allowed_paths")),
@@ -301,6 +313,7 @@ class AssistantPreferences:
             },
             "route_overrides": _normalize_route_overrides(self.route_overrides),
             "reasoning_effort": normalize_reasoning_effort(self.reasoning_effort),
+            **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
@@ -321,6 +334,7 @@ class AssistantPreferences:
         """The per-run pins derived from these preferences (blank = omitted)."""
         return {
             "thinking": normalize_reasoning_effort(self.reasoning_effort),
+            **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),

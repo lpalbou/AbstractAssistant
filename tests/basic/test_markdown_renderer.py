@@ -214,13 +214,14 @@ def test_markdown_renderer_highlights_embedded_json_inside_bash_payloads() -> No
     )
 
     assert 'data-code-language="bash"' in html
+    # Pygments 2.21 emits bare quotes where older releases emitted &quot;.
     assert re.search(
-        r'style="color: #ff6fae[^"]*">&quot;model&quot;</span>',
+        r'style="color: #ff6fae[^"]*">(?:&quot;|")model(?:&quot;|")</span>',
         html,
         flags=re.I,
     )
     assert re.search(
-        r'style="color: #f2df6b[^"]*">&quot;gpt-5\.4-mini&quot;</span>',
+        r'style="color: #f2df6b[^"]*">(?:&quot;|")gpt-5\.4-mini(?:&quot;|")</span>',
         html,
         flags=re.I,
     )

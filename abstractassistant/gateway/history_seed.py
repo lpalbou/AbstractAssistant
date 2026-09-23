@@ -555,7 +555,14 @@ def _stats_are_richer(fresh: Dict[str, Any], existing: Dict[str, Any]) -> bool:
         old_tools = int(existing.get("tool_calls") or 0)
     except Exception:
         new_tools = old_tools = 0
-    return sum(new_tokens) > sum(old_tokens) or new_tools > old_tools
+    fresh_cache = fresh.get("prompt_cache") or {}
+    old_cache = existing.get("prompt_cache") or {}
+    richer_cache = (
+        new_tokens == old_tokens and new_tools >= old_tools
+        and int(fresh.get("llm_calls") or 0) == int(existing.get("llm_calls") or 0)
+        and int(fresh_cache.get("measured_calls") or 0) > int(old_cache.get("measured_calls") or 0)
+    )
+    return sum(new_tokens) > sum(old_tokens) or new_tools > old_tools or richer_cache
 
 
 def _attach_bundle_stats(messages: List[Dict[str, Any]], bundle: Dict[str, Any], *, run_id: str) -> None:

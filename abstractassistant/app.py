@@ -172,7 +172,7 @@ from .ui.approval import (
 )
 from .ui.dialogs import AskUserDialog
 from .ui.settings import SettingsDialog, ToolSettingsDialog
-from .ui.styles import dialog_stylesheet, scope_stylesheet
+from .ui.styles import chat_stylesheet, dialog_stylesheet, scope_stylesheet
 from .ui.voice_strip import VOICE_STRIP_HEIGHT, VoiceStrip
 
 _HTML_ACTION_FENCE_RE = re.compile(
@@ -464,6 +464,10 @@ def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
     }
     </style>
     """))
+    # A deliverable path is a link, not a code sample. Removing only this
+    # renderer-owned wrapper avoids a long highlighted slab across the reply;
+    # the complete selectable path and the link target remain intact.
+    base = re.sub(r'<code>(<a class="aa-file"\s[^>]*>[^<]*</a>)</code>', r'\1', base)
     return themed_override + base
 
 
@@ -1843,14 +1847,33 @@ def _capped_tooltip_lines(lines: List[str]) -> List[str]:
     return lines[: _TOOLTIP_MAX_LINES - 1] + [f"... and {hidden} more"]
 
 
-def _tokens_in_tooltip(usage: Dict[str, int], llm_calls: Optional[int]) -> str:
+def _cache_tooltip_lines(cache: Dict[str, Any], llm_calls: Optional[int]) -> List[str]:
+    cached = int(cache.get("cached_tokens") or 0)
+    new = int(cache.get("new_tokens") or 0)
+    measured = int(cache.get("measured_calls") or 0)
+    coverage = f"{measured} of {llm_calls}" if llm_calls is not None else str(measured)
+    return [
+        f"Measured cache usage · {coverage} model calls",
+        f"Reused from cache: {_format_metric_count(cached)} tokens",
+        f"Newly processed: {_format_metric_count(new)} tokens",
+        "Summed across the turn, including ReAct calls. Repeated context counts on each call.",
+        "Newly processed includes uncached history and tool results, not just your new message.",
+        "Measured counts can differ from the model’s reported input total.",
+    ]
+
+
+def _tokens_in_tooltip(usage: Dict[str, int], llm_calls: Optional[int], cache=None) -> str:
     lines = [
-        "Input tokens sent to the model for this answer.",
-        f"Exact: {_format_metric_count(usage['input_tokens'])} tokens",
+        "Reported input tokens across this turn.",
+        f"Total: {_format_metric_count(usage['input_tokens'])} tokens",
     ]
     if llm_calls is not None and llm_calls > 0:
         plural = "s" if int(llm_calls) != 1 else ""
         lines.append(f"LLM calls: {_format_metric_count(llm_calls)} call{plural}")
+    if isinstance(cache, dict) and cache.get("measured_calls"):
+        lines.extend(_cache_tooltip_lines(cache, llm_calls))
+    else:
+        lines.append("Cache reuse was not reported; it is not assumed to be zero.")
     return _tooltip_html(lines)
 
 
@@ -1911,16 +1934,18 @@ def _assistant_footer_metrics(message: Dict[str, Any]) -> List[Dict[str, Any]]:
     duration_ms = None
     llm_calls = None
     tool_calls = None
+    prompt_cache = None
 
     if isinstance(metadata, dict):
         usage = _parse_usage_summary(metadata.get("usage"))
         stats_meta = metadata.get("_assistant_stats")
         if isinstance(stats_meta, dict):
-            usage = usage or _parse_usage_summary(
+            prompt_cache = stats_meta.get("prompt_cache")
+            usage = _parse_usage_summary(
                 stats_meta.get("usage")
                 if isinstance(stats_meta.get("usage"), dict)
                 else stats_meta.get("tokens")
-            )
+            ) or usage
             duration_ms = _extract_duration_ms(stats_meta)
             llm_calls = _coerce_int(stats_meta.get("llm_calls"))
             tool_calls = _coerce_int(stats_meta.get("tool_calls"))
@@ -1981,7 +2006,7 @@ def _assistant_footer_metrics(message: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "kind": "tokens_in",
                     "label": f"input : {_format_metric_count(usage['input_tokens'])} tk",
                     "plain": f"input : {_format_metric_count(usage['input_tokens'])} tk",
-                    "tooltip": _tokens_in_tooltip(usage, llm_calls),
+                    "tooltip": _tokens_in_tooltip(usage, llm_calls, prompt_cache),
                     "clickable": False,
                 }
             )
@@ -2070,7 +2095,19 @@ def _assistant_footer_metrics(message: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "clickable": False,
             }
         )
-    return metrics[:6]
+    if isinstance(prompt_cache, dict) and prompt_cache.get("measured_calls"):
+        cached = int(prompt_cache.get("cached_tokens") or 0)
+        processed = cached + int(prompt_cache.get("new_tokens") or 0)
+        complete = llm_calls is not None and int(prompt_cache["measured_calls"]) == llm_calls
+        label = "Cache: partial"
+        if complete:
+            label = f"{cached / processed:.0%} reused" if processed else "Cache: no input"
+        metrics.insert(1 if usage is not None else 0, {
+            "kind": "cache", "label": label, "plain": label,
+            "tooltip": _tooltip_html(_cache_tooltip_lines(prompt_cache, llm_calls)),
+            "clickable": False,
+        })
+    return metrics
 
 
 def _assistant_footer_items(message: Dict[str, Any]) -> List[str]:
@@ -2078,6 +2115,25 @@ def _assistant_footer_items(message: Dict[str, Any]) -> List[str]:
         str(item.get("plain") or item.get("label") or "").strip()
         for item in _assistant_footer_metrics(message)
     ]
+
+
+def _metric_display_label(metric: Dict[str, Any]) -> str:
+    """Human-facing labels; exact counts and explanations stay in tooltips."""
+    label = str(metric.get("label") or "").strip()
+    kind = metric.get("kind")
+    if kind in {"tokens_in", "tokens_out", "tokens_total"}:
+        value = label.partition(" : ")[2].removesuffix(" tk")
+        return f"{value} { {'tokens_in': 'in', 'tokens_out': 'out', 'tokens_total': 'tokens'}[kind]}"
+    if kind in {"tools", "files"}:
+        value = label.partition(" : ")[2]
+        noun = str(kind)[:-1] if value == "1" else str(kind)
+        return f"{value} {noun}"
+    if kind == "duration" and re.fullmatch(r"\d+s", label):
+        seconds = int(label[:-1])
+        if seconds >= 60:
+            minutes, seconds = divmod(seconds, 60)
+            return f"{minutes}m {seconds:02d}s"
+    return label
 
 
 def _assistant_file_operations_for_message(
@@ -2190,9 +2246,9 @@ class AutoSizingTextBrowser(QTextBrowser):
 
     def refresh_height(self, width: Optional[int] = None) -> None:
         if width is None:
-            width = max(280, self.width() - 6)
+            width = max(1, self.viewport().width())
         else:
-            width = max(280, width)
+            width = max(1, width)
         self.document().setTextWidth(width)
         height = int(self.document().size().height()) + 4
         bounded = max(self._min_height, height)
@@ -2977,14 +3033,14 @@ class MessageCard(QFrame):
         super().__init__(parent)
         role = str(message.get("role") or "").strip()
         is_user = role == "user"
-        copy_tint = "#dfeffb" if is_user else "#8ea1b8"
+        copy_tint = THEME.text_secondary
         self._copy_icon = _symbol_icon("copy", color=copy_tint, size=17)
-        self._copied_icon = _symbol_icon("check", color="#5ed2a1", size=17)
-        self._voice_icon = _symbol_icon("speaker", color="#8ea1b8", size=17)
-        self._pause_icon = _symbol_icon("pause", color="#5ed2a1", size=17)
-        self._play_icon = _symbol_icon("play", color="#5ed2a1", size=17)
+        self._copied_icon = _symbol_icon("check", color=THEME.positive, size=17)
+        self._voice_icon = _symbol_icon("speaker", color=THEME.text_secondary, size=17)
+        self._pause_icon = _symbol_icon("pause", color=THEME.positive, size=17)
+        self._play_icon = _symbol_icon("play", color=THEME.positive, size=17)
         self._spinner_icons = [
-            _symbol_icon(f"spinner{idx}", color="#f0c979", size=17) for idx in range(8)
+            _symbol_icon(f"spinner{idx}", color=THEME.warning, size=17) for idx in range(8)
         ]
         self._spinner_frame = 0
         self._copy_button = None
@@ -3023,12 +3079,12 @@ class MessageCard(QFrame):
         except Exception:
             pass
         bubble_layout = QVBoxLayout(bubble)
-        bubble_layout.setContentsMargins(12, 10, 12, 10)
+        bubble_layout.setContentsMargins(12, 10, 12, 12)
         # User bubbles stay tight (timestamp hugs the text; the copy header has
         # its own internal padding), assistant bubbles keep block breathing room.
-        bubble_layout.setSpacing(0 if is_user else 4)
+        bubble_layout.setSpacing(0 if is_user else 8)
 
-        # Header: [stretch][timestamp][voice][copy] — the timestamp lives at
+        # Header: [assistant identity][stretch][timestamp][voice][copy]. The timestamp lives at
         # the upper right, co-located with the hover actions (operator ask
         # 2026-07-15: the old bottom stamp row cost a line of vertical space
         # per bubble). The stamp is always visible; the buttons fade in.
@@ -3036,7 +3092,12 @@ class MessageCard(QFrame):
         header_row.setContentsMargins(0, 0, 0, 0)
         header_row.setSpacing(6)
         bubble_layout.addLayout(header_row)
-        header_row.addStretch(1)
+        if not is_user:
+            identity = QLabel("✦  Assistant")
+            identity.setObjectName("messageRole")
+            header_row.addWidget(identity, 0, Qt.AlignVCenter)
+        if not is_user:
+            header_row.addStretch(1)
 
         ts_val = message.get("ts") or message.get("timestamp")
         if not ts_val:
@@ -3092,7 +3153,10 @@ class MessageCard(QFrame):
             )
             browser.setHtml(_user_html(self._content))
             browser.refresh_height()
-            bubble_layout.addWidget(browser)
+            # Short prompts share a row with their time/actions instead of
+            # reserving an empty 28px header above a single line of text.
+            browser.setMinimumWidth(0)
+            header_row.insertWidget(0, browser, 1, Qt.AlignVCenter)
         else:
             for block in self._content_blocks:
                 kind = str(block.get("kind") or "").strip().lower()
@@ -3236,19 +3300,14 @@ class MessageCard(QFrame):
         if not is_user:
             footer_metrics = _assistant_footer_metrics(message)
             if footer_metrics:
-                footer_row = QHBoxLayout()
-                footer_row.setContentsMargins(0, 2, 0, 0)
-                footer_row.setSpacing(5)
-                first_segment = True
+                footer = FlowContainer(bubble, h_spacing=6, v_spacing=6)
+                footer.setObjectName("messageMetrics")
+                footer_row = footer.flow()
+                footer_row.setContentsMargins(0, 4, 0, 0)
                 for metric in footer_metrics:
-                    label = str(metric.get("label") or "").strip()
+                    label = _metric_display_label(metric)
                     if not label:
                         continue
-                    if not first_segment:
-                        separator = QLabel("|")
-                        separator.setObjectName("metricSeparator")
-                        footer_row.addWidget(separator)
-                    first_segment = False
                     kind = str(metric.get("kind") or "")
                     handler = None
                     if bool(metric.get("clickable")):
@@ -3263,7 +3322,7 @@ class MessageCard(QFrame):
                             lambda _checked=False, m=message, h=handler: h(m)
                         )
                         try:
-                            chip.setFocusPolicy(Qt.NoFocus)
+                            chip.setFocusPolicy(Qt.StrongFocus)
                         except Exception:
                             pass
                     else:
@@ -3274,8 +3333,7 @@ class MessageCard(QFrame):
                     )
                     chip.setToolTip(str(metric.get("tooltip") or label))
                     footer_row.addWidget(chip)
-                footer_row.addStretch(1)
-                bubble_layout.addLayout(footer_row)
+                bubble_layout.addWidget(footer)
 
         if is_user:
             bubble_row.addStretch(1)
@@ -4290,6 +4348,28 @@ class ArtifactPreviewCard(QFrame):
         label.setPixmap(thumbnail)
         self._thumb_label = label
         self._compact_layout.addWidget(label)
+
+        if self._artifact.get("mentioned"):
+            # Deliverables retain a filename and dimensions beside the preview.
+            # User inputs remain compact thumbnails.
+            self.setProperty("deliverable", "true")
+            self._compact_layout.setContentsMargins(6, 6, 10, 6)
+            details = QWidget(self)
+            text_layout = QVBoxLayout(details)
+            text_layout.setContentsMargins(0, 0, 0, 0)
+            text_layout.setSpacing(4)
+            name = QLabel(self)
+            name.setObjectName("mediaPreviewChipName")
+            name.setTextFormat(Qt.PlainText)
+            name.setText(QFontMetrics(name.font()).elidedText(
+                self._title, Qt.ElideMiddle,
+                int(self._artifact.get("chip_max_text") or _MENTION_CHIP_MAX_TEXT),
+            ))
+            text_layout.addWidget(name)
+            meta = QLabel(f"{path.suffix.lstrip('.').upper()} · {pixmap.width()} × {pixmap.height()}\nClick to preview")
+            meta.setObjectName("mediaPreviewChipMeta")
+            text_layout.addWidget(meta)
+            self._compact_layout.addWidget(details)
 
         # The picture carries its own frame, so the pill chrome goes away.
         self.setObjectName("mediaPreviewThumb")
@@ -6624,6 +6704,41 @@ class AssistantPalette(QMainWindow):
         self.hide()
         event.ignore()
 
+    def _settings_family_dialogs(self) -> List[QDialog]:
+        """The secondary windows that follow the palette off screen.
+
+        Settings and the tool editor are CONFIGURATION: they belong to the
+        palette and are meaningless floating alone over another app. The rest
+        of `_aux_dialogs()` deliberately does NOT follow — an approval sheet or
+        an ask dialog is a run PARKED ON THE USER, and hiding one is how a run
+        sat 15m52s in silence (2026-09-07). Those stay until they are answered.
+        """
+        state = getattr(self, "__dict__", {})
+        out: List[QDialog] = []
+        for key in ("_settings_dialog", "_tool_settings_dialog"):
+            dialog = state.get(key)
+            if dialog is not None and dialog not in out:
+                out.append(dialog)
+        return out
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        # Every path that hides the palette hides these with it — the focus
+        # rule in `_hide_if_inactive`, the tray toggle, Esc, closeEvent —
+        # rather than one of them, so Settings cannot be left behind.
+        super().hideEvent(event)
+        for dialog in self._settings_family_dialogs():
+            try:
+                # A Settings window the user is TYPING IN keeps itself alive:
+                # `_hide_if_inactive` already declines to hide the palette
+                # while an aux dialog is active, so reaching here with an
+                # active Settings means some other path hid the palette out
+                # from under it. Vanishing mid-edit would be worse than the
+                # orphan window this follows the palette to avoid.
+                if dialog.isVisible() and not dialog.isActiveWindow():
+                    dialog.hide()
+            except RuntimeError:
+                continue  # Dialog already destroyed.
+
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         QTimer.singleShot(0, self._sync_native_traffic_lights)
@@ -7566,6 +7681,15 @@ class AssistantPalette(QMainWindow):
             self._cancel_active_run()
 
     def _submit(self) -> None:
+        if self.prompt_edit.toPlainText().strip() or self._attachments:
+            # Applies to fresh sends, steering and queued sends alike, and
+            # cancels synthesis as well as audible/paused playback.
+            try:
+                self._controller.voice_manager.stop_speaking()
+            except Exception:
+                pass
+            key = str(self._state("_active_spoken_message_key", "") or "")
+            self._on_message_speech_finished(key)
         worker = self._worker
         if worker is not None:
             try:
@@ -7643,7 +7767,7 @@ class AssistantPalette(QMainWindow):
         if (
             conversation is not None
             and bool(self._state("_voice_conversation_active", False))
-            and conversation.state in {"heard", "listening"}
+            and conversation.state in {"heard", "listening", "speaking", "paused"}
         ):
             # Manual voice mode: the user pressed Return on the transcript.
             # Account for the turn (mic pauses) without sending it twice.
@@ -8417,7 +8541,7 @@ class AssistantPalette(QMainWindow):
             conversation.speech_finished()
 
     def _on_message_speech_finished(self, key: str) -> None:
-        if str(self._active_spoken_message_key or "") == str(key or ""):
+        if str(self._state("_active_spoken_message_key", "") or "") == str(key or ""):
             self._active_spoken_message_key = ""
             self._active_spoken_message_phase = "idle"
         self._set_message_voice_card_state(str(key or ""), "idle")
@@ -9122,34 +9246,70 @@ class AssistantPalette(QMainWindow):
         dialog.raise_()
         dialog.activateWindow()
 
+    def _place_aux_dialog(self, dialog: QDialog) -> None:
+        """Anchor a secondary window top-right, fully on screen.
+
+        The width has to be the one the window ENDS UP with. Settings sizes
+        itself in `_fit_to_content` (it lays each page out before measuring),
+        so the frame read in the same turn as `show()` can still be the
+        pre-layout one — and anchoring the right edge off a too-narrow width
+        puts x too far right, which is how Settings opened with its right side
+        past the screen edge. Clamping could not save it: it was handed the
+        same wrong width.
+        """
+        try:
+            screen_geom = self._available_screen_geometry()
+            if screen_geom is None:
+                return
+            # frameGeometry() is the window INCLUDING its title bar; size() is
+            # the client area. Use the larger of the two widths so a frame Qt
+            # has not measured yet cannot under-report.
+            frame = dialog.frameGeometry()
+            width = max(int(frame.width()), int(dialog.width()))
+            height = max(int(frame.height()), int(dialog.height()))
+            pref_gap = max(0, int(self._controller.preferences.bottom_offset))
+            x_gap = 8 if pref_gap == 0 else min(pref_gap, 10)
+            y_gap = 8 if pref_gap == 0 else min(pref_gap, 12)
+            # A window WIDER than the screen cannot be placed into view, only
+            # shrunk into it. Shrinking is offered but never forced: a dialog
+            # with a fixed size (Settings) refuses, and that refusal is
+            # deliberate — its pages have no horizontal scrollbar, so a
+            # narrower window would hide content rather than show it. The
+            # clamp below then puts the left edge on screen, which is the most
+            # of it anyone can see.
+            chrome_w = max(0, width - int(dialog.width()))
+            chrome_h = max(0, height - int(dialog.height()))
+            max_w = int(screen_geom.width()) - 2 * x_gap - chrome_w
+            max_h = int(screen_geom.height()) - 2 * y_gap - chrome_h
+            if dialog.width() > max_w or dialog.height() > max_h:
+                dialog.resize(
+                    max(int(dialog.minimumWidth()), min(int(dialog.width()), max_w)),
+                    max(int(dialog.minimumHeight()), min(int(dialog.height()), max_h)),
+                )
+                frame = dialog.frameGeometry()
+                width = max(int(frame.width()), int(dialog.width()))
+                height = max(int(frame.height()), int(dialog.height()))
+            x = int(screen_geom.x() + screen_geom.width() - width - x_gap)
+            y = int(screen_geom.y() + y_gap)
+            x, y = self._clamp_window_to_screen(
+                x=x, y=y, width=width, height=height, screen_geom=screen_geom
+            )
+            dialog.move(x, y)
+        except Exception:
+            pass
+
     def _show_aux_dialog(self, dialog: QDialog) -> None:
         self._register_aux_dialog(dialog)
-        try:
-            dialog.adjustSize()
-        except Exception:
-            pass
+        # NOT adjustSize(): a dialog that computes its own fit (Settings) gets
+        # shrunk to a stale layout hint here and then grows again on show,
+        # which is exactly the mismatch this placement has to survive.
         dialog.show()
-        try:
-            dialog_geom = dialog.frameGeometry()
-            screen_geom = self._available_screen_geometry()
-            if screen_geom is not None:
-                pref_gap = max(0, int(self._controller.preferences.bottom_offset))
-                x_gap = 8 if pref_gap == 0 else min(pref_gap, 10)
-                y_gap = 8 if pref_gap == 0 else min(pref_gap, 12)
-                x = int(
-                    screen_geom.x() + screen_geom.width() - dialog_geom.width() - x_gap
-                )
-                y = int(screen_geom.y() + y_gap)
-                x, y = self._clamp_window_to_screen(
-                    x=x,
-                    y=y,
-                    width=dialog_geom.width(),
-                    height=dialog_geom.height(),
-                    screen_geom=screen_geom,
-                )
-                dialog.move(x, y)
-        except Exception:
-            pass
+        self._place_aux_dialog(dialog)
+        # Place again once the window manager has laid the frame out. On the
+        # first open the real size is only known after this turn of the event
+        # loop, so the immediate pass above is just there to avoid a flash at
+        # the previous position.
+        QTimer.singleShot(0, lambda: self._place_aux_dialog(dialog))
         dialog.raise_()
         dialog.activateWindow()
 
@@ -10147,7 +10307,7 @@ class AssistantPalette(QMainWindow):
                 color: #8bd8b1;
                 background: rgba(83, 198, 145, 0.12);
             }
-            """ + build_activity_qss()), "QWidget#rootSurface"))
+            """ + build_activity_qss()) + chat_stylesheet(), "QWidget#rootSurface"))
 
 
 def json_dumps(value: Dict[str, Any]) -> str:

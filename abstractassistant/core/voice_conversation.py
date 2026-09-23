@@ -266,7 +266,8 @@ class VoiceConversation:
         text = self.pending_text()
         self._flush_token += 1
         self._pending = []
-        if self.state in {"heard", "listening"}:
+        if self.state in {"heard", "listening", "speaking", "paused"}:
+            self._speak_pending = False
             self.turns += 1
             self._enter_thinking()
         return text
@@ -309,7 +310,7 @@ class VoiceConversation:
 
     def speech_finished(self) -> None:
         """The reply finished (or failed) playing: listen again."""
-        if not self.active or self.state == "paused":
+        if not self.active or self.state != "speaking":
             return
         self._speak_pending = False
         self._enter_listening()

@@ -341,6 +341,15 @@ class SettingsDialog(QDialog):
         room = int(screen.availableGeometry().height() * 0.82) if screen else 760
         # 20% shorter than the first cut, which was taller than anything here
         # needed. Long pages (Tools lists every tool the gateway offers) scroll.
+        #
+        # The width is deliberately NOT capped to the screen. Capping it was
+        # tried and reverted: the pages have no horizontal scrollbar (see the
+        # width comment above), so a window narrower than its widest page puts
+        # content permanently out of reach — `test_the_fit_measures_pages_that
+        # _have_never_been_laid_out` catches exactly that. On a screen narrower
+        # than ~852px this window therefore cannot fit, and `_place_aux_dialog`
+        # shows as much of it as it can. Making it fit needs horizontal
+        # scrolling on the pages, which is a layout decision, not a sizing one.
         self.setFixedSize(
             max(820, min(width + chrome_w, 1000)),
             max(496, min(576, room)),

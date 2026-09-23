@@ -671,9 +671,11 @@ def test_message_card_timestamp_sits_in_header_next_to_actions() -> None:
     ]
     assert copy_buttons and copy_buttons[0] in header_widgets
 
-    # No bottom stamp row: the last layout entry is the message body widget,
-    # not a trailing timestamp layout.
-    assert bubble_layout.itemAt(bubble_layout.count() - 1).layout() is None
+    # Body, timestamp and copy share one row: no empty header above short prompts.
+    body = card.findChild(app_module.AutoSizingTextBrowser, "userMessageText")
+    assert body in header_widgets
+    assert bubble_layout.count() == 1
+    assert card._bubble.height() < 65
     card.close()
 
 
@@ -2121,7 +2123,7 @@ def test_assistant_palette_message_card_renders_clickable_tools_metric() -> None
 
 
 @pytest.mark.basic
-def test_assistant_palette_message_card_renders_stats_line_with_separators() -> None:
+def test_assistant_palette_message_card_renders_wrapping_stats_chips() -> None:
     app = QApplication.instance() or QApplication([])
     message = {
         "role": "assistant",
@@ -2163,12 +2165,15 @@ def test_assistant_palette_message_card_renders_stats_line_with_separators() -> 
         if widget.objectName() == "metricSeparator"
     ]
     assert len(segments) == expected_segments
-    assert len(separators) == expected_segments - 1
+    assert not separators
+    footer = card.findChild(app_module.FlowContainer, "messageMetrics")
+    assert footer is not None
+    assert footer.flow().heightForWidth(150) > footer.flow().heightForWidth(600)
     files_labels = [
         widget for widget in segments if widget.property("kind") == "files"
     ]
     assert len(files_labels) == 1
-    assert files_labels[0].text() == "files : 1"
+    assert files_labels[0].text() == "1 file"
     assert "a.txt" in files_labels[0].toolTip()
 
 

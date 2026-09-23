@@ -858,13 +858,13 @@ class GatewayClient:
     def vision_models(self) -> Dict[str, Any]:
         return self._request_json(method="GET", url=self._url("/api/gateway/vision/models"), label="vision_models failed")
 
-    def discovery_model_capabilities(self, *, model_name: str) -> Dict[str, Any]:
+    def discovery_model_capabilities(self, *, model_name: str, provider: str = "") -> Dict[str, Any]:
         name = str(model_name or "").strip()
         if not name:
             raise ValueError("discovery_model_capabilities: model_name is required")
         return self._request_json(
             method="GET",
-            url=self._url("/api/gateway/discovery/models/capabilities", query={"model_name": name}),
+            url=self._url("/api/gateway/discovery/models/capabilities", query={"model_name": name, **({"provider": provider} if provider else {})}),
             label="discovery_model_capabilities failed",
         )
 

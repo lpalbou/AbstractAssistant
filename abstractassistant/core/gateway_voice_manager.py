@@ -721,6 +721,26 @@ class GatewayVoiceManager:
         completion_owned = False
         pinned = any(str(p or "").strip() for p in (provider, voice, profile, model))
 
+        def _drain_audio() -> bool:
+            nonlocal completion_owned
+            drained = self._wait_for_stream_playback_drain(
+                player, playback_drained, timeout_s=max(5.0, queued_audio_s + 10.0)
+            )
+            if not drained and not stop_gate.is_set():
+                with self._state_lock:
+                    current = self._stream_id == stream_id
+                if current:
+                    try:
+                        player.stop_stream()
+                    except Exception as exc:
+                        warnings.warn(f"#FALLBACK: could not stop stalled audio output: {exc}")
+                    self._report_speech_failure(
+                        "speech was generated, but the local audio output did not finish playback; "
+                        "try speaking again to reopen the output device"
+                    )
+            completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
+            return drained
+
         def _retry_stream_unpinned(reason: str) -> Optional[bool]:
             """Re-run the stream leg with every pin dropped (pre-audio only).
 
@@ -887,13 +907,7 @@ class GatewayVoiceManager:
                     continue
                 if event_type == "done":
                     if audio_started:
-                        self._wait_for_stream_playback_drain(
-                            player,
-                            playback_drained,
-                            timeout_s=max(5.0, queued_audio_s + 10.0),
-                        )
-                        completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
-                        return True
+                        return _drain_audio()
                     return _artifact_fallback("stream finished without sending any audio")
                 if event_type in {"error", "cancelled"}:
                     if audio_started:
@@ -918,12 +932,7 @@ class GatewayVoiceManager:
             if stop_gate.is_set():
                 return False
             if audio_started:
-                self._wait_for_stream_playback_drain(
-                    player,
-                    playback_drained,
-                    timeout_s=max(5.0, queued_audio_s + 10.0),
-                )
-                completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
+                _drain_audio()
                 return False
             return _artifact_fallback("stream ended without sending any audio")
         except Exception as e:

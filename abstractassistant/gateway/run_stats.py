@@ -125,6 +125,7 @@ def _new_bucket() -> Dict[str, Any]:
         "tool_calls": 0,
         "tool_call_details": [],
         "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "prompt_cache": {"cached_tokens": 0, "new_tokens": 0, "measured_calls": 0},
         "_min_ms": None,
         "_max_ms": None,
     }
@@ -168,6 +169,29 @@ def observe_record(stats_by_run: Dict[str, Dict[str, Any]], *, run_id: str, rec:
             bucket["input_tokens"] += parsed["input_tokens"]
             bucket["output_tokens"] += parsed["output_tokens"]
             bucket["total_tokens"] += parsed["total_tokens"] or (parsed["input_tokens"] + parsed["output_tokens"])
+        # MLX reports measured cache reuse separately from usage, whose input
+        # count may be estimated. Never subtract one counter family from the
+        # other or interpret absent telemetry as a zero-cache call.
+        measured_result = result
+        if not isinstance(result.get("metadata"), dict) and isinstance(result.get("output"), dict):
+            measured_result = result["output"]
+        metadata = measured_result.get("metadata") or {}
+        cache = metadata.get("prompt_cache") if isinstance(metadata, dict) else None
+        if isinstance(cache, dict):
+            try:
+                cached, new = cache["cached_tokens"], cache["fed_tokens"]
+                if isinstance(cached, bool) or isinstance(new, bool):
+                    raise ValueError("boolean token counts")
+                cached, new = int(cached), int(new)
+                if cached < 0 or new < 0:
+                    raise ValueError("negative token counts")
+            except (KeyError, TypeError, ValueError, OverflowError):
+                pass
+            else:
+                counts = stats["prompt_cache"]
+                counts["cached_tokens"] += cached
+                counts["new_tokens"] += new
+                counts["measured_calls"] += 1
     elif effect_type == "tool_calls":
         calls = extract_tool_call_details_from_record(rec, run_id=rid)
         if calls:
@@ -203,6 +227,9 @@ def aggregate_run_stats(
     for bucket in selected:
         out["llm_calls"] += int(bucket.get("llm_calls") or 0)
         out["tool_calls"] += int(bucket.get("tool_calls") or 0)
+        cache = bucket.get("prompt_cache") or {}
+        for key in ("cached_tokens", "new_tokens", "measured_calls"):
+            out["prompt_cache"][key] += int(cache.get(key) or 0)
         details = bucket.get("tool_call_details")
         if isinstance(details, list):
             out["tool_call_details"].extend(dict(call) for call in details if isinstance(call, dict))
@@ -221,13 +248,16 @@ def aggregate_run_stats(
     if out["_min_ms"] is not None and out["_max_ms"] is not None:
         out["duration_ms"] = max(0, int(out["_max_ms"]) - int(out["_min_ms"]))
 
-    return {
+    result = {
         "duration_ms": int(out.get("duration_ms") or 0),
         "llm_calls": int(out.get("llm_calls") or 0),
         "tool_calls": int(out.get("tool_calls") or 0),
         "tool_call_details": list(out.get("tool_call_details") or []),
         "usage": dict(out.get("usage") or {}),
     }
+    if out["prompt_cache"]["measured_calls"]:
+        result["prompt_cache"] = dict(out["prompt_cache"])
+    return result
 
 
 def stats_from_history_bundle(bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:

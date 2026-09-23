@@ -141,6 +141,49 @@ def scope_stylesheet(qss: str, scope: str) -> str:
     return _RULE_HEAD.sub(_rewrite, qss)
 
 
+def chat_stylesheet() -> str:
+    """Transcript surfaces derived directly from the active AbstractUIC palette."""
+    t, m = THEME, METRICS
+    return f"""
+    QFrame#assistantBubble {{
+        background: {t.surface_raised}; border: 1px solid {t.border_subtle};
+        border-radius: {m.radius_card}px;
+    }}
+    QFrame#userBubble {{
+        background: {t.user_bg}; border: 1px solid {t.user_border};
+        border-radius: {m.radius_card}px;
+    }}
+    QLabel#messageRole {{
+        color: {t.accent_text}; font-size: {m.font_ui}px; font-weight: 600; letter-spacing: 0px;
+        background: transparent; border: none;
+    }}
+    QLabel#messageTimestamp {{ color: {t.text_muted}; font-size: {m.font_caption}px; }}
+    QWidget#messageMetrics {{ background: transparent; }}
+    QLabel#metricChip, QPushButton#metricChip {{
+        color: {t.text_secondary}; background: {t.overlay_faint};
+        border: 1px solid {t.border_subtle}; border-radius: {m.radius_chip}px;
+        padding: 4px 7px; font-size: {m.font_caption}px; font-weight: 400;
+        min-height: 0px; text-align: left;
+    }}
+    QPushButton#metricChip[kind="tools"], QPushButton#metricChip[kind="files"] {{
+        color: {t.accent_text}; background: {t.accent_bg}; border-color: {t.accent_border};
+    }}
+    QPushButton#metricChip:hover, QPushButton#metricChip:focus {{
+        background: {t.overlay_hover}; border-color: {t.accent};
+        color: {t.text_strong}; text-decoration: none;
+    }}
+    QFrame#mediaPreviewChip, QFrame#mediaPreviewThumb[deliverable="true"] {{
+        background: {t.overlay_faint}; border: 1px solid {t.border_subtle};
+        border-radius: 10px;
+    }}
+    QFrame#mediaPreviewChip[hovered="true"], QFrame#mediaPreviewThumb[deliverable="true"][hovered="true"] {{
+        background: {t.accent_bg}; border-color: {t.accent_border};
+    }}
+    QLabel#mediaPreviewChipName {{ color: {t.text_primary}; font-size: {m.font_ui}px; }}
+    QLabel#mediaPreviewChipMeta {{ color: {t.text_secondary}; font-size: {m.font_caption}px; }}
+    """
+
+
 def dialog_stylesheet() -> str:
     """The one stylesheet every secondary window applies."""
     t = THEME

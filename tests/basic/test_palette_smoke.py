@@ -189,6 +189,23 @@ def palette():
 
 
 @pytest.mark.basic
+def test_sending_interrupts_reply_audio_and_clears_its_card(palette, monkeypatch):
+    window, controller = palette
+    events = []
+    monkeypatch.setattr(controller.voice_manager, "stop_speaking", lambda: events.append("stop"))
+    monkeypatch.setattr(controller, "append_user_message", lambda *a, **kw: events.append("send") or "new")
+    monkeypatch.setattr(window, "_set_message_voice_card_state", lambda key, state: events.append((key, state)))
+    window._active_spoken_message_key = "old"
+    window._active_spoken_message_phase = "synthesizing"
+    window.prompt_edit.setPlainText("Anything about AI?")
+    window._submit()
+    assert events.index("stop") < events.index("send")
+    assert ("old", "idle") in events
+    assert window._active_spoken_message_key == ""
+    assert window._active_spoken_message_phase == "idle"
+
+
+@pytest.mark.basic
 def test_palette_builds_and_title_is_the_status_sink(palette) -> None:
     window, _controller = palette
     assert window.title_label.text() == "AbstractAssistant"

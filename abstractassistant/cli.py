@@ -117,6 +117,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         base_url=str(text_override.get("base_url") or ""),
         media_overrides=_call("media_route_overrides", default=None) or None,
         thinking=str(scope.get("thinking") or ""),
+        speculation=scope.get("speculation"),
         workspace_root=str(scope.get("workspace_root") or ""),
         workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
         workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
