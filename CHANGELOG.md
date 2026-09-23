@@ -5,157 +5,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-### Added
-- **Choose which speaker the assistant talks to.** Settings → Voice now has a plain dropdown of
-  the devices this Mac can play to — “System default”, or any of them by name — with a **Test**
-  button that plays a short tone on the selected one before you commit to it. The list rebuilds
-  every time you open it, so a headset plugged in a moment ago is simply there. The row used to
-  be read-only text with a button that sent you out to macOS Sound settings; it no longer leaves
-  the app. Your choice is remembered per device rather than per position, so it survives reboots
-  and reconnections, and a device that is unplugged stays selected and is shown as “not
-  connected” instead of being silently forgotten. A row underneath names the speaker replies will
-  actually use. AirPlay speakers are not in the list — macOS does not offer them to apps — so
-  pick those in the Sound menu and leave this on “System default”, which follows the Mac.
-- **Files and links in an answer are clickable.** When the assistant says "the video is saved at
-  `/Users/…/clip.mp4`", the path is now a link, and the file also appears as a small chip under
-  the answer — a thumbnail for a picture, otherwise an icon with the name, kind and size — one
-  click to open. It works however the model writes it: in backticks, in plain text, or alone in
-  a code block; web addresses in backticks link too. Hovering says what a click will do;
-  right-click offers Open, Show in Finder and Copy Path; ⌘-click always shows the file in Finder.
-  Commands and code listings that merely mention a path are left exactly as written.
-- **A click can open a file, never run one.** What the assistant writes may be repeating a web
-  page, so its links are treated as untrusted. Pictures, video, audio and documents open
-  normally; text and source files open in your text editor (never "with their default app",
-  which for a script can mean running it); anything else — apps, scripts, installers, shortcuts,
-  unknown types — is only shown in Finder. A link to a file on another computer is refused, and a
-  shortcut is judged by what it really points to. Before this, the message area handed every link
-  straight to macOS; the buttons the assistant can add under an answer now follow the same rules.
-- **A theme picker, under Settings → Appearance.** The choice applies to every window — chat,
-  settings, dialogs, the approval sheet, the session switcher — takes effect immediately, and is
-  remembered on this Mac.
-- **Colour themes shared with the rest of the framework.** The same palettes the web clients use
-  (Tokyo Night, Nord, Dracula, Gruvbox, Catppuccin, Rose Pine, Solarized, Everforest and more —
-  dark and light) are available to the app, and the choice is remembered across relaunches. They
-  are read from `abstractuic`'s stylesheet rather than copied, so a palette added or retuned there
-  appears here with no code change; a packaged app carries the palettes as of its build.
-- **The tray icon shows the assistant's voice again.** While a reply is spoken the menu-bar icon
-  becomes a live histogram of the audio actually going to your speakers, and it goes back to its
-  normal state the moment speech ends — finished, stopped, paused, or replaced by another reply.
-  This worked in 0.4.10 and was lost in the gateway rewrite. It now covers auto-speak and voice
-  conversations as well as the per-message speaker button.
-
-### Changed
-- **Reasoning effort now belongs to the chat model.** It used to be a page-level control that sat
-  below the model list, so it looked like it applied to whichever route was selected — including
-  the voice, image, video and music models, none of which reasons. It is now a row in the chat
-  model's own form, beside its provider and model, and it exists nowhere else.
-- **Settings no longer clips.** At the window's own default size, `Apply` sat off the right edge
-  and only 5 of the 7 reasoning levels could be clicked, with no horizontal scrollbar to reach
-  them. The route actions moved to the page footer like every other page's, the reasoning ladder
-  became a menu, and the window's minimum is now measured against its widest page — nothing is
-  unreachable at any size.
-- **Tighter vertical rhythm in replies.** Line spacing and the gaps around headings, paragraphs,
-  lists and tables were tuned for a web page, not a chat bubble: a heading cost 40px of air. The
-  same reply is now about 10% shorter with no change to type sizes.
-- **The window is 15% shorter.** A height you have already chosen is adjusted once and never
-  again, and a height you set in Settings afterwards is left alone.
-- **Files you attach show as small thumbnails, not full-size previews.** A message you send with a
-  screenshot attached now carries a thumbnail about 56px tall, keeping the picture's shape,
-  instead of a 260px square that letterboxed the image and pushed the conversation off-screen.
-  Clicking it opens the image full size in a preview window (Esc closes it, `Open` hands the file
-  to the Mac). Files with no picture to show — a PDF, or an image whose file has since been
-  deleted — appear as an icon-and-name chip and open in their default app. Images the assistant
-  *generates* still get the full gallery: those are the answer, not an input.
-
-### Fixed
-- **Launching the app could freeze the gateway for a minute and make the next answers slow.**
-  At launch the app checks that the gateway has its workflow and republishes it when the
-  stored copy differs. Nothing said which copy was NEWER, so two builds of the app on one Mac —
-  an installed one and a newer one — each "corrected" the other on every launch. Each republish
-  makes the gateway rebuild itself: about a minute of "Connecting to gateway…", and everything
-  it had cached for your conversations thrown away, which is why a follow-up question could
-  take two minutes instead of a few seconds. The workflow now carries a revision number and a
-  build never replaces a newer one; it simply uses it. (An app built before this change still
-  does; rebuilding it ends the back-and-forth.)
-- **Running the test suite could rewrite a live gateway's workflow.** Several interface tests
-  build a real app window, which connects using the gateway address and token found in the
-  environment — on a developer machine, the real local gateway. The suite now removes those
-  settings before anything starts and refuses network connections to the gateway port and to
-  anything outside the machine, with a test that checks the refusal itself.
-- **Spoken replies came out of the MacBook Pro speakers whatever you selected.** With the Mac's
-  sound output set to AR glasses or headphones, the assistant still spoke through the built-in
-  speakers, and nothing on screen said so — Settings even displayed the wrong device name. The
-  audio engine resolves “the default output” once, when the app starts, and never revisits it,
-  so any change you made afterwards was invisible to it. The app now asks macOS which device is
-  current each time it speaks, and opens that one explicitly. If the device you picked is not
-  available, replies fall back to the system default **and say so** instead of playing somewhere
-  you are not listening.
-- **"tools : 3" under an answer, one tool in the list it opens.** The assistant had used three
-  tools; the *Tools used* window showed the first and dropped the rest, and while the answer was
-  being written the activity card showed a single tool stuck on "running". Many models number
-  their tool calls per reply — 0, 0, 0 across three replies — and the app took that number for a
-  unique id, so the second and third call looked like repeats of the first. Calls are now told
-  apart by the id the gateway gives each one. Every tool is listed, each with its own result, in
-  the window, in the live activity card and in *Files affected*; answers already in your history
-  are corrected the next time you open their tools list.
-- **Every message waited 12-28 seconds before the assistant even started on it.** Before it
-  answers, the assistant makes one small routing decision — chat, image, voice, video… That step
-  was unintentionally handed all of the agent's tools (30 of them) along with the agent's
-  temperature, which made the framework run it as two generations instead of one and read ~4,600
-  tokens where about 300 were meant. On a 27B local model that was most of the delay on short
-  questions, and it grew with every turn. The routing step now runs with no tools and at its own
-  temperature; replayed on a small local model it takes about a second, and stays there. The app
-  republishes its workflow on the next launch — nothing to do by hand.
-- **"All auto" / "All ask" no longer touch tools hidden by the search filter** — with a filter
-  applied they could pre-approve a mutating tool that was not on screen. They now apply only to
-  what is visible and say how many were left alone.
-- **Saving tool permissions no longer drops modes for tools the gateway is not currently listing.**
-  The saved map was rebuilt from whatever the gateway reported at that moment, so a permission set
-  for a tool from another connection silently vanished.
-- **Saving on the Appearance page no longer grows the window.** Its height field could not go below
-  320px while the app's own default is 286, so opening the page and pressing Save added 34px.
-- **The app no longer disappears on desktops with no system tray.** Modern GNOME and Wayland
-  have no tray unless the AppIndicator extension is installed; the app used to notice, hide its
-  only window and keep running with no icon, no window and no message. It now shows the window,
-  says why, and the reason reaches a plain `pip` install instead of only a frozen macOS build.
-  On Linux the tray menu no longer opens twice (the desktop already shows it, and the second copy
-  landed at a position Wayland cannot report), and the speaking animation is slowed off macOS
-  where every frame costs a platform round trip. macOS no longer reports the tray as never ready
-  when the optional `pyobjc` bridge is absent — and it is now a declared dependency. The
-  macOS-only "Sound settings…" button is hidden where it does nothing.
-- **The audio meter had never produced a reading.** Its band computation was called with one
-  argument missing and the resulting error was swallowed, so anything driven by it was silently
-  frozen — measured live: 193 audio chunks, 193 exceptions, zero readings. Failures in that path
-  now say so once instead of disappearing.
-- **Attachments come back in old sessions.** The runtime keeps every file you ever attached, and
-  its history already reports which turn each one belonged to — the app was reading that history
-  and discarding the attachments. Reopening a session now restores them from the runtime, so a
-  screenshot you attached in June is visible again even though macOS deleted your copy of it.
-  Measured on this machine: 39 attachments across 7 sessions, including screenshots whose local
-  files are long gone.
-- **The header names the session you are in.** It said "New chat" for every session, because it
-  read the stored title — which is the placeholder "New session" for practically all of them —
-  and only ever saw the computed name after you opened the switcher. It now shows the session's
-  name or its opening question, falling back to "Untitled session". Sessions are called sessions
-  throughout the UI now, not "chats".
-- **The chat switcher stays open, renders correctly, and opens instantly.** It used to close
-  itself a few seconds after opening, and come back with rows drawn on top of each other. Two
-  causes: rows were built with widgets that were made visible before being attached to the popup,
-  which opens a real window per widget — 296 window-activation flips and ~1.2s for 74 chats, and
-  macOS closes a popup when another window takes focus; and the metrics arrived on a background
-  thread that rebuilt every row underneath you. Opening now takes about 45ms for 74 chats
-  (previously 1.2–1.9s), the rows carry their metrics on the first open, typing in the filter is
-  ~30x faster, and renaming or deleting a chat from the list no longer closes it. The header
-  control also names the current chat by its opening question instead of showing "New chat" for
-  every unnamed chat.
-- **Attachment previews survive the original file being deleted.** Every file you attach is
-  already uploaded to the gateway and stored there, but the app recorded only its path on your
-  Mac — so a screenshot dragged out of the macOS screenshot UI lost its preview as soon as macOS
-  emptied its temp folder. The message now also records the gateway's copy and falls back to it,
-  and a file that really is unreachable says so ("… is no longer on disk") instead of
-  "artifact_id is required".
-
-## [0.5.0] - 2026-09-05
+## [0.5.0] - 2026-09-23
 
 AbstractAssistant 0.5.0 is the gateway-native release: the desktop app is a thin client of
 AbstractGateway, with a redesigned palette, a hands-free voice conversation mode, a settings
@@ -163,6 +13,31 @@ window that covers what the gateway lets you configure, and tool approvals that 
 app.
 
 ### Added
+- **MTP depth for the chat model.** The chat route in Settings offers Gateway default, Off, or
+  any multi-token-prediction depth the gateway's execution capability card advertises for the
+  selected provider and model. The choice is sent as `_runtime.speculation`, survives restart,
+  and shows when the model's MTP head is not ready or needs a reload.
+- **Choose which speaker the assistant talks to.** Settings → Voice lists the devices this Mac
+  can play to ("System default" or any device by name), with a **Test** button that plays a
+  short tone. The choice is remembered per device, so it survives reboots and reconnections; an
+  unplugged device stays selected and is shown as "not connected". AirPlay speakers are chosen in
+  the macOS Sound menu with this set to "System default".
+- **Clickable files and links in answers.** File paths in a reply become links, and each file
+  also appears as a chip under the answer (thumbnail or icon, name, kind, size). Right-click
+  offers Open, Show in Finder and Copy Path; ⌘-click shows the file in Finder. Commands and code
+  listings that merely mention a path are left as written.
+- **A click opens a file, never runs one.** Links in replies are treated as untrusted: media and
+  documents open normally, text and source files open in your text editor, and apps, scripts,
+  installers and unknown types are only revealed in Finder. Links to files on another computer
+  are refused. Action buttons under an answer follow the same rules.
+- **Theme picker** under Settings → Appearance, using the colour themes shared with the rest of
+  the framework (Tokyo Night, Nord, Dracula, Gruvbox, Catppuccin, Rose Pine, Solarized,
+  Everforest and more, dark and light). It applies to every window immediately and is remembered.
+- **Measured prompt-cache reuse** in the per-turn statistics tooltip: tokens reused from cache
+  versus newly processed, summed across every model call of the turn, when the execution host
+  reports it.
+- **Live voice histogram in the tray icon** while a reply is spoken (auto-speak, voice
+  conversations and the per-message speaker button); it returns to normal when speech ends.
 - **Voice conversation mode** (⌘⇧V, the waveform button, or the tray menu): the assistant
   listens, sends what you say, speaks the reply and listens again. A status strip above the
   composer shows listening / heard / thinking / speaking / paused with a live microphone meter,
@@ -217,6 +92,15 @@ app.
 - A designed app icon and a coherent Lucide icon set rendered from inline SVG.
 
 ### Changed
+- Reasoning effort is a row of the chat model's own form in Settings, beside its provider and
+  model; it no longer appears to apply to other routes.
+- Settings fits at its default size: route actions sit in the page footer, the reasoning ladder
+  is a menu, and the window minimum is measured against its widest page.
+- Replies use tighter vertical spacing (about 10% shorter with the same type sizes), and the
+  default window is 15% shorter. A height you chose earlier is adjusted once.
+- Attached files show as small thumbnails (about 56px tall) that open full size in a preview
+  window; files without a preview appear as an icon-and-name chip. Generated images keep the
+  full gallery.
 - **Tool permission defaults come from the gateway.** The Tools page and the run policy use each
   tool's gateway `approval_default` and risk tier; the local allow-lists are only a fallback for
   gateways that do not report them. Tools the gateway has disabled are shown as such and are never
@@ -259,6 +143,30 @@ app.
   "Reply ready").
 
 ### Fixed
+- Spoken replies follow the current macOS output device (or the device you picked) instead of
+  the one active when the app started. When the chosen device is unavailable, replies fall back
+  to the system default and say so. A reply whose audio output stops draining is stopped and
+  reported, and the next reply reopens the device.
+- Two builds of the app on one Mac no longer republish each other's gateway workflow on every
+  launch; the workflow carries a revision and a build never replaces a newer one.
+- The per-turn routing step runs without the agent's tools and at its own temperature, which
+  removes a multi-second delay before every answer.
+- Every tool call of a turn is listed with its own result, even when the model numbers its calls
+  per reply.
+- "All auto" / "All ask" apply only to tools visible under the search filter; saving tool
+  permissions keeps modes for tools the gateway is not currently listing.
+- On desktops without a system tray, the app shows its window and explains why instead of running
+  invisibly. On Linux the tray menu no longer opens twice. `pyobjc-framework-Cocoa` is a declared
+  dependency on macOS.
+- The audio meter produces readings again.
+- Reopening a session restores its attachments from the runtime, and attachment previews fall
+  back to the gateway's stored copy when the local file is gone.
+- The header names the current session; the session switcher stays open, renders correctly and
+  opens quickly.
+- Saving the Appearance page no longer grows the window.
+- Typing a message while a voice-conversation reply is speaking or paused starts a new turn.
+- The test suite scrubs gateway credentials from the environment and refuses connections to the
+  gateway port and to non-local hosts.
 - Blanket trust is scoped rather than blocked: "Always allow … on this Mac" is offered for the
   observe and act tiers, and "Allow all enabled tools in this chat" reaches exactly as far as the
   batch it was granted on (the menu item names the scope, so a grant made on a read-only batch
@@ -315,8 +223,10 @@ app.
 
 ### Preferences file
 `~/.abstractassistant/preferences.json` gained `reasoning_effort`, `workspace_root`,
-`workspace_access_mode`, `workspace_allowed_paths`, `voice_auto_send`, `voice_spoken_replies` and
-`voice_mode`. Missing keys keep their defaults (gateway default, no workspace grant, auto-send on,
+`workspace_access_mode`, `workspace_allowed_paths`, `voice_auto_send`, `voice_spoken_replies`,
+`voice_mode`, `speculation`, `audio_output_device`, `audio_output_device_name`, `ui_theme`
+and the reading-comfort keys (`text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing`).
+Missing keys keep their defaults (gateway default, no workspace grant, auto-send on,
 spoken-style replies on, microphone paused while speaking). Each chat's `session.json` may carry
 the `workspace_root` the gateway granted it.
 

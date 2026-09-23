@@ -76,6 +76,11 @@ reply that could not be spoken (the loop resumes listening), or a run that faile
 
 ## Audio output
 
-Playback follows the Mac's default output device. When speech starts, a notice names the device
-and warns when the system output is muted or very low, because a headset or a near-zero volume
-makes a working voice inaudible.
+Playback follows the Mac's current default output device, resolved each time a reply is spoken,
+so switching to headphones or another speaker in macOS takes effect on the next reply. You can
+instead pin a device under Settings → Voice → Output device (see [settings.md](settings.md)).
+When a pinned device is not connected, replies play on the system default and a notice says so.
+When speech starts, a notice names the device and warns when the system output is muted or very
+low. If the output device stops accepting audio mid-reply, playback is stopped and reported, and
+the next reply reopens the device. While the microphone is live, the device list is not
+refreshed, so a device change cannot interrupt capture.

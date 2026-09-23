@@ -259,6 +259,19 @@ For local microphone capture (voice conversations and dictation), install the `v
 pip install "abstractassistant[voice]"
 ```
 
+Other extras:
+
+| Extra | Adds |
+|---|---|
+| `voice` (alias `all`) | local speech-to-text on top of the default audio I/O (`abstractvoice[audio-io,stt]`) |
+| `apple` | the Apple Silicon local stack (`abstractcore[all-apple]`, `abstractvoice[all-apple]`) |
+| `gpu` | the NVIDIA/CUDA local stack (`abstractcore[all-gpu]`, `abstractvoice[all-gpu]`) |
+| `macos-app` | PyInstaller, to build the macOS app bundle |
+| `dev` | test and lint tools |
+
+The assistant itself executes nothing locally; the `apple` and `gpu` extras are for installs
+where the same environment also hosts local models.
+
 Verify:
 
 ```bash
@@ -491,31 +504,47 @@ session out).
 | Control | Meaning | Stored |
 |---|---|---|
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
+| MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
 
-For each route the state line shows two facts: the gateway default (with the route it is derived
-from when the gateway says so) and what this app uses. `Use gateway default` stores nothing;
-`Override for this app` requires both a provider and a model. Provider, model and voice catalogs
-are read from the gateway. The chat route accepts an optional provider base URL; the voice route
-adds a voice picker. `Reset to gateway` drops the override.
+Each route has Provider and Model lists, plus Reasoning and MTP depth for the chat route. The first
+item of every one of them is **Gateway default**. There is no mode to switch and no Apply: a
+choice applies the moment it is made, and selecting `Gateway default` for the provider is how a
+route goes back to following the gateway. An override needs both a provider and a model, so a
+provider on its own stores nothing and the page says which half is missing.
+
+The state line above the lists shows two facts: the gateway default (with the route it is derived
+from when the gateway says so) and what this app uses. Provider, model and voice catalogs are read
+from the gateway; when it cannot be reached the lists hold `Gateway default` alone, say why, and
+re-fetch when you open them again — a previously saved choice stays selected and marked `(saved)`
+rather than being discarded. The chat route accepts an optional provider base URL; the voice route
+adds a voice picker.
 
 Where overrides travel: the chat model rides the run input (top-level pins and `_runtime`);
 voice overrides ride each speech request; image, video, music and sound overrides ride the
 managed workflow's input pins. A level the model cannot honor is mapped by AbstractCore to the
-nearest supported level.
+nearest supported reasoning level.
+
+MTP is native multi-token prediction, not a reasoning level. Its choices come from the
+gateway's execution capability card, not the model's name. The app shows whether the head is
+ready or a reload is needed; an unavailable saved choice remains visible. Selecting a depth
+requests that exact depth with `require_acceleration=true`: the execution host must honor it
+or report an error, not silently run without MTP. This control neither downloads a head nor
+changes the gateway's shared default. Leaving it on Gateway default follows the Core policy
+on the execution host (fresh configurations use depth 2 only for compatible models).
 
 ## Voice
 
 | Control | Meaning | Stored |
 |---|---|---|
 | Text → speech / Speech → text | The engines that speak and listen, with "gateway default" or "this app"; `Change…` opens the route in Models & reasoning | gateway / this app |
-| Output device | The Mac's current default output and volume; playback follows the system output | read locally |
+| Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Auto-speak final answers (also the speaker toggle in the header) | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
 | Send each utterance automatically | Conversation mode: send what you say as a turn; off, words land in the message box | this app `voice_auto_send` |
 | Ask for short, spoken-style replies | Adds a voice-style instruction to each request while a conversation runs | this app `voice_spoken_replies` |
-| Barge-in | Pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
+| Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
 
 See [voice.md](voice.md) for how the conversation loop behaves.
 
@@ -656,9 +685,14 @@ reply that could not be spoken (the loop resumes listening), or a run that faile
 
 ## Audio output
 
-Playback follows the Mac's default output device. When speech starts, a notice names the device
-and warns when the system output is muted or very low, because a headset or a near-zero volume
-makes a working voice inaudible.
+Playback follows the Mac's current default output device, resolved each time a reply is spoken,
+so switching to headphones or another speaker in macOS takes effect on the next reply. You can
+instead pin a device under Settings → Voice → Output device (see [settings.md](settings.md)).
+When a pinned device is not connected, replies play on the system default and a notice says so.
+When speech starts, a notice names the device and warns when the system output is muted or very
+low. If the output device stops accepting audio mid-reply, playback is stopped and reported, and
+the next reply reopens the device. While the microphone is live, the device list is not
+refreshed, so a device change cannot interrupt capture.
 
 --- docs/api.md ---
 # API And CLI Reference
@@ -737,6 +771,7 @@ default applies:
 |---|---|
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
+| `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
 | `workspace_root`, `workspace_access_mode`, `workspace_allowed_paths` | workspace settings (or the chat's remembered root) |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
@@ -1496,7 +1531,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-09-05
+## [0.5.0] - 2026-09-23
 
 AbstractAssistant 0.5.0 is the gateway-native release: the desktop app is a thin client of
 AbstractGateway, with a redesigned palette, a hands-free voice conversation mode, a settings
@@ -1504,6 +1539,31 @@ window that covers what the gateway lets you configure, and tool approvals that 
 app.
 
 ### Added
+- **MTP depth for the chat model.** The chat route in Settings offers Gateway default, Off, or
+  any multi-token-prediction depth the gateway's execution capability card advertises for the
+  selected provider and model. The choice is sent as `_runtime.speculation`, survives restart,
+  and shows when the model's MTP head is not ready or needs a reload.
+- **Choose which speaker the assistant talks to.** Settings → Voice lists the devices this Mac
+  can play to ("System default" or any device by name), with a **Test** button that plays a
+  short tone. The choice is remembered per device, so it survives reboots and reconnections; an
+  unplugged device stays selected and is shown as "not connected". AirPlay speakers are chosen in
+  the macOS Sound menu with this set to "System default".
+- **Clickable files and links in answers.** File paths in a reply become links, and each file
+  also appears as a chip under the answer (thumbnail or icon, name, kind, size). Right-click
+  offers Open, Show in Finder and Copy Path; ⌘-click shows the file in Finder. Commands and code
+  listings that merely mention a path are left as written.
+- **A click opens a file, never runs one.** Links in replies are treated as untrusted: media and
+  documents open normally, text and source files open in your text editor, and apps, scripts,
+  installers and unknown types are only revealed in Finder. Links to files on another computer
+  are refused. Action buttons under an answer follow the same rules.
+- **Theme picker** under Settings → Appearance, using the colour themes shared with the rest of
+  the framework (Tokyo Night, Nord, Dracula, Gruvbox, Catppuccin, Rose Pine, Solarized,
+  Everforest and more, dark and light). It applies to every window immediately and is remembered.
+- **Measured prompt-cache reuse** in the per-turn statistics tooltip: tokens reused from cache
+  versus newly processed, summed across every model call of the turn, when the execution host
+  reports it.
+- **Live voice histogram in the tray icon** while a reply is spoken (auto-speak, voice
+  conversations and the per-message speaker button); it returns to normal when speech ends.
 - **Voice conversation mode** (⌘⇧V, the waveform button, or the tray menu): the assistant
   listens, sends what you say, speaks the reply and listens again. A status strip above the
   composer shows listening / heard / thinking / speaking / paused with a live microphone meter,
@@ -1558,6 +1618,15 @@ app.
 - A designed app icon and a coherent Lucide icon set rendered from inline SVG.
 
 ### Changed
+- Reasoning effort is a row of the chat model's own form in Settings, beside its provider and
+  model; it no longer appears to apply to other routes.
+- Settings fits at its default size: route actions sit in the page footer, the reasoning ladder
+  is a menu, and the window minimum is measured against its widest page.
+- Replies use tighter vertical spacing (about 10% shorter with the same type sizes), and the
+  default window is 15% shorter. A height you chose earlier is adjusted once.
+- Attached files show as small thumbnails (about 56px tall) that open full size in a preview
+  window; files without a preview appear as an icon-and-name chip. Generated images keep the
+  full gallery.
 - **Tool permission defaults come from the gateway.** The Tools page and the run policy use each
   tool's gateway `approval_default` and risk tier; the local allow-lists are only a fallback for
   gateways that do not report them. Tools the gateway has disabled are shown as such and are never
@@ -1600,6 +1669,30 @@ app.
   "Reply ready").
 
 ### Fixed
+- Spoken replies follow the current macOS output device (or the device you picked) instead of
+  the one active when the app started. When the chosen device is unavailable, replies fall back
+  to the system default and say so. A reply whose audio output stops draining is stopped and
+  reported, and the next reply reopens the device.
+- Two builds of the app on one Mac no longer republish each other's gateway workflow on every
+  launch; the workflow carries a revision and a build never replaces a newer one.
+- The per-turn routing step runs without the agent's tools and at its own temperature, which
+  removes a multi-second delay before every answer.
+- Every tool call of a turn is listed with its own result, even when the model numbers its calls
+  per reply.
+- "All auto" / "All ask" apply only to tools visible under the search filter; saving tool
+  permissions keeps modes for tools the gateway is not currently listing.
+- On desktops without a system tray, the app shows its window and explains why instead of running
+  invisibly. On Linux the tray menu no longer opens twice. `pyobjc-framework-Cocoa` is a declared
+  dependency on macOS.
+- The audio meter produces readings again.
+- Reopening a session restores its attachments from the runtime, and attachment previews fall
+  back to the gateway's stored copy when the local file is gone.
+- The header names the current session; the session switcher stays open, renders correctly and
+  opens quickly.
+- Saving the Appearance page no longer grows the window.
+- Typing a message while a voice-conversation reply is speaking or paused starts a new turn.
+- The test suite scrubs gateway credentials from the environment and refuses connections to the
+  gateway port and to non-local hosts.
 - Blanket trust is scoped rather than blocked: "Always allow … on this Mac" is offered for the
   observe and act tiers, and "Allow all enabled tools in this chat" reaches exactly as far as the
   batch it was granted on (the menu item names the scope, so a grant made on a read-only batch
@@ -1656,8 +1749,10 @@ app.
 
 ### Preferences file
 `~/.abstractassistant/preferences.json` gained `reasoning_effort`, `workspace_root`,
-`workspace_access_mode`, `workspace_allowed_paths`, `voice_auto_send`, `voice_spoken_replies` and
-`voice_mode`. Missing keys keep their defaults (gateway default, no workspace grant, auto-send on,
+`workspace_access_mode`, `workspace_allowed_paths`, `voice_auto_send`, `voice_spoken_replies`,
+`voice_mode`, `speculation`, `audio_output_device`, `audio_output_device_name`, `ui_theme`
+and the reading-comfort keys (`text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing`).
+Missing keys keep their defaults (gateway default, no workspace grant, auto-send on,
 spoken-style replies on, microphone paused while speaking). Each chat's `session.json` may carry
 the `workspace_root` the gateway granted it.
 
@@ -2006,11 +2101,14 @@ dependencies = [
     # with the [voice] extra for anyone who also wants local transcription.)
     # abstractruntime supplies the session-memory run-id contract shared with
     # the gateway (session_attachments); execution itself stays on the gateway.
-    "abstractruntime>=0.4.29",
-    "abstractvoice[audio-io]>=0.10.18",
+    "abstractruntime>=0.4.32",
+    "abstractvoice[audio-io]>=0.11.2",
     # Only used for an optional local config read (STT language hint); all
     # provider execution happens on the gateway, so no provider extras.
-    "abstractcore>=2.13.38",
+    "abstractcore>=2.13.41",
+    # The native menu-bar bridge (status-item metrics, traffic lights) imports
+    # AppKit; without it macOS reports the tray as never ready.
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",
@@ -2029,18 +2127,18 @@ dependencies = [
 [project.optional-dependencies]
 lite = []  # Back-compat alias for the base install.
 voice = [
-    "abstractvoice[audio-io,stt]>=0.10.18",
+    "abstractvoice[audio-io,stt]>=0.11.2",
 ]
 apple = [
-    "abstractcore[all-apple]>=2.13.38",
-    "abstractvoice[all-apple]>=0.10.18",
+    "abstractcore[all-apple]>=2.13.41",
+    "abstractvoice[all-apple]>=0.11.2",
 ]
 gpu = [
-    "abstractcore[all-gpu]>=2.13.38",
-    "abstractvoice[all-gpu]>=0.10.18",
+    "abstractcore[all-gpu]>=2.13.41",
+    "abstractvoice[all-gpu]>=0.11.2",
 ]
 all = [
-    "abstractvoice[audio-io,stt]>=0.10.18",
+    "abstractvoice[audio-io,stt]>=0.11.2",
 ]  # Back-compat alias for full voice I/O.
 dev = [
     "pytest>=7.0.0",
@@ -2213,6 +2311,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         base_url=str(text_override.get("base_url") or ""),
         media_overrides=_call("media_route_overrides", default=None) or None,
         thinking=str(scope.get("thinking") or ""),
+        speculation=scope.get("speculation"),
         workspace_root=str(scope.get("workspace_root") or ""),
         workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
         workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
@@ -2614,6 +2713,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from abstractassistant.config import DEFAULT_GATEWAY_URL
+from abstractassistant.speculation import normalize_speculation
+
+
+def _load_speculation(value: Any) -> Any:
+    """A saved MTP choice that no longer validates falls back to inheriting
+    the gateway default instead of making the preferences file unloadable."""
+    try:
+        return normalize_speculation(value)
+    except ValueError:
+        return None
 
 
 # Reasoning effort ladder — the gateway contract's `thinking_control.values`
@@ -2639,6 +2748,52 @@ def normalize_workspace_access_mode(raw: Any) -> str:
 
 
 VOICE_MODES = ("wait", "full")
+
+
+def _clamp_int(raw: Any, default: int, low: int, high: int) -> int:
+    try:
+        return max(low, min(high, int(raw)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _clamp_float(raw: Any, default: float, low: float, high: float) -> float:
+    try:
+        return max(low, min(high, round(float(raw), 2)))
+    except (TypeError, ValueError):
+        return default
+
+
+#: Bumped when a layout change must retune a height a user already saved.
+LAYOUT_VERSION = 1
+
+
+def _migrated_window_height(raw: Dict[str, Any]) -> int:
+    """The saved window height, shortened once when the layout got tighter.
+
+    Applied on read and stamped with `LAYOUT_VERSION` on write, so a height the
+    user chose is adjusted exactly once — never every launch. A height typed
+    into Settings afterwards is theirs and is left alone.
+    """
+    stored = raw.get("window_height")
+    height = max(240, int(stored or 286))
+    if stored and int(raw.get("layout_version") or 0) < LAYOUT_VERSION:
+        height = max(240, int(round(height * 0.85)))
+    return height
+
+
+def normalize_ui_theme(raw: Any) -> str:
+    """The saved colour theme id, or the app's own theme when unknown.
+
+    A theme that has been renamed or removed upstream must not brick the UI,
+    so anything unrecognized falls back to the app's own palette.
+    """
+    from .ui_themes import DEFAULT_THEME_ID, THEME_SPECS
+
+    text = str(raw or "").strip().lower()
+    if text and (text == DEFAULT_THEME_ID or text in THEME_SPECS):
+        return text
+    return DEFAULT_THEME_ID
 
 
 def normalize_voice_mode(raw: Any) -> str:
@@ -2749,7 +2904,8 @@ class AssistantPreferences:
     # steps → quicker first audio), "high" is richer, "standard" is balanced.
     voice_quality: str = "standard"
     window_width: int = 500
-    window_height: int = 336
+    # 2026-09-06: the shell was 15% taller than the content needed.
+    window_height: int = 286
     bottom_offset: int = 18
     tool_preferences: Dict[str, str] = field(default_factory=dict)
     # LOCAL overrides of the gateway's capability defaults, for THIS app only.
@@ -2761,6 +2917,7 @@ class AssistantPreferences:
     # model cannot honor onto its nearest supported level (with a warning), so
     # a stale choice degrades, never fails.
     reasoning_effort: str = ""
+    speculation: Optional[Any] = None  # None inherits; False pins MTP off.
     # Local workspace scope for the run's tools, sent as the run-input pins
     # `workspace_root` / `workspace_access_mode` / `workspace_allowed_paths`.
     # The gateway sanitizes and may clamp them; blanks mean "server-managed".
@@ -2776,6 +2933,28 @@ class AssistantPreferences:
     # (speakers: the assistant never transcribes itself; no barge-in), "full"
     # keeps the mic open so a spoken "stop" interrupts (headphones).
     voice_mode: str = "wait"
+    # WHICH SPEAKER spoken replies come out of. "" follows the Mac's current
+    # default output; otherwise a device UID (`BuiltInSpeakerDevice`,
+    # `AppleUSBAudioEngine:XREAL:…`), which survives reboots and reconnections in a
+    # way an index never does. A pinned device that is not connected falls back to
+    # the system default AND says so — it never plays somewhere else in silence.
+    audio_output_device: str = ""
+    # The device's human name as it was when chosen, so Settings can show
+    # "Sony WH-1000XM5 (not connected)" instead of a bare UID.
+    audio_output_device_name: str = ""
+    # Colour theme, shared with the framework's other clients (see ui_themes).
+    ui_theme: str = "abstract-glass"
+    # Reading comfort in the transcript. Sizes are px, line height is a
+    # multiplier; the gaps are the space after a paragraph and between list
+    # items. Defaults are the app's tuned rhythm.
+    text_size: int = 13
+    line_spacing: float = 1.20
+    paragraph_spacing: int = 3
+    bullet_spacing: int = 3
+    # Bumped when a layout change should retune sizes a user already saved.
+    # New objects are already current — only a STORED file without the marker
+    # is migrated, and `to_dict` stamps it, so it can never compound.
+    layout_version: int = LAYOUT_VERSION
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "AssistantPreferences":
@@ -2793,7 +2972,7 @@ class AssistantPreferences:
             auto_speak=bool(raw.get("auto_speak", False)),
             voice_quality=voice_quality,
             window_width=max(420, int(raw.get("window_width") or 500)),
-            window_height=max(240, int(raw.get("window_height") or 336)),
+            window_height=_migrated_window_height(raw),
             bottom_offset=max(0, int(raw.get("bottom_offset") or 18)),
             tool_preferences={
                 str(name).strip(): str(mode).strip().lower()
@@ -2802,12 +2981,21 @@ class AssistantPreferences:
             },
             route_overrides=_normalize_route_overrides(raw.get("route_overrides")),
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
+            speculation=_load_speculation(raw.get("speculation")),
             workspace_root=normalize_workspace_path(raw.get("workspace_root")),
             workspace_access_mode=normalize_workspace_access_mode(raw.get("workspace_access_mode")),
             workspace_allowed_paths=_normalize_workspace_paths(raw.get("workspace_allowed_paths")),
             voice_auto_send=bool(raw.get("voice_auto_send", True)),
             voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
             voice_mode=normalize_voice_mode(raw.get("voice_mode")),
+            audio_output_device=str(raw.get("audio_output_device") or "").strip(),
+            audio_output_device_name=str(raw.get("audio_output_device_name") or "").strip(),
+            ui_theme=normalize_ui_theme(raw.get("ui_theme")),
+            text_size=_clamp_int(raw.get("text_size"), 13, 10, 22),
+            line_spacing=_clamp_float(raw.get("line_spacing"), 1.20, 1.0, 2.2),
+            paragraph_spacing=_clamp_int(raw.get("paragraph_spacing"), 3, 0, 28),
+            bullet_spacing=_clamp_int(raw.get("bullet_spacing"), 3, 0, 16),
+            layout_version=LAYOUT_VERSION,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -2826,18 +3014,28 @@ class AssistantPreferences:
             },
             "route_overrides": _normalize_route_overrides(self.route_overrides),
             "reasoning_effort": normalize_reasoning_effort(self.reasoning_effort),
+            **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
             "voice_auto_send": bool(self.voice_auto_send),
             "voice_spoken_replies": bool(self.voice_spoken_replies),
             "voice_mode": normalize_voice_mode(self.voice_mode),
+            "audio_output_device": str(self.audio_output_device or "").strip(),
+            "audio_output_device_name": str(self.audio_output_device_name or "").strip(),
+            "ui_theme": normalize_ui_theme(self.ui_theme),
+            "text_size": _clamp_int(self.text_size, 13, 10, 22),
+            "line_spacing": _clamp_float(self.line_spacing, 1.20, 1.0, 2.2),
+            "paragraph_spacing": _clamp_int(self.paragraph_spacing, 3, 0, 28),
+            "bullet_spacing": _clamp_int(self.bullet_spacing, 3, 0, 16),
+            "layout_version": LAYOUT_VERSION,
         }
 
     def run_scope(self) -> Dict[str, Any]:
         """The per-run pins derived from these preferences (blank = omitted)."""
         return {
             "thinking": normalize_reasoning_effort(self.reasoning_effort),
+            **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
@@ -3022,6 +3220,7 @@ class AssistantController:
         self.voice_manager = GatewayVoiceManager(llm_manager=self.llm_manager, debug_mode=self.debug)
         self.voice_manager.set_voice_mode("wait")
         self.voice_manager.set_quality_preset(getattr(self.preferences, "voice_quality", "standard"))
+        self.voice_manager.set_output_device(getattr(self.preferences, "audio_output_device", ""))
         self._session_auto_approve_all: set[str] = set()
         # Short-lived caches so the send path and startup don't re-fetch the
         # workflow catalog + tool inventory on the GUI thread every time
@@ -3039,6 +3238,7 @@ class AssistantController:
         self._workspace_policy_cache: Optional[Dict[str, Any]] = None
         self._workspace_policy_cache_at = 0.0
         self._model_capabilities_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._execution_capabilities_cache: Dict[tuple[str, str], tuple[float, Dict[str, Any]]] = {}
         self._route_map_cache: Optional[Dict[str, CapabilityRouteRow]] = None
         self._route_map_cache_at = 0.0
         self._cache_lock = threading.RLock()
@@ -3113,6 +3313,7 @@ class AssistantController:
             self._workspace_policy_cache = None
             self._workspace_policy_cache_at = 0.0
             self._model_capabilities_cache = {}
+            self._execution_capabilities_cache = {}
             self._route_map_cache = None
             self._route_map_cache_at = 0.0
 
@@ -3176,6 +3377,10 @@ class AssistantController:
         self.preferences_store.save(prefs)
         try:
             self.voice_manager.set_quality_preset(getattr(prefs, "voice_quality", "standard"))
+        except Exception:
+            pass
+        try:
+            self.voice_manager.set_output_device(getattr(prefs, "audio_output_device", ""))
         except Exception:
             pass
 
@@ -3307,6 +3512,24 @@ class AssistantController:
                 self._model_capabilities_cache[name] = (time.monotonic(), result)
         return dict(result)
 
+    def execution_capabilities(self, provider: str, model: str) -> Dict[str, Any]:
+        """Read-only instance-aware discovery; callers perform network work off the GUI thread."""
+        key = (str(provider or "").strip(), str(model or "").strip())
+        if not key[1]:
+            return {}
+        with self._cache_lock:
+            epoch = self._cache_epoch
+            cached = self._execution_capabilities_cache.get(key)
+            if cached is not None and self._cache_fresh(cached[0]):
+                return dict(cached[1])
+        payload = self.gateway.discovery_model_capabilities(provider=key[0], model_name=key[1])
+        result = dict(payload) if isinstance(payload, dict) else {}
+        with self._cache_lock:
+            if epoch != self._cache_epoch:
+                return {}
+            self._execution_capabilities_cache[key] = (time.monotonic(), result)
+        return result
+
     def workspace_policy(self) -> Dict[str, Any]:
         """The gateway's workspace policy as this principal sees it:
         ``{"policy": <server policy>, "self": <per-user policy>, "error": str}``.
@@ -3424,9 +3647,9 @@ class AssistantController:
         return self.llm_manager.list_sessions()
 
     def session_digests(self) -> List[Dict[str, Any]]:
-        """Per-chat metrics for the switcher. Reads local files only — call it
-        from a worker thread the first time (long transcripts are parsed once
-        and cached by file identity)."""
+        """Per-chat metrics for the switcher. Reads local files only, cached by
+        file identity, so it is fast enough to call on the GUI thread (42 ms for
+        74 chats cold, under 2 ms warm)."""
         try:
             return list(self.llm_manager.session_digests() or [])
         except Exception:
@@ -3457,6 +3680,16 @@ class AssistantController:
 
     def switch_session(self, session_id: str) -> None:
         self.llm_manager.switch_session(session_id)
+
+    def backfill_session_attachments(self) -> int:
+        """Restore the active session's attachments from the runtime."""
+        backfill = getattr(self.llm_manager, "backfill_attachments_from_gateway", None)
+        if not callable(backfill):
+            return 0
+        try:
+            return int(backfill() or 0)
+        except Exception:
+            return 0
 
     def session_messages(self) -> List[Dict[str, Any]]:
         return self.llm_manager.session_messages()
@@ -3607,6 +3840,7 @@ class AssistantController:
             base_url_override=str((text_override or {}).get("base_url") or "") or None,
             media_overrides=self.media_route_overrides() or None,
             thinking=str(scope.get("thinking") or ""),
+            speculation=scope.get("speculation"),
             workspace_root=str(scope.get("workspace_root") or ""),
             workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
             workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
@@ -4014,8 +4248,17 @@ class AssistantController:
 
         artifact_id = str(artifact.get("$artifact") or artifact.get("artifact_id") or "").strip()
         if not artifact_id:
+            if local_path:
+                # An attachment the user picked from disk with no gateway copy:
+                # there is nothing to download, the file itself is gone (a
+                # screenshot dragged out of the macOS screenshot UI lives in a
+                # temp folder macOS empties).
+                raise FileNotFoundError(f"{Path(local_path).name} is no longer on disk")
             raise ValueError("artifact_id is required")
-        rid = str(run_id or "").strip()
+        # The artifact download route is scoped to the run that OWNS the
+        # artifact. An uploaded attachment belongs to the session's own upload
+        # run, not to the chat run that carried it, so its recorded run_id wins.
+        rid = str(artifact.get("run_id") or run_id or "").strip()
         if not rid:
             raise ValueError("run_id is required")
 
@@ -4053,6 +4296,15 @@ class AssistantController:
         never started can be withdrawn again."""
         result = self.llm_manager.append_message(role="user", content=content, metadata=metadata)
         return str(result or "")
+
+    def merge_message_metadata(self, message_id: str, metadata: Dict[str, Any]) -> bool:
+        merger = getattr(self.llm_manager, "merge_message_metadata", None)
+        if not callable(merger):
+            return False
+        try:
+            return bool(merger(message_id, metadata))
+        except Exception:
+            return False
 
     def remove_message(self, message_id: str) -> bool:
         remover = getattr(self.llm_manager, "remove_message", None)
@@ -4214,8 +4466,11 @@ class AssistantController:
                                 pending.append(sub_run_id)
 
                 for call in extract_tool_call_details_from_ledger_items(items, run_id=rid):
-                    call_id = str(call.get("call_id") or call.get("id") or "").strip()
-                    key = call_id or f"{rid}:{len(out)}:{call.get('name')}"
+                    # Dedupe guards against an overlapping ledger page, so it keys on
+                    # the call's UNIQUE identity. It used to key on `call_id`, the
+                    # model's per-response number: three calls all numbered "0" were
+                    # "duplicates", and the dialog listed one tool under "tools : 3".
+                    key = str(call.get("call_uid") or "").strip() or f"{rid}:{len(out)}:{call.get('name')}"
                     if key in seen_calls:
                         continue
                     seen_calls.add(key)
@@ -4867,6 +5122,7 @@ class GatewayClient:
         session_turn_limit: int = 50,
         ledger_mode: str = "tail",
         ledger_max_items: int = 2000,
+        timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
@@ -4885,6 +5141,7 @@ class GatewayClient:
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/history_bundle", query=query),
             label="get_run_history_bundle failed",
+            timeout_s=timeout_s,
         )
 
     def get_ledger(self, *, run_id: str, after: int, limit: int) -> Dict[str, Any]:
@@ -5291,13 +5548,13 @@ class GatewayClient:
     def vision_models(self) -> Dict[str, Any]:
         return self._request_json(method="GET", url=self._url("/api/gateway/vision/models"), label="vision_models failed")
 
-    def discovery_model_capabilities(self, *, model_name: str) -> Dict[str, Any]:
+    def discovery_model_capabilities(self, *, model_name: str, provider: str = "") -> Dict[str, Any]:
         name = str(model_name or "").strip()
         if not name:
             raise ValueError("discovery_model_capabilities: model_name is required")
         return self._request_json(
             method="GET",
-            url=self._url("/api/gateway/discovery/models/capabilities", query={"model_name": name}),
+            url=self._url("/api/gateway/discovery/models/capabilities", query={"model_name": name, **({"provider": provider} if provider else {})}),
             label="discovery_model_capabilities failed",
         )
 
@@ -6483,6 +6740,7 @@ def build_run_input_data(
     base_url: str = "",
     media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     thinking: str = "",
+    speculation: Any = None,
     workspace_root: str = "",
     workspace_access_mode: str = "",
     workspace_allowed_paths: Optional[List[str]] = None,
@@ -6562,6 +6820,9 @@ def build_run_input_data(
     thinking_s = str(thinking or "").strip().lower()
     if thinking_s:
         runtime_ns["thinking"] = thinking_s
+    if speculation is not None:
+        from abstractassistant.speculation import normalize_speculation
+        runtime_ns["speculation"] = normalize_speculation(speculation)
 
     if isinstance(tool_policy, dict):
         auto_raw = tool_policy.get("auto_approve_tools") or tool_policy.get("autoApproveTools") or tool_policy.get("autoApprove")
@@ -6664,6 +6925,7 @@ from .events import (
     parse_status_payload,
 )
 from .history_seed import tool_messages_from_record
+from .tool_usage import tool_call_uid
 from .types import StepRecord, WaitState
 
 # Activity-view texts are bounded so a single verbose cycle cannot bloat the
@@ -6840,6 +7102,11 @@ class GatewayEventAdapter:
                     ).strip()
                     if call_id:
                         tool_entry["call_id"] = call_id
+                    # The identity the activity card pairs a start with its result
+                    # on. `call_id` is the model's number and repeats across turns.
+                    call_uid = tool_call_uid(tc)
+                    if call_uid:
+                        tool_entry["call_uid"] = call_uid
                     if tool_started_ts:
                         tool_entry["ts"] = tool_started_ts
                     if isinstance(args, (dict, str)) and args:
@@ -6899,11 +7166,16 @@ class GatewayEventAdapter:
 
         for msg in tool_messages_from_record(rec or {}):
             meta = msg.get("metadata") if isinstance(msg, dict) else None
-            call_id = str(meta.get("call_id") or "").strip() if isinstance(meta, dict) else ""
-            if call_id:
-                if call_id in self._seen_tool_call_ids:
+            # Replay guard, keyed on the call's UNIQUE identity. Keyed on `call_id`
+            # it swallowed every result after the first whenever the model numbered
+            # its calls per response ("0", "0", "0"): the live card showed one tool
+            # finishing and the rest spinning forever. A record with no unique id
+            # (older runtimes) is never deduped — a repeated row beats a lost one.
+            call_uid = str(meta.get("call_uid") or "").strip() if isinstance(meta, dict) else ""
+            if call_uid:
+                if call_uid in self._seen_tool_call_ids:
                     continue
-                self._seen_tool_call_ids.add(call_id)
+                self._seen_tool_call_ids.add(call_uid)
             events.append({"type": "tool", "message": msg})
 
         out = extract_flow_end_output(rec)
@@ -7040,6 +7312,7 @@ class GatewayWorker(QThread):
         base_url_override: Optional[str] = None,
         media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         thinking: str = "",
+        speculation: Any = None,
         workspace_root: str = "",
         workspace_access_mode: str = "",
         workspace_allowed_paths: Optional[List[str]] = None,
@@ -7070,6 +7343,8 @@ class GatewayWorker(QThread):
         # Run scope: reasoning effort (`_runtime.thinking`) and the local
         # workspace grant; blanks are omitted from the run input.
         self._thinking = str(thinking or "").strip().lower()
+        from abstractassistant.speculation import normalize_speculation
+        self._speculation = normalize_speculation(speculation)
         self._workspace_root = str(workspace_root or "").strip()
         self._workspace_access_mode = str(workspace_access_mode or "").strip().lower()
         self._workspace_allowed_paths = [
@@ -7184,6 +7459,23 @@ class GatewayWorker(QThread):
             out.append(dict(attachment))
         return out
 
+    def _attachment_preview_items(
+        self, attachments: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Uploaded refs paired with the local path they came from.
+
+        Each item carries the gateway's `$artifact` and `run_id` (so the file
+        can be fetched back forever) plus `local_path` (so the common case
+        needs no fetch at all).
+        """
+        items: List[Dict[str, Any]] = []
+        for index, attachment in enumerate(attachments or []):
+            item = dict(attachment) if isinstance(attachment, dict) else {}
+            if 0 <= index < len(self._attachments):
+                item["local_path"] = str(self._attachments[index])
+            items.append(item)
+        return items
+
     def _pick_primary_image_artifact(self, attachments: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         for attachment in attachments:
             if not isinstance(attachment, dict):
@@ -7231,8 +7523,10 @@ class GatewayWorker(QThread):
                 ),
             )
             try:
+                # `call_uid`, not `call_id`: the adapter's replay guard keys on the
+                # unique identity (the model's `call_id` repeats across turns).
                 tool_ids = [
-                    str(m.get("metadata", {}).get("call_id") or "")
+                    str(m.get("metadata", {}).get("call_uid") or "")
                     for m in messages
                     if isinstance(m, dict) and str(m.get("role") or "") == "tool"
                 ]
@@ -7310,15 +7604,62 @@ class GatewayWorker(QThread):
                         occurrences.append((key, str(rec.get("step_id") or "").strip()))
         return occurrences
 
+    def _answered_wait_occurrences(self, bundle: Dict[str, Any]) -> list:
+        """Wait occurrences that were ANSWERED, per ledger.
+
+        A resume record carries the `wait_key` it answers, so within one
+        ledger the Nth waiting record for a key is answered by the Nth resume
+        for that key. Anything left over is still pending.
+
+        This replaces asking the run for its "current" wait, which read the
+        ROOT run while the approval the user must answer lives on the AGENT
+        SUBRUN: the root waits on `subworkflow:<child>` and never on
+        `tool_approval:<child>:act:<hash>`, so the pending child approval was
+        seeded as already-handled and its dialog never re-opened. One real run
+        sat parked on that for 16 minutes.
+        """
+        answered: list = []
+        ledgers = bundle.get("ledgers") if isinstance(bundle, dict) else None
+        if not isinstance(ledgers, dict):
+            return answered
+        for ledger in ledgers.values():
+            items = ledger.get("items") if isinstance(ledger, dict) else None
+            if not isinstance(items, list):
+                continue
+            waits: Dict[str, list] = {}
+            resumes: Dict[str, int] = {}
+            for it in items:
+                rec = it.get("record") if isinstance(it, dict) else None
+                if not isinstance(rec, dict):
+                    continue
+                wait = extract_wait_from_record(rec)
+                if isinstance(wait, dict):
+                    key = str(wait.get("wait_key") or "").strip()
+                    if key:
+                        waits.setdefault(key, []).append(str(rec.get("step_id") or "").strip())
+                    continue
+                effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+                if str(effect.get("type") or "") == "resume":
+                    payload = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
+                    key = str(payload.get("wait_key") or "").strip()
+                    if key:
+                        resumes[key] = resumes.get(key, 0) + 1
+            for key, steps in waits.items():
+                for step in steps[: resumes.get(key, 0)]:
+                    answered.append((key, step))
+        return answered
+
     def _suppress_resolved_waits_for_attach(self, run_id: str) -> None:
-        """On reattach, mark every historical wait OCCURRENCE as seen EXCEPT
-        the run's currently-pending one, so the full-ledger replay does not
-        re-open already-answered approval / ask-user dialogs (answering a
-        stale wait fails its resume and can leave the run tree in a bad
-        state). Occurrences are (wait_key, step_id) pairs — the runtime
-        reuses stable wait keys for repeated waits from the same node, so
-        excluding the pending wait by KEY would also unsuppress its answered
-        predecessors and replay stale dialogs."""
+        """On reattach, mark the ANSWERED wait occurrences as seen so the
+        full-ledger replay does not re-open dialogs the user already dealt
+        with (answering a stale wait fails its resume and can leave the run
+        tree in a bad state) — and leave every UNANSWERED one alone, so a
+        still-pending approval is raised again.
+
+        Occurrences are (wait_key, step_id) pairs: the runtime reuses stable
+        wait keys for repeated waits from the same node, so a key alone cannot
+        tell an answered wait from its pending successor.
+        """
         if self._gateway is None:
             return
         try:
@@ -7331,26 +7672,7 @@ class GatewayWorker(QThread):
             )
         except Exception:
             return
-        current_key = ""
-        try:
-            info = self._gateway.get_run(run_id=run_id)
-            if isinstance(info, dict) and str(info.get("status") or "").strip().lower() == "waiting":
-                waiting = info.get("waiting")
-                if isinstance(waiting, dict):
-                    current_key = str(waiting.get("wait_key") or "").strip()
-        except Exception:
-            current_key = ""
-        occurrences = self._all_ledger_wait_occurrences(bundle)
-        if current_key:
-            # The pending occurrence is the LAST waiting record carrying the
-            # current key (a currently-waiting run's waiting record is the
-            # newest wait state on its ledger). Seed everything but it.
-            last_idx = -1
-            for i, (key, _step) in enumerate(occurrences):
-                if key == current_key:
-                    last_idx = i
-            if last_idx >= 0:
-                occurrences = occurrences[:last_idx] + occurrences[last_idx + 1 :]
+        occurrences = self._answered_wait_occurrences(bundle)
         if occurrences:
             self._adapter.seed_handled_wait_occurrences(occurrences)
 
@@ -8036,20 +8358,21 @@ class GatewayWorker(QThread):
                 self._emit_run_activity(run_id=run_id)
             else:
                 attachments = self._upload_attachments(session_id=session_id) if self._attachments else []
+                preview_items = self._attachment_preview_items(attachments)
+                if preview_items and not self._append_user_message:
+                    # The message was already shown with local paths only. Hand
+                    # the durable artifact ids back so its preview survives the
+                    # local file being deleted.
+                    self.event_emitted.emit(
+                        {"type": "attachments_uploaded", "attachments": preview_items}
+                    )
                 if self._append_user_message:
                     try:
-                        metadata = None
-                        if attachments:
-                            preview_items: List[Dict[str, Any]] = []
-                            for index, attachment in enumerate(attachments):
-                                item = dict(attachment) if isinstance(attachment, dict) else {}
-                                if 0 <= index < len(self._attachments):
-                                    item["local_path"] = str(self._attachments[index])
-                                preview_items.append(item)
-                            metadata = {
-                                "attachments": preview_items,
-                                "media": preview_items,
-                            }
+                        metadata = (
+                            {"attachments": preview_items, "media": preview_items}
+                            if preview_items
+                            else None
+                        )
                         self._llm_manager.append_message(
                             role="user",
                             content=self._user_text,
@@ -8072,6 +8395,7 @@ class GatewayWorker(QThread):
                     base_url=self._base_url_override,
                     media_overrides=self._media_overrides,
                     thinking=self._thinking,
+                    speculation=self._speculation,
                     workspace_root=self._workspace_root,
                     workspace_access_mode=self._workspace_access_mode,
                     workspace_allowed_paths=self._workspace_allowed_paths,
@@ -8406,7 +8730,8 @@ class VoiceConversation:
         text = self.pending_text()
         self._flush_token += 1
         self._pending = []
-        if self.state in {"heard", "listening"}:
+        if self.state in {"heard", "listening", "speaking", "paused"}:
+            self._speak_pending = False
             self.turns += 1
             self._enter_thinking()
         return text
@@ -8449,7 +8774,7 @@ class VoiceConversation:
 
     def speech_finished(self) -> None:
         """The reply finished (or failed) playing: listen again."""
-        if not self.active or self.state == "paused":
+        if not self.active or self.state != "speaking":
             return
         self._speak_pending = False
         self._enter_listening()
@@ -8628,6 +8953,8 @@ class GatewayVoiceManager:
         self._paused = False
         self._play_proc: Optional[subprocess.Popen] = None
         self._inprocess_player = None
+        # "" = follow the system default output (see set_output_device).
+        self._output_device_spec = ""
         self._playback_backend = "none"
         self._stream_id = ""
         self._stream_active = False
@@ -8688,12 +9015,20 @@ class GatewayVoiceManager:
         return bool(self._gateway_tts_available() and self._audio_player_available())
 
     def output_device_label(self) -> str:
-        """Name of the audio output device speech plays on (best effort).
+        """Name of the device speech will actually play on.
 
-        Playback follows the SYSTEM default output; when that is a headset or
-        AR glasses the Mac's speakers stay silent while the app is genuinely
-        speaking (live 2026-07-28: TTS played into 'XREAL One Pro' while the
-        user heard nothing). Surfacing the device name makes that visible."""
+        NOT `sd.query_devices(kind="output")`: PortAudio resolves "the default" once,
+        at initialization, so in a long-running app that answer is the default from
+        launch — it kept naming the built-in speakers after the user had switched to
+        AR glasses. This resolves the CHOSEN device, or the system's live default when
+        none is pinned (see abstractvoice.tts.audio_devices).
+        """
+        try:
+            from abstractvoice.tts.audio_devices import describe_device_spec
+
+            return describe_device_spec(self.output_device_spec() or None)
+        except Exception:
+            pass
         try:
             import sounddevice as sd  # type: ignore
 
@@ -8820,6 +9155,81 @@ class GatewayVoiceManager:
                 rec.resume_transcriptions()
         except Exception:
             pass
+
+    def _can_refresh_audio_devices(self) -> bool:
+        """Whether PortAudio may be re-initialized right now.
+
+        `_listening` alone is NOT a sufficient gate: `stop_listening()` clears it BEFORE
+        `rec.stop()` closes the microphone stream, so a refresh inside that window
+        invalidates a live InputStream (PaErrorCode -9988, measured). The recognizer
+        object survives until after the stream is closed, so it closes the window.
+        """
+        if bool(getattr(self, "_listening", False)):
+            return False
+        return getattr(self, "_recognizer", None) is None
+
+    def set_output_device(self, spec: Optional[str]) -> None:
+        """Choose the speaker for spoken replies. ""/None follows the system default.
+
+        Applies to the live player immediately, so a choice made in Settings is
+        audible on the next sentence rather than after a restart.
+        """
+        value = str(spec or "").strip()
+        self._output_device_spec = value
+        player = self._inprocess_player
+        if player is not None:
+            try:
+                player.set_output_device(value or None)
+            except Exception:
+                pass
+
+    def output_device_spec(self) -> str:
+        return str(getattr(self, "_output_device_spec", "") or "")
+
+    def available_output_devices(self) -> list:
+        """Every output device the system can see right now (for the picker)."""
+        try:
+            from abstractvoice.tts.audio_devices import list_output_devices
+
+            return list(list_output_devices())
+        except Exception:
+            return []
+
+    def play_test_tone(self, spec: Optional[str] = None, *, seconds: float = 0.6) -> str:
+        """Play a short tone on `spec` (default: the configured device).
+
+        Returns "" on success or a sentence naming what went wrong. This is the only
+        honest answer to "which speaker will my replies come out of": the device the
+        stream actually opens on, proven by hearing it.
+        """
+        try:
+            import numpy as np
+
+            from abstractvoice.tts import NonBlockingAudioPlayer
+        except Exception as exc:
+            return f"Audio playback is unavailable ({self._exception_reason(exc)})."
+
+        target = spec if spec is not None else self.output_device_spec()
+        problems: list[str] = []
+        player = NonBlockingAudioPlayer(sample_rate=48000, debug_mode=self.debug_mode)
+        player.on_output_device_problem = problems.append
+        try:
+            player.set_output_device(str(target or "").strip() or None)
+            player.start_stream()
+            duration = max(0.2, min(2.0, float(seconds)))
+            t = np.linspace(0, duration, int(48000 * duration), endpoint=False)
+            envelope = np.minimum(1.0, np.minimum(t * 40, (duration - t) * 40))
+            tone = (0.18 * np.sin(2 * np.pi * 660 * t) * envelope).astype(np.float32)
+            player.play_audio(tone, sample_rate=48000)
+            time.sleep(duration + 0.25)
+        except Exception as exc:
+            return problems[0] if problems else f"Could not play on this device ({self._exception_reason(exc)})."
+        finally:
+            try:
+                player.stop_stream()
+            except Exception:
+                pass
+        return problems[0] if problems else ""
 
     def set_quality_preset(self, preset: str) -> None:
         """Set the TTS quality/latency preset (low|standard|high)."""
@@ -9210,6 +9620,26 @@ class GatewayVoiceManager:
         completion_owned = False
         pinned = any(str(p or "").strip() for p in (provider, voice, profile, model))
 
+        def _drain_audio() -> bool:
+            nonlocal completion_owned
+            drained = self._wait_for_stream_playback_drain(
+                player, playback_drained, timeout_s=max(5.0, queued_audio_s + 10.0)
+            )
+            if not drained and not stop_gate.is_set():
+                with self._state_lock:
+                    current = self._stream_id == stream_id
+                if current:
+                    try:
+                        player.stop_stream()
+                    except Exception as exc:
+                        warnings.warn(f"#FALLBACK: could not stop stalled audio output: {exc}")
+                    self._report_speech_failure(
+                        "speech was generated, but the local audio output did not finish playback; "
+                        "try speaking again to reopen the output device"
+                    )
+            completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
+            return drained
+
         def _retry_stream_unpinned(reason: str) -> Optional[bool]:
             """Re-run the stream leg with every pin dropped (pre-audio only).
 
@@ -9376,13 +9806,7 @@ class GatewayVoiceManager:
                     continue
                 if event_type == "done":
                     if audio_started:
-                        self._wait_for_stream_playback_drain(
-                            player,
-                            playback_drained,
-                            timeout_s=max(5.0, queued_audio_s + 10.0),
-                        )
-                        completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
-                        return True
+                        return _drain_audio()
                     return _artifact_fallback("stream finished without sending any audio")
                 if event_type in {"error", "cancelled"}:
                     if audio_started:
@@ -9407,12 +9831,7 @@ class GatewayVoiceManager:
             if stop_gate.is_set():
                 return False
             if audio_started:
-                self._wait_for_stream_playback_drain(
-                    player,
-                    playback_drained,
-                    timeout_s=max(5.0, queued_audio_s + 10.0),
-                )
-                completion_owned = self._finish_stream_playback(callback=callback, stream_id=stream_id)
+                _drain_audio()
                 return False
             return _artifact_fallback("stream ended without sending any audio")
         except Exception as e:
@@ -9983,6 +10402,14 @@ class GatewayVoiceManager:
                 detail = self._exception_reason(e)
                 warnings.warn(f"#FALLBACK: in-process gateway audio playback failed: {detail}")
                 self._note_speech_failure(f"local audio playback failed ({detail})")
+        # The external player (`afplay` and friends) always plays on the SYSTEM default
+        # and takes no device argument, so a chosen device cannot be honoured here. It is
+        # still better than silence — but the user picked a device, so they are told.
+        if self.output_device_spec():
+            self._note_speech_failure(
+                "this reply is playing on the system default output: the fallback player "
+                "cannot use the audio device you selected"
+            )
         cache_dir = self._audio_cache_dir()
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -10281,7 +10708,17 @@ class GatewayVoiceManager:
             from abstractvoice.tts import NonBlockingAudioPlayer
         except Exception:
             return None
-        player = NonBlockingAudioPlayer(debug_mode=self.debug_mode)
+        player = NonBlockingAudioPlayer(
+            debug_mode=self.debug_mode,
+            output_device=self.output_device_spec() or None,
+        )
+        # A wrong speaker used to be silent in every sense: the player fell back to
+        # another device without a word, so "I hear nothing" had no explanation
+        # anywhere. Route that into the same failure channel the rest of speech uses.
+        player.on_output_device_problem = self._note_speech_failure
+        # Refreshing the device list restarts PortAudio, which invalidates EVERY open
+        # stream in this process — a live microphone included.
+        player.allow_device_refresh = self._can_refresh_audio_devices
         prev = getattr(player, "on_audio_chunk", None)
 
         def _on_chunk(chunk, sample_rate: int) -> None:
@@ -10357,13 +10794,19 @@ class GatewayVoiceManager:
             level = min(1.0, max(0.0, rms * 3.0))
             bands = []
             if sample_rate and sample_rate > 0:
-                bands = self._compute_band_levels(arr, int(sample_rate), rms)
+                # `np` is a required argument: without it every call raised
+                # TypeError into the swallow below, so this meter had never
+                # produced a single reading (193 chunks, 193 exceptions, in a
+                # live measurement) and anything drawing it stayed frozen.
+                bands = self._compute_band_levels(arr, int(sample_rate), rms, np)
             if bands:
                 cb(bands)
             else:
                 cb(level)
-        except Exception:
-            pass
+        except Exception as e:
+            if not self._audio_meter_warned:
+                self._audio_meter_warned = True
+                warnings.warn(f"#FALLBACK: audio meter unavailable: {e!r}")
 
     def _spawn_player(self, path: Path):
         if sys.platform == "darwin":
@@ -11289,6 +11732,8 @@ from .assistant_workflow import (
     MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
     MANAGED_ASSISTANT_WORKFLOW_MARKER,
     MANAGED_ASSISTANT_WORKFLOW_NAME,
+    MANAGED_ASSISTANT_WORKFLOW_REVISION,
+    managed_workflow_revision_of,
     normalized_managed_visualflow,
 )
 
@@ -11559,6 +12004,8 @@ class AssistantGatewayService:
                 payload = normalized_managed_visualflow()
                 flows = self._gateway.list_visualflows()
                 target = self._find_managed_visualflow(flows)
+                if target is not None and self._stored_workflow_is_newer(target):
+                    return managed_options
                 if target is not None and not self._visualflow_needs_update(target, payload):
                     # Stored flow is current. One crash shape remains: a
                     # publish landed in the bundle registry but the promote
@@ -11888,6 +12335,23 @@ class AssistantGatewayService:
             if MANAGED_ASSISTANT_WORKFLOW_MARKER in description:
                 return dict(item)
         return None
+
+    def _stored_workflow_is_newer(self, stored: Dict[str, Any]) -> bool:
+        """True when the gateway already serves a NEWER managed workflow than this build.
+
+        Never downgrade it: see `MANAGED_ASSISTANT_WORKFLOW_REVISION` for the measured
+        cost of two builds each "correcting" the other. The newer workflow is a superset
+        of what this build knows how to drive, so it is simply used.
+        """
+        stored_revision = managed_workflow_revision_of(stored)
+        if stored_revision <= MANAGED_ASSISTANT_WORKFLOW_REVISION:
+            return False
+        warnings.warn(
+            f"#FALLBACK: the gateway serves a newer AbstractAssistant workflow (revision "
+            f"{stored_revision}) than this build ships ({MANAGED_ASSISTANT_WORKFLOW_REVISION}); "
+            f"using it as it is instead of republishing an older one."
+        )
+        return True
 
     def _visualflow_needs_update(self, current: Dict[str, Any], expected: Dict[str, Any]) -> bool:
         keys = ("name", "description", "interfaces", "nodes", "edges", "entryNode")

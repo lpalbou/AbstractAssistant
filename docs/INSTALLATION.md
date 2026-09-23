@@ -28,6 +28,19 @@ For local microphone capture (voice conversations and dictation), install the `v
 pip install "abstractassistant[voice]"
 ```
 
+Other extras:
+
+| Extra | Adds |
+|---|---|
+| `voice` (alias `all`) | local speech-to-text on top of the default audio I/O (`abstractvoice[audio-io,stt]`) |
+| `apple` | the Apple Silicon local stack (`abstractcore[all-apple]`, `abstractvoice[all-apple]`) |
+| `gpu` | the NVIDIA/CUDA local stack (`abstractcore[all-gpu]`, `abstractvoice[all-gpu]`) |
+| `macos-app` | PyInstaller, to build the macOS app bundle |
+| `dev` | test and lint tools |
+
+The assistant itself executes nothing locally; the `apple` and `gpu` extras are for installs
+where the same environment also hosts local models.
+
 Verify:
 
 ```bash
