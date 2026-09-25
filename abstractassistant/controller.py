@@ -199,6 +199,10 @@ class AssistantController:
 
     def warm_settings_caches(self) -> None:
         """Fetch (off the GUI thread) what the Settings window shows on open."""
+        try:
+            self.gateway_about()
+        except Exception:
+            pass
         for name in ("workspace_policy", "tool_inventory"):
             try:
                 getattr(self, name)()
@@ -215,6 +219,51 @@ class AssistantController:
                 self.model_capabilities(model)
         except Exception:
             pass
+
+    def gateway_about(self, *, cached_only: bool = False) -> tuple:
+        """``(payload, error)`` for the About page's gateway rows.
+
+        ``GET /api/gateway/about`` when the gateway answers it; else the
+        capability report mapped to the same keys (a gateway older than the
+        About route); else ``(None, reason)``. ``cached_only`` never does HTTP
+        (the Settings window reads it on the GUI thread; warm_settings_caches
+        fills it off-thread).
+        """
+        cached = getattr(self, "_gateway_about_cache", None)
+        if cached_only or (cached is not None and self._cache_fresh(float(getattr(self, "_gateway_about_at", 0.0) or 0.0))):
+            if cached is not None:
+                return cached
+            return self._gateway_about_from_capabilities()
+        try:
+            payload = self.gateway.gateway_about()
+            result = (dict(payload), None) if isinstance(payload, dict) and payload.get("abstractgateway") else self._gateway_about_from_capabilities()
+        except Exception as exc:
+            status = int(getattr(exc, "status", 0) or 0)
+            result = self._gateway_about_from_capabilities() if status == 404 else (None, self.gateway_service.describe_connection_issue(exc))
+        self._gateway_about_cache = result
+        self._gateway_about_at = time.monotonic()
+        return result
+
+    def _gateway_about_from_capabilities(self) -> tuple:
+        try:
+            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        except Exception as exc:
+            return None, str(exc) or exc.__class__.__name__
+        raw = getattr(caps, "raw", None) or {}
+        if not isinstance(raw, dict) or not raw:
+            return None, "not connected"
+        packages: Dict[str, str] = {}
+        for key in ("abstractgateway", "abstractruntime", "abstractcore", "abstractvoice", "abstractvision", "abstractmemory"):
+            entry = raw.get(key)
+            if isinstance(entry, dict) and entry.get("installed", True) and entry.get("version"):
+                packages[key] = str(entry.get("version"))
+        framework = raw.get("abstractframework")
+        framework_version = framework.get("version") if isinstance(framework, dict) else None
+        return {
+            "abstractgateway": packages.get("abstractgateway"),
+            "abstractframework": framework_version or None,
+            "packages": packages,
+        }, None
 
     def gateway_is_local(self) -> bool:
         """Does the gateway run on this machine? Folder pickers only make sense

@@ -43,6 +43,9 @@ class _Controller:
         )
         self.voice_manager = SimpleNamespace(output_device_label=lambda: "MacBook Pro Speakers", output_volume_state=lambda: (62, False))
 
+    def gateway_about(self, **kwargs):
+        return {"abstractgateway": "0.2.29", "abstractframework": None, "packages": {"abstractgateway": "0.2.29", "abstractruntime": "0.4.36"}}, None
+
     # connection
     def current_connection(self):
         return SimpleNamespace(base_url="http://127.0.0.1:8080", auth_mode="bearer", auth_token="t", user_id="admin", remember_session=True, session_id="")
@@ -300,7 +303,9 @@ def test_window_page_and_about_page_render_from_controller_truth() -> None:
     dlg.page_window._save_preferences()
     assert ctl.preferences.window_width == 800
     dlg.show_section("about")
-    assert "abstractgateway 0.2.29" in dlg.page_about.stack_label.text()
+    assert "Gateway: AbstractGateway 0.2.29" in dlg.page_about.stack_label.text()
+    assert "Gateway framework: not installed on the gateway host" in dlg.page_about.stack_label.text()
+    assert "Gateway package abstractruntime: 0.4.36" in dlg.page_about.stack_label.text()
     assert "abstractassistant-orchestrator" in dlg.page_about.workflow_label.text()
 
 

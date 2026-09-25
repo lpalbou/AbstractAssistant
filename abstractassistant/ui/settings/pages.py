@@ -1373,9 +1373,21 @@ class WindowPage(SettingsPage):
 
 
 def _assistant_version() -> str:
-    from abstractcore.utils.identity import installed_version
+    # The same version `assistant --version` prints (with its own fallback);
+    # identity.installed_version raises for a missing distribution.
+    from ...cli import _package_version
 
-    return installed_version("abstractassistant")
+    return _package_version()
+
+
+def _gateway_rows(controller: Any) -> List[Any]:
+    """Gateway version rows, formatted by the framework (the same lines every
+    AbstractFramework About screen shows)."""
+    from abstractcore.utils.identity import gateway_version_rows
+
+    about = safe_call(controller, "gateway_about", cached_only=True, default=None)
+    payload, error = about if isinstance(about, tuple) and len(about) == 2 else (None, "not connected")
+    return gateway_version_rows(payload, error)
 
 
 def _identity_fields(version: str) -> List[Any]:
@@ -1460,7 +1472,7 @@ class AboutPage(SettingsPage):
         self.stack_label.setObjectName("rowValue")
         self.stack_label.setWordWrap(True)
         self.stack_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        setup.add_row("Gateway packages", self.stack_label)
+        setup.add_row("Gateway", self.stack_label)
         self.workflow_label = QLabel("")
         self.workflow_label.setObjectName("rowValue")
         self.workflow_label.setWordWrap(True)
@@ -1502,6 +1514,7 @@ class AboutPage(SettingsPage):
         return {
             "assistant": version,
             "about": [f"{label}: {value}" for label, value in _identity_fields(version)],
+            "gateway": [f"{label}: {value}" for label, value in _gateway_rows(self.controller)],
             "stack": stack,
             "workflow": describe_workflow_selection(workflow),
             "resolved_workflow": resolved if isinstance(resolved, dict) else None,
@@ -1518,8 +1531,7 @@ class AboutPage(SettingsPage):
             widget = self.identity_labels.get(label)
             if widget is not None:
                 widget.setText(_linkified(value, link_style))
-        stack = diag["stack"]
-        self.stack_label.setText(" · ".join(f"{k} {v}" for k, v in stack.items()) if stack else "Not connected — versions unknown")
+        self.stack_label.setText("\n".join(diag["gateway"]))
         self.workflow_label.setText(str(diag["workflow"]))
         self.resolved_label.setText(describe_resolved_workflow(diag.get("resolved_workflow")))
         self.data_label.setText(str(diag["data_dir"] or "~/.abstractassistant"))

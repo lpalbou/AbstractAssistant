@@ -275,6 +275,16 @@ class GatewayClient:
             label="gateway_me failed",
         )
 
+    def gateway_about(self) -> Dict[str, Any]:
+        """Public ``GET /api/gateway/about`` (contract B):
+        ``{abstractframework, abstractgateway, packages}``."""
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/about"),
+            label="gateway_about failed",
+            timeout_s=min(float(self._cfg.timeout_s), 8.0),
+        )
+
     def openapi_document(self) -> Dict[str, Any]:
         return self._request_json(
             method="GET",

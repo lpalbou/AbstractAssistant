@@ -42,7 +42,9 @@ def test_about_page_shows_every_identity_row_with_links() -> None:
     page.refresh()
     assert list(page.identity_labels) == EXPECTED_LABELS
 
-    identity = app_identity("abstractassistant")
+    from abstractassistant.cli import _package_version
+
+    identity = app_identity("abstractassistant", version=_package_version())
     facts = dict(about_fields(identity))
     texts = {label: widget.text() for label, widget in page.identity_labels.items()}
     assert "AbstractAssistant" in texts["Application"]
@@ -54,8 +56,42 @@ def test_about_page_shows_every_identity_row_with_links() -> None:
         assert page.identity_labels[label].openExternalLinks()
     assert f'href="mailto:{facts["Contact"]}"' in texts["Contact"]
     # The app-specific rows are still there.
-    assert "abstractgateway 0.2.29" in page.stack_label.text()
+    assert "Gateway: AbstractGateway 0.2.29" in page.stack_label.text()
     assert page.workflow_label.text()
+
+
+@pytest.mark.basic
+def test_gateway_rows_fall_back_to_capabilities_then_to_the_error(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from abstractassistant.controller import AssistantController
+    from abstractassistant.gateway.client import GatewayHttpError
+
+    controller = object.__new__(AssistantController)
+    controller._cache_ttl_s = 20.0
+    raw = {"abstractgateway": {"installed": True, "version": "0.4.4"}, "abstractcore": {"installed": True, "version": "2.15.4"}}
+    controller.llm_manager = SimpleNamespace(gateway_capabilities=lambda **kw: SimpleNamespace(raw=raw))
+    controller.gateway_service = SimpleNamespace(describe_connection_issue=lambda exc: "Gateway unreachable")
+
+    def _missing():
+        raise GatewayHttpError("not found", status=404)
+
+    controller.gateway = SimpleNamespace(gateway_about=_missing)
+    payload, error = controller.gateway_about()
+    assert error is None and payload["abstractgateway"] == "0.4.4" and payload["packages"]["abstractcore"] == "2.15.4"
+
+    controller._gateway_about_cache = None
+
+    def _down():
+        raise GatewayHttpError("boom", status=502)
+
+    controller.gateway = SimpleNamespace(gateway_about=_down)
+    assert controller.gateway_about() == (None, "Gateway unreachable")
+
+    controller._gateway_about_cache = None
+    controller.gateway = SimpleNamespace(gateway_about=lambda: {"abstractgateway": "0.5.0", "abstractframework": "0.4.0", "packages": {}})
+    payload, error = controller.gateway_about()
+    assert payload["abstractframework"] == "0.4.0"
 
 
 @pytest.mark.basic
@@ -71,6 +107,7 @@ def test_copy_diagnostics_carries_the_about_lines() -> None:
     diag = json.loads(QApplication.clipboard().text())
     assert diag["about"][0].startswith("Application: AbstractAssistant")
     assert any(line.startswith("Report an issue: https://") for line in diag["about"])
+    assert diag["gateway"][0] == "Gateway: AbstractGateway 0.2.29"
 
 
 @pytest.mark.basic
