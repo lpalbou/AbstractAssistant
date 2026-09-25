@@ -55,6 +55,7 @@ class GatewayWorker(QThread):
         flow_id: str,
         bundle_version: str = "",
         registry_scope: str = "",
+        interface: str = "",
         attach_run_id: Optional[str] = None,
         primary_image_artifact: Optional[Dict[str, Any]] = None,
         provider_override: Optional[str] = None,
@@ -82,6 +83,9 @@ class GatewayWorker(QThread):
         self._flow_id = str(flow_id or "").strip()
         self._bundle_version = str(bundle_version or "").strip()
         self._registry_scope = str(registry_scope or "").strip()
+        # Set with flow_id "@default": the gateway resolves its default for
+        # this agent interface at run start (contract D).
+        self._interface = str(interface or "").strip()
         # LOCAL provider/model override for the chat text route (never a gateway
         # mutation): both must be set to take effect (a half-pin is dropped).
         self._provider_override = str(provider_override or "").strip()
@@ -239,6 +243,11 @@ class GatewayWorker(QThread):
         return None
 
     def _resolve_entrypoint(self) -> Dict[str, str]:
+        if self._flow_id == "@default":
+            if not self._interface:
+                raise RuntimeError("The gateway-default workflow needs an agent interface.")
+            # Only the sentinel + interface: the gateway picks the bundle.
+            return {"flow_id": "@default", "interface": self._interface}
         if not self._bundle_id or not self._flow_id or not self._bundle_version:
             raise RuntimeError("Published assistant workflow selection is incomplete.")
         scope = str(self._registry_scope or "").strip() or "tenant_catalog"
@@ -1153,14 +1162,17 @@ class GatewayWorker(QThread):
 
                 try:
                     entry = self._resolve_entrypoint()
-                    run_id = self._gateway.start_run(
+                    start_kwargs: Dict[str, Any] = dict(
                         flow_id=entry["flow_id"],
                         input_data=input_data,
-                        bundle_id=entry["bundle_id"],
+                        bundle_id=str(entry.get("bundle_id") or "") or None,
                         bundle_version=str(entry.get("bundle_version") or "") or None,
                         session_id=session_id,
                         registry_scope=str(entry.get("registry_scope") or "") or None,
                     )
+                    if entry.get("interface"):
+                        start_kwargs["interface"] = entry["interface"]
+                    run_id = self._gateway.start_run(**start_kwargs)
                 except Exception as exc:
                     # Nothing started: the palette restores the composer text,
                     # drops the phantom user turn and shows the gateway's

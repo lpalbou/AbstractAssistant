@@ -8923,9 +8923,14 @@ class AssistantPalette(QMainWindow):
 
     def _refresh_workflows(self) -> None:
         options = self._controller.workflow_options()
+        current = self._controller.current_workflow() if options else None
         status = self._controller.workflow_status()
-        current = options[0] if options else None
-        if status.error and not options:
+        if options and current is None and status.error:
+            # The workflow chosen in Settings left the catalog: say so, and
+            # where to fix it, rather than a disabled Send with no reason.
+            self._set_banner(str(status.error), tone="error", key="workflow")
+            self._set_status("Pick a workflow in Settings", tone="error")
+        elif status.error and not options:
             detail = str(status.error or "").strip()
             message = detail
             detail_lower = detail.lower()

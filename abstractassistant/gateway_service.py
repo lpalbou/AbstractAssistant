@@ -71,6 +71,29 @@ class WorkflowOption:
 
 
 @dataclass(frozen=True)
+class GatewayDefaultWorkflow:
+    """What the gateway reports as its default workflow for the assistant
+    interface (contract D, ``default_agent_workflows`` on /workflow-catalog).
+
+    ``reported`` is False when the gateway's envelope has no
+    ``default_agent_workflows`` at all (a gateway older than contract D);
+    ``available`` is False when it has one but no default for this interface —
+    the assistant then runs its built-in orchestrator (amendment A-4).
+    """
+
+    reported: bool = False
+    available: bool = False
+    workflow_id: str = ""
+    bundle_id: str = ""
+    bundle_version: str = ""
+    flow_id: str = ""
+    registry_scope: str = ""
+    name: str = ""
+    source: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class WorkflowCatalogStatus:
     source: str = "tenant_catalog"
     error: str = ""
@@ -206,6 +229,8 @@ class AssistantGatewayService:
         # on save must not cause a publish loop (each reconcile mints a new
         # bundle patch version).
         self._managed_flow_reconciled = False
+        self._gateway_default = GatewayDefaultWorkflow()
+        self._last_catalog_options: List[WorkflowOption] = []
 
     def describe_connection_issue(self, exc: Exception) -> str:
         return self._describe_gateway_exception(exc)
@@ -247,21 +272,33 @@ class AssistantGatewayService:
 
     def list_workflows(self) -> List[WorkflowOption]:
         try:
-            options = self.ensure_catalog_workflow()
+            # Keeps the built-in orchestrator published; the selector then
+            # offers EVERY assistant-interface workflow of the catalog it read.
+            self.ensure_catalog_workflow()
+            options = list(self._last_catalog_options)
         except Exception as exc:
             detail = self._describe_gateway_exception(exc)
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
             return []
-        resolved, error = self._resolve_runnable_workflows(options)
+        resolved = self._runnable_workflows(options)
         if resolved:
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error="")
             return resolved
-        detail = error or self._blocking_gateway_issue() or "No published AbstractAssistant workflow is available in the gateway catalog."
+        detail = self._blocking_gateway_issue() or "No published AbstractAssistant workflow is available in the gateway catalog."
         self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
         return []
 
     def workflow_status(self) -> WorkflowCatalogStatus:
         return self._last_workflow_status
+
+    def gateway_default_workflow(self) -> GatewayDefaultWorkflow:
+        """The gateway's default for the assistant interface, as last read
+        with the catalog (``list_workflows`` refreshes it)."""
+        return self._gateway_default
+
+    @staticmethod
+    def is_managed_option(option: Any) -> bool:
+        return str(getattr(option, "bundle_id", "") or "").strip() == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
 
     def ensure_catalog_workflow(self) -> List[WorkflowOption]:
         options, _error = self._catalog_workflows()
@@ -302,7 +339,7 @@ class AssistantGatewayService:
                             bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
                             bundle_version=registry_version,
                             scope="tenant_catalog",
-                            make_default=True,
+                            make_default=False,
                         )
                         options, error = self._catalog_workflows()
                         refreshed = self._managed_catalog_options(options)
@@ -371,14 +408,16 @@ class AssistantGatewayService:
             bundle_version = str((published or {}).get("bundle_version") or "").strip() or next_version or bundle_version
         if not bundle_version:
             raise RuntimeError("Assistant workflow publish returned no bundle_version.")
-        # make_default=True: the workflow resolver prefers the catalog's
-        # default option, so a republished version must take the default flag
-        # or the app would keep running the OLD definition forever.
+        # make_default=False (2026-09-25): WHICH workflow is the default is
+        # the gateway operator's setting (`agents.default_workflow`), never
+        # something this app claims on launch. The app still publishes its
+        # built-in orchestrator so it exists, and runs its LATEST version
+        # (see `_runnable_workflows`), so no default flag is needed for that.
         self._gateway.promote_workflow_catalog_bundle(
             bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
             bundle_version=bundle_version,
             scope="tenant_catalog",
-            make_default=True,
+            make_default=False,
         )
         options, error = self._catalog_workflows()
         managed_options = self._managed_catalog_options(options)
@@ -467,7 +506,9 @@ class AssistantGatewayService:
         items = payload.get("items") if isinstance(payload, dict) else None
         if not isinstance(items, list):
             return [], "Gateway workflow catalog response was invalid."
+        self._gateway_default = self._parse_gateway_default(payload)
         options: List[WorkflowOption] = []
+        self._last_catalog_options = options
         for record in items:
             if not isinstance(record, dict):
                 continue
@@ -518,17 +559,50 @@ class AssistantGatewayService:
             if isinstance(option, WorkflowOption) and str(option.bundle_id or "").strip() == target
         ]
 
-    def _resolve_runnable_workflows(self, options: List[WorkflowOption]) -> tuple[List[WorkflowOption], str]:
-        if not options:
-            return [], ""
-        defaults = [option for option in options if bool(option.is_default)]
-        if len(defaults) == 1:
-            return [defaults[0]], ""
-        if len(defaults) > 1:
-            return [], "Gateway catalog exposes multiple default assistant workflows. Publish exactly one default assistant workflow."
-        if len(options) == 1:
-            return [options[0]], ""
-        return [], "Gateway catalog must expose exactly one default assistant workflow for AbstractAssistant."
+    @staticmethod
+    def _parse_gateway_default(payload: Any) -> GatewayDefaultWorkflow:
+        if not isinstance(payload, dict) or "default_agent_workflows" not in payload:
+            return GatewayDefaultWorkflow(reported=False)
+        table = payload.get("default_agent_workflows")
+        entry = table.get(ASSISTANT_INTERFACE) if isinstance(table, dict) else None
+        if not isinstance(entry, dict):
+            return GatewayDefaultWorkflow(reported=True, available=False)
+        bundle_id = str(entry.get("bundle_id") or "").strip()
+        flow_id = str(entry.get("flow_id") or "").strip()
+        available = entry.get("available")
+        is_available = bool(bundle_id and flow_id) and available is not False
+        return GatewayDefaultWorkflow(
+            reported=True,
+            available=is_available,
+            workflow_id=str(entry.get("workflow_id") or "").strip(),
+            bundle_id=bundle_id,
+            bundle_version=str(entry.get("bundle_version") or "").strip(),
+            flow_id=flow_id,
+            registry_scope=str(entry.get("registry_scope") or "").strip(),
+            name=str(entry.get("name") or "").strip(),
+            # Shown verbatim (flag / stored / env / default — amendment A-4).
+            source=str(entry.get("source") or "").strip(),
+            reason=str(entry.get("reason") or "").strip(),
+        )
+
+    def _runnable_workflows(self, options: List[WorkflowOption]) -> List[WorkflowOption]:
+        """Every assistant-interface workflow, ONE row per (bundle, flow) at its
+        latest version: the built-in orchestrator first, then the rest by name.
+
+        The catalog keeps every published version; the selector offers each
+        workflow once and a run uses its newest version. (Until 2026-09-25 this
+        insisted on exactly one catalog default, which the app then claimed
+        for itself on every republish.)
+        """
+        latest: Dict[tuple, WorkflowOption] = {}
+        for option in options:
+            key = (option.bundle_id, option.flow_id)
+            known = latest.get(key)
+            if known is None or _version_sort_key(option.bundle_version) > _version_sort_key(known.bundle_version):
+                latest[key] = option
+        rows = list(latest.values())
+        rows.sort(key=lambda o: (0 if self.is_managed_option(o) else 1, o.label.lower(), o.bundle_id, o.flow_id))
+        return rows
 
     def _blocking_gateway_issue(self) -> str:
         gateway_me = getattr(self._gateway, "gateway_me", None)

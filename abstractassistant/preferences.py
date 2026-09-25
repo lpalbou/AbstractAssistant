@@ -129,6 +129,31 @@ def _migrated_screen_edge_gap(raw: Dict[str, Any]) -> int:
     return max(0, min(80, gap))
 
 
+#: The workflow choice that means "whatever the gateway's operator set as the
+#: default for the assistant interface" (contract D). Persisted as this
+#: sentinel, never as a copied id, so a later change on the gateway applies to
+#: the next turn.
+WORKFLOW_GATEWAY_DEFAULT = "@default"
+
+
+def normalize_workflow_choice(raw: Any) -> Any:
+    """``"@default"`` or ``{"bundle_id", "flow_id", "registry_scope"}``.
+
+    A chosen workflow is stored WITHOUT a version: it means "the latest
+    published version of that workflow", so a republish does not strand it.
+    """
+    if isinstance(raw, dict):
+        bundle_id = str(raw.get("bundle_id") or "").strip()
+        flow_id = str(raw.get("flow_id") or "").strip()
+        if bundle_id and flow_id and flow_id != WORKFLOW_GATEWAY_DEFAULT:
+            return {
+                "bundle_id": bundle_id,
+                "flow_id": flow_id,
+                "registry_scope": str(raw.get("registry_scope") or "tenant_catalog").strip() or "tenant_catalog",
+            }
+    return WORKFLOW_GATEWAY_DEFAULT
+
+
 def normalize_ui_theme(raw: Any) -> str:
     """The saved colour theme id, or the app's own theme when unknown.
 
@@ -300,6 +325,11 @@ class AssistantPreferences:
     line_spacing: float = 1.20
     paragraph_spacing: int = 3
     bullet_spacing: int = 3
+    # Which assistant workflow runs each turn: WORKFLOW_GATEWAY_DEFAULT (the
+    # gateway's default for `abstractassistant.agent.v1`, or the built-in
+    # orchestrator when the gateway sets none) or a chosen
+    # {bundle_id, flow_id, registry_scope} from the catalog.
+    workflow: Any = WORKFLOW_GATEWAY_DEFAULT
     # Bumped when a layout change should retune sizes a user already saved.
     # New objects are already current — only a STORED file without the marker
     # is migrated, and `to_dict` stamps it, so it can never compound.
@@ -344,6 +374,7 @@ class AssistantPreferences:
             line_spacing=_clamp_float(raw.get("line_spacing"), 1.20, 1.0, 2.2),
             paragraph_spacing=_clamp_int(raw.get("paragraph_spacing"), 3, 0, 28),
             bullet_spacing=_clamp_int(raw.get("bullet_spacing"), 3, 0, 16),
+            workflow=normalize_workflow_choice(raw.get("workflow")),
             layout_version=LAYOUT_VERSION,
         )
 
@@ -377,6 +408,7 @@ class AssistantPreferences:
             "line_spacing": _clamp_float(self.line_spacing, 1.20, 1.0, 2.2),
             "paragraph_spacing": _clamp_int(self.paragraph_spacing, 3, 0, 28),
             "bullet_spacing": _clamp_int(self.bullet_spacing, 3, 0, 16),
+            "workflow": normalize_workflow_choice(self.workflow),
             "layout_version": LAYOUT_VERSION,
         }
 
@@ -435,10 +467,25 @@ class GatewayConnectionPreferences:
 
 @dataclass(frozen=True)
 class WorkflowSelection:
+    """The workflow a run starts with.
+
+    ``flow_id == WORKFLOW_GATEWAY_DEFAULT`` (with ``interface``) asks the
+    gateway to resolve its stored default at run start; the bundle fields then
+    only describe what it reported (for display). ``source`` is
+    ``gateway_default`` | ``built_in`` | ``chosen``.
+    """
+
     bundle_id: str = ""
     flow_id: str = ""
     bundle_version: str = ""
     registry_scope: str = "tenant_catalog"
+    interface: str = field(default="", compare=False)
+    label: str = field(default="", compare=False)
+    source: str = field(default="", compare=False)
+
+    @property
+    def is_gateway_default(self) -> bool:
+        return self.flow_id == WORKFLOW_GATEWAY_DEFAULT
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> Optional["WorkflowSelection"]:

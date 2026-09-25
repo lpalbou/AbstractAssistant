@@ -51,6 +51,7 @@ from ...preferences import (
     DEFAULT_WINDOW_HEIGHT,
     DEFAULT_WINDOW_WIDTH,
     REASONING_EFFORT_LEVELS,
+    WORKFLOW_GATEWAY_DEFAULT,
     WORKSPACE_ACCESS_MODES,
     normalize_workspace_path,
 )
@@ -332,6 +333,22 @@ class ModelsPage(SettingsPage):
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
 
+        # WHICH WORKFLOW runs each turn (contract D). The gateway's default is
+        # always the first row and is saved as "@default", never as a copy of
+        # its id, so an operator's later change applies to the next turn.
+        workflow = self.add_card(
+            Card("Workflow", "The agent workflow each new turn runs. A turn already running keeps its workflow.")
+        )
+        self.workflow_combo = QComboBox()
+        self.workflow_combo.setMinimumWidth(320)
+        self.workflow_combo.activated.connect(self._on_workflow_chosen)
+        workflow.add_row("Runs", self.workflow_combo, stretch_control=False)
+        self.workflow_detail = QLabel("")
+        self.workflow_detail.setObjectName("rowHelp")
+        self.workflow_detail.setWordWrap(True)
+        workflow.add_widget(self.workflow_detail)
+        self._workflow_rows: List[Dict[str, Any]] = []
+
         # A card WITHOUT a title: the surface is what makes the form read as a
         # panel, but a card titled "Models" inside a page titled
         # "Models & reasoning" was a third heading for one thing.
@@ -344,7 +361,53 @@ class ModelsPage(SettingsPage):
         self.add_actions(*self.route_editor.action_buttons())
 
     def refresh(self) -> None:
+        self._refresh_workflows()
         self.route_editor.refresh()
+
+    def _refresh_workflows(self) -> None:
+        rows = safe_call(self.controller, "workflow_menu", default=None)
+        self._workflow_rows = list(rows or [])
+        current = safe_call(self.controller, "workflow_choice", default=WORKFLOW_GATEWAY_DEFAULT)
+        self.workflow_combo.blockSignals(True)
+        try:
+            self.workflow_combo.clear()
+            selected = -1
+            for index, row in enumerate(self._workflow_rows):
+                self.workflow_combo.addItem(str(row.get("label") or ""))
+                if row.get("choice") == current:
+                    selected = index
+            if selected < 0 and current != WORKFLOW_GATEWAY_DEFAULT and isinstance(current, dict):
+                # The saved workflow left the catalog: show it, do not silently
+                # move the selection to something else.
+                missing = f"{current.get('bundle_id')}:{current.get('flow_id')} (not in the catalog any more)"
+                self.workflow_combo.addItem(missing)
+                self._workflow_rows.append({"choice": current, "label": missing, "detail": "Pick another workflow."})
+                selected = self.workflow_combo.count() - 1
+            self.workflow_combo.setCurrentIndex(max(0, selected))
+        finally:
+            self.workflow_combo.blockSignals(False)
+        self.workflow_combo.setEnabled(bool(self._workflow_rows))
+        self._show_workflow_detail()
+
+    def _show_workflow_detail(self) -> None:
+        index = self.workflow_combo.currentIndex()
+        if 0 <= index < len(self._workflow_rows):
+            self.workflow_detail.setText(str(self._workflow_rows[index].get("detail") or ""))
+        else:
+            self.workflow_detail.setText("Not connected \u2014 the gateway's workflows are not known yet.")
+
+    def _on_workflow_chosen(self, index: int) -> None:
+        if not (0 <= index < len(self._workflow_rows)):
+            return
+        choice = self._workflow_rows[index].get("choice")
+        try:
+            self.controller.set_workflow_choice(choice)
+        except Exception as exc:
+            self.say(f"Could not save the workflow: {exc}", tone="error")
+            return
+        self._show_workflow_detail()
+        self.say("Saved on this device \u2014 applies from the next turn.")
+        self.changed.emit()
 
     def _on_routes_changed(self) -> None:
         self.changed.emit()
@@ -1309,6 +1372,37 @@ class WindowPage(SettingsPage):
 # ================================================================== About
 
 
+def describe_workflow_selection(workflow: Any) -> str:
+    """One line for the About page: what the NEXT turn runs, and why."""
+    if workflow is None:
+        return "not resolved"
+    bundle_id = str(getattr(workflow, "bundle_id", "") or "")
+    flow_id = str(getattr(workflow, "flow_id", "") or "")
+    version = str(getattr(workflow, "bundle_version", "") or "")
+    label = str(getattr(workflow, "label", "") or "") or bundle_id
+    at = f" @{version}" if version else ""
+    source = str(getattr(workflow, "source", "") or "")
+    if flow_id == WORKFLOW_GATEWAY_DEFAULT:
+        return f"Gateway default \u2192 {label}{at} ({bundle_id})"
+    if source == "built_in":
+        return f"Built-in orchestrator{at} ({bundle_id}:{flow_id})"
+    return f"{label}{at} ({bundle_id}:{flow_id})"
+
+
+def describe_resolved_workflow(resolved: Any) -> str:
+    """The gateway's ``resolved_workflow`` for the last run start."""
+    if not isinstance(resolved, dict) or not resolved:
+        return "No turn yet in this session of the app"
+    bundle_id = str(resolved.get("bundle_id") or "")
+    version = str(resolved.get("bundle_version") or "")
+    flow_id = str(resolved.get("flow_id") or "")
+    name = str(resolved.get("name") or "") or bundle_id
+    source = str(resolved.get("source") or "")
+    origin = {"gateway_default": "the gateway default", "client": "chosen by this app"}.get(source, source)
+    at = f" @{version}" if version else ""
+    return f"{name}{at} ({bundle_id}:{flow_id})" + (f" \u2014 {origin}" if origin else "")
+
+
 class AboutPage(SettingsPage):
     title = "About"
     subtitle = ""
@@ -1329,6 +1423,11 @@ class AboutPage(SettingsPage):
         self.workflow_label.setObjectName("rowValue")
         self.workflow_label.setWordWrap(True)
         card.add_row("Workflow", self.workflow_label)
+        self.resolved_label = QLabel("")
+        self.resolved_label.setObjectName("rowValue")
+        self.resolved_label.setWordWrap(True)
+        self.resolved_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        card.add_row("Last turn ran", self.resolved_label)
         self.data_label = QLabel("")
         self.data_label.setObjectName("rowValue")
         self.data_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -1373,16 +1472,14 @@ class AboutPage(SettingsPage):
         if isinstance(contracts, dict) and contracts.get("version") is not None:
             stack["contracts"] = f"v{contracts.get('version')}"
         workflow = safe_call(self.controller, "current_workflow", default=None)
+        resolved = safe_call(self.controller, "last_resolved_workflow", default=None)
         connection = safe_call(self.controller, "current_connection", default=None)
         prefs = _prefs(self.controller)
         return {
             "assistant": version,
             "stack": stack,
-            "workflow": (
-                f"{getattr(workflow, 'bundle_id', '')} {getattr(workflow, 'bundle_version', '')} ({getattr(workflow, 'registry_scope', '')})".strip()
-                if workflow is not None
-                else "not resolved"
-            ),
+            "workflow": describe_workflow_selection(workflow),
+            "resolved_workflow": resolved if isinstance(resolved, dict) else None,
             "gateway_url": str(getattr(connection, "base_url", "") or ""),
             "auth_mode": str(getattr(connection, "auth_mode", "") or ""),
             "data_dir": str(safe_attr(self.controller, "data_dir", "") or ""),
@@ -1395,6 +1492,7 @@ class AboutPage(SettingsPage):
         stack = diag["stack"]
         self.stack_label.setText(" · ".join(f"{k} {v}" for k, v in stack.items()) if stack else "Not connected — versions unknown")
         self.workflow_label.setText(str(diag["workflow"]))
+        self.resolved_label.setText(describe_resolved_workflow(diag.get("resolved_workflow")))
         self.data_label.setText(str(diag["data_dir"] or "~/.abstractassistant"))
 
     def _reveal(self) -> None:

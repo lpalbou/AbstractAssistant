@@ -137,14 +137,23 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
     )
 
-    run_id = gateway.start_run(
-        flow_id=selected_workflow.flow_id,
-        input_data=input_data,
-        bundle_id=selected_workflow.bundle_id,
-        bundle_version=selected_workflow.bundle_version or None,
-        session_id=llm_manager.active_session_id,
-        registry_scope=selected_workflow.registry_scope or None,
-    )
+    if getattr(selected_workflow, "is_gateway_default", False):
+        # The gateway resolves its own default for the assistant interface.
+        run_id = gateway.start_run(
+            flow_id=selected_workflow.flow_id,
+            input_data=input_data,
+            interface=selected_workflow.interface,
+            session_id=llm_manager.active_session_id,
+        )
+    else:
+        run_id = gateway.start_run(
+            flow_id=selected_workflow.flow_id,
+            input_data=input_data,
+            bundle_id=selected_workflow.bundle_id,
+            bundle_version=selected_workflow.bundle_version or None,
+            session_id=llm_manager.active_session_id,
+            registry_scope=selected_workflow.registry_scope or None,
+        )
     llm_manager.set_last_run_id(run_id)
 
     adapter = GatewayEventAdapter()

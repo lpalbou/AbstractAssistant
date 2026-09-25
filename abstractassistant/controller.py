@@ -25,7 +25,14 @@ from abstractassistant.gateway.tool_usage import (
 )
 from abstractassistant.ui.gateway_worker import GatewayWorker
 
-from .gateway_service import AssistantGatewayService, CapabilityRouteRow, WorkflowCatalogStatus, WorkflowOption
+from .assistant_workflow import ASSISTANT_INTERFACE
+from .gateway_service import (
+    AssistantGatewayService,
+    CapabilityRouteRow,
+    GatewayDefaultWorkflow,
+    WorkflowCatalogStatus,
+    WorkflowOption,
+)
 from .preferences import (
     AssistantPreferences,
     GatewayConnectionPreferences,
@@ -33,8 +40,10 @@ from .preferences import (
     LOCAL_OVERRIDE_ROUTE_KEYS,
     PreferencesStore,
     REASONING_EFFORT_LEVELS,
+    WORKFLOW_GATEWAY_DEFAULT,
     WORKSPACE_ACCESS_MODES,
     WorkflowSelection,
+    normalize_workflow_choice,
 )
 
 
@@ -290,13 +299,119 @@ class AssistantController:
         return list(options)
 
     def workflow_status(self) -> WorkflowCatalogStatus:
+        error = str(getattr(self, "_workflow_choice_error", "") or "")
+        if error:
+            return WorkflowCatalogStatus(source="tenant_catalog", error=error)
         return self.gateway_service.workflow_status()
 
+    def workflow_choice(self) -> Any:
+        """The saved choice: ``WORKFLOW_GATEWAY_DEFAULT`` or a
+        ``{bundle_id, flow_id, registry_scope}`` dict (see preferences)."""
+        prefs = getattr(self, "preferences", None)
+        return normalize_workflow_choice(getattr(prefs, "workflow", WORKFLOW_GATEWAY_DEFAULT))
+
+    def set_workflow_choice(self, choice: Any) -> None:
+        """Persist the Settings → Workflow choice; applies from the next turn."""
+        self.update_preferences(workflow=normalize_workflow_choice(choice))
+
+    def gateway_default_workflow(self) -> GatewayDefaultWorkflow:
+        service = getattr(self, "gateway_service", None)
+        getter = getattr(service, "gateway_default_workflow", None)
+        return getter() if callable(getter) else GatewayDefaultWorkflow()
+
+    def built_in_workflow(self, options: Optional[List[WorkflowOption]] = None) -> Optional[WorkflowOption]:
+        """The app's own managed orchestrator (latest published version)."""
+        for option in options if options is not None else self.workflow_options():
+            if AssistantGatewayService.is_managed_option(option):
+                return option
+        return None
+
     def current_workflow(self) -> Optional[WorkflowSelection]:
+        """The workflow the NEXT turn starts with (never changes mid-turn).
+
+        Gateway default chosen (the default choice): when the gateway reports a
+        default for ``abstractassistant.agent.v1`` the run is started with the
+        sentinel ``flow_id="@default"`` + ``interface`` and the gateway
+        resolves it at run start; when it reports none (``available: false``,
+        or a gateway older than contract D) the built-in orchestrator runs.
+        A chosen workflow runs its latest published version; if it left the
+        catalog, nothing runs and ``workflow_status`` says why (no silent swap).
+        """
         options = self.workflow_options()
-        if not options:
-            return None
-        return self._workflow_selection_from_option(options[0])
+        choice = self.workflow_choice()
+        self._workflow_choice_error = ""
+        if choice == WORKFLOW_GATEWAY_DEFAULT:
+            default = self.gateway_default_workflow()
+            if default.available:
+                return WorkflowSelection(
+                    bundle_id=default.bundle_id,
+                    flow_id=WORKFLOW_GATEWAY_DEFAULT,
+                    bundle_version=default.bundle_version,
+                    registry_scope=default.registry_scope or "tenant_catalog",
+                    interface=ASSISTANT_INTERFACE,
+                    label=default.name or default.bundle_id,
+                    source="gateway_default",
+                )
+            built_in = self.built_in_workflow(options)
+            if built_in is None:
+                # Legacy/foreign catalogs with no managed bundle: the first
+                # assistant-interface workflow is what the app always ran.
+                if not options:
+                    return None
+                return self._workflow_selection_from_option(options[0], source="chosen")
+            return self._workflow_selection_from_option(built_in, source="built_in")
+        bundle_id = str(choice.get("bundle_id") or "")
+        flow_id = str(choice.get("flow_id") or "")
+        for option in options:
+            if option.bundle_id == bundle_id and option.flow_id == flow_id:
+                return self._workflow_selection_from_option(option, source="chosen")
+        if options:
+            self._workflow_choice_error = (
+                f"The workflow chosen in Settings ({bundle_id}:{flow_id}) is not in the gateway catalog any more. "
+                "Pick another one in Settings \u2192 Workflow."
+            )
+        return None
+
+    def workflow_menu(self) -> List[Dict[str, Any]]:
+        """Rows for Settings → Workflow: the gateway default FIRST (contract D),
+        then every assistant-interface workflow at its latest version.
+
+        Each row: ``choice`` (what is persisted), ``label``, ``detail``.
+        """
+        options = self.workflow_options()
+        default = self.gateway_default_workflow()
+        built_in = self.built_in_workflow(options)
+        if default.available:
+            version = f" @{default.bundle_version}" if default.bundle_version else ""
+            first_label = f"Gateway default \u2192 {default.name or default.bundle_id}{version}"
+            detail = f"Set on the gateway (source: {default.source or 'unknown'}). A change there applies from the next turn."
+        else:
+            version = f" @{built_in.bundle_version}" if built_in is not None and built_in.bundle_version else ""
+            first_label = f"Gateway default \u2192 Built-in orchestrator{version}"
+            if not default.reported:
+                detail = "This gateway does not report a default workflow (it predates that setting), so the built-in orchestrator runs."
+            else:
+                detail = "The gateway sets no default for the assistant, so the built-in orchestrator runs."
+        rows: List[Dict[str, Any]] = [{"choice": WORKFLOW_GATEWAY_DEFAULT, "label": first_label, "detail": detail}]
+        for option in options:
+            managed = AssistantGatewayService.is_managed_option(option)
+            version = f" @{option.bundle_version}" if option.bundle_version else ""
+            name = "Built-in orchestrator" if managed else (option.label or option.flow_id)
+            rows.append(
+                {
+                    "choice": {"bundle_id": option.bundle_id, "flow_id": option.flow_id, "registry_scope": option.registry_scope},
+                    "label": f"{name}{version}" + ("" if managed else f" \u2014 {option.bundle_id}"),
+                    "detail": (option.description or f"{option.bundle_id}:{option.flow_id}") + " \u2014 always its latest version.",
+                }
+            )
+        return rows
+
+    def last_resolved_workflow(self) -> Optional[Dict[str, Any]]:
+        """``resolved_workflow`` from the gateway's answer to the last run start
+        (which workflow actually ran, and whether it came from the gateway
+        default), or None before the first run / on an older gateway."""
+        value = getattr(getattr(self, "gateway", None), "last_resolved_workflow", None)
+        return dict(value) if isinstance(value, dict) else None
 
     def save_preferences(self, prefs: AssistantPreferences) -> None:
         self.preferences = prefs
@@ -814,6 +929,7 @@ class AssistantController:
             flow_id=workflow.flow_id,
             bundle_version=workflow.bundle_version,
             registry_scope=workflow.registry_scope,
+            interface=workflow.interface if workflow.is_gateway_default else "",
             primary_image_artifact=self.latest_image_artifact(),
             provider_override=str((text_override or {}).get("provider") or "") or None,
             model_override=str((text_override or {}).get("model") or "") or None,
@@ -1589,12 +1705,15 @@ class AssistantController:
         gateway.csrf_token = str(connection.csrf_token or "").strip()
         gateway.session_expires_at = str(connection.session_expires_at or "").strip()
 
-    def _workflow_selection_from_option(self, option: WorkflowOption) -> WorkflowSelection:
+    def _workflow_selection_from_option(self, option: WorkflowOption, *, source: str = "") -> WorkflowSelection:
         return WorkflowSelection(
             bundle_id=option.bundle_id,
             flow_id=option.flow_id,
             bundle_version=option.bundle_version,
             registry_scope=option.registry_scope,
+            interface=ASSISTANT_INTERFACE,
+            label=str(getattr(option, "label", "") or ""),
+            source=source,
         )
 
     def _artifact_is_image(self, artifact: Dict[str, Any]) -> bool:

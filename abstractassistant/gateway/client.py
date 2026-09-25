@@ -205,6 +205,9 @@ def _encode_multipart(
 class GatewayClient:
     """HTTP client wrapper for the gateway control plane."""
 
+    #: ``resolved_workflow`` of the last successful ``start_run`` (contract D).
+    last_resolved_workflow: Optional[Dict[str, Any]] = None
+
     def __init__(self, cfg: GatewayClientConfig) -> None:
         self._cfg = GatewayClientConfig(
             base_url=str(cfg.base_url or "").strip(),
@@ -422,8 +425,20 @@ class GatewayClient:
         bundle_version: Optional[str] = None,
         session_id: Optional[str] = None,
         registry_scope: Optional[str] = None,
+        interface: Optional[str] = None,
     ) -> str:
+        """Start a run; returns its id.
+
+        ``flow_id="@default"`` with ``interface`` asks the gateway to run its
+        stored default for that agent interface (contract D; ``interface`` is
+        mandatory with ``@default``). The gateway's ``resolved_workflow`` (which
+        workflow actually ran) is kept on ``last_resolved_workflow``.
+        """
+        if str(flow_id or "").strip() == "@default" and not str(interface or "").strip():
+            raise ValueError("start_run: flow_id '@default' requires an interface")
         body: Dict[str, Any] = {"input_data": input_data or {}}
+        if interface:
+            body["interface"] = str(interface)
         if bundle_id:
             body["bundle_id"] = str(bundle_id)
         if bundle_version:
@@ -443,6 +458,8 @@ class GatewayClient:
         run_id = out.get("run_id")
         if not isinstance(run_id, str) or not run_id.strip():
             raise RuntimeError("start_run: missing run_id")
+        resolved = out.get("resolved_workflow")
+        self.last_resolved_workflow = dict(resolved) if isinstance(resolved, dict) else None
         return run_id.strip()
 
     def get_run(self, run_id: str) -> Dict[str, Any]:

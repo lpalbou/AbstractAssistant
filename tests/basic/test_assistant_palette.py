@@ -234,9 +234,11 @@ def test_assistant_palette_gateway_service_prefers_catalog_default_when_multiple
 
 
 @pytest.mark.basic
-def test_assistant_palette_gateway_service_blocks_ambiguous_catalog_without_default() -> (
+def test_assistant_palette_gateway_service_runs_the_newest_version_without_a_catalog_default() -> (
     None
 ):
+    """2026-09-25: the app no longer needs (or claims) a catalog default; the
+    catalog keeps every published version and the newest one runs."""
     class _GatewayAmbiguousStub(_GatewayCatalogStub):
         def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
             assert scope == "tenant_catalog"
@@ -278,8 +280,8 @@ def test_assistant_palette_gateway_service_blocks_ambiguous_catalog_without_defa
     workflows = service.list_workflows()
     status = service.workflow_status()
 
-    assert workflows == []
-    assert "exactly one default assistant workflow" in status.error
+    assert [(w.bundle_version, w.label) for w in workflows] == [("2026.06.12", "Newer")]
+    assert status.error == ""
 
 
 class _ManagedWorkflowGatewayStub:
@@ -522,10 +524,10 @@ def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> 
     assert len(gateway.published) == 1
 
     # Drift the STORED flow (simulating an older published definition), then a
-    # fresh service must republish and promote the new definition AS DEFAULT
-    # (the workflow resolver prefers the catalog default; without the flag the
-    # app would keep running the old version forever). The new version must be
-    # a bump PAST every known version (registry + catalog).
+    # fresh service must republish and promote the new definition — NOT as the
+    # catalog default (2026-09-25: the default is the gateway operator's
+    # setting; the app runs the newest version of its own bundle instead). The
+    # new version must be a bump PAST every known version (registry + catalog).
     stored = dict(gateway._flows[0])
     stored["edges"] = [e for e in stored["edges"] if e.get("id") != "start-sound-output"]
     gateway._flows = [stored]
@@ -534,7 +536,7 @@ def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> 
     assert len(gateway.published) == 2
     assert gateway.updated, "drifted stored flow must be updated to this build's definition"
     assert gateway.published[1]["bundle_version"] == "0.0.1"
-    assert gateway.promoted[-1]["make_default"] is True
+    assert gateway.promoted[-1]["make_default"] is False
     assert workflows[0].bundle_version == "0.0.1"
 
     # Reconciliation is once per process/service: a second ensure on the same
@@ -584,7 +586,7 @@ def test_assistant_palette_gateway_service_promotes_registry_version_left_behind
     workflows = service2.ensure_catalog_workflow()
 
     assert gateway.promoted[-1]["bundle_version"] == "0.0.1"
-    assert gateway.promoted[-1]["make_default"] is True
+    assert gateway.promoted[-1]["make_default"] is False
     # No new publish happened — the registry artifact was only promoted.
     assert [p.get("bundle_version") for p in gateway.published] == [None]
     assert workflows[0].bundle_version == "0.0.1"
