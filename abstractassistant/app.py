@@ -4402,6 +4402,11 @@ class ArtifactPreviewCard(QFrame):
             item = self._content_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # Hide + unparent before deleteLater: a merely scheduled
+                # deletion keeps painting over its replacement until the next
+                # event-loop turn.
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
 
     def _on_path_ready(self, raw_path: str) -> None:
@@ -6207,6 +6212,9 @@ class AssistantPalette(QMainWindow):
             # thread per switch waiting on a socket.
             return
         self._attachment_backfill_running = True
+        # The redraw it may trigger belongs to THIS session: a switch while the
+        # call was in flight must not rebuild (or re-render) the new one.
+        self._attachment_backfill_session = self._active_session_id()
 
         def _work() -> None:
             try:
@@ -6224,6 +6232,9 @@ class AssistantPalette(QMainWindow):
             self._attachment_backfill_running = False
 
     def _on_session_attachments_restored(self, _count: int) -> None:
+        started_for = str(self._state("_attachment_backfill_session", "") or "")
+        if started_for and started_for != self._active_session_id():
+            return
         self.refresh_history()
 
     def _rename_session(self, session_id: str, title: str) -> None:
@@ -7126,11 +7137,24 @@ class AssistantPalette(QMainWindow):
         if timer is not None:
             timer.stop()
         self._history_refreshing = True
+        # One repaint for the whole rebuild, not one per card: on the
+        # translucent frameless window a half-built transcript (old cards still
+        # scheduled for deletion, new ones already added) is what showed two
+        # sessions drawn over each other after a switch.
+        scroll = state.get("history_scroll")
+        if scroll is not None:
+            scroll.setUpdatesEnabled(False)
         try:
             while self.history_layout.count():
                 item = self.history_layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
+                    # Hide + unparent BEFORE deleteLater: a card that is only
+                    # scheduled for deletion is still a visible child of
+                    # history_host and keeps painting under the new transcript
+                    # until the event loop gets round to deleting it.
+                    widget.hide()
+                    widget.setParent(None)
                     widget.deleteLater()
             self._history_cards_by_key = {}
             visible_messages = _visible_history_messages(
@@ -7188,6 +7212,8 @@ class AssistantPalette(QMainWindow):
             self._reflow_shell()
         finally:
             self._history_refreshing = False
+            if scroll is not None:
+                scroll.setUpdatesEnabled(True)
         self._commit_history_scroll_request(scroll_request)
 
     def _wire_activity_card(self, card: QWidget) -> None:

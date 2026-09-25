@@ -256,6 +256,7 @@ class LLMManager:
         with self._snapshot_lock:
             snapshot = self._gateway_snapshot
             last_run_id = str(getattr(snapshot, "last_run_id", "") or "").strip()
+            session_id = str(getattr(snapshot, "session_id", "") or "").strip()
             messages = [dict(m) for m in (getattr(snapshot, "messages", None) or [])]
         if not messages or not last_run_id:
             return 0
@@ -338,6 +339,11 @@ class LLMManager:
             return 0
         with self._snapshot_lock:
             snap = self._ensure_gateway_snapshot()
+            if str(snap.session_id or "").strip() != session_id or str(snap.last_run_id or "").strip() != last_run_id:
+                # The user switched sessions (or a turn landed) while the
+                # gateway call was in flight. Writing these messages now would
+                # put the OLD session's transcript into the new one.
+                return 0
             self._gateway_snapshot = SessionSnapshot(
                 session_id=snap.session_id,
                 actor_id=snap.actor_id,
