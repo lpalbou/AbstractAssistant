@@ -1372,6 +1372,34 @@ class WindowPage(SettingsPage):
 # ================================================================== About
 
 
+def _assistant_version() -> str:
+    from abstractcore.utils.identity import installed_version
+
+    return installed_version("abstractassistant")
+
+
+def _identity_fields(version: str) -> List[Any]:
+    """(label, value) rows for the About card, straight from the framework
+    descriptor. A missing entry for this app is a packaging bug and raises."""
+    from abstractcore.utils.identity import about_fields, app_identity
+
+    return about_fields(app_identity("abstractassistant", version))
+
+
+def _linkified(value: str, link_style: str) -> str:
+    """Rich text for one About value: URLs and the contact address as links."""
+    from html import escape
+
+    text = str(value or "")
+    for token in text.split():
+        if token.startswith("http://") or token.startswith("https://"):
+            link = f'<a {link_style} href="{escape(token, quote=True)}">{escape(token)}</a>'
+            return escape(text).replace(escape(token), link, 1)
+    if "@" in text and " " not in text:
+        return f'<a {link_style} href="mailto:{escape(text, quote=True)}">{escape(text)}</a>'
+    return escape(text)
+
+
 def describe_workflow_selection(workflow: Any) -> str:
     """One line for the About page: what the NEXT turn runs, and why."""
     if workflow is None:
@@ -1410,24 +1438,38 @@ class AboutPage(SettingsPage):
 
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
+        # Identity rows come from the framework's ONE descriptor
+        # (abstractcore.utils.identity, vendored from AbstractFramework's
+        # identity/abstractframework.json): every app's About shows the same
+        # facts, and none of them is typed here.
         card = self.add_card(Card("AbstractAssistant"))
-        self.version_label = QLabel("")
-        self.version_label.setObjectName("rowValue")
-        card.add_row("Version", self.version_label)
+        self.identity_labels: Dict[str, QLabel] = {}
+        for label, _value in _identity_fields(_assistant_version()):
+            value_label = QLabel("")
+            value_label.setObjectName("rowValue")
+            value_label.setWordWrap(True)
+            value_label.setTextFormat(Qt.RichText)
+            value_label.setOpenExternalLinks(True)
+            value_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            card.add_row(label, value_label)
+            self.identity_labels[label] = value_label
+        self.version_label = self.identity_labels.get("Application") or QLabel("")
+
+        setup = self.add_card(Card("This installation"))
         self.stack_label = QLabel("")
         self.stack_label.setObjectName("rowValue")
         self.stack_label.setWordWrap(True)
         self.stack_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        card.add_row("Gateway packages", self.stack_label)
+        setup.add_row("Gateway packages", self.stack_label)
         self.workflow_label = QLabel("")
         self.workflow_label.setObjectName("rowValue")
         self.workflow_label.setWordWrap(True)
-        card.add_row("Workflow", self.workflow_label)
+        setup.add_row("Workflow", self.workflow_label)
         self.resolved_label = QLabel("")
         self.resolved_label.setObjectName("rowValue")
         self.resolved_label.setWordWrap(True)
         self.resolved_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        card.add_row("Last turn ran", self.resolved_label)
+        setup.add_row("Last turn ran", self.resolved_label)
         self.data_label = QLabel("")
         self.data_label.setObjectName("rowValue")
         self.data_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -1435,30 +1477,12 @@ class AboutPage(SettingsPage):
         # page: unwrapped, one deep data folder pushed every other page wider.
         self.data_label.setWordWrap(True)
         reveal = button("Reveal in Finder", "secondary", on_click=self._reveal)
-        card.add_row("Data folder", self.data_label, trailing=[reveal])
-        links = self.add_card(Card("Links"))
-        link_style = f'style="color: {THEME.accent}; text-decoration: none;"'
-        self.links_label = QLabel(
-            f'<a {link_style} href="https://github.com/lpalbou/abstractassistant">Source &amp; issues</a>'
-            f' &nbsp;·&nbsp; <a {link_style} href="https://github.com/lpalbou/abstractgateway">AbstractGateway</a>'
-            f' &nbsp;·&nbsp; <a {link_style} href="https://github.com/lpalbou/abstractassistant/blob/main/docs/README.md">Documentation</a>'
-        )
-        self.links_label.setOpenExternalLinks(True)
-        # Three links on one unwrappable line made this the widest thing in
-        # Settings, and the window is sized to its widest page — so every
-        # other page was padded out to fit a row of links.
-        self.links_label.setWordWrap(True)
-        links.add_widget(self.links_label)
+        setup.add_row("Data folder", self.data_label, trailing=[reveal])
         self.copy_button = button("Copy diagnostics", "secondary", tooltip="Versions, connection (no secrets), workflow and preferences", on_click=self._copy_diagnostics)
         self.add_actions(self.copy_button)
 
     def _diagnostics(self) -> Dict[str, Any]:
-        try:
-            from importlib import metadata
-
-            version = metadata.version("abstractassistant")
-        except Exception:
-            version = "unknown"
+        version = _assistant_version()
         manager = safe_attr(self.controller, "llm_manager", None)
         caps = safe_call(manager, "gateway_capabilities", stale_ok=True, default=None)
         raw = safe_attr(caps, "raw", {}) or {}
@@ -1477,6 +1501,7 @@ class AboutPage(SettingsPage):
         prefs = _prefs(self.controller)
         return {
             "assistant": version,
+            "about": [f"{label}: {value}" for label, value in _identity_fields(version)],
             "stack": stack,
             "workflow": describe_workflow_selection(workflow),
             "resolved_workflow": resolved if isinstance(resolved, dict) else None,
@@ -1488,7 +1513,11 @@ class AboutPage(SettingsPage):
 
     def refresh(self) -> None:
         diag = self._diagnostics()
-        self.version_label.setText(str(diag["assistant"]))
+        link_style = f'style="color: {THEME.accent}; text-decoration: none;"'
+        for label, value in _identity_fields(str(diag["assistant"])):
+            widget = self.identity_labels.get(label)
+            if widget is not None:
+                widget.setText(_linkified(value, link_style))
         stack = diag["stack"]
         self.stack_label.setText(" · ".join(f"{k} {v}" for k, v in stack.items()) if stack else "Not connected — versions unknown")
         self.workflow_label.setText(str(diag["workflow"]))

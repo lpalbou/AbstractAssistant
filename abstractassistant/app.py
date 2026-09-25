@@ -10605,6 +10605,21 @@ def _schedule_tray_visibility_refresh(
         )
 
 
+def _build_tray_menu(*, palette, quit_app) -> QMenu:
+    """The tray icon's menu (on macOS it is popped on a right-click by
+    `_handle_tray_activation`; the host menu is only a decoy)."""
+    menu = QMenu()
+    menu.addAction("Show", palette.show_palette)
+    menu.addAction("Hide", palette.hide)
+    menu.addAction("New Session", palette._create_session)
+    menu.addAction("Settings", palette._open_settings)
+    menu.addSeparator()
+    menu.addAction("About AbstractAssistant\u2026", lambda: palette._open_settings("about"))
+    menu.addSeparator()
+    menu.addAction("Quit", quit_app)
+    return menu
+
+
 def _macos_tray_context_fallback(*, host_menu: QMenu, palette) -> None:
     try:
         host_menu.hide()
@@ -10750,13 +10765,7 @@ def launch_tray_app(
     tray = QSystemTrayIcon(_qt_icon(), app)
     app._assistant_tray = tray  # type: ignore[attr-defined]
     tray.setToolTip("AbstractAssistant")
-    menu = QMenu()
-    menu.addAction("Show", palette.show_palette)
-    menu.addAction("Hide", palette.hide)
-    menu.addAction("New Session", palette._create_session)
-    menu.addAction("Settings", palette._open_settings)
-    menu.addSeparator()
-    menu.addAction("Quit", app.quit)
+    menu = _build_tray_menu(palette=palette, quit_app=app.quit)
     palette._tray_menu = menu
     _configure_tray_host(tray=tray, palette=palette, menu=menu)
 
