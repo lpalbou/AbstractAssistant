@@ -71,8 +71,17 @@ Connection overrides:
 assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
 
-The app uses the published `abstractassistant-orchestrator` workflow from the gateway tenant
-catalog; there is no workflow to choose.
+`--gateway-url` on its own is enough when you have already signed in to that gateway: the app
+reuses the sign-in saved in `~/.abstractassistant/gateway_connection.json`.
+
+If the gateway runs the AbstractGateway console, the simplest way to start the assistant is
+**Open** on its card there: the console launches the app already signed in as you, and the app
+remembers that sign-in for later launches.
+
+Each turn runs the gateway's default workflow for the assistant (`abstractassistant.agent.v1`).
+When the gateway sets none, the app runs its built-in orchestrator, the
+`abstractassistant-orchestrator` workflow it publishes to your tenant catalog. You can pick
+another assistant workflow in Settings → Models → Workflow.
 
 ## Defaults and durability
 

@@ -54,6 +54,12 @@ Connection overrides:
 assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN"
 ```
 
+`--gateway-url` alone reuses the sign-in you saved for that gateway in Settings → Connection.
+
+If the gateway runs the AbstractGateway console, the simplest way to start the assistant is
+**Open** on its card there: the console launches the app already signed in as you, and the app
+remembers that sign-in for later launches.
+
 ## 4. The palette
 
 Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift+space`).

@@ -97,7 +97,7 @@ assistant run --prompt "Hello"
 The CLI entrypoint is available as both `assistant` and `abstractassistant`.
 
 Optional assistant-side overrides:
-- `--gateway-url`
+- `--gateway-url` (on its own, reuses the sign-in saved for that gateway)
 - `--gateway-token`
 
 ## Notes

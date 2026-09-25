@@ -129,12 +129,21 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   routes.
 - `ui/styles.py`, `theme.py`, `icons.py` — one token set, one stylesheet builder, the Lucide glyphs.
 
-## Published workflow
+## Workflow
 
-The assistant runs one published gateway workflow bundle, `abstractassistant-orchestrator`, from
-the tenant catalog. Launch flow:
+Each turn runs one gateway workflow that declares the `abstractassistant.agent.v1` interface. The
+app publishes its built-in orchestrator, `abstractassistant-orchestrator`, to the tenant catalog
+so it always exists, without making it the catalog default. Which workflow runs is decided by
+Settings → Models → Workflow:
 
-1. Resolve the published workflow entrypoint from the gateway catalog.
+- **Gateway default**: the gateway operator's `agents.default_workflow` setting for
+  `abstractassistant.agent.v1`, resolved by the gateway at every run start (`flow_id: "@default"`);
+  the built-in orchestrator when the gateway sets none;
+- **a chosen workflow**: its latest published version.
+
+Launch flow:
+
+1. Resolve the workflow from the gateway catalog and the saved choice.
 2. Start a run through `/api/gateway/runs/start` with the local pins.
 3. Follow the ledger over SSE; surface waits locally and resume them through gateway commands.
 4. Persist the final answer and its statistics to the local chat snapshot.
@@ -155,7 +164,9 @@ rather than falling back to a local speech model. The conversation loop is descr
 
 The desktop supports gateway bearer tokens and hosted gateway user sessions. Session mode
 exchanges a user token for an opaque session plus CSRF token and stores only that session state
-locally.
+locally. When the gateway console opens the app, it passes a one-time hand-over file
+(`--gateway-handover-file`); the app deletes the file, redeems its code on the gateway's loopback
+address for a session, and stores that session the same way.
 
 ## Validation
 

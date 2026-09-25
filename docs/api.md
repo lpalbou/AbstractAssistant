@@ -24,8 +24,13 @@ assistant run --help
 Connection settings resolve from global flags first, then the environment. Global flags must
 appear before a subcommand.
 
-- `--gateway-url URL`
+- `--gateway-url URL` — the gateway to use. Without `--gateway-token`, the sign-in saved for that
+  gateway in `gateway_connection.json` is used.
 - `--gateway-token TOKEN`
+- `--gateway-handover-file PATH` — set by the AbstractGateway console when you click **Open** on
+  the assistant's card. The file holds a one-time sign-in code (valid once, for two minutes); the
+  app reads it, deletes it, trades the code with the gateway for a session and saves that
+  session. You do not pass this flag yourself.
 - `--version`
 
 ```bash
@@ -35,12 +40,24 @@ assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_
 ## `assistant`
 
 Starts the menu-bar app and palette. It loads local state from `~/.abstractassistant/`, connects
-to the gateway, resolves the published `abstractassistant-orchestrator` workflow and follows runs
-over SSE.
+to the gateway, resolves the workflow chosen in Settings → Models → Workflow and follows runs over
+SSE.
+
+Workflow resolution:
+
+- **Gateway default** (the default choice): when the gateway reports a default workflow for
+  `abstractassistant.agent.v1` (`default_agent_workflows` on `/api/gateway/workflow-catalog`),
+  each run starts with `flow_id: "@default"` and `interface: "abstractassistant.agent.v1"`, and the
+  gateway resolves it at run start. When it reports none, the built-in
+  `abstractassistant-orchestrator` workflow runs.
+- **A chosen workflow** runs its latest published version. If it is removed from the catalog,
+  sending is blocked with a message naming it until you pick another one.
+
+The gateway's `resolved_workflow` for the last run start is shown in Settings → About.
 
 ## `assistant run --prompt TEXT`
 
-Executes one turn in the terminal through the same published workflow. Tool approvals are asked
+Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
 reasoning effort and workspace grant from `preferences.json`.
 

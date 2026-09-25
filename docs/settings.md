@@ -28,6 +28,7 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
+| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (with its source as the gateway reports it), or **Gateway default → Built-in orchestrator** when the gateway sets none. Then every workflow in the catalog that declares the assistant interface, at its latest version. The choice applies from the next turn; a running turn keeps its workflow | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
@@ -123,9 +124,15 @@ denies; Esc decides later.
 
 ## About
 
-Package version, the gateway stack versions the gateway reports (gateway, runtime, core, voice,
-vision, memory, contract version), the resolved workflow, the data folder (with Reveal in Finder)
-and `Copy diagnostics` (versions, connection without secrets, workflow, preferences).
+Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
+
+- The application and its version, part of AbstractFramework (with the framework website), the
+  author, copyright and licence, and links to the website, source, documentation, issue tracker,
+  feedback form and contact address.
+- The gateway stack versions the gateway reports (gateway, runtime, core, voice, vision, memory,
+  contract version), the workflow the next turn runs, the workflow the last turn ran as the
+  gateway resolved it, and the data folder (with Reveal in Finder).
+- `Copy diagnostics` copies the same facts plus the connection (without secrets) and preferences.
 
 ## Preferences file
 

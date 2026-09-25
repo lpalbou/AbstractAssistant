@@ -5,6 +5,34 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+### Added
+- **Open from the gateway console, already signed in.** Clicking **Open** on the assistant's card
+  in the AbstractGateway console launches the app with a one-time sign-in (`--gateway-handover-file`);
+  the app exchanges it for a gateway session and remembers it. If the sign-in has expired or was
+  already used, a banner tells you to open the assistant from the console again or to connect in
+  Settings → Connection.
+- **Choose the workflow.** Settings → Models → Workflow lists **Gateway default** first (the
+  gateway's default for `abstractassistant.agent.v1`, or the built-in orchestrator when the gateway
+  sets none), then every assistant workflow in the catalog. The choice applies from the next turn;
+  choosing the gateway default follows later changes made on the gateway.
+- **About AbstractAssistant.** Settings → About shows the application and version, AbstractFramework,
+  author, licence, and links to the website, source, documentation, issue tracker, feedback form
+  and contact address, plus the workflow the last turn ran. The menu-bar icon has an
+  **About AbstractAssistant…** item.
+
+### Changed
+- The window is wider by default (650 px) and keeps a 28 px gap from the screen edges. The Screen
+  edge gap setting is applied as set, including 0. If you still had the previous defaults (500 px,
+  18 px) you move to the new ones once; values you changed are kept.
+- The app no longer makes its built-in orchestrator the gateway catalog's default workflow; which
+  workflow is the default is the gateway operator's setting.
+- `--gateway-url` without `--gateway-token` is honoured and uses the sign-in saved for that gateway.
+- Requires AbstractCore 2.15.4 or newer.
+
+### Fixed
+- Switching sessions no longer shows the previous conversation underneath the new one, and a
+  background attachment refresh can no longer copy one session's messages into another.
+
 ## [0.5.0] - 2026-09-23
 
 AbstractAssistant 0.5.0 is the gateway-native release: the desktop app is a thin client of
