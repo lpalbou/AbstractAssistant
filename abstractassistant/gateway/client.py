@@ -50,6 +50,12 @@ class GatewayHttpError(RuntimeError):
         self.body_text = body_text
 
 
+# Contract A1 (missions 2026-09-25): the gateway console launches the desktop
+# app with `--gateway-url <url> --gateway-handover <code>`; the app trades the
+# code here, on loopback, for a remembered session.
+DESKTOP_HANDOVER_PATH = "/api/gateway/apps/desktop-handover"
+
+
 class GatewayStreamIdle(RuntimeError):
     """SSE ledger stream idle timeout (client reconnect)."""
 
@@ -338,6 +344,47 @@ class GatewayClient:
             session_id="",
             csrf_token="",
             session_expires_at="",
+            timeout_s=self._cfg.timeout_s,
+        )
+        return payload
+
+    def redeem_desktop_handover(self, code: str) -> Dict[str, Any]:
+        """Trade the one-time code the gateway console put on our command line
+        for a remembered gateway session (contract A1).
+
+        ``POST /api/gateway/apps/desktop-handover {"code"}`` answers
+        ``{base_url, session_id, csrf_token, user_id, expires_at}``. The code
+        works once, for two minutes, from this machine only. Any refusal is
+        raised as :class:`GatewayHttpError` (410 = expired or already used);
+        a success without a session is raised too, never papered over.
+        """
+        code_s = str(code or "").strip()
+        if not code_s:
+            raise ValueError("redeem_desktop_handover: code is required")
+        payload = _request_json(
+            method="POST",
+            url=self._url(DESKTOP_HANDOVER_PATH),
+            headers={},
+            body={"code": code_s},
+            timeout_s=min(float(self._cfg.timeout_s), 15.0),
+            label="desktop handover failed",
+        )
+        session_id = str(payload.get("session_id") or "").strip()
+        csrf_token = str(payload.get("csrf_token") or "").strip()
+        if not session_id or not csrf_token:
+            raise RuntimeError(
+                "desktop handover failed: the gateway answered without a session "
+                f"(keys: {sorted(payload)})"
+            )
+        base_url = str(payload.get("base_url") or "").strip().rstrip("/") or str(self._cfg.base_url or "").strip().rstrip("/")
+        self._cfg = GatewayClientConfig(
+            base_url=base_url,
+            auth_token="",
+            auth_mode="session",
+            user_id=str(payload.get("user_id") or "").strip(),
+            session_id=session_id,
+            csrf_token=csrf_token,
+            session_expires_at=str(payload.get("expires_at") or "").strip(),
             timeout_s=self._cfg.timeout_s,
         )
         return payload

@@ -16,6 +16,7 @@ def launch_tray_app(
     config: "Optional[Config]" = None,
     debug: bool = False,
     data_dir: Optional[Path] = None,
+    gateway_handover: str = "",
 ) -> int:
     """Launch the tray application.
 
@@ -25,4 +26,4 @@ def launch_tray_app(
     """
     from .app import launch_tray_app as _launch_tray_app
 
-    return _launch_tray_app(config=config, debug=debug, data_dir=data_dir)
+    return _launch_tray_app(config=config, debug=debug, data_dir=data_dir, gateway_handover=gateway_handover)

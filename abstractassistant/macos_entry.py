@@ -16,6 +16,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--gateway-url", type=str, default=None)
     parser.add_argument("--gateway-token", type=str, default=None)
+    parser.add_argument("--gateway-handover", type=str, default=None)
     return parser
 
 
@@ -44,7 +45,12 @@ def main() -> int:
             "ABSTRACTASSISTANT_TRAY_CAPTURE_PATH",
             str(log_dir / "abstractassistant-status-item.png"),
         )
-    return launch_tray_app(config=config, debug=False, data_dir=None)
+    return launch_tray_app(
+        config=config,
+        debug=False,
+        data_dir=None,
+        gateway_handover=str(getattr(args, "gateway_handover", None) or ""),
+    )
 
 
 if __name__ == "__main__":

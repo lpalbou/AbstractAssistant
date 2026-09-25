@@ -41,6 +41,13 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional AbstractGateway bearer token override",
     )
+    parser.add_argument(
+        "--gateway-handover",
+        type=str,
+        default=None,
+        metavar="CODE",
+        help="One-time sign-in code from the gateway console (used once, then the session is remembered)",
+    )
 
     sub = parser.add_subparsers(dest="command")
 
@@ -56,7 +63,10 @@ def _build_config_from_args(args: argparse.Namespace):
     gateway_url, gateway_auth_token = resolve_gateway_connection(
         url_override=getattr(args, "gateway_url", None),
         auth_token_override=getattr(args, "gateway_token", None),
-        require_auth_token=True,
+        # No token is fine: the sign-in saved in gateway_connection.json (or
+        # a --gateway-handover code) supplies the session. Requiring one here
+        # used to throw, and the app path swallowed it and dropped --gateway-url.
+        require_auth_token=False,
     )
     gateway_data: Dict[str, Any] = {"url": gateway_url, "auth_token": gateway_auth_token}
     return Config.from_dict({"gateway": gateway_data})
@@ -85,7 +95,11 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
     from .controller import AssistantController
 
     config = _build_config_from_args(args)
+    launch_url = str(getattr(getattr(config, "gateway", None), "url", "") or "")
     controller = AssistantController(config=config, debug=False, data_dir=None)
+    handover = str(getattr(args, "gateway_handover", None) or "").strip()
+    if handover:
+        controller.redeem_desktop_handover(base_url=launch_url, code=handover)
     gateway = controller.gateway
     llm_manager = controller.llm_manager
     selected_workflow = controller.current_workflow()
@@ -236,10 +250,7 @@ def main() -> int:
             return _run_gateway_command(args)
 
         # app (default — tray UI)
-        try:
-            config = _build_config_from_args(args)
-        except Exception:
-            config = None
+        config = _build_config_from_args(args)
 
         try:
             from . import launch_tray_app
@@ -254,6 +265,7 @@ def main() -> int:
             config=config,
             debug=False,
             data_dir=None,
+            gateway_handover=str(getattr(args, "gateway_handover", None) or ""),
         )
         
     except KeyboardInterrupt:

@@ -8893,7 +8893,10 @@ class AssistantPalette(QMainWindow):
             detail_lower = detail.lower()
             if "workflow" in detail_lower or "catalog" in detail_lower:
                 message = "Assistant unavailable right now. Open Settings to review the gateway connection."
-            self._set_banner(message, tone="error", key="workflow")
+            # A failed console sign-in explains the missing catalog better
+            # than the generic message; keep it until the user acts.
+            if str(self._state("_banner_key", "") or "") != "handover":
+                self._set_banner(message, tone="error", key="workflow")
             self._set_status("Gateway attention required", tone="error")
         else:
             self._clear_banner("workflow")
@@ -10642,11 +10645,30 @@ def _schedule_initial_palette_show(
     QTimer.singleShot(max(0, int(fallback_delay)), _fallback_show)
 
 
+def _redeem_launch_handover(controller: AssistantController, *, base_url: str, code: str) -> str:
+    """Redeem the gateway console's one-time launch code; return the user-facing
+    error text ("" on success). Runs before the palette exists so the palette's
+    first gateway calls already carry the new session."""
+    code_s = str(code or "").strip()
+    if not code_s:
+        return ""
+    from .controller import DesktopHandoverError
+
+    try:
+        controller.redeem_desktop_handover(base_url=base_url, code=code_s)
+    except DesktopHandoverError as exc:
+        return str(exc)
+    except Exception as exc:  # pragma: no cover - defensive: never crash the launch
+        return f"Could not sign in with the gateway: {exc}. {DesktopHandoverError.REMEDY}"
+    return ""
+
+
 def launch_tray_app(
     *,
     config: Optional[Config] = None,
     debug: bool = False,
     data_dir: Optional[Path] = None,
+    gateway_handover: str = "",
 ) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -10663,8 +10685,20 @@ def launch_tray_app(
     app.setWindowIcon(_qt_icon())
     show_on_launch = _env_truthy("ABSTRACTASSISTANT_SHOW_ON_LAUNCH")
 
+    # The URL the launcher named (--gateway-url), captured before the saved
+    # connection is merged in: the handover code belongs to THAT gateway.
+    launch_url = str(getattr(getattr(config, "gateway", None), "url", "") or "").strip()
     controller = AssistantController(config=config, data_dir=data_dir, debug=debug)
+    handover_error = _redeem_launch_handover(controller, base_url=launch_url, code=gateway_handover)
+    if str(gateway_handover or "").strip():
+        # Opened from the gateway console: the user clicked "Open", show the window.
+        show_on_launch = True
     palette = AssistantPalette(controller=controller, debug=debug)
+    if handover_error:
+        try:
+            palette._set_banner(handover_error, tone="error", key="handover")
+        except Exception:
+            pass
     # Clean up the worker/hotkey/voice on quit so quitting mid-run cannot tear
     # down a live QThread (crash-on-exit class).
     try:

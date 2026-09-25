@@ -38,6 +38,29 @@ from .preferences import (
 )
 
 
+class DesktopHandoverError(RuntimeError):
+    """The launch code from the gateway console could not be redeemed."""
+
+    REMEDY = (
+        "Open the Assistant again from the gateway console, or connect in "
+        "Settings \u2192 Connection."
+    )
+
+    @classmethod
+    def from_http(cls, exc: Any) -> "DesktopHandoverError":
+        status = int(getattr(exc, "status", 0) or 0)
+        if status == 410:
+            lead = "The sign-in link from the gateway console has expired or was already used (links work once, for two minutes)."
+        elif status == 403:
+            lead = "The gateway refused the sign-in link: it only works on the gateway's own machine."
+        elif status == 404:
+            lead = "This gateway does not support signing the Assistant in from the console (it needs a newer AbstractGateway)."
+        else:
+            detail = str(getattr(exc, "body_text", "") or exc).strip()
+            lead = f"The gateway refused the sign-in link (HTTP {status}): {detail}."
+        return cls(f"{lead} {cls.REMEDY}")
+
+
 class AssistantController:
     def __init__(self, config: Optional[Config] = None, *, data_dir: Optional[Path] = None, debug: bool = False) -> None:
         self.config = config or Config.default()
@@ -463,6 +486,42 @@ class AssistantController:
             )
         )
         return payload
+
+    def redeem_desktop_handover(self, *, base_url: str, code: str) -> GatewayConnectionPreferences:
+        """Trade the console's one-time launch code for a remembered session.
+
+        The gateway console opens the Assistant with ``--gateway-url <url>
+        --gateway-handover <code>`` (contract A1). The code is redeemed once,
+        here, and the resulting session is saved to ``gateway_connection.json``
+        so the app never needs the code again. Failures raise
+        :class:`DesktopHandoverError` with a sentence the user can act on.
+        """
+        from abstractassistant.gateway.client import GatewayHttpError
+
+        base_url_s = self._normalize_base_url(base_url or self.connection.base_url)
+        client = GatewayClient(GatewayClientConfig(base_url=base_url_s, timeout_s=float(self.gateway.config.timeout_s)))
+        try:
+            payload = client.redeem_desktop_handover(code)
+        except GatewayHttpError as exc:
+            raise DesktopHandoverError.from_http(exc) from exc
+        except Exception as exc:
+            raise DesktopHandoverError(
+                f"Could not sign in with the gateway at {base_url_s}: {exc}. "
+                + DesktopHandoverError.REMEDY
+            ) from exc
+        cfg = client.config
+        connection = GatewayConnectionPreferences(
+            base_url=self._normalize_base_url(cfg.base_url or base_url_s),
+            auth_mode="session",
+            auth_token="",
+            user_id=str(cfg.user_id or payload.get("user_id") or "").strip(),
+            session_id=str(cfg.session_id or "").strip(),
+            csrf_token=str(cfg.csrf_token or "").strip(),
+            session_expires_at=str(cfg.session_expires_at or "").strip(),
+            remember_session=True,
+        )
+        self._save_connection(connection)
+        return connection
 
     def logout_gateway_session(self) -> None:
         if str(self.connection.auth_mode or "bearer").strip() == "session" and str(self.connection.session_id or "").strip():
@@ -1398,6 +1457,10 @@ class AssistantController:
         )
         runtime_has_explicit_url = runtime.base_url != DEFAULT_GATEWAY_URL
         if not (runtime_has_auth or runtime_has_explicit_url):
+            return stored
+        if not runtime_has_auth and runtime.base_url == self._normalize_base_url(stored.base_url):
+            # `--gateway-url <url>` alone (how the gateway console launches us)
+            # names the gateway we already have a saved sign-in for: keep it.
             return stored
 
         if runtime.auth_mode == "session":
