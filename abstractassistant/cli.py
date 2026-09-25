@@ -42,11 +42,11 @@ def create_parser() -> argparse.ArgumentParser:
         help="Optional AbstractGateway bearer token override",
     )
     parser.add_argument(
-        "--gateway-handover",
+        "--gateway-handover-file",
         type=str,
         default=None,
-        metavar="CODE",
-        help="One-time sign-in code from the gateway console (used once, then the session is remembered)",
+        metavar="PATH",
+        help="One-time sign-in file written by the gateway console (read, deleted, then the session is remembered)",
     )
 
     sub = parser.add_subparsers(dest="command")
@@ -64,7 +64,7 @@ def _build_config_from_args(args: argparse.Namespace):
         url_override=getattr(args, "gateway_url", None),
         auth_token_override=getattr(args, "gateway_token", None),
         # No token is fine: the sign-in saved in gateway_connection.json (or
-        # a --gateway-handover code) supplies the session. Requiring one here
+        # a --gateway-handover-file) supplies the session. Requiring one here
         # used to throw, and the app path swallowed it and dropped --gateway-url.
         require_auth_token=False,
     )
@@ -97,9 +97,9 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
     config = _build_config_from_args(args)
     launch_url = str(getattr(getattr(config, "gateway", None), "url", "") or "")
     controller = AssistantController(config=config, debug=False, data_dir=None)
-    handover = str(getattr(args, "gateway_handover", None) or "").strip()
-    if handover:
-        controller.redeem_desktop_handover(base_url=launch_url, code=handover)
+    handover_file = str(getattr(args, "gateway_handover_file", None) or "").strip()
+    if handover_file:
+        controller.redeem_desktop_handover_file(handover_file, fallback_base_url=launch_url)
     gateway = controller.gateway
     llm_manager = controller.llm_manager
     selected_workflow = controller.current_workflow()
@@ -265,7 +265,7 @@ def main() -> int:
             config=config,
             debug=False,
             data_dir=None,
-            gateway_handover=str(getattr(args, "gateway_handover", None) or ""),
+            gateway_handover_file=str(getattr(args, "gateway_handover_file", None) or ""),
         )
         
     except KeyboardInterrupt:

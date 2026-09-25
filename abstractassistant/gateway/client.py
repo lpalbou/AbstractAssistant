@@ -50,9 +50,10 @@ class GatewayHttpError(RuntimeError):
         self.body_text = body_text
 
 
-# Contract A1 (missions 2026-09-25): the gateway console launches the desktop
-# app with `--gateway-url <url> --gateway-handover <code>`; the app trades the
-# code here, on loopback, for a remembered session.
+# Contract A1 (missions 2026-09-25, amendment A-3): the gateway console launches
+# the desktop app with `--gateway-url <url> --gateway-handover-file <path>`; the
+# app reads + deletes that file and trades its code here, on loopback, for a
+# remembered session.
 DESKTOP_HANDOVER_PATH = "/api/gateway/apps/desktop-handover"
 
 
@@ -349,7 +350,7 @@ class GatewayClient:
         return payload
 
     def redeem_desktop_handover(self, code: str) -> Dict[str, Any]:
-        """Trade the one-time code the gateway console put on our command line
+        """Trade the one-time code from the gateway console's hand-over file
         for a remembered gateway session (contract A1).
 
         ``POST /api/gateway/apps/desktop-handover {"code"}`` answers

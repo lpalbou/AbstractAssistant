@@ -16,7 +16,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--gateway-url", type=str, default=None)
     parser.add_argument("--gateway-token", type=str, default=None)
-    parser.add_argument("--gateway-handover", type=str, default=None)
+    parser.add_argument("--gateway-handover-file", type=str, default=None)
     return parser
 
 
@@ -49,7 +49,7 @@ def main() -> int:
         config=config,
         debug=False,
         data_dir=None,
-        gateway_handover=str(getattr(args, "gateway_handover", None) or ""),
+        gateway_handover_file=str(getattr(args, "gateway_handover_file", None) or ""),
     )
 
 

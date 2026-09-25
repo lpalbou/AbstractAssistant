@@ -61,6 +61,72 @@ class DesktopHandoverError(RuntimeError):
         return cls(f"{lead} {cls.REMEDY}")
 
 
+def read_desktop_handover_file(path: str) -> "tuple[str, str, str]":
+    """Read and DELETE the gateway console's hand-over file.
+
+    Returns ``(code, base_url, expires_at)``. The file is removed whether or not
+    it parses: a code must never outlive the launch that received it.
+    """
+    p = Path(str(path or "")).expanduser()
+    if not str(path or "").strip():
+        raise DesktopHandoverError("No sign-in file was given. " + DesktopHandoverError.REMEDY)
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise DesktopHandoverError(
+            "The sign-in file from the gateway console is gone (it works once; it may have been used already). "
+            + DesktopHandoverError.REMEDY
+        ) from None
+    except OSError as exc:
+        _unlink_quietly(p)
+        raise DesktopHandoverError(
+            f"The sign-in file from the gateway console could not be read ({exc}). " + DesktopHandoverError.REMEDY
+        ) from exc
+    _unlink_quietly(p)
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        payload = None
+    code = str((payload or {}).get("code") or "").strip() if isinstance(payload, dict) else ""
+    if not code:
+        raise DesktopHandoverError(
+            "The sign-in file from the gateway console is not valid (no code in it). " + DesktopHandoverError.REMEDY
+        )
+    return (
+        code,
+        str(payload.get("base_url") or "").strip().rstrip("/"),
+        str(payload.get("expires_at") or "").strip(),
+    )
+
+
+def _unlink_quietly(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+
+def _handover_expired(expires_at: Any) -> bool:
+    """True only when ``expires_at`` is a readable time in the past (ISO 8601
+    or epoch seconds). Unreadable = let the gateway decide (it enforces it)."""
+    from datetime import datetime, timezone
+
+    if expires_at in (None, ""):
+        return False
+    try:
+        if isinstance(expires_at, (int, float)) or str(expires_at).replace(".", "", 1).isdigit():
+            when = datetime.fromtimestamp(float(expires_at), tz=timezone.utc)
+        else:
+            when = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    return when <= datetime.now(timezone.utc)
+
+
 class AssistantController:
     def __init__(self, config: Optional[Config] = None, *, data_dir: Optional[Path] = None, debug: bool = False) -> None:
         self.config = config or Config.default()
@@ -490,10 +556,10 @@ class AssistantController:
     def redeem_desktop_handover(self, *, base_url: str, code: str) -> GatewayConnectionPreferences:
         """Trade the console's one-time launch code for a remembered session.
 
-        The gateway console opens the Assistant with ``--gateway-url <url>
-        --gateway-handover <code>`` (contract A1). The code is redeemed once,
-        here, and the resulting session is saved to ``gateway_connection.json``
-        so the app never needs the code again. Failures raise
+        The code comes from the hand-over file (see
+        :meth:`redeem_desktop_handover_file`). It is redeemed once, here, and
+        the resulting session is saved to ``gateway_connection.json`` so the app
+        never needs the code again. Failures raise
         :class:`DesktopHandoverError` with a sentence the user can act on.
         """
         from abstractassistant.gateway.client import GatewayHttpError
@@ -522,6 +588,24 @@ class AssistantController:
         )
         self._save_connection(connection)
         return connection
+
+    def redeem_desktop_handover_file(self, path: str, *, fallback_base_url: str = "") -> GatewayConnectionPreferences:
+        """Redeem the hand-over FILE the gateway console wrote for this launch.
+
+        Contract A1 (amendment A-3): the code is never on argv or in the
+        environment. The gateway writes ``{"code", "base_url", "expires_at"}``
+        into a 0600 file and passes ``--gateway-handover-file <path>``. The file
+        is read and DELETED at once — before anything else can fail — then the
+        code is redeemed at the file's ``base_url`` (``fallback_base_url``, the
+        launch ``--gateway-url``, only when the file names none).
+        """
+        code, base_url, expires_at = read_desktop_handover_file(path)
+        if _handover_expired(expires_at):
+            raise DesktopHandoverError(
+                "The sign-in link from the gateway console has expired (links work once, for two minutes). "
+                + DesktopHandoverError.REMEDY
+            )
+        return self.redeem_desktop_handover(base_url=base_url or fallback_base_url, code=code)
 
     def logout_gateway_session(self) -> None:
         if str(self.connection.auth_mode or "bearer").strip() == "session" and str(self.connection.session_id or "").strip():

@@ -1,10 +1,12 @@
 """The gateway console opens the Assistant already signed in (contract A1).
 
-The console launches ``assistant --gateway-url <url> --gateway-handover <code>``
-with nothing gateway-related in the environment. The app trades the one-time
-code at ``POST /api/gateway/apps/desktop-handover`` for a remembered session,
-saves it in ``gateway_connection.json`` and never needs the code again. A dead
-code (expired, already used) becomes a banner that says what to do next.
+The console launches ``assistant --gateway-url <url> --gateway-handover-file
+<path>`` (amendment A-3: the code is never on argv, where ``ps`` shows it, nor in
+the environment). The file is a 0600 JSON ``{code, base_url, expires_at}`` the
+gateway wrote; the app reads it, deletes it at once, trades the code at
+``POST /api/gateway/apps/desktop-handover`` for a remembered session, saves it
+in ``gateway_connection.json`` and never needs the code again. A dead code
+(expired, already used, file gone) becomes a banner that says what to do next.
 
 Before this, ``--gateway-url`` without ``--gateway-token`` was silently dropped:
 ``cli.py`` built its config with ``require_auth_token=True`` and the app path
@@ -160,34 +162,99 @@ def test_a_refused_code_is_a_sentence_the_user_can_act_on(tmp_path: Path, status
     assert not (tmp_path / "data" / "gateway_connection.json").exists()
 
 
+def _handover_file(tmp_path: Path, **payload) -> Path:
+    path = tmp_path / "handover" / "abc.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
 @pytest.mark.basic
-def test_launch_helper_turns_a_dead_code_into_banner_text(tmp_path: Path) -> None:
+def test_the_file_is_consumed_deleted_and_redeemed_at_its_base_url(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with _FakeGateway() as gw:
+        gw.payload = _ok_payload(gw.url)
+        path = _handover_file(tmp_path, code="code-9", base_url=gw.url, expires_at="2999-01-01T00:00:00Z")
+        # The launch URL is a different (dead) address: the file's base_url wins.
+        controller = _controller("http://127.0.0.1:9", data_dir)
+        controller.redeem_desktop_handover_file(str(path), fallback_base_url="http://127.0.0.1:9")
+    assert not path.exists(), "the hand-over file must be deleted once read"
+    assert gw.requests[0]["body"] == {"code": "code-9"}
+    stored = json.loads((data_dir / "gateway_connection.json").read_text())
+    assert (stored["base_url"], stored["auth_mode"], stored["session_id"]) == (gw.url, "session", "sess-123")
+
+
+@pytest.mark.basic
+def test_an_expired_file_is_deleted_and_never_sent(tmp_path: Path) -> None:
+    from abstractassistant.controller import DesktopHandoverError
+
+    with _FakeGateway() as gw:
+        gw.payload = _ok_payload(gw.url)
+        path = _handover_file(tmp_path, code="old", base_url=gw.url, expires_at="2020-01-01T00:00:00Z")
+        controller = _controller(gw.url, tmp_path / "data")
+        with pytest.raises(DesktopHandoverError, match="expired"):
+            controller.redeem_desktop_handover_file(str(path))
+    assert not path.exists()
+    assert gw.requests == []
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("content", ["not json", json.dumps({"base_url": "http://127.0.0.1:1"})])
+def test_a_broken_file_is_deleted_and_explained(tmp_path: Path, content: str) -> None:
+    from abstractassistant.controller import DesktopHandoverError, read_desktop_handover_file
+
+    path = tmp_path / "h.json"
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(DesktopHandoverError, match="not valid"):
+        read_desktop_handover_file(str(path))
+    assert not path.exists()
+
+
+@pytest.mark.basic
+def test_launch_helper_turns_a_dead_hand_over_into_banner_text(tmp_path: Path) -> None:
     from abstractassistant.app import _redeem_launch_handover
 
     with _FakeGateway(status=410, payload={"ok": False}) as gw:
         controller = _controller(gw.url, tmp_path / "data")
-        assert _redeem_launch_handover(controller, base_url=gw.url, code="") == ""
-        text = _redeem_launch_handover(controller, base_url=gw.url, code="dead")
-    assert "expired" in text and "gateway console" in text
+        assert _redeem_launch_handover(controller, base_url=gw.url, handover_file="") == ""
+        # Missing file (already consumed by an earlier launch).
+        gone = _redeem_launch_handover(controller, base_url=gw.url, handover_file=str(tmp_path / "nope.json"))
+        assert "is gone" in gone and "gateway console" in gone
+        # Used code: the gateway answers 410.
+        path = _handover_file(tmp_path, code="used", base_url=gw.url, expires_at="2999-01-01T00:00:00Z")
+        text = _redeem_launch_handover(controller, base_url=gw.url, handover_file=str(path))
+    assert "expired or was already used" in text and "gateway console" in text and "Settings" in text
+    assert not path.exists()
 
 
 @pytest.mark.basic
-def test_cli_keeps_gateway_url_without_a_token_and_passes_the_code(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_code_flag_is_gone_from_the_command_line() -> None:
+    """Amendment A-3: a code on argv is visible to every local user via ps."""
+    help_text = cli.create_parser().format_help()
+    assert "--gateway-handover-file" in help_text
+    assert "--gateway-handover " not in help_text and "--gateway-handover\n" not in help_text
+
+
+@pytest.mark.basic
+def test_cli_keeps_gateway_url_without_a_token_and_passes_the_file(monkeypatch: pytest.MonkeyPatch) -> None:
     import abstractassistant
 
     called: dict = {}
     monkeypatch.setattr(abstractassistant, "launch_tray_app", lambda **kw: called.update(kw) or 0)
     monkeypatch.setattr(
-        sys, "argv", ["assistant", "--gateway-url", "http://127.0.0.1:18855/", "--gateway-handover", "abc"]
+        sys,
+        "argv",
+        ["assistant", "--gateway-url", "http://127.0.0.1:18855/", "--gateway-handover-file", "/tmp/x.json"],
     )
     assert cli.main() == 0
     assert called["config"] is not None
     assert called["config"].gateway.url == "http://127.0.0.1:18855"
-    assert called["gateway_handover"] == "abc"
+    assert called["gateway_handover_file"] == "/tmp/x.json"
 
 
 @pytest.mark.basic
-def test_macos_entry_accepts_the_handover_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_macos_entry_accepts_the_hand_over_file_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     import abstractassistant.macos_entry as entry
 
     called: dict = {}
@@ -195,8 +262,8 @@ def test_macos_entry_accepts_the_handover_flag(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["Assistant", "-psn_0_123", "--gateway-url", "http://127.0.0.1:18855", "--gateway-handover", "abc"],
+        ["Assistant", "-psn_0_123", "--gateway-url", "http://127.0.0.1:18855", "--gateway-handover-file", "/tmp/x.json"],
     )
     assert entry.main() == 0
     assert called["config"].gateway.url == "http://127.0.0.1:18855"
-    assert called["gateway_handover"] == "abc"
+    assert called["gateway_handover_file"] == "/tmp/x.json"
