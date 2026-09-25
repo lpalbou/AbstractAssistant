@@ -47,6 +47,9 @@ from ...config import DEFAULT_GATEWAY_URL
 from ...core.tool_risk import describe_tool_risk
 from ...icons import symbol_icon
 from ...preferences import (
+    DEFAULT_SCREEN_EDGE_GAP,
+    DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH,
     REASONING_EFFORT_LEVELS,
     WORKSPACE_ACCESS_MODES,
     normalize_workspace_path,
@@ -1276,9 +1279,11 @@ class WindowPage(SettingsPage):
         self._load_typography(prefs)
         self.hotkey_enabled.setChecked(bool(safe_attr(prefs, "hotkey_enabled", True)))
         self.hotkey_edit.setText(str(safe_attr(prefs, "hotkey_sequence", "cmd+shift+space") or "cmd+shift+space"))
-        self.width_spin.setValue(int(safe_attr(prefs, "window_width", 500) or 500))
-        self.height_spin.setValue(int(safe_attr(prefs, "window_height", 286) or 286))
-        self.bottom_offset_spin.setValue(int(safe_attr(prefs, "bottom_offset", 18) or 18))
+        self.width_spin.setValue(int(safe_attr(prefs, "window_width", DEFAULT_WINDOW_WIDTH) or DEFAULT_WINDOW_WIDTH))
+        self.height_spin.setValue(int(safe_attr(prefs, "window_height", DEFAULT_WINDOW_HEIGHT) or DEFAULT_WINDOW_HEIGHT))
+        # 0 is a real choice (flush with the screen edge): never `or` it away.
+        gap = safe_attr(prefs, "bottom_offset", DEFAULT_SCREEN_EDGE_GAP)
+        self.bottom_offset_spin.setValue(DEFAULT_SCREEN_EDGE_GAP if gap is None else int(gap))
 
     def _save_preferences(self) -> None:
         ok = _update_prefs(

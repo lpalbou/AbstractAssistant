@@ -63,8 +63,27 @@ def _clamp_float(raw: Any, default: float, low: float, high: float) -> float:
         return default
 
 
-#: Bumped when a layout change must retune a height a user already saved.
-LAYOUT_VERSION = 1
+#: Bumped when a layout change must retune a size a user already saved.
+#: 1 (2026-09-06): heights saved before it shrink by 15%.
+#: 2 (2026-09-25): the default width 500 -> 650 and screen-edge gap 18 -> 28.
+LAYOUT_VERSION = 2
+
+DEFAULT_WINDOW_WIDTH = 650
+DEFAULT_WINDOW_HEIGHT = 286
+DEFAULT_SCREEN_EDGE_GAP = 28
+#: The defaults before layout version 2. A file older than v2 that still holds
+#: exactly one of these never had it changed by hand (Settings only offers the
+#: value the user types), so it moves to the new default; anything else is the
+#: user's choice and is kept.
+_V1_DEFAULT_WINDOW_WIDTH = 500
+_V1_DEFAULT_SCREEN_EDGE_GAP = 18
+
+
+def _saved_layout_version(raw: Dict[str, Any]) -> int:
+    try:
+        return int(raw.get("layout_version") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _migrated_window_height(raw: Dict[str, Any]) -> int:
@@ -75,10 +94,39 @@ def _migrated_window_height(raw: Dict[str, Any]) -> int:
     into Settings afterwards is theirs and is left alone.
     """
     stored = raw.get("window_height")
-    height = max(240, int(stored or 286))
-    if stored and int(raw.get("layout_version") or 0) < LAYOUT_VERSION:
+    height = max(240, int(stored or DEFAULT_WINDOW_HEIGHT))
+    if stored and _saved_layout_version(raw) < 1:
         height = max(240, int(round(height * 0.85)))
     return height
+
+
+def _migrated_window_width(raw: Dict[str, Any]) -> int:
+    """The saved width; the old default (500) becomes the new one (650) once."""
+    stored = raw.get("window_width")
+    if stored is None or stored == "":
+        return DEFAULT_WINDOW_WIDTH
+    try:
+        width = int(stored)
+    except (TypeError, ValueError):
+        return DEFAULT_WINDOW_WIDTH
+    if _saved_layout_version(raw) < 2 and width == _V1_DEFAULT_WINDOW_WIDTH:
+        return DEFAULT_WINDOW_WIDTH
+    return max(420, width)
+
+
+def _migrated_screen_edge_gap(raw: Dict[str, Any]) -> int:
+    """The saved screen-edge gap. 0 is a real choice (flush with the edge) and
+    stays 0; the old default (18) becomes the new one (28) once."""
+    stored = raw.get("bottom_offset")
+    if stored is None or stored == "":
+        return DEFAULT_SCREEN_EDGE_GAP
+    try:
+        gap = int(stored)
+    except (TypeError, ValueError):
+        return DEFAULT_SCREEN_EDGE_GAP
+    if _saved_layout_version(raw) < 2 and gap == _V1_DEFAULT_SCREEN_EDGE_GAP:
+        return DEFAULT_SCREEN_EDGE_GAP
+    return max(0, min(80, gap))
 
 
 def normalize_ui_theme(raw: Any) -> str:
@@ -202,10 +250,12 @@ class AssistantPreferences:
     # Voice latency vs quality: "low" synthesizes faster (fewer diffusion
     # steps → quicker first audio), "high" is richer, "standard" is balanced.
     voice_quality: str = "standard"
-    window_width: int = 500
+    window_width: int = DEFAULT_WINDOW_WIDTH
     # 2026-09-06: the shell was 15% taller than the content needed.
-    window_height: int = 286
-    bottom_offset: int = 18
+    window_height: int = DEFAULT_WINDOW_HEIGHT
+    # The "Screen edge gap" setting: space kept between the window and the
+    # screen edges it is anchored to (historical field name).
+    bottom_offset: int = DEFAULT_SCREEN_EDGE_GAP
     tool_preferences: Dict[str, str] = field(default_factory=dict)
     # LOCAL overrides of the gateway's capability defaults, for THIS app only.
     # The gateway's global defaults are never mutated by the assistant — an
@@ -270,9 +320,9 @@ class AssistantPreferences:
             hotkey_sequence=str(raw.get("hotkey_sequence") or "cmd+shift+space").strip() or "cmd+shift+space",
             auto_speak=bool(raw.get("auto_speak", False)),
             voice_quality=voice_quality,
-            window_width=max(420, int(raw.get("window_width") or 500)),
+            window_width=_migrated_window_width(raw),
             window_height=_migrated_window_height(raw),
-            bottom_offset=max(0, int(raw.get("bottom_offset") or 18)),
+            bottom_offset=_migrated_screen_edge_gap(raw),
             tool_preferences={
                 str(name).strip(): str(mode).strip().lower()
                 for name, mode in tool_preferences_raw.items()

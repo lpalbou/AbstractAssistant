@@ -110,7 +110,10 @@ batch (the item then says so) it covers everything this page has not switched of
 | Control | Meaning | Stored |
 |---|---|---|
 | Enable the global summon shortcut / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
-| Popover width / Expanded height / Screen edge gap | Palette size, honored up to the screen; the transcript takes the remaining height | this app `window_width`, `window_height`, `bottom_offset` |
+| Width / Expanded height / Screen edge gap | Palette size, honored up to the screen; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 28 px. The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
+
+Updating from a version that used the old defaults (width 500 px, gap 18 px) moves you to the new
+ones once; a width or gap you had changed yourself is kept.
 
 In-app shortcuts: Return sends, Shift+Return adds a line, Esc stops speech then hides, ⌘. stops
 the run (does nothing when no run is active), ⌘N starts a new chat (refused while a run is

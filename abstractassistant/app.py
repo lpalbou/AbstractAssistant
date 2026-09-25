@@ -6916,13 +6916,25 @@ class AssistantPalette(QMainWindow):
         max_y = int(screen_geom.y() + max(0, int(screen_geom.height()) - int(height)))
         return max(min_x, min(int(x), max_x)), max(min_y, min(int(y), max_y))
 
+    def _screen_edge_gap(self, screen_geom) -> int:
+        """The saved screen-edge gap, clamped only so a window still fits:
+        never more than a quarter of the screen's smaller side."""
+        try:
+            pref_gap = max(0, int(self._controller.preferences.bottom_offset))
+        except Exception:
+            pref_gap = 0
+        limit = max(0, min(int(screen_geom.width()), int(screen_geom.height())) // 4)
+        return min(pref_gap, limit)
+
     def position_near_tray(self) -> None:
         screen_geom = self._available_screen_geometry()
         if screen_geom is None:
             return
-        pref_gap = max(0, int(self._controller.preferences.bottom_offset))
-        right_gap = 4 if pref_gap == 0 else min(pref_gap, 8)
-        top_gap = 3 if pref_gap == 0 else min(pref_gap, 8)
+        # The "Screen edge gap" preference, honoured as saved (0 = flush);
+        # the clamp below keeps the window on screen whatever it is.
+        gap = self._screen_edge_gap(screen_geom)
+        right_gap = gap
+        top_gap = gap
         width = int(self.width())
         height = int(self.height())
         x = int(screen_geom.x() + screen_geom.width() - width - right_gap)
@@ -9296,9 +9308,7 @@ class AssistantPalette(QMainWindow):
             frame = dialog.frameGeometry()
             width = max(int(frame.width()), int(dialog.width()))
             height = max(int(frame.height()), int(dialog.height()))
-            pref_gap = max(0, int(self._controller.preferences.bottom_offset))
-            x_gap = 8 if pref_gap == 0 else min(pref_gap, 10)
-            y_gap = 8 if pref_gap == 0 else min(pref_gap, 12)
+            x_gap = y_gap = self._screen_edge_gap(screen_geom)
             # A window WIDER than the screen cannot be placed into view, only
             # shrunk into it. Shrinking is offered but never forced: a dialog
             # with a fixed size (Settings) refuses, and that refusal is
