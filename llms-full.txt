@@ -55,7 +55,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
 - [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
 - [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle, module map
-- [docs/api.md](docs/api.md): CLI entry points, environment variables, run input pins, gateway routes used, local files
+- [docs/api.md](docs/api.md): CLI entry points, environment variables, run input pins, live reply events, gateway routes used, local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
@@ -98,6 +98,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   live gateway connection orb.
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
+- Live replies: with **Stream replies** on (or left to a gateway that streams by default), the
+  answer appears while the model writes it, with its reasoning folded away under **Thinking**;
+  the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
@@ -171,7 +174,7 @@ inventory and approval defaults, workspace policy, run history, waits and artifa
 The desktop client stores under `~/.abstractassistant/`:
 
 - `preferences.json` — this app's overrides and preferences (model routes, reasoning effort,
-  workspace grant, voice options, tool modes, hotkey, window size)
+  reply streaming, workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
 - `sessions/` — chat snapshots, last run ids and each chat's granted workspace folder
 - downloads and cached audio
@@ -521,6 +524,7 @@ session out).
 | Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (with its source as the gateway reports it), or **Gateway default → Built-in orchestrator** when the gateway sets none. Then every workflow in the catalog that declares the assistant interface, at its latest version. The choice applies from the next turn; a running turn keeps its workflow | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
+| Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream` (`true` / `false`); Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)**. The line under the list says when the gateway does not offer live replies at all | this app `stream_replies` (`gateway_default`, `on`, `off`) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
 
@@ -541,6 +545,21 @@ Where overrides travel: the chat model rides the run input (top-level pins and `
 voice overrides ride each speech request; image, video, music and sound overrides ride the
 managed workflow's input pins. A level the model cannot honor is mapped by AbstractCore to the
 nearest supported reasoning level.
+
+### Live replies
+
+With streaming on, the reply appears in a live bubble that grows as the model writes; the
+finished answer then takes its place (the live text is never kept as a second copy). The model's
+reasoning, when it shares it, goes in a collapsed **Thinking** area inside that bubble and is never
+mixed into the reply. A bubble written by a sub-agent is labelled **sub-agent · step name**.
+The transcript follows the text while you are at the bottom and stays put if you have scrolled up.
+
+The live text is a preview. If the gateway had to drop the oldest part of a very long reply, the
+bubble says so; the finished answer is always complete. If a step fails or is stopped, its bubble is
+removed and the status line says why. Some steps cannot stream (a step that returns structured
+output, a remote model server, a provider that cannot stream or cannot report token usage while
+streaming); the status line says which, and that answer appears when it is finished. After a
+reconnection the bubble picks up where the model is.
 
 MTP is native multi-token prediction, not a reasoning level. Its choices come from the
 gateway's execution capability card, not the model's name. The app shows whether the head is
@@ -627,7 +646,7 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 ## Preferences file
 
 `~/.abstractassistant/preferences.json` holds every "this app" value above. Missing keys keep
-their defaults: gateway defaults for models and reasoning, no workspace grant, auto-send and
+their defaults: gateway defaults for models, reasoning and reply streaming, no workspace grant, auto-send and
 spoken-style replies on, microphone paused while the assistant speaks. Each chat's `session.json`
 may also carry the `workspace_root` the gateway granted to that chat.
 
@@ -787,7 +806,13 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings �
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort and workspace grant from `preferences.json`. Without a saved sign-in or
+reasoning effort, reply streaming and workspace grant from `preferences.json`.
+
+`--stream on|off` overrides the saved **Stream replies** choice for this turn. While the reply
+streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
+line in brackets says when a step could not stream or its live text was discarded, and the final
+answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
+answer. Without a saved sign-in or
 `--gateway-token`, a gateway that requires sign-in answers 401 and the command tells you how to
 sign in.
 
@@ -822,10 +847,24 @@ default applies:
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
+| `_runtime.stream` | Stream replies: `true` for On, `false` for Off; omitted to follow the gateway's streaming default (`streaming.default` in `/discovery/capabilities`) |
 | `workspace_root`, `workspace_access_mode`, `workspace_allowed_paths` | workspace settings (or the chat's remembered root) |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
+
+## Live reply events
+
+The run stream (`/api/gateway/runs/{run_id}/ledger/stream`) carries, next to the durable `step`
+events, two live events with no `id:` line: `llm.delta`
+(`call_id`, `seq`, `text`, `channel` = `content` | `reasoning`, `snapshot`, `truncated`, `run_id`,
+`root_run_id`, `parent_run_id`, `node_id`) and `llm.delta_end` (`call_id`, `seq`, `reason` =
+`completed` | `failed` | `cancelled` | `unavailable`, `detail`). The app resumes the stream only
+from the cursor of durable `step` events, so live events never move it. On every (re)connect it drops
+its live text and applies the snapshots the gateway re-sends; it ignores deltas for a call whose
+durable `llm_call` record it already holds, and never shows live text again once the final answer
+is on screen. Whether the gateway offers live replies is read from
+`/discovery/capabilities` → `streaming.deltas`.
 
 ## Gateway routes used
 
@@ -977,6 +1016,9 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   ledger, materializes assistant and tool messages, submits wait answers, folds run statistics.
 - `gateway/adapter.py` — ledger records to UI events (`cycle`, `cycle_result`, `tool_started`,
   `tool`, `tool_request`, `ask_user`, `assistant`, `status`).
+- `gateway/live_deltas.py` — the run stream's live reply events (`llm.delta`, `llm.delta_end`) as
+  UI events (`assistant_delta`, `assistant_delta_end`, `assistant_delta_reset` on each
+  reconnect) and the per-call text they build; the palette's live bubble and the CLI both use it.
 - `ui/activity.py` — the run activity model (steps, durations, header copy) and the transcript card.
 - `ui/approval.py`, `core/tool_presenter.py`, `core/tool_risk.py` — tool approval sheet and
   post-hoc tool cards; presentation of calls and of the gateway's risk classification.
@@ -1003,6 +1045,8 @@ Launch flow:
 1. Resolve the workflow from the gateway catalog and the saved choice.
 2. Start a run through `/api/gateway/runs/start` with the local pins.
 3. Follow the ledger over SSE; surface waits locally and resume them through gateway commands.
+   Live reply text, when the run streams, arrives on the same stream and is shown until the
+   durable answer replaces it; it never moves the ledger cursor.
 4. Persist the final answer and its statistics to the local chat snapshot.
 
 The assistant does not use private bundle execution, sandbox chat, or client-side media
@@ -1603,6 +1647,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   gateway's default for `abstractassistant.agent.v1`, or the built-in orchestrator when the gateway
   sets none), then every assistant workflow in the catalog. The choice applies from the next turn;
   choosing the gateway default follows later changes made on the gateway.
+- **Live replies.** When the gateway streams, the answer appears in a bubble that grows while the
+  model writes it; the model's reasoning goes in a collapsed **Thinking** area, a sub-agent's
+  bubble is labelled, and the finished answer replaces the live text. A step that fails or is
+  stopped removes its bubble and says why; a step that cannot stream says why in the status line.
+  Settings → Models → **Stream replies** (Gateway default, On, Off) chooses per device; `assistant
+  run --stream on|off` does the same for one terminal turn, writing the live text to stderr and the
+  final answer once to stdout. Needs a gateway that offers live replies.
 - **About AbstractAssistant.** Settings → About shows the application and version, AbstractFramework,
   author, licence, and links to the website, source, documentation, issue tracker, feedback form
   and contact address, plus the workflow the last turn ran. The menu-bar icon has an
@@ -2298,7 +2349,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def _package_version() -> str:
@@ -2337,7 +2388,17 @@ def create_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="Run one agentic turn in the terminal")
     run.add_argument("--prompt", type=str, required=True, help="User prompt text")
-    
+    run.add_argument(
+        "--stream",
+        choices=("on", "off"),
+        default=None,
+        help=(
+            "Stream the reply while the model writes it (on) or not (off). Default: the "
+            "'Stream replies' setting saved in the app (gateway default unless changed). "
+            "Live text goes to stderr; the final answer is printed once on stdout."
+        ),
+    )
+
     return parser
 
 
@@ -2386,6 +2447,103 @@ def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
     return ans in {"y", "yes"}
 
 
+def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]:
+    """`--stream on|off` wins; else the saved preference (absent = gateway default)."""
+    if flag == "on":
+        return True
+    if flag == "off":
+        return False
+    if flag is not None:
+        raise ValueError(f"--stream must be on or off, not {flag!r}")
+    value = scope.get("stream")
+    return value if isinstance(value, bool) else None
+
+
+class LiveDeltaPrinter:
+    """Write a streamed reply's text to ``out`` as it arrives.
+
+    Only the content channel is printed (reasoning is never mixed into the
+    reply). A reconnect snapshot re-sends the text so far: only the part not
+    yet printed is written; when the snapshot no longer extends what was
+    printed (the gateway trimmed the oldest text), the line restarts with the
+    snapshot and says so. A call that fails or is cancelled says so, and a
+    call that could not stream says why in one line. Deltas for a call whose
+    durable record already arrived, or any after the final answer, are
+    ignored (contract S-2.2).
+    """
+
+    def __init__(self, out) -> None:
+        from .gateway.live_deltas import LiveReply
+
+        self._out = out
+        self._new_reply = LiveReply
+        self._replies: Dict[str, Any] = {}
+        self._printed: Dict[str, str] = {}
+        self._finished: set = set()
+        self.final_seen = False
+
+    def note_record(self, rec: Dict[str, Any]) -> None:
+        """Remember llm_call steps whose durable record arrived."""
+        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+        if str(effect.get("type") or "").strip().lower() != "llm_call":
+            return
+        status = str(rec.get("status") or "").strip().lower()
+        if status in {"completed", "failed", "cancelled"}:
+            self._finished.add(str(rec.get("step_id") or ""))
+
+    def _write(self, text: str) -> None:
+        self._out.write(text)
+        self._out.flush()
+
+    def __call__(self, ev: Dict[str, Any]) -> None:
+        from .gateway.live_deltas import (
+            ASSISTANT_DELTA,
+            ASSISTANT_DELTA_END,
+            ASSISTANT_DELTA_RESET,
+            end_reason_text,
+        )
+
+        call_id = str(ev.get("call_id") or "")
+        typ = ev.get("type")
+        if typ == ASSISTANT_DELTA_RESET:
+            # Reconnected: the gateway re-sends snapshots. What was already
+            # printed stays printed; only text beyond it is written.
+            self._replies.clear()
+            return
+        if typ == ASSISTANT_DELTA:
+            if self.final_seen or call_id in self._finished:
+                return
+            reply = self._replies.get(call_id)
+            if reply is None:
+                reply = self._new_reply(run_id=str(ev.get("run_id") or ""), call_id=call_id)
+                self._replies[call_id] = reply
+            reply.apply_delta(ev)
+            printed = self._printed.get(call_id, "")
+            text = reply.content
+            if text == printed:
+                return
+            if text.startswith(printed):
+                self._write(text[len(printed):])
+            else:
+                self._write("\n[live text trimmed by the gateway; showing the latest part]\n" + text)
+            self._printed[call_id] = text
+            return
+        if typ == ASSISTANT_DELTA_END:
+            reason = str(ev.get("reason") or "")
+            printed = self._printed.pop(call_id, None)
+            self._replies.pop(call_id, None)
+            if reason == "unavailable":
+                if printed is not None:
+                    self._write("\n")
+                self._write(f"[{end_reason_text(reason, str(ev.get('detail') or ''))}]\n")
+                return
+            if printed is None:
+                return  # a call that never streamed text: nothing on screen
+            self._write("\n")
+            if reason != "completed":
+                self._write(f"[live reply discarded: {reason}]\n")
+
+
 def _run_gateway_command(args: argparse.Namespace) -> int:
     from .gateway import GatewayEventAdapter, build_run_input_data
     from .gateway.history_seed import seed_messages_from_history_bundle
@@ -2430,6 +2588,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         media_overrides=_call("media_route_overrides", default=None) or None,
         thinking=str(scope.get("thinking") or ""),
         speculation=scope.get("speculation"),
+        stream=_stream_choice(getattr(args, "stream", None), scope),
         workspace_root=str(scope.get("workspace_root") or ""),
         workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
         workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
@@ -2456,6 +2615,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     adapter = GatewayEventAdapter()
     controller = GatewayRunController(gateway=gateway, debug=False)
+    live_printer = LiveDeltaPrinter(sys.stderr)
     final = ""
 
     def _submit_resume(*, active_run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
@@ -2471,6 +2631,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     def _on_record(active_run_id: str, rec: Dict[str, object]) -> None:
         nonlocal final
+        live_printer.note_record(rec)  # type: ignore[arg-type]
         for ev in adapter.handle_record(rec):
             if not isinstance(ev, dict):
                 continue
@@ -2479,6 +2640,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
                 content = str(ev.get("content") or "")
                 if content.strip() and ev.get("final"):
                     final = content
+                    live_printer.final_seen = True
                 continue
             if typ == "tool_request":
                 wait_key = str(ev.get("wait_key") or "").strip()
@@ -2506,6 +2668,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         root_run_id=run_id,
         on_record=_on_record,
         should_stop=lambda: False,
+        on_delta=live_printer,
     )
 
     status = str(controller.get_run_status(run_id=run_id) or "").strip().lower()
@@ -2856,6 +3019,29 @@ def _load_speculation(value: Any) -> Any:
         return None
 
 
+# "Stream replies" (contract S): show the reply while the model writes it.
+# "gateway_default" sends nothing (the gateway's `agents.streaming_default`
+# decides); "on"/"off" send `_runtime.stream: true|false` with every run.
+STREAM_REPLIES_GATEWAY_DEFAULT = "gateway_default"
+STREAM_REPLIES_CHOICES = (STREAM_REPLIES_GATEWAY_DEFAULT, "on", "off")
+
+
+def normalize_stream_replies(value: Any) -> str:
+    """A saved value outside the three choices loads as the gateway default."""
+    text = str(value or "").strip().lower()
+    return text if text in STREAM_REPLIES_CHOICES else STREAM_REPLIES_GATEWAY_DEFAULT
+
+
+def stream_replies_runtime_value(value: Any) -> Optional[bool]:
+    """The `_runtime.stream` value for a choice: None = send nothing."""
+    choice = normalize_stream_replies(value)
+    if choice == "on":
+        return True
+    if choice == "off":
+        return False
+    return None
+
+
 # Reasoning effort ladder — the gateway contract's `thinking_control.values`
 # (`contracts.common.runs.start.thinking_control`). The live list is preferred
 # when the gateway advertises one; this is the offline fallback and validator.
@@ -3128,6 +3314,8 @@ class AssistantPreferences:
     # a stale choice degrades, never fails.
     reasoning_effort: str = ""
     speculation: Optional[Any] = None  # None inherits; False pins MTP off.
+    # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
+    stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
     # Local workspace scope for the run's tools, sent as the run-input pins
     # `workspace_root` / `workspace_access_mode` / `workspace_allowed_paths`.
     # The gateway sanitizes and may clamp them; blanks mean "server-managed".
@@ -3197,6 +3385,7 @@ class AssistantPreferences:
             route_overrides=_normalize_route_overrides(raw.get("route_overrides")),
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
             speculation=_load_speculation(raw.get("speculation")),
+            stream_replies=normalize_stream_replies(raw.get("stream_replies")),
             workspace_root=normalize_workspace_path(raw.get("workspace_root")),
             workspace_access_mode=normalize_workspace_access_mode(raw.get("workspace_access_mode")),
             workspace_allowed_paths=_normalize_workspace_paths(raw.get("workspace_allowed_paths")),
@@ -3231,6 +3420,7 @@ class AssistantPreferences:
             "route_overrides": _normalize_route_overrides(self.route_overrides),
             "reasoning_effort": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
+            "stream_replies": normalize_stream_replies(self.stream_replies),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
@@ -3253,6 +3443,11 @@ class AssistantPreferences:
         return {
             "thinking": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
+            **(
+                {"stream": stream_replies_runtime_value(self.stream_replies)}
+                if stream_replies_runtime_value(self.stream_replies) is not None
+                else {}
+            ),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
@@ -4013,6 +4208,28 @@ class AssistantController:
             pass
         return list(REASONING_EFFORT_LEVELS)
 
+    def gateway_streaming(self) -> Optional[Dict[str, Any]]:
+        """The gateway's live-reply block from discovery
+        (``capabilities.streaming`` = ``{deltas: bool, default: bool}``,
+        contract S-2.6), or None when discovery is unavailable."""
+        try:
+            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        except Exception:
+            return None
+        if caps is None or getattr(caps, "error", ""):
+            return None
+        raw = getattr(caps, "raw", None) or {}
+        block = raw.get("streaming") if isinstance(raw, dict) else None
+        return dict(block) if isinstance(block, dict) else {}
+
+    def live_replies_advertised(self) -> Optional[bool]:
+        """True when the gateway advertises live replies (``streaming.deltas``),
+        False when it does not, None when discovery is unavailable."""
+        block = self.gateway_streaming()
+        if block is None:
+            return None
+        return block.get("deltas") is True
+
     def workspace_access_modes(self) -> List[str]:
         """Access modes the gateway accepts (its policy's ``allowed_access_modes``
         when advertised; the contract's known list otherwise)."""
@@ -4495,6 +4712,7 @@ class AssistantController:
             media_overrides=self.media_route_overrides() or None,
             thinking=str(scope.get("thinking") or ""),
             speculation=scope.get("speculation"),
+            stream=scope.get("stream"),
             workspace_root=str(scope.get("workspace_root") or ""),
             workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
             workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
@@ -5375,6 +5593,7 @@ import warnings
 
 from .sse_parser import SseParser
 from .types import LedgerStreamEvent
+from .live_deltas import LIVE_EVENTS as LIVE_DELTA_EVENTS
 
 
 @dataclass(frozen=True)
@@ -5900,7 +6119,22 @@ class GatewayClient:
         stop_signal: Optional[Any] = None,
         timeout_s: Optional[float] = None,
         max_idle_s: Optional[float] = None,
+        on_delta: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        on_open: Optional[Callable[[], None]] = None,
     ) -> None:
+        """Follow a run's ledger over SSE.
+
+        ``on_step`` receives each durable ``step`` event (``{cursor, record}``);
+        the cursor lives in that payload, so the caller's resume point only
+        ever comes from durable rows. ``on_delta(event_name, data)`` receives
+        the volatile live-reply events ``llm.delta`` / ``llm.delta_end``
+        (contract S). They carry no ``id:`` and no cursor, never touch the
+        resume point, and are dropped when no ``on_delta`` is given. Either
+        kind of event counts as stream activity for ``max_idle_s``: a long
+        generation streams deltas with no ledger row for a while.
+        ``on_open()`` runs once the stream is connected, before any event is
+        read: a reconnect must drop live text before the snapshots arrive.
+        """
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("stream_ledger: run_id is required")
@@ -5911,12 +6145,25 @@ class GatewayClient:
         last_step_at = time.monotonic()
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if on_open is not None:
+                    on_open()
                 parser = SseParser()
                 for raw in resp:
                     if stop_signal is not None and bool(getattr(stop_signal, "is_set", lambda: False)()):
                         return
                     text = _decode_bytes(raw, label="stream_ledger")
                     for ev in parser.push(text):
+                        if ev.event in LIVE_DELTA_EVENTS:
+                            if on_delta is None or not ev.data:
+                                continue
+                            try:
+                                delta = json.loads(ev.data)
+                            except Exception:
+                                warnings.warn(f"#FALLBACK: stream_ledger {ev.event} data was not JSON; dropping")
+                                continue
+                            last_step_at = time.monotonic()
+                            on_delta(ev.event, delta)
+                            continue
                         if ev.event != "step" or not ev.data:
                             continue
                         try:
@@ -7477,6 +7724,7 @@ def build_run_input_data(
     media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     thinking: str = "",
     speculation: Any = None,
+    stream: Optional[bool] = None,
     workspace_root: str = "",
     workspace_access_mode: str = "",
     workspace_allowed_paths: Optional[List[str]] = None,
@@ -7511,6 +7759,9 @@ def build_run_input_data(
     ``thinking_control``: none|minimal|low|medium|high|xhigh); it rides
     ``_runtime.thinking``, the documented inheritance lane every LLM/agent node
     reads (a top-level pin would need a flow input the orchestrator lacks).
+    ``stream`` asks for live replies (``_runtime.stream``, contract S): True
+    streams the model's text as it is written, False pins it off, None sends
+    NOTHING so the gateway's own ``agents.streaming_default`` applies.
     ``workspace_root`` / ``workspace_access_mode`` / ``workspace_allowed_paths``
     scope the run's filesystem tools; the gateway sanitizes them against its own
     policy and may clamp or refuse them. Blanks send nothing (server-managed).
@@ -7559,6 +7810,10 @@ def build_run_input_data(
     if speculation is not None:
         from abstractassistant.speculation import normalize_speculation
         runtime_ns["speculation"] = normalize_speculation(speculation)
+    if stream is not None:
+        if not isinstance(stream, bool):
+            raise ValueError(f"stream must be None, True or False, not {stream!r}")
+        runtime_ns["stream"] = stream
 
     if isinstance(tool_policy, dict):
         auto_raw = tool_policy.get("auto_approve_tools") or tool_policy.get("autoApproveTools") or tool_policy.get("autoApprove")
@@ -8013,6 +8268,7 @@ from ..gateway import (
 )
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
+from ..gateway.live_deltas import ASSISTANT_DELTA
 from ..gateway.run_controller import GatewayRunController
 from ..gateway.run_stats import aggregate_run_stats, observe_record
 
@@ -8026,6 +8282,9 @@ class GatewayWorker(QThread):
     # Non-fatal: something the user should know (a wait answer that did not
     # reach the gateway) while the follower keeps running. Never tear down.
     warning_occurred = pyqtSignal(str)
+    # Class-level default so a worker built via __new__ (tests) still reads
+    # "gateway default" (nothing sent).
+    _stream: Optional[bool] = None
 
     def __init__(
         self,
@@ -8050,6 +8309,7 @@ class GatewayWorker(QThread):
         media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         thinking: str = "",
         speculation: Any = None,
+        stream: Optional[bool] = None,
         workspace_root: str = "",
         workspace_access_mode: str = "",
         workspace_allowed_paths: Optional[List[str]] = None,
@@ -8085,6 +8345,11 @@ class GatewayWorker(QThread):
         self._thinking = str(thinking or "").strip().lower()
         from abstractassistant.speculation import normalize_speculation
         self._speculation = normalize_speculation(speculation)
+        # Live replies (`_runtime.stream`): None = the gateway's default
+        # (nothing sent), True/False = this app's explicit choice.
+        if stream is not None and not isinstance(stream, bool):
+            raise ValueError(f"stream must be None, True or False, not {stream!r}")
+        self._stream = stream
         self._workspace_root = str(workspace_root or "").strip()
         self._workspace_access_mode = str(workspace_access_mode or "").strip().lower()
         self._workspace_allowed_paths = [
@@ -8112,6 +8377,7 @@ class GatewayWorker(QThread):
         self._run_activity_by_run: Dict[str, str] = {}
         self._output_artifact_candidates: List[tuple[str, str]] = []
         self._seen_output_artifacts: set[tuple[str, str]] = set()
+        self._finished_llm_calls: set[str] = set()
 
     def provide_tool_approval(
         self,
@@ -8808,6 +9074,7 @@ class GatewayWorker(QThread):
         threading.Thread(target=_send, name="abstractassistant-wait-submit", daemon=True).start()
 
     def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
+        self._note_finished_llm_call(rec)
         self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
         self._record_output_artifact_candidates(run_id=run_id, rec=rec)
         self._record_run_stats(run_id=run_id, rec=rec)
@@ -8888,6 +9155,39 @@ class GatewayWorker(QThread):
                 continue
 
             self.event_emitted.emit(ev)
+
+    _FINAL_LLM_CALL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+    def _note_finished_llm_call(self, rec: Dict[str, Any]) -> None:
+        """Remember llm_call steps whose durable record has arrived."""
+        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+        if str(effect.get("type") or "").strip().lower() != "llm_call":
+            return
+        raw_status = rec.get("status")
+        status = str(getattr(raw_status, "value", raw_status) or "").strip().lower()
+        step_id = str(rec.get("step_id") or "").strip()
+        if step_id and status in self._FINAL_LLM_CALL_STATUSES:
+            self._finished_calls().add(step_id)
+
+    def _finished_calls(self) -> set:
+        # Per instance, created on first use (tests build workers via __new__).
+        return self.__dict__.setdefault("_finished_llm_calls", set())
+
+    def _handle_delta(self, ev: Dict[str, Any]) -> None:
+        """Forward a live-reply event to the UI (contract S).
+
+        Child-run deltas arrive on the root's stream and are forwarded too
+        (the palette labels them). A delta for a call whose durable record
+        this worker already holds is dropped: the record is authoritative and
+        a late or replayed delta must never bring the live text back
+        (S-2.2). ``delta_end`` still passes — it arrives after the record by
+        design. Nothing here touches the session transcript.
+        """
+        if not isinstance(ev, dict):
+            return
+        if ev.get("type") == ASSISTANT_DELTA and str(ev.get("call_id") or "") in self._finished_calls():
+            return
+        self.event_emitted.emit(ev)
 
     def _should_append_assistant(self, content: str, *, meta: Optional[Dict[str, Any]] = None) -> bool:
         text = str(content or "").strip()
@@ -9141,6 +9441,7 @@ class GatewayWorker(QThread):
                     media_overrides=self._media_overrides,
                     thinking=self._thinking,
                     speculation=self._speculation,
+                    stream=self._stream,
                     workspace_root=self._workspace_root,
                     workspace_access_mode=self._workspace_access_mode,
                     workspace_allowed_paths=self._workspace_allowed_paths,
@@ -9188,6 +9489,7 @@ class GatewayWorker(QThread):
                 should_stop=self.isInterruptionRequested,
                 on_offline=self._mark_offline,
                 on_online=self._mark_online,
+                on_delta=self._handle_delta,
             )
 
             # The live-followed final answer (with its run-tree stats) is

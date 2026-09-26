@@ -18,6 +18,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   live gateway connection orb.
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
+- Live replies: with **Stream replies** on (or left to a gateway that streams by default), the
+  answer appears while the model writes it, with its reasoning folded away under **Thinking**;
+  the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
@@ -91,7 +94,7 @@ inventory and approval defaults, workspace policy, run history, waits and artifa
 The desktop client stores under `~/.abstractassistant/`:
 
 - `preferences.json` — this app's overrides and preferences (model routes, reasoning effort,
-  workspace grant, voice options, tool modes, hotkey, window size)
+  reply streaming, workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
 - `sessions/` — chat snapshots, last run ids and each chat's granted workspace folder
 - downloads and cached audio

@@ -120,6 +120,9 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   ledger, materializes assistant and tool messages, submits wait answers, folds run statistics.
 - `gateway/adapter.py` — ledger records to UI events (`cycle`, `cycle_result`, `tool_started`,
   `tool`, `tool_request`, `ask_user`, `assistant`, `status`).
+- `gateway/live_deltas.py` — the run stream's live reply events (`llm.delta`, `llm.delta_end`) as
+  UI events (`assistant_delta`, `assistant_delta_end`, `assistant_delta_reset` on each
+  reconnect) and the per-call text they build; the palette's live bubble and the CLI both use it.
 - `ui/activity.py` — the run activity model (steps, durations, header copy) and the transcript card.
 - `ui/approval.py`, `core/tool_presenter.py`, `core/tool_risk.py` — tool approval sheet and
   post-hoc tool cards; presentation of calls and of the gateway's risk classification.
@@ -146,6 +149,8 @@ Launch flow:
 1. Resolve the workflow from the gateway catalog and the saved choice.
 2. Start a run through `/api/gateway/runs/start` with the local pins.
 3. Follow the ledger over SSE; surface waits locally and resume them through gateway commands.
+   Live reply text, when the run streams, arrives on the same stream and is shown until the
+   durable answer replaces it; it never moves the ledger cursor.
 4. Persist the final answer and its statistics to the local chat snapshot.
 
 The assistant does not use private bundle execution, sandbox chat, or client-side media

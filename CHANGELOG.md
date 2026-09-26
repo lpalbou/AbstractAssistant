@@ -16,6 +16,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   gateway's default for `abstractassistant.agent.v1`, or the built-in orchestrator when the gateway
   sets none), then every assistant workflow in the catalog. The choice applies from the next turn;
   choosing the gateway default follows later changes made on the gateway.
+- **Live replies.** When the gateway streams, the answer appears in a bubble that grows while the
+  model writes it; the model's reasoning goes in a collapsed **Thinking** area, a sub-agent's
+  bubble is labelled, and the finished answer replaces the live text. A step that fails or is
+  stopped removes its bubble and says why; a step that cannot stream says why in the status line.
+  Settings → Models → **Stream replies** (Gateway default, On, Off) chooses per device; `assistant
+  run --stream on|off` does the same for one terminal turn, writing the live text to stderr and the
+  final answer once to stdout. Needs a gateway that offers live replies.
 - **About AbstractAssistant.** Settings → About shows the application and version, AbstractFramework,
   author, licence, and links to the website, source, documentation, issue tracker, feedback form
   and contact address, plus the workflow the last turn ran. The menu-bar icon has an

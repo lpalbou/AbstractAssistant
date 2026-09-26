@@ -622,11 +622,16 @@ def test_scroll_follows_only_when_the_user_is_at_the_bottom(palette, qapp) -> No
     bar = palette.history_scroll.verticalScrollBar()
     long_text = "\n\n".join(f"Paragraph {i} of a long streamed reply." for i in range(80))
     _push(palette, qapp, _d("c1", 1, long_text))
-    QTest.qWait(250)  # the bottom pin re-applies after the text browser reflows
+    QTest.qWait(250)  # let every pending scroll request settle
     assert bar.maximum() > 0
-    assert bar.value() == bar.maximum()
+    bar.setValue(bar.maximum())  # the user is at the bottom
+    before = bar.maximum()
+    _push(palette, qapp, _d("c1", 2, "\n\n" + "\n\n".join(f"More {i}." for i in range(30))))
+    QTest.qWait(250)
+    assert bar.maximum() > before
+    assert bar.value() == bar.maximum()  # followed the growing reply
     bar.setValue(0)  # the user scrolls up to read
-    _push(palette, qapp, _d("c1", 2, "\n\nMore text."))
+    _push(palette, qapp, _d("c1", 3, "\n\nEven more text."))
     QTest.qWait(250)
     assert bar.value() == 0
 

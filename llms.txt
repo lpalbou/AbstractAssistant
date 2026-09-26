@@ -10,7 +10,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
 - [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
 - [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle, module map
-- [docs/api.md](docs/api.md): CLI entry points, environment variables, run input pins, gateway routes used, local files
+- [docs/api.md](docs/api.md): CLI entry points, environment variables, run input pins, live reply events, gateway routes used, local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 

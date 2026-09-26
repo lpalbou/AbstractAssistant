@@ -65,7 +65,13 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings �
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort and workspace grant from `preferences.json`. Without a saved sign-in or
+reasoning effort, reply streaming and workspace grant from `preferences.json`.
+
+`--stream on|off` overrides the saved **Stream replies** choice for this turn. While the reply
+streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
+line in brackets says when a step could not stream or its live text was discarded, and the final
+answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
+answer. Without a saved sign-in or
 `--gateway-token`, a gateway that requires sign-in answers 401 and the command tells you how to
 sign in.
 
@@ -100,10 +106,24 @@ default applies:
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
+| `_runtime.stream` | Stream replies: `true` for On, `false` for Off; omitted to follow the gateway's streaming default (`streaming.default` in `/discovery/capabilities`) |
 | `workspace_root`, `workspace_access_mode`, `workspace_allowed_paths` | workspace settings (or the chat's remembered root) |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
+
+## Live reply events
+
+The run stream (`/api/gateway/runs/{run_id}/ledger/stream`) carries, next to the durable `step`
+events, two live events with no `id:` line: `llm.delta`
+(`call_id`, `seq`, `text`, `channel` = `content` | `reasoning`, `snapshot`, `truncated`, `run_id`,
+`root_run_id`, `parent_run_id`, `node_id`) and `llm.delta_end` (`call_id`, `seq`, `reason` =
+`completed` | `failed` | `cancelled` | `unavailable`, `detail`). The app resumes the stream only
+from the cursor of durable `step` events, so live events never move it. On every (re)connect it drops
+its live text and applies the snapshots the gateway re-sends; it ignores deltas for a call whose
+durable `llm_call` record it already holds, and never shows live text again once the final answer
+is on screen. Whether the gateway offers live replies is read from
+`/discovery/capabilities` → `streaming.deltas`.
 
 ## Gateway routes used
 

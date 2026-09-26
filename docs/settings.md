@@ -31,6 +31,7 @@ session out).
 | Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (with its source as the gateway reports it), or **Gateway default → Built-in orchestrator** when the gateway sets none. Then every workflow in the catalog that declares the assistant interface, at its latest version. The choice applies from the next turn; a running turn keeps its workflow | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
+| Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream` (`true` / `false`); Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)**. The line under the list says when the gateway does not offer live replies at all | this app `stream_replies` (`gateway_default`, `on`, `off`) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
 
@@ -51,6 +52,21 @@ Where overrides travel: the chat model rides the run input (top-level pins and `
 voice overrides ride each speech request; image, video, music and sound overrides ride the
 managed workflow's input pins. A level the model cannot honor is mapped by AbstractCore to the
 nearest supported reasoning level.
+
+### Live replies
+
+With streaming on, the reply appears in a live bubble that grows as the model writes; the
+finished answer then takes its place (the live text is never kept as a second copy). The model's
+reasoning, when it shares it, goes in a collapsed **Thinking** area inside that bubble and is never
+mixed into the reply. A bubble written by a sub-agent is labelled **sub-agent · step name**.
+The transcript follows the text while you are at the bottom and stays put if you have scrolled up.
+
+The live text is a preview. If the gateway had to drop the oldest part of a very long reply, the
+bubble says so; the finished answer is always complete. If a step fails or is stopped, its bubble is
+removed and the status line says why. Some steps cannot stream (a step that returns structured
+output, a remote model server, a provider that cannot stream or cannot report token usage while
+streaming); the status line says which, and that answer appears when it is finished. After a
+reconnection the bubble picks up where the model is.
 
 MTP is native multi-token prediction, not a reasoning level. Its choices come from the
 gateway's execution capability card, not the model's name. The app shows whether the head is
@@ -137,6 +153,6 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 ## Preferences file
 
 `~/.abstractassistant/preferences.json` holds every "this app" value above. Missing keys keep
-their defaults: gateway defaults for models and reasoning, no workspace grant, auto-send and
+their defaults: gateway defaults for models, reasoning and reply streaming, no workspace grant, auto-send and
 spoken-style replies on, microphone paused while the assistant speaks. Each chat's `session.json`
 may also carry the `workspace_root` the gateway granted to that chat.
