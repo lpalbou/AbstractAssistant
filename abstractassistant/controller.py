@@ -784,15 +784,21 @@ class AssistantController:
         self._save_connection(connection)
         return connection
 
-    def redeem_desktop_handover_file(self, path: str, *, fallback_base_url: str = "") -> GatewayConnectionPreferences:
+    def redeem_desktop_handover_file(self, path: str, *, fallback_base_url: str = "") -> "tuple[GatewayConnectionPreferences, str]":
         """Redeem the hand-over FILE the gateway console wrote for this launch.
 
         Contract A1 (amendment A-3): the code is never on argv or in the
-        environment. The gateway writes ``{"code", "base_url", "expires_at"}``
-        into a 0600 file and passes ``--gateway-handover-file <path>``. The file
-        is read and DELETED at once — before anything else can fail — then the
-        code is redeemed at the file's ``base_url`` (``fallback_base_url``, the
-        launch ``--gateway-url``, only when the file names none).
+        environment. The gateway writes ``{"schema", "code", "base_url",
+        "expires_at"}`` into a 0600 file and passes ``--gateway-handover-file
+        <path>``; see :func:`read_desktop_handover_file` for what is accepted.
+
+        Returns ``(connection, notice)``. A hand-over never silently replaces
+        another sign-in:
+
+        * a saved session for the SAME gateway that still works is kept and
+          the code is not redeemed ("already connected as …");
+        * a saved sign-in for another gateway or another user is replaced, its
+          session logged out (best effort), and the notice says so.
         """
         code, base_url, expires_at = read_desktop_handover_file(path)
         if _handover_expired(expires_at):
@@ -800,7 +806,70 @@ class AssistantController:
                 "The sign-in link from the gateway console has expired (links work once, for two minutes). "
                 + DesktopHandoverError.REMEDY
             )
-        return self.redeem_desktop_handover(base_url=base_url or fallback_base_url, code=code)
+        target = self._normalize_base_url(base_url or fallback_base_url or self.connection.base_url)
+        previous = self._saved_connection()
+        if (
+            previous is not None
+            and str(previous.auth_mode or "") == "session"
+            and str(previous.session_id or "").strip()
+            and self._normalize_base_url(previous.base_url) == target
+            and self._session_still_works(previous)
+        ):
+            if previous != self.connection:
+                self._save_connection(previous)
+            who = previous.user_id or "your account"
+            return previous, f"Already connected to {target} as {who}; kept that sign-in."
+        connection = self.redeem_desktop_handover(base_url=target, code=code)
+        notice = ""
+        if previous is not None and (str(previous.session_id or "").strip() or str(previous.auth_token or "").strip()):
+            other_gateway = self._normalize_base_url(previous.base_url) != self._normalize_base_url(connection.base_url)
+            other_user = bool(previous.user_id) and previous.user_id != connection.user_id
+            if other_gateway or other_user:
+                signed_out = False
+                if str(previous.auth_mode or "") == "session" and str(previous.session_id or "").strip():
+                    signed_out = self._logout_quietly(previous)
+                was = f"{previous.user_id or 'a previous sign-in'} on {previous.base_url}"
+                notice = (
+                    f"Signed in as {connection.user_id or 'you'} on {connection.base_url} (was {was}"
+                    + ("; that session was signed out" if signed_out else "")
+                    + ")."
+                )
+        return connection, notice
+
+    def _saved_connection(self) -> Optional[GatewayConnectionPreferences]:
+        try:
+            if self.connection_store.path.exists():
+                return self.connection_store.load()
+        except Exception:
+            return None
+        return None
+
+    def _session_client(self, connection: GatewayConnectionPreferences) -> GatewayClient:
+        return GatewayClient(
+            GatewayClientConfig(
+                base_url=self._normalize_base_url(connection.base_url),
+                auth_mode="session",
+                user_id=str(connection.user_id or ""),
+                session_id=str(connection.session_id or ""),
+                csrf_token=str(connection.csrf_token or ""),
+                session_expires_at=str(connection.session_expires_at or ""),
+                timeout_s=min(float(self.gateway.config.timeout_s), 8.0),
+            )
+        )
+
+    def _session_still_works(self, connection: GatewayConnectionPreferences) -> bool:
+        try:
+            payload = self._session_client(connection).gateway_me()
+        except Exception:
+            return False
+        return isinstance(payload, dict) and payload.get("ok") is not False
+
+    def _logout_quietly(self, connection: GatewayConnectionPreferences) -> bool:
+        try:
+            self._session_client(connection).session_logout()
+            return True
+        except Exception:
+            return False
 
     def logout_gateway_session(self) -> None:
         if str(self.connection.auth_mode or "bearer").strip() == "session" and str(self.connection.session_id or "").strip():

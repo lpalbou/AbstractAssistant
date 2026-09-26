@@ -10701,22 +10701,25 @@ def _schedule_initial_palette_show(
     QTimer.singleShot(max(0, int(fallback_delay)), _fallback_show)
 
 
-def _redeem_launch_handover(controller: AssistantController, *, base_url: str, handover_file: str) -> str:
-    """Redeem the gateway console's hand-over file; return the user-facing
-    error text ("" on success, or when there is no file). Runs before the
-    palette exists so its first gateway calls already carry the new session."""
+def _redeem_launch_handover(controller: AssistantController, *, base_url: str, handover_file: str) -> "tuple[str, str]":
+    """Redeem the gateway console's hand-over file.
+
+    Returns ``(banner_text, tone)``: ``("", "")`` when there is nothing to say,
+    an ``info`` notice when an existing sign-in was kept or replaced, an
+    ``error`` when the hand-over failed. Runs before the palette exists so its
+    first gateway calls already carry the new session."""
     path = str(handover_file or "").strip()
     if not path:
-        return ""
+        return "", ""
     from .controller import DesktopHandoverError
 
     try:
-        controller.redeem_desktop_handover_file(path, fallback_base_url=base_url)
+        _connection, notice = controller.redeem_desktop_handover_file(path, fallback_base_url=base_url)
     except DesktopHandoverError as exc:
-        return str(exc)
+        return str(exc), "error"
     except Exception as exc:  # pragma: no cover - defensive: never crash the launch
-        return f"Could not sign in with the gateway: {exc}. {DesktopHandoverError.REMEDY}"
-    return ""
+        return f"Could not sign in with the gateway: {exc}. {DesktopHandoverError.REMEDY}", "error"
+    return (notice, "info") if notice else ("", "")
 
 
 def launch_tray_app(
@@ -10745,14 +10748,16 @@ def launch_tray_app(
     # connection is merged in: the hand-over belongs to THAT gateway.
     launch_url = str(getattr(getattr(config, "gateway", None), "url", "") or "").strip()
     controller = AssistantController(config=config, data_dir=data_dir, debug=debug)
-    handover_error = _redeem_launch_handover(controller, base_url=launch_url, handover_file=gateway_handover_file)
+    handover_text, handover_tone = _redeem_launch_handover(
+        controller, base_url=launch_url, handover_file=gateway_handover_file
+    )
     if str(gateway_handover_file or "").strip():
         # Opened from the gateway console: the user clicked "Open", show the window.
         show_on_launch = True
     palette = AssistantPalette(controller=controller, debug=debug)
-    if handover_error:
+    if handover_text:
         try:
-            palette._set_banner(handover_error, tone="error", key="handover")
+            palette._set_banner(handover_text, tone=handover_tone, key="handover")
         except Exception:
             pass
     # Clean up the worker/hotkey/voice on quit so quitting mid-run cannot tear

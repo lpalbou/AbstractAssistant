@@ -30,20 +30,42 @@ from abstractassistant import cli
 class _FakeGateway:
     """Loopback HTTP server answering the handover route (and nothing else)."""
 
-    def __init__(self, *, status: int = 200, payload: dict | None = None) -> None:
+    def __init__(self, *, status: int = 200, payload: dict | None = None, live_sessions: set | None = None) -> None:
         self.status = status
         self.payload = payload
         self.requests: list[dict] = []
+        # Session ids /me accepts (who is still signed in on this gateway).
+        self.live_sessions = set(live_sessions or ())
+        self.logged_out: list[str] = []
         outer = self
 
         class _Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):  # noqa: D401 - silence
                 return
 
+            def _json(self, status: int, data: dict) -> None:
+                raw = json.dumps(data).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):  # noqa: N802
+                sid = self.headers.get("X-AbstractGateway-Session") or ""
+                if self.path == "/api/gateway/me" and sid in outer.live_sessions:
+                    self._json(200, {"ok": True, "principal": {"user_id": "laurent"}})
+                else:
+                    self._json(401, {"detail": "not signed in"})
+
             def do_POST(self):  # noqa: N802
                 length = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(length) or b"{}")
                 outer.requests.append({"path": self.path, "body": body, "headers": dict(self.headers)})
+                if self.path == "/api/gateway/session/logout":
+                    outer.logged_out.append(self.headers.get("X-AbstractGateway-Session") or "")
+                    self._json(200, {"ok": True})
+                    return
                 if self.path != "/api/gateway/apps/desktop-handover":
                     self.send_response(404)
                     self.end_headers()
@@ -247,13 +269,14 @@ def test_launch_helper_turns_a_dead_hand_over_into_banner_text(tmp_path: Path) -
 
     with _FakeGateway(status=410, payload={"ok": False}) as gw:
         controller = _controller(gw.url, tmp_path / "data")
-        assert _redeem_launch_handover(controller, base_url=gw.url, handover_file="") == ""
+        assert _redeem_launch_handover(controller, base_url=gw.url, handover_file="") == ("", "")
         # Missing file (already consumed by an earlier launch).
-        gone = _redeem_launch_handover(controller, base_url=gw.url, handover_file=str(tmp_path / "nope.json"))
+        gone, tone = _redeem_launch_handover(controller, base_url=gw.url, handover_file=str(tmp_path / "nope.json"))
+        assert tone == "error"
         assert "is gone" in gone and "gateway console" in gone
         # Used code: the gateway answers 410.
         path = _handover_file(tmp_path, code="used", base_url=gw.url, expires_at="2999-01-01T00:00:00Z")
-        text = _redeem_launch_handover(controller, base_url=gw.url, handover_file=str(path))
+        text, _tone = _redeem_launch_handover(controller, base_url=gw.url, handover_file=str(path))
     assert "expired or was already used" in text and "gateway console" in text and "Settings" in text
     assert not path.exists()
 
@@ -297,3 +320,65 @@ def test_macos_entry_accepts_the_hand_over_file_flag(monkeypatch: pytest.MonkeyP
     assert entry.main() == 0
     assert called["config"].gateway.url == "http://127.0.0.1:18855"
     assert called["gateway_handover_file"] == "/tmp/x.json"
+
+
+def _save_session(data_dir: Path, *, base_url: str, user: str, sid: str) -> None:
+    from abstractassistant.preferences import GatewayConnectionPreferences, GatewayConnectionStore
+
+    GatewayConnectionStore(data_dir / "gateway_connection.json").save(
+        GatewayConnectionPreferences(
+            base_url=base_url, auth_mode="session", user_id=user, session_id=sid, csrf_token="csrf-old"
+        )
+    )
+
+
+@pytest.mark.basic
+def test_a_working_session_for_the_same_gateway_is_kept_and_the_code_not_redeemed(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with _FakeGateway(live_sessions={"sess-old"}) as gw:
+        gw.payload = _ok_payload(gw.url)
+        _save_session(data_dir, base_url=gw.url, user="laurent", sid="sess-old")
+        path = _handover_file(tmp_path, code="c1", base_url=gw.url, expires_at="2999-01-01T00:00:00Z")
+        controller = _controller(gw.url, data_dir)
+        connection, notice = controller.redeem_desktop_handover_file(str(path))
+    assert connection.session_id == "sess-old"
+    assert "Already connected" in notice and "laurent" in notice
+    assert not [r for r in gw.requests if r["path"].endswith("desktop-handover")]
+    assert not path.exists()
+
+
+@pytest.mark.basic
+def test_a_dead_session_for_the_same_gateway_is_replaced_quietly(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with _FakeGateway(live_sessions=set()) as gw:
+        gw.payload = _ok_payload(gw.url)
+        _save_session(data_dir, base_url=gw.url, user="laurent", sid="sess-dead")
+        path = _handover_file(tmp_path, code="c1", base_url=gw.url, expires_at="2999-01-01T00:00:00Z")
+        connection, notice = _controller(gw.url, data_dir).redeem_desktop_handover_file(str(path))
+    assert connection.session_id == "sess-123" and notice == ""
+
+
+@pytest.mark.basic
+def test_a_sign_in_to_another_gateway_is_signed_out_and_announced(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with _FakeGateway(live_sessions={"sess-other"}) as old_gw, _FakeGateway() as gw:
+        gw.payload = _ok_payload(gw.url)
+        _save_session(data_dir, base_url=old_gw.url, user="alice", sid="sess-other")
+        path = _handover_file(tmp_path, code="c1", base_url=gw.url, expires_at="2999-01-01T00:00:00Z")
+        connection, notice = _controller(gw.url, data_dir).redeem_desktop_handover_file(str(path))
+    assert connection.session_id == "sess-123"
+    assert old_gw.logged_out == ["sess-other"]
+    assert "Signed in as laurent" in notice and "alice" in notice and old_gw.url in notice and "signed out" in notice
+
+
+@pytest.mark.basic
+def test_a_sign_in_as_another_user_on_the_same_gateway_is_signed_out_and_announced(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with _FakeGateway(live_sessions=set()) as gw:
+        gw.payload = _ok_payload(gw.url)
+        _save_session(data_dir, base_url=gw.url, user="alice", sid="sess-alice")
+        path = _handover_file(tmp_path, code="c1", base_url=gw.url, expires_at="2999-01-01T00:00:00Z")
+        connection, notice = _controller(gw.url, data_dir).redeem_desktop_handover_file(str(path))
+    assert connection.user_id == "laurent"
+    assert gw.logged_out == ["sess-alice"]
+    assert "was alice" in notice
