@@ -165,7 +165,7 @@ def test_a_refused_code_is_a_sentence_the_user_can_act_on(tmp_path: Path, status
 def _handover_file(tmp_path: Path, **payload) -> Path:
     path = tmp_path / "handover" / "abc.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps({"schema": "abstractgateway.desktop_handover.v1", **payload}), encoding="utf-8")
     path.chmod(0o600)
     return path
 
@@ -200,15 +200,45 @@ def test_an_expired_file_is_deleted_and_never_sent(tmp_path: Path) -> None:
 
 
 @pytest.mark.basic
-@pytest.mark.parametrize("content", ["not json", json.dumps({"base_url": "http://127.0.0.1:1"})])
-def test_a_broken_file_is_deleted_and_explained(tmp_path: Path, content: str) -> None:
+@pytest.mark.parametrize(
+    "content",
+    [
+        "not json",
+        json.dumps({"code": "c", "base_url": "http://127.0.0.1:1", "expires_at": "2999-01-01T00:00:00Z"}),
+        json.dumps({"schema": "something.else", "code": "c", "base_url": "http://x", "expires_at": "x"}),
+        json.dumps({"schema": "abstractgateway.desktop_handover.v1", "code": "c"}),
+    ],
+)
+def test_a_file_that_is_not_a_hand_over_is_refused_and_left_untouched(tmp_path: Path, content: str) -> None:
     from abstractassistant.controller import DesktopHandoverError, read_desktop_handover_file
 
-    path = tmp_path / "h.json"
+    path = tmp_path / "thesis.json"
     path.write_text(content, encoding="utf-8")
-    with pytest.raises(DesktopHandoverError, match="not valid"):
+    path.chmod(0o600)
+    with pytest.raises(DesktopHandoverError, match="left untouched"):
         read_desktop_handover_file(str(path))
-    assert not path.exists()
+    assert path.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.basic
+def test_never_deletes_a_file_with_the_wrong_mode_a_symlink_or_a_directory(tmp_path: Path) -> None:
+    from abstractassistant.controller import DesktopHandoverError, read_desktop_handover_file
+
+    good = {"schema": "abstractgateway.desktop_handover.v1", "code": "c", "base_url": "http://127.0.0.1:1", "expires_at": "2999-01-01T00:00:00Z"}
+    loose = tmp_path / "loose.json"
+    loose.write_text(json.dumps(good), encoding="utf-8")
+    loose.chmod(0o644)
+    target = tmp_path / "precious.json"
+    target.write_text(json.dumps(good), encoding="utf-8")
+    target.chmod(0o600)
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+    folder = tmp_path / "dir.json"
+    folder.mkdir()
+    for candidate in (loose, link, folder):
+        with pytest.raises(DesktopHandoverError, match="left untouched"):
+            read_desktop_handover_file(str(candidate))
+    assert loose.exists() and link.is_symlink() and target.exists() and folder.is_dir()
 
 
 @pytest.mark.basic

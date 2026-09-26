@@ -70,42 +70,73 @@ class DesktopHandoverError(RuntimeError):
         return cls(f"{lead} {cls.REMEDY}")
 
 
-def read_desktop_handover_file(path: str) -> "tuple[str, str, str]":
-    """Read and DELETE the gateway console's hand-over file.
+DESKTOP_HANDOVER_SCHEMA = "abstractgateway.desktop_handover.v1"
+_HANDOVER_MAX_BYTES = 4096
 
-    Returns ``(code, base_url, expires_at)``. The file is removed whether or not
-    it parses: a code must never outlive the launch that received it.
+
+def read_desktop_handover_file(path: str) -> "tuple[str, str, str]":
+    """Read the gateway console's hand-over file, then DELETE it.
+
+    Returns ``(code, base_url, expires_at)``. The path comes from the command
+    line, so it is trusted only as far as it looks exactly like what the
+    gateway writes: a regular file (never a symlink) owned by this user, mode
+    0600, under 4 KiB, whose JSON is ``{"schema":
+    "abstractgateway.desktop_handover.v1", "code", "base_url", "expires_at"}``.
+    Anything else is refused WITHOUT touching the file — a typo or a hostile
+    launcher must never be able to delete a user's document. The file is
+    deleted only after it parsed as a hand-over, before the code is redeemed.
     """
-    p = Path(str(path or "")).expanduser()
-    if not str(path or "").strip():
+    import os
+    import stat as stat_mod
+
+    text = str(path or "").strip()
+    if not text:
         raise DesktopHandoverError("No sign-in file was given. " + DesktopHandoverError.REMEDY)
+    p = Path(text).expanduser()
+
+    def _refuse(why: str) -> DesktopHandoverError:
+        return DesktopHandoverError(
+            f"The sign-in file given to the Assistant was refused ({why}); it was left untouched. "
+            + DesktopHandoverError.REMEDY
+        )
+
     try:
-        raw = p.read_text(encoding="utf-8")
+        fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
         raise DesktopHandoverError(
             "The sign-in file from the gateway console is gone (it works once; it may have been used already). "
             + DesktopHandoverError.REMEDY
         ) from None
     except OSError as exc:
-        _unlink_quietly(p)
-        raise DesktopHandoverError(
-            f"The sign-in file from the gateway console could not be read ({exc}). " + DesktopHandoverError.REMEDY
-        ) from exc
-    _unlink_quietly(p)
+        # ELOOP here means a symlink (O_NOFOLLOW).
+        raise _refuse(f"cannot be opened as a plain file: {exc.strerror or exc}") from exc
     try:
-        payload = json.loads(raw)
+        info = os.fstat(fd)
+        if not stat_mod.S_ISREG(info.st_mode):
+            raise _refuse("not a regular file")
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            raise _refuse("owned by another user")
+        if stat_mod.S_IMODE(info.st_mode) != 0o600:
+            raise _refuse(f"permissions are {oct(stat_mod.S_IMODE(info.st_mode))}, not 0o600")
+        if info.st_size > _HANDOVER_MAX_BYTES:
+            raise _refuse("too large to be a sign-in file")
+        raw = os.read(fd, _HANDOVER_MAX_BYTES + 1)
+    finally:
+        os.close(fd)
+    try:
+        payload = json.loads(raw.decode("utf-8"))
     except Exception:
-        payload = None
-    code = str((payload or {}).get("code") or "").strip() if isinstance(payload, dict) else ""
-    if not code:
-        raise DesktopHandoverError(
-            "The sign-in file from the gateway console is not valid (no code in it). " + DesktopHandoverError.REMEDY
-        )
-    return (
-        code,
-        str(payload.get("base_url") or "").strip().rstrip("/"),
-        str(payload.get("expires_at") or "").strip(),
-    )
+        raise _refuse("not a gateway sign-in file") from None
+    if not isinstance(payload, dict) or payload.get("schema") != DESKTOP_HANDOVER_SCHEMA:
+        raise _refuse("not a gateway sign-in file")
+    code = str(payload.get("code") or "").strip()
+    base_url = str(payload.get("base_url") or "").strip().rstrip("/")
+    expires_at = str(payload.get("expires_at") or "").strip()
+    if not code or not base_url or not expires_at:
+        raise _refuse("a field is missing")
+    # It IS our hand-over: it must not outlive this launch, whatever happens next.
+    _unlink_quietly(p)
+    return code, base_url, expires_at
 
 
 def _unlink_quietly(path: Path) -> None:
