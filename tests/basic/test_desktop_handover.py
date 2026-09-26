@@ -187,6 +187,9 @@ def test_a_refused_code_is_a_sentence_the_user_can_act_on(tmp_path: Path, status
 def _handover_file(tmp_path: Path, **payload) -> Path:
     path = tmp_path / "handover" / "abc.json"
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload.setdefault("user_id", "laurent")  # the gateway always names the user (7c0b485)
+    if payload["user_id"] is None:
+        payload.pop("user_id")
     path.write_text(json.dumps({"schema": "abstractgateway.desktop_handover.v1", **payload}), encoding="utf-8")
     path.chmod(0o600)
     return path
@@ -382,3 +385,54 @@ def test_a_sign_in_as_another_user_on_the_same_gateway_is_signed_out_and_announc
     assert connection.user_id == "laurent"
     assert gw.logged_out == ["sess-alice"]
     assert "was alice" in notice
+
+
+@pytest.mark.basic
+def test_a_working_session_of_ANOTHER_user_on_the_same_gateway_is_signed_out_before_redeeming(tmp_path: Path) -> None:
+    """REVIEW/10: "same gateway" is not enough — the file names who clicked Open."""
+    data_dir = tmp_path / "data"
+    with _FakeGateway(live_sessions={"sess-alice"}) as gw:
+        gw.payload = _ok_payload(gw.url)
+        _save_session(data_dir, base_url=gw.url, user="alice", sid="sess-alice")
+        path = _handover_file(tmp_path, code="c1", base_url=gw.url, expires_at="2999-01-01T00:00:00Z", user_id="laurent")
+        connection, notice = _controller(gw.url, data_dir).redeem_desktop_handover_file(str(path))
+    assert (connection.user_id, connection.session_id) == ("laurent", "sess-123")
+    assert gw.logged_out == ["sess-alice"]
+    paths = [r["path"] for r in gw.requests]
+    assert paths.index("/api/gateway/session/logout") < paths.index("/api/gateway/apps/desktop-handover")
+    assert "Signed in as laurent" in notice and "was alice" in notice and "signed out" in notice
+    stored = json.loads((data_dir / "gateway_connection.json").read_text())
+    assert (stored["user_id"], stored["session_id"]) == ("laurent", "sess-123")
+
+
+@pytest.mark.basic
+def test_a_working_session_of_the_same_user_is_kept(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with _FakeGateway(live_sessions={"sess-old"}) as gw:
+        gw.payload = _ok_payload(gw.url)
+        _save_session(data_dir, base_url=gw.url, user="laurent", sid="sess-old")
+        path = _handover_file(tmp_path, code="c1", base_url=gw.url, expires_at="2999-01-01T00:00:00Z", user_id="laurent")
+        connection, _notice = _controller(gw.url, data_dir).redeem_desktop_handover_file(str(path))
+    assert connection.session_id == "sess-old"
+    assert gw.logged_out == []
+    assert not [r for r in gw.requests if r["path"].endswith("desktop-handover")]
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("user_id", [None, "", "   ", 42])
+def test_a_file_without_user_id_is_refused_as_malformed_and_left_untouched(tmp_path: Path, user_id) -> None:
+    from abstractassistant.controller import DesktopHandoverError
+
+    data_dir = tmp_path / "data"
+    with _FakeGateway(live_sessions={"sess-old"}) as gw:
+        gw.payload = _ok_payload(gw.url)
+        _save_session(data_dir, base_url=gw.url, user="laurent", sid="sess-old")
+        path = _handover_file(tmp_path, code="c1", base_url=gw.url, expires_at="2999-01-01T00:00:00Z", user_id=user_id)
+        before = path.read_text(encoding="utf-8")
+        controller = _controller(gw.url, data_dir)
+        with pytest.raises(DesktopHandoverError, match="user_id.*left untouched|left untouched"):
+            controller.redeem_desktop_handover_file(str(path))
+    assert path.read_text(encoding="utf-8") == before
+    assert gw.requests == [] and gw.logged_out == []
+    stored = json.loads((data_dir / "gateway_connection.json").read_text())
+    assert stored["session_id"] == "sess-old"

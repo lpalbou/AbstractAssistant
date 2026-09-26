@@ -772,10 +772,11 @@ appear before a subcommand.
   the assistant's card. The file holds a one-time sign-in code (valid once, for two minutes); the
   app reads it, deletes it, trades the code with the gateway for a session and saves that
   session. You do not pass this flag yourself. Only a file the gateway wrote is accepted (a
-  regular file you own, mode 0600, in the gateway's hand-over format); any other path is refused
-  and left untouched. If you are already signed in to that gateway, that sign-in is kept; a
-  sign-in to another gateway or as another user is replaced and signed out, and the app tells
-  you so.
+  regular file you own, mode 0600, in the gateway's hand-over format, naming the gateway user who
+  clicked **Open**); any other path, or a file that does not name the user, is refused and left
+  untouched. If you are already signed in to that gateway as that same user, that sign-in is
+  kept; a sign-in to another gateway or as another user is signed out and replaced, and the app
+  tells you who is signed in now and who was signed out.
 - `--version`
 
 ```bash
@@ -1641,8 +1642,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   in the AbstractGateway console launches the app with a one-time sign-in (`--gateway-handover-file`);
   the app exchanges it for a gateway session and remembers it. If the sign-in has expired or was
   already used, a banner tells you to open the assistant from the console again or to connect in
-  Settings → Connection. An existing working sign-in to the same gateway is kept; a sign-in to
-  another gateway or as another user is replaced and signed out, and the banner says so.
+  Settings → Connection. An existing working sign-in is kept only when it is for the same gateway
+  and the same user who clicked **Open**; a sign-in to another gateway or as another user is
+  signed out and replaced, and the banner says who is signed in now and who was signed out. A
+  sign-in file that does not name the user is refused and left untouched.
 - **Choose the workflow.** Settings → Models → Workflow lists **Gateway default** first (the
   gateway's default for `abstractassistant.agent.v1`, or the built-in orchestrator when the gateway
   sets none), then every assistant workflow in the catalog. The choice applies from the next turn;
@@ -3664,14 +3667,15 @@ DESKTOP_HANDOVER_SCHEMA = "abstractgateway.desktop_handover.v1"
 _HANDOVER_MAX_BYTES = 4096
 
 
-def read_desktop_handover_file(path: str) -> "tuple[str, str, str]":
+def read_desktop_handover_file(path: str) -> "tuple[str, str, str, str]":
     """Read the gateway console's hand-over file, then DELETE it.
 
-    Returns ``(code, base_url, expires_at)``. The path comes from the command
+    Returns ``(code, base_url, expires_at, user_id)``. The path comes from the command
     line, so it is trusted only as far as it looks exactly like what the
     gateway writes: a regular file (never a symlink) owned by this user, mode
     0600, under 4 KiB, whose JSON is ``{"schema":
-    "abstractgateway.desktop_handover.v1", "code", "base_url", "expires_at"}``.
+    "abstractgateway.desktop_handover.v1", "code", "base_url", "expires_at",
+    "user_id"}`` (``user_id`` = the gateway user who clicked Open; required).
     Anything else is refused WITHOUT touching the file — a typo or a hostile
     launcher must never be able to delete a user's document. The file is
     deleted only after it parsed as a hand-over, before the code is redeemed.
@@ -3722,11 +3726,14 @@ def read_desktop_handover_file(path: str) -> "tuple[str, str, str]":
     code = str(payload.get("code") or "").strip()
     base_url = str(payload.get("base_url") or "").strip().rstrip("/")
     expires_at = str(payload.get("expires_at") or "").strip()
+    user_id = str(payload.get("user_id") or "").strip() if isinstance(payload.get("user_id"), str) else ""
     if not code or not base_url or not expires_at:
         raise _refuse("a field is missing")
+    if not user_id:
+        raise _refuse("it does not name the user who opened it (user_id)")
     # It IS our hand-over: it must not outlive this launch, whatever happens next.
     _unlink_quietly(p)
-    return code, base_url, expires_at
+    return code, base_url, expires_at, user_id
 
 
 def _unlink_quietly(path: Path) -> None:
@@ -4421,12 +4428,14 @@ class AssistantController:
         Returns ``(connection, notice)``. A hand-over never silently replaces
         another sign-in:
 
-        * a saved session for the SAME gateway that still works is kept and
-          the code is not redeemed ("already connected as …");
+        * a saved session for the SAME gateway AND the SAME user (the file's
+          ``user_id``) that still works is kept and the code is not redeemed
+          ("already connected as …");
         * a saved sign-in for another gateway or another user is replaced, its
-          session logged out (best effort), and the notice says so.
+          session logged out (best effort), and the notice says who is signed
+          in now and that the previous user was signed out.
         """
-        code, base_url, expires_at = read_desktop_handover_file(path)
+        code, base_url, expires_at, file_user = read_desktop_handover_file(path)
         if _handover_expired(expires_at):
             raise DesktopHandoverError(
                 "The sign-in link from the gateway console has expired (links work once, for two minutes). "
@@ -4439,20 +4448,32 @@ class AssistantController:
             and str(previous.auth_mode or "") == "session"
             and str(previous.session_id or "").strip()
             and self._normalize_base_url(previous.base_url) == target
+            and str(previous.user_id or "").strip() == file_user
             and self._session_still_works(previous)
         ):
             if previous != self.connection:
                 self._save_connection(previous)
             who = previous.user_id or "your account"
             return previous, f"Already connected to {target} as {who}; kept that sign-in."
+        other_user_session = bool(
+            previous is not None
+            and str(previous.auth_mode or "") == "session"
+            and str(previous.session_id or "").strip()
+            and self._normalize_base_url(previous.base_url) == target
+            and str(previous.user_id or "").strip() != file_user
+        )
+        signed_out = False
+        if other_user_session:
+            # Another user's session on this gateway: sign it out BEFORE the
+            # new session exists, so both are never live on this Mac at once.
+            signed_out = self._logout_quietly(previous)
         connection = self.redeem_desktop_handover(base_url=target, code=code)
         notice = ""
         if previous is not None and (str(previous.session_id or "").strip() or str(previous.auth_token or "").strip()):
             other_gateway = self._normalize_base_url(previous.base_url) != self._normalize_base_url(connection.base_url)
             other_user = bool(previous.user_id) and previous.user_id != connection.user_id
             if other_gateway or other_user:
-                signed_out = False
-                if str(previous.auth_mode or "") == "session" and str(previous.session_id or "").strip():
+                if not other_user_session and str(previous.auth_mode or "") == "session" and str(previous.session_id or "").strip():
                     signed_out = self._logout_quietly(previous)
                 was = f"{previous.user_id or 'a previous sign-in'} on {previous.base_url}"
                 notice = (

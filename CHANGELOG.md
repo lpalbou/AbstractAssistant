@@ -10,8 +10,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   in the AbstractGateway console launches the app with a one-time sign-in (`--gateway-handover-file`);
   the app exchanges it for a gateway session and remembers it. If the sign-in has expired or was
   already used, a banner tells you to open the assistant from the console again or to connect in
-  Settings → Connection. An existing working sign-in to the same gateway is kept; a sign-in to
-  another gateway or as another user is replaced and signed out, and the banner says so.
+  Settings → Connection. An existing working sign-in is kept only when it is for the same gateway
+  and the same user who clicked **Open**; a sign-in to another gateway or as another user is
+  signed out and replaced, and the banner says who is signed in now and who was signed out. A
+  sign-in file that does not name the user is refused and left untouched.
 - **Choose the workflow.** Settings → Models → Workflow lists **Gateway default** first (the
   gateway's default for `abstractassistant.agent.v1`, or the built-in orchestrator when the gateway
   sets none), then every assistant workflow in the catalog. The choice applies from the next turn;

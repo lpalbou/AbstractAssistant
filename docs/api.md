@@ -31,10 +31,11 @@ appear before a subcommand.
   the assistant's card. The file holds a one-time sign-in code (valid once, for two minutes); the
   app reads it, deletes it, trades the code with the gateway for a session and saves that
   session. You do not pass this flag yourself. Only a file the gateway wrote is accepted (a
-  regular file you own, mode 0600, in the gateway's hand-over format); any other path is refused
-  and left untouched. If you are already signed in to that gateway, that sign-in is kept; a
-  sign-in to another gateway or as another user is replaced and signed out, and the app tells
-  you so.
+  regular file you own, mode 0600, in the gateway's hand-over format, naming the gateway user who
+  clicked **Open**); any other path, or a file that does not name the user, is refused and left
+  untouched. If you are already signed in to that gateway as that same user, that sign-in is
+  kept; a sign-in to another gateway or as another user is signed out and replaced, and the app
+  tells you who is signed in now and who was signed out.
 - `--version`
 
 ```bash
