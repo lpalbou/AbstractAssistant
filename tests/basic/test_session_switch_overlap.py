@@ -164,3 +164,51 @@ def test_backfill_never_writes_into_a_session_switched_to_meanwhile(tmp_path) ->
     assert manager.backfill_attachments_from_gateway() == 0
     assert manager.active_session_id == session_b
     assert [m.get("content") for m in manager.session_messages()] == []
+
+
+@pytest.mark.basic
+def test_backfill_never_writes_after_a_new_turn_in_the_same_session(tmp_path) -> None:
+    """The run half of the guard: same session, but a turn landed mid-call."""
+    from abstractassistant.config import Config
+    from abstractassistant.core.llm_manager import LLMManager
+
+    manager = LLMManager(config=Config(), data_dir=tmp_path / "data")
+    manager.append_message(role="user", content="alpha prompt")
+    manager.set_last_run_id("run-a")
+
+    class _Gateway:
+        def get_run_history_bundle(self, **_kw):
+            manager.append_message(role="user", content="second prompt")
+            manager.set_last_run_id("run-b")
+            return {"session": {"turns": [{"prompt": "alpha prompt", "attachments": [{"$artifact": "x", "filename": "f.png"}]}]}}
+
+    manager.gateway_client = lambda: _Gateway()  # type: ignore[method-assign]
+    assert manager.backfill_attachments_from_gateway() == 0
+    messages = manager.session_messages()
+    assert [m.get("content") for m in messages] == ["alpha prompt", "second prompt"]
+    assert not (messages[0].get("metadata") or {}).get("attachments")
+
+
+@pytest.mark.basic
+def test_backfill_merges_into_the_transcript_as_it_is_now(tmp_path) -> None:
+    """An upload that returned while the gateway call was in flight
+    (merge_message_metadata) must survive the backfill's write."""
+    from abstractassistant.config import Config
+    from abstractassistant.core.llm_manager import LLMManager
+
+    manager = LLMManager(config=Config(), data_dir=tmp_path / "data")
+    manager.append_message(role="user", content="alpha prompt")
+    manager.append_message(role="user", content="beta prompt")
+    manager.set_last_run_id("run-a")
+    beta_id = manager.session_messages()[1]["message_id"]
+
+    class _Gateway:
+        def get_run_history_bundle(self, **_kw):
+            assert manager.merge_message_metadata(beta_id, {"attachments": [{"$artifact": "up-1", "filename": "b.png"}]})
+            return {"session": {"turns": [{"prompt": "alpha prompt", "attachments": [{"$artifact": "x", "filename": "f.png"}]}]}}
+
+    manager.gateway_client = lambda: _Gateway()  # type: ignore[method-assign]
+    assert manager.backfill_attachments_from_gateway() == 1
+    alpha, beta = manager.session_messages()
+    assert alpha["metadata"]["attachments"][0]["$artifact"] == "x"
+    assert beta["metadata"]["attachments"][0]["$artifact"] == "up-1"

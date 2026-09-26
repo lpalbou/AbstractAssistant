@@ -24,6 +24,44 @@ import uuid
 import warnings
 
 
+def _apply_attachment_refs(messages: List[Dict[str, Any]], pending: List[Tuple[str, List[Dict[str, Any]]]]) -> int:
+    """Merge a session's turn attachment refs into ``messages`` IN PLACE,
+    matching user rows by exact prompt text. Returns how many rows changed."""
+    pending = list(pending)
+    updated = 0
+    for message in messages:
+        if not pending:
+            break
+        if str(message.get("role") or "") != "user":
+            continue
+        content = str(message.get("content") or "").strip()
+        index = next((i for i, (prompt, _) in enumerate(pending) if prompt == content), None)
+        if index is None:
+            continue
+        _prompt, refs = pending.pop(index)
+        metadata = dict(message.get("metadata") or {})
+        existing = metadata.get("attachments")
+        known = {str(item.get("filename") or ""): item for item in (existing or []) if isinstance(item, dict)}
+        if known and all(
+            str(ref.get("$artifact") or "") in {str(item.get("$artifact") or "") for item in known.values()}
+            for ref in refs
+        ):
+            continue
+        merged: List[Dict[str, Any]] = []
+        for ref in refs:
+            item = dict(ref)
+            local = known.get(str(ref.get("filename") or ""))
+            # Keep a local path that still resolves: it needs no download.
+            if isinstance(local, dict) and local.get("local_path"):
+                item.setdefault("local_path", local["local_path"])
+            merged.append(item)
+        metadata["attachments"] = merged
+        metadata["media"] = merged
+        message["metadata"] = metadata
+        updated += 1
+    return updated
+
+
 class LLMManager:
     """Local session/transcript state plus the shared gateway client."""
 
@@ -298,56 +336,24 @@ class LLMManager:
         if not pending:
             return 0
 
-        updated = 0
-        for message in messages:
-            if not pending:
-                break
-            if str(message.get("role") or "") != "user":
-                continue
-            content = str(message.get("content") or "").strip()
-            index = next(
-                (i for i, (prompt, _) in enumerate(pending) if prompt == content), None
-            )
-            if index is None:
-                continue
-            _prompt, refs = pending.pop(index)
-            metadata = dict(message.get("metadata") or {})
-            existing = metadata.get("attachments")
-            known = {
-                str(item.get("filename") or ""): item
-                for item in (existing or [])
-                if isinstance(item, dict)
-            }
-            if all(str(ref.get("$artifact") or "") in {
-                str(item.get("$artifact") or "") for item in known.values()
-            } for ref in refs) and known:
-                continue
-            merged: List[Dict[str, Any]] = []
-            for ref in refs:
-                item = dict(ref)
-                local = known.get(str(ref.get("filename") or ""))
-                # Keep a local path that still resolves: it needs no download.
-                if isinstance(local, dict) and local.get("local_path"):
-                    item.setdefault("local_path", local["local_path"])
-                merged.append(item)
-            metadata["attachments"] = merged
-            metadata["media"] = merged
-            message["metadata"] = metadata
-            updated += 1
-
-        if not updated:
-            return 0
         with self._snapshot_lock:
             snap = self._ensure_gateway_snapshot()
             if str(snap.session_id or "").strip() != session_id or str(snap.last_run_id or "").strip() != last_run_id:
                 # The user switched sessions (or a turn landed) while the
-                # gateway call was in flight. Writing these messages now would
-                # put the OLD session's transcript into the new one.
+                # gateway call was in flight: these refs describe a transcript
+                # that is not the one on screen any more.
+                return 0
+            # MERGE into the transcript as it is NOW, not the copy taken before
+            # the gateway call: an upload that returned meanwhile
+            # (merge_message_metadata) must survive.
+            current = [dict(m) for m in (snap.messages or [])]
+            updated = _apply_attachment_refs(current, pending)
+            if not updated:
                 return 0
             self._gateway_snapshot = SessionSnapshot(
                 session_id=snap.session_id,
                 actor_id=snap.actor_id,
-                messages=messages,
+                messages=current,
                 last_run_id=snap.last_run_id,
                 workspace_root=snap.workspace_root,
             )
