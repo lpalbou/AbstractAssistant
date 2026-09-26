@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.5.0"
+version = "0.6.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,9 +35,10 @@ dependencies = [
     # the gateway (session_attachments); execution itself stays on the gateway.
     "abstractruntime>=0.4.32",
     "abstractvoice[audio-io]>=0.11.2",
-    # Only used for an optional local config read (STT language hint); all
+    # Used for an optional local config read (STT language hint) and the shared
+    # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
     # provider execution happens on the gateway, so no provider extras.
-    "abstractcore>=2.15.4",
+    "abstractcore>=2.16.0",
     # The native menu-bar bridge (status-item metrics, traffic lights) imports
     # AppKit; without it macOS reports the tray as never ready.
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
@@ -62,11 +63,11 @@ voice = [
     "abstractvoice[audio-io,stt]>=0.11.2",
 ]
 apple = [
-    "abstractcore[all-apple]>=2.15.4",
+    "abstractcore[all-apple]>=2.16.0",
     "abstractvoice[all-apple]>=0.11.2",
 ]
 gpu = [
-    "abstractcore[all-gpu]>=2.15.4",
+    "abstractcore[all-gpu]>=2.16.0",
     "abstractvoice[all-gpu]>=0.11.2",
 ]
 all = [

@@ -3,7 +3,7 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-26
 
 ### Added
 - **Open from the gateway console, already signed in.** Clicking **Open** on the assistant's card
@@ -41,7 +41,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - `--gateway-url` without `--gateway-token` is honoured and uses the sign-in saved for that gateway.
   `assistant run` without a sign-in tells you how to sign in.
 - About and `assistant --version` always show the real version, including in the macOS app.
-- Requires AbstractCore 2.15.4 or newer.
+- Requires AbstractCore 2.16.0 or newer.
 
 ### Fixed
 - The built-in orchestrator is no longer labelled "@0.0.0" in Settings → Models → Workflow and on
