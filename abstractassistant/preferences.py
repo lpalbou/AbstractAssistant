@@ -71,6 +71,10 @@ LAYOUT_VERSION = 2
 DEFAULT_WINDOW_WIDTH = 650
 DEFAULT_WINDOW_HEIGHT = 286
 DEFAULT_SCREEN_EDGE_GAP = 28
+#: What Settings accepts. The window itself is then limited only by the screen
+#: it is on (see AssistantPalette._reflow_shell / _screen_edge_gap).
+WINDOW_WIDTH_RANGE = (420, 2000)
+SCREEN_EDGE_GAP_RANGE = (0, 200)
 #: The defaults before layout version 2. A file older than v2 that still holds
 #: exactly one of these never had it changed by hand (Settings only offers the
 #: value the user types), so it moves to the new default; anything else is the
@@ -111,7 +115,7 @@ def _migrated_window_width(raw: Dict[str, Any]) -> int:
         return DEFAULT_WINDOW_WIDTH
     if _saved_layout_version(raw) < 2 and width == _V1_DEFAULT_WINDOW_WIDTH:
         return DEFAULT_WINDOW_WIDTH
-    return max(420, width)
+    return max(WINDOW_WIDTH_RANGE[0], min(WINDOW_WIDTH_RANGE[1], width))
 
 
 def _migrated_screen_edge_gap(raw: Dict[str, Any]) -> int:
@@ -126,7 +130,7 @@ def _migrated_screen_edge_gap(raw: Dict[str, Any]) -> int:
         return DEFAULT_SCREEN_EDGE_GAP
     if _saved_layout_version(raw) < 2 and gap == _V1_DEFAULT_SCREEN_EDGE_GAP:
         return DEFAULT_SCREEN_EDGE_GAP
-    return max(0, min(80, gap))
+    return max(SCREEN_EDGE_GAP_RANGE[0], min(SCREEN_EDGE_GAP_RANGE[1], gap))
 
 
 #: The workflow choice that means "whatever the gateway's operator set as the

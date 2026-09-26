@@ -115,3 +115,57 @@ def test_settings_page_shows_the_saved_gap_even_zero(gap: int) -> None:
     dlg.page_window._save_preferences()
     assert ctl.preferences.bottom_offset == gap
     assert DEFAULT_SCREEN_EDGE_GAP == 28
+
+
+@pytest.mark.basic
+def test_no_hidden_caps_below_the_settings_ranges() -> None:
+    # A saved gap of 150 / width 1800 survive loading (the old loader cut the gap to 80).
+    prefs = AssistantPreferences.from_dict({"layout_version": 2, "bottom_offset": 150, "window_width": 1800})
+    assert (prefs.bottom_offset, prefs.window_width) == (150, 1800)
+    assert AssistantPreferences.from_dict({"layout_version": 2, "bottom_offset": 999}).bottom_offset == 200
+
+
+@pytest.mark.basic
+def test_settings_spinners_reach_the_new_ranges() -> None:
+    pytest.importorskip("PyQt5.QtWidgets")
+    from test_settings_pages import _dialog
+
+    dlg, _ctl = _dialog()
+    page = dlg.page_window
+    assert (page.bottom_offset_spin.minimum(), page.bottom_offset_spin.maximum()) == (0, 200)
+    assert (page.width_spin.minimum(), page.width_spin.maximum()) == (420, 2000)
+
+
+@pytest.mark.basic
+def test_the_window_width_is_limited_only_by_the_screen(tmp_path, monkeypatch) -> None:
+    pytest.importorskip("PyQt5.QtWidgets")
+    from PyQt5.QtCore import QRect
+    from PyQt5.QtWidgets import QApplication
+
+    import abstractassistant.app as app_module
+    from abstractassistant.config import Config
+    from abstractassistant.controller import AssistantController
+    from abstractassistant.theme import BASE_METRICS, DEFAULT_THEME, activate, activate_metrics
+
+    app = QApplication.instance() or QApplication([])
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    app_module._MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE = False
+    controller = AssistantController(config=Config(), data_dir=tmp_path / "data")
+    controller.update_preferences(hotkey_enabled=False, window_width=1500)
+    window = app_module.AssistantPalette(controller=controller)
+    try:
+        monkeypatch.setattr(window, "_available_screen_geometry", lambda: QRect(0, 0, 3000, 1600))
+        window._reflow_shell()
+        app.processEvents()
+        assert window.width() == 1500  # was capped at 960
+        monkeypatch.setattr(window, "_available_screen_geometry", lambda: QRect(0, 0, 1440, 900))
+        window._reflow_shell()
+        assert window.width() == int(1440 * 0.62)
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+        activate(DEFAULT_THEME)
+        activate_metrics(BASE_METRICS.font_body)

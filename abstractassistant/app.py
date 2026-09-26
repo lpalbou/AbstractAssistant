@@ -6962,8 +6962,9 @@ class AssistantPalette(QMainWindow):
         # The preferred size is honored up to a screen fraction: the transcript
         # is the point of the window, so it gets whatever height is left after
         # the header and composer instead of a fixed 132–164 px band.
+        # The only limit on the saved width is the screen (62% of it).
         normal_width = min(
-            max(int(prefs.window_width), 420), max(420, min(960, int(screen_geom.width() * 0.62)))
+            max(int(prefs.window_width), 420), max(420, int(screen_geom.width() * 0.62))
         )
         normal_height = min(
             max(int(prefs.window_height), 320),

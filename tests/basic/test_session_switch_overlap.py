@@ -47,7 +47,7 @@ def palette_and_sessions(qapp, tmp_path, monkeypatch):
     app_module._MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE = False
 
     controller = AssistantController(config=Config(), data_dir=tmp_path / "data")
-    controller.preferences = controller._copy_preferences(hotkey_enabled=False)
+    controller.update_preferences(hotkey_enabled=False)
     # No gateway in tests: the backfill has nothing to restore.
     monkeypatch.setattr(controller, "backfill_session_attachments", lambda: 0)
 

@@ -51,6 +51,8 @@ from ...preferences import (
     DEFAULT_WINDOW_HEIGHT,
     DEFAULT_WINDOW_WIDTH,
     REASONING_EFFORT_LEVELS,
+    SCREEN_EDGE_GAP_RANGE,
+    WINDOW_WIDTH_RANGE,
     WORKFLOW_GATEWAY_DEFAULT,
     WORKSPACE_ACCESS_MODES,
     normalize_workspace_path,
@@ -1221,9 +1223,9 @@ class WindowPage(SettingsPage):
 
         window = self.add_card(Card("Window size", "Limited by the screen. The chat takes whatever height remains after the header and composer."))
         self.width_spin = QSpinBox()
-        self.width_spin.setRange(420, 960)
+        self.width_spin.setRange(*WINDOW_WIDTH_RANGE)
         self.width_spin.setSuffix(" px")
-        window.add_row("Width", self.width_spin, stretch_control=False)
+        window.add_row("Width", self.width_spin, stretch_control=False, help_text="Up to 62% of the screen the window is on.")
         self.height_spin = QSpinBox()
         # Must reach the app's own default (286): a floor above it meant
         # pressing Save on this page silently grew the window.
@@ -1231,9 +1233,9 @@ class WindowPage(SettingsPage):
         self.height_spin.setSuffix(" px")
         window.add_row("Expanded height", self.height_spin, stretch_control=False, help_text="Height of the window once the chat opens fully.")
         self.bottom_offset_spin = QSpinBox()
-        self.bottom_offset_spin.setRange(0, 80)
+        self.bottom_offset_spin.setRange(*SCREEN_EDGE_GAP_RANGE)
         self.bottom_offset_spin.setSuffix(" px")
-        window.add_row("Screen edge gap", self.bottom_offset_spin, stretch_control=False, help_text="Space kept between the window and the edge of the screen.")
+        window.add_row("Screen edge gap", self.bottom_offset_spin, stretch_control=False, help_text="Space kept between the window and the edge of the screen (at most a quarter of the screen).")
 
         shortcuts = self.add_card(Card("Keyboard shortcuts"))
         shortcuts.add_widget(self._shortcut_grid(_SHORTCUTS))
