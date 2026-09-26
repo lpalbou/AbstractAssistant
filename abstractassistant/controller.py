@@ -434,11 +434,11 @@ class AssistantController:
                 )
             built_in = self.built_in_workflow(options)
             if built_in is None:
-                # Legacy/foreign catalogs with no managed bundle: the first
-                # assistant-interface workflow is what the app always ran.
-                if not options:
-                    return None
-                return self._workflow_selection_from_option(options[0], source="chosen")
+                # No gateway default AND no built-in orchestrator: the client
+                # never picks some other workflow on its own. Say why instead.
+                if options:
+                    self._workflow_choice_error = self._no_workflow_reason(default)
+                return None
             return self._workflow_selection_from_option(built_in, source="built_in")
         bundle_id = str(choice.get("bundle_id") or "")
         flow_id = str(choice.get("flow_id") or "")
@@ -465,9 +465,13 @@ class AssistantController:
             version = f" @{default.bundle_version}" if default.bundle_version else ""
             first_label = f"Gateway default \u2192 {default.name or default.bundle_id}{version}"
             detail = f"Set on the gateway (source: {default.source or 'unknown'}). A change there applies from the next turn."
+        elif built_in is None:
+            first_label = "Gateway default \u2192 unavailable"
+            detail = self._no_workflow_reason(default)
         else:
-            version = f" @{built_in.bundle_version}" if built_in is not None and built_in.bundle_version else ""
-            first_label = f"Gateway default \u2192 Built-in orchestrator{version}"
+            version = f" @{built_in.bundle_version}" if built_in.bundle_version else ""
+            reason = f" (gateway reports: {default.reason})" if default.reason else ""
+            first_label = f"Gateway default \u2192 Built-in orchestrator{version}{reason}"
             if not default.reported:
                 detail = "This gateway does not report a default workflow (it predates that setting), so the built-in orchestrator runs."
             else:
@@ -485,6 +489,16 @@ class AssistantController:
                 }
             )
         return rows
+
+    def _no_workflow_reason(self, default: GatewayDefaultWorkflow) -> str:
+        why = str(getattr(self.gateway_service.workflow_status(), "error", "") or "").strip() or "it is not in the gateway catalog"
+        gateway = f" The gateway reports no default for the assistant: {default.reason}." if default.reason else (
+            " The gateway sets no default workflow for the assistant." if default.reported else ""
+        )
+        return (
+            f"The built-in orchestrator is not published on this gateway ({why}).{gateway} "
+            "Pick a workflow in Settings \u2192 Models \u2192 Workflow, or ask the gateway admin to set a default."
+        )
 
     def last_resolved_workflow(self) -> Optional[Dict[str, Any]]:
         """``resolved_workflow`` from the gateway's answer to the last run start

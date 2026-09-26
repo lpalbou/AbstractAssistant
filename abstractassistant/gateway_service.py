@@ -279,7 +279,10 @@ class AssistantGatewayService:
         except Exception as exc:
             detail = self._describe_gateway_exception(exc)
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
-            return []
+            # Publishing the built-in failed, but the catalog was read: its
+            # other workflows (and the gateway default) stay usable, and the
+            # controller names this error if nothing else can run.
+            return self._runnable_workflows(list(self._last_catalog_options))
         resolved = self._runnable_workflows(options)
         if resolved:
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error="")
@@ -499,6 +502,8 @@ class AssistantGatewayService:
         return _dedupe(items)
 
     def _catalog_workflows(self) -> tuple[List[WorkflowOption], str]:
+        # Never serve a previous read's options when this one fails.
+        self._last_catalog_options = []
         try:
             payload = self._gateway.workflow_catalog(scope="tenant_catalog")
         except Exception as exc:
@@ -566,7 +571,17 @@ class AssistantGatewayService:
         table = payload.get("default_agent_workflows")
         entry = table.get(ASSISTANT_INTERFACE) if isinstance(table, dict) else None
         if not isinstance(entry, dict):
-            return GatewayDefaultWorkflow(reported=True, available=False)
+            # The gateway lists interfaces it cannot resolve, with the reason,
+            # in a separate map (amendment A-4).
+            missing = payload.get("default_agent_workflows_unavailable")
+            why = missing.get(ASSISTANT_INTERFACE) if isinstance(missing, dict) else None
+            why = why if isinstance(why, dict) else {}
+            return GatewayDefaultWorkflow(
+                reported=True,
+                available=False,
+                source=str(why.get("source") or "").strip(),
+                reason=str(why.get("reason") or "").strip(),
+            )
         bundle_id = str(entry.get("bundle_id") or "").strip()
         flow_id = str(entry.get("flow_id") or "").strip()
         available = entry.get("available")

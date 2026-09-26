@@ -139,8 +139,45 @@ def test_default_choice_without_a_gateway_default_runs_the_built_in(default) -> 
     assert selection.source == "built_in"
     menu = controller.workflow_menu()
     assert menu[0]["choice"] == WORKFLOW_GATEWAY_DEFAULT
-    assert menu[0]["label"] == "Gateway default → Built-in orchestrator @0.0.4"
+    assert menu[0]["label"].startswith("Gateway default → Built-in orchestrator @0.0.4")
     assert controller.workflow_status().error == ""
+
+
+class _G1Gateway(_Gateway):
+    """The shape G1 serves: resolvable interfaces in default_agent_workflows,
+    the others (with the reason) in default_agent_workflows_unavailable."""
+
+    def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
+        return {
+            "items": list(self.items),
+            "default_agent_workflows": {},
+            "default_agent_workflows_unavailable": {
+                ASSISTANT_INTERFACE: {"source": "default", "value": None, "reason": "no host workflow declares it"}
+            },
+        }
+
+
+@pytest.mark.basic
+def test_the_gateways_unavailable_reason_is_shown() -> None:
+    controller = _controller(_G1Gateway())
+    info = controller.gateway_service.list_workflows() and controller.gateway_default_workflow()
+    assert (info.available, info.reason, info.source) == (False, "no host workflow declares it", "default")
+    assert controller.current_workflow().source == "built_in"
+    assert controller.workflow_menu()[0]["label"] == (
+        "Gateway default → Built-in orchestrator @0.0.4 (gateway reports: no host workflow declares it)"
+    )
+
+
+@pytest.mark.basic
+def test_no_gateway_default_and_no_built_in_blocks_instead_of_picking_one() -> None:
+    gateway = _G1Gateway()
+    gateway.items = [item for item in gateway.items if item["bundle_id"] != MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID]
+    controller = _controller(gateway)
+    assert controller.current_workflow() is None
+    error = controller.workflow_status().error
+    assert "built-in orchestrator is not published" in error
+    assert "no host workflow declares it" in error
+    assert controller.workflow_menu()[0]["label"] == "Gateway default → unavailable"
 
 
 @pytest.mark.basic
