@@ -30,7 +30,11 @@ appear before a subcommand.
 - `--gateway-handover-file PATH` â€” set by the AbstractGateway console when you click **Open** on
   the assistant's card. The file holds a one-time sign-in code (valid once, for two minutes); the
   app reads it, deletes it, trades the code with the gateway for a session and saves that
-  session. You do not pass this flag yourself.
+  session. You do not pass this flag yourself. Only a file the gateway wrote is accepted (a
+  regular file you own, mode 0600, in the gateway's hand-over format); any other path is refused
+  and left untouched. If you are already signed in to that gateway, that sign-in is kept; a
+  sign-in to another gateway or as another user is replaced and signed out, and the app tells
+  you so.
 - `--version`
 
 ```bash
@@ -49,7 +53,9 @@ Workflow resolution:
   `abstractassistant.agent.v1` (`default_agent_workflows` on `/api/gateway/workflow-catalog`),
   each run starts with `flow_id: "@default"` and `interface: "abstractassistant.agent.v1"`, and the
   gateway resolves it at run start. When it reports none, the built-in
-  `abstractassistant-orchestrator` workflow runs.
+  `abstractassistant-orchestrator` workflow runs, and Settings shows the gateway's reason. When
+  neither is available, sending is blocked with a message saying why; the app never picks another
+  workflow on its own.
 - **A chosen workflow** runs its latest published version. If it is removed from the catalog,
   sending is blocked with a message naming it until you pick another one.
 
@@ -59,7 +65,9 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings â†
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort and workspace grant from `preferences.json`.
+reasoning effort and workspace grant from `preferences.json`. Without a saved sign-in or
+`--gateway-token`, a gateway that requires sign-in answers 401 and the command tells you how to
+sign in.
 
 ## Environment variables
 

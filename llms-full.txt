@@ -601,7 +601,7 @@ batch (the item then says so) it covers everything this page has not switched of
 | Control | Meaning | Stored |
 |---|---|---|
 | Enable the global summon shortcut / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
-| Width / Expanded height / Screen edge gap | Palette size, honored up to the screen; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 28 px. The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
+| Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 28 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 Updating from a version that used the old defaults (width 500 px, gap 18 px) moves you to the new
 ones once; a width or gap you had changed yourself is kept.
@@ -752,7 +752,11 @@ appear before a subcommand.
 - `--gateway-handover-file PATH` — set by the AbstractGateway console when you click **Open** on
   the assistant's card. The file holds a one-time sign-in code (valid once, for two minutes); the
   app reads it, deletes it, trades the code with the gateway for a session and saves that
-  session. You do not pass this flag yourself.
+  session. You do not pass this flag yourself. Only a file the gateway wrote is accepted (a
+  regular file you own, mode 0600, in the gateway's hand-over format); any other path is refused
+  and left untouched. If you are already signed in to that gateway, that sign-in is kept; a
+  sign-in to another gateway or as another user is replaced and signed out, and the app tells
+  you so.
 - `--version`
 
 ```bash
@@ -771,7 +775,9 @@ Workflow resolution:
   `abstractassistant.agent.v1` (`default_agent_workflows` on `/api/gateway/workflow-catalog`),
   each run starts with `flow_id: "@default"` and `interface: "abstractassistant.agent.v1"`, and the
   gateway resolves it at run start. When it reports none, the built-in
-  `abstractassistant-orchestrator` workflow runs.
+  `abstractassistant-orchestrator` workflow runs, and Settings shows the gateway's reason. When
+  neither is available, sending is blocked with a message saying why; the app never picks another
+  workflow on its own.
 - **A chosen workflow** runs its latest published version. If it is removed from the catalog,
   sending is blocked with a message naming it until you pick another one.
 
@@ -781,7 +787,9 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings �
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort and workspace grant from `preferences.json`.
+reasoning effort and workspace grant from `preferences.json`. Without a saved sign-in or
+`--gateway-token`, a gateway that requires sign-in answers 401 and the command tells you how to
+sign in.
 
 ## Environment variables
 
@@ -1589,7 +1597,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   in the AbstractGateway console launches the app with a one-time sign-in (`--gateway-handover-file`);
   the app exchanges it for a gateway session and remembers it. If the sign-in has expired or was
   already used, a banner tells you to open the assistant from the console again or to connect in
-  Settings → Connection.
+  Settings → Connection. An existing working sign-in to the same gateway is kept; a sign-in to
+  another gateway or as another user is replaced and signed out, and the banner says so.
 - **Choose the workflow.** Settings → Models → Workflow lists **Gateway default** first (the
   gateway's default for `abstractassistant.agent.v1`, or the built-in orchestrator when the gateway
   sets none), then every assistant workflow in the catalog. The choice applies from the next turn;
@@ -1600,12 +1609,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   **About AbstractAssistant…** item.
 
 ### Changed
-- The window is wider by default (650 px) and keeps a 28 px gap from the screen edges. The Screen
-  edge gap setting is applied as set, including 0. If you still had the previous defaults (500 px,
+- The window is wider by default (650 px) and keeps a 28 px gap from the screen edges. Settings
+  accepts a width of 420–2000 px and a gap of 0–200 px, limited only by the screen; a gap of 0
+  is kept. If you still had the previous defaults (500 px,
   18 px) you move to the new ones once; values you changed are kept.
 - The app no longer makes its built-in orchestrator the gateway catalog's default workflow; which
   workflow is the default is the gateway operator's setting.
 - `--gateway-url` without `--gateway-token` is honoured and uses the sign-in saved for that gateway.
+  `assistant run` without a sign-in tells you how to sign in.
+- About and `assistant --version` always show the real version, including in the macOS app.
 - Requires AbstractCore 2.15.4 or newer.
 
 ### Fixed
@@ -2290,12 +2302,9 @@ from typing import Any, Dict, List
 
 
 def _package_version() -> str:
-    try:
-        from importlib.metadata import version
+    from ._version import __version__
 
-        return version("abstractassistant")
-    except Exception:
-        return "unknown"
+    return __version__
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -2345,6 +2354,20 @@ def _build_config_from_args(args: argparse.Namespace):
     )
     gateway_data: Dict[str, Any] = {"url": gateway_url, "auth_token": gateway_auth_token}
     return Config.from_dict({"gateway": gateway_data})
+
+
+SIGN_IN_HINT = (
+    "The gateway needs you to sign in. Either open the Assistant from the gateway console "
+    "(it signs you in), connect once in the Assistant's Settings \u2192 Connection (the "
+    "sign-in is saved and reused here), or pass --gateway-token <token>."
+)
+
+
+def _is_auth_failure(exc: BaseException) -> bool:
+    """A 401 from the gateway, directly or as the catalog's auth message."""
+    if int(getattr(exc, "status", 0) or 0) == 401:
+        return True
+    return "authentication failed" in str(exc).lower()
 
 
 def _format_tool_arguments(arguments: Any) -> str:
@@ -2531,7 +2554,13 @@ def main() -> int:
         command = args.command or "app"
 
         if command == "run":
-            return _run_gateway_command(args)
+            try:
+                return _run_gateway_command(args)
+            except Exception as exc:
+                if _is_auth_failure(exc):
+                    print(SIGN_IN_HINT)
+                    return 2
+                raise
 
         # app (default — tray UI)
         config = _build_config_from_args(args)
@@ -2874,6 +2903,10 @@ LAYOUT_VERSION = 2
 DEFAULT_WINDOW_WIDTH = 650
 DEFAULT_WINDOW_HEIGHT = 286
 DEFAULT_SCREEN_EDGE_GAP = 28
+#: What Settings accepts. The window itself is then limited only by the screen
+#: it is on (see AssistantPalette._reflow_shell / _screen_edge_gap).
+WINDOW_WIDTH_RANGE = (420, 2000)
+SCREEN_EDGE_GAP_RANGE = (0, 200)
 #: The defaults before layout version 2. A file older than v2 that still holds
 #: exactly one of these never had it changed by hand (Settings only offers the
 #: value the user types), so it moves to the new default; anything else is the
@@ -2914,7 +2947,7 @@ def _migrated_window_width(raw: Dict[str, Any]) -> int:
         return DEFAULT_WINDOW_WIDTH
     if _saved_layout_version(raw) < 2 and width == _V1_DEFAULT_WINDOW_WIDTH:
         return DEFAULT_WINDOW_WIDTH
-    return max(420, width)
+    return max(WINDOW_WIDTH_RANGE[0], min(WINDOW_WIDTH_RANGE[1], width))
 
 
 def _migrated_screen_edge_gap(raw: Dict[str, Any]) -> int:
@@ -2929,7 +2962,7 @@ def _migrated_screen_edge_gap(raw: Dict[str, Any]) -> int:
         return DEFAULT_SCREEN_EDGE_GAP
     if _saved_layout_version(raw) < 2 and gap == _V1_DEFAULT_SCREEN_EDGE_GAP:
         return DEFAULT_SCREEN_EDGE_GAP
-    return max(0, min(80, gap))
+    return max(SCREEN_EDGE_GAP_RANGE[0], min(SCREEN_EDGE_GAP_RANGE[1], gap))
 
 
 #: The workflow choice that means "whatever the gateway's operator set as the
@@ -3432,42 +3465,73 @@ class DesktopHandoverError(RuntimeError):
         return cls(f"{lead} {cls.REMEDY}")
 
 
-def read_desktop_handover_file(path: str) -> "tuple[str, str, str]":
-    """Read and DELETE the gateway console's hand-over file.
+DESKTOP_HANDOVER_SCHEMA = "abstractgateway.desktop_handover.v1"
+_HANDOVER_MAX_BYTES = 4096
 
-    Returns ``(code, base_url, expires_at)``. The file is removed whether or not
-    it parses: a code must never outlive the launch that received it.
+
+def read_desktop_handover_file(path: str) -> "tuple[str, str, str]":
+    """Read the gateway console's hand-over file, then DELETE it.
+
+    Returns ``(code, base_url, expires_at)``. The path comes from the command
+    line, so it is trusted only as far as it looks exactly like what the
+    gateway writes: a regular file (never a symlink) owned by this user, mode
+    0600, under 4 KiB, whose JSON is ``{"schema":
+    "abstractgateway.desktop_handover.v1", "code", "base_url", "expires_at"}``.
+    Anything else is refused WITHOUT touching the file — a typo or a hostile
+    launcher must never be able to delete a user's document. The file is
+    deleted only after it parsed as a hand-over, before the code is redeemed.
     """
-    p = Path(str(path or "")).expanduser()
-    if not str(path or "").strip():
+    import os
+    import stat as stat_mod
+
+    text = str(path or "").strip()
+    if not text:
         raise DesktopHandoverError("No sign-in file was given. " + DesktopHandoverError.REMEDY)
+    p = Path(text).expanduser()
+
+    def _refuse(why: str) -> DesktopHandoverError:
+        return DesktopHandoverError(
+            f"The sign-in file given to the Assistant was refused ({why}); it was left untouched. "
+            + DesktopHandoverError.REMEDY
+        )
+
     try:
-        raw = p.read_text(encoding="utf-8")
+        fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
         raise DesktopHandoverError(
             "The sign-in file from the gateway console is gone (it works once; it may have been used already). "
             + DesktopHandoverError.REMEDY
         ) from None
     except OSError as exc:
-        _unlink_quietly(p)
-        raise DesktopHandoverError(
-            f"The sign-in file from the gateway console could not be read ({exc}). " + DesktopHandoverError.REMEDY
-        ) from exc
-    _unlink_quietly(p)
+        # ELOOP here means a symlink (O_NOFOLLOW).
+        raise _refuse(f"cannot be opened as a plain file: {exc.strerror or exc}") from exc
     try:
-        payload = json.loads(raw)
+        info = os.fstat(fd)
+        if not stat_mod.S_ISREG(info.st_mode):
+            raise _refuse("not a regular file")
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            raise _refuse("owned by another user")
+        if stat_mod.S_IMODE(info.st_mode) != 0o600:
+            raise _refuse(f"permissions are {oct(stat_mod.S_IMODE(info.st_mode))}, not 0o600")
+        if info.st_size > _HANDOVER_MAX_BYTES:
+            raise _refuse("too large to be a sign-in file")
+        raw = os.read(fd, _HANDOVER_MAX_BYTES + 1)
+    finally:
+        os.close(fd)
+    try:
+        payload = json.loads(raw.decode("utf-8"))
     except Exception:
-        payload = None
-    code = str((payload or {}).get("code") or "").strip() if isinstance(payload, dict) else ""
-    if not code:
-        raise DesktopHandoverError(
-            "The sign-in file from the gateway console is not valid (no code in it). " + DesktopHandoverError.REMEDY
-        )
-    return (
-        code,
-        str(payload.get("base_url") or "").strip().rstrip("/"),
-        str(payload.get("expires_at") or "").strip(),
-    )
+        raise _refuse("not a gateway sign-in file") from None
+    if not isinstance(payload, dict) or payload.get("schema") != DESKTOP_HANDOVER_SCHEMA:
+        raise _refuse("not a gateway sign-in file")
+    code = str(payload.get("code") or "").strip()
+    base_url = str(payload.get("base_url") or "").strip().rstrip("/")
+    expires_at = str(payload.get("expires_at") or "").strip()
+    if not code or not base_url or not expires_at:
+        raise _refuse("a field is missing")
+    # It IS our hand-over: it must not outlive this launch, whatever happens next.
+    _unlink_quietly(p)
+    return code, base_url, expires_at
 
 
 def _unlink_quietly(path: Path) -> None:
@@ -3561,6 +3625,10 @@ class AssistantController:
 
     def warm_settings_caches(self) -> None:
         """Fetch (off the GUI thread) what the Settings window shows on open."""
+        try:
+            self.gateway_about()
+        except Exception:
+            pass
         for name in ("workspace_policy", "tool_inventory"):
             try:
                 getattr(self, name)()
@@ -3577,6 +3645,51 @@ class AssistantController:
                 self.model_capabilities(model)
         except Exception:
             pass
+
+    def gateway_about(self, *, cached_only: bool = False) -> tuple:
+        """``(payload, error)`` for the About page's gateway rows.
+
+        ``GET /api/gateway/about`` when the gateway answers it; else the
+        capability report mapped to the same keys (a gateway older than the
+        About route); else ``(None, reason)``. ``cached_only`` never does HTTP
+        (the Settings window reads it on the GUI thread; warm_settings_caches
+        fills it off-thread).
+        """
+        cached = getattr(self, "_gateway_about_cache", None)
+        if cached_only or (cached is not None and self._cache_fresh(float(getattr(self, "_gateway_about_at", 0.0) or 0.0))):
+            if cached is not None:
+                return cached
+            return self._gateway_about_from_capabilities()
+        try:
+            payload = self.gateway.gateway_about()
+            result = (dict(payload), None) if isinstance(payload, dict) and payload.get("abstractgateway") else self._gateway_about_from_capabilities()
+        except Exception as exc:
+            status = int(getattr(exc, "status", 0) or 0)
+            result = self._gateway_about_from_capabilities() if status == 404 else (None, self.gateway_service.describe_connection_issue(exc))
+        self._gateway_about_cache = result
+        self._gateway_about_at = time.monotonic()
+        return result
+
+    def _gateway_about_from_capabilities(self) -> tuple:
+        try:
+            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        except Exception as exc:
+            return None, str(exc) or exc.__class__.__name__
+        raw = getattr(caps, "raw", None) or {}
+        if not isinstance(raw, dict) or not raw:
+            return None, "not connected"
+        packages: Dict[str, str] = {}
+        for key in ("abstractgateway", "abstractruntime", "abstractcore", "abstractvoice", "abstractvision", "abstractmemory"):
+            entry = raw.get(key)
+            if isinstance(entry, dict) and entry.get("installed", True) and entry.get("version"):
+                packages[key] = str(entry.get("version"))
+        framework = raw.get("abstractframework")
+        framework_version = framework.get("version") if isinstance(framework, dict) else None
+        return {
+            "abstractgateway": packages.get("abstractgateway"),
+            "abstractframework": framework_version or None,
+            "packages": packages,
+        }, None
 
     def gateway_is_local(self) -> bool:
         """Does the gateway run on this machine? Folder pickers only make sense
@@ -3716,11 +3829,11 @@ class AssistantController:
                 )
             built_in = self.built_in_workflow(options)
             if built_in is None:
-                # Legacy/foreign catalogs with no managed bundle: the first
-                # assistant-interface workflow is what the app always ran.
-                if not options:
-                    return None
-                return self._workflow_selection_from_option(options[0], source="chosen")
+                # No gateway default AND no built-in orchestrator: the client
+                # never picks some other workflow on its own. Say why instead.
+                if options:
+                    self._workflow_choice_error = self._no_workflow_reason(default)
+                return None
             return self._workflow_selection_from_option(built_in, source="built_in")
         bundle_id = str(choice.get("bundle_id") or "")
         flow_id = str(choice.get("flow_id") or "")
@@ -3747,9 +3860,13 @@ class AssistantController:
             version = f" @{default.bundle_version}" if default.bundle_version else ""
             first_label = f"Gateway default \u2192 {default.name or default.bundle_id}{version}"
             detail = f"Set on the gateway (source: {default.source or 'unknown'}). A change there applies from the next turn."
+        elif built_in is None:
+            first_label = "Gateway default \u2192 unavailable"
+            detail = self._no_workflow_reason(default)
         else:
-            version = f" @{built_in.bundle_version}" if built_in is not None and built_in.bundle_version else ""
-            first_label = f"Gateway default \u2192 Built-in orchestrator{version}"
+            version = f" @{built_in.bundle_version}" if built_in.bundle_version else ""
+            reason = f" (gateway reports: {default.reason})" if default.reason else ""
+            first_label = f"Gateway default \u2192 Built-in orchestrator{version}{reason}"
             if not default.reported:
                 detail = "This gateway does not report a default workflow (it predates that setting), so the built-in orchestrator runs."
             else:
@@ -3767,6 +3884,16 @@ class AssistantController:
                 }
             )
         return rows
+
+    def _no_workflow_reason(self, default: GatewayDefaultWorkflow) -> str:
+        why = str(getattr(self.gateway_service.workflow_status(), "error", "") or "").strip() or "it is not in the gateway catalog"
+        gateway = f" The gateway reports no default for the assistant: {default.reason}." if default.reason else (
+            " The gateway sets no default workflow for the assistant." if default.reported else ""
+        )
+        return (
+            f"The built-in orchestrator is not published on this gateway ({why}).{gateway} "
+            "Pick a workflow in Settings \u2192 Models \u2192 Workflow, or ask the gateway admin to set a default."
+        )
 
     def last_resolved_workflow(self) -> Optional[Dict[str, Any]]:
         """``resolved_workflow`` from the gateway's answer to the last run start
@@ -4066,15 +4193,21 @@ class AssistantController:
         self._save_connection(connection)
         return connection
 
-    def redeem_desktop_handover_file(self, path: str, *, fallback_base_url: str = "") -> GatewayConnectionPreferences:
+    def redeem_desktop_handover_file(self, path: str, *, fallback_base_url: str = "") -> "tuple[GatewayConnectionPreferences, str]":
         """Redeem the hand-over FILE the gateway console wrote for this launch.
 
         Contract A1 (amendment A-3): the code is never on argv or in the
-        environment. The gateway writes ``{"code", "base_url", "expires_at"}``
-        into a 0600 file and passes ``--gateway-handover-file <path>``. The file
-        is read and DELETED at once — before anything else can fail — then the
-        code is redeemed at the file's ``base_url`` (``fallback_base_url``, the
-        launch ``--gateway-url``, only when the file names none).
+        environment. The gateway writes ``{"schema", "code", "base_url",
+        "expires_at"}`` into a 0600 file and passes ``--gateway-handover-file
+        <path>``; see :func:`read_desktop_handover_file` for what is accepted.
+
+        Returns ``(connection, notice)``. A hand-over never silently replaces
+        another sign-in:
+
+        * a saved session for the SAME gateway that still works is kept and
+          the code is not redeemed ("already connected as …");
+        * a saved sign-in for another gateway or another user is replaced, its
+          session logged out (best effort), and the notice says so.
         """
         code, base_url, expires_at = read_desktop_handover_file(path)
         if _handover_expired(expires_at):
@@ -4082,7 +4215,70 @@ class AssistantController:
                 "The sign-in link from the gateway console has expired (links work once, for two minutes). "
                 + DesktopHandoverError.REMEDY
             )
-        return self.redeem_desktop_handover(base_url=base_url or fallback_base_url, code=code)
+        target = self._normalize_base_url(base_url or fallback_base_url or self.connection.base_url)
+        previous = self._saved_connection()
+        if (
+            previous is not None
+            and str(previous.auth_mode or "") == "session"
+            and str(previous.session_id or "").strip()
+            and self._normalize_base_url(previous.base_url) == target
+            and self._session_still_works(previous)
+        ):
+            if previous != self.connection:
+                self._save_connection(previous)
+            who = previous.user_id or "your account"
+            return previous, f"Already connected to {target} as {who}; kept that sign-in."
+        connection = self.redeem_desktop_handover(base_url=target, code=code)
+        notice = ""
+        if previous is not None and (str(previous.session_id or "").strip() or str(previous.auth_token or "").strip()):
+            other_gateway = self._normalize_base_url(previous.base_url) != self._normalize_base_url(connection.base_url)
+            other_user = bool(previous.user_id) and previous.user_id != connection.user_id
+            if other_gateway or other_user:
+                signed_out = False
+                if str(previous.auth_mode or "") == "session" and str(previous.session_id or "").strip():
+                    signed_out = self._logout_quietly(previous)
+                was = f"{previous.user_id or 'a previous sign-in'} on {previous.base_url}"
+                notice = (
+                    f"Signed in as {connection.user_id or 'you'} on {connection.base_url} (was {was}"
+                    + ("; that session was signed out" if signed_out else "")
+                    + ")."
+                )
+        return connection, notice
+
+    def _saved_connection(self) -> Optional[GatewayConnectionPreferences]:
+        try:
+            if self.connection_store.path.exists():
+                return self.connection_store.load()
+        except Exception:
+            return None
+        return None
+
+    def _session_client(self, connection: GatewayConnectionPreferences) -> GatewayClient:
+        return GatewayClient(
+            GatewayClientConfig(
+                base_url=self._normalize_base_url(connection.base_url),
+                auth_mode="session",
+                user_id=str(connection.user_id or ""),
+                session_id=str(connection.session_id or ""),
+                csrf_token=str(connection.csrf_token or ""),
+                session_expires_at=str(connection.session_expires_at or ""),
+                timeout_s=min(float(self.gateway.config.timeout_s), 8.0),
+            )
+        )
+
+    def _session_still_works(self, connection: GatewayConnectionPreferences) -> bool:
+        try:
+            payload = self._session_client(connection).gateway_me()
+        except Exception:
+            return False
+        return isinstance(payload, dict) and payload.get("ok") is not False
+
+    def _logout_quietly(self, connection: GatewayConnectionPreferences) -> bool:
+        try:
+            self._session_client(connection).session_logout()
+            return True
+        except Exception:
+            return False
 
     def logout_gateway_session(self) -> None:
         if str(self.connection.auth_mode or "bearer").strip() == "session" and str(self.connection.session_id or "").strip():
@@ -5428,6 +5624,16 @@ class GatewayClient:
             method="GET",
             url=self._url("/api/gateway/me"),
             label="gateway_me failed",
+        )
+
+    def gateway_about(self) -> Dict[str, Any]:
+        """Public ``GET /api/gateway/about`` (contract B):
+        ``{abstractframework, abstractgateway, packages}``."""
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/about"),
+            label="gateway_about failed",
+            timeout_s=min(float(self._cfg.timeout_s), 8.0),
         )
 
     def openapi_document(self) -> Dict[str, Any]:
@@ -12540,7 +12746,10 @@ class AssistantGatewayService:
         except Exception as exc:
             detail = self._describe_gateway_exception(exc)
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error=detail)
-            return []
+            # Publishing the built-in failed, but the catalog was read: its
+            # other workflows (and the gateway default) stay usable, and the
+            # controller names this error if nothing else can run.
+            return self._runnable_workflows(list(self._last_catalog_options))
         resolved = self._runnable_workflows(options)
         if resolved:
             self._last_workflow_status = WorkflowCatalogStatus(source="tenant_catalog", error="")
@@ -12760,6 +12969,8 @@ class AssistantGatewayService:
         return _dedupe(items)
 
     def _catalog_workflows(self) -> tuple[List[WorkflowOption], str]:
+        # Never serve a previous read's options when this one fails.
+        self._last_catalog_options = []
         try:
             payload = self._gateway.workflow_catalog(scope="tenant_catalog")
         except Exception as exc:
@@ -12827,7 +13038,17 @@ class AssistantGatewayService:
         table = payload.get("default_agent_workflows")
         entry = table.get(ASSISTANT_INTERFACE) if isinstance(table, dict) else None
         if not isinstance(entry, dict):
-            return GatewayDefaultWorkflow(reported=True, available=False)
+            # The gateway lists interfaces it cannot resolve, with the reason,
+            # in a separate map (amendment A-4).
+            missing = payload.get("default_agent_workflows_unavailable")
+            why = missing.get(ASSISTANT_INTERFACE) if isinstance(missing, dict) else None
+            why = why if isinstance(why, dict) else {}
+            return GatewayDefaultWorkflow(
+                reported=True,
+                available=False,
+                source=str(why.get("source") or "").strip(),
+                reason=str(why.get("reason") or "").strip(),
+            )
         bundle_id = str(entry.get("bundle_id") or "").strip()
         flow_id = str(entry.get("flow_id") or "").strip()
         available = entry.get("available")
