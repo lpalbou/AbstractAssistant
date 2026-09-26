@@ -35,8 +35,11 @@ appear before a subcommand.
   clicked **Open**); any other path, or a file that does not name the user, is refused and left
   untouched. If you are already signed in to that gateway as that same user, that sign-in is
   kept; a sign-in to another gateway or as another user is signed out and replaced, and the app
-  tells you who is signed in now and who was signed out.
-- `--version`
+  tells you who is signed in and who was signed out. An Assistant that is already running does not
+  receive a hand-over: quit it and click **Open** again. The flow is drawn in
+  [architecture.md](architecture.md#auth-boundary).
+- `--version` — prints the version from `abstractassistant/_version.py`, the same value
+  Settings → About and the macOS app bundle show.
 
 ```bash
 assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN" run --prompt "Summarize today's AI news with sources."
@@ -75,8 +78,9 @@ streams, its text is written to **stderr** as it arrives (the model's reasoning 
 line in brackets says when a step could not stream or its live text was discarded, and the final
 answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
 answer. Without a saved sign-in or
-`--gateway-token`, a gateway that requires sign-in answers 401 and the command tells you how to
-sign in.
+`--gateway-token`, a gateway that requires sign-in answers 401; the command then prints how to
+sign in (open the Assistant from the gateway console, connect once in Settings → Connection, or
+pass `--gateway-token`) and exits with status 2.
 
 ## Environment variables
 
@@ -131,6 +135,9 @@ the stream. Whether the gateway offers live replies is read from
 
 ## Gateway routes used
 
+- Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
+  `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
+  for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
 - Workflow: `/api/gateway/workflow-catalog`, `/api/gateway/visualflows`,
   `/api/gateway/visualflows/{flow_id}/publish`, `/api/gateway/admin/workflow-catalog/promote`
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
@@ -147,7 +154,7 @@ the stream. Whether the gateway offers live replies is read from
   `/api/gateway/vision/provider_models`, `/api/gateway/vision/adapters`,
   `/api/gateway/audio/music/providers`, `/api/gateway/audio/music/models`
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
-  attachments: `/api/gateway/sessions/{session_id}/attachments`
+  attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
 
 ## Python API status

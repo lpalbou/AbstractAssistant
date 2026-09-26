@@ -22,10 +22,45 @@ gateway is back.
 
 ## The palette says no workflow is available
 
-The assistant needs the published `abstractassistant-orchestrator` workflow in the gateway's
-tenant catalog. Verify the gateway is reachable, that it loaded its bundles
-(`ABSTRACTGATEWAY_FLOWS_DIR`), and that your token is accepted. Then reopen Settings → Connection
-and press Connect.
+Sending is blocked when the workflow chosen in Settings → Models → Workflow cannot run:
+
+- **Gateway default → unavailable**: the gateway sets no default for `abstractassistant.agent.v1`
+  and the built-in `abstractassistant-orchestrator` is not in your tenant catalog. Verify the
+  gateway is reachable and your sign-in is accepted, then reopen Settings → Connection and press
+  Connect so the app can publish its orchestrator; or ask the gateway operator to set a default.
+- **The chosen workflow is not in the gateway catalog any more**: pick another one in
+  Settings → Models → Workflow, or go back to Gateway default.
+
+See [settings.md](settings.md#models--reasoning).
+
+## Opening the Assistant from the gateway console does not sign it in
+
+The banner names the cause:
+
+- **expired or already used**: the sign-in works once, within two minutes. Click **Open** again.
+- **only works on the gateway's own machine**: the hand-over is redeemed on the gateway's loopback
+  address; on another Mac, connect in Settings → Connection.
+- **needs a newer AbstractGateway**: the gateway does not offer the hand-over; connect in
+  Settings → Connection.
+- **the sign-in file was refused**: the path given to `--gateway-handover-file` was not a
+  hand-over file written by the gateway. The file is left untouched.
+
+If nothing happens at all, the Assistant was probably already running: quit it from the menu-bar
+icon and click **Open** again. See [api.md](api.md#global-flags).
+
+## `assistant run` says the gateway needs you to sign in
+
+The gateway answered 401. Open the Assistant once from the gateway console, connect in
+Settings → Connection (the CLI reuses that sign-in), or pass `--gateway-token`. See
+[api.md](api.md#assistant-run---prompt-text).
+
+## Replies do not stream
+
+Check Settings → Models → **Stream replies**. **On — not supported by this gateway** means the
+gateway does not advertise live replies, so nothing is requested and the chat shows one note. A
+step that cannot stream (structured output, a remote model server, a provider that cannot stream
+or report usage while streaming) is named in the status line and its answer appears when it is
+finished. See [settings.md](settings.md#live-replies).
 
 ## A message shows "Not sent — …"
 
@@ -59,9 +94,10 @@ exclusively. Start the conversation again with ⌘⇧V.
 
 ## Replies are spoken but I hear nothing
 
-Playback follows the Mac's default output. The notice shown when speech starts names the device
-and the system volume; a headset or a muted or very low output is the usual cause. Open Sound
-settings from Settings → Voice.
+Playback uses the device chosen in Settings → Voice → Output device, or the Mac's default output
+when that is `System default` or the chosen device is not connected. The notice shown when speech
+starts names the device and the system volume; a headset or a muted or very low output is the
+usual cause. Use **Test** next to Output device to check the device.
 
 ## A spoken reply fails with a banner
 
@@ -83,7 +119,7 @@ is configured on the gateway side, and press Reload in the route editor.
 
 The summon hotkey depends on macOS Accessibility permission for the launching process. Grant it
 in System Settings → Privacy & Security → Accessibility, save the shortcut again in Settings →
-Window & shortcuts, or use the menu-bar icon.
+Appearance, or use the menu-bar icon.
 
 ## Artifact opening fails
 

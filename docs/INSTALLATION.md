@@ -7,10 +7,12 @@ See also:
 ## Requirements (practical)
 
 - **Python**: 3.10+
-- **Tray UI**: macOS is the primary target. Other OSes may work through the Qt shell, but are not yet packaged to the same standard.
+- **Tray UI**: macOS is the primary target. Other OSes may work through the Qt shell, but are not packaged to the same standard.
 - **Gateway**: an AbstractGateway instance must be available
-- **Published workflow**: the gateway must expose the `abstractassistant-orchestrator` workflow in
-  the tenant catalog
+- **Assistant workflow**: the gateway's default workflow for `abstractassistant.agent.v1`, or the
+  built-in `abstractassistant-orchestrator`, which the app keeps published in your tenant
+  catalog
+- **AbstractCore**: installed as a dependency; the minimum version is set in `pyproject.toml`
 - **Providers**:
   - local: LMStudio / Ollama must be configured on the gateway
   - cloud: API keys belong on the gateway side
@@ -79,7 +81,7 @@ build-macos-app --skip-install
 
 That produces `dist/macos/AbstractAssistant.app`.
 
-The bundle is currently **unsigned and un-notarized**. Building it yourself is fine (locally built
+The bundle is **unsigned and un-notarized**. Building it yourself is fine (locally built
 apps carry no quarantine attribute), but a copy you send to someone else will be blocked by
 Gatekeeper ("cannot verify developer" / "damaged") until it is signed and notarized. The app is
 also menu-bar only (`LSUIElement`), so it deliberately shows no Dock icon — look for the tray icon
@@ -99,6 +101,7 @@ The CLI entrypoint is available as both `assistant` and `abstractassistant`.
 Optional assistant-side overrides:
 - `--gateway-url` (on its own, reuses the sign-in saved for that gateway)
 - `--gateway-token`
+- `--stream on|off` on `assistant run` (see [api.md](api.md#assistant-run---prompt-text))
 
 ## Notes
 

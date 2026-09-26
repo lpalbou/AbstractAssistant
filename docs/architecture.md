@@ -17,21 +17,29 @@ See also:
 
 ```mermaid
 flowchart LR
+  subgraph Console["AbstractGateway console / tray"]
+    Open["Open on the Assistant card"]
+  end
   subgraph Desktop["AbstractAssistant (this Mac)"]
-    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · voice strip"]
-    Settings["Settings (ui/settings)\n7 pages · route editor"]
+    Entry["Launch (cli.py · macos_entry.py)\n--gateway-url · --gateway-token\n--gateway-handover-file"]
+    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · live reply bubbles · voice strip"]
+    Settings["Settings (ui/settings)\n7 pages · route editor · About"]
     Sheets["Approval sheet · Ask dialog\n(ui/approval, ui/dialogs)"]
     Activity["RunActivityModel (ui/activity)"]
     Voice["VoiceConversation\n(core/voice_conversation)"]
-    Controller["AssistantController\npreferences · caches · run scope"]
+    Controller["AssistantController\nconnection · preferences · workflow choice\ncaches · run scope"]
     Worker["GatewayWorker (QThread)\nstart run · follow ledger · waits"]
+    Live["gateway/live_deltas\nllm.delta → live reply events"]
     VoiceMgr["GatewayVoiceManager\nmic capture · playback"]
     Prefs[("preferences.json\ngateway_connection.json\nsessions/*/session.json")]
   end
-  Gateway["AbstractGateway\nworkflow catalog · runs · ledger SSE\ntools + policy · workspace policy\ncapability defaults · voice routes"]
-  Runtime["AbstractRuntime\ndurable runs · waits · artifacts"]
-  Core["AbstractCore\nproviders · capability plugins"]
+  Gateway["AbstractGateway\nworkflow catalog · default workflow\nruns · ledger SSE + live deltas\ntools + policy · workspace policy\ncapability defaults · voice routes · /about"]
+  Runtime["AbstractRuntime\ndurable runs · waits · artifacts\nlive token deltas"]
+  Core["AbstractCore\nproviders · capability plugins\nframework identity"]
 
+  Open -- "0600 hand-over file + launch" --> Entry
+  Entry -- "POST /apps/desktop-handover (code)\nloopback · single use" --> Gateway
+  Entry --> Controller
   Palette --> Controller
   Settings --> Controller
   Sheets --> Worker
@@ -40,9 +48,14 @@ flowchart LR
   Voice --> VoiceMgr
   Controller --> Prefs
   Controller --> Worker
-  Worker -- "HTTP + SSE" --> Gateway
+  Worker -- "POST /runs/start (pins · _runtime.stream)" --> Gateway
+  Gateway -- "SSE: durable step records" --> Worker
+  Gateway -- "SSE: llm.delta · llm.delta_end" --> Live
+  Live --> Worker
+  Worker -- "UI events" --> Palette
   VoiceMgr -- "TTS stream · STT upload" --> Gateway
-  Settings -- "read-only: defaults, policy, catalogs, inventory" --> Gateway
+  Settings -- "read-only: defaults, policy, catalogs,\ninventory, versions" --> Gateway
+  Settings -. "About rows" .-> Core
   Gateway --> Runtime --> Core
 ```
 
@@ -93,6 +106,10 @@ sequenceDiagram
     W->>G: follow ledger (SSE)
     G-->>W: records: cycle, tool started/finished, waits, final
     W-->>P: events → activity card + status
+    opt the run streams (_runtime.stream)
+      G-->>W: llm.delta / llm.delta_end (no cursor)
+      W-->>P: live reply bubble (Thinking folded)
+    end
     opt tool approval / question
       P->>U: modeless sheet or dialog (palette stays usable)
       U->>P: decision
@@ -114,8 +131,12 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   transcript (message cards, banners, live activity card), composer (attachments, dictation,
   voice conversation, prompt, send/stop). It wires events to widgets and owns no gateway logic.
 - `controller.py` — preferences and connection stores, gateway service and client, cached
-  workflow/tool/policy lookups, run scope, tool policy for a run, run commands (cancel, pause,
-  resume, steer).
+  workflow/tool/policy lookups, the workflow choice, run scope, tool policy for a run, run commands
+  (cancel, pause, resume, steer), and redemption of the console's hand-over file.
+- `cli.py`, `macos_entry.py` — command-line and app-bundle entry points; both accept the same
+  connection flags, including `--gateway-handover-file`.
+- `_version.py` — the single version source for `assistant --version`, Settings → About and the
+  macOS app bundle.
 - `ui/gateway_worker.py` — one thread per run: uploads attachments, starts the run, follows the
   ledger, materializes assistant and tool messages, submits wait answers, folds run statistics.
 - `gateway/adapter.py` — ledger records to UI events (`cycle`, `cycle_result`, `tool_started`,
@@ -126,7 +147,9 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/activity.py` — the run activity model (steps, durations, header copy) and the transcript card.
 - `ui/approval.py`, `core/tool_presenter.py`, `core/tool_risk.py` — tool approval sheet and
   post-hoc tool cards; presentation of calls and of the gateway's risk classification.
-- `ui/settings/` — the settings window (sidebar, pages, extracted route editor).
+- `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
+  builds its application rows and its gateway version rows with AbstractCore's framework identity
+  helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.
 - `core/voice_conversation.py`, `ui/voice_strip.py`, `core/gateway_voice_manager.py` — the
   hands-free loop, its status strip, and the local capture/playback layer over gateway speech
   routes.
@@ -143,6 +166,10 @@ Settings → Models → Workflow:
   `abstractassistant.agent.v1`, resolved by the gateway at every run start (`flow_id: "@default"`);
   the built-in orchestrator when the gateway sets none;
 - **a chosen workflow**: its latest published version.
+
+The app never substitutes another workflow on its own: when the gateway sets no default and the
+built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
+is blocked and the palette says why. A running turn always keeps the workflow it started with.
 
 Launch flow:
 
@@ -169,13 +196,40 @@ rather than falling back to a local speech model. The conversation loop is descr
 
 The desktop supports gateway bearer tokens and hosted gateway user sessions. Session mode
 exchanges a user token for an opaque session plus CSRF token and stores only that session state
-locally. When the gateway console opens the app, it passes a one-time hand-over file
-(`--gateway-handover-file`); the app deletes the file, redeems its code on the gateway's loopback
-address for a session, and stores that session the same way.
+locally. `--gateway-url` without `--gateway-token` uses the sign-in saved for that gateway.
+
+When the gateway console or tray opens the app, the gateway writes a one-time sign-in code into a
+hand-over file and passes its path; the code never appears on the command line or in the
+environment.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant G as Gateway console / tray
+  participant A as AbstractAssistant
+  participant S as gateway_connection.json
+  U->>G: Open on the Assistant card
+  G->>G: write hand-over file (0600, schema, code, base_url, expires_at, user_id)
+  G->>A: launch with --gateway-url URL --gateway-handover-file PATH
+  A->>A: accept only a regular 0600 file owned by this user in the hand-over schema, then delete it
+  alt saved session for the same gateway and user still works
+    A->>S: keep it (the code is not redeemed)
+  else otherwise
+    A->>G: sign out another user's saved session on that gateway
+    A->>G: POST /api/gateway/apps/desktop-handover {code} (loopback, single use, 2 minutes)
+    G-->>A: session_id, csrf_token, user_id, expires_at
+    A->>S: save session (remembered)
+  end
+  A-->>U: banner: who is signed in, and who was signed out
+```
+
+A file that does not match is refused and left untouched. The code works once, within two
+minutes, on the gateway's own machine. An Assistant that is already running does not receive a
+code: quit it and open it again from the console.
 
 ## Validation
 
 `tests/basic` runs headless (`QT_QPA_PLATFORM=offscreen`) and covers the gateway client and
-adapter, run input pins, preferences, the controller, the activity model, the approval sheet and
-presenter, the settings pages, the voice conversation loop, and a smoke test that builds the real
-palette.
+adapter, run input pins, preferences, the controller, the workflow choice, the console hand-over,
+live replies, the activity model, the approval sheet and presenter, the settings pages and About,
+the voice conversation loop, and a smoke test that builds the real palette.

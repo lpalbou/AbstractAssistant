@@ -25,9 +25,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
   Spoken replies stream from the gateway; dictation is a button away.
-- A Settings window with seven sections: Connection, Models & reasoning (including the model's
-  reasoning effort), Voice, Workspace (root and allowed folders), Tools & permissions, Window &
-  shortcuts, About. Every value says whether it is the gateway default or this app's override.
+- A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
+  effort, reply streaming), Voice, Workspace (root and allowed folders), Tools & permissions,
+  Appearance & window, About. Every value says whether it is the gateway default or this app's
+  override. About is also on the menu-bar icon (**About AbstractAssistant…**).
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,
   music, sound) that ride each request without touching the gateway's shared defaults.
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
@@ -43,7 +44,8 @@ The `voice` extra adds local microphone capture (dictation and voice conversatio
 install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway
 either way.
 
-Requirements: Python 3.10+, an AbstractGateway you can reach. macOS is the primary tray target;
+Requirements: Python 3.10+, an AbstractGateway you can reach. AbstractCore is installed as a
+dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 
 ## Quick start
@@ -79,7 +81,8 @@ reuses the sign-in saved in `~/.abstractassistant/gateway_connection.json`.
 
 If the gateway runs the AbstractGateway console, the simplest way to start the assistant is
 **Open** on its card there: the console launches the app already signed in as you, and the app
-remembers that sign-in for later launches.
+remembers that sign-in for later launches. The console can sign in only an Assistant it launches,
+so quit a running Assistant before you click **Open**.
 
 Each turn runs the gateway's default workflow for the assistant (`abstractassistant.agent.v1`).
 When the gateway sets none, the app runs its built-in orchestrator, the
@@ -124,6 +127,7 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/basic -q
 
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Security: [SECURITY.md](SECURITY.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - Acknowledgments: [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)
 - License: [LICENSE](LICENSE)

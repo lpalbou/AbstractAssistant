@@ -54,13 +54,13 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/README.md](docs/README.md): documentation index
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
 - [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
-- [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle, module map
-- [docs/api.md](docs/api.md): CLI entry points, environment variables, run input pins, live reply events, gateway routes used, local files
+- [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle with live replies, console sign-in hand-over, module map
+- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), environment variables, run input pins, live reply events, gateway routes used, local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
-- [docs/settings.md](docs/settings.md): every setting, its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/settings.md](docs/settings.md): every setting (workflow choice, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 
 ## Design Records
@@ -71,6 +71,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
 - [SECURITY.md](SECURITY.md): vulnerability reporting
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): expected behavior and reporting
 
 ## Optional
 - [CHANGELOG.md](CHANGELOG.md): release history and migration notes
@@ -105,9 +106,10 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
   Spoken replies stream from the gateway; dictation is a button away.
-- A Settings window with seven sections: Connection, Models & reasoning (including the model's
-  reasoning effort), Voice, Workspace (root and allowed folders), Tools & permissions, Window &
-  shortcuts, About. Every value says whether it is the gateway default or this app's override.
+- A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
+  effort, reply streaming), Voice, Workspace (root and allowed folders), Tools & permissions,
+  Appearance & window, About. Every value says whether it is the gateway default or this app's
+  override. About is also on the menu-bar icon (**About AbstractAssistant…**).
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,
   music, sound) that ride each request without touching the gateway's shared defaults.
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
@@ -123,7 +125,8 @@ The `voice` extra adds local microphone capture (dictation and voice conversatio
 install covers text chat, spoken replies and gateway-backed media; STT and TTS run on the gateway
 either way.
 
-Requirements: Python 3.10+, an AbstractGateway you can reach. macOS is the primary tray target;
+Requirements: Python 3.10+, an AbstractGateway you can reach. AbstractCore is installed as a
+dependency (its minimum version is set in `pyproject.toml`). macOS is the primary tray target;
 Linux and Windows may work but are not packaged to the same standard.
 
 ## Quick start
@@ -159,7 +162,8 @@ reuses the sign-in saved in `~/.abstractassistant/gateway_connection.json`.
 
 If the gateway runs the AbstractGateway console, the simplest way to start the assistant is
 **Open** on its card there: the console launches the app already signed in as you, and the app
-remembers that sign-in for later launches.
+remembers that sign-in for later launches. The console can sign in only an Assistant it launches,
+so quit a running Assistant before you click **Open**.
 
 Each turn runs the gateway's default workflow for the assistant (`abstractassistant.agent.v1`).
 When the gateway sets none, the app runs its built-in orchestrator, the
@@ -204,6 +208,7 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/basic -q
 
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Security: [SECURITY.md](SECURITY.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - Acknowledgments: [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)
 - License: [LICENSE](LICENSE)
@@ -218,14 +223,14 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
 - [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, shortcuts
-- [architecture.md](architecture.md) — components, the gateway boundary, the run lifecycle
-- [api.md](api.md) — CLI entry points, environment variables, gateway routes used, local files
+- [architecture.md](architecture.md) — components, the gateway boundary, the run lifecycle with live replies, the console sign-in hand-over
+- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used, local files
 - [faq.md](faq.md) — recurring questions and known limits
 - [troubleshooting.md](troubleshooting.md) — symptoms, causes and fixes
 
 ## Topic deep dives
 
-- [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored
+- [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 
 ## Design records
@@ -239,6 +244,8 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 - [../CHANGELOG.md](../CHANGELOG.md) — release history
 - [../CONTRIBUTING.md](../CONTRIBUTING.md) — development setup and tests
 - [../SECURITY.md](../SECURITY.md) — vulnerability reporting
+- [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) — expected behavior and how to report concerns
+- [../ACKNOWLEDGMENTS.md](../ACKNOWLEDGMENTS.md) — credits and lineage
 
 --- docs/INSTALLATION.md ---
 # Installation
@@ -250,10 +257,12 @@ See also:
 ## Requirements (practical)
 
 - **Python**: 3.10+
-- **Tray UI**: macOS is the primary target. Other OSes may work through the Qt shell, but are not yet packaged to the same standard.
+- **Tray UI**: macOS is the primary target. Other OSes may work through the Qt shell, but are not packaged to the same standard.
 - **Gateway**: an AbstractGateway instance must be available
-- **Published workflow**: the gateway must expose the `abstractassistant-orchestrator` workflow in
-  the tenant catalog
+- **Assistant workflow**: the gateway's default workflow for `abstractassistant.agent.v1`, or the
+  built-in `abstractassistant-orchestrator`, which the app keeps published in your tenant
+  catalog
+- **AbstractCore**: installed as a dependency; the minimum version is set in `pyproject.toml`
 - **Providers**:
   - local: LMStudio / Ollama must be configured on the gateway
   - cloud: API keys belong on the gateway side
@@ -322,7 +331,7 @@ build-macos-app --skip-install
 
 That produces `dist/macos/AbstractAssistant.app`.
 
-The bundle is currently **unsigned and un-notarized**. Building it yourself is fine (locally built
+The bundle is **unsigned and un-notarized**. Building it yourself is fine (locally built
 apps carry no quarantine attribute), but a copy you send to someone else will be blocked by
 Gatekeeper ("cannot verify developer" / "damaged") until it is signed and notarized. The app is
 also menu-bar only (`LSUIElement`), so it deliberately shows no Dock icon — look for the tray icon
@@ -342,6 +351,7 @@ The CLI entrypoint is available as both `assistant` and `abstractassistant`.
 Optional assistant-side overrides:
 - `--gateway-url` (on its own, reuses the sign-in saved for that gateway)
 - `--gateway-token`
+- `--stream on|off` on `assistant run` (see [api.md](api.md#assistant-run---prompt-text))
 
 ## Notes
 
@@ -360,9 +370,10 @@ Optional assistant-side overrides:
 # Getting Started
 
 AbstractAssistant is a tray-first gateway client. It does not host providers or workflows
-locally: it connects to AbstractGateway, runs each turn through the published
-`abstractassistant-orchestrator` workflow, and follows gateway defaults unless you override them
-for this app.
+locally: it connects to AbstractGateway, runs each turn through the gateway's default workflow for
+the assistant (`abstractassistant.agent.v1`) or the built-in `abstractassistant-orchestrator`
+workflow it publishes to your tenant catalog, and follows gateway defaults unless you override
+them for this app.
 
 See also:
 
@@ -390,8 +401,8 @@ export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
 abstractgateway serve --host 127.0.0.1 --port 8080
 ```
 
-If the gateway cannot expose the published assistant workflow, the assistant says so instead of
-falling back to another runtime path.
+If no assistant workflow is available on the gateway, the assistant says so and blocks sending
+instead of picking another workflow on its own.
 
 ## 3. Launch
 
@@ -417,7 +428,8 @@ assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_
 
 If the gateway runs the AbstractGateway console, the simplest way to start the assistant is
 **Open** on its card there: the console launches the app already signed in as you, and the app
-remembers that sign-in for later launches.
+remembers that sign-in for later launches. The console can sign in only an Assistant it launches,
+so quit a running Assistant before you click **Open**.
 
 ## 4. The palette
 
@@ -459,7 +471,9 @@ Open Settings (⌘,). Gateway defaults apply everywhere unless you override them
 page says where a value comes from. Common first steps:
 
 - **Connection**: gateway URL and sign-in (bearer token or gateway session).
-- **Models & reasoning**: pin a chat model for this app, set the reasoning effort.
+- **Models & reasoning**: choose the workflow, pin a chat model for this app, set the reasoning
+  effort, and choose whether replies stream (**Stream replies**).
+- **Appearance**: theme, text size and spacing, the summon shortcut, window size.
 - **Voice**: engines for speech, auto-speak, conversation options.
 - **Workspace**: the folder the assistant may work in and extra allowed folders.
 - **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
@@ -521,7 +535,7 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (with its source as the gateway reports it), or **Gateway default → Built-in orchestrator** when the gateway sets none. Then every workflow in the catalog that declares the assistant interface, at its latest version. The choice applies from the next turn; a running turn keeps its workflow | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
+| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (its description names where the gateway says the setting comes from); **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface; a chosen workflow always runs its latest version. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
@@ -537,7 +551,7 @@ provider on its own stores nothing and the page says which half is missing.
 The state line above the lists shows two facts: the gateway default (with the route it is derived
 from when the gateway says so) and what this app uses. Provider, model and voice catalogs are read
 from the gateway; when it cannot be reached the lists hold `Gateway default` alone, say why, and
-re-fetch when you open them again — a previously saved choice stays selected and marked `(saved)`
+re-fetch when you open them again — a saved choice stays selected and marked `(saved)`
 rather than being discarded. The chat route accepts an optional provider base URL; the voice route
 adds a voice picker.
 
@@ -615,15 +629,20 @@ always offered, and it reaches exactly as far as the batch you granted it on: gr
 read-only batch it keeps asking for outreach and destructive calls, granted on a destructive
 batch (the item then says so) it covers everything this page has not switched off, for that chat.
 
-## Window & shortcuts
+## Appearance & window
+
+Listed as **Appearance** in the sidebar.
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Enable the global summon shortcut / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
+| Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
+| Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
+| Summon / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
 | Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 28 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
-Updating from a version that used the old defaults (width 500 px, gap 18 px) moves you to the new
-ones once; a width or gap you had changed yourself is kept.
+Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without
+the `layout_version: 2` marker are moved to 650 px and 28 px once; any other saved width or gap,
+including a gap of 0, is kept.
 
 In-app shortcuts: Return sends, Shift+Return adds a line, Esc stops speech then hides, ⌘. stops
 the run (does nothing when no run is active), ⌘N starts a new chat (refused while a run is
@@ -637,10 +656,14 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 
 - The application and its version, part of AbstractFramework (with the framework website), the
   author, copyright and licence, and links to the website, source, documentation, issue tracker,
-  feedback form and contact address.
-- The gateway stack versions the gateway reports (gateway, runtime, core, voice, vision, memory,
-  contract version), the workflow the next turn runs, the workflow the last turn ran as the
-  gateway resolved it, and the data folder (with Reveal in Finder).
+  feedback form and contact address. These rows come from the AbstractFramework identity shipped
+  with AbstractCore, so they read the same as in every other AbstractFramework app. The version is
+  the one `assistant --version` prints.
+- **Gateway**: the AbstractGateway version, the AbstractFramework version installed on the gateway
+  host (or "not installed on the gateway host"), and each gateway package version, as the gateway
+  reports them; a single "Gateway: unavailable (reason)" row when they cannot be read.
+- **Workflow**: the workflow the next turn runs; **Last turn ran**: the workflow the gateway
+  resolved for the last run start; **Data folder** (with Reveal in Finder).
 - `Copy diagnostics` copies the same facts plus the connection (without secrets) and preferences.
 
 ## Preferences file
@@ -776,8 +799,11 @@ appear before a subcommand.
   clicked **Open**); any other path, or a file that does not name the user, is refused and left
   untouched. If you are already signed in to that gateway as that same user, that sign-in is
   kept; a sign-in to another gateway or as another user is signed out and replaced, and the app
-  tells you who is signed in now and who was signed out.
-- `--version`
+  tells you who is signed in and who was signed out. An Assistant that is already running does not
+  receive a hand-over: quit it and click **Open** again. The flow is drawn in
+  [architecture.md](architecture.md#auth-boundary).
+- `--version` — prints the version from `abstractassistant/_version.py`, the same value
+  Settings → About and the macOS app bundle show.
 
 ```bash
 assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_AUTH_TOKEN" run --prompt "Summarize today's AI news with sources."
@@ -816,8 +842,9 @@ streams, its text is written to **stderr** as it arrives (the model's reasoning 
 line in brackets says when a step could not stream or its live text was discarded, and the final
 answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
 answer. Without a saved sign-in or
-`--gateway-token`, a gateway that requires sign-in answers 401 and the command tells you how to
-sign in.
+`--gateway-token`, a gateway that requires sign-in answers 401; the command then prints how to
+sign in (open the Assistant from the gateway console, connect once in Settings → Connection, or
+pass `--gateway-token`) and exits with status 2.
 
 ## Environment variables
 
@@ -872,6 +899,9 @@ the stream. Whether the gateway offers live replies is read from
 
 ## Gateway routes used
 
+- Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
+  `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
+  for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
 - Workflow: `/api/gateway/workflow-catalog`, `/api/gateway/visualflows`,
   `/api/gateway/visualflows/{flow_id}/publish`, `/api/gateway/admin/workflow-catalog/promote`
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
@@ -888,7 +918,7 @@ the stream. Whether the gateway offers live replies is read from
   `/api/gateway/vision/provider_models`, `/api/gateway/vision/adapters`,
   `/api/gateway/audio/music/providers`, `/api/gateway/audio/music/models`
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
-  attachments: `/api/gateway/sessions/{session_id}/attachments`
+  attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
 
 ## Python API status
@@ -917,21 +947,29 @@ See also:
 
 ```mermaid
 flowchart LR
+  subgraph Console["AbstractGateway console / tray"]
+    Open["Open on the Assistant card"]
+  end
   subgraph Desktop["AbstractAssistant (this Mac)"]
-    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · voice strip"]
-    Settings["Settings (ui/settings)\n7 pages · route editor"]
+    Entry["Launch (cli.py · macos_entry.py)\n--gateway-url · --gateway-token\n--gateway-handover-file"]
+    Palette["Palette (app.py)\nheader status · transcript · composer\nactivity card · live reply bubbles · voice strip"]
+    Settings["Settings (ui/settings)\n7 pages · route editor · About"]
     Sheets["Approval sheet · Ask dialog\n(ui/approval, ui/dialogs)"]
     Activity["RunActivityModel (ui/activity)"]
     Voice["VoiceConversation\n(core/voice_conversation)"]
-    Controller["AssistantController\npreferences · caches · run scope"]
+    Controller["AssistantController\nconnection · preferences · workflow choice\ncaches · run scope"]
     Worker["GatewayWorker (QThread)\nstart run · follow ledger · waits"]
+    Live["gateway/live_deltas\nllm.delta → live reply events"]
     VoiceMgr["GatewayVoiceManager\nmic capture · playback"]
     Prefs[("preferences.json\ngateway_connection.json\nsessions/*/session.json")]
   end
-  Gateway["AbstractGateway\nworkflow catalog · runs · ledger SSE\ntools + policy · workspace policy\ncapability defaults · voice routes"]
-  Runtime["AbstractRuntime\ndurable runs · waits · artifacts"]
-  Core["AbstractCore\nproviders · capability plugins"]
+  Gateway["AbstractGateway\nworkflow catalog · default workflow\nruns · ledger SSE + live deltas\ntools + policy · workspace policy\ncapability defaults · voice routes · /about"]
+  Runtime["AbstractRuntime\ndurable runs · waits · artifacts\nlive token deltas"]
+  Core["AbstractCore\nproviders · capability plugins\nframework identity"]
 
+  Open -- "0600 hand-over file + launch" --> Entry
+  Entry -- "POST /apps/desktop-handover (code)\nloopback · single use" --> Gateway
+  Entry --> Controller
   Palette --> Controller
   Settings --> Controller
   Sheets --> Worker
@@ -940,9 +978,14 @@ flowchart LR
   Voice --> VoiceMgr
   Controller --> Prefs
   Controller --> Worker
-  Worker -- "HTTP + SSE" --> Gateway
+  Worker -- "POST /runs/start (pins · _runtime.stream)" --> Gateway
+  Gateway -- "SSE: durable step records" --> Worker
+  Gateway -- "SSE: llm.delta · llm.delta_end" --> Live
+  Live --> Worker
+  Worker -- "UI events" --> Palette
   VoiceMgr -- "TTS stream · STT upload" --> Gateway
-  Settings -- "read-only: defaults, policy, catalogs, inventory" --> Gateway
+  Settings -- "read-only: defaults, policy, catalogs,\ninventory, versions" --> Gateway
+  Settings -. "About rows" .-> Core
   Gateway --> Runtime --> Core
 ```
 
@@ -993,6 +1036,10 @@ sequenceDiagram
     W->>G: follow ledger (SSE)
     G-->>W: records: cycle, tool started/finished, waits, final
     W-->>P: events → activity card + status
+    opt the run streams (_runtime.stream)
+      G-->>W: llm.delta / llm.delta_end (no cursor)
+      W-->>P: live reply bubble (Thinking folded)
+    end
     opt tool approval / question
       P->>U: modeless sheet or dialog (palette stays usable)
       U->>P: decision
@@ -1014,8 +1061,12 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
   transcript (message cards, banners, live activity card), composer (attachments, dictation,
   voice conversation, prompt, send/stop). It wires events to widgets and owns no gateway logic.
 - `controller.py` — preferences and connection stores, gateway service and client, cached
-  workflow/tool/policy lookups, run scope, tool policy for a run, run commands (cancel, pause,
-  resume, steer).
+  workflow/tool/policy lookups, the workflow choice, run scope, tool policy for a run, run commands
+  (cancel, pause, resume, steer), and redemption of the console's hand-over file.
+- `cli.py`, `macos_entry.py` — command-line and app-bundle entry points; both accept the same
+  connection flags, including `--gateway-handover-file`.
+- `_version.py` — the single version source for `assistant --version`, Settings → About and the
+  macOS app bundle.
 - `ui/gateway_worker.py` — one thread per run: uploads attachments, starts the run, follows the
   ledger, materializes assistant and tool messages, submits wait answers, folds run statistics.
 - `gateway/adapter.py` — ledger records to UI events (`cycle`, `cycle_result`, `tool_started`,
@@ -1026,7 +1077,9 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `ui/activity.py` — the run activity model (steps, durations, header copy) and the transcript card.
 - `ui/approval.py`, `core/tool_presenter.py`, `core/tool_risk.py` — tool approval sheet and
   post-hoc tool cards; presentation of calls and of the gateway's risk classification.
-- `ui/settings/` — the settings window (sidebar, pages, extracted route editor).
+- `ui/settings/` — the settings window (sidebar, pages, extracted route editor). The About page
+  builds its application rows and its gateway version rows with AbstractCore's framework identity
+  helpers (`abstractcore.utils.identity`), so they match every other AbstractFramework About screen.
 - `core/voice_conversation.py`, `ui/voice_strip.py`, `core/gateway_voice_manager.py` — the
   hands-free loop, its status strip, and the local capture/playback layer over gateway speech
   routes.
@@ -1043,6 +1096,10 @@ Settings → Models → Workflow:
   `abstractassistant.agent.v1`, resolved by the gateway at every run start (`flow_id: "@default"`);
   the built-in orchestrator when the gateway sets none;
 - **a chosen workflow**: its latest published version.
+
+The app never substitutes another workflow on its own: when the gateway sets no default and the
+built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
+is blocked and the palette says why. A running turn always keeps the workflow it started with.
 
 Launch flow:
 
@@ -1069,16 +1126,43 @@ rather than falling back to a local speech model. The conversation loop is descr
 
 The desktop supports gateway bearer tokens and hosted gateway user sessions. Session mode
 exchanges a user token for an opaque session plus CSRF token and stores only that session state
-locally. When the gateway console opens the app, it passes a one-time hand-over file
-(`--gateway-handover-file`); the app deletes the file, redeems its code on the gateway's loopback
-address for a session, and stores that session the same way.
+locally. `--gateway-url` without `--gateway-token` uses the sign-in saved for that gateway.
+
+When the gateway console or tray opens the app, the gateway writes a one-time sign-in code into a
+hand-over file and passes its path; the code never appears on the command line or in the
+environment.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant G as Gateway console / tray
+  participant A as AbstractAssistant
+  participant S as gateway_connection.json
+  U->>G: Open on the Assistant card
+  G->>G: write hand-over file (0600, schema, code, base_url, expires_at, user_id)
+  G->>A: launch with --gateway-url URL --gateway-handover-file PATH
+  A->>A: accept only a regular 0600 file owned by this user in the hand-over schema, then delete it
+  alt saved session for the same gateway and user still works
+    A->>S: keep it (the code is not redeemed)
+  else otherwise
+    A->>G: sign out another user's saved session on that gateway
+    A->>G: POST /api/gateway/apps/desktop-handover {code} (loopback, single use, 2 minutes)
+    G-->>A: session_id, csrf_token, user_id, expires_at
+    A->>S: save session (remembered)
+  end
+  A-->>U: banner: who is signed in, and who was signed out
+```
+
+A file that does not match is refused and left untouched. The code works once, within two
+minutes, on the gateway's own machine. An Assistant that is already running does not receive a
+code: quit it and open it again from the console.
 
 ## Validation
 
 `tests/basic` runs headless (`QT_QPA_PLATFORM=offscreen`) and covers the gateway client and
-adapter, run input pins, preferences, the controller, the activity model, the approval sheet and
-presenter, the settings pages, the voice conversation loop, and a smoke test that builds the real
-palette.
+adapter, run input pins, preferences, the controller, the workflow choice, the console hand-over,
+live replies, the activity model, the approval sheet and presenter, the settings pages and About,
+the voice conversation loop, and a smoke test that builds the real palette.
 
 --- docs/faq.md ---
 # FAQ
@@ -1139,8 +1223,13 @@ The gateway has turned it off. The assistant shows it for transparency and never
 
 ## Which workflow does the assistant use?
 
-The published gateway workflow bundle `abstractassistant-orchestrator`. The tray app and the CLI
-both run through it; there is no workflow picker in the normal desktop path.
+The one chosen in Settings → Models → Workflow, for the tray app and the CLI alike. The default
+choice, **Gateway default**, runs the workflow the gateway operator set for
+`abstractassistant.agent.v1`, or the app's built-in `abstractassistant-orchestrator` when the
+gateway sets none. You can instead pick any workflow in the catalog that declares the assistant
+interface; it always runs its latest version. The app never switches workflow on its own: if the
+choice cannot run, sending is blocked and the palette says why. See
+[settings.md](settings.md#models--reasoning).
 
 ## How does voice work?
 
@@ -1174,8 +1263,21 @@ Under `~/.abstractassistant/downloads/`.
 
 ## Which auth model does the desktop app use?
 
-Gateway bearer tokens or hosted gateway sessions, chosen in Settings → Connection. The CLI is
-bearer-token oriented.
+Gateway bearer tokens or hosted gateway sessions, chosen in Settings → Connection, or a session
+handed over by the gateway console when you click **Open** on the assistant's card. The CLI uses
+the same saved sign-in, or `--gateway-token`.
+
+## I clicked Open in the gateway console but the Assistant did not sign in
+
+The console signs in only an Assistant it launches. If the Assistant was already running, quit it
+from the menu-bar icon and click **Open** again. See [api.md](api.md#global-flags) for the
+hand-over rules.
+
+## Do replies stream?
+
+When the gateway offers live replies, yes, according to Settings → Models → **Stream replies**:
+Gateway default follows the gateway's own default, On streams, Off waits for the finished answer.
+See [settings.md](settings.md#live-replies).
 
 ## Can I use it outside macOS?
 
@@ -1211,10 +1313,45 @@ gateway is back.
 
 ## The palette says no workflow is available
 
-The assistant needs the published `abstractassistant-orchestrator` workflow in the gateway's
-tenant catalog. Verify the gateway is reachable, that it loaded its bundles
-(`ABSTRACTGATEWAY_FLOWS_DIR`), and that your token is accepted. Then reopen Settings → Connection
-and press Connect.
+Sending is blocked when the workflow chosen in Settings → Models → Workflow cannot run:
+
+- **Gateway default → unavailable**: the gateway sets no default for `abstractassistant.agent.v1`
+  and the built-in `abstractassistant-orchestrator` is not in your tenant catalog. Verify the
+  gateway is reachable and your sign-in is accepted, then reopen Settings → Connection and press
+  Connect so the app can publish its orchestrator; or ask the gateway operator to set a default.
+- **The chosen workflow is not in the gateway catalog any more**: pick another one in
+  Settings → Models → Workflow, or go back to Gateway default.
+
+See [settings.md](settings.md#models--reasoning).
+
+## Opening the Assistant from the gateway console does not sign it in
+
+The banner names the cause:
+
+- **expired or already used**: the sign-in works once, within two minutes. Click **Open** again.
+- **only works on the gateway's own machine**: the hand-over is redeemed on the gateway's loopback
+  address; on another Mac, connect in Settings → Connection.
+- **needs a newer AbstractGateway**: the gateway does not offer the hand-over; connect in
+  Settings → Connection.
+- **the sign-in file was refused**: the path given to `--gateway-handover-file` was not a
+  hand-over file written by the gateway. The file is left untouched.
+
+If nothing happens at all, the Assistant was probably already running: quit it from the menu-bar
+icon and click **Open** again. See [api.md](api.md#global-flags).
+
+## `assistant run` says the gateway needs you to sign in
+
+The gateway answered 401. Open the Assistant once from the gateway console, connect in
+Settings → Connection (the CLI reuses that sign-in), or pass `--gateway-token`. See
+[api.md](api.md#assistant-run---prompt-text).
+
+## Replies do not stream
+
+Check Settings → Models → **Stream replies**. **On — not supported by this gateway** means the
+gateway does not advertise live replies, so nothing is requested and the chat shows one note. A
+step that cannot stream (structured output, a remote model server, a provider that cannot stream
+or report usage while streaming) is named in the status line and its answer appears when it is
+finished. See [settings.md](settings.md#live-replies).
 
 ## A message shows "Not sent — …"
 
@@ -1248,9 +1385,10 @@ exclusively. Start the conversation again with ⌘⇧V.
 
 ## Replies are spoken but I hear nothing
 
-Playback follows the Mac's default output. The notice shown when speech starts names the device
-and the system volume; a headset or a muted or very low output is the usual cause. Open Sound
-settings from Settings → Voice.
+Playback uses the device chosen in Settings → Voice → Output device, or the Mac's default output
+when that is `System default` or the chosen device is not connected. The notice shown when speech
+starts names the device and the system volume; a headset or a muted or very low output is the
+usual cause. Use **Test** next to Output device to check the device.
 
 ## A spoken reply fails with a banner
 
@@ -1272,7 +1410,7 @@ is configured on the gateway side, and press Reload in the route editor.
 
 The summon hotkey depends on macOS Accessibility permission for the launching process. Grant it
 in System Settings → Privacy & Security → Accessibility, save the shortcut again in Settings →
-Window & shortcuts, or use the menu-bar icon.
+Appearance, or use the menu-bar icon.
 
 ## Artifact opening fails
 
@@ -1436,6 +1574,8 @@ Quick links:
 - Architecture: [docs/architecture.md](docs/architecture.md)
 - API & CLI: [docs/api.md](docs/api.md)
 - Security reports: [SECURITY.md](SECURITY.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 
 ## Ways to contribute
 
@@ -1477,7 +1617,9 @@ Where things live:
 - `abstractassistant/controller.py` — preferences, caches, run scope, run commands
 - `abstractassistant/ui/` — settings pages, approval sheet, activity card, voice strip, shared stylesheet
 - `abstractassistant/core/` — voice conversation loop, tool presentation and risk, voice manager
-- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter
+- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter, live reply events
+- `abstractassistant/_version.py` — the single version source; keep it equal to `pyproject.toml`
+  (a test checks it)
 
 Design tokens are in `abstractassistant/theme.py` and the shared stylesheet in
 `abstractassistant/ui/styles.py`; new UI should use them rather than literal colors.
@@ -1585,7 +1727,7 @@ This list is not exhaustive. The source of truth for install-time dependencies i
 
 - **AbstractGateway** — workflows, durable execution, providers, and media routing (the assistant is a thin client of it): https://github.com/lpalbou/abstractgateway
 - **AbstractRuntime** — durable runs, waits, ledger, artifacts, and the session-memory run-id contract: https://github.com/lpalbou/abstractruntime
-- **AbstractCore** — configuration and schema helpers: https://github.com/lpalbou/abstractcore
+- **AbstractCore** — configuration and schema helpers, and the AbstractFramework identity shown in About: https://github.com/lpalbou/abstractcore
 - **AbstractVoice** — microphone capture and in-process audio playback used by the tray UI: https://github.com/lpalbou/abstractvoice
 
 ## UI and desktop integration

@@ -8,7 +8,7 @@ This list is not exhaustive. The source of truth for install-time dependencies i
 
 - **AbstractGateway** — workflows, durable execution, providers, and media routing (the assistant is a thin client of it): https://github.com/lpalbou/abstractgateway
 - **AbstractRuntime** — durable runs, waits, ledger, artifacts, and the session-memory run-id contract: https://github.com/lpalbou/abstractruntime
-- **AbstractCore** — configuration and schema helpers: https://github.com/lpalbou/abstractcore
+- **AbstractCore** — configuration and schema helpers, and the AbstractFramework identity shown in About: https://github.com/lpalbou/abstractcore
 - **AbstractVoice** — microphone capture and in-process audio playback used by the tray UI: https://github.com/lpalbou/abstractvoice
 
 ## UI and desktop integration

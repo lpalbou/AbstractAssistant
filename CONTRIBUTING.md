@@ -8,6 +8,8 @@ Quick links:
 - Architecture: [docs/architecture.md](docs/architecture.md)
 - API & CLI: [docs/api.md](docs/api.md)
 - Security reports: [SECURITY.md](SECURITY.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 
 ## Ways to contribute
 
@@ -49,7 +51,9 @@ Where things live:
 - `abstractassistant/controller.py` — preferences, caches, run scope, run commands
 - `abstractassistant/ui/` — settings pages, approval sheet, activity card, voice strip, shared stylesheet
 - `abstractassistant/core/` — voice conversation loop, tool presentation and risk, voice manager
-- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter
+- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter, live reply events
+- `abstractassistant/_version.py` — the single version source; keep it equal to `pyproject.toml`
+  (a test checks it)
 
 Design tokens are in `abstractassistant/theme.py` and the shared stylesheet in
 `abstractassistant/ui/styles.py`; new UI should use them rather than literal colors.

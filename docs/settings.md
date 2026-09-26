@@ -28,7 +28,7 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (with its source as the gateway reports it), or **Gateway default → Built-in orchestrator** when the gateway sets none. Then every workflow in the catalog that declares the assistant interface, at its latest version. The choice applies from the next turn; a running turn keeps its workflow | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
+| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (its description names where the gateway says the setting comes from); **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface; a chosen workflow always runs its latest version. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
@@ -44,7 +44,7 @@ provider on its own stores nothing and the page says which half is missing.
 The state line above the lists shows two facts: the gateway default (with the route it is derived
 from when the gateway says so) and what this app uses. Provider, model and voice catalogs are read
 from the gateway; when it cannot be reached the lists hold `Gateway default` alone, say why, and
-re-fetch when you open them again — a previously saved choice stays selected and marked `(saved)`
+re-fetch when you open them again — a saved choice stays selected and marked `(saved)`
 rather than being discarded. The chat route accepts an optional provider base URL; the voice route
 adds a voice picker.
 
@@ -122,15 +122,20 @@ always offered, and it reaches exactly as far as the batch you granted it on: gr
 read-only batch it keeps asking for outreach and destructive calls, granted on a destructive
 batch (the item then says so) it covers everything this page has not switched off, for that chat.
 
-## Window & shortcuts
+## Appearance & window
+
+Listed as **Appearance** in the sidebar.
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Enable the global summon shortcut / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
+| Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
+| Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
+| Summon / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
 | Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 28 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
-Updating from a version that used the old defaults (width 500 px, gap 18 px) moves you to the new
-ones once; a width or gap you had changed yourself is kept.
+Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without
+the `layout_version: 2` marker are moved to 650 px and 28 px once; any other saved width or gap,
+including a gap of 0, is kept.
 
 In-app shortcuts: Return sends, Shift+Return adds a line, Esc stops speech then hides, ⌘. stops
 the run (does nothing when no run is active), ⌘N starts a new chat (refused while a run is
@@ -144,10 +149,14 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 
 - The application and its version, part of AbstractFramework (with the framework website), the
   author, copyright and licence, and links to the website, source, documentation, issue tracker,
-  feedback form and contact address.
-- The gateway stack versions the gateway reports (gateway, runtime, core, voice, vision, memory,
-  contract version), the workflow the next turn runs, the workflow the last turn ran as the
-  gateway resolved it, and the data folder (with Reveal in Finder).
+  feedback form and contact address. These rows come from the AbstractFramework identity shipped
+  with AbstractCore, so they read the same as in every other AbstractFramework app. The version is
+  the one `assistant --version` prints.
+- **Gateway**: the AbstractGateway version, the AbstractFramework version installed on the gateway
+  host (or "not installed on the gateway host"), and each gateway package version, as the gateway
+  reports them; a single "Gateway: unavailable (reason)" row when they cannot be read.
+- **Workflow**: the workflow the next turn runs; **Last turn ran**: the workflow the gateway
+  resolved for the last run start; **Data folder** (with Reveal in Finder).
 - `Copy diagnostics` copies the same facts plus the connection (without secrets) and preferences.
 
 ## Preferences file

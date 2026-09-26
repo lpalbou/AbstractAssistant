@@ -1,9 +1,10 @@
 # Getting Started
 
 AbstractAssistant is a tray-first gateway client. It does not host providers or workflows
-locally: it connects to AbstractGateway, runs each turn through the published
-`abstractassistant-orchestrator` workflow, and follows gateway defaults unless you override them
-for this app.
+locally: it connects to AbstractGateway, runs each turn through the gateway's default workflow for
+the assistant (`abstractassistant.agent.v1`) or the built-in `abstractassistant-orchestrator`
+workflow it publishes to your tenant catalog, and follows gateway defaults unless you override
+them for this app.
 
 See also:
 
@@ -31,8 +32,8 @@ export ABSTRACTGATEWAY_AUTH_TOKEN="your-shared-token"
 abstractgateway serve --host 127.0.0.1 --port 8080
 ```
 
-If the gateway cannot expose the published assistant workflow, the assistant says so instead of
-falling back to another runtime path.
+If no assistant workflow is available on the gateway, the assistant says so and blocks sending
+instead of picking another workflow on its own.
 
 ## 3. Launch
 
@@ -58,7 +59,8 @@ assistant --gateway-url http://127.0.0.1:8080 --gateway-token "$ABSTRACTGATEWAY_
 
 If the gateway runs the AbstractGateway console, the simplest way to start the assistant is
 **Open** on its card there: the console launches the app already signed in as you, and the app
-remembers that sign-in for later launches.
+remembers that sign-in for later launches. The console can sign in only an Assistant it launches,
+so quit a running Assistant before you click **Open**.
 
 ## 4. The palette
 
@@ -100,7 +102,9 @@ Open Settings (⌘,). Gateway defaults apply everywhere unless you override them
 page says where a value comes from. Common first steps:
 
 - **Connection**: gateway URL and sign-in (bearer token or gateway session).
-- **Models & reasoning**: pin a chat model for this app, set the reasoning effort.
+- **Models & reasoning**: choose the workflow, pin a chat model for this app, set the reasoning
+  effort, and choose whether replies stream (**Stream replies**).
+- **Appearance**: theme, text size and spacing, the summon shortcut, window size.
 - **Voice**: engines for speech, auto-speak, conversation options.
 - **Workspace**: the folder the assistant may work in and extra allowed folders.
 - **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.

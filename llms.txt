@@ -9,13 +9,13 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/README.md](docs/README.md): documentation index
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
 - [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
-- [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle, module map
-- [docs/api.md](docs/api.md): CLI entry points, environment variables, run input pins, live reply events, gateway routes used, local files
+- [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle with live replies, console sign-in hand-over, module map
+- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), environment variables, run input pins, live reply events, gateway routes used, local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
-- [docs/settings.md](docs/settings.md): every setting, its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/settings.md](docs/settings.md): every setting (workflow choice, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 
 ## Design Records
@@ -26,6 +26,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
 - [SECURITY.md](SECURITY.md): vulnerability reporting
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): expected behavior and reporting
 
 ## Optional
 - [CHANGELOG.md](CHANGELOG.md): release history and migration notes

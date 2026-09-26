@@ -56,8 +56,13 @@ The gateway has turned it off. The assistant shows it for transparency and never
 
 ## Which workflow does the assistant use?
 
-The published gateway workflow bundle `abstractassistant-orchestrator`. The tray app and the CLI
-both run through it; there is no workflow picker in the normal desktop path.
+The one chosen in Settings → Models → Workflow, for the tray app and the CLI alike. The default
+choice, **Gateway default**, runs the workflow the gateway operator set for
+`abstractassistant.agent.v1`, or the app's built-in `abstractassistant-orchestrator` when the
+gateway sets none. You can instead pick any workflow in the catalog that declares the assistant
+interface; it always runs its latest version. The app never switches workflow on its own: if the
+choice cannot run, sending is blocked and the palette says why. See
+[settings.md](settings.md#models--reasoning).
 
 ## How does voice work?
 
@@ -91,8 +96,21 @@ Under `~/.abstractassistant/downloads/`.
 
 ## Which auth model does the desktop app use?
 
-Gateway bearer tokens or hosted gateway sessions, chosen in Settings → Connection. The CLI is
-bearer-token oriented.
+Gateway bearer tokens or hosted gateway sessions, chosen in Settings → Connection, or a session
+handed over by the gateway console when you click **Open** on the assistant's card. The CLI uses
+the same saved sign-in, or `--gateway-token`.
+
+## I clicked Open in the gateway console but the Assistant did not sign in
+
+The console signs in only an Assistant it launches. If the Assistant was already running, quit it
+from the menu-bar icon and click **Open** again. See [api.md](api.md#global-flags) for the
+hand-over rules.
+
+## Do replies stream?
+
+When the gateway offers live replies, yes, according to Settings → Models → **Stream replies**:
+Gateway default follows the gateway's own default, On streams, Off waits for the finished answer.
+See [settings.md](settings.md#live-replies).
 
 ## Can I use it outside macOS?
 
