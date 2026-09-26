@@ -204,3 +204,152 @@ def test_settings_with_focus_is_not_yanked_away(palette, qapp, monkeypatch) -> N
     qapp.processEvents()
 
     assert dialog.isVisible()
+
+
+# --------------------------------------------------------------------------
+# 2026-09-27: "the Settings window opens too far to the right, partially off
+# screen (the Connect button is cut by the screen edge)". Settings re-measures
+# itself AFTER it is placed — `_register_aux_dialog` re-applies its stylesheet
+# a turn after show, `restyle()` defers `_refit`, and `_fit_to_content` sets a
+# new fixed size — and a window grows from its top-left corner, so a wider fit
+# pushed its right side past the screen edge. Every placement now goes through
+# `_fit_window_rect`, and a re-fit re-clamps.
+
+
+class _Area:
+    def __init__(self, x, y, w, h):
+        self._g = (x, y, w, h)
+
+    def x(self):
+        return self._g[0]
+
+    def y(self):
+        return self._g[1]
+
+    def width(self):
+        return self._g[2]
+
+    def height(self):
+        return self._g[3]
+
+
+_MAC = _Area(0, 39, 1800, 1082)  # menu bar above, Dock hidden
+
+
+@pytest.mark.basic
+def test_fit_rect_pulls_a_right_edge_overflow_back_inside_the_gap() -> None:
+    from abstractassistant.app import _fit_window_rect
+
+    x, y, w, h = _fit_window_rect(x=964, y=51, width=917, height=608, area=_MAC, gap=12)
+    assert (w, h) == (917, 608)
+    assert x + w == 1800 - 12
+    assert y == 51
+
+
+@pytest.mark.basic
+def test_fit_rect_pulls_a_bottom_overflow_back_inside_the_gap() -> None:
+    from abstractassistant.app import _fit_window_rect
+
+    x, y, w, h = _fit_window_rect(x=100, y=900, width=820, height=608, area=_MAC, gap=12)
+    assert (x, w, h) == (100, 820, 608)
+    assert y + h == 39 + 1082 - 12
+
+
+@pytest.mark.basic
+def test_fit_rect_keeps_the_gap_from_the_left_and_top_edges_too() -> None:
+    from abstractassistant.app import _fit_window_rect
+
+    assert _fit_window_rect(x=-50, y=0, width=820, height=608, area=_MAC, gap=12)[:2] == (12, 51)
+
+
+@pytest.mark.basic
+def test_fit_rect_shrinks_a_window_larger_than_the_screen() -> None:
+    from abstractassistant.app import _fit_window_rect
+
+    area = _Area(0, 25, 800, 575)
+    x, y, w, h = _fit_window_rect(x=300, y=25, width=1000, height=900, area=area, gap=12)
+    assert (x, y, w, h) == (12, 37, 776, 551)
+
+
+@pytest.mark.basic
+def test_fit_rect_leaves_a_window_that_fits_where_it_is() -> None:
+    from abstractassistant.app import _fit_window_rect
+
+    assert _fit_window_rect(x=400, y=200, width=820, height=608, area=_MAC, gap=12) == (400, 200, 820, 608)
+
+
+def _inside(frame, area, gap: int) -> bool:
+    return (
+        frame.left() >= area.left() + gap
+        and frame.top() >= area.top() + gap
+        and frame.right() <= area.right() - gap
+        and frame.bottom() <= area.bottom() - gap
+    )
+
+
+@pytest.fixture
+def mac_screen(palette, monkeypatch):
+    """A 1800x1082 available area (offscreen's own screen is 800x600, too
+    small for Settings to ever FIT, which is the case the operator hit)."""
+    from PyQt5.QtCore import QRect
+
+    area = QRect(0, 39, 1800, 1082)
+    monkeypatch.setattr(palette, "_available_screen_geometry", lambda: area)
+    # Offscreen reports no active window, so the palette's focus rule would
+    # hide it (and Settings with it) mid-test.
+    monkeypatch.setattr(type(palette), "_hide_if_inactive", lambda self: None)
+    return area
+
+
+@pytest.mark.basic
+def test_settings_opened_from_a_palette_at_the_right_edge_is_inside_the_screen(
+    palette, qapp, mac_screen
+) -> None:
+    """Headless end to end: a larger type scale makes the post-show re-fit
+    WIDER than the first fit (820 -> ~917 px), exactly the late growth that
+    left the right side past the screen edge."""
+    palette.apply_typography(text_size=22)
+    palette.show()
+    palette.position_near_tray()
+    qapp.processEvents()
+    assert palette.frameGeometry().right() >= mac_screen.right() - 40  # palette hugs the right edge
+
+    dialog = _open_settings(palette, qapp)
+    for _ in range(5):
+        qapp.processEvents()  # the re-applied stylesheet, then the deferred re-fit
+    gap = palette._screen_edge_gap(mac_screen)
+    frame = dialog.frameGeometry()
+    assert frame.width() > 820, "the late re-fit did not grow the window; the test lost its bite"
+    assert _inside(frame, mac_screen, gap), f"settings {frame} is not inside {mac_screen} minus {gap}px"
+
+    # Re-show: same guarantee.
+    dialog.hide()
+    qapp.processEvents()
+    palette._show_settings("connection")
+    for _ in range(5):
+        qapp.processEvents()
+    assert _inside(dialog.frameGeometry(), mac_screen, gap)
+
+
+@pytest.mark.basic
+def test_settings_that_grows_while_open_stays_inside_the_screen(palette, qapp, mac_screen) -> None:
+    dialog = _open_settings(palette, qapp)
+    for _ in range(3):
+        qapp.processEvents()
+    palette.apply_typography(text_size=22)  # text size changed from Appearance
+    for _ in range(5):
+        qapp.processEvents()
+    assert _inside(dialog.frameGeometry(), mac_screen, palette._screen_edge_gap(mac_screen))
+
+
+@pytest.mark.basic
+def test_settings_larger_than_the_screen_is_shrunk_to_fit(palette, qapp, monkeypatch) -> None:
+    from PyQt5.QtCore import QRect
+
+    area = QRect(0, 25, 760, 520)
+    monkeypatch.setattr(palette, "_available_screen_geometry", lambda: area)
+    monkeypatch.setattr(type(palette), "_hide_if_inactive", lambda self: None)
+    dialog = _open_settings(palette, qapp)
+    for _ in range(5):
+        qapp.processEvents()
+    assert _inside(dialog.frameGeometry(), area, palette._screen_edge_gap(area))

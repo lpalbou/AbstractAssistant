@@ -89,11 +89,12 @@ def _clamp_float(raw: Any, default: float, low: float, high: float) -> float:
 #: Bumped when a layout change must retune a size a user already saved.
 #: 1 (2026-09-06): heights saved before it shrink by 15%.
 #: 2 (2026-09-25): the default width 500 -> 650 and screen-edge gap 18 -> 28.
+#: (2026-09-27: the default gap is 12; no version bump — a saved gap is kept.)
 LAYOUT_VERSION = 2
 
 DEFAULT_WINDOW_WIDTH = 650
 DEFAULT_WINDOW_HEIGHT = 286
-DEFAULT_SCREEN_EDGE_GAP = 28
+DEFAULT_SCREEN_EDGE_GAP = 12
 #: What Settings accepts. The window itself is then limited only by the screen
 #: it is on (see AssistantPalette._reflow_shell / _screen_edge_gap).
 WINDOW_WIDTH_RANGE = (420, 2000)
@@ -143,7 +144,7 @@ def _migrated_window_width(raw: Dict[str, Any]) -> int:
 
 def _migrated_screen_edge_gap(raw: Dict[str, Any]) -> int:
     """The saved screen-edge gap. 0 is a real choice (flush with the edge) and
-    stays 0; the old default (18) becomes the new one (28) once."""
+    stays 0; the old default (18) becomes the current default once."""
     stored = raw.get("bottom_offset")
     if stored is None or stored == "":
         return DEFAULT_SCREEN_EDGE_GAP

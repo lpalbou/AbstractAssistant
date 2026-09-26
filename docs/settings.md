@@ -132,10 +132,10 @@ Listed as **Appearance** in the sidebar.
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
 | Summon / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
-| Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 28 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
+| Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without
-the `layout_version: 2` marker are moved to 650 px and 28 px once; any other saved width or gap,
+the `layout_version: 2` marker are moved to 650 px and 12 px once; any other saved width or gap,
 including a gap of 0, is kept.
 
 In-app shortcuts: Return sends, Shift+Return adds a line, Esc stops speech then hides, ⌘. stops

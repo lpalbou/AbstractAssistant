@@ -829,6 +829,26 @@ def _qt_icon() -> QIcon:
 _TRAY_ICON_CACHE: Dict[tuple[str, int, int], QIcon] = {}
 
 
+def _fit_window_rect(
+    *, x: int, y: int, width: int, height: int, area: Any, gap: int
+) -> tuple[int, int, int, int]:
+    """The window rect (frame, title bar included) moved and, if needed,
+    shrunk so it lies inside ``area`` minus ``gap`` on every side.
+
+    ``area`` is a screen's available geometry (menu bar and Dock excluded);
+    anything with ``x()/y()/width()/height()`` works. Pure arithmetic, so the
+    rule is testable without a screen.
+    """
+    ax, ay = int(area.x()), int(area.y())
+    aw, ah = int(area.width()), int(area.height())
+    gap = max(0, min(int(gap), aw // 2, ah // 2))
+    width = max(1, min(int(width), aw - 2 * gap))
+    height = max(1, min(int(height), ah - 2 * gap))
+    x = max(ax + gap, min(int(x), ax + aw - gap - width))
+    y = max(ay + gap, min(int(y), ay + ah - gap - height))
+    return x, y, width, height
+
+
 def _zoomed_shell_size(
     *, screen_width: int, screen_height: int, normal_width: int, normal_height: int
 ) -> tuple[int, int]:
@@ -9446,6 +9466,11 @@ class AssistantPalette(QMainWindow):
                 parent=self,
             )
             dialog.settings_saved.connect(self._on_settings_saved)
+            # Settings re-measures itself AFTER it is placed (its stylesheet is
+            # re-applied a turn after show, then `_refit` sets a new fixed
+            # size), and a window grows from its top-left corner — a wider fit
+            # pushed its right side past the screen edge. Pull it back inside.
+            dialog.fitted.connect(lambda d=dialog: self._place_aux_dialog(d, anchor=False))
             self._settings_dialog = dialog
         else:
             self._settings_dialog.refresh()
@@ -9732,55 +9757,59 @@ class AssistantPalette(QMainWindow):
         dialog.raise_()
         dialog.activateWindow()
 
-    def _place_aux_dialog(self, dialog: QDialog) -> None:
-        """Anchor a secondary window top-right, fully on screen.
+    def _place_aux_dialog(self, dialog: QDialog, *, anchor: bool = True) -> None:
+        """Keep a secondary window fully on screen, the edge gap clear.
 
-        The width has to be the one the window ENDS UP with. Settings sizes
-        itself in `_fit_to_content` (it lays each page out before measuring),
-        so the frame read in the same turn as `show()` can still be the
-        pre-layout one — and anchoring the right edge off a too-narrow width
-        puts x too far right, which is how Settings opened with its right side
-        past the screen edge. Clamping could not save it: it was handed the
-        same wrong width.
+        ``anchor`` puts it top-right (first show and re-show); without it the
+        window keeps its position and is only pulled back inside (after a
+        resize). A window larger than the screen's available area minus the
+        gap is shrunk to fit — a fixed-size one (Settings) gets a new fixed
+        size; its pages scroll vertically.
         """
+        if bool(getattr(dialog, "_aux_placing", False)):
+            return
         try:
             screen_geom = self._available_screen_geometry()
             if screen_geom is None:
                 return
+            dialog._aux_placing = True
             # frameGeometry() is the window INCLUDING its title bar; size() is
-            # the client area. Use the larger of the two widths so a frame Qt
-            # has not measured yet cannot under-report.
+            # the client area. Use the larger of the two so a frame Qt has not
+            # measured yet cannot under-report.
             frame = dialog.frameGeometry()
             width = max(int(frame.width()), int(dialog.width()))
             height = max(int(frame.height()), int(dialog.height()))
-            x_gap = y_gap = self._screen_edge_gap(screen_geom)
-            # A window WIDER than the screen cannot be placed into view, only
-            # shrunk into it. Shrinking is offered but never forced: a dialog
-            # with a fixed size (Settings) refuses, and that refusal is
-            # deliberate — its pages have no horizontal scrollbar, so a
-            # narrower window would hide content rather than show it. The
-            # clamp below then puts the left edge on screen, which is the most
-            # of it anyone can see.
             chrome_w = max(0, width - int(dialog.width()))
             chrome_h = max(0, height - int(dialog.height()))
-            max_w = int(screen_geom.width()) - 2 * x_gap - chrome_w
-            max_h = int(screen_geom.height()) - 2 * y_gap - chrome_h
-            if dialog.width() > max_w or dialog.height() > max_h:
-                dialog.resize(
-                    max(int(dialog.minimumWidth()), min(int(dialog.width()), max_w)),
-                    max(int(dialog.minimumHeight()), min(int(dialog.height()), max_h)),
-                )
-                frame = dialog.frameGeometry()
-                width = max(int(frame.width()), int(dialog.width()))
-                height = max(int(frame.height()), int(dialog.height()))
-            x = int(screen_geom.x() + screen_geom.width() - width - x_gap)
-            y = int(screen_geom.y() + y_gap)
-            x, y = self._clamp_window_to_screen(
-                x=x, y=y, width=width, height=height, screen_geom=screen_geom
+            gap = self._screen_edge_gap(screen_geom)
+            if anchor:
+                x = int(screen_geom.x() + screen_geom.width() - width - gap)
+                y = int(screen_geom.y() + gap)
+            else:
+                x, y = int(frame.x()), int(frame.y())
+            x, y, fit_w, fit_h = _fit_window_rect(
+                x=x, y=y, width=width, height=height, area=screen_geom, gap=gap
             )
-            dialog.move(x, y)
+            if (fit_w, fit_h) != (width, height):
+                client_w = max(1, fit_w - chrome_w)
+                client_h = max(1, fit_h - chrome_h)
+                if dialog.minimumSize() == dialog.maximumSize():
+                    dialog.setFixedSize(client_w, client_h)
+                else:
+                    dialog.setMinimumSize(
+                        min(int(dialog.minimumWidth()), client_w),
+                        min(int(dialog.minimumHeight()), client_h),
+                    )
+                    dialog.resize(client_w, client_h)
+            if (int(frame.x()), int(frame.y())) != (x, y):
+                dialog.move(x, y)
         except Exception:
             pass
+        finally:
+            try:
+                dialog._aux_placing = False
+            except Exception:
+                pass
 
     def _show_aux_dialog(self, dialog: QDialog) -> None:
         self._register_aux_dialog(dialog)

@@ -386,10 +386,16 @@ def test_the_text_size_setting_reaches_every_window(qapp, palette, tmp_path, mon
     operator reported. It now drives METRICS, which every window reads, and
     control heights move with it so bigger text does not clip its own control.
     """
+    from PyQt5.QtCore import QRect
     from PyQt5.QtWidgets import QLineEdit
 
     from abstractassistant.theme import METRICS
 
+    # A real Mac screen. Offscreen's own is 800x600, narrower than Settings at
+    # text size 17, and since 2026-09-27 a window wider than the screen is
+    # shrunk into it (fully visible beats complete) — which would clip here for
+    # a reason that has nothing to do with the re-fit this test is about.
+    monkeypatch.setattr(palette, "_available_screen_geometry", lambda: QRect(0, 39, 1800, 1082))
     palette._show_settings()
     dialog = palette._settings_dialog
     dialog.show()

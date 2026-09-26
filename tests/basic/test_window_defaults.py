@@ -1,4 +1,4 @@
-"""Window defaults: 650 px wide, 28 px from the screen edges (2026-09-25).
+"""Window defaults: 650 px wide, 12 px from the screen edges (2026-09-25; gap 28 -> 12 on 2026-09-27).
 
 The gap preference used to be capped in code (``min(pref_gap, 8)`` for the
 palette, 10/12 for Settings), so any value above 8 did nothing; a saved 0 was
@@ -24,9 +24,9 @@ from abstractassistant.preferences import (
 @pytest.mark.basic
 def test_new_defaults() -> None:
     prefs = AssistantPreferences()
-    assert (prefs.window_width, prefs.bottom_offset) == (650, 28)
+    assert (prefs.window_width, prefs.bottom_offset) == (650, 12)
     assert AssistantPreferences.from_dict({}).window_width == 650
-    assert AssistantPreferences.from_dict({}).bottom_offset == 28
+    assert AssistantPreferences.from_dict({}).bottom_offset == 12
     assert LAYOUT_VERSION == 2
 
 
@@ -35,8 +35,10 @@ def test_new_defaults() -> None:
     ("saved", "expected"),
     [
         # v1 files holding the OLD defaults move to the new ones...
-        ({"layout_version": 1, "window_width": 500, "bottom_offset": 18}, (650, 28)),
-        ({"window_width": 500, "bottom_offset": 18}, (650, 28)),
+        ({"layout_version": 1, "window_width": 500, "bottom_offset": 18}, (650, 12)),
+        ({"window_width": 500, "bottom_offset": 18}, (650, 12)),
+        # ...and a 0.6.0 file holding its 28 keeps it (a saved gap is respected)...
+        ({"layout_version": 2, "window_width": 650, "bottom_offset": 28}, (650, 28)),
         # ...a value the user changed is kept...
         ({"layout_version": 1, "window_width": 720, "bottom_offset": 40}, (720, 40)),
         ({"layout_version": 1, "window_width": 500, "bottom_offset": 6}, (650, 6)),
@@ -56,7 +58,7 @@ def test_migration_happens_once_and_zero_survives_a_round_trip(tmp_path) -> None
     store = PreferencesStore(tmp_path / "preferences.json")
     store._write({"layout_version": 1, "window_width": 500, "bottom_offset": 18, "window_height": 400})
     migrated = store.load()
-    assert (migrated.window_width, migrated.bottom_offset) == (650, 28)
+    assert (migrated.window_width, migrated.bottom_offset) == (650, 12)
     # The v1 height migration (x0.85) must not run a second time for a v1 file.
     assert migrated.window_height == 400
     store.save(migrated)
@@ -114,7 +116,7 @@ def test_settings_page_shows_the_saved_gap_even_zero(gap: int) -> None:
     assert dlg.page_window.width_spin.value() == DEFAULT_WINDOW_WIDTH
     dlg.page_window._save_preferences()
     assert ctl.preferences.bottom_offset == gap
-    assert DEFAULT_SCREEN_EDGE_GAP == 28
+    assert DEFAULT_SCREEN_EDGE_GAP == 12
 
 
 @pytest.mark.basic

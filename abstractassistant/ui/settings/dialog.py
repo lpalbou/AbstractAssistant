@@ -108,6 +108,9 @@ SETTINGS_QSS: str = build_settings_qss()
 
 class SettingsDialog(QDialog):
     settings_saved = pyqtSignal()
+    #: Emitted after `_fit_to_content` set the window's size (it can change
+    #: after the window was placed on screen).
+    fitted = pyqtSignal()
 
     SECTIONS = ("connection", "models", "voice", "workspace", "tools", "window", "about")
 
@@ -348,12 +351,13 @@ class SettingsDialog(QDialog):
         # content permanently out of reach — `test_the_fit_measures_pages_that
         # _have_never_been_laid_out` catches exactly that. On a screen narrower
         # than ~852px this window therefore cannot fit, and `_place_aux_dialog`
-        # shows as much of it as it can. Making it fit needs horizontal
+        # shrinks it into the screen (2026-09-27: fully visible beats complete). Making it fit needs horizontal
         # scrolling on the pages, which is a layout decision, not a sizing one.
         self.setFixedSize(
             max(820, min(width + chrome_w, 1000)),
             max(496, min(576, room)),
         )
+        self.fitted.emit()
 
     def refresh(self) -> None:
         for page in self.pages.values():
