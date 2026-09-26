@@ -574,6 +574,7 @@ class GatewayClient:
         req = urllib.request.Request(url, headers=headers, method="GET")
         timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
         last_step_at = time.monotonic()
+        bad_delta_reported = False
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 if on_open is not None:
@@ -590,7 +591,13 @@ class GatewayClient:
                             try:
                                 delta = json.loads(ev.data)
                             except Exception:
-                                warnings.warn(f"#FALLBACK: stream_ledger {ev.event} data was not JSON; dropping")
+                                # Reported once per connection; the stream goes on.
+                                if not bad_delta_reported:
+                                    bad_delta_reported = True
+                                    warnings.warn(
+                                        f"#FALLBACK: stream_ledger {ev.event} data was not JSON; skipping "
+                                        "(further malformed live frames on this connection are skipped silently)"
+                                    )
                                 continue
                             last_step_at = time.monotonic()
                             on_delta(ev.event, delta)

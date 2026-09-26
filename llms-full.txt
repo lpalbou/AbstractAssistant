@@ -524,7 +524,7 @@ session out).
 | Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (with its source as the gateway reports it), or **Gateway default → Built-in orchestrator** when the gateway sets none. Then every workflow in the catalog that declares the assistant interface, at its latest version. The choice applies from the next turn; a running turn keeps its workflow | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
-| Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream` (`true` / `false`); Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)**. The line under the list says when the gateway does not offer live replies at all | this app `stream_replies` (`gateway_default`, `on`, `off`) |
+| Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
 
@@ -809,7 +809,9 @@ Executes one turn in the terminal through the same workflow choice as the tray. 
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
 reasoning effort, reply streaming and workspace grant from `preferences.json`.
 
-`--stream on|off` overrides the saved **Stream replies** choice for this turn. While the reply
+`--stream on|off` overrides the saved **Stream replies** choice for this turn. `off` is always
+sent; `on` is sent only to a gateway that advertises live replies, otherwise a bracketed line on
+stderr says it was not sent. While the reply
 streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
 line in brackets says when a step could not stream or its live text was discarded, and the final
 answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
@@ -848,7 +850,7 @@ default applies:
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
-| `_runtime.stream` | Stream replies: `true` for On, `false` for Off; omitted to follow the gateway's streaming default (`streaming.default` in `/discovery/capabilities`) |
+| `_runtime.stream` | Stream replies: `false` for Off (always sent); `true` for On, sent only when `/discovery/capabilities` advertises `streaming.deltas: true`; omitted to follow the gateway's streaming default (`streaming.default`) |
 | `workspace_root`, `workspace_access_mode`, `workspace_allowed_paths` | workspace settings (or the chat's remembered root) |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
@@ -864,7 +866,8 @@ events, two live events with no `id:` line: `llm.delta`
 from the cursor of durable `step` events, so live events never move it. On every (re)connect it drops
 its live text and applies the snapshots the gateway re-sends; it ignores deltas for a call whose
 durable `llm_call` record it already holds, and never shows live text again once the final answer
-is on screen. Whether the gateway offers live replies is read from
+is on screen. A malformed live frame is skipped (reported once per connection) and never ends
+the stream. Whether the gateway offers live replies is read from
 `/discovery/capabilities` → `streaming.deltas`.
 
 ## Gateway routes used
@@ -1656,7 +1659,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   stopped removes its bubble and says why; a step that cannot stream says why in the status line.
   Settings → Models → **Stream replies** (Gateway default, On, Off) chooses per device; `assistant
   run --stream on|off` does the same for one terminal turn, writing the live text to stderr and the
-  final answer once to stdout. Needs a gateway that offers live replies.
+  final answer once to stdout. On is sent only to a gateway that offers live replies; elsewhere it
+  is shown as not supported and a chat notes it once. Off is always sent.
 - **About AbstractAssistant.** Settings → About shows the application and version, AbstractFramework,
   author, licence, and links to the website, source, documentation, issue tracker, feedback form
   and contact address, plus the workflow the last turn ran. The menu-bar icon has an
@@ -2462,6 +2466,20 @@ def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]
     return value if isinstance(value, bool) else None
 
 
+def _gated_stream(choice: Optional[bool], *, advertised: Optional[bool], explicit: bool) -> Optional[bool]:
+    """`_runtime.stream: false` is always sent; `true` only to a gateway that
+    advertises live replies (an older runtime would stream internally with no
+    live events and can lose usage accounting). A withheld "on" says so on
+    stderr, whether it came from `--stream on` or the saved setting.
+    """
+    if choice is not True or advertised is True:
+        return choice
+    why = "does not offer live replies" if advertised is False else "could not be asked whether it offers live replies"
+    source = "--stream on" if explicit else "Stream replies: On"
+    sys.stderr.write(f"[{source} not sent: this gateway {why}; the answer is printed when it is finished]\n")
+    return None
+
+
 class LiveDeltaPrinter:
     """Write a streamed reply's text to ``out`` as it arrives.
 
@@ -2591,7 +2609,11 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         media_overrides=_call("media_route_overrides", default=None) or None,
         thinking=str(scope.get("thinking") or ""),
         speculation=scope.get("speculation"),
-        stream=_stream_choice(getattr(args, "stream", None), scope),
+        stream=_gated_stream(
+            _stream_choice(getattr(args, "stream", None), scope),
+            advertised=_call("live_replies_advertised", default=None),
+            explicit=getattr(args, "stream", None) is not None,
+        ),
         workspace_root=str(scope.get("workspace_root") or ""),
         workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
         workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
@@ -4136,7 +4158,10 @@ class AssistantController:
     # ------------------------------------------------------------------ run scope
 
     def run_scope(self) -> Dict[str, Any]:
-        """Per-run pins: reasoning effort and the workspace grant.
+        """Per-run pins: reasoning effort, reply streaming and the workspace grant.
+
+        ``stream: False`` (Off) is always sent; ``stream: True`` (On) only
+        when the gateway advertises live replies (``capabilities.streaming.deltas``).
 
         The workspace root is the user's chosen folder when one is saved; else
         the folder the gateway gave this SESSION's first run (remembered by the
@@ -4147,6 +4172,11 @@ class AssistantController:
             scope = dict(self.preferences.run_scope())
         except Exception:
             scope = {}
+        if scope.get("stream") is True and self.live_replies_advertised() is not True:
+            # "On" goes only to a gateway that advertises live replies: an
+            # older runtime would stream internally with no live events and
+            # can lose usage accounting. "Off" (False) is always sent.
+            scope.pop("stream")
         if not str(scope.get("workspace_root") or "").strip():
             try:
                 session_root = str(self.llm_manager.session_workspace_root() or "").strip()
@@ -4228,6 +4258,14 @@ class AssistantController:
         raw = getattr(caps, "raw", None) or {}
         block = raw.get("streaming") if isinstance(raw, dict) else None
         return dict(block) if isinstance(block, dict) else {}
+
+    def stream_on_but_unsupported(self) -> bool:
+        """True when this app asks for live replies but the gateway does not
+        offer them (the "On" choice is then withheld from the run input)."""
+        prefs = getattr(self, "preferences", None)
+        if str(getattr(prefs, "stream_replies", "") or "") != "on":
+            return False
+        return self.live_replies_advertised() is not True
 
     def live_replies_advertised(self) -> Optional[bool]:
         """True when the gateway advertises live replies (``streaming.deltas``),
@@ -6164,6 +6202,7 @@ class GatewayClient:
         req = urllib.request.Request(url, headers=headers, method="GET")
         timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
         last_step_at = time.monotonic()
+        bad_delta_reported = False
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 if on_open is not None:
@@ -6180,7 +6219,13 @@ class GatewayClient:
                             try:
                                 delta = json.loads(ev.data)
                             except Exception:
-                                warnings.warn(f"#FALLBACK: stream_ledger {ev.event} data was not JSON; dropping")
+                                # Reported once per connection; the stream goes on.
+                                if not bad_delta_reported:
+                                    bad_delta_reported = True
+                                    warnings.warn(
+                                        f"#FALLBACK: stream_ledger {ev.event} data was not JSON; skipping "
+                                        "(further malformed live frames on this connection are skipped silently)"
+                                    )
                                 continue
                             last_step_at = time.monotonic()
                             on_delta(ev.event, delta)

@@ -333,10 +333,25 @@ class GatewayRunController:
         if on_delta is None:
             return None
         warned: list[str] = []
+        malformed: list[str] = []
 
         def _hook(event_name: str, data: Dict[str, object]) -> None:
-            ev = to_ui_event(event_name, data, run_id=run_id)
+            # A malformed frame is skipped and reported ONCE per stream; it
+            # never ends the follow (the durable rows still carry the reply).
+            try:
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    ev = to_ui_event(event_name, data, run_id=run_id)
+                problem = str(caught[0].message) if caught and ev is None else ""
+            except Exception as exc:
+                ev, problem = None, f"{type(exc).__name__}: {exc}"
             if ev is None:
+                if problem and not malformed:
+                    malformed.append(problem)
+                    warnings.warn(
+                        f"#FALLBACK: skipping malformed live reply frame(s) for run {run_id} "
+                        f"(first: {problem}); further ones are skipped silently"
+                    )
                 return
             try:
                 on_delta(ev)

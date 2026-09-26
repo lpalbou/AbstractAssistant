@@ -5596,6 +5596,7 @@ class AssistantPalette(QMainWindow):
     _live_dirty = None
     _live_flush_timer = None
     _live_closed_calls = None
+    _stream_unsupported_noted = None
     LIVE_FLUSH_MIN_MS = 40
     # True from construction until the startup bootstrap thread warms the
     # gateway caches; sends are refused meanwhile so an early send cannot
@@ -8005,6 +8006,7 @@ class AssistantPalette(QMainWindow):
         worker.finished.connect(self._on_worker_finished)
         worker.start()
         self._set_send_button_busy(True)
+        self._note_stream_unsupported_once()
 
         # Refresh history and scroll to bottom at the very end
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
@@ -8469,6 +8471,29 @@ class AssistantPalette(QMainWindow):
                 QTimer.singleShot(0, self._submit)
 
     # ------------------------------------------------------------ live replies
+
+    STREAM_UNSUPPORTED_NOTE = (
+        "Stream replies is On, but this gateway does not offer live replies: "
+        "answers appear when they are finished."
+    )
+
+    def _note_stream_unsupported_once(self) -> None:
+        """Once per chat session: say that "On" could not be honoured."""
+        try:
+            unsupported = bool(self._controller.stream_on_but_unsupported())
+        except Exception:
+            return
+        if not unsupported:
+            return
+        noted = self._state("_stream_unsupported_noted")
+        if noted is None:
+            noted = set()
+            self._stream_unsupported_noted = noted
+        session_id = str(self._active_session_id() or "")
+        if session_id in noted:
+            return
+        noted.add(session_id)
+        self._set_banner(self.STREAM_UNSUPPORTED_NOTE, tone="info", key="stream")
 
     def _on_live_delta(self, payload: Dict[str, Any]) -> None:
         """Fold one live delta into its call's text; repaint on the throttle.

@@ -121,6 +121,20 @@ def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]
     return value if isinstance(value, bool) else None
 
 
+def _gated_stream(choice: Optional[bool], *, advertised: Optional[bool], explicit: bool) -> Optional[bool]:
+    """`_runtime.stream: false` is always sent; `true` only to a gateway that
+    advertises live replies (an older runtime would stream internally with no
+    live events and can lose usage accounting). A withheld "on" says so on
+    stderr, whether it came from `--stream on` or the saved setting.
+    """
+    if choice is not True or advertised is True:
+        return choice
+    why = "does not offer live replies" if advertised is False else "could not be asked whether it offers live replies"
+    source = "--stream on" if explicit else "Stream replies: On"
+    sys.stderr.write(f"[{source} not sent: this gateway {why}; the answer is printed when it is finished]\n")
+    return None
+
+
 class LiveDeltaPrinter:
     """Write a streamed reply's text to ``out`` as it arrives.
 
@@ -250,7 +264,11 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         media_overrides=_call("media_route_overrides", default=None) or None,
         thinking=str(scope.get("thinking") or ""),
         speculation=scope.get("speculation"),
-        stream=_stream_choice(getattr(args, "stream", None), scope),
+        stream=_gated_stream(
+            _stream_choice(getattr(args, "stream", None), scope),
+            advertised=_call("live_replies_advertised", default=None),
+            explicit=getattr(args, "stream", None) is not None,
+        ),
         workspace_root=str(scope.get("workspace_root") or ""),
         workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
         workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),

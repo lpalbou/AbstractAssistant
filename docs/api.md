@@ -68,7 +68,9 @@ Executes one turn in the terminal through the same workflow choice as the tray. 
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
 reasoning effort, reply streaming and workspace grant from `preferences.json`.
 
-`--stream on|off` overrides the saved **Stream replies** choice for this turn. While the reply
+`--stream on|off` overrides the saved **Stream replies** choice for this turn. `off` is always
+sent; `on` is sent only to a gateway that advertises live replies, otherwise a bracketed line on
+stderr says it was not sent. While the reply
 streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
 line in brackets says when a step could not stream or its live text was discarded, and the final
 answer is printed once on **stdout** — so `assistant run --prompt … > answer.txt` captures only the
@@ -107,7 +109,7 @@ default applies:
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
-| `_runtime.stream` | Stream replies: `true` for On, `false` for Off; omitted to follow the gateway's streaming default (`streaming.default` in `/discovery/capabilities`) |
+| `_runtime.stream` | Stream replies: `false` for Off (always sent); `true` for On, sent only when `/discovery/capabilities` advertises `streaming.deltas: true`; omitted to follow the gateway's streaming default (`streaming.default`) |
 | `workspace_root`, `workspace_access_mode`, `workspace_allowed_paths` | workspace settings (or the chat's remembered root) |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
@@ -123,7 +125,8 @@ events, two live events with no `id:` line: `llm.delta`
 from the cursor of durable `step` events, so live events never move it. On every (re)connect it drops
 its live text and applies the snapshots the gateway re-sends; it ignores deltas for a call whose
 durable `llm_call` record it already holds, and never shows live text again once the final answer
-is on screen. Whether the gateway offers live replies is read from
+is on screen. A malformed live frame is skipped (reported once per connection) and never ends
+the stream. Whether the gateway offers live replies is read from
 `/discovery/capabilities` → `streaming.deltas`.
 
 ## Gateway routes used

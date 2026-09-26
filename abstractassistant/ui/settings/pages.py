@@ -410,13 +410,24 @@ class ModelsPage(SettingsPage):
             0,
             "Gateway default" + (" (On)" if default is True else " (Off)" if default is False else ""),
         )
+        # "On" is sent only to a gateway that advertises live replies; the
+        # item stays listed (disabled, with the reason) — never hidden. "Off"
+        # and "Gateway default" always apply.
+        on_index = self.stream_combo.findData("on")
+        item = self.stream_combo.model().item(on_index) if on_index >= 0 else None
+        if item is not None:
+            item.setEnabled(advertised is True)
+            item.setText("On" if advertised is True else "On — not supported by this gateway")
         choice = self.stream_combo.currentData()
         if advertised is None:
-            text = "Not connected — whether this gateway can stream replies is not known yet."
+            text = (
+                "Not connected — whether this gateway supports live replies is not known yet; "
+                "On is sent only once it says it does."
+            )
         elif advertised is False:
             text = (
-                "This gateway does not advertise live replies: answers appear when they are finished, "
-                "whatever you pick here."
+                "On is not supported by this gateway: it does not offer live replies, so answers appear "
+                "when they are finished. Off is still sent."
             )
         elif choice == STREAM_REPLIES_GATEWAY_DEFAULT:
             text = "The gateway's own streaming default decides (set by its admin)."

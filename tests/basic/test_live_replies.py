@@ -423,6 +423,9 @@ def test_cli_run_streams_to_stderr_and_prints_the_final_once(monkeypatch, capsys
         def run_scope(self):
             return {"stream": False}  # saved "off" — the flag overrides it
 
+        def live_replies_advertised(self):
+            return True
+
     class _RunController:
         def __init__(self, gateway, debug=False):
             pass
@@ -686,11 +689,139 @@ def test_settings_row_saves_the_choice_and_shows_the_gateway_default(qapp, tmp_p
     page._on_stream_chosen(page.stream_combo.currentIndex())
     assert controller.preferences.stream_replies == "off"
     assert "only when they are finished" in page.stream_detail.text()
+    on_item = page.stream_combo.model().item(page.stream_combo.findData("on"))
+    assert on_item.isEnabled() and on_item.text() == "On"
     controller.streaming = {"deltas": False, "default": False}
     page._refresh_stream()
     assert page.stream_combo.currentData() == "off"
-    assert "does not advertise live replies" in page.stream_detail.text()
+    # "On" stays listed, disabled with the reason; Off and the default still apply.
+    assert page.stream_combo.isEnabled()
+    assert not on_item.isEnabled() and on_item.text() == "On — not supported by this gateway"
+    assert page.stream_combo.findData("on") >= 0
+    assert "not supported by this gateway" in page.stream_detail.text()
     controller.streaming = None
     page._refresh_stream()
     assert page.stream_combo.itemText(0) == "Gateway default"
+    assert not on_item.isEnabled()
     assert "Not connected" in page.stream_detail.text()
+    controller.streaming = {"deltas": True, "default": False}
+    page._refresh_stream()
+    assert on_item.isEnabled() and on_item.text() == "On"
+
+
+# ------------------------------------------------------------------- gating
+
+
+def _gating_controller(tmp_path, monkeypatch, *, choice: str, streaming):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from abstractassistant.config import Config
+    from abstractassistant.controller import AssistantController
+
+    controller = AssistantController(config=Config(), data_dir=tmp_path / "data")
+    controller.update_preferences(hotkey_enabled=False, stream_replies=choice)
+    monkeypatch.setattr(controller, "gateway_streaming", lambda: streaming)
+    return controller
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize(
+    "choice, streaming, expected",
+    [
+        ("on", {"deltas": True, "default": False}, True),
+        ("on", {"deltas": False, "default": False}, None),   # withheld: gateway has no deltas
+        ("on", {}, None),                                     # older gateway: no streaming block
+        ("on", None, None),                                   # discovery unavailable
+        ("off", {"deltas": False}, False),                    # Off is ALWAYS sent
+        ("off", None, False),
+        ("off", {"deltas": True}, False),
+        ("gateway_default", {"deltas": True, "default": True}, None),
+    ],
+)
+def test_run_scope_sends_on_only_when_deltas_are_advertised(tmp_path, monkeypatch, choice, streaming, expected) -> None:
+    from abstractassistant.gateway.run_input import build_run_input_data
+
+    controller = _gating_controller(tmp_path, monkeypatch, choice=choice, streaming=streaming)
+    scope = controller.run_scope()
+    data = build_run_input_data(prompt="hi", stream=scope.get("stream"))
+    if expected is None:
+        assert "stream" not in data["_runtime"]
+    else:
+        assert data["_runtime"]["stream"] is expected
+    assert controller.stream_on_but_unsupported() is (choice == "on" and expected is None)
+
+
+@pytest.mark.basic
+def test_cli_withholds_on_for_a_gateway_without_deltas_and_says_so(capsys) -> None:
+    from abstractassistant.cli import _gated_stream
+
+    assert _gated_stream(True, advertised=True, explicit=True) is True
+    assert _gated_stream(False, advertised=False, explicit=True) is False
+    assert _gated_stream(False, advertised=None, explicit=False) is False
+    assert _gated_stream(None, advertised=False, explicit=False) is None
+    assert capsys.readouterr().err == ""
+    assert _gated_stream(True, advertised=False, explicit=True) is None
+    assert "--stream on not sent: this gateway does not offer live replies" in capsys.readouterr().err
+    assert _gated_stream(True, advertised=None, explicit=False) is None
+    assert "Stream replies: On not sent" in capsys.readouterr().err
+
+
+@pytest.mark.basic
+def test_on_without_deltas_is_noted_once_per_session(palette, qapp, monkeypatch) -> None:
+    controller = palette._controller
+    monkeypatch.setattr(controller, "stream_on_but_unsupported", lambda: True)
+    palette._note_stream_unsupported_once()
+    assert palette.banner_label.text() == palette.STREAM_UNSUPPORTED_NOTE
+    palette._set_banner("")
+    palette._note_stream_unsupported_once()
+    assert palette.banner_label.text() == ""  # same session: not again
+    other = controller.create_session()
+    controller.switch_session(other)
+    palette._note_stream_unsupported_once()
+    assert palette.banner_label.text() == palette.STREAM_UNSUPPORTED_NOTE
+    palette._set_banner("")
+    monkeypatch.setattr(controller, "stream_on_but_unsupported", lambda: False)
+    third = controller.create_session()
+    controller.switch_session(third)
+    palette._note_stream_unsupported_once()
+    assert palette.banner_label.text() == ""
+
+
+# --------------------------------------------------------- malformed frames
+
+
+@pytest.mark.basic
+def test_malformed_delta_frames_are_skipped_reported_once_and_the_stream_goes_on() -> None:
+    import warnings as _warnings
+
+    from abstractassistant.gateway.run_controller import GatewayRunController
+
+    body = [
+        "event: llm.delta\ndata: {not json\n\n",
+        "event: llm.delta\ndata: also not json\n\n",
+        _delta("c", 1, "ok"),
+        "event: llm.delta\ndata: [1, 2]\n\n",
+        "event: llm.delta\ndata: " + json.dumps({"call_id": "c", "seq": 2, "text": "x", "channel": "bogus"}) + "\n\n",
+        "event: llm.delta_end\ndata: " + json.dumps({"call_id": "c"}) + "\n\n",
+        _step(1),
+        _delta("c", 3, " still here"),
+        _delta_end("c", 4),
+    ]
+    events: List[Dict[str, Any]] = []
+    records: List[str] = []
+    with _FakeGateway([body], ["completed"]) as gw:
+        controller = GatewayRunController(gateway=_client(gw.url))
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            result = controller.stream_run(
+                run_id="run-1", after=0, seen_sub_runs=set(),
+                on_record=lambda rid, rec: records.append(rec["step_id"]),
+                should_stop=lambda: False, on_delta=events.append,
+            )
+    assert result == (1, "", True)
+    assert records == ["step-1"]
+    assert [(e["type"], e.get("text")) for e in events if e["type"] != "assistant_delta_reset"] == [
+        ("assistant_delta", "ok"), ("assistant_delta", " still here"), ("assistant_delta_end", None),
+    ]
+    messages = [str(w.message) for w in caught]
+    assert sum("not JSON" in m for m in messages) == 1
+    assert sum("skipping malformed live reply frame" in m for m in messages) == 1

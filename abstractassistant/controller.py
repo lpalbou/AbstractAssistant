@@ -543,7 +543,10 @@ class AssistantController:
     # ------------------------------------------------------------------ run scope
 
     def run_scope(self) -> Dict[str, Any]:
-        """Per-run pins: reasoning effort and the workspace grant.
+        """Per-run pins: reasoning effort, reply streaming and the workspace grant.
+
+        ``stream: False`` (Off) is always sent; ``stream: True`` (On) only
+        when the gateway advertises live replies (``capabilities.streaming.deltas``).
 
         The workspace root is the user's chosen folder when one is saved; else
         the folder the gateway gave this SESSION's first run (remembered by the
@@ -554,6 +557,11 @@ class AssistantController:
             scope = dict(self.preferences.run_scope())
         except Exception:
             scope = {}
+        if scope.get("stream") is True and self.live_replies_advertised() is not True:
+            # "On" goes only to a gateway that advertises live replies: an
+            # older runtime would stream internally with no live events and
+            # can lose usage accounting. "Off" (False) is always sent.
+            scope.pop("stream")
         if not str(scope.get("workspace_root") or "").strip():
             try:
                 session_root = str(self.llm_manager.session_workspace_root() or "").strip()
@@ -635,6 +643,14 @@ class AssistantController:
         raw = getattr(caps, "raw", None) or {}
         block = raw.get("streaming") if isinstance(raw, dict) else None
         return dict(block) if isinstance(block, dict) else {}
+
+    def stream_on_but_unsupported(self) -> bool:
+        """True when this app asks for live replies but the gateway does not
+        offer them (the "On" choice is then withheld from the run input)."""
+        prefs = getattr(self, "preferences", None)
+        if str(getattr(prefs, "stream_replies", "") or "") != "on":
+            return False
+        return self.live_replies_advertised() is not True
 
     def live_replies_advertised(self) -> Optional[bool]:
         """True when the gateway advertises live replies (``streaming.deltas``),

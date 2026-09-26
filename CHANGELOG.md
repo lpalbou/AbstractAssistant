@@ -24,7 +24,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   stopped removes its bubble and says why; a step that cannot stream says why in the status line.
   Settings → Models → **Stream replies** (Gateway default, On, Off) chooses per device; `assistant
   run --stream on|off` does the same for one terminal turn, writing the live text to stderr and the
-  final answer once to stdout. Needs a gateway that offers live replies.
+  final answer once to stdout. On is sent only to a gateway that offers live replies; elsewhere it
+  is shown as not supported and a chat notes it once. Off is always sent.
 - **About AbstractAssistant.** Settings → About shows the application and version, AbstractFramework,
   author, licence, and links to the website, source, documentation, issue tracker, feedback form
   and contact address, plus the workflow the last turn ran. The menu-bar icon has an
