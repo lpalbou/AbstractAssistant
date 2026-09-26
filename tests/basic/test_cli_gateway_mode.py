@@ -168,3 +168,26 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
             "registry_scope": "tenant_catalog",
         }
     ]
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize(
+    "error",
+    [
+        "gateway-401",
+        RuntimeError("Gateway authentication failed. Check the bearer token or sign-in session."),
+    ],
+)
+def test_run_without_a_sign_in_says_how_to_sign_in(monkeypatch: pytest.MonkeyPatch, capsys, error) -> None:
+    from abstractassistant.gateway.client import GatewayHttpError
+
+    exc = GatewayHttpError("start_run failed: unauthorized", status=401) if error == "gateway-401" else error
+
+    def _fail(_args):
+        raise exc
+
+    monkeypatch.setattr(cli, "_run_gateway_command", _fail)
+    monkeypatch.setattr(sys, "argv", ["assistant", "run", "--prompt", "hi"])
+    assert cli.main() == 2
+    out = capsys.readouterr().out
+    assert "gateway console" in out and "Settings → Connection" in out and "--gateway-token" in out

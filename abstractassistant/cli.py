@@ -69,6 +69,20 @@ def _build_config_from_args(args: argparse.Namespace):
     return Config.from_dict({"gateway": gateway_data})
 
 
+SIGN_IN_HINT = (
+    "The gateway needs you to sign in. Either open the Assistant from the gateway console "
+    "(it signs you in), connect once in the Assistant's Settings \u2192 Connection (the "
+    "sign-in is saved and reused here), or pass --gateway-token <token>."
+)
+
+
+def _is_auth_failure(exc: BaseException) -> bool:
+    """A 401 from the gateway, directly or as the catalog's auth message."""
+    if int(getattr(exc, "status", 0) or 0) == 401:
+        return True
+    return "authentication failed" in str(exc).lower()
+
+
 def _format_tool_arguments(arguments: Any) -> str:
     return str(arguments if arguments is not None else "")
 
@@ -253,7 +267,13 @@ def main() -> int:
         command = args.command or "app"
 
         if command == "run":
-            return _run_gateway_command(args)
+            try:
+                return _run_gateway_command(args)
+            except Exception as exc:
+                if _is_auth_failure(exc):
+                    print(SIGN_IN_HINT)
+                    return 2
+                raise
 
         # app (default — tray UI)
         config = _build_config_from_args(args)
