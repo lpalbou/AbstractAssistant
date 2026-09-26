@@ -1373,11 +1373,12 @@ class WindowPage(SettingsPage):
 
 
 def _assistant_version() -> str:
-    # The same version `assistant --version` prints (with its own fallback);
-    # identity.installed_version raises for a missing distribution.
-    from ...cli import _package_version
+    # The package's own __version__ (the one `assistant --version` prints):
+    # correct in an editable checkout and in the .app, where there may be no
+    # dist-info metadata to read.
+    from ... import __version__
 
-    return _package_version()
+    return __version__
 
 
 def _gateway_rows(controller: Any) -> List[Any]:

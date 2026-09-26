@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .config import Config
 
-__all__ = ["launch_tray_app"]
+from ._version import __version__
+
+__all__ = ["__version__", "launch_tray_app"]
 
 
 def launch_tray_app(

@@ -15,12 +15,9 @@ from typing import Any, Dict, List
 
 
 def _package_version() -> str:
-    try:
-        from importlib.metadata import version
+    from ._version import __version__
 
-        return version("abstractassistant")
-    except Exception:
-        return "unknown"
+    return __version__
 
 
 def create_parser() -> argparse.ArgumentParser:

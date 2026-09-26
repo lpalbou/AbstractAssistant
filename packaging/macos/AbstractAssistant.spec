@@ -1,6 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from importlib import metadata as importlib_metadata
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -15,20 +14,15 @@ ICON = ROOT / "build" / "macos" / "icon.icns"
 
 
 def _version() -> str:
-    """The app version, without requiring the package to be pip-installed.
+    """The app version: `abstractassistant/_version.py`, the package's single
+    source (read as text, so the build needs neither an install nor imports)."""
+    import re
 
-    Building from a plain source checkout is normal here, and the version of
-    record is pyproject.toml — reading the environment's metadata instead made
-    the whole build fail with `PackageNotFoundError`.
-    """
-    try:
-        return str(importlib_metadata.version("abstractassistant"))
-    except importlib_metadata.PackageNotFoundError:
-        pass
-    import tomllib
-
-    with (ROOT / "pyproject.toml").open("rb") as handle:
-        return str(tomllib.load(handle)["project"]["version"])
+    text = (ROOT / "abstractassistant" / "_version.py").read_text(encoding="utf-8")
+    match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.M)
+    if not match:
+        raise SystemExit("abstractassistant/_version.py has no __version__")
+    return match.group(1)
 
 
 VERSION = _version()
