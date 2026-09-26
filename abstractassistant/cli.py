@@ -216,7 +216,9 @@ class LiveDeltaPrinter:
             if printed is None:
                 return  # a call that never streamed text: nothing on screen
             self._write("\n")
-            if reason != "completed":
+            if reason == "cancelled" and str(ev.get("detail") or "") == "reinvoked":
+                self._write("[reply restarted]\n")
+            elif reason != "completed":
                 self._write(f"[live reply discarded: {reason}]\n")
 
 

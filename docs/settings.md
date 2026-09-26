@@ -63,7 +63,8 @@ The transcript follows the text while you are at the bottom and stays put if you
 
 The live text is a preview. If the gateway had to drop the oldest part of a very long reply, the
 bubble says so; the finished answer is always complete. If a step fails or is stopped, its bubble is
-removed and the status line says why. Some steps cannot stream (a step that returns structured
+removed and the status line says why; if the model call had to be run again, the status line says
+**Reply restarted** and the new attempt gets its own bubble. Some steps cannot stream (a step that returns structured
 output, a remote model server, a provider that cannot stream or cannot report token usage while
 streaming); the status line says which, and that answer appears when it is finished. After a
 reconnection the bubble picks up where the model is.

@@ -127,7 +127,8 @@ The run stream (`/api/gateway/runs/{run_id}/ledger/stream`) carries, next to the
 events, two live events with no `id:` line: `llm.delta`
 (`call_id`, `seq`, `text`, `channel` = `content` | `reasoning`, `snapshot`, `truncated`, `run_id`,
 `root_run_id`, `parent_run_id`, `node_id`) and `llm.delta_end` (`call_id`, `seq`, `reason` =
-`completed` | `failed` | `cancelled` | `unavailable`, `detail`). The app resumes the stream only
+`completed` | `failed` | `cancelled` | `unavailable`, `detail`; `cancelled` with `detail: "reinvoked"`
+means the call is being run again under the call id `<step_id>:reinvoke`). The app resumes the stream only
 from the cursor of durable `step` events, so live events never move it. On every (re)connect it drops
 its live text and applies the snapshots the gateway re-sends; it ignores deltas for a call whose
 durable `llm_call` record it already holds, and never shows live text again once the final answer

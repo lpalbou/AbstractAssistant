@@ -914,3 +914,43 @@ def test_hostile_html_in_a_live_delta_and_the_final_message_is_shown_as_text(pal
     markup, plain = _card_markup(finals[0])
     _assert_inert(markup)
     assert '<img src=x onerror="alert(1)">' in plain and "<script>alert(4)</script>" in plain
+
+
+# ------------------------------------------------------------- reinvoked
+
+
+@pytest.mark.basic
+def test_a_reinvoked_call_says_reply_restarted_and_the_rerun_gets_its_own_card(palette, qapp) -> None:
+    _push(palette, qapp, _d("step-7", 1, "first attempt"))
+    first = _live_cards(palette)
+    assert [c.call_id for c in first] == ["step-7"]
+    _push(palette, qapp, {"type": "assistant_delta_end", "call_id": "step-7", "seq": 2, "reason": "cancelled",
+                          "detail": "reinvoked"})
+    assert _live_cards(palette) == []
+    assert palette._history_status_text == "Reply restarted"
+    _push(palette, qapp, _d("step-7:reinvoke", 1, "second attempt"))
+    cards = _live_cards(palette)
+    assert [c.call_id for c in cards] == ["step-7:reinvoke"] and cards[0].content_text == "second attempt"
+    assert cards[0] is not first[0]
+
+
+@pytest.mark.basic
+def test_other_cancelled_ends_still_say_the_run_was_stopped(palette, qapp) -> None:
+    _push(palette, qapp, _d("c1", 1, "half"))
+    _push(palette, qapp, {"type": "assistant_delta_end", "call_id": "c1", "seq": 2, "reason": "cancelled",
+                          "detail": "user"})
+    assert _live_cards(palette) == []
+    assert palette._history_status_text == "Live reply discarded: the run was stopped."
+
+
+@pytest.mark.basic
+def test_cli_marks_a_reinvoked_call_as_restarted() -> None:
+    from abstractassistant.cli import LiveDeltaPrinter
+
+    out = io.StringIO()
+    p = LiveDeltaPrinter(out)
+    p({"type": "assistant_delta", "call_id": "s", "seq": 1, "text": "try one", "channel": "content"})
+    p({"type": "assistant_delta_end", "call_id": "s", "reason": "cancelled", "detail": "reinvoked"})
+    p({"type": "assistant_delta", "call_id": "s:reinvoke", "seq": 1, "text": "try two", "channel": "content"})
+    p({"type": "assistant_delta_end", "call_id": "s:reinvoke", "reason": "completed"})
+    assert out.getvalue() == "try one\n[reply restarted]\ntry two\n"

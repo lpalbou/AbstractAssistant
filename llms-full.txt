@@ -570,7 +570,8 @@ The transcript follows the text while you are at the bottom and stays put if you
 
 The live text is a preview. If the gateway had to drop the oldest part of a very long reply, the
 bubble says so; the finished answer is always complete. If a step fails or is stopped, its bubble is
-removed and the status line says why. Some steps cannot stream (a step that returns structured
+removed and the status line says why; if the model call had to be run again, the status line says
+**Reply restarted** and the new attempt gets its own bubble. Some steps cannot stream (a step that returns structured
 output, a remote model server, a provider that cannot stream or cannot report token usage while
 streaming); the status line says which, and that answer appears when it is finished. After a
 reconnection the bubble picks up where the model is.
@@ -895,7 +896,8 @@ The run stream (`/api/gateway/runs/{run_id}/ledger/stream`) carries, next to the
 events, two live events with no `id:` line: `llm.delta`
 (`call_id`, `seq`, `text`, `channel` = `content` | `reasoning`, `snapshot`, `truncated`, `run_id`,
 `root_run_id`, `parent_run_id`, `node_id`) and `llm.delta_end` (`call_id`, `seq`, `reason` =
-`completed` | `failed` | `cancelled` | `unavailable`, `detail`). The app resumes the stream only
+`completed` | `failed` | `cancelled` | `unavailable`, `detail`; `cancelled` with `detail: "reinvoked"`
+means the call is being run again under the call id `<step_id>:reinvoke`). The app resumes the stream only
 from the cursor of durable `step` events, so live events never move it. On every (re)connect it drops
 its live text and applies the snapshots the gateway re-sends; it ignores deltas for a call whose
 durable `llm_call` record it already holds, and never shows live text again once the final answer
@@ -2715,7 +2717,9 @@ class LiveDeltaPrinter:
             if printed is None:
                 return  # a call that never streamed text: nothing on screen
             self._write("\n")
-            if reason != "completed":
+            if reason == "cancelled" and str(ev.get("detail") or "") == "reinvoked":
+                self._write("[reply restarted]\n")
+            elif reason != "completed":
                 self._write(f"[live reply discarded: {reason}]\n")
 
 

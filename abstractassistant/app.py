@@ -8552,10 +8552,13 @@ class AssistantPalette(QMainWindow):
             self._mark_live_dirty(call_id)
             return
         # Failed/cancelled: the text is not a reply. Remove it and say why.
+        # A "reinvoked" cancel is a restart: the re-run streams under a new
+        # call id and gets its own card.
+        detail = str(payload.get("detail") or "")
         had_card = call_id in (self._state("_live_cards") or {})
         self._drop_live_reply(call_id)
         if had_card or reply.content or reply.reasoning:
-            self._set_history_status(end_reason_text(reason), tone="info")
+            self._set_history_status(end_reason_text(reason, detail), tone="info")
 
     def _on_live_reset(self) -> None:
         """The run stream (re)connected: drop every live text (S-2.3).

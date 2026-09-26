@@ -44,6 +44,11 @@ DELTA_END_EVENT = "llm.delta_end"
 LIVE_EVENTS = frozenset({DELTA_EVENT, DELTA_END_EVENT})
 
 CHANNELS = ("content", "reasoning")
+# `delta_end {reason: "cancelled", detail: "reinvoked"}`: a stray kill made
+# the runtime run the model call again (new call id `<step_id>:reinvoke`);
+# the run goes on, so this is a restart, not a stop.
+REINVOKED = "reinvoked"
+
 END_REASONS = ("completed", "failed", "cancelled", "unavailable")
 UNAVAILABLE_DETAILS = {
     "structured_output": "this step returns structured output",
@@ -196,6 +201,8 @@ def end_reason_text(reason: str, detail: str = "") -> str:
             return f"Live reply unavailable for this step: {why}. The answer appears when it is finished."
         suffix = f" ({detail})" if detail else ""
         return f"Live reply unavailable for this step{suffix}. The answer appears when it is finished."
+    if reason == "cancelled" and str(detail or "").strip() == REINVOKED:
+        return "Reply restarted"
     if reason == "cancelled":
         return "Live reply discarded: the run was stopped."
     if reason == "failed":
