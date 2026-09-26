@@ -516,6 +516,9 @@ def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> 
     # First ensure: creates + publishes + promotes (catalog was empty).
     service.ensure_catalog_workflow()
     assert len(gateway.published) == 1
+    # The first publish names its version: left to the gateway it would be
+    # minted as the placeholder "0.0.0" (E2E N4).
+    assert gateway.published[0]["bundle_version"] == "0.0.1"
 
     # Same definition stored: a fresh service instance reconciles, finds no
     # drift, and publishes nothing new.
@@ -535,9 +538,9 @@ def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> 
     workflows = service3.ensure_catalog_workflow()
     assert len(gateway.published) == 2
     assert gateway.updated, "drifted stored flow must be updated to this build's definition"
-    assert gateway.published[1]["bundle_version"] == "0.0.1"
+    assert gateway.published[1]["bundle_version"] == "0.0.2"
     assert gateway.promoted[-1]["make_default"] is False
-    assert workflows[0].bundle_version == "0.0.1"
+    assert workflows[0].bundle_version == "0.0.2"
 
     # Reconciliation is once per process/service: a second ensure on the same
     # instance must not re-fetch/re-publish even if the store still drifts.
@@ -567,14 +570,14 @@ def test_assistant_palette_gateway_service_promotes_registry_version_left_behind
     newer registry version instead of leaving the catalog stale."""
     gateway = _ManagedWorkflowGatewayStub()
     service = AssistantGatewayService(gateway)
-    service.ensure_catalog_workflow()  # creates + publishes 0.0.0 + promotes
+    service.ensure_catalog_workflow()  # creates + publishes 0.0.1 + promotes
 
     # Simulate the crashed second half: a newer bundle exists in the registry
-    # but the catalog still serves 0.0.0.
+    # but the catalog still serves 0.0.1.
     gateway._bundles.append(
         {
             "bundle_id": MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
-            "bundle_version": "0.0.1",
+            "bundle_version": "0.0.2",
             "default_entrypoint": "node-1",
             "entrypoints": [
                 {"flow_id": "node-1", "name": "Assistant", "interfaces": ["abstractassistant.agent.v1"]},
@@ -585,11 +588,11 @@ def test_assistant_palette_gateway_service_promotes_registry_version_left_behind
     service2 = AssistantGatewayService(gateway)
     workflows = service2.ensure_catalog_workflow()
 
-    assert gateway.promoted[-1]["bundle_version"] == "0.0.1"
+    assert gateway.promoted[-1]["bundle_version"] == "0.0.2"
     assert gateway.promoted[-1]["make_default"] is False
     # No new publish happened — the registry artifact was only promoted.
-    assert [p.get("bundle_version") for p in gateway.published] == [None]
-    assert workflows[0].bundle_version == "0.0.1"
+    assert [p.get("bundle_version") for p in gateway.published] == ["0.0.1"]
+    assert workflows[0].bundle_version == "0.0.2"
 
 
 @pytest.mark.basic

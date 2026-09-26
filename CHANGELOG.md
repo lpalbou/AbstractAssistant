@@ -44,6 +44,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - Requires AbstractCore 2.15.4 or newer.
 
 ### Fixed
+- The built-in orchestrator is no longer labelled "@0.0.0" in Settings → Models → Workflow and on
+  the About page: its real published version is shown, or "(built-in)" when it has none yet. The
+  app now publishes its first version explicitly as 0.0.1.
 - HTML written by the model (tags such as `<img onerror=…>`, `<a href="javascript:…">`, an unclosed
   `<b>`) is shown as text in replies, live or finished, instead of being handed to the transcript
   as markup. Formatting from Markdown and Mermaid diagrams are unaffected.

@@ -1821,6 +1821,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - Requires AbstractCore 2.15.4 or newer.
 
 ### Fixed
+- The built-in orchestrator is no longer labelled "@0.0.0" in Settings → Models → Workflow and on
+  the About page: its real published version is shown, or "(built-in)" when it has none yet. The
+  app now publishes its first version explicitly as 0.0.1.
 - HTML written by the model (tags such as `<img onerror=…>`, `<a href="javascript:…">`, an unclosed
   `<b>`) is shown as text in replies, live or finished, instead of being handed to the transcript
   as markup. Formatting from Markdown and Mermaid diagrams are unaffected.
@@ -3787,6 +3790,7 @@ from abstractassistant.ui.gateway_worker import GatewayWorker
 
 from .assistant_workflow import ASSISTANT_INTERFACE
 from .gateway_service import (
+    workflow_version_suffix,
     AssistantGatewayService,
     CapabilityRouteRow,
     GatewayDefaultWorkflow,
@@ -4226,14 +4230,14 @@ class AssistantController:
         default = self.gateway_default_workflow()
         built_in = self.built_in_workflow(options)
         if default.available:
-            version = f" @{default.bundle_version}" if default.bundle_version else ""
+            version = workflow_version_suffix(default.bundle_id, default.bundle_version)
             first_label = f"Gateway default \u2192 {default.name or default.bundle_id}{version}"
             detail = f"Set on the gateway (source: {default.source or 'unknown'}). A change there applies from the next turn."
         elif built_in is None:
             first_label = "Gateway default \u2192 unavailable"
             detail = self._no_workflow_reason(default)
         else:
-            version = f" @{built_in.bundle_version}" if built_in.bundle_version else ""
+            version = workflow_version_suffix(built_in.bundle_id, built_in.bundle_version, named_built_in=True)
             reason = f" (gateway reports: {default.reason})" if default.reason else ""
             first_label = f"Gateway default \u2192 Built-in orchestrator{version}{reason}"
             if not default.reported:
@@ -4243,8 +4247,8 @@ class AssistantController:
         rows: List[Dict[str, Any]] = [{"choice": WORKFLOW_GATEWAY_DEFAULT, "label": first_label, "detail": detail}]
         for option in options:
             managed = AssistantGatewayService.is_managed_option(option)
-            version = f" @{option.bundle_version}" if option.bundle_version else ""
             name = "Built-in orchestrator" if managed else (option.label or option.flow_id)
+            version = workflow_version_suffix(option.bundle_id, option.bundle_version, named_built_in=managed)
             rows.append(
                 {
                     "choice": {"bundle_id": option.bundle_id, "flow_id": option.flow_id, "registry_scope": option.registry_scope},
@@ -13161,6 +13165,27 @@ def _next_patch_version(known_versions: Iterable[str]) -> str:
     return ".".join(parts)
 
 
+# A gateway that is asked to publish WITHOUT a version mints "0.0.0" for the
+# first one; for the app's own orchestrator that number means "no version of
+# ours", so it is never shown (E2E N4) and never requested.
+FIRST_MANAGED_WORKFLOW_VERSION = "0.0.1"
+_PLACEHOLDER_VERSIONS = frozenset({"", "0.0.0"})
+
+
+def workflow_version_suffix(bundle_id: str, version: str, *, named_built_in: bool = False) -> str:
+    """The version part of a workflow label: `` @1.2.3`` for a real version.
+
+    The built-in orchestrator without a real published version (none yet, or
+    the gateway's placeholder ``0.0.0``) reads `` (built-in)`` — or nothing
+    when the label already says "Built-in orchestrator" — never a fake number.
+    """
+    text = str(version or "").strip()
+    managed = str(bundle_id or "").strip() == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
+    if managed and text in _PLACEHOLDER_VERSIONS:
+        return "" if named_built_in else " (built-in)"
+    return f" @{text}" if text else ""
+
+
 def _choice(value: Any, *, fallback_id: str = "", fallback_label: str = "") -> Optional[ChoiceItem]:
     if isinstance(value, str):
         text = value.strip()
@@ -13380,7 +13405,9 @@ class AssistantGatewayService:
                 str(getattr(option, "bundle_version", "") or "")
                 for option in self._managed_catalog_options(options)
             ]
-            next_version = _next_patch_version(known_versions)
+            # Always an explicit version: left to the gateway, the first one
+            # is minted as the placeholder "0.0.0".
+            next_version = _next_patch_version(known_versions) or FIRST_MANAGED_WORKFLOW_VERSION
             published = self._gateway.publish_visualflow(
                 flow_id=flow_id,
                 bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,

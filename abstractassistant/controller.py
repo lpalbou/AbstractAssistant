@@ -27,6 +27,7 @@ from abstractassistant.ui.gateway_worker import GatewayWorker
 
 from .assistant_workflow import ASSISTANT_INTERFACE
 from .gateway_service import (
+    workflow_version_suffix,
     AssistantGatewayService,
     CapabilityRouteRow,
     GatewayDefaultWorkflow,
@@ -466,14 +467,14 @@ class AssistantController:
         default = self.gateway_default_workflow()
         built_in = self.built_in_workflow(options)
         if default.available:
-            version = f" @{default.bundle_version}" if default.bundle_version else ""
+            version = workflow_version_suffix(default.bundle_id, default.bundle_version)
             first_label = f"Gateway default \u2192 {default.name or default.bundle_id}{version}"
             detail = f"Set on the gateway (source: {default.source or 'unknown'}). A change there applies from the next turn."
         elif built_in is None:
             first_label = "Gateway default \u2192 unavailable"
             detail = self._no_workflow_reason(default)
         else:
-            version = f" @{built_in.bundle_version}" if built_in.bundle_version else ""
+            version = workflow_version_suffix(built_in.bundle_id, built_in.bundle_version, named_built_in=True)
             reason = f" (gateway reports: {default.reason})" if default.reason else ""
             first_label = f"Gateway default \u2192 Built-in orchestrator{version}{reason}"
             if not default.reported:
@@ -483,8 +484,8 @@ class AssistantController:
         rows: List[Dict[str, Any]] = [{"choice": WORKFLOW_GATEWAY_DEFAULT, "label": first_label, "detail": detail}]
         for option in options:
             managed = AssistantGatewayService.is_managed_option(option)
-            version = f" @{option.bundle_version}" if option.bundle_version else ""
             name = "Built-in orchestrator" if managed else (option.label or option.flow_id)
+            version = workflow_version_suffix(option.bundle_id, option.bundle_version, named_built_in=managed)
             rows.append(
                 {
                     "choice": {"bundle_id": option.bundle_id, "flow_id": option.flow_id, "registry_scope": option.registry_scope},

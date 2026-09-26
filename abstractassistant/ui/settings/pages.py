@@ -60,6 +60,7 @@ from ...preferences import (
     WORKSPACE_ACCESS_MODES,
     normalize_workspace_path,
 )
+from ...gateway_service import workflow_version_suffix
 from ...theme import THEME
 from .common import Card, Chip, Note, SegmentedControl, SettingsPage, button, safe_attr, safe_call
 from .route_editor import OVERRIDE_ROUTE_LABELS, RouteOverrideEditor
@@ -1515,11 +1516,12 @@ def describe_workflow_selection(workflow: Any) -> str:
     flow_id = str(getattr(workflow, "flow_id", "") or "")
     version = str(getattr(workflow, "bundle_version", "") or "")
     label = str(getattr(workflow, "label", "") or "") or bundle_id
-    at = f" @{version}" if version else ""
+    at = workflow_version_suffix(bundle_id, version)
     source = str(getattr(workflow, "source", "") or "")
     if flow_id == WORKFLOW_GATEWAY_DEFAULT:
         return f"Gateway default \u2192 {label}{at} ({bundle_id})"
     if source == "built_in":
+        at = workflow_version_suffix(bundle_id, version, named_built_in=True)
         return f"Built-in orchestrator{at} ({bundle_id}:{flow_id})"
     return f"{label}{at} ({bundle_id}:{flow_id})"
 
@@ -1534,7 +1536,7 @@ def describe_resolved_workflow(resolved: Any) -> str:
     name = str(resolved.get("name") or "") or bundle_id
     source = str(resolved.get("source") or "")
     origin = {"gateway_default": "the gateway default", "client": "chosen by this app"}.get(source, source)
-    at = f" @{version}" if version else ""
+    at = workflow_version_suffix(bundle_id, version)
     return f"{name}{at} ({bundle_id}:{flow_id})" + (f" \u2014 {origin}" if origin else "")
 
 

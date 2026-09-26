@@ -181,6 +181,27 @@ def _next_patch_version(known_versions: Iterable[str]) -> str:
     return ".".join(parts)
 
 
+# A gateway that is asked to publish WITHOUT a version mints "0.0.0" for the
+# first one; for the app's own orchestrator that number means "no version of
+# ours", so it is never shown (E2E N4) and never requested.
+FIRST_MANAGED_WORKFLOW_VERSION = "0.0.1"
+_PLACEHOLDER_VERSIONS = frozenset({"", "0.0.0"})
+
+
+def workflow_version_suffix(bundle_id: str, version: str, *, named_built_in: bool = False) -> str:
+    """The version part of a workflow label: `` @1.2.3`` for a real version.
+
+    The built-in orchestrator without a real published version (none yet, or
+    the gateway's placeholder ``0.0.0``) reads `` (built-in)`` — or nothing
+    when the label already says "Built-in orchestrator" — never a fake number.
+    """
+    text = str(version or "").strip()
+    managed = str(bundle_id or "").strip() == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
+    if managed and text in _PLACEHOLDER_VERSIONS:
+        return "" if named_built_in else " (built-in)"
+    return f" @{text}" if text else ""
+
+
 def _choice(value: Any, *, fallback_id: str = "", fallback_label: str = "") -> Optional[ChoiceItem]:
     if isinstance(value, str):
         text = value.strip()
@@ -400,7 +421,9 @@ class AssistantGatewayService:
                 str(getattr(option, "bundle_version", "") or "")
                 for option in self._managed_catalog_options(options)
             ]
-            next_version = _next_patch_version(known_versions)
+            # Always an explicit version: left to the gateway, the first one
+            # is minted as the placeholder "0.0.0".
+            next_version = _next_patch_version(known_versions) or FIRST_MANAGED_WORKFLOW_VERSION
             published = self._gateway.publish_visualflow(
                 flow_id=flow_id,
                 bundle_id=MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
