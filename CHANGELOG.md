@@ -3,6 +3,17 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## [0.6.1] - 2026-09-27
+
+### Changed
+- The default screen edge gap is 12 px (was 28 px). A gap already saved in your preferences (for
+  example 28 px from 0.6.0) is kept; change it in Settings → Appearance → Screen edge gap.
+
+### Fixed
+- Settings opens fully on screen, inside the menu bar, Dock and screen edge gap: it no longer opens
+  with its right side (and the Connect button) past the screen edge, including after a text size
+  change. On a screen too small for it, it is shrunk to fit.
+
 ## [0.6.0] - 2026-09-26
 
 ### Added
