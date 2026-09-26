@@ -57,7 +57,9 @@ Workflow resolution:
   `abstractassistant.agent.v1` (`default_agent_workflows` on `/api/gateway/workflow-catalog`),
   each run starts with `flow_id: "@default"` and `interface: "abstractassistant.agent.v1"`, and the
   gateway resolves it at run start. When it reports none, the built-in
-  `abstractassistant-orchestrator` workflow runs, and Settings shows the gateway's reason. When
+  `abstractassistant-orchestrator` workflow runs, and Settings shows the gateway's reason. The app
+  publishes that workflow to the tenant catalog with explicit versions (the first is 0.0.1) and
+  labels it without a number until one exists. When
   neither is available, sending is blocked with a message saying why; the app never picks another
   workflow on its own.
 - **A chosen workflow** runs its latest published version. If it is removed from the catalog,

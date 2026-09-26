@@ -28,7 +28,7 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1` (its description names where the gateway says the setting comes from); **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface; a chosen workflow always runs its latest version. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
+| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1`, with the line underneath naming where the gateway says the setting comes from; **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface, as **name @version — bundle**, the app's own as **Built-in orchestrator @version**; a chosen workflow always runs its latest version. The built-in orchestrator shows no number until the app has published a real version of it (the first is 0.0.1): its row reads **Built-in orchestrator**, and where it appears under another name, **name (built-in)** — the gateway's placeholder 0.0.0 is never shown. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
@@ -155,8 +155,12 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 - **Gateway**: the AbstractGateway version, the AbstractFramework version installed on the gateway
   host (or "not installed on the gateway host"), and each gateway package version, as the gateway
   reports them; a single "Gateway: unavailable (reason)" row when they cannot be read.
-- **Workflow**: the workflow the next turn runs; **Last turn ran**: the workflow the gateway
-  resolved for the last run start; **Data folder** (with Reveal in Finder).
+- **Workflow**: the workflow the next turn runs, as **Gateway default → name @version (bundle)**,
+  **Built-in orchestrator @version (bundle:flow)** or **name @version (bundle:flow)**; **Last turn
+  ran**: the workflow the gateway resolved for the last run start, as **name @version
+  (bundle:flow) — the gateway default | chosen by this app**. Both follow the workflow row's
+  rule for the built-in orchestrator: no number (or **(built-in)**) until it has a real published
+  version. **Data folder** (with Reveal in Finder).
 - `Copy diagnostics` copies the same facts plus the connection (without secrets) and preferences.
 
 ## Preferences file
