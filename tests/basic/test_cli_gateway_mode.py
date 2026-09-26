@@ -122,7 +122,7 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
         def __init__(self, gateway, debug: bool = False) -> None:
             self._gateway = gateway
 
-        def follow_run(self, *, root_run_id, on_record, should_stop) -> None:
+        def follow_run(self, *, root_run_id, on_record, should_stop, on_delta=None) -> None:
             return None
 
         def get_run_status(self, *, run_id: str) -> str:

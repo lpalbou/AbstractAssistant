@@ -161,6 +161,15 @@ from .core.link_targets import (
     path_kind,
 )
 from .ui.activity import RunActivityCard, RunActivityModel, build_activity_qss
+from .gateway.live_deltas import (
+    ASSISTANT_DELTA,
+    ASSISTANT_DELTA_END,
+    ASSISTANT_DELTA_RESET,
+    subagent_caption,
+    TRUNCATED_NOTE as LIVE_TRUNCATED_NOTE,
+    LiveReply,
+    end_reason_text,
+)
 from .ui.session_switcher import SessionSwitcher
 from .theme import DEFAULT_THEME, THEME, activate_metrics
 from .retint import parse_color, retint_stylesheet
@@ -3563,6 +3572,138 @@ def _subprocess_audio_player_command(
     return None
 
 
+class LiveMessageCard(MessageCard):
+    """The reply while the model is still writing it (contract S).
+
+    One card per streamed LLM call (``call_id``). The content channel is the
+    reply text, rendered like any assistant message; the reasoning channel
+    goes to a collapsed "Thinking" area and is never mixed into the reply.
+    The durable assistant message REPLACES this card when it is appended —
+    the live text is only a preview. Updated in place by the palette's
+    throttled flush (``set_live_text``); never rebuilt per delta.
+    """
+
+    def __init__(
+        self,
+        *,
+        call_id: str,
+        run_id: str,
+        renderer: MarkdownRenderer,
+        bubble_width: int,
+        caption: str = "",
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        # An empty message key: a live card is never a scroll anchor (it is
+        # about to be replaced) and never collides with a durable message.
+        super().__init__(
+            message={"role": "assistant", "content": ""},
+            message_key="",
+            renderer=renderer,
+            on_open_artifact=lambda *_args: None,
+            bubble_width=bubble_width,
+            parent=parent,
+        )
+        self.setObjectName("liveMessageContainer")
+        self.call_id = str(call_id or "")
+        self.run_id = str(run_id or "")
+        self._renderer = renderer
+        self._reasoning = ""
+        self._truncated = False
+        self._thinking_open = False
+        self._caption = str(caption or "").strip()
+        layout = self._bubble.layout()
+
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(6)
+        self.live_label = QLabel(self._label_text("Writing…"))
+        self.live_label.setObjectName("messageTimestamp")
+        top.addWidget(self.live_label, 0, Qt.AlignVCenter)
+        top.addStretch(1)
+        self.thinking_toggle = QPushButton("Thinking ▸")
+        self.thinking_toggle.setObjectName("liveThinkingToggle")
+        self.thinking_toggle.setCursor(QCursor(Qt.PointingHandCursor))
+        self.thinking_toggle.setFlat(True)
+        self.thinking_toggle.clicked.connect(self._toggle_thinking)
+        self.thinking_toggle.hide()
+        top.addWidget(self.thinking_toggle, 0, Qt.AlignVCenter)
+        layout.addLayout(top)
+
+        self.reasoning_view = AutoSizingTextBrowser(min_height=20, max_height=180)
+        self.reasoning_view.setObjectName("liveReasoningText")
+        self.reasoning_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.reasoning_view.hide()
+        layout.addWidget(self.reasoning_view)
+
+        self.truncated_note = QLabel(LIVE_TRUNCATED_NOTE)
+        self.truncated_note.setObjectName("liveTruncatedNote")
+        self.truncated_note.setWordWrap(True)
+        self.truncated_note.hide()
+        layout.addWidget(self.truncated_note)
+
+        self.content_view = AutoSizingTextBrowser(min_height=20, max_height=None)
+        self.content_view.setObjectName("assistantMessageText")
+        self.content_view.setStyleSheet(
+            f"background: transparent; border: none; color: {THEME.text_primary}; padding: 0px; margin: 0px;"
+        )
+        self.content_view.hide()
+        layout.addWidget(self.content_view)
+
+    def _label_text(self, state: str) -> str:
+        return f"{self._caption} — {state}" if self._caption else state
+
+    @property
+    def caption(self) -> str:
+        return self._caption
+
+    @property
+    def content_text(self) -> str:
+        return self._content
+
+    @property
+    def reasoning_text(self) -> str:
+        return self._reasoning
+
+    @property
+    def thinking_open(self) -> bool:
+        return self._thinking_open
+
+    def _toggle_thinking(self) -> None:
+        self._thinking_open = not self._thinking_open
+        self._sync_thinking()
+
+    def _sync_thinking(self) -> None:
+        has = bool(self._reasoning)
+        self.thinking_toggle.setVisible(has)
+        self.thinking_toggle.setText("Thinking ▾" if self._thinking_open else "Thinking ▸")
+        self.reasoning_view.setVisible(has and self._thinking_open)
+
+    def set_live_text(self, *, content: str, reasoning: str, truncated: bool) -> None:
+        width = max(1, int(self._bubble.width() or 0) - 24)
+        if content != self._content:
+            self._content = content  # the copy button copies what is shown
+            self.content_view.setHtml(_assistant_html(self._renderer, content) if content else "")
+            self.content_view.setVisible(bool(content))
+            self.content_view.refresh_height(width)
+        if reasoning != self._reasoning:
+            self._reasoning = reasoning
+            bar = self.reasoning_view.verticalScrollBar()
+            follow = bar is None or bar.value() >= bar.maximum() - 4
+            self.reasoning_view.setPlainText(reasoning)
+            self.reasoning_view.refresh_height(width)
+            if follow and bar is not None:
+                bar.setValue(bar.maximum())
+        self._sync_thinking()
+        self._truncated = bool(truncated)
+        self.truncated_note.setVisible(self._truncated)
+
+    def set_ended(self, reason: str) -> None:
+        """The model call finished writing; the card waits for the durable
+        message that replaces it."""
+        if reason == "completed":
+            self.live_label.setText(self._label_text("Finishing…"))
+
+
 class InlineMediaPlayer(QFrame):
     def __init__(
         self, *, kind: str, path: Path, title: str, parent: Optional[QWidget] = None
@@ -5448,6 +5589,14 @@ class AssistantPalette(QMainWindow):
     # The current history status regardless of where it renders (top label or
     # thinking badge) — generic worker statuses only fill in when this is empty.
     _history_status_text = ""
+    # Live replies (contract S): call_id -> LiveReply / LiveMessageCard, the
+    # calls changed since the last repaint, and the repaint throttle.
+    _live_replies = None
+    _live_cards = None
+    _live_dirty = None
+    _live_flush_timer = None
+    _live_closed_calls = None
+    LIVE_FLUSH_MIN_MS = 40
     # True from construction until the startup bootstrap thread warms the
     # gateway caches; sends are refused meanwhile so an early send cannot
     # block the GUI thread on a cold catalog fetch or race the catalog
@@ -5982,6 +6131,8 @@ class AssistantPalette(QMainWindow):
         self._last_run_status = ended if recovering else ""
         self._run_busy = not recovering
         self._run_has_final_output = False
+        self._discard_live_replies()
+        self._live_closed_calls = set()
         self._clear_run_activity()
         self._activity_model = RunActivityModel(run_id=run_id, reattached=True)
         worker.event_emitted.connect(self._on_worker_event)
@@ -7200,7 +7351,14 @@ class AssistantPalette(QMainWindow):
                 )
                 self._history_cards_by_key[message_key] = card
                 self.history_layout.addWidget(card)
-            if not visible_messages and not self._show_thinking_indicator():
+            self._live_cards = {}
+            for reply in list((self._state("_live_replies") or {}).values()):
+                if reply.content or reply.reasoning:
+                    self.history_layout.addWidget(
+                        self._build_live_card(reply, viewport_width)
+                    )
+            has_live = bool(self._live_cards)
+            if not visible_messages and not has_live and not self._show_thinking_indicator():
                 self.history_layout.addWidget(self._build_history_empty_state())
             self._thinking_card = None
             if self._show_thinking_indicator():
@@ -7444,9 +7602,11 @@ class AssistantPalette(QMainWindow):
         )
         if normalized == "bottom":
             bar.setValue(bar.maximum())
-            # Asynchronous text browser reflow safety timers
-            QTimer.singleShot(50, lambda: bar.setValue(bar.maximum()))
-            QTimer.singleShot(150, lambda: bar.setValue(bar.maximum()))
+            # Asynchronous text browser reflow safety timers. Guarded: a bare
+            # lambda over `bar` raised into Qt (which aborts the process) when
+            # the palette was torn down within the 150 ms.
+            QTimer.singleShot(50, self._pin_history_bottom)
+            QTimer.singleShot(150, self._pin_history_bottom)
             return
         target_key = str(getattr(request, "message_key", "") or "").strip()
         if normalized == "message_top" and not target_key:
@@ -7815,6 +7975,8 @@ class AssistantPalette(QMainWindow):
         self._run_busy = True
         self._run_has_final_output = False
         self._tray_completion_unread = False
+        self._discard_live_replies()
+        self._live_closed_calls = set()
         self._clear_run_activity()
         self._activity_model = RunActivityModel(run_id="", reattached=False)
         self._set_status("Running assistant workflow...", tone="busy")
@@ -7851,6 +8013,15 @@ class AssistantPalette(QMainWindow):
         if not isinstance(payload, dict):
             return
         typ = str(payload.get("type") or "").strip()
+        if typ == ASSISTANT_DELTA:
+            self._on_live_delta(payload)
+            return
+        if typ == ASSISTANT_DELTA_END:
+            self._on_live_delta_end(payload)
+            return
+        if typ == ASSISTANT_DELTA_RESET:
+            self._on_live_reset()
+            return
         self._feed_activity(payload)
         if typ == "run_start_failed":
             # The gateway refused to start the run (workspace grant out of
@@ -7938,6 +8109,7 @@ class AssistantPalette(QMainWindow):
                 status_lower not in inactive_statuses and not self._run_has_final_output
             )
             if status_lower in {"cancelled", "failed", "completed"}:
+                self._discard_live_replies()
                 # What the RUN said it ended as. `_cancel_requested` only
                 # knows about a stop THIS process issued, so a run cancelled
                 # before a relaunch came back described as "completed".
@@ -8018,6 +8190,11 @@ class AssistantPalette(QMainWindow):
             self._on_attachments_uploaded(payload.get("attachments"))
             return
         if typ == "assistant":
+            # The durable message replaces the live text: drop every live
+            # card BEFORE the transcript redraws, so the reply never shows
+            # twice (the answer may come from the root run while the text
+            # streamed from its agent subrun, so run ids do not pair up).
+            self._discard_live_replies(close=True)
             is_final = bool(payload.get("final"))
             if is_final:
                 self._run_has_final_output = True
@@ -8193,6 +8370,7 @@ class AssistantPalette(QMainWindow):
         """Fatal follower error: say why where the user is looking (banner +
         run status), notify only when the palette is hidden, no modal."""
         text = str(error or "Unknown error").strip() or "Unknown error"
+        self._discard_live_replies()
         self._run_busy = False
         self._run_has_final_output = True
         self._tray_completion_unread = False
@@ -8240,6 +8418,7 @@ class AssistantPalette(QMainWindow):
         current = getattr(self, "__dict__", {}).get("_worker")
         if sender is not None and current is not None and current is not sender:
             return
+        self._discard_live_replies()
         had_indicator = self._show_thinking_indicator()
         was_stopped = bool(self._cancel_requested)
         start_failed = bool(self._state("_run_start_failed", False))
@@ -8288,6 +8467,238 @@ class AssistantPalette(QMainWindow):
             prompt_edit = getattr(self, "prompt_edit", None)
             if prompt_edit is not None and prompt_edit.toPlainText().strip():
                 QTimer.singleShot(0, self._submit)
+
+    # ------------------------------------------------------------ live replies
+
+    def _on_live_delta(self, payload: Dict[str, Any]) -> None:
+        """Fold one live delta into its call's text; repaint on the throttle.
+
+        Every delta updates the model at once (nothing is dropped); only the
+        repaint is batched, so a fast stream costs one render per interval.
+        """
+        call_id = str(payload.get("call_id") or "").strip()
+        if not call_id:
+            return
+        # Never bring live text back once the answer is on screen, nor for a
+        # call whose card a durable message already replaced (S-2.2).
+        if bool(self._state("_run_has_final_output", False)):
+            return
+        if call_id in (self._state("_live_closed_calls") or set()):
+            return
+        replies = self._state("_live_replies")
+        if replies is None:
+            replies = {}
+            self._live_replies = replies
+        reply = replies.get(call_id)
+        if reply is None:
+            # A new model call: the previous call's finished text was an
+            # intermediate step (its tools follow in the activity card) and
+            # a durable message will carry whatever of it is the answer.
+            for other_id, other in list(replies.items()):
+                if other.ended:
+                    self._drop_live_reply(other_id)
+            reply = LiveReply(
+                run_id=str(payload.get("run_id") or ""),
+                call_id=call_id,
+                node_id=str(payload.get("node_id") or ""),
+                subagent=bool(payload.get("subagent")),
+            )
+            replies[call_id] = reply
+        if reply.apply_delta(payload):
+            self._mark_live_dirty(call_id)
+
+    def _on_live_delta_end(self, payload: Dict[str, Any]) -> None:
+        call_id = str(payload.get("call_id") or "").strip()
+        reason = str(payload.get("reason") or "failed")
+        if reason == "unavailable":
+            # The call ran without streaming; say why in one line (S-2.7).
+            self._drop_live_reply(call_id)
+            self._set_history_status(
+                end_reason_text(reason, str(payload.get("detail") or "")), tone="info"
+            )
+            return
+        reply = (self._state("_live_replies") or {}).get(call_id)
+        if reply is None:
+            # One delta_end arrives per call attempt, streamed or not: an
+            # unknown call is normal and has nothing on screen.
+            return
+        reply.ended = reason
+        if reason == "completed":
+            self._mark_live_dirty(call_id)
+            return
+        # Failed/cancelled: the text is not a reply. Remove it and say why.
+        had_card = call_id in (self._state("_live_cards") or {})
+        self._drop_live_reply(call_id)
+        if had_card or reply.content or reply.reasoning:
+            self._set_history_status(end_reason_text(reason), tone="info")
+
+    def _on_live_reset(self) -> None:
+        """The run stream (re)connected: drop every live text (S-2.3).
+
+        The models are cleared at once; the cards go on the next flush, so a
+        reply whose snapshot arrives within the flush interval keeps its card
+        (updated in place) instead of flickering out and back.
+        """
+        replies = self._state("_live_replies")
+        if replies:
+            replies.clear()
+        for call_id in list((self._state("_live_cards") or {}).keys()):
+            self._mark_live_dirty(call_id)
+
+    def _mark_live_dirty(self, call_id: str) -> None:
+        dirty = self._state("_live_dirty")
+        if dirty is None:
+            dirty = set()
+            self._live_dirty = dirty
+        dirty.add(call_id)
+        timer = self._state("_live_flush_timer")
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._flush_live_replies)
+            self._live_flush_timer = timer
+            self._live_flush_interval_ms = self.LIVE_FLUSH_MIN_MS
+        if not timer.isActive():
+            timer.start(int(self._state("_live_flush_interval_ms", self.LIVE_FLUSH_MIN_MS)))
+
+    def _history_at_bottom(self) -> bool:
+        scroll = self._state("history_scroll")
+        bar = scroll.verticalScrollBar() if scroll is not None else None
+        if bar is None:
+            return True
+        return int(bar.value()) >= int(bar.maximum()) - 24
+
+    def _build_live_card(self, reply: LiveReply, viewport_width: int) -> "LiveMessageCard":
+        card = LiveMessageCard(
+            call_id=reply.call_id,
+            run_id=reply.run_id,
+            renderer=self._renderer,
+            bubble_width=_message_bubble_width(viewport_width, role="assistant"),
+            caption=subagent_caption(reply.node_id) if reply.subagent else "",
+        )
+        card.set_live_text(content=reply.content, reasoning=reply.reasoning, truncated=reply.truncated)
+        if reply.ended:
+            card.set_ended(reply.ended)
+        cards = self._state("_live_cards")
+        if cards is None:
+            cards = {}
+            self._live_cards = cards
+        cards[reply.call_id] = card
+        return card
+
+    def _flush_live_replies(self) -> None:
+        """Repaint the live cards changed since the last flush.
+
+        The interval adapts to the render cost (3x the last flush, 40 ms
+        minimum) so a long reply re-rendered as markdown cannot starve the
+        event loop; the text itself is never cut.
+        """
+        dirty = self._state("_live_dirty") or set()
+        self._live_dirty = set()
+        replies = self._state("_live_replies") or {}
+        for call_id in [c for c in dirty if c not in replies]:
+            # Dropped by a reconnect and not re-sent: that reply has ended.
+            self._drop_live_reply(call_id)
+        if not dirty or not replies:
+            return
+        follow = self._history_at_bottom()
+        started = time.monotonic()
+        cards = self._state("_live_cards")
+        if cards is None:
+            cards = {}
+            self._live_cards = cards
+        viewport_width = int(self.history_scroll.viewport().width() or self.width())
+        changed = False
+        for call_id in list(dirty):
+            reply = replies.get(call_id)
+            if reply is None or not (reply.content or reply.reasoning):
+                continue
+            card = cards.get(call_id)
+            try:
+                if card is None:
+                    card = self._build_live_card(reply, viewport_width)
+                    anchor = self._state("_thinking_card")
+                    index = self.history_layout.indexOf(anchor) if anchor is not None else -1
+                    if index >= 0:
+                        self.history_layout.insertWidget(index, card)
+                    else:
+                        self.history_layout.addWidget(card)
+                    self._remove_history_empty_state()
+                else:
+                    card.set_live_text(
+                        content=reply.content, reasoning=reply.reasoning, truncated=reply.truncated
+                    )
+                    if reply.ended:
+                        card.set_ended(reply.ended)
+                changed = True
+            except RuntimeError:
+                # The card was deleted under us by a history rebuild; the
+                # rebuild re-created it from the same state.
+                cards.pop(call_id, None)
+        if changed:
+            self._sync_history_viewport()
+            if follow:
+                # Pin now and once more after the text browser reflows. Not
+                # `_apply_history_scroll_request`: its timers capture the
+                # scrollbar and would fire into a deleted widget if the window
+                # goes away mid-stream (a slot that raises aborts Qt).
+                self._pin_history_bottom()
+                QTimer.singleShot(60, self._pin_history_bottom)
+        elapsed_ms = (time.monotonic() - started) * 1000.0
+        self._live_flush_interval_ms = max(self.LIVE_FLUSH_MIN_MS, min(1000, int(elapsed_ms * 3)))
+
+    def _pin_history_bottom(self) -> None:
+        try:
+            bar = self.history_scroll.verticalScrollBar()
+            bar.setValue(bar.maximum())
+        except (RuntimeError, AttributeError):
+            return  # the palette was torn down
+
+    def _remove_history_empty_state(self) -> None:
+        for index in range(self.history_layout.count() - 1, -1, -1):
+            item = self.history_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None and widget.objectName() == "historyEmptyState":
+                self.history_layout.takeAt(index)
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _drop_live_reply(self, call_id: str) -> None:
+        replies = self._state("_live_replies")
+        if replies is not None:
+            replies.pop(call_id, None)
+        dirty = self._state("_live_dirty")
+        if dirty is not None:
+            dirty.discard(call_id)
+        cards = self._state("_live_cards")
+        card = cards.pop(call_id, None) if cards is not None else None
+        if card is None:
+            return
+        try:
+            self.history_layout.removeWidget(card)
+            card.hide()
+            card.setParent(None)
+            card.deleteLater()
+        except RuntimeError:
+            return
+        self._sync_history_viewport()
+
+    def _discard_live_replies(self, *, close: bool = False) -> None:
+        """Drop every live card (a durable message replaced them, or the run
+        ended). ``close`` also remembers the calls so a late delta for one of
+        them cannot recreate its card."""
+        if close:
+            closed = self._state("_live_closed_calls")
+            if closed is None:
+                closed = set()
+                self._live_closed_calls = closed
+            closed.update((self._state("_live_replies") or {}).keys())
+            closed.update((self._state("_live_cards") or {}).keys())
+        for call_id in list((self._state("_live_replies") or {}).keys()):
+            self._drop_live_reply(call_id)
+        for call_id in list((self._state("_live_cards") or {}).keys()):
+            self._drop_live_reply(call_id)
 
     def _on_user_message_appended(self, _content: str = "") -> None:
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
@@ -9850,6 +10261,23 @@ class AssistantPalette(QMainWindow):
             QLabel#messageTimestamp {
                 color: rgba(255, 255, 255, 0.45);
                 font-size: 10px;
+            }
+            QPushButton#liveThinkingToggle {
+                background: transparent;
+                border: none;
+                color: #9bb0c6;
+                font-size: 11px;
+                padding: 0px 4px;
+            }
+            QTextBrowser#liveReasoningText {
+                background: transparent;
+                border: none;
+                color: rgba(255, 255, 255, 0.55);
+                font-size: 11px;
+            }
+            QLabel#liveTruncatedNote {
+                color: #e8a54a;
+                font-size: 11px;
             }
             QLabel#historyEmptyTitle {
                 color: #b9c7d7;

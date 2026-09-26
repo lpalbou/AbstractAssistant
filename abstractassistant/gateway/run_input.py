@@ -100,6 +100,7 @@ def build_run_input_data(
     media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     thinking: str = "",
     speculation: Any = None,
+    stream: Optional[bool] = None,
     workspace_root: str = "",
     workspace_access_mode: str = "",
     workspace_allowed_paths: Optional[List[str]] = None,
@@ -134,6 +135,9 @@ def build_run_input_data(
     ``thinking_control``: none|minimal|low|medium|high|xhigh); it rides
     ``_runtime.thinking``, the documented inheritance lane every LLM/agent node
     reads (a top-level pin would need a flow input the orchestrator lacks).
+    ``stream`` asks for live replies (``_runtime.stream``, contract S): True
+    streams the model's text as it is written, False pins it off, None sends
+    NOTHING so the gateway's own ``agents.streaming_default`` applies.
     ``workspace_root`` / ``workspace_access_mode`` / ``workspace_allowed_paths``
     scope the run's filesystem tools; the gateway sanitizes them against its own
     policy and may clamp or refuse them. Blanks send nothing (server-managed).
@@ -182,6 +186,10 @@ def build_run_input_data(
     if speculation is not None:
         from abstractassistant.speculation import normalize_speculation
         runtime_ns["speculation"] = normalize_speculation(speculation)
+    if stream is not None:
+        if not isinstance(stream, bool):
+            raise ValueError(f"stream must be None, True or False, not {stream!r}")
+        runtime_ns["stream"] = stream
 
     if isinstance(tool_policy, dict):
         auto_raw = tool_policy.get("auto_approve_tools") or tool_policy.get("autoApproveTools") or tool_policy.get("autoApprove")

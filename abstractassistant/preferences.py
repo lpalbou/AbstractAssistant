@@ -24,6 +24,29 @@ def _load_speculation(value: Any) -> Any:
         return None
 
 
+# "Stream replies" (contract S): show the reply while the model writes it.
+# "gateway_default" sends nothing (the gateway's `agents.streaming_default`
+# decides); "on"/"off" send `_runtime.stream: true|false` with every run.
+STREAM_REPLIES_GATEWAY_DEFAULT = "gateway_default"
+STREAM_REPLIES_CHOICES = (STREAM_REPLIES_GATEWAY_DEFAULT, "on", "off")
+
+
+def normalize_stream_replies(value: Any) -> str:
+    """A saved value outside the three choices loads as the gateway default."""
+    text = str(value or "").strip().lower()
+    return text if text in STREAM_REPLIES_CHOICES else STREAM_REPLIES_GATEWAY_DEFAULT
+
+
+def stream_replies_runtime_value(value: Any) -> Optional[bool]:
+    """The `_runtime.stream` value for a choice: None = send nothing."""
+    choice = normalize_stream_replies(value)
+    if choice == "on":
+        return True
+    if choice == "off":
+        return False
+    return None
+
+
 # Reasoning effort ladder — the gateway contract's `thinking_control.values`
 # (`contracts.common.runs.start.thinking_control`). The live list is preferred
 # when the gateway advertises one; this is the offline fallback and validator.
@@ -296,6 +319,8 @@ class AssistantPreferences:
     # a stale choice degrades, never fails.
     reasoning_effort: str = ""
     speculation: Optional[Any] = None  # None inherits; False pins MTP off.
+    # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
+    stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
     # Local workspace scope for the run's tools, sent as the run-input pins
     # `workspace_root` / `workspace_access_mode` / `workspace_allowed_paths`.
     # The gateway sanitizes and may clamp them; blanks mean "server-managed".
@@ -365,6 +390,7 @@ class AssistantPreferences:
             route_overrides=_normalize_route_overrides(raw.get("route_overrides")),
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
             speculation=_load_speculation(raw.get("speculation")),
+            stream_replies=normalize_stream_replies(raw.get("stream_replies")),
             workspace_root=normalize_workspace_path(raw.get("workspace_root")),
             workspace_access_mode=normalize_workspace_access_mode(raw.get("workspace_access_mode")),
             workspace_allowed_paths=_normalize_workspace_paths(raw.get("workspace_allowed_paths")),
@@ -399,6 +425,7 @@ class AssistantPreferences:
             "route_overrides": _normalize_route_overrides(self.route_overrides),
             "reasoning_effort": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
+            "stream_replies": normalize_stream_replies(self.stream_replies),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
@@ -421,6 +448,11 @@ class AssistantPreferences:
         return {
             "thinking": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
+            **(
+                {"stream": stream_replies_runtime_value(self.stream_replies)}
+                if stream_replies_runtime_value(self.stream_replies) is not None
+                else {}
+            ),
             "workspace_root": normalize_workspace_path(self.workspace_root),
             "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
             "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),

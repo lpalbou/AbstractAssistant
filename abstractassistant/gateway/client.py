@@ -24,6 +24,7 @@ import warnings
 
 from .sse_parser import SseParser
 from .types import LedgerStreamEvent
+from .live_deltas import LIVE_EVENTS as LIVE_DELTA_EVENTS
 
 
 @dataclass(frozen=True)
@@ -549,7 +550,22 @@ class GatewayClient:
         stop_signal: Optional[Any] = None,
         timeout_s: Optional[float] = None,
         max_idle_s: Optional[float] = None,
+        on_delta: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        on_open: Optional[Callable[[], None]] = None,
     ) -> None:
+        """Follow a run's ledger over SSE.
+
+        ``on_step`` receives each durable ``step`` event (``{cursor, record}``);
+        the cursor lives in that payload, so the caller's resume point only
+        ever comes from durable rows. ``on_delta(event_name, data)`` receives
+        the volatile live-reply events ``llm.delta`` / ``llm.delta_end``
+        (contract S). They carry no ``id:`` and no cursor, never touch the
+        resume point, and are dropped when no ``on_delta`` is given. Either
+        kind of event counts as stream activity for ``max_idle_s``: a long
+        generation streams deltas with no ledger row for a while.
+        ``on_open()`` runs once the stream is connected, before any event is
+        read: a reconnect must drop live text before the snapshots arrive.
+        """
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("stream_ledger: run_id is required")
@@ -560,12 +576,25 @@ class GatewayClient:
         last_step_at = time.monotonic()
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if on_open is not None:
+                    on_open()
                 parser = SseParser()
                 for raw in resp:
                     if stop_signal is not None and bool(getattr(stop_signal, "is_set", lambda: False)()):
                         return
                     text = _decode_bytes(raw, label="stream_ledger")
                     for ev in parser.push(text):
+                        if ev.event in LIVE_DELTA_EVENTS:
+                            if on_delta is None or not ev.data:
+                                continue
+                            try:
+                                delta = json.loads(ev.data)
+                            except Exception:
+                                warnings.warn(f"#FALLBACK: stream_ledger {ev.event} data was not JSON; dropping")
+                                continue
+                            last_step_at = time.monotonic()
+                            on_delta(ev.event, delta)
+                            continue
                         if ev.event != "step" or not ev.data:
                             continue
                         try:

@@ -11,7 +11,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def _package_version() -> str:
@@ -50,7 +50,17 @@ def create_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="Run one agentic turn in the terminal")
     run.add_argument("--prompt", type=str, required=True, help="User prompt text")
-    
+    run.add_argument(
+        "--stream",
+        choices=("on", "off"),
+        default=None,
+        help=(
+            "Stream the reply while the model writes it (on) or not (off). Default: the "
+            "'Stream replies' setting saved in the app (gateway default unless changed). "
+            "Live text goes to stderr; the final answer is printed once on stdout."
+        ),
+    )
+
     return parser
 
 
@@ -99,6 +109,103 @@ def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
     return ans in {"y", "yes"}
 
 
+def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]:
+    """`--stream on|off` wins; else the saved preference (absent = gateway default)."""
+    if flag == "on":
+        return True
+    if flag == "off":
+        return False
+    if flag is not None:
+        raise ValueError(f"--stream must be on or off, not {flag!r}")
+    value = scope.get("stream")
+    return value if isinstance(value, bool) else None
+
+
+class LiveDeltaPrinter:
+    """Write a streamed reply's text to ``out`` as it arrives.
+
+    Only the content channel is printed (reasoning is never mixed into the
+    reply). A reconnect snapshot re-sends the text so far: only the part not
+    yet printed is written; when the snapshot no longer extends what was
+    printed (the gateway trimmed the oldest text), the line restarts with the
+    snapshot and says so. A call that fails or is cancelled says so, and a
+    call that could not stream says why in one line. Deltas for a call whose
+    durable record already arrived, or any after the final answer, are
+    ignored (contract S-2.2).
+    """
+
+    def __init__(self, out) -> None:
+        from .gateway.live_deltas import LiveReply
+
+        self._out = out
+        self._new_reply = LiveReply
+        self._replies: Dict[str, Any] = {}
+        self._printed: Dict[str, str] = {}
+        self._finished: set = set()
+        self.final_seen = False
+
+    def note_record(self, rec: Dict[str, Any]) -> None:
+        """Remember llm_call steps whose durable record arrived."""
+        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+        if str(effect.get("type") or "").strip().lower() != "llm_call":
+            return
+        status = str(rec.get("status") or "").strip().lower()
+        if status in {"completed", "failed", "cancelled"}:
+            self._finished.add(str(rec.get("step_id") or ""))
+
+    def _write(self, text: str) -> None:
+        self._out.write(text)
+        self._out.flush()
+
+    def __call__(self, ev: Dict[str, Any]) -> None:
+        from .gateway.live_deltas import (
+            ASSISTANT_DELTA,
+            ASSISTANT_DELTA_END,
+            ASSISTANT_DELTA_RESET,
+            end_reason_text,
+        )
+
+        call_id = str(ev.get("call_id") or "")
+        typ = ev.get("type")
+        if typ == ASSISTANT_DELTA_RESET:
+            # Reconnected: the gateway re-sends snapshots. What was already
+            # printed stays printed; only text beyond it is written.
+            self._replies.clear()
+            return
+        if typ == ASSISTANT_DELTA:
+            if self.final_seen or call_id in self._finished:
+                return
+            reply = self._replies.get(call_id)
+            if reply is None:
+                reply = self._new_reply(run_id=str(ev.get("run_id") or ""), call_id=call_id)
+                self._replies[call_id] = reply
+            reply.apply_delta(ev)
+            printed = self._printed.get(call_id, "")
+            text = reply.content
+            if text == printed:
+                return
+            if text.startswith(printed):
+                self._write(text[len(printed):])
+            else:
+                self._write("\n[live text trimmed by the gateway; showing the latest part]\n" + text)
+            self._printed[call_id] = text
+            return
+        if typ == ASSISTANT_DELTA_END:
+            reason = str(ev.get("reason") or "")
+            printed = self._printed.pop(call_id, None)
+            self._replies.pop(call_id, None)
+            if reason == "unavailable":
+                if printed is not None:
+                    self._write("\n")
+                self._write(f"[{end_reason_text(reason, str(ev.get('detail') or ''))}]\n")
+                return
+            if printed is None:
+                return  # a call that never streamed text: nothing on screen
+            self._write("\n")
+            if reason != "completed":
+                self._write(f"[live reply discarded: {reason}]\n")
+
+
 def _run_gateway_command(args: argparse.Namespace) -> int:
     from .gateway import GatewayEventAdapter, build_run_input_data
     from .gateway.history_seed import seed_messages_from_history_bundle
@@ -143,6 +250,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         media_overrides=_call("media_route_overrides", default=None) or None,
         thinking=str(scope.get("thinking") or ""),
         speculation=scope.get("speculation"),
+        stream=_stream_choice(getattr(args, "stream", None), scope),
         workspace_root=str(scope.get("workspace_root") or ""),
         workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
         workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
@@ -169,6 +277,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     adapter = GatewayEventAdapter()
     controller = GatewayRunController(gateway=gateway, debug=False)
+    live_printer = LiveDeltaPrinter(sys.stderr)
     final = ""
 
     def _submit_resume(*, active_run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
@@ -184,6 +293,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
 
     def _on_record(active_run_id: str, rec: Dict[str, object]) -> None:
         nonlocal final
+        live_printer.note_record(rec)  # type: ignore[arg-type]
         for ev in adapter.handle_record(rec):
             if not isinstance(ev, dict):
                 continue
@@ -192,6 +302,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
                 content = str(ev.get("content") or "")
                 if content.strip() and ev.get("final"):
                     final = content
+                    live_printer.final_seen = True
                 continue
             if typ == "tool_request":
                 wait_key = str(ev.get("wait_key") or "").strip()
@@ -219,6 +330,7 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
         root_run_id=run_id,
         on_record=_on_record,
         should_stop=lambda: False,
+        on_delta=live_printer,
     )
 
     status = str(controller.get_run_status(run_id=run_id) or "").strip().lower()

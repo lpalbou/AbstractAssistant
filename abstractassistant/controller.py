@@ -618,6 +618,28 @@ class AssistantController:
             pass
         return list(REASONING_EFFORT_LEVELS)
 
+    def gateway_streaming(self) -> Optional[Dict[str, Any]]:
+        """The gateway's live-reply block from discovery
+        (``capabilities.streaming`` = ``{deltas: bool, default: bool}``,
+        contract S-2.6), or None when discovery is unavailable."""
+        try:
+            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        except Exception:
+            return None
+        if caps is None or getattr(caps, "error", ""):
+            return None
+        raw = getattr(caps, "raw", None) or {}
+        block = raw.get("streaming") if isinstance(raw, dict) else None
+        return dict(block) if isinstance(block, dict) else {}
+
+    def live_replies_advertised(self) -> Optional[bool]:
+        """True when the gateway advertises live replies (``streaming.deltas``),
+        False when it does not, None when discovery is unavailable."""
+        block = self.gateway_streaming()
+        if block is None:
+            return None
+        return block.get("deltas") is True
+
     def workspace_access_modes(self) -> List[str]:
         """Access modes the gateway accepts (its policy's ``allowed_access_modes``
         when advertised; the contract's known list otherwise)."""
@@ -1100,6 +1122,7 @@ class AssistantController:
             media_overrides=self.media_route_overrides() or None,
             thinking=str(scope.get("thinking") or ""),
             speculation=scope.get("speculation"),
+            stream=scope.get("stream"),
             workspace_root=str(scope.get("workspace_root") or ""),
             workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
             workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),

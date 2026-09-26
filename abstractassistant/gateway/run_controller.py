@@ -13,6 +13,7 @@ from typing import Callable, Dict, Optional, Tuple
 
 from .client import GatewayHttpError, GatewayStreamIdle
 from .events import extract_wait_from_record
+from .live_deltas import ASSISTANT_DELTA_RESET, to_ui_event
 
 
 class _CallableStopSignal:
@@ -208,10 +209,21 @@ class GatewayRunController:
         should_stop: Callable[[], bool],
         on_offline: Optional[Callable[[str], None]] = None,
         on_online: Optional[Callable[[], None]] = None,
+        on_delta: Optional[Callable[[Dict[str, object]], None]] = None,
     ) -> Tuple[int, str, bool]:
+        """Stream one run's ledger until it ends or waits on a subworkflow.
+
+        ``on_delta`` receives the live-reply events (``assistant_delta`` /
+        ``assistant_delta_end`` dicts, see ``live_deltas``). They never move
+        ``after``: the resume cursor only ever comes from durable rows, so a
+        reconnect replays nothing twice and misses nothing — the gateway
+        re-sends a snapshot of any reply still being written.
+        """
         backoff_s = 1.0
         transient_failures = 0
         stop_signal = _CallableStopSignal(should_stop)
+        delta_hook = self._delta_hook(run_id=run_id, on_delta=on_delta)
+        open_hook = self._open_hook(run_id=run_id, on_delta=on_delta)
         while True:
             if should_stop():
                 return after, "", False
@@ -249,6 +261,8 @@ class GatewayRunController:
                     stop_signal=stop_signal,
                     timeout_s=self._stream_timeout_s,
                     max_idle_s=self._stream_idle_s,
+                    on_delta=delta_hook,
+                    on_open=open_hook,
                 )
                 transient_failures = 0
                 if on_online:
@@ -303,6 +317,56 @@ class GatewayRunController:
             self._sleep_with_stop(backoff_s, should_stop)
             backoff_s = min(backoff_s * 2.0, 5.0)
 
+    def _delta_hook(
+        self,
+        *,
+        run_id: str,
+        on_delta: Optional[Callable[[Dict[str, object]], None]],
+    ) -> Optional[Callable[[str, Dict[str, object]], None]]:
+        """Adapt the client's raw ``(event_name, data)`` into UI events.
+
+        A failing ``on_delta`` is reported and the stream continues: a live
+        preview must never end the follow of a run whose durable rows still
+        carry the reply (and it must never be retried as a transport error,
+        which would reconnect in a loop).
+        """
+        if on_delta is None:
+            return None
+        warned: list[str] = []
+
+        def _hook(event_name: str, data: Dict[str, object]) -> None:
+            ev = to_ui_event(event_name, data, run_id=run_id)
+            if ev is None:
+                return
+            try:
+                on_delta(ev)
+            except Exception as exc:
+                if not warned:
+                    warned.append(str(exc))
+                    warnings.warn(f"#FALLBACK: live reply handler failed for run {run_id}: {exc}")
+
+        return _hook
+
+    def _open_hook(
+        self,
+        *,
+        run_id: str,
+        on_delta: Optional[Callable[[Dict[str, object]], None]],
+    ) -> Optional[Callable[[], None]]:
+        """Each (re)connect tells the UI to drop its live text (contract
+        S-2.3): the gateway re-sends a snapshot of every reply still being
+        written, and anything not re-sent has ended."""
+        if on_delta is None:
+            return None
+
+        def _hook() -> None:
+            try:
+                on_delta({"type": ASSISTANT_DELTA_RESET, "run_id": run_id})
+            except Exception as exc:
+                warnings.warn(f"#FALLBACK: live reply reset failed for run {run_id}: {exc}")
+
+        return _hook
+
     def follow_run(
         self,
         *,
@@ -311,6 +375,7 @@ class GatewayRunController:
         should_stop: Callable[[], bool],
         on_offline: Optional[Callable[[str], None]] = None,
         on_online: Optional[Callable[[], None]] = None,
+        on_delta: Optional[Callable[[Dict[str, object]], None]] = None,
     ) -> None:
         run_stack = [root_run_id]
         after_by_run: Dict[str, int] = {}
@@ -338,6 +403,7 @@ class GatewayRunController:
                 should_stop=should_stop,
                 on_offline=on_offline,
                 on_online=on_online,
+                on_delta=on_delta,
             )
             after_by_run[active_run_id] = after
 

@@ -52,6 +52,9 @@ from ...preferences import (
     DEFAULT_WINDOW_WIDTH,
     REASONING_EFFORT_LEVELS,
     SCREEN_EDGE_GAP_RANGE,
+    STREAM_REPLIES_CHOICES,
+    STREAM_REPLIES_GATEWAY_DEFAULT,
+    normalize_stream_replies,
     WINDOW_WIDTH_RANGE,
     WORKFLOW_GATEWAY_DEFAULT,
     WORKSPACE_ACCESS_MODES,
@@ -109,6 +112,13 @@ def short_description(text: str, limit: int = _DESCRIPTION_MAX_CHARS) -> str:
         #[WARNING:TRUNCATION] one-line settings row; the tooltip carries the full text
         first = first[: limit - 1].rstrip(" ,;:") + "…"
     return first
+
+
+STREAM_REPLIES_LABELS = (
+    (STREAM_REPLIES_GATEWAY_DEFAULT, "Gateway default"),
+    ("on", "On"),
+    ("off", "Off"),
+)
 
 
 # =============================================================== Connection
@@ -351,6 +361,22 @@ class ModelsPage(SettingsPage):
         workflow.add_widget(self.workflow_detail)
         self._workflow_rows: List[Dict[str, Any]] = []
 
+        # LIVE REPLIES (contract S): show the reply while the model writes it.
+        # "Gateway default" sends nothing, so the gateway's own setting
+        # (agents.streaming_default) decides; On/Off ride every run.
+        replies = self.add_card(
+            Card("Replies", "Show the answer while the model writes it. The finished answer replaces the live text.")
+        )
+        self.stream_combo = QComboBox()
+        for value, label in STREAM_REPLIES_LABELS:
+            self.stream_combo.addItem(label, value)
+        self.stream_combo.activated.connect(self._on_stream_chosen)
+        replies.add_row("Stream replies", self.stream_combo, stretch_control=False)
+        self.stream_detail = QLabel("")
+        self.stream_detail.setObjectName("rowHelp")
+        self.stream_detail.setWordWrap(True)
+        replies.add_widget(self.stream_detail)
+
         # A card WITHOUT a title: the surface is what makes the form read as a
         # panel, but a card titled "Models" inside a page titled
         # "Models & reasoning" was a third heading for one thing.
@@ -364,7 +390,53 @@ class ModelsPage(SettingsPage):
 
     def refresh(self) -> None:
         self._refresh_workflows()
+        self._refresh_stream()
         self.route_editor.refresh()
+
+    def _refresh_stream(self) -> None:
+        current = normalize_stream_replies(safe_attr(_prefs(self.controller), "stream_replies", STREAM_REPLIES_GATEWAY_DEFAULT))
+        self.stream_combo.blockSignals(True)
+        try:
+            self.stream_combo.setCurrentIndex(max(0, self.stream_combo.findData(current)))
+        finally:
+            self.stream_combo.blockSignals(False)
+        self._show_stream_detail()
+
+    def _show_stream_detail(self) -> None:
+        block = safe_call(self.controller, "gateway_streaming", default=None)
+        advertised = None if block is None else block.get("deltas") is True
+        default = block.get("default") if isinstance(block, dict) else None
+        self.stream_combo.setItemText(
+            0,
+            "Gateway default" + (" (On)" if default is True else " (Off)" if default is False else ""),
+        )
+        choice = self.stream_combo.currentData()
+        if advertised is None:
+            text = "Not connected — whether this gateway can stream replies is not known yet."
+        elif advertised is False:
+            text = (
+                "This gateway does not advertise live replies: answers appear when they are finished, "
+                "whatever you pick here."
+            )
+        elif choice == STREAM_REPLIES_GATEWAY_DEFAULT:
+            text = "The gateway's own streaming default decides (set by its admin)."
+        elif choice == "on":
+            text = "Every turn from this app streams its reply."
+        else:
+            text = "Replies appear only when they are finished."
+        self.stream_detail.setText(text)
+
+    def _on_stream_chosen(self, index: int) -> None:
+        value = self.stream_combo.itemData(index)
+        if value not in STREAM_REPLIES_CHOICES:
+            return
+        if not _update_prefs(self.controller, stream_replies=value):
+            self.say("Could not save the streaming choice.", tone="error")
+            self._refresh_stream()
+            return
+        self._show_stream_detail()
+        self.say("Saved on this device — applies from the next turn.")
+        self.changed.emit()
 
     def _refresh_workflows(self) -> None:
         rows = safe_call(self.controller, "workflow_menu", default=None)

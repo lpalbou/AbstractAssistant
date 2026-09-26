@@ -27,6 +27,7 @@ from ..gateway import (
 )
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
+from ..gateway.live_deltas import ASSISTANT_DELTA
 from ..gateway.run_controller import GatewayRunController
 from ..gateway.run_stats import aggregate_run_stats, observe_record
 
@@ -40,6 +41,9 @@ class GatewayWorker(QThread):
     # Non-fatal: something the user should know (a wait answer that did not
     # reach the gateway) while the follower keeps running. Never tear down.
     warning_occurred = pyqtSignal(str)
+    # Class-level default so a worker built via __new__ (tests) still reads
+    # "gateway default" (nothing sent).
+    _stream: Optional[bool] = None
 
     def __init__(
         self,
@@ -64,6 +68,7 @@ class GatewayWorker(QThread):
         media_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
         thinking: str = "",
         speculation: Any = None,
+        stream: Optional[bool] = None,
         workspace_root: str = "",
         workspace_access_mode: str = "",
         workspace_allowed_paths: Optional[List[str]] = None,
@@ -99,6 +104,11 @@ class GatewayWorker(QThread):
         self._thinking = str(thinking or "").strip().lower()
         from abstractassistant.speculation import normalize_speculation
         self._speculation = normalize_speculation(speculation)
+        # Live replies (`_runtime.stream`): None = the gateway's default
+        # (nothing sent), True/False = this app's explicit choice.
+        if stream is not None and not isinstance(stream, bool):
+            raise ValueError(f"stream must be None, True or False, not {stream!r}")
+        self._stream = stream
         self._workspace_root = str(workspace_root or "").strip()
         self._workspace_access_mode = str(workspace_access_mode or "").strip().lower()
         self._workspace_allowed_paths = [
@@ -126,6 +136,7 @@ class GatewayWorker(QThread):
         self._run_activity_by_run: Dict[str, str] = {}
         self._output_artifact_candidates: List[tuple[str, str]] = []
         self._seen_output_artifacts: set[tuple[str, str]] = set()
+        self._finished_llm_calls: set[str] = set()
 
     def provide_tool_approval(
         self,
@@ -822,6 +833,7 @@ class GatewayWorker(QThread):
         threading.Thread(target=_send, name="abstractassistant-wait-submit", daemon=True).start()
 
     def _handle_events(self, *, run_id: str, rec: Dict[str, Any]) -> None:
+        self._note_finished_llm_call(rec)
         self._update_follow_run_id_from_record(run_id=run_id, rec=rec)
         self._record_output_artifact_candidates(run_id=run_id, rec=rec)
         self._record_run_stats(run_id=run_id, rec=rec)
@@ -902,6 +914,39 @@ class GatewayWorker(QThread):
                 continue
 
             self.event_emitted.emit(ev)
+
+    _FINAL_LLM_CALL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+    def _note_finished_llm_call(self, rec: Dict[str, Any]) -> None:
+        """Remember llm_call steps whose durable record has arrived."""
+        effect = rec.get("effect") if isinstance(rec.get("effect"), dict) else {}
+        if str(effect.get("type") or "").strip().lower() != "llm_call":
+            return
+        raw_status = rec.get("status")
+        status = str(getattr(raw_status, "value", raw_status) or "").strip().lower()
+        step_id = str(rec.get("step_id") or "").strip()
+        if step_id and status in self._FINAL_LLM_CALL_STATUSES:
+            self._finished_calls().add(step_id)
+
+    def _finished_calls(self) -> set:
+        # Per instance, created on first use (tests build workers via __new__).
+        return self.__dict__.setdefault("_finished_llm_calls", set())
+
+    def _handle_delta(self, ev: Dict[str, Any]) -> None:
+        """Forward a live-reply event to the UI (contract S).
+
+        Child-run deltas arrive on the root's stream and are forwarded too
+        (the palette labels them). A delta for a call whose durable record
+        this worker already holds is dropped: the record is authoritative and
+        a late or replayed delta must never bring the live text back
+        (S-2.2). ``delta_end`` still passes — it arrives after the record by
+        design. Nothing here touches the session transcript.
+        """
+        if not isinstance(ev, dict):
+            return
+        if ev.get("type") == ASSISTANT_DELTA and str(ev.get("call_id") or "") in self._finished_calls():
+            return
+        self.event_emitted.emit(ev)
 
     def _should_append_assistant(self, content: str, *, meta: Optional[Dict[str, Any]] = None) -> bool:
         text = str(content or "").strip()
@@ -1155,6 +1200,7 @@ class GatewayWorker(QThread):
                     media_overrides=self._media_overrides,
                     thinking=self._thinking,
                     speculation=self._speculation,
+                    stream=self._stream,
                     workspace_root=self._workspace_root,
                     workspace_access_mode=self._workspace_access_mode,
                     workspace_allowed_paths=self._workspace_allowed_paths,
@@ -1202,6 +1248,7 @@ class GatewayWorker(QThread):
                 should_stop=self.isInterruptionRequested,
                 on_offline=self._mark_offline,
                 on_online=self._mark_online,
+                on_delta=self._handle_delta,
             )
 
             # The live-followed final answer (with its run-tree stats) is
