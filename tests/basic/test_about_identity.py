@@ -138,3 +138,31 @@ def test_tray_menu_has_about_which_opens_the_about_page() -> None:
     about = next(a for a in menu.actions() if a.text() == "About AbstractAssistant…")
     about.trigger()
     assert opened == ["about"]
+
+
+@pytest.mark.basic
+def test_about_rows_are_rendered_by_core_about_html() -> None:
+    """One link rule for every app: the About rows are core's about_html
+    output (only Contact becomes a mailto), not a local re-implementation."""
+    import abstractcore.utils.identity as identity
+    from test_settings_pages import _dialog
+
+    calls: list = []
+    real = identity.about_html
+
+    def _spy(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    identity.about_html = _spy
+    try:
+        dlg, _ctl = _dialog()
+        dlg.show_section("about")
+        dlg.page_about.refresh()
+    finally:
+        identity.about_html = real
+    assert calls
+    texts = {label: w.text() for label, w in dlg.page_about.identity_labels.items()}
+    assert sum("mailto:" in t for t in texts.values()) == 1 and "mailto:" in texts["Contact"]
+    # A value with a URL inside text: only the URL is the link.
+    assert texts["Part of"].startswith("AbstractFramework — <a ")

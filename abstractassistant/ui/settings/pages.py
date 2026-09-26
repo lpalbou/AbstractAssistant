@@ -1401,18 +1401,27 @@ def _identity_fields(version: str) -> List[Any]:
     return about_fields(app_identity("abstractassistant", version))
 
 
-def _linkified(value: str, link_style: str) -> str:
-    """Rich text for one About value: URLs and the contact address as links."""
+def _identity_html_rows(version: str) -> Dict[str, str]:
+    """Rich text per About row, rendered by the framework's ``about_html`` (one
+    link rule for every app: URLs inside a value become links, only Contact is
+    a mailto). ``about_html`` joins ``<b>Label:</b> value`` rows with
+    ``<br>``; each row is split back out for the card's label column."""
     from html import escape
 
-    text = str(value or "")
-    for token in text.split():
-        if token.startswith("http://") or token.startswith("https://"):
-            link = f'<a {link_style} href="{escape(token, quote=True)}">{escape(token)}</a>'
-            return escape(text).replace(escape(token), link, 1)
-    if "@" in text and " " not in text:
-        return f'<a {link_style} href="mailto:{escape(text, quote=True)}">{escape(text)}</a>'
-    return escape(text)
+    from abstractcore.utils.identity import about_html, app_identity
+
+    rendered = about_html(app_identity("abstractassistant", version))
+    labels = [label for label, _value in _identity_fields(version)]
+    parts = rendered.split("<br>")
+    if len(parts) != len(labels):
+        raise RuntimeError("abstractcore about_html rows do not match about_fields")
+    out: Dict[str, str] = {}
+    for label, part in zip(labels, parts):
+        prefix = f"<b>{escape(label, quote=True)}:</b> "
+        if not part.startswith(prefix):
+            raise RuntimeError(f"unexpected about_html row for {label!r}")
+        out[label] = part[len(prefix):]
+    return out
 
 
 def describe_workflow_selection(workflow: Any) -> str:
@@ -1529,11 +1538,12 @@ class AboutPage(SettingsPage):
 
     def refresh(self) -> None:
         diag = self._diagnostics()
-        link_style = f'style="color: {THEME.accent}; text-decoration: none;"'
-        for label, value in _identity_fields(str(diag["assistant"])):
+        link_style = f'style="color: {THEME.accent}; text-decoration: none;" '
+        for label, html in _identity_html_rows(str(diag["assistant"])).items():
             widget = self.identity_labels.get(label)
             if widget is not None:
-                widget.setText(_linkified(value, link_style))
+                # Theme colour for links; the markup itself is core's.
+                widget.setText(html.replace("<a href=", f"<a {link_style}href="))
         self.stack_label.setText("\n".join(diag["gateway"]))
         self.workflow_label.setText(str(diag["workflow"]))
         self.resolved_label.setText(describe_resolved_workflow(diag.get("resolved_workflow")))
