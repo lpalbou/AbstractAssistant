@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import html
+import uuid
 from html.parser import HTMLParser
 import json
 import re
@@ -421,18 +422,36 @@ def _line_starts_with_any_prefix(body: str, prefixes: tuple[str, ...]) -> bool:
     return False
 
 
-def _replace_mermaid_fences(text: str) -> str:
+def _replace_mermaid_fences(text: str) -> "tuple[str, dict[str, str]]":
+    """Swap each rendered Mermaid fence for a placeholder paragraph.
+
+    The markdown parser runs with raw HTML OFF (model text is never trusted
+    markup), so the diagram's ``<img>`` cannot ride through the source; the
+    placeholders are replaced by :func:`_restore_mermaid_placeholders` after
+    rendering. The nonce keeps model-written text from matching one.
+    """
     parts: list[str] = []
+    fragments: dict[str, str] = {}
+    nonce = uuid.uuid4().hex
     for block in split_markdown_mermaid_blocks(text):
         if block.kind == "mermaid" and block.data_uri:
-            parts.append(
-                '\n<div class="mermaid-diagram">'
-                f'<img src="{block.data_uri}" alt="Rendered Mermaid flowchart" />'
-                "</div>\n"
+            token = f"AAMERMAID{nonce}N{len(fragments)}"
+            fragments[token] = (
+                '<div class="mermaid-diagram">'
+                f'<img src="{html.escape(block.data_uri, quote=True)}" alt="Rendered Mermaid flowchart" />'
+                "</div>"
             )
+            parts.append(f"\n\n{token}\n\n")
             continue
         parts.append(block.text)
-    return "".join(parts)
+    return "".join(parts), fragments
+
+
+def _restore_mermaid_placeholders(html_content: str, fragments: "dict[str, str]") -> str:
+    out = html_content
+    for token, fragment in fragments.items():
+        out = out.replace(f"<p>{token}</p>", fragment).replace(token, fragment)
+    return out
 
 
 def _split_url_trailing_punctuation(url: str) -> tuple[str, str]:
@@ -783,7 +802,10 @@ class MarkdownRenderer:
             "gfm-like",
             {
                 "breaks": True,
-                "html": True,
+                # Model text is DATA: raw HTML (`<img onerror>`, `<a href=
+                # "javascript:">`, an unclosed `<b>`) is shown as text, never
+                # handed to Qt rich text as markup.
+                "html": False,
                 "linkify": False,
                 "highlight": self._highlight_code,
             },
@@ -846,11 +868,14 @@ class MarkdownRenderer:
 
     def render(self, markdown_text: str) -> str:
         try:
-            prepared = _replace_mermaid_fences(
+            prepared, mermaid = _replace_mermaid_fences(
                 _prepare_markdown_source(unfence_lone_targets(markdown_text))
             )
-            html_content = _autolink_html_text(
-                _unwrap_generated_code_panels(self._markdown.render(prepared))
+            html_content = _restore_mermaid_placeholders(
+                _autolink_html_text(
+                    _unwrap_generated_code_panels(self._markdown.render(prepared))
+                ),
+                mermaid,
             )
             full_html = f"""
             <style>

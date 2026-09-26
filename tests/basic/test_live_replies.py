@@ -825,3 +825,92 @@ def test_malformed_delta_frames_are_skipped_reported_once_and_the_stream_goes_on
     messages = [str(w.message) for w in caught]
     assert sum("not JSON" in m for m in messages) == 1
     assert sum("skipping malformed live reply frame" in m for m in messages) == 1
+
+
+# ------------------------------------------------------- model text is data
+
+_HOSTILE = (
+    'Look: <img src=x onerror="alert(1)"> and <a href="javascript:alert(2)">click</a> '
+    "and [md link](javascript:alert(3)) and <b>unclosed bold\n\n"
+    "<script>alert(4)</script> <iframe src=\"https://evil.example\"></iframe>"
+)
+
+
+def _assert_inert(html_text: str) -> None:
+    """Parse the markup: model text may APPEAR as text, never as tags/attributes."""
+    from html.parser import HTMLParser
+
+    tags: List[tuple] = []
+
+    class _Collect(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            tags.append((tag, dict(attrs)))
+
+    _Collect().feed(html_text)
+    names = [t for t, _a in tags]
+    assert not {"img", "script", "iframe", "b"} & set(names), names
+    hrefs = [str(a.get("href") or "") for t, a in tags if t == "a"]
+    assert not [h for h in hrefs if h.strip().lower().startswith("javascript")], hrefs
+    assert "onerror" not in {k for _t, a in tags for k in a}
+    # Qt turns a live <b> into a bold span; none may exist.
+    styles = " ".join(str(a.get("style") or "") for _t, a in tags).replace(" ", "")
+    assert "font-weight:700" not in styles
+
+
+@pytest.mark.basic
+def test_the_renderer_escapes_raw_html_and_refuses_javascript_links() -> None:
+    from abstractassistant.utils.markdown_renderer import MarkdownRenderer
+
+    rendered = MarkdownRenderer().render(_HOSTILE)
+    body = rendered.split('<div class="markdown-content">', 1)[1]
+    _assert_inert(body)
+    assert "&lt;img src=x onerror=" in body and "&lt;b&gt;unclosed bold" in body
+    assert "&lt;script&gt;" in body
+
+
+@pytest.mark.basic
+def test_mermaid_diagrams_still_render_with_raw_html_off() -> None:
+    from abstractassistant.utils import markdown_renderer as mr
+
+    fake_uri = "data:image/png;base64,AAAA"
+    block = type("B", (), {"kind": "mermaid", "data_uri": fake_uri, "text": ""})()
+    text_block = type("B", (), {"kind": "markdown", "data_uri": "", "text": "before <img src=x>"})()
+    original = mr.split_markdown_mermaid_blocks
+    mr.split_markdown_mermaid_blocks = lambda _text: [text_block, block]
+    try:
+        rendered = mr.MarkdownRenderer().render("ignored")
+    finally:
+        mr.split_markdown_mermaid_blocks = original
+    assert f'<div class="mermaid-diagram"><img src="{fake_uri}"' in rendered
+    assert rendered.count("<img") == 1  # only OUR diagram, the model's <img> is text
+    assert "AAMERMAID" not in rendered
+
+
+def _card_markup(card) -> tuple:
+    from abstractassistant.app import AutoSizingTextBrowser
+
+    browsers = [b for b in card.findChildren(AutoSizingTextBrowser) if b.isVisible()]
+    return "".join(b.toHtml() for b in browsers), "".join(b.toPlainText() for b in browsers)
+
+
+@pytest.mark.basic
+def test_hostile_html_in_a_live_delta_and_the_final_message_is_shown_as_text(palette, qapp) -> None:
+    from abstractassistant.app import LiveMessageCard, MessageCard
+
+    _push(palette, qapp, _d("c1", 1, _HOSTILE))
+    live = _live_cards(palette)[0]
+    markup, plain = _card_markup(live)
+    _assert_inert(markup)
+    assert '<img src=x onerror="alert(1)">' in plain
+    assert '<a href="javascript:alert(2)">click</a>' in plain
+    assert "<b>unclosed bold" in plain
+
+    palette._controller.llm_manager.append_message(role="assistant", content=_HOSTILE)
+    _push(palette, qapp, {"type": "assistant", "content": _HOSTILE, "final": True, "history_changed": True})
+    finals = [w for w in palette.history_host.children()
+              if isinstance(w, MessageCard) and not isinstance(w, LiveMessageCard) and w.isVisible()
+              and w._content == _HOSTILE]
+    assert len(finals) == 1
+    markup, plain = _card_markup(finals[0])
+    _assert_inert(markup)
+    assert '<img src=x onerror="alert(1)">' in plain and "<script>alert(4)</script>" in plain

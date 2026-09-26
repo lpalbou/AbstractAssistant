@@ -44,6 +44,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - Requires AbstractCore 2.15.4 or newer.
 
 ### Fixed
+- HTML written by the model (tags such as `<img onerror=…>`, `<a href="javascript:…">`, an unclosed
+  `<b>`) is shown as text in replies, live or finished, instead of being handed to the transcript
+  as markup. Formatting from Markdown and Mermaid diagrams are unaffected.
 - Switching sessions no longer shows the previous conversation underneath the new one, and a
   background attachment refresh can no longer copy one session's messages into another.
 
