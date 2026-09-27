@@ -236,5 +236,5 @@ complete list, one notice), own sessions by default (`sess_` prefix = this clien
 framework 0928/C11) with an "All gateway sessions" toggle, offline marker, follow-up sync after a quick switch, switcher grows as rows land.
 Suite 933. Reviews 37 and 39 (framework untracked/missions-2026-09-25/REVIEW/37-…md): GO; migration lost nothing under SIGKILL at five
 points and the 0.6.1↔0.6.2 round trip. Deployed on the operator's machine 2026-09-27 08:25 CEST from the checkout (backup
-`~/.abstractassistant.bak-2026-09-27`; migration moved 16 entries to `sessions-legacy/`). Ships in the next Assistant release.
+`~/.abstractassistant.bak-2026-09-27`; migration moved 16 entries to `sessions-legacy/`). Shipped as abstractassistant 0.7.0 (tag v0.7.0 → 843741f, 2026-09-27 09:56 CEST). Original path: planned/0853_….md; completed 2026-09-27.
 Follow-ups: `sessions-legacy/` grows with each removal (FAQ line); abstractcode 0002 (TUI fold defects found by the comparison).
