@@ -522,6 +522,25 @@ class OccurrencePair(QWidget):
             bl.addLayout(buttons)
             entry.update(approve=approve, deny=deny)
             return box
+        if kind == "event":
+            # The answer is the event's payload: a JSON value typed here
+            # (no choice buttons: the runtime defines none for events).
+            bl.addWidget(_text_label(str(wait.get("prompt") or "The run waits for an event."), "autoTurnText", parent=box))
+            row_e = QHBoxLayout()
+            edit = QLineEdit(box)
+            edit.setObjectName("autoInput")
+            edit.setPlaceholderText('Event payload (JSON), e.g. {"key": "value"}')
+            send = _button("Send event", "autoPrimary", parent=box)
+            error = _text_label("", "autoViewError", parent=box)
+            error.hide()
+            send.clicked.connect(lambda _=False: self._send_event(run_id, wait_key, edit, error))
+            edit.returnPressed.connect(lambda: self._send_event(run_id, wait_key, edit, error))
+            row_e.addWidget(edit, 1)
+            row_e.addWidget(send, 0)
+            bl.addLayout(row_e)
+            bl.addWidget(error)
+            entry.update(edit=edit, send=send, error=error)
+            return box
         bl.addWidget(_text_label(str(wait.get("prompt") or "The occurrence is waiting for your answer."), "autoTurnText", parent=box))
         choices_row = QHBoxLayout()
         choices_row.setSpacing(6)
@@ -546,8 +565,22 @@ class OccurrencePair(QWidget):
         return box
 
     def _emit_text(self, run_id: str, wait_key: str, kind: str, text: str) -> None:
-        # An event wait's answer is its payload object; a question's is text.
-        self.wait_answered.emit(run_id, wait_key, kind, {"response": text} if kind == "event" else text)
+        self.wait_answered.emit(run_id, wait_key, kind, text)
+
+    def _send_event(self, run_id: str, wait_key: str, edit: QLineEdit, error: QLabel) -> None:
+        text = edit.text().strip()
+        if not text:
+            error.setText("Enter a JSON payload.")
+            error.show()
+            return
+        try:
+            payload = json.loads(text)
+        except ValueError as exc:
+            error.setText(f"The payload is not valid JSON ({exc}).")
+            error.show()
+            return
+        error.hide()
+        self.wait_answered.emit(run_id, wait_key, "event", payload)
 
     def _send_free(self, run_id: str, wait_key: str, kind: str, edit: QLineEdit) -> None:
         text = edit.text().strip()

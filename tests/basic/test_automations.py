@@ -1019,8 +1019,9 @@ def test_wait_answers_are_chosen_by_the_waits_kind() -> None:
     assert wait_answer_payload("ask_user", "Tuesday works") == {"response": "Tuesday works"}
     assert wait_answer_payload("tool_approval", True) == {"approved": True}
     assert wait_answer_payload("tool_approval", False) == {"approved": False}
-    assert wait_answer_payload("event", {"response": "go"}) == {"response": "go"}
-    for kind, answer in (("tool_approval", "yes"), ("event", "go"), ("", "x"), ("user", "x")):
+    assert wait_answer_payload("event", {"key": "value"}) == {"payload": {"key": "value"}}
+    assert wait_answer_payload("event", 42) == {"payload": 42}
+    for kind, answer in (("tool_approval", "yes"), ("event", object()), ("", "x"), ("user", "x")):
         with pytest.raises(ValueError):
             wait_answer_payload(kind, answer)
 
@@ -1056,9 +1057,15 @@ def test_an_event_wait_answers_with_an_object_and_a_kindless_wait_cannot_be_answ
     window._poll_automations()
     window._open_automation(TRIAGE)
     entry = window.automation_view.pairs[0].wait_inputs[0]
-    entry["edit"].setText("go ahead")
+    assert entry["choices"] == [], "no choice buttons for an event"
+    before = len(stub.calls("POST", "/api/gateway/commands"))
+    entry["edit"].setText("go ahead")  # not JSON: refused in place, nothing sent
     entry["send"].click()
-    assert stub.calls("POST", "/api/gateway/commands")[-1]["body"]["payload"]["payload"] == {"response": "go ahead"}
+    assert len(stub.calls("POST", "/api/gateway/commands")) == before
+    assert "not valid JSON" in entry["error"].text()
+    entry["edit"].setText('{"decision": "go"}')
+    entry["send"].click()
+    assert stub.calls("POST", "/api/gateway/commands")[-1]["body"]["payload"]["payload"] == {"payload": {"decision": "go"}}
 
     # The canonical fixtures predate D1 (no `kind`): nothing is guessed.
     stub.occurrences[TRIAGE] = [_typed_wait_row("")]

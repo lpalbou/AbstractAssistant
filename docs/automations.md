@@ -62,7 +62,7 @@ A run can stop and wait for you. You get a tray notification, and the run shows 
   free-text field; your answer goes to the gateway exactly like an answer to a question from a chat;
 - **approval of tool calls** (only for an automation created with "Ask each time"): the tool calls
   it would run, with **Approve** and **Deny**;
-- **an event**: a free-text field.
+- **an event**: a field for the event payload (JSON), sent as the event's payload.
 
 The gateway says which of the three a run waits for, and the Assistant answers accordingly. A wait
 the gateway does not describe is shown without answer controls rather than answered blindly.

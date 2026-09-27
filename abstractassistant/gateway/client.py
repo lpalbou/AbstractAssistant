@@ -210,7 +210,8 @@ def wait_answer_payload(kind: str, answer: Any) -> Dict[str, Any]:
     """The resume payload a wait of this ``kind`` accepts (decision D1): chosen
     by the wait's declared kind, never from its text. ``ask_user`` →
     ``{response}``; ``tool_approval`` → ``{approved}`` (a bool); ``event`` →
-    the event payload itself (an object). An unknown or missing kind raises:
+    ``{payload: <JSON value>}`` (the runtime's ``ANSWER_PAYLOADS`` and the
+    ui-kit's ``WaitAnswer``). An unknown or missing kind raises:
     answering a wait the client cannot type would approve or answer nothing."""
     if kind == "ask_user":
         return {"response": str(answer if answer is not None else "")}
@@ -219,9 +220,11 @@ def wait_answer_payload(kind: str, answer: Any) -> Dict[str, Any]:
             raise ValueError("wait_answer_payload: a tool approval is answered with True or False")
         return {"approved": answer}
     if kind == "event":
-        if not isinstance(answer, dict):
-            raise ValueError("wait_answer_payload: an event wait is answered with an object payload")
-        return dict(answer)
+        try:
+            json.dumps(answer)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"wait_answer_payload: an event payload must be JSON ({exc})") from None
+        return {"payload": answer}
     raise ValueError(f"wait_answer_payload: unknown wait kind {kind!r}")
 
 
