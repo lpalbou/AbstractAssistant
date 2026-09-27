@@ -293,125 +293,6 @@ def test_clearing_the_cache_loses_nothing_the_gateway_has(tmp_path: Path) -> Non
     assert _contents(reopened) == before_beta
 
 
-# --------------------------------------------------------------- migration
-
-
-def _legacy_data_dir(data: Path) -> None:
-    """The 0.6.1-and-earlier layout: `sessions.json` + `session.json` (the base session)
-    + `sessions/<id>/session.json`. Two sessions exist on the gateway
-    (sess_beta, the base one, renamed by the user; sess_cold), two do not."""
-    data.mkdir(parents=True)
-
-    def _snap(path: Path, sid: str, text: str) -> None:
-        SessionStore(path).save(
-            SessionSnapshot(
-                session_id=sid,
-                actor_id=f"actor_{sid}",
-                messages=[{"role": "user", "content": text}, {"role": "assistant", "content": f"answer to {text}"}],
-                last_run_id=None,
-            )
-        )
-
-    _snap(data / "session.json", "sess_beta", "Summarize the release notes")
-    _snap(data / "sessions" / "sess_cold" / "session.json", "sess_cold", "What is on today's news?")
-    _snap(data / "sessions" / "sess_gone_1" / "session.json", "sess_gone_1", "an old local-only question")
-    _snap(data / "sessions" / "sess_gone_2" / "session.json", "sess_gone_2", "another local-only question")
-    records = [
-        {"session_id": "sess_beta", "actor_id": "a", "title": "Release notes", "path": ".",
-         "created_at": "2026-09-01T10:00:00+00:00", "updated_at": "2026-09-25T12:30:00+00:00"},
-        {"session_id": "sess_cold", "actor_id": "a", "title": "New session", "path": "sessions/sess_cold",
-         "created_at": "2026-09-02T10:00:00+00:00", "updated_at": "2026-09-26T07:00:00+00:00"},
-        {"session_id": "sess_gone_1", "actor_id": "a", "title": "Old notes", "path": "sessions/sess_gone_1",
-         "created_at": "2026-07-01T10:00:00+00:00", "updated_at": "2026-07-01T10:00:00+00:00"},
-        {"session_id": "sess_gone_2", "actor_id": "a", "title": "New session", "path": "sessions/sess_gone_2",
-         "created_at": "2026-07-02T10:00:00+00:00", "updated_at": "2026-07-02T10:00:00+00:00"},
-    ]
-    (data / "sessions.json").write_text(
-        json.dumps({"active_session_id": "sess_beta", "sessions": records}), encoding="utf-8"
-    )
-
-
-@pytest.mark.basic
-def test_migration_keeps_resolving_sessions_and_sets_orphans_aside_once(tmp_path: Path) -> None:
-    data = tmp_path / "data"
-    _legacy_data_dir(data)
-    legacy = data / "sessions-legacy"
-
-    with FakeGateway() as gw:
-        manager = _manager(data, gw.url)
-        # Step one is local: the old index is kept aside, the base session's
-        # transcript moved into the cache layout, all four still listed.
-        assert (legacy / "sessions.json").exists()
-        assert not (data / "sessions.json").exists()
-        assert not (data / "session.json").exists()
-        assert {"sess_beta", "sess_cold", "sess_gone_1", "sess_gone_2"} <= set(_rows(manager))
-        assert manager.active_session_id == "sess_beta"
-        assert ("user", "Summarize the release notes") in _contents(manager)
-
-        result = manager.refresh_sessions_from_gateway()
-
-    assert result["removed"] == 2
-    rows = _rows(manager)
-    assert "sess_gone_1" not in rows and "sess_gone_2" not in rows
-    # Resolving rows are kept, with the user's rename as the local label.
-    assert rows["sess_beta"]["display_title"] == "Release notes"
-    assert rows["sess_cold"]["display_title"] == "What is on today's news?"
-    # The orphans' text is kept, not deleted.
-    kept = SessionStore(legacy / "sess_gone_1" / "session.json").load()
-    assert kept is not None and kept.messages[0]["content"] == "an old local-only question"
-    assert (legacy / "sess_gone_2" / "session.json").exists()
-    assert not (data / "sessions" / "sess_gone_1").exists()
-    # ONE notice, naming the count and where the text is.
-    state = manager.session_list_state()
-    assert state["notice"] == (
-        "2 local-only sessions from an earlier version were removed from the list; "
-        f"their text is kept in {legacy}"
-    )
-    assert manager.take_session_notice() == state["notice"]
-    assert manager.take_session_notice() == ""
-
-    # A second start migrates nothing and says nothing.
-    with FakeGateway() as gw:
-        again = _manager(data, gw.url)
-        assert again.refresh_sessions_from_gateway()["removed"] == 0
-    assert again.session_list_state()["notice"] == ""
-    assert "sess_gone_1" not in _rows(again)
-
-
-@pytest.mark.basic
-def test_migration_waits_for_a_complete_list(tmp_path: Path) -> None:
-    """A truncated page cannot prove a session absent: nothing is dropped."""
-    data = tmp_path / "data"
-    _legacy_data_dir(data)
-    with FakeGateway() as gw:
-        gw.page["has_more"] = True
-        manager = _manager(data, gw.url)
-        assert manager.refresh_sessions_from_gateway()["removed"] == 0
-    assert {"sess_gone_1", "sess_gone_2"} <= set(_rows(manager))
-    assert (data / "sessions" / "sess_gone_1" / "session.json").exists()
-    assert manager.session_list_state()["notice"] == ""
-
-
-@pytest.mark.basic
-def test_an_active_local_only_session_stays_usable_and_its_text_is_copied(tmp_path: Path) -> None:
-    data = tmp_path / "data"
-    _legacy_data_dir(data)
-    index = json.loads((data / "sessions.json").read_text(encoding="utf-8"))
-    index["active_session_id"] = "sess_gone_1"
-    (data / "sessions.json").write_text(json.dumps(index), encoding="utf-8")
-    with FakeGateway() as gw:
-        manager = _manager(data, gw.url)
-        assert manager.refresh_sessions_from_gateway()["removed"] == 2
-    # Still on screen, still writable, listed while active; the text is kept.
-    assert manager.active_session_id == "sess_gone_1"
-    assert ("user", "an old local-only question") in _contents(manager)
-    assert _rows(manager)["sess_gone_1"]["on_gateway"] is False
-    assert (data / "sessions-legacy" / "sess_gone_1" / "session.json").exists()
-
-
-# ----------------------------------------------------------------- offline
-
-
 @pytest.mark.basic
 def test_offline_the_cached_rows_stay_marked_and_nothing_is_deleted(tmp_path: Path) -> None:
     data = tmp_path / "data"
@@ -438,19 +319,6 @@ def test_offline_the_cached_rows_stay_marked_and_nothing_is_deleted(tmp_path: Pa
 
 
 @pytest.mark.basic
-def test_offline_before_the_migration_lists_every_old_session(tmp_path: Path) -> None:
-    data = tmp_path / "data"
-    _legacy_data_dir(data)
-    manager = _manager(data, OFFLINE)
-    manager.refresh_sessions_from_gateway(timeout_s=2.0)
-    assert {"sess_beta", "sess_cold", "sess_gone_1", "sess_gone_2"} <= set(_rows(manager))
-    assert (data / "sessions" / "sess_gone_2" / "session.json").exists()
-
-
-# ------------------------------------------------------ unreadable snapshot
-
-
-@pytest.mark.basic
 def test_an_unreadable_cached_transcript_is_rebuilt_from_the_gateway(tmp_path: Path) -> None:
     data = tmp_path / "data"
     with FakeGateway() as gw:
@@ -462,9 +330,8 @@ def test_an_unreadable_cached_transcript_is_rebuilt_from_the_gateway(tmp_path: P
 
         manager.switch_session("sess_alpha")
         assert "could not be read" in manager.session_problem()
-        # Never replaced by an empty transcript: the bytes are kept aside.
-        aside = [p for p in (data / "sessions-legacy").iterdir() if "unreadable" in p.name]
-        assert len(aside) == 1 and aside[0].read_text(encoding="utf-8") == "{not json"
+        # Discarded (the gateway rebuilds it); nothing is kept aside.
+        assert not broken.exists() and not (data / "sessions-legacy").exists()
 
         result = manager.sync_session_from_gateway()
 
@@ -600,22 +467,6 @@ def test_the_switcher_marks_cached_rows_when_the_gateway_is_unreachable(tmp_path
 # ------------------------------------------- review 37: D2, D4, D1, D3, follow-ups
 
 
-@pytest.mark.basic
-def test_removing_a_local_only_session_keeps_its_text(tmp_path: Path) -> None:
-    """Offline first start: an old local session is pending (its only copy is
-    local). Removing it from the list moves the text, never deletes it."""
-    data = tmp_path / "data"
-    _legacy_data_dir(data)
-    manager = _manager(data, OFFLINE)
-    assert "sess_gone_1" in _rows(manager)
-
-    manager.delete_session("sess_gone_1")
-
-    assert "sess_gone_1" not in _rows(manager)
-    kept = SessionStore(data / "sessions-legacy" / "sess_gone_1" / "session.json").load()
-    assert kept is not None and kept.messages[0]["content"] == "an old local-only question"
-
-
 def _mixed_page(own: int, other: int) -> Dict[str, Any]:
     items = []
     # Other clients' sessions are the NEWEST, so title priority matters.
@@ -677,42 +528,6 @@ class _Killed(BaseException):
 
 
 @pytest.mark.basic
-@pytest.mark.parametrize("kill_at", ["base_session_move", "index_set_aside", "after_index_set_aside"])
-def test_a_crash_during_the_conversion_loses_no_session_and_no_label(tmp_path: Path, monkeypatch, kill_at: str) -> None:
-    import abstractassistant.core.session_cache as cache_module
-
-    clean = tmp_path / "clean"
-    _legacy_data_dir(clean)
-    expected_rows = {sid: r["display_title"] for sid, r in _rows(_manager(clean, OFFLINE)).items()}
-
-    data = tmp_path / "data"
-    _legacy_data_dir(data)
-    real_move = shutil.move
-
-    def _move(src, dst, *a, **k):
-        name = Path(src).name
-        if (kill_at == "base_session_move" and Path(src) == data / "session.json") or (
-            kill_at == "index_set_aside" and name == "sessions.json"
-        ):
-            raise _Killed()
-        moved = real_move(src, dst, *a, **k)
-        if kill_at == "after_index_set_aside" and name == "sessions.json":
-            raise _Killed()  # the old index is gone; only the cache can know the sessions now
-        return moved
-
-    monkeypatch.setattr(cache_module.shutil, "move", _move)
-    with pytest.raises(_Killed):
-        _manager(data, OFFLINE)
-    monkeypatch.setattr(cache_module.shutil, "move", real_move)
-
-    restarted = _manager(data, OFFLINE)
-    assert {sid: r["display_title"] for sid, r in _rows(restarted).items()} == expected_rows
-    assert restarted.active_session_id == "sess_beta"
-    assert (data / "sessions-legacy" / "sessions.json").exists()
-    assert not (data / "sessions.json").exists()
-
-
-@pytest.mark.basic
 def test_an_unreadable_transcript_is_still_reported_after_a_restart(tmp_path: Path) -> None:
     data = tmp_path / "data"
     first = _manager(data, OFFLINE)
@@ -735,22 +550,6 @@ def test_an_unreadable_transcript_is_still_reported_after_a_restart(tmp_path: Pa
         assert third.sync_session_from_gateway() == {"changed": True, "error": ""}
     assert third.session_problem() == ""
     assert _manager(data, OFFLINE).session_problem() == ""
-
-
-@pytest.mark.basic
-def test_opening_a_session_moved_to_legacy_says_where_its_text_is(tmp_path: Path) -> None:
-    """A stale switcher can still show a session the migration just moved."""
-    data = tmp_path / "data"
-    _legacy_data_dir(data)
-    with FakeGateway() as gw:
-        manager = _manager(data, gw.url)
-        manager.refresh_sessions_from_gateway()  # moves sess_gone_2 aside
-    manager.switch_session("sess_gone_2")
-    assert _contents(manager) == []
-    notice = manager.session_notice()
-    assert str(data / "sessions-legacy" / "sess_gone_2" / "session.json") in notice
-    manager.switch_session("sess_beta")
-    assert manager.session_notice() == ""
 
 
 @pytest.mark.basic

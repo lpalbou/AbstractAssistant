@@ -292,8 +292,10 @@ def test_switcher_rows_show_metrics_and_never_repeat_the_title() -> None:
     assert "12" in texts                      # tool calls
     assert "10k tk" in texts
     assert "2 min" in texts
-    folders = [w.text() for w in row.metrics_host.findChildren(type(switcher.new_button)) if w.objectName() == "rowFolder"]
-    assert folders == ["proj"]
+    # The folder is a glyph (never the word "folder"), its path in the tooltip.
+    folders = [w for w in row.metrics_host.findChildren(type(switcher.new_button)) if w.objectName() == "rowFolder"]
+    assert [(f.text(), f.icon().isNull()) for f in folders] == [("", False)]
+    assert folders[0].toolTip() == "on the gateway host: /Users/x/proj"
     # The second row's preview equals its title: showing it twice says nothing.
     row_two = switcher.visible_rows()[1]
     assert row_two.preview_label.isVisibleTo(row_two) is False
@@ -328,25 +330,6 @@ def test_switcher_keyboard_moves_the_selection_and_opens_a_chat() -> None:
     assert switcher.selected_session_id == "today"
     switcher.keyPressEvent(_key(Qt.Key_Return))
     assert chosen == ["today"]
-
-
-@pytest.mark.basic
-def test_switcher_delete_asks_in_the_row_before_it_deletes() -> None:
-    switcher = _switcher()
-    requested: list[str] = []
-    switcher.delete_requested.connect(requested.append)
-
-    switcher.keyPressEvent(_key(Qt.Key_Backspace, Qt.ControlModifier))
-    row = switcher.visible_rows()[0]
-    assert row.confirming_delete is True
-    assert requested == []                    # nothing deleted yet
-
-    switcher.keyPressEvent(_key(Qt.Key_Escape))
-    assert row.confirming_delete is False
-
-    row.ask_delete()
-    row.delete_confirmed.emit(row.session_id)
-    assert requested == ["today"]
 
 
 @pytest.mark.basic
@@ -388,44 +371,6 @@ def _key(key, modifiers=Qt.NoModifier):
 
 
 # ------------------------------------------------------------------- deletion
-
-
-@pytest.mark.basic
-def test_removing_a_session_hides_it_and_keeps_its_text(tmp_path: Path) -> None:
-    """The gateway has no delete route: "remove" is a local preference that
-    hides the row; the cached folder MOVES to sessions-legacy (it is the only
-    copy for a session that exists only here), and the active session moves
-    to the newest remaining gateway session."""
-    cache = SessionCache(tmp_path)
-    first = cache.create_session()
-    cache.set_rows(
-        [GatewaySession(session_id=first, turns=2), GatewaySession(session_id="sess_other", turns=1)],
-        truncated=False,
-    )
-    folder = cache.data_dir_for(first)
-    assert folder.exists()
-
-    new_active = cache.remove_from_list(first)
-
-    assert folder.exists() is False
-    assert (tmp_path / "sessions-legacy" / first / "session.json").exists()
-    assert cache.is_hidden(first)
-    assert new_active == "sess_other" == cache.active_session_id
-    # Survives a reload.
-    assert SessionCache(tmp_path).is_hidden(first)
-
-
-@pytest.mark.basic
-def test_removing_the_last_session_mints_a_fresh_one(tmp_path: Path) -> None:
-    cache = SessionCache(tmp_path)
-    only = cache.active_session_id
-    active = cache.remove_from_list(only)
-    assert active != only
-    assert active == cache.active_session_id
-    assert (cache.data_dir_for(active) / "session.json").exists()
-
-
-# ------------------------------------------------------- palette integration
 
 
 def _palette_with_picker(*, worker=None, active="today"):
@@ -477,7 +422,7 @@ def test_palette_header_button_names_the_active_session() -> None:
 
 
 @pytest.mark.basic
-def test_palette_refuses_to_switch_or_delete_while_a_run_is_active() -> None:
+def test_palette_refuses_to_switch_while_a_run_is_active() -> None:
     from abstractassistant.app import AssistantPalette
 
     banners: list[tuple] = []
@@ -489,63 +434,12 @@ def test_palette_refuses_to_switch_or_delete_while_a_run_is_active() -> None:
         (),
         {
             "switch_session": lambda self, sid: switched.append(sid),
-            "delete_session": lambda self, sid: switched.append(f"delete:{sid}"),
         },
     )()
 
     AssistantPalette._switch_to_session(palette, "week")
     assert switched == []
     assert banners and "stop it" in banners[0][0]
-
-    banners.clear()
-    AssistantPalette._delete_session(palette, "today")
-    assert switched == []
-    assert banners and "Stop the run" in banners[0][0]
-
-
-@pytest.mark.basic
-def test_palette_deletes_a_session_and_reloads_when_it_was_the_active_one() -> None:
-    from abstractassistant.app import AssistantPalette
-
-    calls: list[str] = []
-    palette = _palette_with_picker()
-    palette._set_banner = lambda text, tone="info", key="": calls.append(f"banner:{text}")
-    palette._set_history_status = lambda *a, **k: None
-    palette._set_status = lambda *a, **k: None
-    palette._refresh_tray_feedback = lambda: None
-    palette._history_scroll_request = lambda **kw: None
-    palette.refresh_history = lambda request=None: calls.append("history")
-    palette._warm_session_digests = lambda: calls.append("warm")
-    palette._controller = type(
-        "C", (), {"delete_session": lambda self, sid: (calls.append(f"delete:{sid}"), "week")[1]}
-    )()
-
-    AssistantPalette._delete_session(palette, "today")
-
-    assert "delete:today" in calls
-    assert "history" in calls          # the deleted session was on screen
-    assert "warm" in calls             # metrics recomputed
-    assert palette._session_digests == []
-    assert palette.session_picker.text() == "Untitled session"
-
-
-@pytest.mark.basic
-def test_switcher_survives_being_rebuilt_from_inside_a_row_signal() -> None:
-    """Deleting re-renders the list while the emitting row is alive: the row
-    must be torn down safely, not crash the popup."""
-    switcher = _switcher()
-    remaining = [d for d in _digests() if d.session_id != "today"]
-    switcher.delete_requested.connect(
-        lambda sid: switcher.set_digests(remaining, active_session_id="week")
-    )
-
-    row = switcher.visible_rows()[0]
-    row.ask_delete()
-    row.delete_confirmed.emit(row.session_id)
-
-    _app().processEvents()
-    assert [r.session_id for r in switcher.visible_rows()] == ["week", "old"]
-    assert switcher.selected_session_id == "week"
 
 
 @pytest.mark.basic
@@ -771,3 +665,19 @@ def test_the_popup_stays_on_screen_with_a_long_header() -> None:
     assert switcher.frameGeometry().right() <= screen.right() - 8
     switcher.close()
     switcher.deleteLater()
+
+
+
+@pytest.mark.basic
+def test_there_is_no_way_to_remove_a_session() -> None:
+    """Operator 2026-09-27: a session exists iff the gateway lists it; the
+    gateway has no session delete, so neither does the switcher."""
+    from abstractassistant.app import AssistantPalette
+
+    switcher = _switcher()
+    for row in switcher.visible_rows():
+        tips = [b.toolTip() for b in row.findChildren(type(switcher.new_button))]
+        assert not any("remove" in t.lower() or "delete" in t.lower() for t in tips), tips
+        assert not hasattr(row, "delete_button")
+    assert not hasattr(switcher, "delete_requested")
+    assert not hasattr(AssistantPalette, "_delete_session")

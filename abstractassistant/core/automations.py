@@ -41,6 +41,10 @@ __all__ = [
     "format_utc",
     "group_by_automation",
     "interval_label",
+    "last_run_text",
+    "next_run_text",
+    "relative_span",
+    "status_pill",
     "is_regular_session_kind",
     "new_attention_notices",
     "occurrence_views",
@@ -135,6 +139,65 @@ STATUS_LABELS = {
     "failed": "Failed",
     "archived": "Archived",
 }
+
+# ------------------------------------------------------------ relative time
+
+
+def relative_span(seconds: float) -> str:
+    """A duration for a row: "<1 min", "3 min", "1 h 06 min", "2 d 3 h"."""
+    total = max(0, int(seconds))
+    if total < 60:
+        return "<1 min"
+    minutes = total // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} h" if minutes == 0 else f"{hours} h {minutes:02d} min"
+    days, hours = divmod(hours, 24)
+    return f"{days} d" if hours == 0 else f"{days} d {hours} h"
+
+
+def last_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
+    """ "last 3 min ago" from the last occurrence's finish (else fire) time; "last —" when none."""
+    now = now or datetime.now(timezone.utc)
+    last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), Mapping) else None
+    when = _parse_ts((last or {}).get("finished_at") or (last or {}).get("fired_at")) if last else None
+    if when is None:
+        return "last —"
+    return f"last {relative_span((now - when).total_seconds())} ago"
+
+
+def next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
+    """ "next in 2 min" from the gateway's next fire time; "next —" when paused,
+    ended or not scheduled; "next: now" when due."""
+    now = now or datetime.now(timezone.utc)
+    if summary.get("status") != "active":
+        return "next —"
+    when = _parse_ts(summary.get("next_fire_at"))
+    if when is None:
+        return "next —"
+    delta = (when - now).total_seconds()
+    return "next: now" if delta < 60 else f"next in {relative_span(delta)}"
+
+
+def status_pill(summary: Mapping[str, Any]) -> Tuple[str, str]:
+    """ ``(text, tone)`` of a row's status pill. Tones: active (green), paused
+    (amber), running (blue), waiting (highlighted), failed (red), ended (grey)."""
+    status = str(summary.get("status") or "")
+    attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+    if status in {"active", "paused"} and int(attention.get("pending_waits") or 0):
+        return "waiting for you", "waiting"
+    if status in {"active", "paused"} and occurrence_in_progress(summary):
+        return "running", "running"
+    if status == "active":
+        return "active", "active"
+    if status == "paused":
+        return "paused", "paused"
+    if status == "failed":
+        return "failed", "failed"
+    return (status or "unknown"), "ended"
+
 
 # ----------------------------------------------------------------- controls
 

@@ -6387,13 +6387,13 @@ class AssistantPalette(QMainWindow):
             switcher.session_chosen.connect(self._switch_to_session)
             switcher.new_chat_requested.connect(self._create_session)
             switcher.rename_requested.connect(self._rename_session)
-            switcher.delete_requested.connect(self._delete_session)
             switcher.automation_chosen.connect(self._open_automation)
             switcher.automation_open_requested.connect(self._open_automation)
             switcher.automation_edit_requested.connect(self._edit_automation)
             switcher.automation_control_requested.connect(self._on_switcher_automation_control)
             switcher.load_more_requested.connect(self._load_more_sessions)
             switcher.tab_changed.connect(self._on_switcher_tab_changed)
+            switcher.new_automation_requested.connect(self._open_new_automation_sheet)
             self._session_switcher = switcher
         self._apply_automations_to_switcher(switcher)
         self._warm_session_digests()
@@ -6405,9 +6405,7 @@ class AssistantPalette(QMainWindow):
         tab = self._state("_switcher_open_tab") or self._controller.switcher_tab()
         self._switcher_open_tab = None
         switcher.set_tab(str(tab))
-        # A migration notice is shown in the popup that first displays it only.
-        self._session_list_notice = ""
-        self._apply_session_list_status(switcher, take_notice=True)
+        self._apply_session_list_status(switcher)
         button = self._state("session_picker")
         try:
             origin = button.mapToGlobal(QPoint(0, button.height() + 6))
@@ -6713,16 +6711,23 @@ class AssistantPalette(QMainWindow):
         self._on_reattach_candidate({"run_id": run_id, "status": "running", "waiting": None})
         self._refresh_sessions_from_gateway()
 
-    def _open_schedule_sheet(self) -> None:
+    def _open_new_automation_sheet(self) -> None:
+        """"+ New automation" in the switcher: the same sheet, standalone —
+        an empty task, the default schedule, the configured workflow."""
+        self._open_schedule_sheet(standalone=True)
+
+    def _open_schedule_sheet(self, standalone: bool = False) -> None:
         """"Schedule this conversation…": the conversation's workflow and its
         last prompt prefill the sheet (the workflow is resolved off the GUI
-        thread; the catalog may need a round trip)."""
+        thread; the catalog may need a round trip). ``standalone``: the
+        switcher's "+ New automation" (no prompt; the new row is selected in
+        the Automations tab after creation)."""
         if self._automations.available is not True:
             # No automation route before a poll confirmed the gateway offers them.
             self._set_banner("This gateway does not offer automations.", tone="info", key="automation")
             return
         controller = self._controller
-        prompt = controller.last_user_prompt()
+        prompt = "" if standalone else controller.last_user_prompt()
 
         def resolved(ok: bool, value: Any) -> None:
             selection = value if ok else None
@@ -6730,6 +6735,9 @@ class AssistantPalette(QMainWindow):
             if getattr(selection, "is_gateway_default", False):
                 label = f"gateway default ({label})" if label else "gateway default"
             sheet = ScheduleSheet(target=target_from_workflow(selection), target_label=label, prompt=prompt, parent=self)
+            sheet.standalone = bool(standalone)
+            if standalone:
+                sheet.setWindowTitle("New automation")
             sheet.submitted.connect(lambda body, s=sheet: self._submit_schedule(s, body))
             self._schedule_sheet = sheet
             # Typing in the sheet must not hide the palette (focus rule).
@@ -6756,13 +6764,21 @@ class AssistantPalette(QMainWindow):
             if isinstance(summary, dict) and summary.get("automation_id"):
                 hub = self._automations
                 hub.summaries = [s for s in hub.summaries if s.get("automation_id") != summary["automation_id"]] + [summary]
-                self._open_automation(str(summary["automation_id"]))
+                if getattr(sheet, "standalone", False):
+                    # "+ New automation": back to the Automations tab, the new row selected.
+                    self._switcher_open_tab = "automations"
+                    self._open_session_switcher()
+                    switcher = self._state("_session_switcher")
+                    if switcher is not None:
+                        switcher.select_automation(str(summary["automation_id"]))
+                else:
+                    self._open_automation(str(summary["automation_id"]))
             self._poll_automations()
 
         self._automations.create(body, done)
 
     def _refresh_open_session_switcher(self) -> None:
-        """Re-render the popup's rows (rename, delete, or the gateway answered)."""
+        """Re-render the popup's rows (rename, or the gateway answered)."""
         switcher = self._state("_session_switcher")
         if switcher is None:
             return
@@ -6773,7 +6789,7 @@ class AssistantPalette(QMainWindow):
                     active_session_id=self._active_session_id(),
                     more=self._sessions_more(),
                 )
-                self._apply_session_list_status(switcher, take_notice=True)
+                self._apply_session_list_status(switcher)
         except RuntimeError:
             self._session_switcher = None
 
@@ -6791,9 +6807,8 @@ class AssistantPalette(QMainWindow):
             return True
         return False
 
-    def _apply_session_list_status(self, switcher: Any, *, take_notice: bool = False) -> None:
-        """The switcher's header line: where the rows come from, and the
-        one-time migration notice."""
+    def _apply_session_list_status(self, switcher: Any) -> None:
+        """The switcher's header line: where the rows come from."""
         setter = getattr(switcher, "set_status", None)
         if not callable(setter):
             return
@@ -6811,19 +6826,6 @@ class AssistantPalette(QMainWindow):
             tooltip = str(state.get("error"))
         elif state.get("refreshing") and not state.get("fetched_at"):
             lines.append("Loading sessions from the gateway…")
-        notice = str(state.get("notice") or "")
-        if notice:
-            if take_notice:
-                try:
-                    controller.take_session_notice()
-                except Exception:
-                    pass
-                # Kept for the rest of this popup's life (a refresh re-renders
-                # the header), shown once across launches.
-                self._session_list_notice = notice
-            lines.append(notice)
-        elif self._state("_session_list_notice"):
-            lines.append(str(self._state("_session_list_notice")))
         setter("\n".join(lines), tone=tone, tooltip=tooltip)
 
     def _switch_to_session(self, session_id: str) -> None:
@@ -6850,13 +6852,6 @@ class AssistantPalette(QMainWindow):
         self._set_history_status()
         self._set_status("Ready")
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
-        try:
-            notice = str(self._controller.session_notice() or "")
-        except Exception:
-            notice = ""
-        if notice:
-            # An empty transcript would say nothing: say where the text is.
-            self._set_banner(notice, tone="info", key="session")
         self._sync_session_from_gateway()
 
     def _sessions_more(self) -> bool:
@@ -6979,41 +6974,6 @@ class AssistantPalette(QMainWindow):
         self._session_digests = []
         self._warm_session_digests()
         self._refresh_session_picker()
-        self._refresh_open_session_switcher()
-
-    def _delete_session(self, session_id: str) -> None:
-        target = str(session_id or "").strip()
-        if not target:
-            return
-        if self._state("_worker") is not None and target == self._active_session_id():
-            self._set_banner(
-                "This session is running. Stop the run (⌘.) before deleting it.",
-                tone="info",
-            )
-            return
-        was_active = target == self._active_session_id()
-        try:
-            new_active = self._controller.delete_session(target)
-        except Exception as exc:
-            self._set_banner(f"Could not delete the session: {exc}", tone="error")
-            return
-        self._session_digests = []
-        if was_active:
-            self._tray_completion_unread = False
-            self._set_history_status()
-            self._set_status("Ready")
-            self.refresh_history(request=self._history_scroll_request(mode="bottom"))
-        try:
-            kept = str(self._controller.session_legacy_dir() or "")
-        except Exception:
-            kept = ""
-        self._set_banner(
-            f"Session removed from the list; its local text is kept in {kept}." if kept else "Session removed from the list.",
-            tone="info",
-            key="session",
-        )
-        self._warm_session_digests()
-        self._refresh_session_picker(select_session_id=new_active or None)
         self._refresh_open_session_switcher()
 
     def _state(self, name: str, default: Any = None) -> Any:

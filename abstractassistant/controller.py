@@ -976,8 +976,6 @@ class AssistantController:
     def session_list_state(self) -> Dict[str, Any]:
         return dict(self.llm_manager.session_list_state() or {})
 
-    def take_session_notice(self) -> str:
-        return str(self.llm_manager.take_session_notice() or "")
 
     def sync_session_from_gateway(self) -> Dict[str, Any]:
         """Replace the active session's cached transcript with the gateway's
@@ -987,8 +985,6 @@ class AssistantController:
     def session_problem(self) -> str:
         return str(self.llm_manager.session_problem() or "")
 
-    def session_notice(self) -> str:
-        return str(self.llm_manager.session_notice() or "")
 
     def load_more_sessions(self) -> Dict[str, Any]:
         """One more page of sessions (blocking: off the GUI thread)."""
@@ -1000,15 +996,9 @@ class AssistantController:
     def set_switcher_tab(self, tab: str) -> None:
         self.llm_manager.set_switcher_tab(tab)
 
-    def session_legacy_dir(self) -> str:
-        return str(self.llm_manager.session_legacy_dir())
 
     def rename_session(self, session_id: str, title: str) -> None:
         self.llm_manager.rename_session(session_id, title)
-
-    def delete_session(self, session_id: str) -> str:
-        """Delete a chat and its transcript; returns the new active session id."""
-        return str(self.llm_manager.delete_session(session_id) or "")
 
     def create_session(self) -> str:
         return self.llm_manager.create_new_session()

@@ -71,7 +71,7 @@ def test_tabs_switch_by_keyboard_and_the_last_one_is_remembered(tmp_path: Path) 
     assert sw.hint_label.text().startswith("↑↓ move · ↵ open · ⌘1/⌘2") and "remove" not in sw.hint_label.text()
     _key(sw, Qt.Key_Left, target=sw.search_edit)  # ← with an empty filter
     assert sw.tab == "sessions" and seen == ["automations", "sessions"]
-    assert "⌘⌫ remove" in sw.hint_label.text()
+    assert sw.hint_label.text() == "↑↓ move · ↵ open · ⌘1/⌘2 tabs · esc close"
     # Remembered across launches (the session cache keeps it).
     cache = SessionCache(tmp_path)
     cache.set_switcher_tab("automations")
@@ -98,7 +98,7 @@ def test_archived_automations_are_hidden_until_asked_for() -> None:
     assert archived["automation_id"] in ids()
     row = next(r for r in sw.automation_tab_rows if r.automation_id == archived["automation_id"])
     assert not any(b.isEnabled() for k, b in row.buttons.items() if k not in ("open", "last"))
-    assert row.buttons["pause"].toolTip() == "Archived: history is kept, nothing runs."
+    assert row.buttons["pause"].toolTip() == "Pause — Archived: history is kept, nothing runs."
     sw.deleteLater()
 
 
@@ -117,7 +117,7 @@ def test_inline_controls_follow_the_automations_state() -> None:
     # Running (waiting occurrence): Stop shown; Run now disabled with the reason.
     assert running.buttons["stop_current"].isEnabled()
     assert not running.buttons["run_now"].isEnabled()
-    assert running.buttons["run_now"].toolTip() == "An occurrence is in progress."
+    assert running.buttons["run_now"].toolTip() == "Run now — An occurrence is in progress."
     # Clicks become requests.
     got: List[tuple] = []
     sw.automation_control_requested.connect(lambda a, c: got.append((a, c)))
@@ -201,4 +201,89 @@ def test_a_long_session_list_offers_load_more_and_counts_with_a_plus() -> None:
     assert loads == [1] and not sw.load_more_button.isEnabled()
     sw.set_digests([SessionDigest(session_id=f"s{i}", title=f"t{i}", updated_at="2026-08-01T12:00:00Z") for i in range(150)], more=False)
     assert sw.count_text == "150 sessions" and sw.load_more_button is None
+    sw.deleteLater()
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize(
+    "seconds, text",
+    [(0, "<1 min"), (59, "<1 min"), (180, "3 min"), (3599, "59 min"), (3600, "1 h"), (3960, "1 h 06 min"),
+     (7200 + 59 * 60, "2 h 59 min"), (86400, "1 d"), (90000, "1 d 1 h")],
+)
+def test_relative_span(seconds, text) -> None:
+    from abstractassistant.core.automations import relative_span
+
+    assert relative_span(seconds) == text
+
+
+@pytest.mark.basic
+def test_last_and_next_are_relative_times_and_next_is_a_dash_when_not_scheduled() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from abstractassistant.core.automations import last_run_text, next_run_text
+
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
+    iso = lambda d: (now + d).isoformat()  # noqa: E731
+    active = {"status": "active", "next_fire_at": iso(timedelta(minutes=2)),
+              "last_occurrence": {"fired_at": iso(-timedelta(minutes=10)), "finished_at": iso(-timedelta(minutes=3))}}
+    assert (last_run_text(active, now=now), next_run_text(active, now=now)) == ("last 3 min ago", "next in 2 min")
+    long = dict(active, next_fire_at=iso(timedelta(hours=1, minutes=6, seconds=30)),
+                last_occurrence={"fired_at": iso(-timedelta(hours=1, minutes=6))})
+    assert (last_run_text(long, now=now), next_run_text(long, now=now)) == ("last 1 h 06 min ago", "next in 1 h 06 min")
+    assert next_run_text(dict(active, status="paused"), now=now) == "next —"
+    assert next_run_text({"status": "active"}, now=now) == "next —"
+    assert next_run_text(dict(active, next_fire_at=iso(timedelta(seconds=20))), now=now) == "next: now"
+    assert last_run_text({"status": "active"}, now=now) == "last —"
+
+
+@pytest.mark.basic
+def test_status_pills_per_state() -> None:
+    from abstractassistant.core.automations import status_pill
+
+    news, journal, triage = _by_id(NEWS), _by_id(JOURNAL), _by_id(TRIAGE)
+    running = dict(news, last_occurrence=dict(news["last_occurrence"], status="running"))
+    assert status_pill(news) == ("active", "active")
+    assert status_pill(journal) == ("paused", "paused")
+    assert status_pill(running) == ("running", "running")
+    assert status_pill(triage) == ("waiting for you", "waiting")  # a pending wait wins
+    assert status_pill(dict(news, status="archived")) == ("archived", "ended")
+    assert status_pill(dict(news, status="failed")) == ("failed", "failed")
+    sw = _switcher()
+    sw.set_tab("automations")
+    tones = {r.automation_id: r.pill.property("tone") for r in sw.automation_tab_rows}
+    assert tones[NEWS] == "active" and tones[JOURNAL] == "paused" and tones[TRIAGE] == "waiting"
+    sw.deleteLater()
+
+
+@pytest.mark.basic
+def test_the_toolbar_is_icons_with_tooltips_by_state() -> None:
+    sw = _switcher()
+    sw.set_tab("automations")
+    rows = {r.automation_id: r for r in sw.automation_tab_rows}
+    for row in rows.values():
+        for key, button in list(row.buttons.items()) + [("folder", row.folder)]:
+            assert button.text() == "" and not button.icon().isNull(), key
+            assert button.toolTip(), key
+    assert rows[NEWS].buttons["revise"].toolTip() == "Modify"
+    assert list(rows[NEWS].buttons) == ["open", "last", "pause", "run_now", "revise", "archive"]
+    assert list(rows[JOURNAL].buttons) == ["open", "last", "resume", "run_now", "revise", "archive"]
+    assert list(rows[TRIAGE].buttons) == ["open", "last", "pause", "run_now", "stop_current", "revise", "archive"]
+    # Failed last result reads red.
+    failed = dict(_by_id(NEWS), last_occurrence=dict(_by_id(NEWS)["last_occurrence"], status="failed"))
+    sw.set_automations([failed], available=True)
+    assert sw.automation_tab_rows[0].result_label.property("tone") == "failed"
+    sw.deleteLater()
+
+
+@pytest.mark.basic
+def test_new_automation_button_lives_in_the_automations_tab() -> None:
+    sw = _switcher()
+    asked: List[int] = []
+    sw.new_automation_requested.connect(lambda: asked.append(1))
+    sw.show()
+    assert not sw.new_automation_button.isVisibleTo(sw)
+    sw.set_tab("automations")
+    assert sw.new_automation_button.isVisibleTo(sw) and not sw.new_button.isVisibleTo(sw)
+    sw.new_automation_button.click()
+    assert asked == [1]
     sw.deleteLater()

@@ -174,21 +174,20 @@ class LLMManager:
         """The cached transcript of a session (empty when none is cached yet).
 
         Nothing is written here: a session opened from the gateway list has no
-        cache until the gateway's history arrives. An UNREADABLE cache is moved
-        aside (never overwritten with an empty transcript) and recorded, so the
-        gateway sync rebuilds it — or the failure is surfaced.
+        cache until the gateway's history arrives. An UNREADABLE cache is
+        discarded and recorded, so the gateway sync rebuilds it — or the
+        failure is surfaced.
         """
         sid = str(session_id)
         store = self._gateway_store_for(sid)
         try:
             snap = store.read()
         except SessionSnapshotUnreadable as exc:
-            aside = self._session_cache.set_aside(store.path)
-            where = f"; the file was moved to {aside}" if aside is not None else ""
+            self._session_cache.discard(store.path)
             # Persisted next to the cache (not only in memory) until the
             # gateway has rebuilt it, so a restart still says so.
             self._session_cache.mark_unreadable(
-                sid, f"The local copy of this session could not be read ({exc}){where}."
+                sid, f"The local copy of this session could not be read ({exc}); it is rebuilt from the gateway."
             )
             snap = None
         if snap is None:
@@ -477,9 +476,9 @@ class LLMManager:
         """The session list for the switcher, from the cache only (no network).
 
         Rows are the gateway's sessions as last fetched
-        (`refresh_sessions_from_gateway`), minus the ones removed from this
-        list; plus the active session while it has no gateway run yet ("new,
-        empty"), plus 0.6.1-and-earlier local sessions the migration has not decided yet.
+        (`refresh_sessions_from_gateway`), plus the active session while it has
+        no gateway run yet ("new, empty": it becomes a gateway session with its
+        first turn). Nothing else: a session exists iff the gateway lists it.
         Title = local label, else the gateway's opening prompt, else the cached
         transcript's; metrics come from the cached transcript when there is one.
         Safe to call from any thread.
@@ -494,7 +493,7 @@ class LLMManager:
         seen: set = set()
 
         def _add(session_id: str, *, created_at: str, updated_at: str, row=None) -> None:
-            if session_id in seen or store.is_hidden(session_id):
+            if session_id in seen:
                 return
             seen.add(session_id)
             record = {
@@ -539,8 +538,6 @@ class LLMManager:
         # it — the same pool for every client — newest first, a page at a time.
         for row in store.rows()[: self._session_target]:
             _add(row.session_id, created_at=row.created_at, updated_at=row.updated_at, row=row)
-        for session_id, meta in store.legacy_pending().items():
-            _add(session_id, created_at=meta.get("created_at", ""), updated_at=meta.get("updated_at", ""))
         if active not in seen:
             _add(active, created_at="", updated_at=store.last_seen(active))
         return out
@@ -557,12 +554,7 @@ class LLMManager:
             # yet, or pages the gateway has not been asked for.
             "more": len(store.rows()) > self._session_target or store.truncated,
             "refreshing": self._session_refresh_lock.locked(),
-            "notice": store.peek_notice(),
         }
-
-    def take_session_notice(self) -> str:
-        """The one-time migration notice; cleared once taken."""
-        return self._session_cache.take_notice()
 
     def load_more_sessions(self, *, timeout_s: float = 15.0) -> Dict[str, Any]:
         """Show one more page of sessions (reading further `/runs` pages as
@@ -572,11 +564,10 @@ class LLMManager:
     def refresh_sessions_from_gateway(self, *, timeout_s: float = 15.0, more: bool = False) -> Dict[str, Any]:
         """Fetch the session list from the gateway into the cache.
 
-        Blocking network: call it off the GUI thread. One request for the list
-        (the pinned `/runs` query), then up to `SESSION_PROMPT_MAX` opening
-        prompts not fetched before. The first COMPLETE list also runs the
-        one-time migration of 0.6.1-and-earlier local sessions. A failure keeps the
-        cached rows and is reported by `session_list_state()`.
+        Blocking network: call it off the GUI thread. `/runs` pages until the
+        shown sessions are covered, then up to `SESSION_PROMPT_MAX` opening
+        prompts not fetched before. A failure keeps the cached rows and is
+        reported by `session_list_state()`.
         """
         if not self._session_refresh_lock.acquire(blocking=False):
             return {"ok": False, "skipped": True}
@@ -616,18 +607,13 @@ class LLMManager:
                 return {"ok": False, "error": self._session_list_error}
             self._session_target = target
             self._session_list_error = ""
-            active_before = self.active_session_id
             with self._snapshot_lock:
-                removed = self._session_cache.reconcile_legacy(
-                    (row.session_id for row in rows), complete=not truncated
-                )
                 self._session_cache.set_rows(rows, truncated=truncated)
             store = self._session_cache
             untitled = [
                 row
                 for row in rows
                 if row.first_run_id
-                and not store.is_hidden(row.session_id)
                 and not store.label(row.session_id)
                 and store.prompt(row.session_id) is None
             ]
@@ -646,8 +632,6 @@ class LLMManager:
                 "ok": True,
                 "rows": len(rows),
                 "truncated": truncated,
-                "removed": int(removed or 0),
-                "active_changed": self.active_session_id != active_before,
             }
         finally:
             self._session_refresh_lock.release()
@@ -714,51 +698,17 @@ class LLMManager:
         """Why the active session's cached copy could not be read ("" if fine)."""
         return self._session_cache.unreadable_problem(str(self.active_session_id))
 
-    def session_notice(self) -> str:
-        """A line to show instead of an empty transcript: the active session
-        was moved to ``sessions-legacy/`` (removed from the list, or dropped
-        by the migration while an older list was on screen)."""
-        sid = str(self.active_session_id)
-        if self.session_messages() or self._session_cache.row(sid) is not None:
-            return ""
-        kept = self._session_cache.legacy_copy_for(sid)
-        if kept is None:
-            return ""
-        return f"This session is no longer in the list; its text is kept in {kept}."
-
     def switcher_tab(self) -> str:
         return self._session_cache.switcher_tab
 
     def set_switcher_tab(self, tab: str) -> None:
         self._session_cache.set_switcher_tab(tab)
 
-    def session_legacy_dir(self) -> Path:
-        return self._session_cache.legacy_dir
-
     def rename_session(self, session_id: str, title: str) -> None:
         """A LOCAL label for the session, shown instead of its opening prompt."""
         sid = str(session_id or "").strip()
         if sid:
             self._session_cache.set_label(sid, title)
-
-    def delete_session(self, session_id: str) -> str:
-        """Remove a session from this list and drop its cached transcript.
-
-        The gateway offers no route to delete a session, so its runs stay
-        there. Returns the active session id afterwards.
-        """
-        sid = str(session_id or "").strip()
-        if not sid:
-            return self.active_session_id
-        cache = getattr(self, "_session_digest_cache", None)
-        if cache is not None:
-            cache.forget(sid)
-        was_active = sid == self.active_session_id
-        with self._snapshot_lock:
-            new_active = self._session_cache.remove_from_list(sid)
-            if was_active:
-                self._gateway_snapshot = self._load_gateway_snapshot(new_active)
-        return new_active
 
     def create_new_session(self) -> str:
         with self._snapshot_lock:

@@ -619,11 +619,11 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     _APP.processEvents()
     rows = switcher.automation_rows
     assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, LEGACY]
-    assert rows[0].badge_text == "2 NEW · WAITING"
-    assert rows[0].cadence_label.text() == "every 30 minutes (UTC) · Active · growing"
-    assert rows[2].next_label.text() == "paused"
+    assert (rows[0].pill.text(), rows[0].new_badge.text()) == ("waiting for you", "2 new")
+    assert rows[0].meta_text.startswith("every 30 minutes (UTC) · growing · last ")
+    assert rows[2].pill.text() == "paused" and rows[2].meta_text.endswith("next —")
     # The real gateway sends an empty excerpt while waiting: the question shows.
-    assert "waiting for you: The landlord asks" in rows[0].excerpt_label.text()
+    assert "waiting for you: The landlord asks" in rows[0].result_label.toolTip()
     assert switcher.tab_buttons["automations"].text() == "Automations · 4 new"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
@@ -924,7 +924,7 @@ def test_scenario_three_news_monitors(palette, stub) -> None:
     switcher = SessionSwitcher()
     window._session_switcher = switcher
     window._apply_automations_to_switcher(switcher)
-    listed = {r.automation_id: r.cadence for r in switcher.automation_rows}
+    listed = {r.automation_id: r.meta_text.split(" · ")[0] for r in switcher.automation_rows}
     assert {listed[i] for i in ids} == {"every 8 hours (UTC)", "every 24 hours (UTC)", "every hour (UTC)"}
     switcher.deleteLater()
 
@@ -1489,3 +1489,24 @@ def test_switcher_inline_controls_edit_and_tab_go_through_the_palette(palette, s
     assert window.automation_view.isVisibleTo(window) and window.automation_view.edit_box.isVisibleTo(window.automation_view)
     window._on_switcher_tab_changed("automations")
     assert controller.switcher_tab() == "automations"
+
+
+
+@pytest.mark.basic
+def test_new_automation_from_the_switcher_creates_and_selects_the_row(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_new_automation_sheet()
+    sheet = window._schedule_sheet
+    assert sheet.standalone is True and sheet.prompt_edit.toPlainText() == ""
+    assert sheet.preset_combo.currentText() == "every 8 hours"
+    sheet.prompt_edit.setPlainText("Check the price of TTE.PA")
+    before = {s["automation_id"] for s in stub.summaries}
+    sheet.submit_button.click()
+    body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
+    assert body["target"]["input_data"] == {"prompt": "Check the price of TTE.PA"}
+    created = next(s["automation_id"] for s in stub.summaries if s["automation_id"] not in before)
+    switcher = window._session_switcher
+    assert switcher.tab == "automations"
+    assert created in [r.automation_id for r in switcher.automation_tab_rows]
+    assert switcher.selected_automation_id == created
