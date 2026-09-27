@@ -27,9 +27,11 @@ routes they use, see [architecture.md](architecture.md#automations) and
 
 ## Where automations appear
 
-Click the chat name in the palette header. On a gateway that offers automations, the switcher lists
-an **Automations** section above your chats: one row per automation you own, whichever app created
-it (the Assistant, AbstractObserver or another client). Each row shows:
+Click the chat name in the palette header. On a gateway that offers automations, the switcher has
+two tabs, **Sessions | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
+remembered). The **Automations** tab lists every automation, whichever app created it (the
+Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
+archived** in the tab's header. Each row shows:
 
 - the title, and a badge when something needs you: `2 NEW` (unseen results or failures) and
   `WAITING` (a run waits for your answer);
@@ -39,16 +41,23 @@ it (the Assistant, AbstractObserver or another client). Each row shows:
 - the last run's number, status and the first line of its result (`#12 completed: …`), or
   `waiting for you: <question>`.
 
-The section header counts what needs you (`AUTOMATIONS · 3 NEW`: unseen items plus waiting runs).
+Under it, controls chosen by the automation's state: **Open**, **Last** (opens it scrolled to its
+latest run), **Pause** or **Resume**, **Run now** (also while paused), **Stop** (only while a run is
+in progress), **Edit schedule…** (opens the automation with its edit form), **Archive** (asks for
+confirmation in the row) and the automation's folder. A control that does not apply is disabled
+with the reason in its tooltip; the rules are the same as in the automation view. Enter opens the
+selected automation.
+
+The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
-you have none yet, the section says so and points to the clock button.
+you have none yet, the tab says so and points to the clock button.
 
 The **Automations…** entry in the menu-bar icon's menu carries the same count
 (`Automations… (3 new)`) and opens the palette with the switcher.
 
 ### Automations and your sessions
 
-The sessions an automation runs in are listed under their automation, never among your chats. The
+The sessions an automation runs in are listed under their automation, never in the Sessions tab. The
 gateway stamps every session with a kind (`chat`, `automation`, `occurrence`, `discussion`), and
 the switcher lists only `chat` and `discussion` sessions; it never guesses from a session's id.
 A session from a gateway that does not stamp kinds counts as a chat. When the gateway advertises
@@ -96,7 +105,7 @@ one (see [Limits](#limits)).
 
 ## Reading an automation
 
-Click a row in the Automations section. The palette shows the automation in place of the
+Click a row in the Automations tab. The palette shows the automation in place of the
 conversation, and **← Chat** returns to it.
 
 The header gives the title and one line with the cadence, status, next run, context mode and run
@@ -206,12 +215,12 @@ Ordinary results never notify. Notifications are not repeated after a relaunch:
 
 The Assistant reads the gateway's capabilities (`contracts.common.automations.available`):
 
-- **Advertised** (`true`): the Automations section, the tray entry, the clock button and the polls
+- **Advertised** (`true`): the Automations tab, the tray entry, the clock button and the polls
   described above.
-- **Not advertised** (absent or `false`): no Automations section, no tray entry and no clock
+- **Not advertised** (absent or `false`): no Automations tab, no tray entry and no clock
   button, and the polls make no automation request. A gateway that stops advertising automations
   hides them again at the next poll.
-- **Capabilities could not be read**: the Automations section shows an error line instead of
+- **Capabilities could not be read**: the Automations tab shows an error line instead of
   hiding, so an unreachable gateway is never mistaken for one without automations.
 
 The clock button and the tray entry appear only after a poll has confirmed that the gateway offers

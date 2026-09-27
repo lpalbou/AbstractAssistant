@@ -84,11 +84,11 @@ nothing is estimated. Reattached runs show no total time because the start was n
 
 ## How do I find an old chat, and can I delete one?
 
-Click the chat name in the header. The switcher lists this app's sessions on the gateway —
-including those from the Assistant on another device — with its topic, last activity and what it
-holds (turns, state, and once opened here, tool calls, tokens, running time and workspace
-folder), grouped by recency and filtered as you type. **All gateway sessions** in its header also
-lists sessions from AbstractCode and other clients. The pencil renames a session on this device;
+Click the chat name in the header. The **Sessions** tab lists every session on the gateway —
+whichever client started it: the Assistant on any device, AbstractCode, AbstractObserver — with
+its topic, last activity and what it holds (turns, state, and once opened here, tool calls,
+tokens, running time and workspace folder, which opens in Finder when it is on this Mac), grouped
+by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The pencil renames a session on this device;
 the bin removes it from this list after an in-row confirmation and moves its local copy to
 `~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.
 
@@ -99,7 +99,7 @@ Yes, on a gateway that offers automations. The clock button in the palette heade
 ("every 8 hours", "every 7 days", or once at a time), whether each run starts fresh
 (Independent, the default) or sees the previous runs (Growing), and whether its tools run without
 asking (the default) or ask each time. The gateway runs it, also when the Assistant is closed.
-Automations are listed in the session switcher's **Automations** section and under
+Automations are listed in the session switcher's **Automations** tab and under
 **Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume, run
 now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
 notable, failures after all retries, and runs waiting for your answer; ordinary results stay
@@ -119,7 +119,7 @@ calls from the automation; see [automations.md](automations.md#tool-consent).
 
 ## Why don't the sessions of my automations appear among my chats?
 
-Each automation's runs are grouped under the automation in the **Automations** section, not
+Each automation's runs are grouped under the automation in the **Automations** tab, not
 listed as chats: the switcher lists only sessions the gateway marks as chats or discussions. A
 **Discuss** session is an ordinary chat and does appear, with the badge
 "about automation <title>"; the automation's files are mounted read-only and the discussion has

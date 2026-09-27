@@ -27,7 +27,7 @@ from abstractassistant.core.session_store import SessionSnapshot, SessionStore
 FIXTURES = Path(__file__).parent / "fixtures" / "gateway_runs"
 _KNOWN_RUNS_PARAMS = {
     "limit", "offset", "query", "status", "workflow_id", "session_id", "parent_run_id",
-    "root_only", "include_ledger_len", "include_metrics", "include_drafts",
+    "root_only", "include_ledger_len", "include_metrics", "include_drafts", "session_kind",
 }
 
 
@@ -66,7 +66,17 @@ class FakeGateway:
                     if unknown:
                         self._send(400, {"detail": f"Unknown query parameter(s): {', '.join(unknown)}"})
                         return
-                    self._send(200, outer.page)
+                    # Offset paging like the gateway: `has_more` says whether a
+                    # next page exists (an explicit True in the page is kept).
+                    query = parse_qs(url.query)
+                    offset = int((query.get("offset") or ["0"])[0])
+                    limit = int((query.get("limit") or ["200"])[0])
+                    items = list(outer.page.get("items") or [])
+                    served = dict(outer.page)
+                    served["items"] = items[offset: offset + limit]
+                    served["offset"] = offset
+                    served["has_more"] = bool(outer.page.get("has_more")) or offset + limit < len(items)
+                    self._send(200, served)
                     return
                 if len(parts) == 5 and parts[:3] == ["api", "gateway", "runs"]:
                     run_id, what = parts[3], parts[4]
@@ -125,7 +135,7 @@ def test_sessions_another_client_created_appear_with_their_first_prompt(tmp_path
 
     assert result["ok"] is True
     # The exact pinned query reached the gateway (anything else would 400).
-    assert gw.listing_requests() == ["/api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false"]
+    assert gw.listing_requests() == ["/api/gateway/runs?limit=200&offset=0&root_only=true&include_ledger_len=false"]
     rows = _rows(manager)
     # None of these ids was ever minted by this install.
     assert GATEWAY_SESSIONS <= set(rows)
@@ -622,37 +632,44 @@ def _mixed_page(own: int, other: int) -> Dict[str, Any]:
 
 
 @pytest.mark.basic
-def test_the_list_shows_this_clients_sessions_unless_all_are_asked_for(tmp_path: Path) -> None:
+def test_every_gateway_session_is_listed_whichever_client_started_it(tmp_path: Path) -> None:
+    """Operator ruling 2026-09-27: every client sees the same pool of sessions —
+    no own/other scope, no toggle, no id-prefix classification."""
     data = tmp_path / "data"
     with FakeGateway() as gw:
-        gw.page = _mixed_page(own=30, other=300)
+        gw.page = _mixed_page(own=20, other=30)
         manager = _manager(data, gw.url)
         manager.refresh_sessions_from_gateway()
-        on_gateway = lambda m: [r for r in _rows(m).values() if r["on_gateway"]]  # noqa: E731
-        assert len(on_gateway(manager)) == 30
-        assert all(r["own"] for r in on_gateway(manager))
-        # Titles go to the rows the list shows first; the cap stays 40.
-        asked = [p for p in gw.requests if "/input_data" in p]
-        assert len(asked) == 40
-        assert {f"/api/gateway/runs/run_own{i}/input_data" for i in range(30)} <= set(asked)
-
-        manager.set_show_all_sessions(True)
-        assert len(on_gateway(manager)) == 330
-        assert sum(1 for r in on_gateway(manager) if not r["own"]) == 300
-    # The toggle is kept in the cache.
-    assert _manager(data, OFFLINE).show_all_sessions() is True
-    assert len(on_gateway(_manager(data, OFFLINE))) == 330
+        rows = [r for r in _rows(manager).values() if r["on_gateway"]]
+        assert len(rows) == 50
+        assert {r["session_id"] for r in rows} >= {"acode-0", "sess_own0"}
+        assert all("own" not in r for r in rows)
+    assert not hasattr(manager, "show_all_sessions")
 
 
 @pytest.mark.basic
-def test_a_sess_shaped_id_from_another_client_counts_as_ours(tmp_path: Path) -> None:
-    """Ours = this client's own id convention, nothing more (the gateway's
-    `session_kind`, framework 0928 / C11, replaces it once it ships)."""
+def test_sessions_are_listed_a_page_at_a_time(tmp_path: Path) -> None:
+    """250 sessions: the first 100 and "Load more"; one more page shows 200."""
+    data = tmp_path / "data"
     with FakeGateway() as gw:
-        manager = _manager(tmp_path / "data", gw.url)
+        gw.page = _mixed_page(own=0, other=250)
+        manager = _manager(data, gw.url)
         manager.refresh_sessions_from_gateway()
-    # sess_hot was started by AbstractCode (workflow abstractcode:agent).
-    assert _rows(manager)["sess_hot"]["own"] is True
+        on_gateway = lambda: [r for r in _rows(manager).values() if r["on_gateway"]]  # noqa: E731
+        assert len(on_gateway()) == 100
+        assert manager.session_list_state()["more"] is True
+        first = [p for p in gw.listing_requests()]
+        assert first == ["/api/gateway/runs?limit=200&offset=0&root_only=true&include_ledger_len=false"]
+        manager.load_more_sessions()
+        assert len(on_gateway()) == 200
+        assert manager.session_list_state()["more"] is True  # 50 more exist
+        assert gw.listing_requests()[-1].startswith("/api/gateway/runs?limit=200&offset=200&")
+        manager.load_more_sessions()
+        assert len(on_gateway()) == 250
+        assert manager.session_list_state()["more"] is False
+        # Newest first across pages.
+        stamps = [r["updated_at"] for r in on_gateway()]
+        assert stamps == sorted(stamps, reverse=True)
 
 
 class _Killed(BaseException):
@@ -779,7 +796,7 @@ def _wait(predicate, seconds: float = 5.0) -> bool:
 
 
 @pytest.mark.basic
-def test_the_switcher_toggle_shows_other_clients_sessions(tmp_path: Path, monkeypatch) -> None:
+def test_the_switcher_lists_every_clients_sessions_with_no_toggle(tmp_path: Path, monkeypatch) -> None:
     with FakeGateway() as gw:
         gw.page["items"].insert(
             0,
@@ -791,14 +808,7 @@ def test_the_switcher_toggle_shows_other_clients_sessions(tmp_path: Path, monkey
             window._open_session_switcher()
             switcher = window._session_switcher
             shown = lambda: {r.session_id for r in switcher.visible_rows()}  # noqa: E731
-            assert _pump_until(app, lambda: GATEWAY_SESSIONS <= shown()), shown()
-            assert "acode-42" not in shown()
-            assert switcher.scope_button.isChecked() is False
-
-            switcher.scope_button.click()
-            assert _pump_until(app, lambda: "acode-42" in shown()), shown()
-            row = next(r for r in switcher.visible_rows() if r.session_id == "acode-42")
-            assert row.digest.own is False
-            assert window._controller.show_all_sessions() is True
+            assert _pump_until(app, lambda: (GATEWAY_SESSIONS | {"acode-42"}) <= shown()), shown()
+            assert not hasattr(switcher, "scope_button")
         finally:
             _close(window, app)

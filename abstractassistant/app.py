@@ -6384,14 +6384,23 @@ class AssistantPalette(QMainWindow):
             switcher.new_chat_requested.connect(self._create_session)
             switcher.rename_requested.connect(self._rename_session)
             switcher.delete_requested.connect(self._delete_session)
-            switcher.scope_changed.connect(self._set_session_scope)
             switcher.automation_chosen.connect(self._open_automation)
+            switcher.automation_open_requested.connect(self._open_automation)
+            switcher.automation_edit_requested.connect(self._edit_automation)
+            switcher.automation_control_requested.connect(self._on_switcher_automation_control)
+            switcher.load_more_requested.connect(self._load_more_sessions)
+            switcher.tab_changed.connect(self._on_switcher_tab_changed)
             self._session_switcher = switcher
         self._apply_automations_to_switcher(switcher)
         self._warm_session_digests()
         switcher.set_digests(
-            self._session_records(), active_session_id=self._active_session_id()
+            self._session_records(),
+            active_session_id=self._active_session_id(),
+            more=self._sessions_more(),
         )
+        tab = self._state("_switcher_open_tab") or self._controller.switcher_tab()
+        self._switcher_open_tab = None
+        switcher.set_tab(str(tab))
         # A migration notice is shown in the popup that first displays it only.
         self._session_list_notice = ""
         self._apply_session_list_status(switcher, take_notice=True)
@@ -6430,10 +6439,10 @@ class AssistantPalette(QMainWindow):
         if hub is None:
             return  # a palette built without __init__ (tests)
         if hub.available is not True and not hub.error:
-            # Not advertised (or not asked yet): no section at all.
-            switcher.set_automations([], status="")
+            # Not advertised (or not asked yet): no Automations tab at all.
+            switcher.set_automations([], status="", available=False)
             return
-        switcher.set_automations(hub.summaries, status=self._automations_status_text())
+        switcher.set_automations(hub.summaries, status=self._automations_status_text(), available=True)
 
     def _on_automations_changed(self, _summaries: Any) -> None:
         hub = self._automations
@@ -6478,11 +6487,47 @@ class AssistantPalette(QMainWindow):
 
     def open_automations(self) -> None:
         """Tray "Automations…": show the palette with the switcher open on the
-        Automations section."""
+        Automations tab."""
         self.show_palette()
+        self._switcher_open_tab = "automations"
         QTimer.singleShot(0, self._open_session_switcher)
 
-    def _open_automation(self, automation_id: str) -> None:
+    def _on_switcher_tab_changed(self, tab: str) -> None:
+        """The last switcher tab is remembered."""
+        try:
+            self._controller.set_switcher_tab(str(tab))
+        except Exception as exc:
+            self._set_banner(f"Could not remember the switcher tab: {exc}", tone="warn", key="session")
+
+    def _edit_automation(self, automation_id: str) -> None:
+        """"Edit schedule…" in the switcher: the automation view with its edit form open."""
+        self._open_automation(automation_id, where="top")
+        if self._state("_automation_view_id") == str(automation_id):
+            button = self.automation_view.control_buttons["revise"]
+            if button.isEnabled():
+                button.click()
+
+    def _on_switcher_automation_control(self, automation_id: str, control: str) -> None:
+        """An inline control of the Automations tab (pause / resume / run now /
+        stop / archive): the same command path as the automation view."""
+        switcher = self._state("_session_switcher")
+
+        def done(ok: bool, value: Any) -> None:
+            if switcher is not None:
+                try:
+                    if ok:
+                        switcher.set_status("")
+                    else:
+                        switcher.set_status(self._automations.error_text(value), tone="warn")
+                except RuntimeError:
+                    return
+            self._poll_automations()
+
+        self._automations.command(str(automation_id), str(control), done)
+
+    def _open_automation(self, automation_id: str, where: str = "latest") -> None:
+        """Open an automation in the palette; ``where`` = "latest" (scrolled to
+        the last run) or "top" (its first run)."""
         aid = str(automation_id or "").strip()
         summary = self._automations.summary(aid)
         if summary is None:
@@ -6515,7 +6560,10 @@ class AssistantPalette(QMainWindow):
                 view.set_error(self._automations.error_text(value))
                 return
             view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
-            view.scroll_to_latest()
+            if where == "top":
+                view.scroll.verticalScrollBar().setValue(0)
+            else:
+                view.scroll_to_latest()
             # Viewing acknowledges the attention items the view DISPLAYED.
             self._automations.mark_seen(summary)
 
@@ -6719,6 +6767,7 @@ class AssistantPalette(QMainWindow):
                 switcher.set_digests(
                     self._session_records(),
                     active_session_id=self._active_session_id(),
+                    more=self._sessions_more(),
                 )
                 self._apply_session_list_status(switcher, take_notice=True)
         except RuntimeError:
@@ -6745,12 +6794,6 @@ class AssistantPalette(QMainWindow):
         if not callable(setter):
             return
         controller = self._controller
-        scope = getattr(switcher, "set_show_all", None)
-        if callable(scope):
-            try:
-                scope(bool(controller.show_all_sessions()))
-            except Exception:
-                pass
         try:
             state = dict(controller.session_list_state() or {})
         except Exception:
@@ -6764,8 +6807,6 @@ class AssistantPalette(QMainWindow):
             tooltip = str(state.get("error"))
         elif state.get("refreshing") and not state.get("fetched_at"):
             lines.append("Loading sessions from the gateway…")
-        elif state.get("fetched_at") and state.get("truncated"):
-            lines.append(f"Sessions of the newest {int(state.get('limit') or 0):,} turns")
         notice = str(state.get("notice") or "")
         if notice:
             if take_notice:
@@ -6814,17 +6855,12 @@ class AssistantPalette(QMainWindow):
             self._set_banner(notice, tone="info", key="session")
         self._sync_session_from_gateway()
 
-    def _set_session_scope(self, show_all: bool) -> None:
-        """The switcher's "All gateway sessions" toggle (kept in the cache)."""
+    def _sessions_more(self) -> bool:
+        """The gateway has more sessions than the list shows ("Load more")."""
         try:
-            self._controller.set_show_all_sessions(bool(show_all))
-        except Exception as exc:
-            self._set_banner(f"Could not change the session list: {exc}", tone="error")
-            return
-        self._invalidate_session_digests()
-        self._refresh_open_session_switcher()
-        # Newly visible rows get their titles first.
-        self._refresh_sessions_from_gateway()
+            return bool(dict(self._controller.session_list_state() or {}).get("more"))
+        except Exception:
+            return False
 
     def _sync_session_from_gateway(self) -> None:
         """Replace the session on screen with the gateway's history.
@@ -6889,8 +6925,13 @@ class AssistantPalette(QMainWindow):
         if str(message or "").strip():
             self._set_banner(str(message), tone="error", key="session")
 
-    def _refresh_sessions_from_gateway(self) -> None:
-        """Fetch the session list from the gateway, off the GUI thread."""
+    def _load_more_sessions(self) -> None:
+        """The switcher's "Load more sessions" row."""
+        self._refresh_sessions_from_gateway(more=True)
+
+    def _refresh_sessions_from_gateway(self, more: bool = False) -> None:
+        """Fetch the session list from the gateway, off the GUI thread
+        (``more``: one more page of sessions)."""
         if bool(self._state("_sessions_refresh_running", False)):
             return
         self._sessions_refresh_running = True
@@ -6899,7 +6940,7 @@ class AssistantPalette(QMainWindow):
         def _work() -> None:
             result: Dict[str, Any] = {}
             try:
-                result = dict(controller.refresh_sessions() or {})
+                result = dict((controller.load_more_sessions() if more else controller.refresh_sessions()) or {})
             except Exception as exc:
                 result = {"ok": False, "error": str(exc)}
             finally:

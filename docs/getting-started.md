@@ -71,9 +71,10 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock, on a
   gateway that offers automations), toggle spoken replies, and open Settings (⌘,); the orb at
   the right shows whether the gateway is reachable.
-- **Chat switcher**: click the chat name in the header. It lists your sessions on the gateway,
-  including those the Assistant created on another device; **All gateway sessions** in its header
-  adds sessions from AbstractCode and other clients. Chats are grouped by recency (today,
+- **Chat switcher**: click the chat name in the header. Its **Sessions** tab lists every session
+  on the gateway, whichever client started it (the Assistant on any device, AbstractCode,
+  AbstractObserver), 100 at a time; its **Automations** tab lists the gateway's automations with
+  their controls. Chats are grouped by recency (today,
   yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
   its latest question, when it was last active, its turns and state, and once opened on this Mac
   its tool calls, tokens, running time and workspace folder. A chat whose tools failed or whose

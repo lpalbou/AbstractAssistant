@@ -42,18 +42,21 @@ from .automations import is_regular_session_kind
 from .session_digest import parse_timestamp
 
 __all__ = [
-    "SESSION_LIST_LIMIT",
+    "SESSION_PAGE_RUNS",
+    "SESSION_PAGE_SESSIONS",
     "SESSION_PROMPT_MAX",
     "GatewaySession",
     "fold_session_rows",
     "prompt_from_input_data",
 ]
 
-# The page the session list asks for — the same N AbstractCode's session board
-# uses (`abstractcode/tui/src/ui/modals.rs` SESSION_LIST_LIMIT). The page covers
-# the most recent N ROOT RUNS across all sessions; `has_more` says when the
-# store holds more. One request per refresh, never polled.
-SESSION_LIST_LIMIT = 5000
+# The session list reads `/runs` in pages of SESSION_PAGE_RUNS turn roots
+# (`offset` paging, `has_more` says whether a next page exists) and shows
+# SESSION_PAGE_SESSIONS sessions at a time; "Load more" reads further pages
+# until SESSION_PAGE_SESSIONS more sessions (or the end). Every gateway session
+# of kind chat or discussion is listed, whichever client started it.
+SESSION_PAGE_RUNS = 200
+SESSION_PAGE_SESSIONS = 100
 # How many sessions' opening prompts one refresh fetches (one request each),
 # newest first — AbstractCode's SESSION_PROMPT_MAX. Fetched prompts are cached,
 # so the next refresh continues where this one stopped.
@@ -85,6 +88,8 @@ class GatewaySession:
     # i.e. a chat) and, for a discussion, the automation it is about.
     session_kind: str = ""
     automation_id: str = ""
+    # The latest turn's workspace folder when the gateway's row reports it.
+    workspace_root: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -97,6 +102,7 @@ class GatewaySession:
             "turns": int(self.turns),
             "session_kind": self.session_kind,
             "automation_id": self.automation_id,
+            "workspace_root": self.workspace_root,
         }
 
     @classmethod
@@ -121,6 +127,7 @@ class GatewaySession:
             turns=turns,
             session_kind=str(raw.get("session_kind") or ""),
             automation_id=str(raw.get("automation_id") or ""),
+            workspace_root=str(raw.get("workspace_root") or ""),
         )
 
 
@@ -194,6 +201,7 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
                 turns=len(group),
                 session_kind=kind,
                 automation_id=automation_id if kind == "discussion" else "",
+                workspace_root=_text(latest.get("workspace_root")),
             )
         )
     # Newest first by the field the gateway paged on; ties by id (stable).

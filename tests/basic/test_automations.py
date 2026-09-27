@@ -624,7 +624,7 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     assert rows[2].next_label.text() == "paused"
     # The real gateway sends an empty excerpt while waiting: the question shows.
     assert "waiting for you: The landlord asks" in rows[0].excerpt_label.text()
-    assert switcher._automation_label.text() == "AUTOMATIONS · 4 NEW"
+    assert switcher.tab_buttons["automations"].text() == "Automations · 4 new"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
     about = switcher._rows[0].about_button
@@ -694,6 +694,12 @@ def palette(stub, tmp_path, monkeypatch):
             from abstractassistant.gateway.client import wait_answer_payload
 
             return gateway.submit_wait_response(run_id=run_id, wait_key=wait_key, payload=wait_answer_payload(kind, answer))
+
+        def switcher_tab(self) -> str:
+            return getattr(self, "_tab", "sessions")
+
+        def set_switcher_tab(self, tab: str) -> None:
+            self._tab = tab
 
         def open_gateway_session(self, session_id, *, run_id):
             self.opened.append({"session_id": session_id, "run_id": run_id})
@@ -986,7 +992,7 @@ def test_the_section_follows_the_capabilities_descriptor(palette, stub, descript
     switcher = SessionSwitcher()
     window._apply_automations_to_switcher(switcher)
     assert (len(switcher.automation_rows) == 4) is shown
-    assert (switcher._automation_label is not None) is shown
+    assert switcher.tab_bar.isVisibleTo(switcher) is shown
     import abstractassistant.app as app_module
 
     menu = app_module._build_tray_menu(palette=window, quit_app=lambda: None)
@@ -1284,3 +1290,17 @@ def test_discuss_wording_matches_the_web_and_the_captured_response_carries_both_
     captured = next(c for c in _fixture("commands.json")["items"] if c["name"] == "discuss")
     text, tone = rules.discussion_banner(captured["response"], occurrence_index=captured["request"]["body"]["occurrence_index"])
     assert tone == "info" and captured["response"]["mounted_workspace"] in text
+
+
+@pytest.mark.basic
+def test_switcher_inline_controls_edit_and_tab_go_through_the_palette(palette, stub) -> None:
+    window, controller = palette
+    window._poll_automations()
+    window._on_switcher_automation_control(NEWS, "pause")
+    sent = stub.calls("POST", f"{AUTOMATIONS_PATH}/{NEWS}/commands")[-1]["body"]
+    assert sent["type"] == "automation.pause"
+    assert window._automations.summary(NEWS)["status"] == "paused"
+    window._edit_automation(JOURNAL)
+    assert window.automation_view.isVisibleTo(window) and window.automation_view.edit_box.isVisibleTo(window.automation_view)
+    window._on_switcher_tab_changed("automations")
+    assert controller.switcher_tab() == "automations"

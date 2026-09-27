@@ -149,9 +149,9 @@ the stream. Whether the gateway offers live replies is read from
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
 - Workflow: `/api/gateway/workflow-catalog`, `/api/gateway/visualflows`,
   `/api/gateway/visualflows/{flow_id}/publish`, `/api/gateway/admin/workflow-catalog/promote`
-- Sessions: `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false` (the
-  session list; `&session_kind=chat,discussion` is added when the gateway lists `session_kind`
-  among `runs.list.filters` in its capabilities); titles come from a session's first run's
+- Sessions: `GET /api/gateway/runs?limit=200&offset=N&root_only=true&include_ledger_len=false`
+  pages (the session list, 100 sessions at a time; `&session_kind=chat,discussion` is added when
+  the gateway lists `session_kind` among `runs.list.filters` in its capabilities); titles come from a session's first run's
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,

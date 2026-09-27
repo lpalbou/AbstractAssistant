@@ -19,9 +19,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QFontMetrics
+from pathlib import Path
+
+from PyQt5.QtCore import QEvent, QSize, Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QFontMetrics
 from PyQt5.QtWidgets import (
+    QApplication,
+    QButtonGroup,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -30,6 +34,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -46,13 +51,13 @@ from ..core.session_digest import (
     sort_digests,
     workspace_label,
 )
-from ..core.automations import attention_total, group_by_automation
+from ..core.automations import attention_total, automation_controls, group_by_automation, occurrence_in_progress
 from ..icons import symbol_icon
 from ..theme import METRICS, THEME
 from .automations import AutomationRow, automation_row_qss
 from .styles import alpha, dialog_stylesheet, refresh_style
 
-__all__ = ["SessionRow", "SessionSwitcher", "SESSION_SWITCHER_QSS"]
+__all__ = ["AutomationTabRow", "SessionRow", "SessionSwitcher", "SESSION_SWITCHER_QSS", "folder_button", "open_folder"]
 
 
 SWITCHER_WIDTH = 460
@@ -246,6 +251,35 @@ def _build_qss() -> str:
         color: {THEME.accent_text};
         border-color: {THEME.accent_border};
     }}
+    QPushButton#switcherTab {{
+        color: {THEME.text_muted};
+        background: {THEME.overlay_faint};
+        border: 1px solid {THEME.border_subtle};
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 700;
+    }}
+    QPushButton#switcherTab:checked {{
+        color: {THEME.accent_text};
+        background: {alpha(THEME.accent, 0.14)};
+        border-color: {THEME.accent_border};
+    }}
+    QPushButton#rowFolder, QPushButton#rowControl, QPushButton#switcherLoadMore {{
+        color: {THEME.text_muted};
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 1px 5px;
+        font-size: 10px;
+        font-weight: 600;
+    }}
+    QPushButton#rowFolder:hover, QPushButton#rowControl:hover, QPushButton#switcherLoadMore:hover {{
+        background: {THEME.overlay_hover};
+        border-color: {THEME.border_subtle};
+    }}
+    QPushButton#rowFolder:disabled, QPushButton#rowControl:disabled {{ color: {THEME.text_faint}; }}
+    QPushButton#rowControl {{ border-color: {THEME.border_subtle}; }}
+    QPushButton#switcherLoadMore {{ padding: 6px; font-size: 11px; }}
     QLabel#switcherHint {{
         color: {THEME.text_faint};
         font-size: 10px;
@@ -488,8 +522,6 @@ class SessionRow(QFrame):
                 else f"{digest.turns} turn(s) on the gateway"
             )
             out.append(_metric("message-square", format_count(digest.turns), tooltip))
-        if not digest.own:
-            out.append(_metric("", "other client", "Started by another client of this gateway."))
         if digest.state == "waiting":
             out.append(_metric("hand", "waiting", "A run of this session is waiting for you.", tone="warn"))
         elif digest.state == "running":
@@ -511,9 +543,9 @@ class SessionRow(QFrame):
         duration = format_duration_ms(digest.duration_ms)
         if duration:
             out.append(_metric("clock", duration, "Total time the gateway spent running this session."))
-        folder = workspace_label(digest.workspace_root)
-        if folder:
-            out.append(_metric("folder", folder, f"Workspace folder: {digest.workspace_root}"))
+        if digest.workspace_root:
+            # Clickable: opens the folder when it is on this machine.
+            out.append(folder_button(digest.workspace_root, parent=self))
         if digest.failed_tools:
             out.append(
                 _metric(
@@ -628,17 +660,177 @@ class SessionRow(QFrame):
         super().mouseReleaseEvent(event)
 
 
+# ----------------------------------------------------------- folders
+
+
+def open_folder(path: str) -> bool:
+    """Open a local folder in the OS file manager."""
+    return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
+
+
+def folder_button(path: str, *, parent: QWidget, label: str = "") -> QPushButton:
+    """A workspace folder as a control: opens it when it exists on this
+    machine; disabled with the reason when it lives on the gateway host."""
+    text = label or workspace_label(path) or "folder"
+    button = QPushButton(text, parent)
+    button.setObjectName("rowFolder")
+    button.setIcon(symbol_icon("folder", color=THEME.text_muted, size=11))
+    button.setIconSize(QSize(11, 11))
+    local = bool(path) and Path(path).expanduser().is_dir()
+    button.setEnabled(local)
+    button.setCursor(Qt.PointingHandCursor if local else Qt.ArrowCursor)
+    button.setToolTip(f"Open {path}" if local else f"on the gateway host: {path}")
+    button.clicked.connect(lambda _=False, p=str(path): open_folder(p))
+    button.folder_path = str(path)
+    return button
+
+
+# --------------------------------------------------------- automation tab
+
+
+class AutomationTabRow(QFrame):
+    """One automation in the Automations tab: its summary row plus inline
+    controls chosen by its state (the same rules as the automation view,
+    `core.automations.automation_controls`)."""
+
+    open_requested = pyqtSignal(str, str)  # automation_id, "top" | "latest"
+    edit_requested = pyqtSignal(str)
+    control_requested = pyqtSignal(str, str)  # automation_id, pause|resume|run_now|stop_current|archive
+    focus_requested = pyqtSignal(object)
+
+    def __init__(self, summary: Dict[str, Any], *, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("autoTabRow")
+        self.summary = dict(summary)
+        self.automation_id = str(summary.get("automation_id") or "")
+        self._selected = False
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 4)
+        column.setSpacing(2)
+        self.summary_row = AutomationRow(summary, parent=self)
+        self.summary_row.chosen.connect(lambda aid: self.open_requested.emit(aid, "top"))
+        column.addWidget(self.summary_row)
+
+        controls = automation_controls(summary)
+        bar = QHBoxLayout()
+        bar.setContentsMargins(20, 0, 8, 0)
+        bar.setSpacing(4)
+        self.buttons: Dict[str, QPushButton] = {}
+
+        def add(key: str, text: str, enabled: bool, reason: str, slot) -> QPushButton:
+            button = QPushButton(text, self)
+            button.setObjectName("rowControl")
+            button.setCursor(Qt.PointingHandCursor)
+            button.setEnabled(bool(enabled))
+            button.setToolTip(reason if not enabled else "")
+            button.clicked.connect(slot)
+            bar.addWidget(button, 0)
+            self.buttons[key] = button
+            return button
+
+        aid = self.automation_id
+        add("open", "Open", True, "", lambda: self.open_requested.emit(aid, "top"))
+        if summary.get("last_occurrence"):
+            add("last", "Last", True, "", lambda: self.open_requested.emit(aid, "latest"))
+        if summary.get("status") == "paused":
+            add("resume", "Resume", *controls["resume"], lambda: self.control_requested.emit(aid, "resume"))
+        else:
+            add("pause", "Pause", *controls["pause"], lambda: self.control_requested.emit(aid, "pause"))
+        add("run_now", "Run now", *controls["run_now"], lambda: self.control_requested.emit(aid, "run_now"))
+        if occurrence_in_progress(summary):
+            add("stop_current", "Stop", *controls["stop_current"], lambda: self.control_requested.emit(aid, "stop_current"))
+        add("revise", "Edit schedule…", *controls["revise"], lambda: self.edit_requested.emit(aid))
+        add("archive", "Archive", *controls["archive"], self.ask_archive)
+        bar.addStretch(1)
+        root = summary.get("workspace_root")
+        if isinstance(root, str) and root:
+            self.folder = folder_button(root, parent=self)
+        else:
+            # The automations list does not carry the folder yet: say so.
+            self.folder = QPushButton("folder", self)
+            self.folder.setObjectName("rowFolder")
+            self.folder.setIcon(symbol_icon("folder", color=THEME.text_faint, size=11))
+            self.folder.setEnabled(False)
+            self.folder.setToolTip("The gateway does not report this automation's folder (AutomationSummary.workspace_root).")
+        bar.addWidget(self.folder, 0)
+        self.controls_host = QWidget(self)
+        self.controls_host.setLayout(bar)
+        column.addWidget(self.controls_host)
+
+        # Archive confirmation, inside the row (never a modal).
+        self.confirm_host = QWidget(self)
+        confirm = QHBoxLayout(self.confirm_host)
+        confirm.setContentsMargins(20, 0, 8, 0)
+        message = QLabel("Archive this automation? Its history is kept; nothing runs any more.", self.confirm_host)
+        message.setObjectName("rowConfirm")
+        message.setWordWrap(True)
+        confirm.addWidget(message, 1)
+        self.archive_yes = QPushButton("Archive", self.confirm_host)
+        self.archive_yes.setObjectName("rowConfirmYes")
+        self.archive_yes.clicked.connect(self._confirm_archive)
+        confirm.addWidget(self.archive_yes, 0)
+        no = QPushButton("Cancel", self.confirm_host)
+        no.setObjectName("rowConfirmNo")
+        no.clicked.connect(self.cancel_archive)
+        confirm.addWidget(no, 0)
+        self.confirm_host.hide()
+        column.addWidget(self.confirm_host)
+
+    def ask_archive(self) -> None:
+        self.controls_host.hide()
+        self.confirm_host.show()
+
+    def cancel_archive(self) -> None:
+        self.confirm_host.hide()
+        self.controls_host.show()
+
+    def _confirm_archive(self) -> None:
+        self.cancel_archive()
+        self.control_requested.emit(self.automation_id, "archive")
+
+    @property
+    def archived(self) -> bool:
+        return self.summary.get("status") == "archived"
+
+    def matches(self, query: str) -> bool:
+        return self.summary_row.matches(query)
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = bool(selected)
+        self.summary_row.setProperty("selected", "true" if selected else "false")
+        refresh_style(self.summary_row)
+
+    def elide_labels(self, width: int) -> None:
+        self.summary_row.elide_labels(width)
+
+    def enterEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        self.focus_requested.emit(self)
+        super().enterEvent(event)
+
+
+TAB_HINTS = {
+    "sessions": "↑↓ move · ↵ open · ⌘⌫ remove · ⌘1/⌘2 tabs · esc close",
+    "automations": "↑↓ move · ↵ open · ⌘1/⌘2 tabs · esc close",
+}
+
+
 class SessionSwitcher(QDialog):
-    """The popup: search, grouped rows, keyboard navigation, row actions."""
+    """The popup: two tabs (Sessions | Automations), search, keyboard
+    navigation, row actions."""
 
     session_chosen = pyqtSignal(str)
     new_chat_requested = pyqtSignal()
     rename_requested = pyqtSignal(str, str)
     delete_requested = pyqtSignal(str)
-    # True = every session on the gateway, False = this client's own.
-    scope_changed = pyqtSignal(bool)
-    # An automation row (or a discussion's badge) was chosen.
+    load_more_requested = pyqtSignal()
+    tab_changed = pyqtSignal(str)
+    # An automation (row, Open, a discussion's badge) was chosen: the view
+    # opens at its latest run.
     automation_chosen = pyqtSignal(str)
+    # (automation_id, "top" | "latest")
+    automation_open_requested = pyqtSignal(str, str)
+    automation_edit_requested = pyqtSignal(str)
+    automation_control_requested = pyqtSignal(str, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -649,16 +841,17 @@ class SessionSwitcher(QDialog):
         self.resize(SWITCHER_WIDTH, SWITCHER_HEIGHT)
 
         self._digests: List[SessionDigest] = []
+        self._more = False
         self._rows: List[SessionRow] = []
         self._group_labels: Dict[str, QLabel] = {}
         self._active_id = ""
         self._selected_index = -1
-        # The Automations section (gateway-fed, grouped by automation_id).
+        self._tab = "sessions"
         self._automations: List[Dict[str, Any]] = []
         self._automation_status = ""
-        self._automation_rows: List[AutomationRow] = []
-        self._automation_label: Optional[QLabel] = None
-        self._automation_status_label: Optional[QLabel] = None
+        self._automations_available = False
+        self._auto_rows: List[AutomationTabRow] = []
+        self.load_more_button: Optional[QPushButton] = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -673,18 +866,24 @@ class SessionSwitcher(QDialog):
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(8)
-        title = QLabel("Sessions")
-        title.setObjectName("switcherTitle")
-        header.addWidget(title, 0, Qt.AlignVCenter)
+        self.title_label = QLabel("Sessions")
+        self.title_label.setObjectName("switcherTitle")
+        header.addWidget(self.title_label, 0, Qt.AlignVCenter)
         self.count_label = QLabel("")
         self.count_label.setObjectName("switcherCount")
         # The count never widens the popup: it takes what the header leaves
-        # and is elided (full text in its tooltip). A header wider than
-        # SWITCHER_WIDTH pushed the popup off the right edge of the screen.
+        # and is elided (full text in its tooltip).
         self.count_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.count_label.setMinimumWidth(0)
         self._count_text = ""
         header.addWidget(self.count_label, 1, Qt.AlignVCenter)
+        self.show_archived = QPushButton("Show archived")
+        self.show_archived.setObjectName("switcherScope")
+        self.show_archived.setCheckable(True)
+        self.show_archived.setCursor(Qt.PointingHandCursor)
+        self.show_archived.setToolTip("Also list archived automations (their history is kept)")
+        self.show_archived.toggled.connect(lambda _checked: self._rebuild_automations())
+        header.addWidget(self.show_archived, 0, Qt.AlignVCenter)
         self.new_button = QPushButton("New session")
         self.new_button.setObjectName("switcherPrimary")
         self.new_button.setCursor(Qt.PointingHandCursor)
@@ -692,21 +891,31 @@ class SessionSwitcher(QDialog):
         self.new_button.setIconSize(QSize(12, 12))
         self.new_button.setToolTip("Start a new session (⌘N)")
         self.new_button.clicked.connect(self._on_new_chat)
-        self.scope_button = QPushButton("All gateway sessions")
-        self.scope_button.setObjectName("switcherScope")
-        self.scope_button.setCheckable(True)
-        self.scope_button.setCursor(Qt.PointingHandCursor)
-        self.scope_button.setToolTip(
-            "Show every session on the gateway, including those started by other clients"
-        )
-        self.scope_button.toggled.connect(self.scope_changed.emit)
-        header.addWidget(self.scope_button, 0, Qt.AlignVCenter)
         header.addWidget(self.new_button, 0, Qt.AlignVCenter)
         root.addLayout(header)
 
-        # Where the rows come from when it is not simply "the gateway, now":
-        # cached while it is unreachable, a truncated page, the one-time
-        # migration notice.
+        # Sessions | Automations (a segmented control under the title).
+        self.tab_bar = QWidget(self)
+        tabs = QHBoxLayout(self.tab_bar)
+        tabs.setContentsMargins(0, 0, 0, 0)
+        tabs.setSpacing(0)
+        self.tab_buttons: Dict[str, QPushButton] = {}
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        for key, text, tip in (("sessions", "Sessions", "⌘1"), ("automations", "Automations", "⌘2")):
+            button = QPushButton(text, self.tab_bar)
+            button.setObjectName("switcherTab")
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setToolTip(f"{text} ({tip})")
+            button.clicked.connect(lambda _=False, k=key: self.set_tab(k, emit=True))
+            group.addButton(button)
+            tabs.addWidget(button, 1)
+            self.tab_buttons[key] = button
+        self.tab_buttons["sessions"].setChecked(True)
+        root.addWidget(self.tab_bar)
+
+        # Where the rows come from when it is not simply "the gateway, now".
         self.status_label = QLabel("", self)
         self.status_label.setObjectName("switcherStatus")
         self.status_label.setWordWrap(True)
@@ -718,8 +927,10 @@ class SessionSwitcher(QDialog):
         self.search_edit.setPlaceholderText("Filter by topic, folder or tool…")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._apply_filter)
+        self.search_edit.installEventFilter(self)
         root.addWidget(self.search_edit)
 
+        self.pages = QStackedWidget(self)
         self.scroll = QScrollArea()
         self.scroll.setObjectName("switcherScroll")
         self.scroll.setWidgetResizable(True)
@@ -732,11 +943,27 @@ class SessionSwitcher(QDialog):
         self.list_layout.setSpacing(2)
         self.list_layout.addStretch(1)
         self.scroll.setWidget(self.list_host)
-        root.addWidget(self.scroll, 1)
+        self.pages.addWidget(self.scroll)
+
+        self.auto_scroll = QScrollArea()
+        self.auto_scroll.setObjectName("switcherScroll")
+        self.auto_scroll.setWidgetResizable(True)
+        self.auto_scroll.setFrameShape(QFrame.NoFrame)
+        self.auto_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.auto_host = QWidget()
+        self.auto_host.setObjectName("switcherList")
+        self.auto_layout = QVBoxLayout(self.auto_host)
+        self.auto_layout.setContentsMargins(0, 0, 6, 0)
+        self.auto_layout.setSpacing(2)
+        self.auto_layout.addStretch(1)
+        self.auto_scroll.setWidget(self.auto_host)
+        self.pages.addWidget(self.auto_scroll)
+        root.addWidget(self.pages, 1)
 
         self.empty_label = QLabel("")
         self.empty_label.setObjectName("switcherEmpty")
         self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setWordWrap(True)
         self.empty_label.hide()
         root.addWidget(self.empty_label)
 
@@ -745,25 +972,55 @@ class SessionSwitcher(QDialog):
         footer_row = QHBoxLayout(footer)
         footer_row.setContentsMargins(0, 0, 0, 0)
         footer_row.setSpacing(8)
-        hint = QLabel("↑↓ move · ↵ open · ⌘⌫ remove · esc close")
-        hint.setObjectName("switcherHint")
-        footer_row.addWidget(hint, 1, Qt.AlignVCenter)
+        self.hint_label = QLabel(TAB_HINTS["sessions"])
+        self.hint_label.setObjectName("switcherHint")
+        footer_row.addWidget(self.hint_label, 1, Qt.AlignVCenter)
         root.addWidget(footer)
+        self._apply_tab()
 
     def restyle(self) -> None:
         """Re-read the palette (the theme changed, or this is the first paint)."""
         self.setStyleSheet(dialog_stylesheet() + build_switcher_qss() + automation_row_qss())
-        # Called from __init__ too, before any row exists.
-        for row in getattr(self, "_rows", ()) or ():
+        for row in list(getattr(self, "_rows", ()) or ()) + list(getattr(self, "_auto_rows", ()) or ()):
             refresh_style(row)
 
-    # -------------------------------------------------------------- rendering
+    # ------------------------------------------------------------------ tabs
 
-    def set_show_all(self, value: bool) -> None:
-        """Reflect the stored scope without emitting `scope_changed`."""
-        self.scope_button.blockSignals(True)
-        self.scope_button.setChecked(bool(value))
-        self.scope_button.blockSignals(False)
+    @property
+    def tab(self) -> str:
+        return self._tab
+
+    def set_tab(self, tab: str, *, emit: bool = False) -> None:
+        if tab not in TAB_HINTS:
+            raise ValueError(f"unknown switcher tab {tab!r}")
+        if tab == "automations" and not self._automations_available:
+            tab = "sessions"
+        changed = tab != self._tab
+        self._tab = tab
+        self._apply_tab()
+        if emit and changed:
+            self.tab_changed.emit(tab)
+
+    def _apply_tab(self) -> None:
+        sessions = self._tab == "sessions"
+        self.tab_bar.setVisible(self._automations_available)
+        for key, button in self.tab_buttons.items():
+            button.blockSignals(True)
+            button.setChecked(key == self._tab)
+            button.blockSignals(False)
+        self.pages.setCurrentIndex(0 if sessions else 1)
+        self.title_label.setText("Sessions" if sessions else "Automations")
+        self.new_button.setVisible(sessions)
+        self.show_archived.setVisible(not sessions)
+        self.hint_label.setText(TAB_HINTS[self._tab])
+        self.search_edit.setPlaceholderText(
+            "Filter by topic, folder or tool…" if sessions else "Filter by title, schedule or result…"
+        )
+        self._refresh_count()
+        self._apply_filter()
+        self._select_index(0 if not sessions else self._active_index())
+
+    # ------------------------------------------------------------- rendering
 
     def set_status(self, text: str, *, tone: str = "", tooltip: str = "") -> None:
         """The header line under the title ("" hides it)."""
@@ -778,8 +1035,9 @@ class SessionSwitcher(QDialog):
     def status_text(self) -> str:
         return self.status_label.text() if self.status_label.isVisibleTo(self) else ""
 
-    def set_digests(self, digests: Sequence[Any], *, active_session_id: str = "") -> None:
-        """Render the session list. Accepts `SessionDigest` values or dicts."""
+    def set_digests(self, digests: Sequence[Any], *, active_session_id: str = "", more: bool = False) -> None:
+        """Render the Sessions tab. Accepts `SessionDigest` values or dicts.
+        ``more``: the gateway has more sessions than those given ("Load more")."""
         active = str(active_session_id or "").strip()
         parsed: List[SessionDigest] = []
         for item in digests or []:
@@ -791,72 +1049,55 @@ class SessionSwitcher(QDialog):
                     fields["top_tools"] = tuple(fields["top_tools"])
                 parsed.append(SessionDigest(**fields))
         ordered = sort_digests(parsed)
-        if ordered == self._digests and active == self._active_id:
+        if ordered == self._digests and active == self._active_id and bool(more) == self._more:
             # Nothing changed: reopening the popup, or a refresh that found the
             # same chats, must not throw away rows the user is looking at.
             return
         self._active_id = active
         self._digests = ordered
+        self._more = bool(more)
         self._rebuild()
 
-    def _clear_rows(self) -> None:
-        while self.list_layout.count():
-            item = self.list_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.deleteLater()
-        self._rows = []
-        self._group_labels = {}
-        self._automation_rows = []
-        self._automation_label = None
-        self._automation_status_label = None
-
-    def set_automations(self, summaries: Sequence[Any], *, status: str = "") -> None:
-        """Render the Automations section: one row per ``automation_id``.
-
-        ``status`` is the section's own line (unreachable, not offered by this
-        gateway); an empty list with no status hides the section."""
+    def set_automations(self, summaries: Sequence[Any], *, status: str = "", available: bool = True) -> None:
+        """Render the Automations tab: one row per ``automation_id``.
+        ``available`` = the gateway offers automations (else no tab at all)."""
         grouped = [dict(s) for s in group_by_automation(summaries or [])]
         text = str(status or "").strip()
-        if grouped == self._automations and text == self._automation_status:
+        if grouped == self._automations and text == self._automation_status and bool(available) == self._automations_available:
             return
         self._automations = grouped
         self._automation_status = text
+        self._automations_available = bool(available)
+        if not self._automations_available and self._tab == "automations":
+            self._tab = "sessions"
         self._rebuild()
 
     @property
     def automation_rows(self) -> List[AutomationRow]:
-        return list(self._automation_rows)
+        """The summary rows of the Automations tab (archived ones only when shown)."""
+        return [row.summary_row for row in self._auto_rows]
 
-    def _build_automation_section(self) -> None:
-        if not self._automations and not self._automation_status:
-            return
-        unread = attention_total(self._automations)
-        title = "AUTOMATIONS" + (f" · {unread} NEW" if unread else "")
-        label = QLabel(title, self.list_host)
-        label.setObjectName("switcherGroup")
-        self.list_layout.addWidget(label)
-        self._automation_label = label
-        if self._automation_status:
-            status = QLabel(self._automation_status, self.list_host)
-            status.setObjectName("switcherStatus")
-            status.setWordWrap(True)
-            self.list_layout.addWidget(status)
-            self._automation_status_label = status
-        for summary in self._automations:
-            row = AutomationRow(summary, parent=self.list_host)
-            row.chosen.connect(self._on_automation_chosen)
-            self.list_layout.addWidget(row)
-            self._automation_rows.append(row)
+    @property
+    def automation_tab_rows(self) -> List[AutomationTabRow]:
+        return list(self._auto_rows)
 
-    def _on_automation_chosen(self, automation_id: str) -> None:
-        self.automation_chosen.emit(str(automation_id))
-        self.close()
+    def _clear(self, layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
 
     def _rebuild(self) -> None:
-        self._clear_rows()
-        self._build_automation_section()
+        self._rebuild_sessions()
+        self._rebuild_automations()
+
+    def _rebuild_sessions(self) -> None:
+        self._clear(self.list_layout)
+        self._rows = []
+        self._group_labels = {}
+        self.load_more_button = None
         titles = {str(s.get("automation_id")): str(s.get("title") or "") for s in self._automations}
         by_group: Dict[str, List[SessionDigest]] = {}
         for digest in self._digests:
@@ -883,47 +1124,91 @@ class SessionSwitcher(QDialog):
                 row.focus_requested.connect(self._on_row_hovered)
                 self.list_layout.addWidget(row)
                 self._rows.append(row)
+        if self._more:
+            button = QPushButton("Load more sessions", self.list_host)
+            button.setObjectName("switcherLoadMore")
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(self._on_load_more)
+            self.list_layout.addWidget(button)
+            self.load_more_button = button
         self.list_layout.addStretch(1)
+        self._after_rebuild()
+
+    def _rebuild_automations(self) -> None:
+        self._clear(self.auto_layout)
+        self._auto_rows = []
+        if self._automation_status:
+            status = QLabel(self._automation_status, self.auto_host)
+            status.setObjectName("switcherStatus")
+            status.setWordWrap(True)
+            self.auto_layout.addWidget(status)
+        show_archived = self.show_archived.isChecked()
+        for summary in self._automations:
+            if summary.get("status") == "archived" and not show_archived:
+                continue
+            row = AutomationTabRow(summary, parent=self.auto_host)
+            row.open_requested.connect(self._on_automation_open)
+            row.edit_requested.connect(self._on_automation_edit)
+            row.control_requested.connect(self.automation_control_requested.emit)
+            row.focus_requested.connect(self._on_row_hovered)
+            self.auto_layout.addWidget(row)
+            self._auto_rows.append(row)
+        self.auto_layout.addStretch(1)
+        self.tab_buttons["automations"].setText(
+            "Automations" + (f" · {attention_total(self._automations)} new" if attention_total(self._automations) else "")
+        )
+        self._after_rebuild()
+
+    def _after_rebuild(self) -> None:
+        self.tab_bar.setVisible(self._automations_available)
         self._refresh_count()
         self._apply_filter()
-        self._select_active()
+        if self._tab == "sessions":
+            self._select_active()
+        else:
+            self._select_index(self._first_visible_index())
         self._fit_list()
         self._grow_to_rows()
 
     def _grow_to_rows(self) -> None:
         """An open popup grows (never shrinks) up to its full height when rows
-        arrive after it opened — the gateway's list lands after the cached one,
-        which may have been a single row."""
+        arrive after it opened."""
         if not self.isVisible():
             return
-        # The scroll area's own size hint does not follow its content; the
-        # list's does.
-        self.list_layout.activate()
-        wanted = self.height() - self.scroll.height() + self.list_host.sizeHint().height()
+        layout, host, scroll = (
+            (self.list_layout, self.list_host, self.scroll)
+            if self._tab == "sessions"
+            else (self.auto_layout, self.auto_host, self.auto_scroll)
+        )
+        layout.activate()
+        wanted = self.height() - scroll.height() + host.sizeHint().height()
         target = min(SWITCHER_HEIGHT, wanted)
         if target > self.height():
             self.resize(SWITCHER_WIDTH, target)
 
     def _fit_list(self) -> None:
-        """Settle rows that were built without a resize to trigger them.
-
-        Rows created while the popup is already open never receive the
-        `resizeEvent` that elides their labels, and the scroll area has not yet
-        re-measured the list it was handed — without this the column can squeeze
-        every row below its minimum, drawing one row on top of the next.
-        """
-        for row in self._rows:
-            row.elide_labels(self.width() - 60)
-        for row in self._automation_rows:
+        """Settle rows built without a resize to elide them (see 0.6 notes)."""
+        for row in list(self._rows) + list(self._auto_rows):
             row.elide_labels(self.width() - 60)
         self.list_layout.activate()
+        self.auto_layout.activate()
 
     def _refresh_count(self) -> None:
-        total = len(self._digests)
-        today = sum(1 for d in self._digests if recency_group(d.last_activity) == "Today")
-        parts = [f"{total} session{'s' if total != 1 else ''}"]
-        if today:
-            parts.append(f"{today} today")
+        if not hasattr(self, "count_label"):
+            return
+        if self._tab == "sessions":
+            total = len(self._digests)
+            today = sum(1 for d in self._digests if recency_group(d.last_activity) == "Today")
+            # The gateway reports no total: "N+" while more pages exist.
+            parts = [f"{total}{'+' if self._more else ''} session{'s' if total != 1 or self._more else ''}"]
+            if today:
+                parts.append(f"{today} today")
+        else:
+            shown = [s for s in self._automations if s.get("status") != "archived" or self.show_archived.isChecked()]
+            unread = attention_total(self._automations)
+            parts = [f"{len(shown)} automation{'s' if len(shown) != 1 else ''}"]
+            if unread:
+                parts.append(f"{unread} new")
         self._count_text = " · ".join(parts)
         self.count_label.setToolTip(self._count_text)
         self._elide_count()
@@ -942,6 +1227,8 @@ class SessionSwitcher(QDialog):
     # -------------------------------------------------------------- filtering
 
     def _apply_filter(self) -> None:
+        if not hasattr(self, "empty_label"):
+            return
         query = self.search_edit.text()
         visible_groups: Dict[str, bool] = {}
         any_visible = False
@@ -954,33 +1241,42 @@ class SessionSwitcher(QDialog):
         for group, label in self._group_labels.items():
             label.setVisible(bool(visible_groups.get(group)))
         any_automation = False
-        for row in self._automation_rows:
+        for row in self._auto_rows:
             visible = row.matches(query)
             row.setVisible(visible)
             any_automation = any_automation or visible
-        if self._automation_label is not None:
-            self._automation_label.setVisible(any_automation or bool(self._automation_status and not query.strip()))
-        if not self._rows:
-            self.empty_label.setText("No sessions yet. Start one with New session.")
-            self.empty_label.show()
-        elif not any_visible:
-            self.empty_label.setText("No session matches this filter.")
-            self.empty_label.show()
+        if self._tab == "sessions":
+            if not self._rows:
+                self.empty_label.setText("No sessions yet. Start one with New session.")
+                self.empty_label.show()
+            elif not any_visible:
+                self.empty_label.setText("No session matches this filter.")
+                self.empty_label.show()
+            else:
+                self.empty_label.hide()
         else:
-            self.empty_label.hide()
+            if not self._auto_rows and not self._automation_status:
+                self.empty_label.setText("No automation yet. Schedule a conversation with the clock button.")
+                self.empty_label.show()
+            elif self._auto_rows and not any_automation:
+                self.empty_label.setText("No automation matches this filter.")
+                self.empty_label.show()
+            else:
+                self.empty_label.hide()
         if self._selected_index >= 0:
             row = self._row_at(self._selected_index)
-            if row is None or not row.isVisible():
+            if row is None or not row.isVisibleTo(self):
                 self._select_index(self._first_visible_index())
 
-    def visible_rows(self) -> List[SessionRow]:
-        """Rows the filter kept — asked of the popup itself, so the answer is
-        the same whether or not it is currently on screen."""
-        return [row for row in self._rows if row.isVisibleTo(self)]
+    def visible_rows(self) -> List[QWidget]:
+        """Rows of the current tab the filter kept — asked of the popup itself,
+        so the answer is the same whether or not it is on screen."""
+        rows = self._rows if self._tab == "sessions" else self._auto_rows
+        return [row for row in rows if row.isVisibleTo(self)]
 
     # ------------------------------------------------------------- selection
 
-    def _row_at(self, index: int) -> Optional[SessionRow]:
+    def _row_at(self, index: int) -> Optional[QWidget]:
         rows = self.visible_rows()
         if 0 <= index < len(rows):
             return rows[index]
@@ -989,43 +1285,62 @@ class SessionSwitcher(QDialog):
     def _first_visible_index(self) -> int:
         return 0 if self.visible_rows() else -1
 
+    def _active_index(self) -> int:
+        for index, row in enumerate(self.visible_rows()):
+            if getattr(row, "session_id", None) == self._active_id:
+                return index
+        return self._first_visible_index()
+
     def _select_index(self, index: int) -> None:
         rows = self.visible_rows()
-        for row in self._rows:
+        for row in list(self._rows) + list(self._auto_rows):
             row.set_selected(False)
-        if not rows:
+        if not rows or index < 0:
             self._selected_index = -1
             return
         clamped = max(0, min(int(index), len(rows) - 1))
         self._selected_index = clamped
         row = rows[clamped]
         row.set_selected(True)
-        self.scroll.ensureWidgetVisible(row, 0, 40)
+        scroll = self.scroll if self._tab == "sessions" else self.auto_scroll
+        scroll.ensureWidgetVisible(row, 0, 40)
 
     def _select_active(self) -> None:
-        rows = self.visible_rows()
-        for index, row in enumerate(rows):
-            if row.session_id == self._active_id:
-                self._select_index(index)
-                return
-        self._select_index(self._first_visible_index())
+        self._select_index(self._active_index())
 
     def _on_row_hovered(self, row: Any) -> None:
         rows = self.visible_rows()
         if row in rows:
             self._selected_index = rows.index(row)
-            for other in self._rows:
+            for other in list(self._rows) + list(self._auto_rows):
                 other.set_selected(other is row)
 
     @property
     def selected_session_id(self) -> str:
         row = self._row_at(self._selected_index)
-        return row.session_id if row is not None else ""
+        return str(getattr(row, "session_id", "") or "") if row is not None else ""
+
+    @property
+    def selected_automation_id(self) -> str:
+        row = self._row_at(self._selected_index)
+        return str(getattr(row, "automation_id", "") or "") if row is not None and self._tab == "automations" else ""
 
     # ---------------------------------------------------------------- actions
 
     def _on_row_chosen(self, session_id: str) -> None:
         self.session_chosen.emit(str(session_id))
+        self.close()
+
+    def _on_automation_chosen(self, automation_id: str) -> None:
+        self.automation_chosen.emit(str(automation_id))
+        self.close()
+
+    def _on_automation_open(self, automation_id: str, where: str) -> None:
+        self.automation_open_requested.emit(str(automation_id), str(where))
+        self.close()
+
+    def _on_automation_edit(self, automation_id: str) -> None:
+        self.automation_edit_requested.emit(str(automation_id))
         self.close()
 
     def _on_delete_confirmed(self, session_id: str) -> None:
@@ -1034,6 +1349,12 @@ class SessionSwitcher(QDialog):
     def _on_new_chat(self) -> None:
         self.new_chat_requested.emit()
         self.close()
+
+    def _on_load_more(self) -> None:
+        if self.load_more_button is not None:
+            self.load_more_button.setEnabled(False)
+            self.load_more_button.setText("Loading…")
+        self.load_more_requested.emit()
 
     def open_at(self, global_pos, *, screen_geometry=None) -> None:
         """Show the popup at ``global_pos``, kept inside the screen.
@@ -1052,8 +1373,6 @@ class SessionSwitcher(QDialog):
         self.resize(width, height)
         x, y = int(global_pos.x()), int(global_pos.y())
         if screen_geometry is None:
-            from PyQt5.QtWidgets import QApplication
-
             screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
             screen_geometry = screen.availableGeometry() if screen is not None else None
         if screen_geometry is not None:
@@ -1064,24 +1383,39 @@ class SessionSwitcher(QDialog):
         self.raise_()
         self.search_edit.clear()
         self.search_edit.setFocus(Qt.ShortcutFocusReason)
-        self._select_active()
+        if self._tab == "sessions":
+            self._select_active()
+        else:
+            self._select_index(self._first_visible_index())
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         super().resizeEvent(event)
         self._elide_count()
-        for row in self._rows:
+        for row in list(self._rows) + list(self._auto_rows):
             row.elide_labels(self.width() - 60)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
+        # ←/→ switch tabs while the filter is empty (else they move the caret).
+        if obj is self.search_edit and event.type() == QEvent.KeyPress and not self.search_edit.text():
+            if event.key() in (Qt.Key_Left, Qt.Key_Right) and not event.modifiers() and self._automations_available:
+                self.set_tab("sessions" if event.key() == Qt.Key_Left else "automations", emit=True)
+                return True
+        return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt API)
         key = event.key()
         modifiers = event.modifiers()
         if key == Qt.Key_Escape:
             row = self._row_at(self._selected_index)
-            if row is not None and row.confirming_delete:
+            if isinstance(row, SessionRow) and row.confirming_delete:
                 row.cancel_delete()
                 event.accept()
                 return
             self.close()
+            event.accept()
+            return
+        if modifiers & Qt.ControlModifier and key in (Qt.Key_1, Qt.Key_2):
+            self.set_tab("sessions" if key == Qt.Key_1 else "automations", emit=True)
             event.accept()
             return
         if key in (Qt.Key_Down, Qt.Key_Up):
@@ -1090,18 +1424,23 @@ class SessionSwitcher(QDialog):
             event.accept()
             return
         if key in (Qt.Key_Return, Qt.Key_Enter):
-            session_id = self.selected_session_id
-            if session_id:
-                self._on_row_chosen(session_id)
+            if self._tab == "sessions":
+                session_id = self.selected_session_id
+                if session_id:
+                    self._on_row_chosen(session_id)
+            else:
+                automation_id = self.selected_automation_id
+                if automation_id:
+                    self._on_automation_open(automation_id, "top")
             event.accept()
             return
         if key == Qt.Key_N and modifiers & Qt.ControlModifier:
             self._on_new_chat()
             event.accept()
             return
-        if key in (Qt.Key_Backspace, Qt.Key_Delete) and modifiers & Qt.ControlModifier:
+        if key in (Qt.Key_Backspace, Qt.Key_Delete) and modifiers & Qt.ControlModifier and self._tab == "sessions":
             row = self._row_at(self._selected_index)
-            if row is not None:
+            if isinstance(row, SessionRow):
                 row.ask_delete()
             event.accept()
             return

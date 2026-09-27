@@ -94,9 +94,6 @@ class SessionDigest:
     # gateway-derived: the liveliest run state of the session
     # (waiting / running / failed / done / unknown), "" when not on the gateway
     state: str = ""
-    # False for a session another client of the gateway started (see
-    # session_cache.OWN_SESSION_PREFIX)
-    own: bool = True
     # The gateway's session_kind ("" = chat) and, for a discussion session,
     # the automation it is about (the switcher badges it).
     session_kind: str = ""

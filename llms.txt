@@ -17,7 +17,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 ## Topic Deep Dives
 - [docs/settings.md](docs/settings.md): every setting (workflow choice, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): scheduled tasks on the gateway as the Assistant shows them: the Automations section, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+- [docs/automations.md](docs/automations.md): scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records

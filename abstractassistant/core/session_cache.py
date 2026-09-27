@@ -46,11 +46,11 @@ from .session_store import SessionSnapshot, SessionStore
 __all__ = [
     "SessionCache",
     "safe_title",
-    "is_own_session",
     "CACHE_FILE",
     "LEGACY_INDEX_FILE",
     "LEGACY_DIR",
-    "OWN_SESSION_PREFIX",
+    "SESSION_ID_PREFIX",
+    "SWITCHER_TABS",
     "UNREADABLE_MARKER",
 ]
 
@@ -60,14 +60,13 @@ LEGACY_DIR = "sessions-legacy"
 # Written next to a cached transcript that could not be read, until the
 # gateway has rebuilt it — so the problem is still said after a restart.
 UNREADABLE_MARKER = "session.unreadable.json"
-# This client's OWN naming convention for the ids it mints (`create_session`).
-# The default list shows sessions whose id carries it; every other session on
-# the gateway is "not ours" and appears under "All gateway sessions" — ids of
-# other clients are never classified further. A session another client created
-# with a `sess_`-shaped id counts as ours. The gateway's `session_kind` on
-# `/runs` rows (framework backlog 0928 / contracts C11) replaces this test once
-# it ships.
-OWN_SESSION_PREFIX = "sess_"
+# How this client names the sessions it mints (`create_session`). A naming
+# convention only: the list shows EVERY gateway session (operator ruling
+# 2026-09-27, "all clients must have access to the same pool of sessions"), so
+# nothing is ever classified by its id.
+SESSION_ID_PREFIX = "sess_"
+# The switcher's two tabs; the last one used is remembered here.
+SWITCHER_TABS = ("sessions", "automations")
 _CACHE_VERSION = 1
 
 _TITLE_MAX = 80  # session-picker title bound (marked when it bites; ADR-0026)
@@ -92,11 +91,6 @@ def safe_title(title: str) -> str:
     return t[: _TITLE_MAX - 1].rstrip() + "…"
 
 
-def is_own_session(session_id: str) -> bool:
-    """Whether a session id follows this client's own naming (see OWN_SESSION_PREFIX)."""
-    return str(session_id or "").strip().startswith(OWN_SESSION_PREFIX)
-
-
 def _placeholder(title: str) -> bool:
     return str(title or "").strip().lower() in {"", "new session", "new chat"}
 
@@ -118,9 +112,7 @@ class SessionCache:
         self._fetched_at = ""
         self._truncated = False
         self._notice = ""
-        # The list shows this client's own sessions unless the user asked for
-        # every session on the gateway.
-        self._show_all = False
+        self._switcher_tab = SWITCHER_TABS[0]
         # Sessions converted from the 0.6.1-and-earlier local index that the gateway has
         # not yet confirmed: {session_id: {"created_at", "updated_at"}}.
         self._legacy_pending: Dict[str, Dict[str, str]] = {}
@@ -175,7 +167,7 @@ class SessionCache:
             return sid
 
     def _mint_locked(self) -> str:
-        sid = f"sess_{uuid.uuid4().hex}"
+        sid = f"{SESSION_ID_PREFIX}{uuid.uuid4().hex}"
         SessionStore(self.data_dir_for(sid) / "session.json").save(
             SessionSnapshot(session_id=sid, actor_id="gateway", messages=[], last_run_id=None)
         )
@@ -289,17 +281,20 @@ class SessionCache:
         except FileNotFoundError:
             pass
 
-    # ------------------------------------------------------------ list scope
+    # ------------------------------------------------------- switcher tab
 
     @property
-    def show_all(self) -> bool:
+    def switcher_tab(self) -> str:
         with self._lock:
-            return self._show_all
+            return self._switcher_tab
 
-    def set_show_all(self, value: bool) -> None:
+    def set_switcher_tab(self, tab: str) -> None:
+        if tab not in SWITCHER_TABS:
+            raise ValueError(f"unknown switcher tab {tab!r}")
         with self._lock:
-            self._show_all = bool(value)
-            self._save_locked()
+            if tab != self._switcher_tab:
+                self._switcher_tab = tab
+                self._save_locked()
 
     # --------------------------------------------------------- gateway rows
 
@@ -416,7 +411,8 @@ class SessionCache:
                 self._fetched_at = str(data.get("fetched_at") or "")
                 self._truncated = bool(data.get("truncated"))
                 self._notice = str(data.get("notice") or "")
-                self._show_all = bool(data.get("show_all"))
+                tab = str(data.get("switcher_tab") or "")
+                self._switcher_tab = tab if tab in SWITCHER_TABS else SWITCHER_TABS[0]
                 pending = data.get("legacy_pending")
                 if isinstance(pending, dict):
                     self._legacy_pending = {
@@ -538,7 +534,7 @@ class SessionCache:
             "rows": [r.to_dict() for r in self._rows],
             "fetched_at": self._fetched_at,
             "truncated": self._truncated,
-            "show_all": self._show_all,
+            "switcher_tab": self._switcher_tab,
         }
         if self._notice:
             payload["notice"] = self._notice

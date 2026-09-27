@@ -82,14 +82,14 @@ The switcher shows the sessions it last received and your cached transcripts sta
 nothing is deleted. Check the connection orb and Settings → Connection. The next successful fetch
 from the gateway replaces the cached list. See [architecture.md](architecture.md#sessions).
 
-## The switcher has no Automations section
+## The switcher has no Automations tab
 
 The gateway does not advertise automations in its capabilities
-(`contracts.common.automations.available`), so the Assistant shows no section, no
+(`contracts.common.automations.available`), so the Assistant shows no Automations tab, no
 **Automations…** tray entry and no clock button in the header. Automations need a gateway
 version that offers them; ask the gateway operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
 
-## The Automations section shows "Automations: …" instead of rows
+## The Automations tab shows "Automations: …" instead of rows
 
 The last check failed; the line gives the reason, and the rows are the ones last received. "The
 gateway could not be reached" means the connection is down (check the orb). "Sign in to the gateway

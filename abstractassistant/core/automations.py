@@ -174,10 +174,10 @@ def automation_controls(
             return False, "Working…"
         if summary.get("legacy"):
             return False, "Legacy schedule: managed with its existing controls."
-        if control not in caps:
-            return False, "Not permitted for this automation."
         if status == "archived":
             return False, "Archived: history is kept, nothing runs."
+        if control not in caps:
+            return False, "Not permitted for this automation."
         return (True, "") if ok else (False, reason)
 
     return {

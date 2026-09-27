@@ -536,7 +536,7 @@ class GatewayClient:
     REGULAR_SESSION_KINDS_QUERY = "chat,discussion"
 
     @staticmethod
-    def session_listing_path(limit: int, *, session_kind_filter: bool = False) -> str:
+    def session_listing_path(limit: int, *, offset: int = 0, session_kind_filter: bool = False) -> str:
         """The exact query the session list sends — PINNED by a test.
 
         The same query AbstractCode's session board sends
@@ -552,18 +552,24 @@ class GatewayClient:
         (``session_kind_filter=True``): without it, automation occurrences
         (turn roots too) would eat the page budget of the chats.
         """
-        path = f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+        path = (
+            f"/api/gateway/runs?limit={max(1, int(limit))}&offset={max(0, int(offset))}"
+            "&root_only=true&include_ledger_len=false"
+        )
         if session_kind_filter:
             path += f"&session_kind={GatewayClient.REGULAR_SESSION_KINDS_QUERY}"
         return path
 
     def list_session_runs(
-        self, *, limit: int, timeout_s: Optional[float] = None, session_kind_filter: bool = False
+        self, *, limit: int, offset: int = 0, timeout_s: Optional[float] = None, session_kind_filter: bool = False
     ) -> Dict[str, Any]:
-        """One page of root runs, newest first, for the session list."""
+        """One page of turn roots, newest first, for the session list."""
         return self._request_json(
             method="GET",
-            url=_join(self._cfg.base_url, self.session_listing_path(limit, session_kind_filter=session_kind_filter)),
+            url=_join(
+                self._cfg.base_url,
+                self.session_listing_path(limit, offset=offset, session_kind_filter=session_kind_filter),
+            ),
             label="list_session_runs failed",
             timeout_s=timeout_s,
         )

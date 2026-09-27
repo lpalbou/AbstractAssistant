@@ -18,7 +18,8 @@ from pathlib import Path
 import pytest
 
 from abstractassistant.core.gateway_sessions import (
-    SESSION_LIST_LIMIT,
+    SESSION_PAGE_RUNS,
+    SESSION_PAGE_SESSIONS,
     GatewaySession,
     fold_session_rows,
     prompt_from_input_data,
@@ -39,16 +40,15 @@ def _by_id(rows):
 @pytest.mark.basic
 def test_the_session_list_query_is_pinned() -> None:
     """The gateway 400s an unknown query parameter, so a renamed or added one
-    empties the list instead of degrading it. Same query as AbstractCode
-    (`tui/src/gateway/mod.rs` session_listing_path)."""
-    assert GatewayClient.session_listing_path(SESSION_LIST_LIMIT) == (
-        "/api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false"
+    empties the list instead of degrading it. Pages of SESSION_PAGE_RUNS turn
+    roots (`offset` paging); `session_kind=chat,discussion` only when the
+    gateway advertises the filter."""
+    assert GatewayClient.session_listing_path(SESSION_PAGE_RUNS) == (
+        "/api/gateway/runs?limit=200&offset=0&root_only=true&include_ledger_len=false"
     )
-    # The same N as AbstractCode's session board (ui/modals.rs SESSION_LIST_LIMIT).
-    assert SESSION_LIST_LIMIT == 5000
-    # With a gateway that advertises the session_kind filter (contract F).
-    assert GatewayClient.session_listing_path(SESSION_LIST_LIMIT, session_kind_filter=True) == (
-        "/api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false&session_kind=chat,discussion"
+    assert SESSION_PAGE_RUNS == 200 and SESSION_PAGE_SESSIONS == 100
+    assert GatewayClient.session_listing_path(SESSION_PAGE_RUNS, offset=400, session_kind_filter=True) == (
+        "/api/gateway/runs?limit=200&offset=400&root_only=true&include_ledger_len=false&session_kind=chat,discussion"
     )
 
 
@@ -64,9 +64,9 @@ def test_list_session_runs_sends_exactly_the_pinned_url(monkeypatch) -> None:
 
     monkeypatch.setattr(client_module, "_request_json", _fake_request_json)
     client = GatewayClient(GatewayClientConfig(base_url="http://127.0.0.1:9/", auth_token="t"))
-    client.list_session_runs(limit=SESSION_LIST_LIMIT, timeout_s=3.0)
+    client.list_session_runs(limit=SESSION_PAGE_RUNS, offset=200, timeout_s=3.0)
     assert seen["method"] == "GET"
-    assert seen["url"] == "http://127.0.0.1:9/api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false"
+    assert seen["url"] == "http://127.0.0.1:9/api/gateway/runs?limit=200&offset=200&root_only=true&include_ledger_len=false"
     assert seen["timeout_s"] == 3.0
 
 

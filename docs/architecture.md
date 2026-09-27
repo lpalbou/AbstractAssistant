@@ -83,23 +83,23 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 
 Sessions live on the gateway. A session is the set of root runs that share a `session_id`.
 
-- **Scope.** By default the switcher lists this app's own sessions: those whose id follows the
-  Assistant's naming (`sess_…`), including the ones another Assistant install created. The
-  **All gateway sessions** toggle in the switcher header lists every session on the gateway
-  (AbstractCode, flows, schedules, other channels), marked "other client"; the choice is kept. A
-  discussion opened from an automation is always listed, whatever id the gateway gave it.
+- **Scope.** Every client sees the same pool of sessions: the switcher's **Sessions** tab lists
+  every chat and discussion session on the gateway, whichever client started it (the Assistant on
+  any device, AbstractCode, AbstractObserver, flows, other channels). There is no "this app's
+  sessions" filter and no toggle; nothing is ever classified by its id.
 - **Kinds.** The gateway stamps each session with a kind (`chat`, `automation`, `occurrence`,
   `discussion`). The switcher lists `chat` and `discussion` sessions; `automation` and
-  `occurrence` sessions belong to the [Automations](#automations) section. A run without a kind
+  `occurrence` sessions belong to the [Automations](#automations) tab. A run without a kind
   (a gateway that does not stamp it) counts as a chat. The kind is read from the gateway, never
   inferred from an id.
 
-- **List.** The switcher's rows are one `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`
-  page (plus `&session_kind=chat,discussion` when the gateway lists `session_kind` among its
-  advertised `runs.list.filters`) folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
+- **List.** The switcher reads `GET /api/gateway/runs?limit=200&offset=N&root_only=true&include_ledger_len=false`
+  pages (plus `&session_kind=chat,discussion` when the gateway lists `session_kind` among its
+  advertised `runs.list.filters`) and folds them by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
   newest first by the last run's `updated_at`, turn count = root runs, state = the liveliest run
-  (waiting, then running, then failed, then done; an unreported status is unknown). The page
-  covers the newest 5,000 root runs; when the gateway holds more, the switcher header says so.
+  (waiting, then running, then failed, then done; an unreported status is unknown). It shows 100
+  sessions; **Load more sessions** at the end of the list reads further pages until 100 more (or
+  the end). The gateway reports no total, so the header says "100+ sessions" while more exist.
   Opening the switcher paints the cached list, then asks the gateway off the GUI thread.
 - **Titles.** A session is named by its first user turn, read from the gateway
   (`/runs/{first_run_id}/input_data`, up to 40 sessions per refresh — the rows the list shows
@@ -149,7 +149,7 @@ automation itself. The user guide is [automations.md](automations.md).
 ```mermaid
 flowchart LR
   subgraph Desktop["AbstractAssistant (this Mac)"]
-    Switcher["Session switcher\nAutomations section · discussion badge"]
+    Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
     View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
     Hub["AutomationsHub\ncalls off the GUI thread\npolls 60 s visible / 5 min hidden"]

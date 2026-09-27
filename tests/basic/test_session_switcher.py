@@ -292,7 +292,8 @@ def test_switcher_rows_show_metrics_and_never_repeat_the_title() -> None:
     assert "12" in texts                      # tool calls
     assert "10k tk" in texts
     assert "2 min" in texts
-    assert "proj" in texts
+    folders = [w.text() for w in row.metrics_host.findChildren(type(switcher.new_button)) if w.objectName() == "rowFolder"]
+    assert folders == ["proj"]
     # The second row's preview equals its title: showing it twice says nothing.
     row_two = switcher.visible_rows()[1]
     assert row_two.preview_label.isVisibleTo(row_two) is False
@@ -666,7 +667,8 @@ def test_palette_opens_the_switcher_with_digests_already_loaded() -> None:
             "session_digests": lambda self: (
                 calls.append("digests"),
                 [{"session_id": "today", "title": "Release prep", "detailed": True}],
-            )[1]
+            )[1],
+            "switcher_tab": lambda self: "sessions",
         },
     )()
     opened: list = []
@@ -675,9 +677,10 @@ def test_palette_opens_the_switcher_with_digests_already_loaded() -> None:
         "S",
         (),
         {
-            "set_digests": lambda self, records, active_session_id="": opened.append(
+            "set_digests": lambda self, records, active_session_id="", more=False: opened.append(
                 (list(records), active_session_id)
             ),
+            "set_tab": lambda self, tab: None,
             "open_at": lambda self, origin, screen_geometry=None: opened.append("open"),
             "isVisible": lambda self: True,
         },

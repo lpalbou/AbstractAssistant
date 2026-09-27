@@ -20,12 +20,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .gateway_sessions import (
-    SESSION_LIST_LIMIT,
+    SESSION_PAGE_RUNS,
+    SESSION_PAGE_SESSIONS,
     SESSION_PROMPT_MAX,
     fold_session_rows,
     prompt_from_input_data,
 )
-from .session_cache import SessionCache, is_own_session
+from .session_cache import SessionCache
 from .session_digest import SessionDigestCache, digest_from_record
 from .session_store import SessionSnapshotUnreadable, SessionStore, SessionSnapshot
 from ..gateway import GatewayClient, GatewayClientConfig, get_cached_assistant_capabilities
@@ -95,6 +96,8 @@ class LLMManager:
         # session list until a refresh succeeds.
         self._session_refresh_lock = threading.Lock()
         self._session_list_error = ""
+        # How many sessions the list shows; "Load more" raises it by a page.
+        self._session_target = SESSION_PAGE_SESSIONS
         # Serializes gateway-snapshot read-copy-write + save. Appends arrive
         # from the GatewayWorker thread, wait-submit threads, and the Qt main
         # thread; without this, concurrent appends are last-writer-wins.
@@ -519,20 +522,20 @@ class LLMManager:
                     last_run_id=row.latest_run_id or digest.last_run_id,
                     session_kind=row.session_kind,
                     automation_id=row.automation_id,
+                    # The gateway row's folder when it reports one; else the
+                    # folder the gateway granted this session's last turn
+                    # (read back from the run and kept with the transcript).
+                    workspace_root=row.workspace_root or digest.workspace_root,
                 )
             payload = asdict(digest)
             payload["display_title"] = digest.display_title
             payload["on_gateway"] = row is not None
-            payload["own"] = is_own_session(session_id)
             out.append(payload)
 
-        show_all = store.show_all
-        for row in store.rows():
-            # A discussion is this principal's own fork of its own automation
-            # (the gateway scopes automations per principal), whatever id the
-            # gateway minted for its session.
-            if show_all or is_own_session(row.session_id) or row.session_kind == "discussion":
-                _add(row.session_id, created_at=row.created_at, updated_at=row.updated_at, row=row)
+        # Every gateway session (chat or discussion), whichever client started
+        # it — the same pool for every client — newest first, a page at a time.
+        for row in store.rows()[: self._session_target]:
+            _add(row.session_id, created_at=row.created_at, updated_at=row.updated_at, row=row)
         for session_id, meta in store.legacy_pending().items():
             _add(session_id, created_at=meta.get("created_at", ""), updated_at=meta.get("updated_at", ""))
         if active not in seen:
@@ -546,7 +549,10 @@ class LLMManager:
             "error": self._session_list_error,
             "fetched_at": store.fetched_at,
             "truncated": store.truncated,
-            "limit": SESSION_LIST_LIMIT,
+            "shown": min(len(store.rows()), self._session_target),
+            # More sessions exist beyond those shown: fetched ones not shown
+            # yet, or pages the gateway has not been asked for.
+            "more": len(store.rows()) > self._session_target or store.truncated,
             "refreshing": self._session_refresh_lock.locked(),
             "notice": store.peek_notice(),
         }
@@ -555,7 +561,12 @@ class LLMManager:
         """The one-time migration notice; cleared once taken."""
         return self._session_cache.take_notice()
 
-    def refresh_sessions_from_gateway(self, *, timeout_s: float = 15.0) -> Dict[str, Any]:
+    def load_more_sessions(self, *, timeout_s: float = 15.0) -> Dict[str, Any]:
+        """Show one more page of sessions (reading further `/runs` pages as
+        needed). Blocking network: call it off the GUI thread."""
+        return self.refresh_sessions_from_gateway(timeout_s=timeout_s, more=True)
+
+    def refresh_sessions_from_gateway(self, *, timeout_s: float = 15.0, more: bool = False) -> Dict[str, Any]:
         """Fetch the session list from the gateway into the cache.
 
         Blocking network: call it off the GUI thread. One request for the list
@@ -573,13 +584,34 @@ class LLMManager:
                 # A gateway that advertises the session_kind filter lists the
                 # regular kinds only; the fold drops the others either way.
                 kind_filter = bool(caps is not None and not caps.error and "session_kind" in caps.runs_list_filters())
-                payload = client.list_session_runs(
-                    limit=SESSION_LIST_LIMIT, timeout_s=timeout_s, session_kind_filter=kind_filter
-                )
+                target = self._session_target + (SESSION_PAGE_SESSIONS if more else 0)
+                items: List[Dict[str, Any]] = []
+                truncated = True
+                while True:
+                    page = client.list_session_runs(
+                        limit=SESSION_PAGE_RUNS,
+                        offset=len(items),
+                        timeout_s=timeout_s,
+                        session_kind_filter=kind_filter,
+                    )
+                    batch = page.get("items") if isinstance(page, dict) else None
+                    batch = [b for b in batch if isinstance(b, dict)] if isinstance(batch, list) else []
+                    known = {str(it.get("run_id") or "") for it in items}
+                    fresh = [b for b in batch if str(b.get("run_id") or "") not in known]
+                    items.extend(fresh)
+                    truncated = page.get("has_more") is not False
+                    rows, _ = fold_session_rows({"items": items, "has_more": truncated})
+                    # Done at the end of the list, or one session past the
+                    # target (that proves there is more to show). A page with
+                    # nothing new also ends the walk — a gateway that ignored
+                    # `offset` must not loop forever — without claiming the
+                    # list is complete.
+                    if not truncated or not fresh or len(rows) > target:
+                        break
             except Exception as exc:
                 self._session_list_error = f"{type(exc).__name__}: {exc}"
                 return {"ok": False, "error": self._session_list_error}
-            rows, truncated = fold_session_rows(payload)
+            self._session_target = target
             self._session_list_error = ""
             active_before = self.active_session_id
             with self._snapshot_lock:
@@ -596,11 +628,9 @@ class LLMManager:
                 and not store.label(row.session_id)
                 and store.prompt(row.session_id) is None
             ]
-            # The rows the list shows first (this client's own, unless every
-            # gateway session is shown), newest first; the cap stays.
-            show_all = store.show_all
-            untitled.sort(key=lambda row: 0 if (show_all or is_own_session(row.session_id)) else 1)
-            wanted = untitled[:SESSION_PROMPT_MAX]
+            # The rows the list shows first (newest first); the cap stays.
+            shown = {row.session_id for row in rows[: self._session_target]}
+            wanted = [row for row in untitled if row.session_id in shown][:SESSION_PROMPT_MAX]
             prompts: Dict[str, str] = {}
             for row in wanted:
                 try:
@@ -693,12 +723,11 @@ class LLMManager:
             return ""
         return f"This session is no longer in the list; its text is kept in {kept}."
 
-    def show_all_sessions(self) -> bool:
-        return self._session_cache.show_all
+    def switcher_tab(self) -> str:
+        return self._session_cache.switcher_tab
 
-    def set_show_all_sessions(self, value: bool) -> None:
-        """Every session on the gateway (True) or this client's own (False)."""
-        self._session_cache.set_show_all(bool(value))
+    def set_switcher_tab(self, tab: str) -> None:
+        self._session_cache.set_switcher_tab(tab)
 
     def session_legacy_dir(self) -> Path:
         return self._session_cache.legacy_dir

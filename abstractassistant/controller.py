@@ -990,11 +990,15 @@ class AssistantController:
     def session_notice(self) -> str:
         return str(self.llm_manager.session_notice() or "")
 
-    def show_all_sessions(self) -> bool:
-        return bool(self.llm_manager.show_all_sessions())
+    def load_more_sessions(self) -> Dict[str, Any]:
+        """One more page of sessions (blocking: off the GUI thread)."""
+        return dict(self.llm_manager.load_more_sessions() or {})
 
-    def set_show_all_sessions(self, value: bool) -> None:
-        self.llm_manager.set_show_all_sessions(bool(value))
+    def switcher_tab(self) -> str:
+        return str(self.llm_manager.switcher_tab())
+
+    def set_switcher_tab(self, tab: str) -> None:
+        self.llm_manager.set_switcher_tab(tab)
 
     def session_legacy_dir(self) -> str:
         return str(self.llm_manager.session_legacy_dir())
