@@ -225,3 +225,16 @@ locally. An Assistant session therefore shows up in AbstractCode, but not the ot
 - None to start: `/runs?root_only=true`, the history bundle and the history bloc route are live.
 - `session_kind` filtering waits for gateway 0928 (C11); 0852 builds its regular/automation
   split on this item.
+
+## Implementation (2026-09-27, unreleased)
+Commits 8006dcd + 524978f on main (local): `core/gateway_sessions.py` (fold like AbstractCode's web fold: skip child/id-less runs, newest
+first by `updated_at`, liveliest state, page without `has_more:false` = truncated), `core/session_cache.py` replaces `session_index.py`
+(cache keyed by gateway session id; hashed folder for unsafe ids; `remove_from_list` MOVES text to `sessions-legacy/`; hidden ids;
+`show_all` toggle; `session.unreadable.json` marker), `gateway/client.py` pins `/api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`,
+one-time resumable migration (cache written BEFORE the legacy index is set aside; orphans moved to `sessions-legacy/` after the first
+complete list, one notice), own sessions by default (`sess_` prefix = this client's own naming; the gateway's `session_kind` replaces it,
+framework 0928/C11) with an "All gateway sessions" toggle, offline marker, follow-up sync after a quick switch, switcher grows as rows land.
+Suite 933. Reviews 37 and 39 (framework untracked/missions-2026-09-25/REVIEW/37-…md): GO; migration lost nothing under SIGKILL at five
+points and the 0.6.1↔0.6.2 round trip. Deployed on the operator's machine 2026-09-27 08:25 CEST from the checkout (backup
+`~/.abstractassistant.bak-2026-09-27`; migration moved 16 entries to `sessions-legacy/`). Ships in the next Assistant release.
+Follow-ups: `sessions-legacy/` grows with each removal (FAQ line); abstractcode 0002 (TUI fold defects found by the comparison).
