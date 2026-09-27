@@ -274,7 +274,7 @@ def test_switcher_groups_rows_and_marks_the_active_session() -> None:
     switcher = _switcher()
     assert [row.session_id for row in switcher.visible_rows()] == ["today", "week", "old"]
     assert sorted(switcher._group_labels) == ["Older", "Previous 7 days", "Today"]
-    assert switcher.count_label.text().startswith("3 sessions")
+    assert switcher.count_text.startswith("3 sessions")
 
     active_row = switcher.visible_rows()[0]
     assert active_row.property("active") == "true"
@@ -729,3 +729,42 @@ def test_an_open_switcher_grows_when_the_gateway_rows_arrive() -> None:
 
     assert switcher.height() > opened + 150
     switcher.close()
+
+
+
+@pytest.mark.basic
+def test_the_popup_stays_on_screen_with_a_long_header() -> None:
+    """Operator 2026-09-27: "146 sessions · 3 today" + the two header buttons
+    made the popup's minimum width exceed SWITCHER_WIDTH, and open_at clamped
+    with the constant, so the popup opened past the screen's right edge."""
+    from PyQt5.QtCore import QPoint, QRect
+
+    from abstractassistant.ui.session_switcher import SWITCHER_WIDTH
+
+    _app()
+    today = datetime.now().astimezone().replace(hour=12, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+    switcher = SessionSwitcher()
+    switcher.set_digests(
+        [
+            SessionDigest(session_id=f"s{i}", title=f"t{i}", updated_at=today if i < 3 else "2026-08-01T12:00:00Z")
+            for i in range(146)
+        ]
+    )
+    assert switcher.count_text == "146 sessions · 3 today"
+    assert switcher.minimumSizeHint().width() <= SWITCHER_WIDTH, "the header must never widen the popup"
+    screen = QRect(0, 0, 1200, 800)
+    switcher.open_at(QPoint(screen.right() - 200, 40), screen_geometry=screen)
+    _app().processEvents()
+    frame = switcher.frameGeometry()
+    assert switcher.width() == SWITCHER_WIDTH
+    assert frame.right() <= screen.right() - 8
+    switcher.close()
+    # Whatever content widens it (here a wider control), open_at clamps with
+    # the popup's actual size, never the constant.
+    switcher.search_edit.setMinimumWidth(SWITCHER_WIDTH + 140)
+    switcher.open_at(QPoint(screen.right() - 200, 40), screen_geometry=screen)
+    _app().processEvents()
+    assert switcher.width() > SWITCHER_WIDTH
+    assert switcher.frameGeometry().right() <= screen.right() - 8
+    switcher.close()
+    switcher.deleteLater()

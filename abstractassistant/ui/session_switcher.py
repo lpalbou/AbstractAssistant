@@ -678,6 +678,12 @@ class SessionSwitcher(QDialog):
         header.addWidget(title, 0, Qt.AlignVCenter)
         self.count_label = QLabel("")
         self.count_label.setObjectName("switcherCount")
+        # The count never widens the popup: it takes what the header leaves
+        # and is elided (full text in its tooltip). A header wider than
+        # SWITCHER_WIDTH pushed the popup off the right edge of the screen.
+        self.count_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.count_label.setMinimumWidth(0)
+        self._count_text = ""
         header.addWidget(self.count_label, 1, Qt.AlignVCenter)
         self.new_button = QPushButton("New session")
         self.new_button.setObjectName("switcherPrimary")
@@ -918,7 +924,20 @@ class SessionSwitcher(QDialog):
         parts = [f"{total} session{'s' if total != 1 else ''}"]
         if today:
             parts.append(f"{today} today")
-        self.count_label.setText(" · ".join(parts))
+        self._count_text = " · ".join(parts)
+        self.count_label.setToolTip(self._count_text)
+        self._elide_count()
+
+    @property
+    def count_text(self) -> str:
+        """The full count line (the label may show it elided)."""
+        return self._count_text
+
+    def _elide_count(self) -> None:
+        width = self.count_label.width()
+        metrics = QFontMetrics(self.count_label.font())
+        text = self._count_text
+        self.count_label.setText(text if width <= 1 else metrics.elidedText(text, Qt.ElideRight, width))
 
     # -------------------------------------------------------------- filtering
 
@@ -1017,13 +1036,29 @@ class SessionSwitcher(QDialog):
         self.close()
 
     def open_at(self, global_pos, *, screen_geometry=None) -> None:
-        """Show the popup at ``global_pos``, kept inside the screen."""
+        """Show the popup at ``global_pos``, kept inside the screen.
+
+        Clamped with the popup's ACTUAL size after layout — its minimum size
+        wins over any requested width, so a constant would let content push it
+        off screen — on ``screen_geometry``, else the screen holding the anchor."""
         self.adjustSize()
         self.resize(SWITCHER_WIDTH, min(SWITCHER_HEIGHT, self.height() or SWITCHER_HEIGHT))
+        layout = self.layout()
+        if layout is not None:
+            layout.activate()
+        minimum = self.minimumSizeHint()
+        width = max(self.width(), minimum.width())
+        height = max(self.height(), minimum.height())
+        self.resize(width, height)
         x, y = int(global_pos.x()), int(global_pos.y())
+        if screen_geometry is None:
+            from PyQt5.QtWidgets import QApplication
+
+            screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
+            screen_geometry = screen.availableGeometry() if screen is not None else None
         if screen_geometry is not None:
-            x = max(screen_geometry.x() + 8, min(x, screen_geometry.x() + screen_geometry.width() - SWITCHER_WIDTH - 8))
-            y = max(screen_geometry.y() + 8, min(y, screen_geometry.y() + screen_geometry.height() - self.height() - 8))
+            x = max(screen_geometry.x() + 8, min(x, screen_geometry.x() + screen_geometry.width() - width - 8))
+            y = max(screen_geometry.y() + 8, min(y, screen_geometry.y() + screen_geometry.height() - height - 8))
         self.move(x, y)
         self.show()
         self.raise_()
@@ -1033,6 +1068,7 @@ class SessionSwitcher(QDialog):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         super().resizeEvent(event)
+        self._elide_count()
         for row in self._rows:
             row.elide_labels(self.width() - 60)
 
