@@ -624,7 +624,7 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     assert rows[2].pill.text() == "paused" and rows[2].meta_text.endswith("next —")
     # The real gateway sends an empty excerpt while waiting: the question shows.
     assert "waiting for you: The landlord asks" in rows[0].result_label.toolTip()
-    assert switcher.tab_buttons["automations"].text() == "Automations · 4 new"
+    assert switcher.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
     about = switcher._rows[0].about_button

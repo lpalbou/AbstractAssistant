@@ -292,30 +292,35 @@ def test_new_automation_button_lives_in_the_automations_tab() -> None:
 @pytest.mark.basic
 @pytest.mark.parametrize("width", [448, 460])
 @pytest.mark.parametrize("tab", ["sessions", "automations"])
-def test_the_header_count_is_elided_never_clipped(width, tab) -> None:
-    """The count ("146 sessions · 3 today", "4 automations · 4 new") takes the
-    room the header buttons leave and ends with "…" when short of it."""
+def test_the_header_needs_no_ellipsis_and_the_tabs_carry_the_counts(width, tab) -> None:
+    """The header line is the title and its buttons only, each at full size;
+    the counts are in the tab labels and the detail in their tooltips."""
     from PyQt5.QtGui import QFontMetrics
+    from PyQt5.QtWidgets import QLabel, QPushButton
 
     _app()
     sw = SessionSwitcher()
+    today = "2026-09-27T12:00:00+00:00"
     sw.set_digests(
         [SessionDigest(session_id=f"s{i}", title=f"t{i}", updated_at="2026-08-01T12:00:00Z") for i in range(146)],
         more=True,
     )
-    sw.set_automations(_summaries(), available=True)
+    archived = dict(_by_id(NEWS), automation_id="00000000-0000-4000-8000-00000000a1c4", status="archived", capabilities=["discuss"])
+    sw.set_automations(_summaries() + [archived], available=True)
     sw.set_tab(tab)
     sw.resize(width, 600)
     sw.show()
     _app().processEvents()
-    label = sw.count_label
-    room = label.contentsRect().width()
-    shown = label.text()
-    metrics = QFontMetrics(label.font())
-    assert label.geometry().right() < sw.show_archived.geometry().left() or not sw.show_archived.isVisibleTo(sw)
-    assert metrics.horizontalAdvance(shown) <= room, (shown, room)
-    if metrics.horizontalAdvance(label.full_text) > room:
-        assert shown.endswith("…") and label.toolTip() == label.full_text
-    else:
-        assert shown == label.full_text
+    header = [sw.title_label, sw.new_button] if tab == "sessions" else [sw.title_label, sw.show_archived, sw.new_automation_button]
+    for widget in header:
+        assert widget.isVisibleTo(sw)
+        assert widget.width() >= widget.sizeHint().width(), (widget.text(), widget.width(), widget.sizeHint().width())
+        assert "…" not in widget.text()
+    assert sw.title_label.text() == ("Sessions" if tab == "sessions" else "Automations")
+    for button in sw.tab_buttons.values():
+        assert button.width() >= QFontMetrics(button.font()).horizontalAdvance(button.text())
+    assert sw.tab_buttons["sessions"].text() == "Sessions · 146+"
+    assert sw.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
+    assert sw.tab_buttons["sessions"].toolTip() == "146+ sessions (⌘1)"
+    assert sw.tab_buttons["automations"].toolTip() == "4 automations · 1 archived (hidden) · 4 new (⌘2)"
     sw.deleteLater()

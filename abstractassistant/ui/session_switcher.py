@@ -946,40 +946,6 @@ class AutomationTabRow(QFrame):
         super().mouseReleaseEvent(event)
 
 
-class ElidingLabel(QLabel):
-    """A one-line label that shows its text elided ("…") to whatever width
-    the layout gives it — re-elided on every resize, so a header count is
-    never hard-clipped by the buttons next to it. Full text in the tooltip."""
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__("", parent)
-        self._full = ""
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.setMinimumWidth(0)
-
-    @property
-    def full_text(self) -> str:
-        return self._full
-
-    def set_full_text(self, text: str) -> None:
-        self._full = str(text or "")
-        self.setToolTip(self._full)
-        self._elide()
-
-    def _elide(self) -> None:
-        width = self.contentsRect().width()
-        metrics = QFontMetrics(self.font())
-        shown = self._full if width <= 1 or metrics.horizontalAdvance(self._full) <= width else metrics.elidedText(
-            self._full, Qt.ElideRight, width
-        )
-        if shown != self.text():
-            super().setText(shown)
-
-    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        super().resizeEvent(event)
-        self._elide()
-
-
 TAB_HINTS = {
     "sessions": "↑↓ move · ↵ open · ⌘1/⌘2 tabs · esc close",
     "automations": "↑↓ move · ↵ open · ⌘1/⌘2 tabs · esc close",
@@ -1041,14 +1007,10 @@ class SessionSwitcher(QDialog):
         self.title_label = QLabel("Sessions")
         self.title_label.setObjectName("switcherTitle")
         header.addWidget(self.title_label, 0, Qt.AlignVCenter)
-        self.count_label = ElidingLabel(self)
-        self.count_label.setObjectName("switcherCount")
-        # The count never widens the popup: it takes what the header leaves
-        # and is elided (full text in its tooltip).
-        self.count_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.count_label.setMinimumWidth(0)
+        # The counts live in the tab labels ("Sessions · 146+"), the detail in
+        # their tooltips: the header line holds only the title and its buttons.
         self._count_text = ""
-        header.addWidget(self.count_label, 1, Qt.AlignVCenter)
+        header.addStretch(1)
         self.show_archived = QPushButton("Show archived")
         self.show_archived.setObjectName("switcherScope")
         self.show_archived.setCheckable(True)
@@ -1337,9 +1299,6 @@ class SessionSwitcher(QDialog):
             self.auto_layout.addWidget(row)
             self._auto_rows.append(row)
         self.auto_layout.addStretch(1)
-        self.tab_buttons["automations"].setText(
-            "Automations" + (f" · {attention_total(self._automations)} new" if attention_total(self._automations) else "")
-        )
         self._after_rebuild()
 
     def _after_rebuild(self) -> None:
@@ -1377,32 +1336,38 @@ class SessionSwitcher(QDialog):
         self.auto_layout.activate()
 
     def _refresh_count(self) -> None:
-        if not hasattr(self, "count_label"):
+        """The tab labels carry the counts ("Sessions · 146+", "Automations ·
+        4 · 2 new"); their tooltips carry the detail."""
+        if not hasattr(self, "tab_buttons"):
             return
-        if self._tab == "sessions":
-            total = len(self._digests)
-            today = sum(1 for d in self._digests if recency_group(d.last_activity) == "Today")
-            # The gateway reports no total: "N+" while more pages exist.
-            parts = [f"{total}{'+' if self._more else ''} session{'s' if total != 1 or self._more else ''}"]
-            if today:
-                parts.append(f"{today} today")
-        else:
-            shown = [s for s in self._automations if s.get("status") != "archived" or self.show_archived.isChecked()]
-            unread = attention_total(self._automations)
-            parts = [f"{len(shown)} automation{'s' if len(shown) != 1 else ''}"]
-            if unread:
-                parts.append(f"{unread} new")
-        self._count_text = " · ".join(parts)
-        self.count_label.setToolTip(self._count_text)
-        self._elide_count()
+        total = len(self._digests)
+        plus = "+" if self._more else ""
+        today = sum(1 for d in self._digests if recency_group(d.last_activity) == "Today")
+        # The gateway reports no total: "N+" while more pages exist.
+        detail = [f"{total}{plus} session{'s' if total != 1 or self._more else ''}"]
+        if today:
+            detail.append(f"{today} today")
+        self._sessions_detail = " · ".join(detail)
+        self.tab_buttons["sessions"].setText(f"Sessions · {total}{plus}")
+        self.tab_buttons["sessions"].setToolTip(f"{self._sessions_detail} (⌘1)")
+
+        archived = sum(1 for s in self._automations if s.get("status") == "archived")
+        listed = len(self._automations) - (0 if self.show_archived.isChecked() else archived)
+        unread = attention_total(self._automations)
+        detail = [f"{listed} automation{'s' if listed != 1 else ''}"]
+        if archived:
+            detail.append(f"{archived} archived" + (" (hidden)" if not self.show_archived.isChecked() else ""))
+        if unread:
+            detail.append(f"{unread} new")
+        self._automations_detail = " · ".join(detail)
+        self.tab_buttons["automations"].setText(f"Automations · {listed}" + (f" · {unread} new" if unread else ""))
+        self.tab_buttons["automations"].setToolTip(f"{self._automations_detail} (⌘2)")
+        self._count_text = self._sessions_detail if self._tab == "sessions" else self._automations_detail
 
     @property
     def count_text(self) -> str:
-        """The full count line (the label may show it elided)."""
+        """The current tab's count detail (the tab's tooltip)."""
         return self._count_text
-
-    def _elide_count(self) -> None:
-        self.count_label.set_full_text(self._count_text)
 
     # -------------------------------------------------------------- filtering
 
@@ -1579,7 +1544,6 @@ class SessionSwitcher(QDialog):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         super().resizeEvent(event)
-        self._elide_count()
         for row in list(self._rows) + list(self._auto_rows):
             row.elide_labels(self.width() - 60)
 
