@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
-from PyQt5.QtCore import QObject, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -190,6 +190,17 @@ def automation_row_qss() -> str:
     }}
     QPushButton#autoControl:hover, QPushButton#autoSmall:hover {{ background: {THEME.overlay_hover}; }}
     QPushButton#autoControl:disabled, QPushButton#autoSmall:disabled {{ color: {THEME.text_faint}; }}
+    QLabel#autoWrapButton {{
+        color: {THEME.text_secondary};
+        background: {THEME.overlay_faint};
+        border: 1px solid {THEME.border_subtle};
+        border-radius: 8px;
+        padding: 3px 9px;
+        font-size: 11px;
+        font-weight: 600;
+    }}
+    QLabel#autoWrapButton:hover {{ background: {THEME.overlay_hover}; }}
+    QLabel#autoWrapButton:disabled {{ color: {THEME.text_faint}; }}
     QPushButton#autoDanger {{
         color: {THEME.text_strong}; background: {THEME.danger_bg};
         border: 1px solid {alpha(THEME.danger, 0.55)}; border-radius: 8px; padding: 3px 10px; font-size: 11px;
@@ -375,6 +386,44 @@ def _text_label(text: str, name: str, *, parent: QWidget, tone: str = "") -> QLa
     return label
 
 
+class WrappingButton(QLabel):
+    """A button whose label wraps: the Discuss control's full wording must
+    fit a narrow palette without widening the list (a QPushButton's text
+    never wraps and forced a horizontal scroll)."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(text, parent)
+        self.setObjectName("autoWrapButton")
+        self.setWordWrap(True)
+        self.setTextFormat(Qt.PlainText)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+
+    def click(self) -> None:
+        if self.isEnabled():
+            self.clicked.emit()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        if event.button() == Qt.LeftButton:
+            self.click()
+            return
+        super().mouseReleaseEvent(event)
+
+
+# The web panel's wording (ui-kit 12f736a), word for word.
+DISCUSS_LABEL = "Discuss — fork at this occurrence (own workspace, automation files read-only)"
+
+
+def discuss_help(index: int) -> str:
+    return (
+        f"Starts a new session that forks this automation at #{index} with its full history (runs 1–{index}). "
+        "It works in its own writable workspace; the automation's files are mounted read-only, and nothing "
+        "flows back into the automation."
+    )
+
+
 class OccurrencePair(QWidget):
     """One occurrence as two chat turns: the trigger/task turn and the answer."""
 
@@ -444,14 +493,14 @@ class OccurrencePair(QWidget):
             ),
             1,
         )
-        self.discuss_button = _button("Discuss", "autoSmall", parent=self.answer, tooltip=(
-            "Open a new session with this automation's history up to here; its files are mounted "
-            "read-only and the session has its own writable workspace" if discuss_enabled and view.can_discuss else (discuss_reason or "Not while it is running")
-        ))
+        self.discuss_button = WrappingButton(DISCUSS_LABEL, self.answer)
+        self.discuss_button.setToolTip(
+            discuss_help(self.index) if discuss_enabled and view.can_discuss else (discuss_reason or "Not while it is running")
+        )
         self.discuss_button.setEnabled(bool(discuss_enabled and view.can_discuss))
         self.discuss_button.clicked.connect(self._start_discuss)
-        head.addWidget(self.discuss_button, 0)
         al.addLayout(head)
+        al.addWidget(self.discuss_button)
 
         notify = row.get("notify") if isinstance(row.get("notify"), Mapping) else None
         if notify is not None and notify.get("title"):
@@ -750,6 +799,7 @@ class AutomationView(QFrame):
         self.list_layout.setSpacing(10)
         self.list_layout.setAlignment(Qt.AlignTop)
         self.scroll.setWidget(self.list_host)
+        self.scroll.viewport().installEventFilter(self)
         root.addWidget(self.scroll, 1)
         self.restyle()
 
@@ -876,8 +926,14 @@ class AutomationView(QFrame):
         """The bubble width for a turn: the list's width minus the pair's indent and frame."""
         return max(160, int(self.scroll.viewport().width() or self.width()) - 76)
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        super().resizeEvent(event)
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
+        # The bubbles follow the list's own width (the viewport is sized after
+        # this frame, and pairs built before the first layout start narrow).
+        if obj is self.scroll.viewport() and event.type() == QEvent.Resize:
+            self._fit_turns()
+        return super().eventFilter(obj, event)
+
+    def _fit_turns(self) -> None:
         width = self.turn_width()
         for pair in self.pairs:
             for card in pair.turn_cards:

@@ -166,7 +166,9 @@
       "response": {
         "session_id": "discussion-session:eed8eec8-4938-5a9c-a982-fbe282eb50ac",
         "run_id": "eed8eec8-4938-5a9c-a982-fbe282eb50ac",
-        "session_kind": "discussion"
+        "session_kind": "discussion",
+        "workspace_root": "/srv/abstractgateway/data/workspaces/session-discussion-session-eed8eec8-4938-5a9c-a9-9da973fb077b",
+        "mounted_workspace": "/srv/abstractgateway/data/workspaces/session-automation-53443dd0-25c4-5fa8-bdad-e1ac3-db8ae8ce21b3"
       }
     },
     {

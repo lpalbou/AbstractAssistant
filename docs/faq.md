@@ -123,7 +123,8 @@ Each automation's runs are grouped under the automation in the **Automations** s
 listed as chats: the switcher lists only sessions the gateway marks as chats or discussions. A
 **Discuss** session is an ordinary chat and does appear, with the badge
 "about automation <title>"; the automation's files are mounted read-only and the discussion has
-its own writable workspace.
+its own writable workspace. The file tools refuse to write into the mount; shell commands are not
+sandboxed, so approve them accordingly.
 
 ## I upgraded and some old chats are gone from the list
 

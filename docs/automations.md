@@ -176,7 +176,8 @@ that run (whatever its context mode), sends your question in it, and switches th
 is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with the badge
 **about automation <title>** (click the badge to open the automation). The automation's files are
 mounted read-only (the notice after Discuss says where); the discussion works in its own writable
-workspace, and nothing is written back to the automation.
+workspace, and nothing is written back to the automation. The file tools refuse to write into the
+mounted folder; shell commands are not sandboxed, so approve them with that in mind.
 
 Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
 (or stop it) before it opens a discussion.
