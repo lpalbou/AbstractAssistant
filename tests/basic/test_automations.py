@@ -1278,7 +1278,8 @@ def test_discuss_wording_matches_the_web_and_the_captured_response_carries_both_
     assert pair.discuss_button.text() == "Discuss — fork at this occurrence (own workspace, automation files read-only)"
     assert pair.discuss_button.toolTip() == (
         "Starts a new session that forks this automation at #6 with its full history (runs 1–6). It works in its "
-        "own writable workspace; the automation's files are mounted read-only, and nothing flows back into the automation."
+        "own writable workspace; the automation's files are mounted read-only for the file tools (shell commands are "
+        "not sandboxed), and nothing is written back into the automation's session."
     )
     captured = next(c for c in _fixture("commands.json")["items"] if c["name"] == "discuss")
     text, tone = rules.discussion_banner(captured["response"], occurrence_index=captured["request"]["body"]["occurrence_index"])

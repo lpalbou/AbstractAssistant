@@ -419,8 +419,8 @@ DISCUSS_LABEL = "Discuss — fork at this occurrence (own workspace, automation 
 def discuss_help(index: int) -> str:
     return (
         f"Starts a new session that forks this automation at #{index} with its full history (runs 1–{index}). "
-        "It works in its own writable workspace; the automation's files are mounted read-only, and nothing "
-        "flows back into the automation."
+        "It works in its own writable workspace; the automation's files are mounted read-only for the file "
+        "tools (shell commands are not sandboxed), and nothing is written back into the automation's session."
     )
 
 
