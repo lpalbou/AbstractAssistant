@@ -15,7 +15,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   [docs/automations.md](docs/automations.md).
 - **Schedule this conversation…** (clock button in the header): runs the conversation's workflow
   with its last question on a fixed UTC interval or once, Independent (default) or Growing.
-- **Answer a waiting run** of an automation from the palette, with its choices or free text.
+- **Answer a waiting run** of an automation from the palette: a question with its choices or free
+  text, a tool-approval request with its tool calls and Approve / Deny.
+- The Schedule sheet asks whether the automation's tools run without asking (the default; creating
+  it is the approval) or ask each time.
 - **Discuss** a run: opens an ordinary session seeded with the automation's runs up to that one,
   with the workflow's normal tools and a read-only workspace; it is listed among your chats with
   the badge "about automation <title>".

@@ -56,10 +56,16 @@ applied twice); after the gateway answered, retrying is a new request.
 
 ## Answering a run that waits for you
 
-A run can stop and ask you something ("The landlord asks whether Tuesday works. Reply now?"). You
-get a tray notification, and the run shows the question with its choices and a free-text field.
-Your answer goes to the gateway exactly like an answer to a question from a chat, and the run
-continues.
+A run can stop and wait for you. You get a tray notification, and the run shows what it waits for:
+
+- **a question** ("The landlord asks whether Tuesday works. Reply now?"): its choices and a
+  free-text field; your answer goes to the gateway exactly like an answer to a question from a chat;
+- **approval of tool calls** (only for an automation created with "Ask each time"): the tool calls
+  it would run, with **Approve** and **Deny**;
+- **an event**: a free-text field.
+
+The gateway says which of the three a run waits for, and the Assistant answers accordingly. A wait
+the gateway does not describe is shown without answer controls rather than answered blindly.
 
 ## Discuss a result
 
@@ -80,6 +86,9 @@ The clock button in the palette header opens **Schedule this conversation…**:
   Intervals are fixed UTC durations: "every 24 hours", never "daily at 08:00 local".
 - **Context** — **Independent** (the default: each run starts fresh) or **Growing** (each run
   sees the previous runs, like a continuing conversation, within a bounded history).
+- **Tools** — **Tools run without asking** (the default: you approve them now by creating this
+  automation, since nobody is there to approve each run) or **Ask each time** (every run that wants
+  a tool waits for your approval). Questions the workflow itself asks always wait for you.
 
 **Schedule** creates the automation and opens it.
 

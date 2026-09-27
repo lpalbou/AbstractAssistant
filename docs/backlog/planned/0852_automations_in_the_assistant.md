@@ -301,3 +301,17 @@ against the hermetic gateway once G ships the routes.
   (G answers unknown automation routes with a `not_found` envelope, so a 404 is not a signal.)
 - Poll: 60 s while the palette is visible, 5 min while hidden (the only background traffic; kept so
   tray notifications arrive with the palette closed).
+
+## Integration against the hermetic gateway (2026-09-27)
+
+Real `AssistantPalette` (offscreen, scratch HOME) against a hermetic gateway (G 2c8d8b3 + working tree,
+R ba2b303, deterministic echo/ask flows; `abstractassistant.agent.v1` default = an echo flow; provider spy
+0 hits): 27/27 steps — capability gate, a real chat turn, three monitors via Schedule this conversation
+(`@default` + interface target, `policy.tool_approval: auto`), two ticks, section rows, notifications
+(notable ticks once each, quiet none, the wait once), `seen` with the last displayed cursor (unseen → 0),
+occurrences as chat pairs, pause / run now while paused (stays paused) / resume / edit (revision 2, new
+binding) / archive, an `ask_user` wait answered from the palette (typed `kind`), Growing history
+(ECHO[0], ECHO[2]), Discuss → `discussion-session:<request_id>` listed with its badge, history seeded
+(ECHO[2]), a follow-up turn (ECHO[4]), and `session_kind=chat,discussion` sent because the gateway
+advertises it. Not walked for real: a `tool_approval` wait (needs a tool-calling agent; covered by the
+fixture stub).
