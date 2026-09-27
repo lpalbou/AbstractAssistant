@@ -6634,6 +6634,8 @@ class AssistantPalette(QMainWindow):
             sheet = ScheduleSheet(target=target_from_workflow(selection), target_label=label, prompt=prompt, parent=self)
             sheet.submitted.connect(lambda body, s=sheet: self._submit_schedule(s, body))
             self._schedule_sheet = sheet
+            # Typing in the sheet must not hide the palette (focus rule).
+            self._register_aux_dialog(sheet)
             self._automations.trigger_sources(
                 lambda ok2, sources: sheet.set_trigger_sources(sources.get("items") or [])
                 if ok2 and isinstance(sources, dict)

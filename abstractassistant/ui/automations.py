@@ -138,6 +138,7 @@ def automation_row_qss() -> str:
     QLabel#autoExcerpt {{ color: {THEME.text_muted}; font-size: 11px; }}
     QLabel#autoExcerpt[tone="warn"] {{ color: {THEME.attention_text}; }}
     QFrame#autoView {{ background: transparent; border: none; }}
+    QScrollArea#autoScroll, QWidget#autoList {{ background: transparent; border: none; }}
     QLabel#autoViewTitle {{ color: {THEME.text_strong}; font-size: 13px; font-weight: 800; }}
     QLabel#autoViewMeta {{ color: {THEME.text_muted}; font-size: 11px; }}
     QLabel#autoViewError {{
@@ -631,10 +632,12 @@ class AutomationView(QFrame):
         root.addWidget(self.attention_label)
 
         self.scroll = QScrollArea(self)
+        self.scroll.setObjectName("autoScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_host = QWidget()
+        self.list_host.setObjectName("autoList")
         self.list_layout = QVBoxLayout(self.list_host)
         self.list_layout.setContentsMargins(0, 0, 6, 0)
         self.list_layout.setSpacing(10)
@@ -747,8 +750,11 @@ class AutomationView(QFrame):
             self.pairs.append(pair)
 
     def scroll_to_latest(self) -> None:
+        """Newest run in view — after the rebuilt pairs are laid out."""
+        from PyQt5.QtCore import QTimer
+
         bar = self.scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        QTimer.singleShot(0, lambda: bar.setValue(bar.maximum()))
 
     # ------------------------------------------------------------ actions
 
@@ -886,6 +892,9 @@ class ScheduleSheet(QDialog):
         for signal in (self.prompt_edit.textChanged, self.at_edit.textChanged, self.custom_amount.valueChanged, self.custom_unit.currentIndexChanged):
             signal.connect(self._update_preview)
         self._sync_when()
+
+    def restyle(self) -> None:
+        self.setStyleSheet(dialog_stylesheet() + automation_row_qss())
 
     def set_trigger_sources(self, items: Sequence[Mapping[str, Any]]) -> None:
         """``schedule@1`` must be offered by the gateway, else nothing can be scheduled."""
