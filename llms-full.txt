@@ -966,11 +966,13 @@ the run keeps waiting.
 ## Discuss a result
 
 **Discuss** on a finished run opens a field ("What do you want to discuss about this result?");
-**Start** asks the gateway to open a new session seeded with the automation's runs up to that one,
-sends your question in it, and switches the palette to it. It is an ordinary chat: it keeps the
-workflow's normal tools and appears among your chats with the badge **about automation <title>**
-(click the badge to open the automation). Its workspace is the automation's, read-only, and nothing
-is written back to the automation.
+**Start** asks the gateway to open a new session seeded with the automation's whole history up to
+that run (whatever its context mode), sends your question in it, and switches the palette to it. It
+is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with the badge
+**about automation <title>** (click the badge to open the automation). The automation's files are
+mounted read-only (the notice after Discuss says where); the discussion works in its own writable
+workspace, and nothing is written back to the automation. The file tools refuse to write into the
+mounted folder; shell commands are not sandboxed, so approve them with that in mind.
 
 Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
 (or stop it) before it opens a discussion.
@@ -1728,7 +1730,9 @@ calls from the automation; see [automations.md](automations.md#tool-consent).
 Each automation's runs are grouped under the automation in the **Automations** section, not
 listed as chats: the switcher lists only sessions the gateway marks as chats or discussions. A
 **Discuss** session is an ordinary chat and does appear, with the badge
-"about automation <title>"; its workspace is read-only.
+"about automation <title>"; the automation's files are mounted read-only and the discussion has
+its own writable workspace. The file tools refuse to write into the mount; shell commands are not
+sandboxed, so approve them accordingly.
 
 ## I upgraded and some old chats are gone from the list
 
@@ -1929,9 +1933,12 @@ is configured on the gateway side, and press Reload in the route editor.
 
 ## The global hotkey does not work
 
-The summon hotkey depends on macOS Accessibility permission for the launching process. Grant it
-in System Settings → Privacy & Security → Accessibility, save the shortcut again in Settings →
-Appearance, or use the menu-bar icon.
+The summon hotkey needs macOS permission for the process that launched the app (the app bundle,
+or the terminal you started it from) to read the keyboard. Without it the shortcut is not
+registered and the reason is logged (`#FALLBACK: global hotkey … not registered`). Grant it in
+System Settings → Privacy & Security → Accessibility (and Input Monitoring), then save the shortcut
+again in Settings → Appearance, or use the menu-bar icon. Named keys are written plainly
+(`cmd+shift+space`, `ctrl+alt+f5`).
 
 ## Artifact opening fails
 
@@ -2336,13 +2343,21 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   a question with its choices or free text, a tool approval listing the tool calls with **Approve**
   / **Deny**, or an event payload typed as JSON. A wait of unknown kind is shown without answer
   controls.
-- **Discuss** a finished run: opens an ordinary chat seeded with the automation's runs up to that
-  one, with the workflow's normal tools and a read-only workspace; it is listed among your chats
+- **Discuss** a finished run: opens an ordinary chat seeded with the automation's history up to that
+  run, with the workflow's normal tools, the automation's files mounted read-only and its own writable
+  workspace; it is listed among your chats
   with the badge "about automation <title>", which opens the automation.
 - **Tray notifications** for results the workflow marks as notable, runs that failed after all
   retries and runs waiting for you: once each, also across relaunches
   (`~/.abstractassistant/automations_notified.json`), never for ordinary results. The Assistant
   checks every 60 seconds while the palette is visible and every 5 minutes while it is hidden.
+
+### Fixed
+- **The global summon shortcut never worked.** The default `cmd+shift+space` was rejected by the
+  hotkey library (`space` must be written `<space>`), and even a valid combination could not fire
+  because keys were compared un-normalised (right ⌘, Space). Both are fixed. On macOS the shortcut
+  is only registered when the launching process may read the keyboard (System Settings → Privacy &
+  Security → Accessibility / Input Monitoring); otherwise it is not started and the reason is logged.
 
 ### Changed
 - The session switcher lists only the sessions the gateway marks as chats or discussions; the
@@ -15069,6 +15084,30 @@ def revise_changes(
     if errors:
         return None, errors
     return (changes or None), []
+
+
+# --------------------------------------------------------------- discussion
+
+
+def discussion_banner(result: Mapping[str, Any], *, occurrence_index: int) -> Tuple[str, str]:
+    """``(text, tone)`` of the notice after Discuss. The discussion carries the
+    automation's history through occurrence N, mounts the automation's files
+    read-only at ``mounted_workspace`` and works in its own writable
+    ``workspace_root`` (both from the discuss response). A response without
+    ``mounted_workspace`` is said, never papered over."""
+    mounted = str(result.get("mounted_workspace") or "").strip()
+    own = str(result.get("workspace_root") or "").strip()
+    if not mounted or not own:
+        return (
+            f"Discussion opened from occurrence {occurrence_index}, but the gateway did not report its workspaces "
+            "(mounted_workspace / workspace_root missing).",
+            "warn",
+        )
+    return (
+        f"Discussion opened from occurrence {occurrence_index}: the automation's history up to that point is in "
+        f"context; its files are mounted read-only at {mounted}; this session has its own writable workspace.",
+        "info",
+    )
 
 
 # ------------------------------------------------------------------- errors

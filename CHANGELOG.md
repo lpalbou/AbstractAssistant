@@ -38,6 +38,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   (`~/.abstractassistant/automations_notified.json`), never for ordinary results. The Assistant
   checks every 60 seconds while the palette is visible and every 5 minutes while it is hidden.
 
+### Fixed
+- **The global summon shortcut never worked.** The default `cmd+shift+space` was rejected by the
+  hotkey library (`space` must be written `<space>`), and even a valid combination could not fire
+  because keys were compared un-normalised (right ⌘, Space). Both are fixed. On macOS the shortcut
+  is only registered when the launching process may read the keyboard (System Settings → Privacy &
+  Security → Accessibility / Input Monitoring); otherwise it is not started and the reason is logged.
+
 ### Changed
 - The session switcher lists only the sessions the gateway marks as chats or discussions; the
   sessions an automation runs in are listed under the automation. When the gateway supports it, the
