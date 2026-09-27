@@ -16,14 +16,33 @@
       "artifacts": [],
       "waits": [
         {
+          "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
           "wait_key": "ask_user:reply-landlord",
+          "kind": "ask_user",
           "reason": "user",
           "prompt": "The landlord asks whether Tuesday works for the boiler inspection. Reply now?",
           "choices": [
             "Reply: Tuesday works",
             "Leave it for later"
-          ],
-          "run_id": "ade23773-2d37-5460-973c-08d35f7af010"
+          ]
+        },
+        {
+          "run_id": "35935671-bfc8-54ff-9b5b-d22f925adc45",
+          "wait_key": "tool_approval:call_7f3a",
+          "kind": "tool_approval",
+          "reason": "tool_approval",
+          "prompt": "Approve 1 tool call?",
+          "details": [
+            {
+              "name": "send_email",
+              "arguments": {
+                "to": "clara@example.com",
+                "subject": "Signed tax form",
+                "body": "Hi Clara, the signed form is attached. Best regards."
+              },
+              "call_id": "call_7f3a"
+            }
+          ]
         }
       ],
       "ledger_url": "/api/gateway/runs/ade23773-2d37-5460-973c-08d35f7af010/ledger",

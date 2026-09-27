@@ -569,7 +569,13 @@ class LLMManager:
         try:
             try:
                 client = self.gateway_client()
-                payload = client.list_session_runs(limit=SESSION_LIST_LIMIT, timeout_s=timeout_s)
+                caps = self.gateway_capabilities(stale_ok=True)
+                # A gateway that advertises the session_kind filter lists the
+                # regular kinds only; the fold drops the others either way.
+                kind_filter = bool(caps is not None and not caps.error and "session_kind" in caps.runs_list_filters())
+                payload = client.list_session_runs(
+                    limit=SESSION_LIST_LIMIT, timeout_s=timeout_s, session_kind_filter=kind_filter
+                )
             except Exception as exc:
                 self._session_list_error = f"{type(exc).__name__}: {exc}"
                 return {"ok": False, "error": self._session_list_error}

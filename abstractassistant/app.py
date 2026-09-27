@@ -6559,7 +6559,7 @@ class AssistantPalette(QMainWindow):
 
         self._automations.load_occurrences(aid, loaded, cursor=cursor)
 
-    def _on_automation_wait_answer(self, run_id: str, wait_key: str, response: str) -> None:
+    def _on_automation_wait_answer(self, run_id: str, wait_key: str, kind: str, answer: Any) -> None:
         view = self.automation_view
         view.set_busy(True)
         controller = self._controller
@@ -6569,11 +6569,15 @@ class AssistantPalette(QMainWindow):
             if not ok:
                 view.set_error(f"Your answer did not reach the gateway ({value}). The run is still waiting; try again.")
                 return
-            view.set_notice("Answer sent; the occurrence continues.")
+            view.set_notice(
+                ("Approved; the occurrence continues." if answer is True else "Denied; the occurrence continues.")
+                if kind == "tool_approval"
+                else "Answer sent; the occurrence continues."
+            )
             self._reload_open_automation()
 
         self._automations.run(
-            lambda: controller.answer_wait(run_id=run_id, wait_key=wait_key, response=response), done
+            lambda: controller.answer_wait(run_id=run_id, wait_key=wait_key, kind=kind, answer=answer), done
         )
 
     def _on_automation_discuss(self, index: int, prompt: str) -> None:

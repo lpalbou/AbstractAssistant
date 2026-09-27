@@ -72,11 +72,11 @@
         "status": "waiting",
         "attempts": 1,
         "fired_at": "2026-09-27T06:30:00Z",
-        "excerpt": "Waiting for you: the landlord asks whether Tuesday works for the boiler inspection.",
+        "excerpt": "Waiting for you: a question about the landlord's boiler inspection and 1 tool call to approve.",
         "notify": null
       },
       "attention": {
-        "pending_waits": 1,
+        "pending_waits": 2,
         "unread": true,
         "unseen_count": 2,
         "cursor": "att1:2",
@@ -107,7 +107,26 @@
             "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
             "wait_key": "ask_user:reply-landlord",
             "index": 7,
+            "kind": "ask_user",
             "prompt": "The landlord asks whether Tuesday works for the boiler inspection. Reply now?"
+          },
+          {
+            "run_id": "35935671-bfc8-54ff-9b5b-d22f925adc45",
+            "wait_key": "tool_approval:call_7f3a",
+            "index": 7,
+            "kind": "tool_approval",
+            "prompt": "Approve 1 tool call?",
+            "details": [
+              {
+                "name": "send_email",
+                "arguments": {
+                  "to": "clara@example.com",
+                  "subject": "Signed tax form",
+                  "body": "Hi Clara, the signed form is attached. Best regards."
+                },
+                "call_id": "call_7f3a"
+              }
+            ]
           }
         ]
       },

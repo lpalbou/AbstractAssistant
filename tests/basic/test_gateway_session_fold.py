@@ -46,6 +46,10 @@ def test_the_session_list_query_is_pinned() -> None:
     )
     # The same N as AbstractCode's session board (ui/modals.rs SESSION_LIST_LIMIT).
     assert SESSION_LIST_LIMIT == 5000
+    # With a gateway that advertises the session_kind filter (contract F).
+    assert GatewayClient.session_listing_path(SESSION_LIST_LIMIT, session_kind_filter=True) == (
+        "/api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false&session_kind=chat,discussion"
+    )
 
 
 @pytest.mark.basic

@@ -12,6 +12,7 @@ notifications) are the Qt-free `core/automations.py`.
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -57,6 +58,7 @@ from ..core.automations import (
     trigger_summary,
 )
 from ..gateway.automations import AutomationApiError, AutomationsClient
+from ..gateway.client import WAIT_KINDS
 from ..icons import symbol_icon
 from ..theme import THEME
 from .styles import alpha, dialog_stylesheet, refresh_style
@@ -93,7 +95,10 @@ def _next_run_text(summary: Mapping[str, Any]) -> str:
         return STATUS_LABELS.get(str(status), str(status)).lower()
     nxt = summary.get("next_fire_at")
     if not nxt:
-        return "no next run"
+        last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), Mapping) else {}
+        # While an occurrence runs or waits, the gateway reports no next time
+        # (due ticks coalesce after it).
+        return str(last.get("status") or "no next run") if last.get("status") in {"running", "waiting", "backoff", "admitted"} else "no next run"
     try:
         when = datetime.fromisoformat(str(nxt).replace("Z", "+00:00"))
         delta = (when - datetime.now(timezone.utc)).total_seconds()
@@ -263,7 +268,13 @@ class AutomationRow(QFrame):
         tone = ""
         if last is not None:
             last_status = str(last.get("status") or "")
-            excerpt = f"#{last.get('index')} {last_status}: {_clip(last.get('excerpt'))}".rstrip(": ")
+            text = str(last.get("excerpt") or "")
+            if not text and last_status == "waiting":
+                # The question itself, from the summary's pending waits.
+                attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+                waits = [w for w in attention.get("waits") or [] if isinstance(w, Mapping) and w.get("prompt")]
+                text = f"waiting for you: {waits[0]['prompt']}" if waits else ""
+            excerpt = f"#{last.get('index')} {last_status}: {_clip(text)}".rstrip(": ")
             if last_status in {"failed", "waiting"}:
                 tone = "warn"
         self.excerpt_label = QLabel(excerpt or "No run yet.", self)
@@ -363,7 +374,7 @@ class OccurrencePair(QWidget):
     """One occurrence as two chat turns: the trigger/task turn and the answer."""
 
     discuss_requested = pyqtSignal(int, str)
-    wait_answered = pyqtSignal(str, str, str)
+    wait_answered = pyqtSignal(str, str, str, object)  # run_id, wait_key, kind, answer
 
     def __init__(self, view, *, discuss_enabled: bool, discuss_reason: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -447,39 +458,11 @@ class OccurrencePair(QWidget):
             names = ", ".join(str(a.get("name") or a.get("artifact_id")) for a in artifacts if isinstance(a, Mapping))
             al.addWidget(_text_label(f"Files: {names}", "autoTurnMeta", parent=self.answer))
 
-        # -- pending human waits, answered from here -------------------------
+        # -- pending waits, answered from here by their KIND (decision D1) -
         self.wait_inputs: List[Dict[str, Any]] = []
         for wait in row.get("waits") or []:
-            if not isinstance(wait, Mapping):
-                continue
-            box = QWidget(self.answer)
-            bl = QVBoxLayout(box)
-            bl.setContentsMargins(0, 2, 0, 0)
-            bl.setSpacing(4)
-            bl.addWidget(_text_label(str(wait.get("prompt") or "The occurrence is waiting for your answer."), "autoTurnText", parent=box))
-            choices_row = QHBoxLayout()
-            choices_row.setSpacing(6)
-            choice_buttons = []
-            run_id, wait_key = str(wait.get("run_id") or row.get("run_id") or ""), str(wait.get("wait_key") or "")
-            for choice in wait.get("choices") or []:
-                b = _button(str(choice), "autoSmall", parent=box)
-                b.clicked.connect(lambda _=False, r=run_id, k=wait_key, c=str(choice): self.wait_answered.emit(r, k, c))
-                choices_row.addWidget(b)
-                choice_buttons.append(b)
-            choices_row.addStretch(1)
-            bl.addLayout(choices_row)
-            free = QHBoxLayout()
-            edit = QLineEdit(box)
-            edit.setObjectName("autoInput")
-            edit.setPlaceholderText("Or type an answer…")
-            send = _button("Answer", "autoPrimary", parent=box)
-            send.clicked.connect(lambda _=False, r=run_id, k=wait_key, e=edit: self._send_free(r, k, e))
-            edit.returnPressed.connect(lambda r=run_id, k=wait_key, e=edit: self._send_free(r, k, e))
-            free.addWidget(edit, 1)
-            free.addWidget(send, 0)
-            bl.addLayout(free)
-            al.addWidget(box)
-            self.wait_inputs.append({"run_id": run_id, "wait_key": wait_key, "choices": choice_buttons, "edit": edit, "send": send})
+            if isinstance(wait, Mapping):
+                al.addWidget(self._wait_box(wait, row))
 
         # -- the discuss prompt (inline, shown on demand) -------------------
         self.discuss_box = QWidget(self.answer)
@@ -501,10 +484,75 @@ class OccurrencePair(QWidget):
         wrap_a.addWidget(self.answer)
         layout.addLayout(wrap_a)
 
-    def _send_free(self, run_id: str, wait_key: str, edit: QLineEdit) -> None:
+    def _wait_box(self, wait: Mapping[str, Any], row: Mapping[str, Any]) -> QWidget:
+        box = QWidget(self.answer)
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(0, 2, 0, 0)
+        bl.setSpacing(4)
+        run_id = str(wait.get("run_id") or row.get("run_id") or "")
+        wait_key = str(wait.get("wait_key") or "")
+        kind = str(wait.get("kind") or "")
+        entry: Dict[str, Any] = {"run_id": run_id, "wait_key": wait_key, "kind": kind, "choices": [], "edit": None, "send": None}
+        self.wait_inputs.append(entry)
+        if kind not in WAIT_KINDS:
+            # Fail loudly: without a kind there is no answer this client may send.
+            bl.addWidget(_text_label(
+                f"This run is waiting, but the gateway did not say what answer it expects (kind {kind or 'missing'}). "
+                "Answer it from the Observer.", "autoTurnText", parent=box))
+            return box
+        if kind == "tool_approval":
+            bl.addWidget(_text_label(str(wait.get("prompt") or "The run asks to use these tools:"), "autoTurnText", parent=box))
+            # `details` = the tool calls this approval would run: [{name, arguments, call_id?}].
+            calls = wait.get("details") if isinstance(wait.get("details"), list) else []
+            if not calls:
+                bl.addWidget(_text_label("The gateway did not list the tool calls to approve.", "autoTurnMeta", parent=box))
+            for call in calls:
+                if isinstance(call, Mapping):
+                    args = call.get("arguments")
+                    preview = _clip(json.dumps(args, ensure_ascii=False, sort_keys=True) if args is not None else "", 200)
+                    bl.addWidget(_text_label(f"• {call.get('name') or 'tool'} {preview}".rstrip(), "autoTurnMeta", parent=box))
+            buttons = QHBoxLayout()
+            approve = _button("Approve", "autoPrimary", parent=box)
+            deny = _button("Deny", "autoControl", parent=box)
+            approve.clicked.connect(lambda _=False: self.wait_answered.emit(run_id, wait_key, kind, True))
+            deny.clicked.connect(lambda _=False: self.wait_answered.emit(run_id, wait_key, kind, False))
+            buttons.addWidget(approve)
+            buttons.addWidget(deny)
+            buttons.addStretch(1)
+            bl.addLayout(buttons)
+            entry.update(approve=approve, deny=deny)
+            return box
+        bl.addWidget(_text_label(str(wait.get("prompt") or "The occurrence is waiting for your answer."), "autoTurnText", parent=box))
+        choices_row = QHBoxLayout()
+        choices_row.setSpacing(6)
+        for choice in wait.get("choices") or []:
+            b = _button(str(choice), "autoSmall", parent=box)
+            b.clicked.connect(lambda _=False, c=str(choice): self._emit_text(run_id, wait_key, kind, c))
+            choices_row.addWidget(b)
+            entry["choices"].append(b)
+        choices_row.addStretch(1)
+        bl.addLayout(choices_row)
+        free = QHBoxLayout()
+        edit = QLineEdit(box)
+        edit.setObjectName("autoInput")
+        edit.setPlaceholderText("Or type an answer…")
+        send = _button("Answer", "autoPrimary", parent=box)
+        send.clicked.connect(lambda _=False: self._send_free(run_id, wait_key, kind, edit))
+        edit.returnPressed.connect(lambda: self._send_free(run_id, wait_key, kind, edit))
+        free.addWidget(edit, 1)
+        free.addWidget(send, 0)
+        bl.addLayout(free)
+        entry.update(edit=edit, send=send)
+        return box
+
+    def _emit_text(self, run_id: str, wait_key: str, kind: str, text: str) -> None:
+        # An event wait's answer is its payload object; a question's is text.
+        self.wait_answered.emit(run_id, wait_key, kind, {"response": text} if kind == "event" else text)
+
+    def _send_free(self, run_id: str, wait_key: str, kind: str, edit: QLineEdit) -> None:
         text = edit.text().strip()
         if text:
-            self.wait_answered.emit(run_id, wait_key, text)
+            self._emit_text(run_id, wait_key, kind, text)
 
     def _start_discuss(self) -> None:
         self.discuss_box.show()
@@ -524,7 +572,7 @@ class AutomationView(QFrame):
     control_requested = pyqtSignal(str)  # pause | resume | run_now | stop_current | archive
     revise_requested = pyqtSignal(object)  # changes
     discuss_requested = pyqtSignal(int, str)
-    wait_answered = pyqtSignal(str, str, str)
+    wait_answered = pyqtSignal(str, str, str, object)
     load_more_requested = pyqtSignal()
     retry_requested = pyqtSignal()
 
@@ -884,6 +932,16 @@ class ScheduleSheet(QDialog):
         root.addWidget(self.independent)
         root.addWidget(self.growing)
 
+        root.addWidget(_text_label("Tools", "autoViewTitle", parent=self))
+        self.tools_auto = QRadioButton("Tools run without asking (you approve them now by creating this automation)", self)
+        self.tools_ask = QRadioButton("Ask each time (every run waits for your approval)", self)
+        self.tools_auto.setChecked(True)
+        tools_group = QButtonGroup(self)
+        tools_group.addButton(self.tools_auto)
+        tools_group.addButton(self.tools_ask)
+        root.addWidget(self.tools_auto)
+        root.addWidget(self.tools_ask)
+
         self.preview_label = _text_label("", "autoViewMeta", parent=self)
         root.addWidget(self.preview_label)
         self.error_label = _text_label("", "autoViewError", parent=self)
@@ -947,6 +1005,7 @@ class ScheduleSheet(QDialog):
             request_id=self.request_id,
             title=self.title_edit.text(),
             start_at="" if when.kind == "once" else self.at_edit.text().strip(),
+            tool_approval="ask" if self.tools_ask.isChecked() else "auto",
         )
 
     def _update_preview(self) -> None:

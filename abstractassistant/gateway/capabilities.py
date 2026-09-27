@@ -66,6 +66,10 @@ class AssistantCapabilities:
     def unavailable(cls, *, error: str = "") -> "AssistantCapabilities":
         return cls(error=str(error or ""), fetched_at=time.monotonic())
 
+    def runs_list_filters(self) -> List[str]:
+        """The query parameters ``GET /runs`` accepts (``contracts.common.runs.list.filters``)."""
+        return _as_list_of_strings(_dig(self.common, "runs", "list", "filters"))
+
     def automations_available(self) -> bool:
         """Contract F: the gateway advertises the Automations API as
         ``contracts.common.automations.available``; absent or not ``true`` =

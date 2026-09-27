@@ -203,6 +203,28 @@ def _encode_multipart(
     return body, content_type_header
 
 
+WAIT_KINDS = ("ask_user", "tool_approval", "event")
+
+
+def wait_answer_payload(kind: str, answer: Any) -> Dict[str, Any]:
+    """The resume payload a wait of this ``kind`` accepts (decision D1): chosen
+    by the wait's declared kind, never from its text. ``ask_user`` →
+    ``{response}``; ``tool_approval`` → ``{approved}`` (a bool); ``event`` →
+    the event payload itself (an object). An unknown or missing kind raises:
+    answering a wait the client cannot type would approve or answer nothing."""
+    if kind == "ask_user":
+        return {"response": str(answer if answer is not None else "")}
+    if kind == "tool_approval":
+        if not isinstance(answer, bool):
+            raise ValueError("wait_answer_payload: a tool approval is answered with True or False")
+        return {"approved": answer}
+    if kind == "event":
+        if not isinstance(answer, dict):
+            raise ValueError("wait_answer_payload: an event wait is answered with an object payload")
+        return dict(answer)
+    raise ValueError(f"wait_answer_payload: unknown wait kind {kind!r}")
+
+
 def wait_response_command(*, run_id: str, wait_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """The command that answers a run's pending wait: ``resume`` with
     ``{wait_key, payload}`` on the WAITING run."""
@@ -506,8 +528,12 @@ class GatewayClient:
             timeout_s=timeout_s,
         )
 
+    # The regular session list's kinds (contract F): automation and occurrence
+    # sessions are listed under their automation, never as chats.
+    REGULAR_SESSION_KINDS_QUERY = "chat,discussion"
+
     @staticmethod
-    def session_listing_path(limit: int) -> str:
+    def session_listing_path(limit: int, *, session_kind_filter: bool = False) -> str:
         """The exact query the session list sends — PINNED by a test.
 
         The same query AbstractCode's session board sends
@@ -517,15 +543,24 @@ class GatewayClient:
         of every listed run's ledger and nothing here reads it. The gateway
         REFUSES unknown query parameters with a 400 (`routes/gateway.py`
         `list_runs`), so a renamed or added parameter does not degrade — it
-        empties the list. Nothing else may be added here.
+        empties the list. Nothing else may be added here — except
+        ``session_kind=chat,discussion``, sent ONLY when the gateway lists
+        ``session_kind`` among its advertised ``runs.list.filters``
+        (``session_kind_filter=True``): without it, automation occurrences
+        (turn roots too) would eat the page budget of the chats.
         """
-        return f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+        path = f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+        if session_kind_filter:
+            path += f"&session_kind={GatewayClient.REGULAR_SESSION_KINDS_QUERY}"
+        return path
 
-    def list_session_runs(self, *, limit: int, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+    def list_session_runs(
+        self, *, limit: int, timeout_s: Optional[float] = None, session_kind_filter: bool = False
+    ) -> Dict[str, Any]:
         """One page of root runs, newest first, for the session list."""
         return self._request_json(
             method="GET",
-            url=_join(self._cfg.base_url, self.session_listing_path(limit)),
+            url=_join(self._cfg.base_url, self.session_listing_path(limit, session_kind_filter=session_kind_filter)),
             label="list_session_runs failed",
             timeout_s=timeout_s,
         )

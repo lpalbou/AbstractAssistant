@@ -269,7 +269,7 @@ class StubGateway:
                     if row["run_id"] == body["run_id"] and row["waits"]:
                         row["waits"] = []
                         row["status"] = "completed"
-                        row["answer"] = f"Replied: {body['payload']['payload']['response']}"
+                        row["answer"] = f"Replied: {json.dumps(body['payload']['payload'], sort_keys=True)}"
                         att = self.summary(aid)["attention"]
                         att["pending_waits"] = 0
                         att["waits"] = []
@@ -526,6 +526,7 @@ def test_schedule_this_builds_the_exact_create_body() -> None:
         },
         "trigger": {"source_id": "schedule", "source_version": 1, "config": {"every": "8h", "start_at": "2026-09-28T08:00:00Z"}},
         "context": {"mode": "growing"},
+        "policy": {"tool_approval": "auto"},
     }
     once, errors = build_create_request(
         prompt="Remind me", when=ScheduleWhen("once", at="2026-09-28 09:30"), context="independent",
@@ -546,6 +547,7 @@ def test_notifications_fire_once_per_item_and_never_for_quiet_ticks(tmp_path) ->
         ("notify", "2 urgent emails"),
         ("failure", "Inbox triage failed after 3 attempts"),
         ("wait", "Inbox triage is waiting for you"),
+        ("wait", "Inbox triage needs your approval"),
     ]
     ledger.add(n.key for n in first)
     assert new_attention_notices(summaries, pages, ledger) == []
@@ -606,7 +608,7 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     assert rows[1].cadence_label.text() == "every 30 minutes (UTC) · Active · growing"
     assert rows[2].next_label.text() == "paused"
     assert "Waiting for you" in rows[1].excerpt_label.text()
-    assert switcher._automation_label.text() == "AUTOMATIONS · 3 NEW"
+    assert switcher._automation_label.text() == "AUTOMATIONS · 4 NEW"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
     about = switcher._rows[0].about_button
@@ -672,8 +674,10 @@ def palette(stub, tmp_path, monkeypatch):
         def current_workflow(self):
             return WorkflowSelection(bundle_id="abstractassistant.agent", flow_id="main", bundle_version="0.0.3", label="Assistant")
 
-        def answer_wait(self, *, run_id, wait_key, response):
-            return gateway.submit_wait_response(run_id=run_id, wait_key=wait_key, payload={"response": response})
+        def answer_wait(self, *, run_id, wait_key, kind, answer):
+            from abstractassistant.gateway.client import wait_answer_payload
+
+            return gateway.submit_wait_response(run_id=run_id, wait_key=wait_key, payload=wait_answer_payload(kind, answer))
 
         def open_gateway_session(self, session_id, *, run_id):
             self.opened.append({"session_id": session_id, "run_id": run_id})
@@ -699,10 +703,15 @@ def palette(stub, tmp_path, monkeypatch):
 def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(palette, stub) -> None:
     window, _controller = palette
     window._poll_automations()
-    assert [t for t, _ in window._notified] == ["2 urgent emails", "Inbox triage failed after 3 attempts", "Inbox triage is waiting for you"]
+    assert [t for t, _ in window._notified] == [
+        "2 urgent emails",
+        "Inbox triage failed after 3 attempts",
+        "Inbox triage is waiting for you",
+        "Inbox triage needs your approval",
+    ]
     window._poll_automations()
-    assert len(window._notified) == 3, "a second poll must not notify again"
-    assert window._automations.unread == 3  # 2 unseen + 1 wait
+    assert len(window._notified) == 4, "a second poll must not notify again"
+    assert window._automations.unread == 4  # 2 unseen + 2 waits
     assert window._automations_menu_action is None or "new" in window._automations_menu_action.text()
 
     window._open_automation(TRIAGE)
@@ -844,6 +853,7 @@ def test_schedule_this_conversation_prefills_and_creates(palette, stub) -> None:
         "target": {"bundle_ref": "abstractassistant.agent@0.0.3", "flow_id": "main", "input_data": {"prompt": "Summarise today's AI news in five bullets."}},
         "trigger": {"source_id": "schedule", "source_version": 1, "config": {"every": "8h"}},
         "context": {"mode": "growing"},
+        "policy": {"tool_approval": "auto"},
     }
     created = stub.summaries[-1]["automation_id"]
     assert window._automation_view_id == created and window.automation_view.isVisibleTo(window)
@@ -898,9 +908,9 @@ def test_scenario_email_triage_wait_answered_from_the_palette(palette, stub) -> 
     assert sent["payload"] == {"wait_key": "ask_user:reply-landlord", "payload": {"response": "Reply: Tuesday works"}}
     # The occurrence completed; the view reloaded it.
     done = next(p for p in window.automation_view.pairs if p.index == 7)
-    assert done.answer.property("tone") != "waiting" and "Replied: Reply: Tuesday works" in done.answer_text.text()
-    # Quiet ticks of the triage never notified: only the notify, the failure and the wait did.
-    assert len(window._notified) == 3
+    assert done.answer.property("tone") != "waiting" and 'Replied: {"response": "Reply: Tuesday works"}' in done.answer_text.text()
+    # Quiet ticks of the triage never notified: only the notify, the failure and the two waits did.
+    assert len(window._notified) == 4
 
 
 @pytest.mark.basic
@@ -973,3 +983,102 @@ def test_a_poll_never_wipes_an_answer_being_typed(palette, stub) -> None:
     assert window.automation_view.summary["next_fire_at"] == "2026-09-27T07:30:00Z"
     still = next(p for p in window.automation_view.pairs if p.index == 7)
     assert still is waiting and still.wait_inputs[0]["edit"].text() == "Tuesday is fine, 10:00"
+
+
+@pytest.mark.basic
+def test_the_runs_filters_are_read_from_the_capabilities() -> None:
+    from abstractassistant.gateway.capabilities import AssistantCapabilities
+
+    advertised = AssistantCapabilities.from_discovery_response(
+        {"capabilities": {"contracts": {"common": {"runs": {"list": {"filters": ["limit", "root_only", "session_kind"]}}}}}}
+    )
+    assert "session_kind" in advertised.runs_list_filters()
+    assert AssistantCapabilities.from_discovery_response({"capabilities": {"contracts": {"common": {}}}}).runs_list_filters() == []
+
+
+@pytest.mark.basic
+def test_a_waiting_row_without_an_excerpt_shows_the_question() -> None:
+    global _APP
+    _APP = _qt()
+    from abstractassistant.ui.automations import AutomationRow
+
+    triage = copy.deepcopy(_fixture("list.json")["items"][1])
+    triage["last_occurrence"]["excerpt"] = ""  # what the gateway sends while an occurrence waits
+    triage.pop("next_fire_at", None)
+    row = AutomationRow(triage)
+    assert row.excerpt_label.text().startswith("#7 waiting: waiting for you: The landlord asks")
+    assert row.next_label.text() == "waiting"
+    row.deleteLater()
+
+
+
+@pytest.mark.basic
+def test_wait_answers_are_chosen_by_the_waits_kind() -> None:
+    from abstractassistant.gateway.client import wait_answer_payload
+
+    assert wait_answer_payload("ask_user", "Tuesday works") == {"response": "Tuesday works"}
+    assert wait_answer_payload("tool_approval", True) == {"approved": True}
+    assert wait_answer_payload("tool_approval", False) == {"approved": False}
+    assert wait_answer_payload("event", {"response": "go"}) == {"response": "go"}
+    for kind, answer in (("tool_approval", "yes"), ("event", "go"), ("", "x"), ("user", "x")):
+        with pytest.raises(ValueError):
+            wait_answer_payload(kind, answer)
+
+
+def _typed_wait_row(kind: str, **extra: Any) -> Dict[str, Any]:
+    row = copy.deepcopy(_fixture("occurrences.json")["items"][0])  # occurrence 7, waiting
+    row["waits"] = [dict({k: v for k, v in row["waits"][0].items() if k != "choices"}, kind=kind, **extra)] if kind else [
+        {k: v for k, v in row["waits"][0].items() if k != "kind"}
+    ]
+    return row
+
+
+@pytest.mark.basic
+def test_a_tool_approval_wait_lists_its_calls_and_answers_approved(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    pair = next(p for p in window.automation_view.pairs if p.index == 7)
+    texts = [w.text() for w in pair.answer.findChildren(type(window.automation_view.title_label))]
+    assert any("send_email" in t and "clara@example.com" in t for t in texts), texts
+    entry = next(e for e in pair.wait_inputs if e["kind"] == "tool_approval")
+    assert entry["edit"] is None, "an approval is Approve / Deny, never free text"
+    entry["approve"].click()
+    sent = stub.calls("POST", "/api/gateway/commands")[-1]["body"]
+    assert sent["run_id"] == "35935671-bfc8-54ff-9b5b-d22f925adc45"
+    assert sent["payload"] == {"wait_key": "tool_approval:call_7f3a", "payload": {"approved": True}}
+
+
+@pytest.mark.basic
+def test_an_event_wait_answers_with_an_object_and_a_kindless_wait_cannot_be_answered(palette, stub) -> None:
+    window, _controller = palette
+    stub.occurrences[TRIAGE] = [_typed_wait_row("event")]
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    entry = window.automation_view.pairs[0].wait_inputs[0]
+    entry["edit"].setText("go ahead")
+    entry["send"].click()
+    assert stub.calls("POST", "/api/gateway/commands")[-1]["body"]["payload"]["payload"] == {"response": "go ahead"}
+
+    # The canonical fixtures predate D1 (no `kind`): nothing is guessed.
+    stub.occurrences[TRIAGE] = [_typed_wait_row("")]
+    before = len(stub.calls("POST", "/api/gateway/commands"))
+    window._open_automation(TRIAGE)
+    pair = window.automation_view.pairs[0]
+    entry = pair.wait_inputs[0]
+    assert entry["edit"] is None and entry["choices"] == [] and "approve" not in entry
+    texts = [w.text() for w in pair.answer.findChildren(type(window.automation_view.title_label))]
+    assert any("did not say what answer it expects" in t for t in texts)
+    assert len(stub.calls("POST", "/api/gateway/commands")) == before
+
+
+@pytest.mark.basic
+def test_schedule_sheet_states_the_tool_consent_and_can_ask_each_time(palette, stub) -> None:
+    window, _controller = palette
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    assert sheet.tools_auto.isChecked()
+    assert sheet.tools_auto.text() == "Tools run without asking (you approve them now by creating this automation)"
+    sheet.tools_ask.setChecked(True)
+    sheet.submit_button.click()
+    assert stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]["policy"] == {"tool_approval": "ask"}

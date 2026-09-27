@@ -25,7 +25,7 @@ from ..gateway import (
     GatewayEventAdapter,
     build_run_input_data,
 )
-from ..gateway.client import wait_response_command
+from ..gateway.client import wait_answer_payload, wait_response_command
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.live_deltas import ASSISTANT_DELTA
@@ -175,7 +175,7 @@ class GatewayWorker(QThread):
         pending = self._pending_tool_approval_wait or {}
         if str(pending.get("run_id") or "") == rid and str(pending.get("wait_key") or "") == key:
             self._pending_tool_approval_wait = None
-        payload: Dict[str, Any] = {"approved": bool(approved)}
+        payload: Dict[str, Any] = wait_answer_payload("tool_approval", bool(approved))
         if not approved:
             payload["reason"] = "Denied by user"
         self.submit_wait_response(run_id=rid, wait_key=key, payload=payload)
@@ -210,7 +210,7 @@ class GatewayWorker(QThread):
         self.submit_wait_response(
             run_id=rid,
             wait_key=key,
-            payload={"response": str(response or "")},
+            payload=wait_answer_payload("ask_user", str(response or "")),
         )
 
     def _upload_attachments(self, *, session_id: str) -> List[Dict[str, Any]]:

@@ -17,6 +17,7 @@ from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
 from abstractassistant.gateway.automations import AutomationsClient
+from abstractassistant.gateway.client import wait_answer_payload
 from abstractassistant.gateway.run_input import MEDIA_OVERRIDE_INPUT_KEYS
 from abstractassistant.gateway.tool_usage import (
     extract_sub_run_ids_from_record,
@@ -1059,12 +1060,13 @@ class AssistantController:
                     return text
         return ""
 
-    def answer_wait(self, *, run_id: str, wait_key: str, response: str) -> Dict[str, Any]:
-        """Answer a pending human wait of a run this client did not start (an
+    def answer_wait(self, *, run_id: str, wait_key: str, kind: str, answer: Any) -> Dict[str, Any]:
+        """Answer a pending wait of a run this client did not start (an
         automation occurrence): the same ``resume`` command the live worker
-        sends for an ask-user answer. Blocking: call it off the GUI thread."""
+        sends, with the payload the wait's ``kind`` accepts
+        (``wait_answer_payload``). Blocking: call it off the GUI thread."""
         return self.gateway.submit_wait_response(
-            run_id=run_id, wait_key=wait_key, payload={"response": str(response or "")}
+            run_id=run_id, wait_key=wait_key, payload=wait_answer_payload(kind, answer)
         )
 
     def open_gateway_session(self, session_id: str, *, run_id: str) -> None:

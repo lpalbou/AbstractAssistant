@@ -393,11 +393,12 @@ def new_attention_notices(
             key = f"wait:{run_id}:{wait_key}"
             if key in ledger:
                 continue
+            asks_approval = wait.get("kind") == "tool_approval"
             out.append(
                 AttentionNotice(
                     key=key,
                     automation_id=aid,
-                    title=f"{title} is waiting for you",
+                    title=f"{title} needs your approval" if asks_approval else f"{title} is waiting for you",
                     body=str(wait.get("prompt") or "An occurrence is waiting for your answer."),
                     kind="wait",
                 )
@@ -517,8 +518,12 @@ def build_create_request(
     title: str = "",
     start_at: str = "",
     count: Optional[int] = None,
+    tool_approval: str = "auto",
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
-    """The ``POST /api/gateway/automations`` body, or the reasons it cannot be built."""
+    """The ``POST /api/gateway/automations`` body, or the reasons it cannot be built.
+
+    ``tool_approval`` (decision D1): ``"auto"`` — creating the automation is
+    the consent, its runs use their tools without asking — or ``"ask"``."""
     errors: List[str] = []
     if not target:
         errors.append("This conversation has no workflow to schedule.")
@@ -530,6 +535,8 @@ def build_create_request(
         errors.append("Title is at most 120 characters.")
     if context not in {"independent", "growing"}:
         errors.append("Context must be Independent or Growing.")
+    if tool_approval not in {"auto", "ask"}:
+        errors.append("Tool approval must be automatic or ask each time.")
     config, when_errors = schedule_config(when, start_at=start_at, count=count)
     errors.extend(when_errors)
     if errors or not target:
@@ -543,6 +550,7 @@ def build_create_request(
             "target": full_target,
             "trigger": {"source_id": "schedule", "source_version": 1, "config": config},
             "context": {"mode": context},
+            "policy": {"tool_approval": tool_approval},
         },
         [],
     )
