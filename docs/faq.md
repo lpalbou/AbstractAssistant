@@ -89,9 +89,9 @@ whichever client started it: the Assistant on any device, AbstractCode, Abstract
 its topic, last activity and what it holds (turns, state, and once opened here, tool calls,
 tokens, running time, and the workspace folder the gateway reports, which opens in Finder when it
 is on this Mac), grouped
-by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The pencil renames a session on this device;
-the bin removes it from this list after an in-row confirmation and moves its local copy to
-`~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.
+by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The
+pencil renames a session on this device. There is no delete: a session exists as long as the
+gateway lists it, and the gateway has no session delete.
 
 ## Can the assistant do something on a schedule?
 
@@ -129,10 +129,9 @@ sandboxed, so approve them accordingly.
 
 ## I upgraded and some old chats are gone from the list
 
-The session list comes from the gateway. When you upgrade from 0.6.1 or earlier, chats that
-existed only on this Mac (for example after the gateway was reset) are removed from the list once;
-the switcher says how many, and their text is kept under `~/.abstractassistant/sessions-legacy/`.
-See [architecture.md](architecture.md#sessions).
+The session list comes from the gateway only: a chat that existed only on this Mac (for example
+after the gateway was reset) is not a gateway session, so it is not listed. See
+[architecture.md](architecture.md#sessions).
 
 ## Where are downloads stored?
 

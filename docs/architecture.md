@@ -110,32 +110,25 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
   the cache with it. Attachments come back from the turn's artifact references.
 - **New sessions.** The app mints the id; the session is listed while it is the active one and
   becomes a gateway session with its first run.
-- **Remove from list.** The gateway has no session delete; removing a row hides it on this device
-  and moves its cached transcript to `sessions-legacy/` (for a session that exists only on this
-  Mac it is the only copy). Its runs stay on the gateway.
+- **No local sessions, no removal.** A session exists if and only if the gateway lists it. The
+  gateway has no session delete, so the switcher has none either; nothing is hidden or kept aside
+  on this device.
 - **Offline.** The switcher shows the cached rows under a "Cached — gateway unreachable" line
   and cached transcripts stay readable; nothing is deleted, and the next successful fetch
   reconciles.
 
 The cache under `~/.abstractassistant/`:
 
-- `session_cache.json` — active session, local labels, fetched titles, last-seen stamps, removed
-  sessions and the last list the gateway returned
+- `session_cache.json` — active session, local labels, fetched titles, last-seen stamps, the
+  remembered switcher tab and the last list the gateway returned
 - `sessions/<session_id>/session.json` — the cached transcript, last run id and granted workspace
-  root of a session. An unreadable file is moved to `sessions-legacy/` and rebuilt from the
-  gateway; until that succeeds a `session.unreadable.json` marker in the session folder keeps the
+  root of a session. An unreadable file is discarded and rebuilt from the gateway; until that
+  succeeds a `session.unreadable.json` marker in the session folder keeps the
   problem on record, and the palette says so on every start.
 
-Deleting the cache loses only local labels and removals. The chat switcher's metrics (tool calls,
+Deleting the cache loses only local labels. The chat switcher's metrics (tool calls,
 tokens, running time) are computed from the cached transcripts and appear once a session has been
 opened on this device.
-
-**Upgrading from 0.6.1 or earlier.** The local index of those versions (`sessions.json`, `session.json`) is converted on
-first launch and kept in `sessions-legacy/`; the new cache is written before the old index is
-moved, and an interrupted conversion resumes on the next start. On the first complete list from the gateway, local
-sessions the gateway does not know are removed from the list; their folders move to
-`sessions-legacy/` and the switcher says so once. Renames of the sessions that remain are kept as
-local labels.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.

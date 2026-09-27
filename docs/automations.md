@@ -31,22 +31,24 @@ Click the chat name in the palette header. On a gateway that offers automations,
 two tabs, **Sessions | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
 remembered). The **Automations** tab lists every automation, whichever app created it (the
 Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
-archived** in the tab's header. Each row shows:
+archived** in the tab's header, and **+ New automation** creates one (below). Each row shows:
 
-- the title, and a badge when something needs you: `2 NEW` (unseen results or failures) and
-  `WAITING` (a run waits for your answer);
-- the cadence, its status and its context mode, for example
-  `every 8 hours (UTC) · Active · independent` or `every 7 days (UTC) · 12 runs max · Paused · growing`;
-- when it runs next (`next in 3 h`, `next in 12 min`, `next: now`, `paused`, `running`);
-- the last run's number, status and the first line of its result (`#12 completed: …`), or
-  `waiting for you: <question>`.
+- the title and a coloured status pill: **active** (green), **paused** (amber), **running** (blue),
+  **waiting for you** (highlighted), **failed** (red), archived or completed (grey); `2 new` when
+  unseen results or failures wait for you;
+- the cadence, the context mode and the last and next runs as times, for example
+  `every 5 minutes (UTC) · growing · last 3 min ago · next in 2 min` (`1 h 06 min` style beyond an
+  hour; `next —` when paused or not scheduled); the times follow each refresh;
+- the last result on one line (`#12 completed: …`, or `waiting for you: <question>`), red when the
+  run failed.
 
-Under it, controls chosen by the automation's state: **Open**, **Last** (opens it scrolled to its
-latest run), **Pause** or **Resume**, **Run now** (also while paused), **Stop** (only while a run is
-in progress), **Edit schedule…** (opens the automation with its edit form), **Archive** (asks for
-confirmation in the row) and the automation's folder. A control that does not apply is disabled
-with the reason in its tooltip; the rules are the same as in the automation view. Enter opens the
-selected automation.
+Under it, a toolbar of icons (each named in its tooltip) chosen by the automation's state:
+**Open**, **Last run** (opens it scrolled to its latest run), **Pause** or **Resume**, **Run now**
+(also while paused), **Stop the current run** (only while a run is in progress), **Modify** (opens
+the automation with its edit form), **Archive** (asks for confirmation in the row) and the
+automation's **folder** — it opens in the file manager when the gateway reports it and it is on
+this Mac. A control that does not apply is dimmed, with the reason in its tooltip; the rules are the
+same as in the automation view. Enter opens the selected automation.
 
 The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
@@ -65,11 +67,18 @@ the `session_kind` filter on `/runs`, the Assistant asks it for chats and discus
 automation runs never crowd your chats out of the listing. How the session list works as a whole
 is described in [architecture.md](architecture.md#sessions).
 
-## Schedule this conversation
+## Schedule this conversation (or a new automation)
 
-The clock button in the palette header (shown once the gateway has confirmed it offers automations)
-opens **Schedule this conversation…**, a window beside the
-palette:
+Two ways in, one window:
+
+- the clock button in the palette header (shown once the gateway has confirmed it offers
+  automations) opens **Schedule this conversation…**, prefilled with the conversation's last
+  question;
+- **+ New automation** in the switcher's Automations tab opens the same window empty (default
+  schedule, the workflow Settings selects); after creation the tab lists the new automation,
+  selected.
+
+The window, beside the palette:
 
 - **What**: the conversation's workflow (the one Settings → Models → Workflow selects, shown as
   "Workflow: …") and a task prefilled with the conversation's last question, which you can edit.

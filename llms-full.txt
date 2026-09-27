@@ -466,10 +466,8 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   its latest question, when it was last active, its turns and state, and once opened on this Mac
   its tool calls, tokens, running time and workspace folder. A chat whose tools failed or whose
   last question was never answered is flagged. Type to filter by topic, folder or tool name; ↑↓
-  move, Return opens, Esc closes. The pencil renames a chat on this device and the bin removes it
-  from the list after an in-row confirmation (its runs stay on the gateway, its local copy moves
-  to `~/.abstractassistant/sessions-legacy/`); ⌘⌫ asks the same for the selected row. How
-  sessions work: [architecture.md](architecture.md#sessions).
+  move, Return opens, Esc closes. The pencil renames a chat on this device; there is no delete
+  (the gateway has none). How sessions work: [architecture.md](architecture.md#sessions).
 - **Automations**: on a gateway that offers them, the switcher also lists your automations above
   the chats, and the clock button schedules the current conversation to run on a fixed UTC
   interval. See [automations.md](automations.md).
@@ -827,22 +825,24 @@ Click the chat name in the palette header. On a gateway that offers automations,
 two tabs, **Sessions | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
 remembered). The **Automations** tab lists every automation, whichever app created it (the
 Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
-archived** in the tab's header. Each row shows:
+archived** in the tab's header, and **+ New automation** creates one (below). Each row shows:
 
-- the title, and a badge when something needs you: `2 NEW` (unseen results or failures) and
-  `WAITING` (a run waits for your answer);
-- the cadence, its status and its context mode, for example
-  `every 8 hours (UTC) · Active · independent` or `every 7 days (UTC) · 12 runs max · Paused · growing`;
-- when it runs next (`next in 3 h`, `next in 12 min`, `next: now`, `paused`, `running`);
-- the last run's number, status and the first line of its result (`#12 completed: …`), or
-  `waiting for you: <question>`.
+- the title and a coloured status pill: **active** (green), **paused** (amber), **running** (blue),
+  **waiting for you** (highlighted), **failed** (red), archived or completed (grey); `2 new` when
+  unseen results or failures wait for you;
+- the cadence, the context mode and the last and next runs as times, for example
+  `every 5 minutes (UTC) · growing · last 3 min ago · next in 2 min` (`1 h 06 min` style beyond an
+  hour; `next —` when paused or not scheduled); the times follow each refresh;
+- the last result on one line (`#12 completed: …`, or `waiting for you: <question>`), red when the
+  run failed.
 
-Under it, controls chosen by the automation's state: **Open**, **Last** (opens it scrolled to its
-latest run), **Pause** or **Resume**, **Run now** (also while paused), **Stop** (only while a run is
-in progress), **Edit schedule…** (opens the automation with its edit form), **Archive** (asks for
-confirmation in the row) and the automation's folder. A control that does not apply is disabled
-with the reason in its tooltip; the rules are the same as in the automation view. Enter opens the
-selected automation.
+Under it, a toolbar of icons (each named in its tooltip) chosen by the automation's state:
+**Open**, **Last run** (opens it scrolled to its latest run), **Pause** or **Resume**, **Run now**
+(also while paused), **Stop the current run** (only while a run is in progress), **Modify** (opens
+the automation with its edit form), **Archive** (asks for confirmation in the row) and the
+automation's **folder** — it opens in the file manager when the gateway reports it and it is on
+this Mac. A control that does not apply is dimmed, with the reason in its tooltip; the rules are the
+same as in the automation view. Enter opens the selected automation.
 
 The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
@@ -861,11 +861,18 @@ the `session_kind` filter on `/runs`, the Assistant asks it for chats and discus
 automation runs never crowd your chats out of the listing. How the session list works as a whole
 is described in [architecture.md](architecture.md#sessions).
 
-## Schedule this conversation
+## Schedule this conversation (or a new automation)
 
-The clock button in the palette header (shown once the gateway has confirmed it offers automations)
-opens **Schedule this conversation…**, a window beside the
-palette:
+Two ways in, one window:
+
+- the clock button in the palette header (shown once the gateway has confirmed it offers
+  automations) opens **Schedule this conversation…**, prefilled with the conversation's last
+  question;
+- **+ New automation** in the switcher's Automations tab opens the same window empty (default
+  schedule, the workflow Settings selects); after creation the tab lists the new automation,
+  selected.
+
+The window, beside the palette:
 
 - **What**: the conversation's workflow (the one Settings → Models → Workflow selects, shown as
   "Workflow: …") and a task prefilled with the conversation's last question, which you can edit.
@@ -1152,7 +1159,6 @@ All under `~/.abstractassistant/`:
 - `session_cache.json`, `sessions/<id>/session.json` — the rebuildable session cache: active
   session, local labels, fetched titles, the last gateway list, cached transcripts, last run id,
   granted workspace root ([architecture.md](architecture.md#sessions))
-- `sessions-legacy/` — files kept from the 0.6.1-and-earlier local session index and unreadable cache files
 - `automations_notified.json` — which automation results, failures and waits were already
   shown as a tray notification, so a relaunch does not repeat them
   ([automations.md](automations.md#notifications-and-the-two-polls)). Deleting it can repeat
@@ -1359,32 +1365,25 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
   the cache with it. Attachments come back from the turn's artifact references.
 - **New sessions.** The app mints the id; the session is listed while it is the active one and
   becomes a gateway session with its first run.
-- **Remove from list.** The gateway has no session delete; removing a row hides it on this device
-  and moves its cached transcript to `sessions-legacy/` (for a session that exists only on this
-  Mac it is the only copy). Its runs stay on the gateway.
+- **No local sessions, no removal.** A session exists if and only if the gateway lists it. The
+  gateway has no session delete, so the switcher has none either; nothing is hidden or kept aside
+  on this device.
 - **Offline.** The switcher shows the cached rows under a "Cached — gateway unreachable" line
   and cached transcripts stay readable; nothing is deleted, and the next successful fetch
   reconciles.
 
 The cache under `~/.abstractassistant/`:
 
-- `session_cache.json` — active session, local labels, fetched titles, last-seen stamps, removed
-  sessions and the last list the gateway returned
+- `session_cache.json` — active session, local labels, fetched titles, last-seen stamps, the
+  remembered switcher tab and the last list the gateway returned
 - `sessions/<session_id>/session.json` — the cached transcript, last run id and granted workspace
-  root of a session. An unreadable file is moved to `sessions-legacy/` and rebuilt from the
-  gateway; until that succeeds a `session.unreadable.json` marker in the session folder keeps the
+  root of a session. An unreadable file is discarded and rebuilt from the gateway; until that
+  succeeds a `session.unreadable.json` marker in the session folder keeps the
   problem on record, and the palette says so on every start.
 
-Deleting the cache loses only local labels and removals. The chat switcher's metrics (tool calls,
+Deleting the cache loses only local labels. The chat switcher's metrics (tool calls,
 tokens, running time) are computed from the cached transcripts and appear once a session has been
 opened on this device.
-
-**Upgrading from 0.6.1 or earlier.** The local index of those versions (`sessions.json`, `session.json`) is converted on
-first launch and kept in `sessions-legacy/`; the new cache is written before the old index is
-moved, and an interrupted conversion resumes on the next start. On the first complete list from the gateway, local
-sessions the gateway does not know are removed from the list; their folders move to
-`sessions-legacy/` and the switcher says so once. Renames of the sessions that remain are kept as
-local labels.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.
@@ -1707,9 +1706,9 @@ whichever client started it: the Assistant on any device, AbstractCode, Abstract
 its topic, last activity and what it holds (turns, state, and once opened here, tool calls,
 tokens, running time, and the workspace folder the gateway reports, which opens in Finder when it
 is on this Mac), grouped
-by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The pencil renames a session on this device;
-the bin removes it from this list after an in-row confirmation and moves its local copy to
-`~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.
+by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The
+pencil renames a session on this device. There is no delete: a session exists as long as the
+gateway lists it, and the gateway has no session delete.
 
 ## Can the assistant do something on a schedule?
 
@@ -1747,10 +1746,9 @@ sandboxed, so approve them accordingly.
 
 ## I upgraded and some old chats are gone from the list
 
-The session list comes from the gateway. When you upgrade from 0.6.1 or earlier, chats that
-existed only on this Mac (for example after the gateway was reset) are removed from the list once;
-the switcher says how many, and their text is kept under `~/.abstractassistant/sessions-legacy/`.
-See [architecture.md](architecture.md#sessions).
+The session list comes from the gateway only: a chat that existed only on this Mac (for example
+after the gateway was reset) is not a gateway session, so it is not listed. See
+[architecture.md](architecture.md#sessions).
 
 ## Where are downloads stored?
 
@@ -2331,6 +2329,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## Unreleased
 
 ### Added
+- **+ New automation** in the switcher's Automations tab: the Schedule window, empty, for a task
+  that is not the current conversation; the new automation is selected in the tab after creation.
 - **Automations.** On a gateway that advertises automations in its capabilities, the session
   switcher has an **Automations** tab: one row per automation with its cadence ("every 8 hours
   (UTC)"), status, context mode, next run, last result, and a `NEW` / `WAITING` badge when
@@ -2385,10 +2385,19 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - The session switcher lists every session on the gateway, whichever client started it (no "All
   gateway sessions" toggle), 100 at a time with **Load more sessions**; it has two tabs,
   **Sessions | Automations** (⌘1 / ⌘2, the last one remembered), with inline controls for each
-  automation (Open, Last, Pause or Resume, Run now, Stop while running, Edit schedule…, Archive;
+  automation (Open, Last, Pause or Resume, Run now, Stop while running, Modify, Archive;
   archived automations behind **Show archived**) and clickable workspace folders that open in the
   file manager when the folder is on this Mac. The folder is the one the gateway reports for the
   session or automation; until the gateway reports it, the control is disabled and says so.
+- **Sessions exist only on the gateway.** The switcher no longer offers to remove a session (the
+  gateway has no session delete), and there is no `sessions-legacy/` folder, no local-only session
+  and no one-time cleanup of old local sessions any more: a session is listed if and only if the
+  gateway lists it. An unreadable cached transcript is discarded and rebuilt from the gateway.
+- **Automations tab rows are easier to read**: a coloured status pill (active, paused, running,
+  waiting for you, failed), "last 3 min ago · next in 2 min" (`1 h 06 min` beyond an hour, `next —`
+  when paused), the last result on one line (red when it failed) and a right-aligned toolbar of
+  icons with tooltips: Open, Last run, Pause or Resume, Run now, Stop (while running), Modify,
+  Archive and the folder. Session rows show the folder as an icon too.
 
 ## [0.7.0] - 2026-09-27
 
@@ -5396,8 +5405,6 @@ class AssistantController:
     def session_list_state(self) -> Dict[str, Any]:
         return dict(self.llm_manager.session_list_state() or {})
 
-    def take_session_notice(self) -> str:
-        return str(self.llm_manager.take_session_notice() or "")
 
     def sync_session_from_gateway(self) -> Dict[str, Any]:
         """Replace the active session's cached transcript with the gateway's
@@ -5407,8 +5414,6 @@ class AssistantController:
     def session_problem(self) -> str:
         return str(self.llm_manager.session_problem() or "")
 
-    def session_notice(self) -> str:
-        return str(self.llm_manager.session_notice() or "")
 
     def load_more_sessions(self) -> Dict[str, Any]:
         """One more page of sessions (blocking: off the GUI thread)."""
@@ -5420,15 +5425,9 @@ class AssistantController:
     def set_switcher_tab(self, tab: str) -> None:
         self.llm_manager.set_switcher_tab(tab)
 
-    def session_legacy_dir(self) -> str:
-        return str(self.llm_manager.session_legacy_dir())
 
     def rename_session(self, session_id: str, title: str) -> None:
         self.llm_manager.rename_session(session_id, title)
-
-    def delete_session(self, session_id: str) -> str:
-        """Delete a chat and its transcript; returns the new active session id."""
-        return str(self.llm_manager.delete_session(session_id) or "")
 
     def create_session(self) -> str:
         return self.llm_manager.create_new_session()
@@ -6522,7 +6521,7 @@ import socket
 import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 import urllib.error
 import urllib.request
 import urllib.response
@@ -8652,6 +8651,56 @@ class GatewayClient:
             body_text = _read_error(e, label="download_run_artifact_content failed")
             raise GatewayHttpError(
                 f"download_run_artifact_content failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+
+    def get_run_workspace(self, *, run_id: str, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        """``GET /runs/{id}/workspace``: the run's folder on the gateway host
+        (``workspace_root``), whether it ``exists`` and whether this caller sits
+        on that host (``host.caller_is_this_machine``)."""
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("get_run_workspace: run_id is required")
+        return self._request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/runs/{quote(rid, safe='')}/workspace"),
+            label="get_run_workspace failed",
+            timeout_s=timeout_s,
+        )
+
+    def download_run_workspace_file(
+        self,
+        *,
+        run_id: str,
+        path: str,
+        max_bytes: int = 25_000_000,
+        timeout_s: Optional[float] = None,
+    ) -> Tuple[bytes, str]:
+        """``GET /runs/{id}/workspace/content?path=``: one file of the run's
+        workspace (``path`` relative to it), for a client on another machine."""
+        rid = str(run_id or "").strip()
+        rel = str(path or "").strip()
+        if not rid:
+            raise ValueError("download_run_workspace_file: run_id is required")
+        if not rel:
+            raise ValueError("download_run_workspace_file: path is required")
+        url = self._url(f"/api/gateway/runs/{quote(rid, safe='')}/workspace/content", query={"path": rel})
+        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                limit = int(max_bytes)
+                raw = resp.read(limit + 1 if limit > 0 else -1) or b""
+                if limit > 0 and len(raw) > limit:
+                    raise RuntimeError(f"Workspace file too large (over {limit} bytes)")
+                content_type = str(resp.headers.get("content-type") or "").strip() or "application/octet-stream"
+                return raw, content_type
+        except urllib.error.HTTPError as e:
+            body_text = _read_error(e, label="download_run_workspace_file failed")
+            raise GatewayHttpError(
+                f"download_run_workspace_file failed: {body_text}",
                 status=int(getattr(e, "code", 0) or 0),
                 retry_after_s=_retry_after_s(dict(e.headers)),
                 body_text=body_text,
@@ -13578,32 +13627,26 @@ def prompt_from_input_data(payload: Any) -> str:
 --- abstractassistant/core/session_cache.py ---
 """The Assistant's local session cache — rebuildable, never a source of truth.
 
-Which sessions exist, their turns and their transcripts belong to the gateway
-(see ``gateway_sessions``). What lives here is only what makes the app fast and
-usable offline, keyed by the gateway ``session_id``:
+A session exists if and only if the gateway lists it (see ``gateway_sessions``);
+there is no local-only session, no local removal and no local archive. What
+lives here is only what makes the app fast and usable offline, keyed by the
+gateway ``session_id``:
 
 - ``<data_dir>/session_cache.json`` — the active session id, the user's local
-  labels (renames), the opening prompts already fetched, last-seen stamps,
-  sessions the user removed from this list, and the last session rows the
-  gateway returned (shown, marked as cached, while it cannot be reached);
+  labels (renames), the opening prompts already fetched, last-seen stamps, the
+  remembered switcher tab, and the last session rows the gateway returned
+  (shown, marked as cached, while it cannot be reached);
 - ``<data_dir>/sessions/<session_id>/session.json`` — a cached transcript,
   painted instantly and REPLACED by the gateway's history when the session is
   opened.
 
-Deleting all of it loses nothing but labels and removals: the next refresh
-lists the same sessions from the gateway and opening one rebuilds its
-transcript.
+Deleting all of it loses nothing but labels: the next refresh lists the same
+sessions from the gateway and opening one rebuilds its transcript. An
+unreadable cache file is discarded and rebuilt, never kept aside.
 
-A new session still mints its id here (the gateway accepts any id and learns it
-with the first run); until that run exists it is listed only while it is the
-active session.
-
-Migration from the local-first index of 0.6.1 and earlier
-(``sessions.json`` + ``session.json`` in the data dir) happens in two steps:
-at construction the old files are converted to this layout and the old index is
-moved to ``sessions-legacy/``; on the first COMPLETE listing from the gateway,
-every old session the gateway does not know is dropped from the list and its
-folder moved to ``sessions-legacy/`` — never deleted — with one notice.
+A new session mints its id here (the gateway accepts any id and learns it with
+the first run); until that run exists it is shown only while it is the active
+session — it becomes a gateway session with its first turn.
 """
 
 from __future__ import annotations
@@ -13611,7 +13654,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -13625,16 +13667,12 @@ __all__ = [
     "SessionCache",
     "safe_title",
     "CACHE_FILE",
-    "LEGACY_INDEX_FILE",
-    "LEGACY_DIR",
     "SESSION_ID_PREFIX",
     "SWITCHER_TABS",
     "UNREADABLE_MARKER",
 ]
 
 CACHE_FILE = "session_cache.json"
-LEGACY_INDEX_FILE = "sessions.json"
-LEGACY_DIR = "sessions-legacy"
 # Written next to a cached transcript that could not be read, until the
 # gateway has rebuilt it — so the problem is still said after a restart.
 UNREADABLE_MARKER = "session.unreadable.json"
@@ -13669,10 +13707,6 @@ def safe_title(title: str) -> str:
     return t[: _TITLE_MAX - 1].rstrip() + "…"
 
 
-def _placeholder(title: str) -> bool:
-    return str(title or "").strip().lower() in {"", "new session", "new chat"}
-
-
 class SessionCache:
     """Local cache state for the session list (thread-safe)."""
 
@@ -13685,15 +13719,10 @@ class SessionCache:
         self._labels: Dict[str, str] = {}
         self._prompts: Dict[str, str] = {}
         self._last_seen: Dict[str, str] = {}
-        self._hidden: List[str] = []
         self._rows: List[GatewaySession] = []
         self._fetched_at = ""
         self._truncated = False
-        self._notice = ""
         self._switcher_tab = SWITCHER_TABS[0]
-        # Sessions converted from the 0.6.1-and-earlier local index that the gateway has
-        # not yet confirmed: {session_id: {"created_at", "updated_at"}}.
-        self._legacy_pending: Dict[str, Dict[str, str]] = {}
         self._load()
 
     # ------------------------------------------------------------ properties
@@ -13705,10 +13734,6 @@ class SessionCache:
     @property
     def path(self) -> Path:
         return self._path
-
-    @property
-    def legacy_dir(self) -> Path:
-        return self._base_dir / LEGACY_DIR
 
     @property
     def active_session_id(self) -> str:
@@ -13788,52 +13813,6 @@ class SessionCache:
         with self._lock:
             return self._last_seen.get(str(session_id or "").strip(), "")
 
-    def is_hidden(self, session_id: str) -> bool:
-        with self._lock:
-            return str(session_id or "").strip() in self._hidden
-
-    def remove_from_list(self, session_id: str) -> str:
-        """Hide a session from this list; its local text is KEPT.
-
-        The gateway has no route to delete a session, so its runs stay there;
-        hiding is a local preference, like a label. The cached folder moves to
-        ``sessions-legacy/`` rather than being deleted: for a session that
-        exists only on this machine (never run, or an old local session the
-        migration has not decided yet) it is the only copy. Returns the active
-        session id afterwards (a new session when the removed one was active).
-        """
-        sid = str(session_id or "").strip()
-        if not sid:
-            return self.active_session_id
-        with self._lock:
-            if sid not in self._hidden:
-                self._hidden.append(sid)
-            self._labels.pop(sid, None)
-            self._legacy_pending.pop(sid, None)
-            folder = self.data_dir_for(sid)
-            if folder.exists():
-                target = self.legacy_dir / folder.name
-                if target.exists():
-                    target = self.legacy_dir / f"{folder.name}-removed-{uuid.uuid4().hex[:6]}"
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(folder), str(target))
-            if self._active_session_id == sid:
-                candidates = [r.session_id for r in self._rows if r.session_id not in self._hidden]
-                if candidates:
-                    self._active_session_id = candidates[0]
-                else:
-                    self._mint_locked()
-            self._save_locked()
-            return self._active_session_id
-
-    def legacy_copy_for(self, session_id: str) -> Optional[Path]:
-        """The kept transcript of a session moved to ``sessions-legacy/``, if any."""
-        sid = str(session_id or "").strip()
-        if not sid:
-            return None
-        candidate = self.legacy_dir / self.data_dir_for(sid).name / "session.json"
-        return candidate if candidate.exists() else None
-
     # ------------------------------------------------------ unreadable marker
 
     def mark_unreadable(self, session_id: str, problem: str) -> None:
@@ -13905,68 +13884,6 @@ class SessionCache:
             self._fetched_at = _utc_now_iso()
             self._save_locked()
 
-    # ------------------------------------------------------------ migration
-
-    def legacy_pending(self) -> Dict[str, Dict[str, str]]:
-        with self._lock:
-            return {sid: dict(meta) for sid, meta in self._legacy_pending.items()}
-
-    def reconcile_legacy(self, gateway_ids: Iterable[str], *, complete: bool) -> Optional[int]:
-        """Drop 0.6.1-and-earlier local sessions the gateway does not know.
-
-        Runs once, on the first COMPLETE listing (a truncated page cannot prove
-        a session absent; the decision is then deferred). Returns how many
-        sessions were removed from the list, or None when deferred / nothing
-        was pending. Removed folders move to ``sessions-legacy/`` — the text is
-        kept. The ACTIVE session is never moved while in use: when it is
-        local-only its transcript is copied there and it stays listed only
-        while active, like any session without a gateway run.
-        """
-        with self._lock:
-            if not self._legacy_pending:
-                return None
-            if not complete:
-                return None
-            known = {str(s) for s in gateway_ids}
-            removed = 0
-            for sid in list(self._legacy_pending):
-                if sid in known:
-                    continue
-                removed += 1
-                self._labels.pop(sid, None)
-                folder = self.data_dir_for(sid)
-                target = self.legacy_dir / folder.name
-                if not folder.exists():
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if sid == self._active_session_id:
-                    if not target.exists():
-                        shutil.copytree(folder, target)
-                elif not target.exists():
-                    shutil.move(str(folder), str(target))
-            self._legacy_pending = {}
-            if removed:
-                plural = removed != 1
-                self._notice = (
-                    f"{removed} local-only session{'s' if plural else ''} from an earlier version "
-                    f"{'were' if plural else 'was'} removed from the list; their text is kept in {self.legacy_dir}"
-                )
-            self._save_locked()
-            return removed
-
-    def take_notice(self) -> str:
-        """The one-time migration notice (cleared once read)."""
-        with self._lock:
-            notice = self._notice
-            if notice:
-                self._notice = ""
-                self._save_locked()
-            return notice
-
-    def peek_notice(self) -> str:
-        with self._lock:
-            return self._notice
-
     # ------------------------------------------------------------ persistence
 
     def _load(self) -> None:
@@ -13976,130 +13893,30 @@ class SessionCache:
                 try:
                     data = json.loads(self._path.read_text(encoding="utf-8"))
                 except Exception:
-                    # A broken cache is rebuilt, never trusted — keep it aside.
-                    self._set_aside(self._path)
+                    # A broken cache is rebuilt, never trusted.
+                    self.discard(self._path)
                     data = None
             if isinstance(data, dict):
                 self._active_session_id = str(data.get("active_session_id") or "").strip()
                 self._labels = {str(k): str(v) for k, v in dict(data.get("labels") or {}).items() if str(v).strip()}
                 self._prompts = {str(k): str(v) for k, v in dict(data.get("prompts") or {}).items()}
                 self._last_seen = {str(k): str(v) for k, v in dict(data.get("last_seen") or {}).items()}
-                self._hidden = [str(s) for s in (data.get("hidden") or []) if str(s).strip()]
                 self._rows = [r for r in (GatewaySession.from_dict(x) for x in (data.get("rows") or [])) if r is not None]
                 self._fetched_at = str(data.get("fetched_at") or "")
                 self._truncated = bool(data.get("truncated"))
-                self._notice = str(data.get("notice") or "")
                 tab = str(data.get("switcher_tab") or "")
                 self._switcher_tab = tab if tab in SWITCHER_TABS else SWITCHER_TABS[0]
-                pending = data.get("legacy_pending")
-                if isinstance(pending, dict):
-                    self._legacy_pending = {
-                        str(k): {kk: str(vv) for kk, vv in dict(v or {}).items()} for k, v in pending.items()
-                    }
-            legacy_index = self._base_dir / LEGACY_INDEX_FILE
-            if legacy_index.exists():
-                # Also resumes a conversion interrupted by a crash: every step
-                # below is idempotent.
-                self._convert_legacy_index(legacy_index)
-                return
             if not self._active_session_id:
                 self._mint_locked()
             self._save_locked()
 
-    def _convert_legacy_index(self, legacy_index: Path) -> None:
-        """Step one of the migration: the 0.6.1-and-earlier files become this cache.
-
-        Local only, and crash-safe: every old session with text on disk is
-        first RECORDED — its rename as a label, the session as PENDING until
-        the gateway confirms it — and ``session_cache.json`` is written
-        (atomic rename) before any file moves. Only then is the legacy base
-        session's transcript moved into ``sessions/<id>/`` and the old index
-        set aside into ``sessions-legacy/``. A crash at any point leaves either
-        the old index in place (the next start resumes here) or a cache that
-        already references everything.
-        """
+    @staticmethod
+    def discard(path: Path) -> None:
+        """Delete an unreadable cache file: the gateway rebuilds its content."""
         try:
-            data = json.loads(legacy_index.read_text(encoding="utf-8"))
-        except Exception:
-            data = None
-        records = data.get("sessions") if isinstance(data, dict) else None
-        records = [item for item in (records if isinstance(records, list) else []) if isinstance(item, dict)]
-        base_snapshot = self._base_dir / "session.json"
-        confirmed = {row.session_id for row in self._rows}
-
-        def _source(item: Dict[str, Any]) -> Path:
-            rel = str(item.get("path") or "").strip() or "."
-            return base_snapshot if rel == "." else self._base_dir / Path(rel)
-
-        # 1. Record everything, then persist — before anything moves.
-        for item in records:
-            sid = str(item.get("session_id") or "").strip()
-            if not sid or sid in self._hidden:
-                continue
-            target = self.data_dir_for(sid)
-            if not (_source(item).exists() or (target / "session.json").exists()):
-                continue
-            title = str(item.get("title") or "")
-            if not _placeholder(title) and sid not in self._labels:
-                self._labels[sid] = safe_title(title)
-            if sid not in confirmed and sid not in self._legacy_pending:
-                self._legacy_pending[sid] = {
-                    "created_at": str(item.get("created_at") or ""),
-                    "updated_at": str(item.get("updated_at") or ""),
-                }
-        if not self._active_session_id:
-            active = str(data.get("active_session_id") or "").strip() if isinstance(data, dict) else ""
-            if active and (active in self._legacy_pending or active in confirmed):
-                self._active_session_id = active
-            elif self._legacy_pending:
-                newest = sorted(self._legacy_pending.items(), key=lambda kv: kv[1].get("updated_at", ""), reverse=True)
-                self._active_session_id = newest[0][0]
-            else:
-                self._mint_locked()
-        self._save_locked()
-
-        # 2. Move transcripts into the cache layout (skipped when already done).
-        for item in records:
-            sid = str(item.get("session_id") or "").strip()
-            if not sid or sid in self._hidden:
-                continue
-            source = _source(item)
-            target = self.data_dir_for(sid)
-            if not source.exists():
-                continue
-            if source == base_snapshot:
-                if not (target / "session.json").exists():
-                    target.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(base_snapshot), str(target / "session.json"))
-            elif source.resolve() != target.resolve() and not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(source), str(target))
-
-        # 3. The old index is kept, not deleted; so is a base snapshot no
-        # record referenced (a legacy session the user had deleted).
-        self._set_aside(legacy_index, keep_name=True)
-        if base_snapshot.exists():
-            self._set_aside(base_snapshot, keep_name=True)
-        self._save_locked()
-
-    def set_aside(self, path: Path) -> Optional[Path]:
-        """Move an unreadable cache file into ``sessions-legacy/`` (kept, never
-        overwritten). Returns where it went, or None if it could not move."""
-        with self._lock:
-            return self._set_aside(Path(path))
-
-    def _set_aside(self, path: Path, *, keep_name: bool = False) -> Optional[Path]:
-        try:
-            self.legacy_dir.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            name = path.name if keep_name else f"{path.parent.name}-{path.name}.unreadable-{stamp}"
-            target = self.legacy_dir / name
-            if target.exists():
-                target = self.legacy_dir / f"{name}.{uuid.uuid4().hex[:6]}"
-            shutil.move(str(path), str(target))
-            return target
-        except Exception:
-            return None
+            Path(path).unlink()
+        except FileNotFoundError:
+            pass
 
     def _save_locked(self) -> None:
         payload = {
@@ -14108,16 +13925,11 @@ class SessionCache:
             "labels": dict(self._labels),
             "prompts": dict(self._prompts),
             "last_seen": dict(self._last_seen),
-            "hidden": list(self._hidden),
             "rows": [r.to_dict() for r in self._rows],
             "fetched_at": self._fetched_at,
             "truncated": self._truncated,
             "switcher_tab": self._switcher_tab,
         }
-        if self._notice:
-            payload["notice"] = self._notice
-        if self._legacy_pending:
-            payload["legacy_pending"] = {k: dict(v) for k, v in self._legacy_pending.items()}
         self._base_dir.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(f"{self._path.suffix}.tmp-{uuid.uuid4().hex[:8]}")
         try:
@@ -14577,6 +14389,10 @@ __all__ = [
     "format_utc",
     "group_by_automation",
     "interval_label",
+    "last_run_text",
+    "next_run_text",
+    "relative_span",
+    "status_pill",
     "is_regular_session_kind",
     "new_attention_notices",
     "occurrence_views",
@@ -14671,6 +14487,65 @@ STATUS_LABELS = {
     "failed": "Failed",
     "archived": "Archived",
 }
+
+# ------------------------------------------------------------ relative time
+
+
+def relative_span(seconds: float) -> str:
+    """A duration for a row: "<1 min", "3 min", "1 h 06 min", "2 d 3 h"."""
+    total = max(0, int(seconds))
+    if total < 60:
+        return "<1 min"
+    minutes = total // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} h" if minutes == 0 else f"{hours} h {minutes:02d} min"
+    days, hours = divmod(hours, 24)
+    return f"{days} d" if hours == 0 else f"{days} d {hours} h"
+
+
+def last_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
+    """ "last 3 min ago" from the last occurrence's finish (else fire) time; "last —" when none."""
+    now = now or datetime.now(timezone.utc)
+    last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), Mapping) else None
+    when = _parse_ts((last or {}).get("finished_at") or (last or {}).get("fired_at")) if last else None
+    if when is None:
+        return "last —"
+    return f"last {relative_span((now - when).total_seconds())} ago"
+
+
+def next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
+    """ "next in 2 min" from the gateway's next fire time; "next —" when paused,
+    ended or not scheduled; "next: now" when due."""
+    now = now or datetime.now(timezone.utc)
+    if summary.get("status") != "active":
+        return "next —"
+    when = _parse_ts(summary.get("next_fire_at"))
+    if when is None:
+        return "next —"
+    delta = (when - now).total_seconds()
+    return "next: now" if delta < 60 else f"next in {relative_span(delta)}"
+
+
+def status_pill(summary: Mapping[str, Any]) -> Tuple[str, str]:
+    """ ``(text, tone)`` of a row's status pill. Tones: active (green), paused
+    (amber), running (blue), waiting (highlighted), failed (red), ended (grey)."""
+    status = str(summary.get("status") or "")
+    attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+    if status in {"active", "paused"} and int(attention.get("pending_waits") or 0):
+        return "waiting for you", "waiting"
+    if status in {"active", "paused"} and occurrence_in_progress(summary):
+        return "running", "running"
+    if status == "active":
+        return "active", "active"
+    if status == "paused":
+        return "paused", "paused"
+    if status == "failed":
+        return "failed", "failed"
+    return (status or "unknown"), "ended"
+
 
 # ----------------------------------------------------------------- controls
 

@@ -104,7 +104,6 @@ All under `~/.abstractassistant/`:
 - `session_cache.json`, `sessions/<id>/session.json` — the rebuildable session cache: active
   session, local labels, fetched titles, the last gateway list, cached transcripts, last run id,
   granted workspace root ([architecture.md](architecture.md#sessions))
-- `sessions-legacy/` — files kept from the 0.6.1-and-earlier local session index and unreadable cache files
 - `automations_notified.json` — which automation results, failures and waits were already
   shown as a tray notification, so a relaunch does not repeat them
   ([automations.md](automations.md#notifications-and-the-two-polls)). Deleting it can repeat

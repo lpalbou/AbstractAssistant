@@ -6,6 +6,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## Unreleased
 
 ### Added
+- **+ New automation** in the switcher's Automations tab: the Schedule window, empty, for a task
+  that is not the current conversation; the new automation is selected in the tab after creation.
 - **Automations.** On a gateway that advertises automations in its capabilities, the session
   switcher has an **Automations** tab: one row per automation with its cadence ("every 8 hours
   (UTC)"), status, context mode, next run, last result, and a `NEW` / `WAITING` badge when
@@ -60,10 +62,19 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - The session switcher lists every session on the gateway, whichever client started it (no "All
   gateway sessions" toggle), 100 at a time with **Load more sessions**; it has two tabs,
   **Sessions | Automations** (⌘1 / ⌘2, the last one remembered), with inline controls for each
-  automation (Open, Last, Pause or Resume, Run now, Stop while running, Edit schedule…, Archive;
+  automation (Open, Last, Pause or Resume, Run now, Stop while running, Modify, Archive;
   archived automations behind **Show archived**) and clickable workspace folders that open in the
   file manager when the folder is on this Mac. The folder is the one the gateway reports for the
   session or automation; until the gateway reports it, the control is disabled and says so.
+- **Sessions exist only on the gateway.** The switcher no longer offers to remove a session (the
+  gateway has no session delete), and there is no `sessions-legacy/` folder, no local-only session
+  and no one-time cleanup of old local sessions any more: a session is listed if and only if the
+  gateway lists it. An unreadable cached transcript is discarded and rebuilt from the gateway.
+- **Automations tab rows are easier to read**: a coloured status pill (active, paused, running,
+  waiting for you, failed), "last 3 min ago · next in 2 min" (`1 h 06 min` beyond an hour, `next —`
+  when paused), the last result on one line (red when it failed) and a right-aligned toolbar of
+  icons with tooltips: Open, Last run, Pause or Resume, Run now, Stop (while running), Modify,
+  Archive and the folder. Session rows show the folder as an icon too.
 
 ## [0.7.0] - 2026-09-27
 

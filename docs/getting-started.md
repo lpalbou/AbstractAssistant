@@ -79,10 +79,8 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   its latest question, when it was last active, its turns and state, and once opened on this Mac
   its tool calls, tokens, running time and workspace folder. A chat whose tools failed or whose
   last question was never answered is flagged. Type to filter by topic, folder or tool name; ↑↓
-  move, Return opens, Esc closes. The pencil renames a chat on this device and the bin removes it
-  from the list after an in-row confirmation (its runs stay on the gateway, its local copy moves
-  to `~/.abstractassistant/sessions-legacy/`); ⌘⌫ asks the same for the selected row. How
-  sessions work: [architecture.md](architecture.md#sessions).
+  move, Return opens, Esc closes. The pencil renames a chat on this device; there is no delete
+  (the gateway has none). How sessions work: [architecture.md](architecture.md#sessions).
 - **Automations**: on a gateway that offers them, the switcher also lists your automations above
   the chats, and the clock button schedules the current conversation to run on a fixed UTC
   interval. See [automations.md](automations.md).
