@@ -6,7 +6,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## Unreleased
 
 ### Added
-- **Automations.** On a gateway that offers them, the session switcher has an **Automations**
+- **Automations.** On a gateway that advertises them in its capabilities, the session switcher has an **Automations**
   section: one row per automation with its cadence ("every 8 hours (UTC)"), next run, last result
   and a badge when something needs you. Opening one shows its runs as a chat (the task and its
   answer, quiet runs dimmed, failures with their reason and attempts, runs waiting for you

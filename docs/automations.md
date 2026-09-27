@@ -5,8 +5,9 @@ An **automation** runs a task on a schedule on the gateway: "search the news abo
 it; the Assistant shows it, creates it, and answers it. Nothing runs on this Mac — an automation
 keeps running when the Assistant is closed.
 
-Automations need a gateway that offers the Automations API. On a gateway without it, none of the
-controls below appear.
+Automations need a gateway that advertises the Automations API in its capabilities
+(`contracts.common.automations.available: true`). On a gateway that does not, none of the controls
+below appear — no section, no tray entry — and the Assistant never calls the automation routes.
 
 ## Where automations appear
 
@@ -85,7 +86,9 @@ The clock button in the palette header opens **Schedule this conversation…**:
 ## Notifications
 
 The Assistant checks the automation list every 60 seconds while the palette is open, and every 5
-minutes while it is hidden. A tray notification is shown once for each:
+minutes while it is hidden — that hidden check is the only request the Assistant makes in the
+background, and it exists so notifications reach the tray while the palette is closed. A tray
+notification is shown once for each:
 
 - result the automation marked as notable (the workflow's output carries `notify`);
 - run that failed after all its retries (3 attempts by default);

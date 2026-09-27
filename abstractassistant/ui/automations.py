@@ -985,7 +985,10 @@ class AutomationsHub(QObject):
     """Every automation call, off the GUI thread; the state the palette shows.
 
     ``client_factory`` returns an :class:`AutomationsClient` for the current
-    gateway connection. ``notify(title, body)`` shows a tray notification.
+    gateway connection; ``available`` says whether the gateway advertises the
+    Automations API (capabilities ``contracts.common.automations.available``)
+    and raises when that cannot be read. ``notify(title, body)`` shows a tray
+    notification.
     ``synchronous=True`` runs calls inline (tests).
     """
 
@@ -996,12 +999,14 @@ class AutomationsHub(QObject):
         self,
         *,
         client_factory: Callable[[], AutomationsClient],
+        available: Callable[[], bool],
         notify: Callable[[str, str], None],
         ledger: NotificationLedger,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._client_factory = client_factory
+        self._available = available
         self._notify = notify
         self.ledger = ledger
         self.synchronous = False
@@ -1069,6 +1074,8 @@ class AutomationsHub(QObject):
         self._polling = True
 
         def work():
+            if not self._available():
+                return None  # not advertised: no Automations surface at all
             client = self._client_factory()
             summaries = group_by_automation(client.list_all())
             pages: Dict[str, List[Dict[str, Any]]] = {}
@@ -1080,7 +1087,11 @@ class AutomationsHub(QObject):
 
         def done(ok: bool, value: Any) -> None:
             self._polling = False
-            if ok:
+            if ok and value is None:
+                self.available = False
+                self.error = ""
+                self.summaries = []
+            elif ok:
                 summaries, pages = value
                 self.available = True
                 self.error = ""
@@ -1089,12 +1100,6 @@ class AutomationsHub(QObject):
                 for notice in notices:
                     self._notify(notice.title, notice.body or notice.title)
                 self.ledger.add(n.key for n in notices)
-            elif isinstance(value, AutomationApiError) and value.status == 404 and value.reason_code == "invalid_response":
-                # A plain 404 without the automation envelope: the route does
-                # not exist on this gateway.
-                self.available = False
-                self.error = ""
-                self.summaries = []
             else:
                 self.error = self.error_text(value)
             self.summaries_changed.emit(list(self.summaries))

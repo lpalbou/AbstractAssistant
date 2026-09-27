@@ -111,6 +111,9 @@ class _Controller:
     def automation_notification_ledger_path(self):
         return None
 
+    def automations_available(self) -> bool:
+        return False
+
     def probe_reattach_candidate(self, **kwargs):
         return None
 

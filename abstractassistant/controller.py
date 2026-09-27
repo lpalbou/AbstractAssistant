@@ -1033,6 +1033,16 @@ class AssistantController:
             raise RuntimeError("Gateway client is not configured")
         return AutomationsClient(gateway)
 
+    def automations_available(self) -> bool:
+        """Whether the gateway advertises the Automations API (capabilities
+        ``contracts.common.automations.available``). Blocking on a cold cache:
+        call it off the GUI thread. Raises when the capabilities could not be
+        read, so "unknown" is never shown as "absent"."""
+        caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        if caps is None or caps.error:
+            raise RuntimeError(f"gateway capabilities unavailable: {getattr(caps, 'error', '') or 'no gateway'}")
+        return caps.automations_available()
+
     def automation_notification_ledger_path(self) -> Path:
         """Where the already-notified attention keys live (per data dir)."""
         return Path(self.llm_manager.data_dir) / "automations_notified.json"

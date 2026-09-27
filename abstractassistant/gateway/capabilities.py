@@ -66,6 +66,12 @@ class AssistantCapabilities:
     def unavailable(cls, *, error: str = "") -> "AssistantCapabilities":
         return cls(error=str(error or ""), fetched_at=time.monotonic())
 
+    def automations_available(self) -> bool:
+        """Contract F: the gateway advertises the Automations API as
+        ``contracts.common.automations.available``; absent or not ``true`` =
+        no Automations surface in this app."""
+        return _as_dict(self.common.get("automations")).get("available") is True
+
     def tts(self) -> Dict[str, Any]:
         return _as_dict(_dig(self.assistant, "voice", "tts"))
 

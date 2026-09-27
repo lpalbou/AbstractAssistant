@@ -5729,6 +5729,7 @@ class AssistantPalette(QMainWindow):
         # Automations (contract F): the hub does every call off the GUI thread.
         self._automations = AutomationsHub(
             client_factory=self._controller.automations_client,
+            available=self._controller.automations_available,
             notify=self._notify_automation,
             ledger=NotificationLedger(self._controller.automation_notification_ledger_path()),
             parent=self,
@@ -6419,7 +6420,8 @@ class AssistantPalette(QMainWindow):
         hub = self._state("_automations")
         if hub is None:
             return  # a palette built without __init__ (tests)
-        if hub.available is False:
+        if hub.available is not True and not hub.error:
+            # Not advertised (or not asked yet): no section at all.
             switcher.set_automations([], status="")
             return
         switcher.set_automations(hub.summaries, status=self._automations_status_text())
@@ -6438,7 +6440,7 @@ class AssistantPalette(QMainWindow):
         if action is not None:
             try:
                 action.setText(f"Automations… ({unread} new)" if unread else "Automations…")
-                action.setVisible(hub.available is not False)
+                action.setVisible(hub.available is True)
             except RuntimeError:
                 self._automations_menu_action = None
         view_id = self._state("_automation_view_id", "")
@@ -11588,6 +11590,10 @@ def _build_tray_menu(*, palette, quit_app) -> QMenu:
     menu.addAction("Hide", palette.hide)
     menu.addAction("New Session", palette._create_session)
     palette._automations_menu_action = menu.addAction("Automations…", palette.open_automations)
+    # Shown once the gateway is known to advertise the Automations API.
+    hub = getattr(palette, "__dict__", {}).get("_automations")
+    if hub is not None:
+        palette._automations_menu_action.setVisible(hub.available is True)
     menu.addAction("Settings", palette._open_settings)
     menu.addSeparator()
     menu.addAction("About AbstractAssistant\u2026", lambda: palette._open_settings("about"))

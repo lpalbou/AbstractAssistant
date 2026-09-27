@@ -295,5 +295,9 @@ against the hermetic gateway once G ships the routes.
 - Regular list: `fold_session_rows` drops `session_kind` `automation|occurrence` rows client-side;
   the pinned `/runs` query is unchanged (no `session_kind=` parameter yet — the current gateway
   refuses unknown parameters with a 400).
-- No capability gating: a plain 404 (no envelope) on `GET /automations` marks the API absent and
-  hides the section and the tray entry.
+- Capability-gated (coordinator decision, 2026-09-27): `contracts.common.automations.available is
+  true` in the existing capabilities call shows the section and the tray entry; absent or false hides
+  them and no automation route is called; unreadable capabilities are an error, never "absent".
+  (G answers unknown automation routes with a `not_found` envelope, so a 404 is not a signal.)
+- Poll: 60 s while the palette is visible, 5 min while hidden (the only background traffic; kept so
+  tray notifications arrive with the palette closed).

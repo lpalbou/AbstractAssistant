@@ -103,6 +103,22 @@ class StubGateway:
         self.attention: Dict[str, List[Dict[str, Any]]] = {TRIAGE: copy.deepcopy(_fixture("attention.json")["items"])}
         self.errors = {item["body"]["detail"]["reason_code"]: item for item in _fixture("errors.json")["items"]}
         self.trigger_sources = _fixture("trigger-sources.json")
+        # The capabilities descriptor G advertises (contract F).
+        self.capabilities: Dict[str, Any] = {
+            "capabilities": {
+                "contracts": {
+                    "version": 1,
+                    "common": {
+                        "automations": {
+                            "available": True,
+                            "version": 1,
+                            "endpoint": AUTOMATIONS_PATH,
+                            "trigger_sources_endpoint": "/api/gateway/trigger-sources",
+                        }
+                    },
+                }
+            }
+        }
         self.requests: List[Dict[str, Any]] = []
         self.created: Dict[str, Dict[str, Any]] = {}
         self.run_rows: List[Dict[str, Any]] = [
@@ -136,6 +152,8 @@ class StubGateway:
     # ------------------------------------------------------------ routing
 
     def route(self, method: str, path: str, query: Dict[str, List[str]], body: Any):
+        if path == "/api/gateway/discovery/capabilities" and method == "GET":
+            return 200, self.capabilities
         if path == "/api/gateway/trigger-sources" and method == "GET":
             return 200, self.trigger_sources
         if path == "/api/gateway/commands" and method == "POST":
@@ -636,6 +654,15 @@ def palette(stub, tmp_path, monkeypatch):
         def automation_notification_ledger_path(self):
             return tmp_path / "automations_notified.json"
 
+        def automations_available(self) -> bool:
+            # The real read: the gateway's capabilities call, freshly fetched.
+            from abstractassistant.gateway.capabilities import get_cached_assistant_capabilities
+
+            caps = get_cached_assistant_capabilities(gateway, force=True)
+            if caps.error:
+                raise RuntimeError(caps.error)
+            return caps.automations_available()
+
         def session_messages(self):
             return list(self._messages)
 
@@ -888,18 +915,50 @@ def test_scenario_weekly_journal_growing(palette, stub) -> None:
 
 
 @pytest.mark.basic
-def test_a_gateway_without_the_automations_api_shows_no_section(palette, stub) -> None:
+@pytest.mark.parametrize(
+    "descriptor, shown",
+    [
+        (None, False),  # capabilities without `automations`
+        ({"available": False}, False),
+        ({"available": "yes"}, False),  # only a literal true counts
+        ({"available": True, "version": 1, "endpoint": AUTOMATIONS_PATH}, True),
+    ],
+)
+def test_the_section_follows_the_capabilities_descriptor(palette, stub, descriptor, shown) -> None:
     window, _controller = palette
-    stub.route = lambda *_a: (404, {"detail": "Not Found"})  # type: ignore[assignment]
+    common = stub.capabilities["capabilities"]["contracts"]["common"]
+    if descriptor is None:
+        common.pop("automations")
+    else:
+        common["automations"] = descriptor
+    before = len(stub.calls("GET", AUTOMATIONS_PATH))
     window._poll_automations()
-    assert window._automations.available is False and window._automations.summaries == []
+    assert window._automations.available is shown
+    # Not advertised: the automation routes are not even asked.
+    assert (len(stub.calls("GET", AUTOMATIONS_PATH)) > before) is shown
     from abstractassistant.ui.session_switcher import SessionSwitcher
+    from PyQt5.QtWidgets import QMenu
 
     switcher = SessionSwitcher()
     window._apply_automations_to_switcher(switcher)
-    assert switcher.automation_rows == [] and switcher._automation_label is None
+    assert (len(switcher.automation_rows) == 3) is shown
+    assert (switcher._automation_label is not None) is shown
+    import abstractassistant.app as app_module
+
+    menu = app_module._build_tray_menu(palette=window, quit_app=lambda: None)
+    action = next(a for a in menu.actions() if a.text().startswith("Automations"))
+    assert action.isVisible() is shown
+    assert isinstance(menu, QMenu)
     switcher.deleteLater()
 
+
+@pytest.mark.basic
+def test_unreadable_capabilities_are_an_error_not_an_absent_api(palette, stub) -> None:
+    window, _controller = palette
+    real = stub.route
+    stub.route = lambda m, p, q, b: (503, {"detail": "down"}) if p == "/api/gateway/discovery/capabilities" else real(m, p, q, b)  # type: ignore[assignment]
+    window._poll_automations()
+    assert window._automations.available is None and window._automations.error
 
 
 @pytest.mark.basic
