@@ -596,6 +596,30 @@ def revise_changes(
     return (changes or None), []
 
 
+# --------------------------------------------------------------- discussion
+
+
+def discussion_banner(result: Mapping[str, Any], *, occurrence_index: int) -> Tuple[str, str]:
+    """``(text, tone)`` of the notice after Discuss. The discussion carries the
+    automation's history through occurrence N, mounts the automation's files
+    read-only at ``mounted_workspace`` and works in its own writable
+    ``workspace_root`` (both from the discuss response). A response without
+    ``mounted_workspace`` is said, never papered over."""
+    mounted = str(result.get("mounted_workspace") or "").strip()
+    own = str(result.get("workspace_root") or "").strip()
+    if not mounted or not own:
+        return (
+            f"Discussion opened from occurrence {occurrence_index}, but the gateway did not report its workspaces "
+            "(mounted_workspace / workspace_root missing).",
+            "warn",
+        )
+    return (
+        f"Discussion opened from occurrence {occurrence_index}: the automation's history up to that point is in "
+        f"context; its files are mounted read-only at {mounted}; this session has its own writable workspace.",
+        "info",
+    )
+
+
 # ------------------------------------------------------------------- errors
 
 API_ERROR_TEXT = {

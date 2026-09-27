@@ -445,8 +445,8 @@ class OccurrencePair(QWidget):
             1,
         )
         self.discuss_button = _button("Discuss", "autoSmall", parent=self.answer, tooltip=(
-            "Open a forked session seeded with this automation's turns up to here "
-            "(read-only workspace; nothing is written back)" if discuss_enabled and view.can_discuss else (discuss_reason or "Not while it is running")
+            "Open a new session with this automation's history up to here; its files are mounted "
+            "read-only and the session has its own writable workspace" if discuss_enabled and view.can_discuss else (discuss_reason or "Not while it is running")
         ))
         self.discuss_button.setEnabled(bool(discuss_enabled and view.can_discuss))
         self.discuss_button.clicked.connect(self._start_discuss)

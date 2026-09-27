@@ -362,8 +362,9 @@ class SessionRow(QFrame):
             self.about_button.setObjectName("aboutAutomation")
             self.about_button.setCursor(Qt.PointingHandCursor)
             self.about_button.setToolTip(
-                "A forked session seeded from this automation's runs; its workspace is "
-                "read-only and nothing is written back. Click to open the automation."
+                "A session seeded with this automation's history up to one run; the automation's "
+                "files are mounted read-only and the session has its own writable workspace. "
+                "Click to open the automation."
             )
             self.about_button.clicked.connect(
                 lambda: self.automation_requested.emit(self.digest.automation_id)

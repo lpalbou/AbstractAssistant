@@ -29,8 +29,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   a question with its choices or free text, a tool approval listing the tool calls with **Approve**
   / **Deny**, or an event payload typed as JSON. A wait of unknown kind is shown without answer
   controls.
-- **Discuss** a finished run: opens an ordinary chat seeded with the automation's runs up to that
-  one, with the workflow's normal tools and a read-only workspace; it is listed among your chats
+- **Discuss** a finished run: opens an ordinary chat seeded with the automation's history up to that
+  run, with the workflow's normal tools, the automation's files mounted read-only and its own writable
+  workspace; it is listed among your chats
   with the badge "about automation <title>", which opens the automation.
 - **Tray notifications** for results the workflow marks as notable, runs that failed after all
   retries and runs waiting for you: once each, also across relaunches

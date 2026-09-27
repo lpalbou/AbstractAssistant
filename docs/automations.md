@@ -171,11 +171,12 @@ the run keeps waiting.
 ## Discuss a result
 
 **Discuss** on a finished run opens a field ("What do you want to discuss about this result?");
-**Start** asks the gateway to open a new session seeded with the automation's runs up to that one,
-sends your question in it, and switches the palette to it. It is an ordinary chat: it keeps the
-workflow's normal tools and appears among your chats with the badge **about automation <title>**
-(click the badge to open the automation). Its workspace is the automation's, read-only, and nothing
-is written back to the automation.
+**Start** asks the gateway to open a new session seeded with the automation's whole history up to
+that run (whatever its context mode), sends your question in it, and switches the palette to it. It
+is an ordinary chat: it keeps the workflow's normal tools and appears among your chats with the badge
+**about automation <title>** (click the badge to open the automation). The automation's files are
+mounted read-only (the notice after Discuss says where); the discussion works in its own writable
+workspace, and nothing is written back to the automation.
 
 Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
 (or stop it) before it opens a discussion.

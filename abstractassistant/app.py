@@ -171,7 +171,7 @@ from .gateway.live_deltas import (
     end_reason_text,
 )
 from .ui.session_switcher import SessionSwitcher
-from .core.automations import NotificationLedger, target_from_workflow
+from .core.automations import NotificationLedger, discussion_banner, target_from_workflow
 from .ui.automations import (
     AUTOMATIONS_POLL_HIDDEN_MS,
     AUTOMATIONS_POLL_VISIBLE_MS,
@@ -6626,11 +6626,11 @@ class AssistantPalette(QMainWindow):
             if not ok:
                 view.set_error(self._automations.error_text(value), retry=self._automations.can_retry)
                 return
-            self._open_discussion(value if isinstance(value, dict) else {})
+            self._open_discussion(value if isinstance(value, dict) else {}, occurrence_index=int(index))
 
         self._automations.discuss(aid, int(index), str(prompt), done)
 
-    def _open_discussion(self, result: Dict[str, Any]) -> None:
+    def _open_discussion(self, result: Dict[str, Any], *, occurrence_index: int) -> None:
         """Discuss answered: its session is an ordinary gateway session —
         switch to it and follow its first run like any reattach."""
         session_id = str(result.get("session_id") or "").strip()
@@ -6646,11 +6646,7 @@ class AssistantPalette(QMainWindow):
         self._close_automation_view()
         self._tray_completion_unread = False
         self._set_history_status()
-        self._set_banner(
-            "Discussion opened: a forked session with a read-only workspace; nothing is written back to the automation.",
-            tone="info",
-            key="session",
-        )
+        self._set_banner(*discussion_banner(result, occurrence_index=occurrence_index), key="session")
         self._invalidate_session_digests()
         self._refresh_session_picker(select_session_id=session_id)
         self._on_reattach_candidate({"run_id": run_id, "status": "running", "waiting": None})

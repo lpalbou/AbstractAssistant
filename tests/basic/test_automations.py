@@ -199,7 +199,13 @@ class StubGateway:
             rid = str(uuid.uuid5(uuid.UUID(aid), "discuss:" + body["request_id"]))
             sid = str(uuid.uuid5(uuid.UUID(aid), "discussion-session:" + body["request_id"]))
             self.run_rows.append({"run_id": rid, "session_id": sid, "status": "running", "created_at": "2026-09-27T07:00:00Z", "updated_at": "2026-09-27T07:00:01Z", "session_kind": "discussion", "automation_id": aid, "role": "discussion"})
-            return 200, {"session_id": sid, "run_id": rid, "session_kind": "discussion"}
+            return 200, {
+                "session_id": sid,
+                "run_id": rid,
+                "session_kind": "discussion",
+                "workspace_root": f"/data/discussions/{sid}",
+                "mounted_workspace": f"/data/automations/{aid}/workspace",
+            }
         return 404, {"detail": "Not Found"}
 
     def _error(self, code: str, **extra: Any):
@@ -843,6 +849,18 @@ def test_discuss_switches_to_the_returned_session(palette, stub) -> None:
     discussion = next(r for r in stub.run_rows if r["session_kind"] == "discussion")
     assert controller.opened == [{"session_id": discussion["session_id"], "run_id": discussion["run_id"]}]
     assert not view.isVisibleTo(window), "the discussion replaces the automation view"
+    banner = window.banner_label.text()
+    assert banner == (
+        "Discussion opened from occurrence 6: the automation's history up to that point is in context; "
+        f"its files are mounted read-only at /data/automations/{TRIAGE}/workspace; "
+        "this session has its own writable workspace."
+    )
+
+
+@pytest.mark.basic
+def test_a_discuss_response_without_workspaces_is_said() -> None:
+    text, tone = rules.discussion_banner({"session_id": "s", "run_id": "r"}, occurrence_index=3)
+    assert tone == "warn" and "did not report its workspaces" in text
 
 
 @pytest.mark.basic
