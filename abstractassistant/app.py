@@ -5961,7 +5961,7 @@ class AssistantPalette(QMainWindow):
         history_wrap.addWidget(self.history_scroll, 1)
         # An automation opened from the switcher replaces the transcript in
         # place (its occurrences read as a chat); "← Chat" brings it back.
-        self.automation_view = AutomationView(self.history_card)
+        self.automation_view = AutomationView(render_turn=self._automation_turn_card, parent=self.history_card)
         self.automation_view.hide()
         self.automation_view.back_requested.connect(self._close_automation_view)
         self.automation_view.control_requested.connect(self._on_automation_control)
@@ -6453,6 +6453,19 @@ class AssistantPalette(QMainWindow):
             summary = hub.summary(view_id)
             if summary is not None:
                 self.automation_view.set_summary(summary)
+
+    def _automation_turn_card(self, role: str, content: str, ts: str, bubble_width: int) -> QWidget:
+        """An occurrence's task or answer, rendered by the conversation's own
+        `MessageCard` (same markdown/code/table/JSON rendering as a chat)."""
+        message = {"role": role, "content": content, "ts": ts}
+        return MessageCard(
+            message=message,
+            message_key=f"automation:{role}:{ts}:{hash(content)}",
+            renderer=self._renderer,
+            on_open_artifact=self._open_artifact_from_message,
+            build_media_preview=self._build_media_preview,
+            bubble_width=bubble_width,
+        )
 
     def open_automations(self) -> None:
         """Tray "Automations…": show the palette with the switcher open on the

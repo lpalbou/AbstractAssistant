@@ -349,6 +349,11 @@ class AutomationRow(QFrame):
 
 # ------------------------------------------------------------ the view
 
+# (role, markdown content, timestamp, bubble width) -> the chat's message widget.
+# The palette provides it (its `MessageCard`), so an occurrence reads exactly
+# like a chat turn.
+TurnRenderer = Callable[[str, str, str, int], QWidget]
+
 
 def _button(text: str, name: str = "autoControl", *, parent: Optional[QWidget] = None, tooltip: str = "") -> QPushButton:
     button = QPushButton(text, parent)
@@ -376,9 +381,21 @@ class OccurrencePair(QWidget):
     discuss_requested = pyqtSignal(int, str)
     wait_answered = pyqtSignal(str, str, str, object)  # run_id, wait_key, kind, answer
 
-    def __init__(self, view, *, discuss_enabled: bool, discuss_reason: str, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        view,
+        *,
+        discuss_enabled: bool,
+        discuss_reason: str,
+        render_turn: "TurnRenderer",
+        turn_width: int,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
         self.view = view
+        # The turns are rendered by the palette's own chat message widget
+        # (markdown, tables, code, JSON) — never by a second renderer here.
+        self.turn_cards: List[QWidget] = []
         row = view.row
         self.index = int(row.get("index") or 0)
         quiet = view.tone == "quiet"
@@ -396,7 +413,8 @@ class OccurrencePair(QWidget):
         trig = row.get("trigger") if isinstance(row.get("trigger"), Mapping) else {}
         meta = f"#{self.index} · {trig.get('summary') or trig.get('source_id') or 'trigger'} · fired {format_utc(row.get('fired_at'))}"
         tl.addWidget(_text_label(meta, "autoTurnMeta", parent=self.trigger))
-        self.trigger_text = _text_label(str(row.get("user_turn") or ""), "autoTurnText", parent=self.trigger, tone="quiet" if quiet else "")
+        self.trigger_text = render_turn("user", str(row.get("user_turn") or ""), str(row.get("fired_at") or ""), turn_width)
+        self.turn_cards.append(self.trigger_text)
         tl.addWidget(self.trigger_text)
         wrap_t = QHBoxLayout()
         wrap_t.setContentsMargins(40, 0, 0, 0)
@@ -444,14 +462,21 @@ class OccurrencePair(QWidget):
             attempts = int(failure.get("attempts") or row.get("attempts") or 1)
             failure_text = f"{failure.get('message') or 'The occurrence failed.'} ({failure.get('reason_code') or 'failed'}, {attempts} attempt{'s' if attempts != 1 else ''})"
             al.addWidget(_text_label(failure_text, "autoTurnText", parent=self.answer))
-        self.answer_text = _text_label(
-            answer_text or ("" if failure is not None else ("(no answer)" if view.tone != "waiting" else "")),
-            "autoTurnText",
-            parent=self.answer,
-            tone="quiet" if quiet else "",
-        )
-        self.answer_text.setVisible(bool(self.answer_text.text()))
-        al.addWidget(self.answer_text)
+        self.answer_text: Optional[QWidget] = None
+        if answer_text:
+            self.answer_text = render_turn("assistant", answer_text, str(row.get("finished_at") or row.get("fired_at") or ""), turn_width)
+            self.turn_cards.append(self.answer_text)
+            al.addWidget(self.answer_text)
+        elif failure is None and view.tone != "waiting":
+            al.addWidget(_text_label("(no answer)", "autoTurnText", parent=self.answer, tone="quiet"))
+        if quiet:
+            # Quiet runs stay readable but recede.
+            from PyQt5.QtWidgets import QGraphicsOpacityEffect
+
+            for card in self.turn_cards:
+                effect = QGraphicsOpacityEffect(card)
+                effect.setOpacity(0.62)
+                card.setGraphicsEffect(effect)
 
         artifacts = row.get("artifacts") if isinstance(row.get("artifacts"), list) else []
         if artifacts:
@@ -618,8 +643,9 @@ class AutomationView(QFrame):
         ("archive", "Archive"),
     )
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, *, render_turn: "TurnRenderer", parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self._render_turn = render_turn
         self.setObjectName("autoView")
         self.summary: Dict[str, Any] = {}
         self.occurrences: List[Dict[str, Any]] = []
@@ -833,11 +859,29 @@ class AutomationView(QFrame):
         if not views:
             self.list_layout.addWidget(_text_label("No run yet.", "autoViewNotice", parent=self.list_host))
         for view in views:
-            pair = OccurrencePair(view, discuss_enabled=discuss_enabled, discuss_reason=discuss_reason, parent=self.list_host)
+            pair = OccurrencePair(
+                view,
+                discuss_enabled=discuss_enabled,
+                discuss_reason=discuss_reason,
+                render_turn=self._render_turn,
+                turn_width=self.turn_width(),
+                parent=self.list_host,
+            )
             pair.discuss_requested.connect(self.discuss_requested.emit)
             pair.wait_answered.connect(self.wait_answered.emit)
             self.list_layout.addWidget(pair)
             self.pairs.append(pair)
+
+    def turn_width(self) -> int:
+        """The bubble width for a turn: the list's width minus the pair's indent and frame."""
+        return max(160, int(self.scroll.viewport().width() or self.width()) - 76)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(event)
+        width = self.turn_width()
+        for pair in self.pairs:
+            for card in pair.turn_cards:
+                card.set_bubble_width(width)
 
     def scroll_to_latest(self) -> None:
         """Newest run in view — after the rebuilt pairs are laid out."""
