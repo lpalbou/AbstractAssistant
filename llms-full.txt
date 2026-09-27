@@ -834,22 +834,20 @@ remembered). The **Automations** tab lists every automation, whichever app creat
 Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
 archived** in the tab's header, and **+ New automation** creates one (below). Each row shows:
 
-- the title and a coloured status pill: **active** (green), **paused** (amber), **running** (blue),
-  **waiting for you** (highlighted), **failed** (red), archived or completed (grey); `2 new` when
-  unseen results or failures wait for you;
-- the cadence, the context mode and the last and next runs as times, for example
-  `every 5 minutes (UTC) · growing · last 3 min ago · next in 2 min` (`1 h 06 min` style beyond an
-  hour; `next —` when paused or not scheduled); the times follow each refresh;
-- the last result on one line (`#12 completed: …`, or `waiting for you: <question>`), red when the
-  run failed.
+- the title, and on the right when it last ran (`40 min ago`, `1 h 06 min ago`) — with
+  "✋ waiting for you" when a run waits for your answer, or a red "failed" when the last run failed;
+- the last result, on one line;
+- the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
+  runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
+  folder and it is on this Mac), and at the far right the card's one button, which shows the
+  automation's state: a green ▶ with a soft glow when it is active (click to pause), an amber ⏸
+  when it is paused (click to resume), grey when archived. It pulses slowly while a run is in
+  progress (line 2 then reads "Run #37 running", plus "· paused after this run" when paused). After
+  a click it spins until the gateway confirms the new state; if the gateway refuses, it comes back
+  with the reason in its tooltip.
 
-Under it, a toolbar of icons (each named in its tooltip) chosen by the automation's state:
-**Open**, **Last run** (opens it scrolled to its latest run), **Pause** or **Resume**, **Run now**
-(also while paused), **Stop the current run** (only while a run is in progress), **Modify** (opens
-the automation with its edit form), **Archive** (asks for confirmation in the row) and the
-automation's **folder** — it opens in the file manager when the gateway reports it and it is on
-this Mac. A control that does not apply is dimmed, with the reason in its tooltip; the rules are the
-same as in the automation view. Enter opens the selected automation.
+The card looks like a session card. Click it (or press Enter) to open the automation, where
+**Run now**, **Stop**, **Edit**, **Archive** and **Discuss** live. The times follow each refresh.
 
 The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
@@ -1086,6 +1084,25 @@ assistant run --help
 Connection settings resolve from global flags first, then the environment. Global flags must
 appear before a subcommand.
 
+### Which gateway the app connects to
+
+The first match wins:
+
+1. `--gateway-url URL` (or its legacy environment alias `ABSTRACTGATEWAY_URL` /
+   `ABSTRACTFLOW_GATEWAY_URL`);
+2. the sign-in saved in Settings → Connection (`gateway_connection.json`);
+3. this computer's gateway, found by the gateway's own rule (its running server, else its pinned
+   OS service, else the port stored in its Network setting, else `127.0.0.1:8080`). This tier
+   applies when AbstractGateway 0.6.0 or later is installed in the same Python environment as the
+   Assistant, as the AbstractFramework installer does;
+4. `http://127.0.0.1:8080`, when AbstractGateway is not installed next to the Assistant (for
+   example the macOS app bundle) or the installed gateway is older than 0.6.0.
+
+A sign-in saved against `http://127.0.0.1:8080` follows tier 3 when this computer's gateway
+answers elsewhere; a sign-in saved for any other URL is kept as you chose it. If an installed
+AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error
+instead of guessing a URL.
+
 - `--gateway-url URL` — the gateway to use. Without `--gateway-token`, the sign-in saved for that
   gateway in `gateway_connection.json` is used.
 - `--gateway-token TOKEN`
@@ -1148,8 +1165,8 @@ pass `--gateway-token`) and exits with status 2.
 
 ## Environment variables
 
-- `ABSTRACTGATEWAY_URL` / `ABSTRACTFLOW_GATEWAY_URL` — gateway base URL (default
-  `http://127.0.0.1:8080`)
+- `ABSTRACTGATEWAY_URL` / `ABSTRACTFLOW_GATEWAY_URL` — legacy alias of `--gateway-url` (see
+  [Which gateway the app connects to](#which-gateway-the-app-connects-to))
 - `ABSTRACTGATEWAY_AUTH_TOKEN` / `ABSTRACTFLOW_GATEWAY_AUTH_TOKEN` — bearer token
 - `ABSTRACTASSISTANT_GATEWAY_TTS_MODEL`, `ABSTRACTASSISTANT_GATEWAY_TTS_PROVIDER`,
   `ABSTRACTASSISTANT_GATEWAY_TTS_VOICE`, `ABSTRACTASSISTANT_GATEWAY_STT_MODEL`,
@@ -2339,6 +2356,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+## [0.8.0] - 2026-09-27
+
 ### Added
 - **+ New automation** in the switcher's Automations tab: the Schedule window, empty, for a task
   that is not the current conversation; the new automation is selected in the tab after creation.
@@ -2396,20 +2415,30 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   session list asks for those kinds only.
 - The session switcher lists every session on the gateway, whichever client started it (no "All
   gateway sessions" toggle), 100 at a time with **Load more sessions**; it has two tabs,
-  **Sessions | Automations** (⌘1 / ⌘2, the last one remembered), with inline controls for each
-  automation (Open, Last, Pause or Resume, Run now, Stop while running, Modify, Archive;
-  archived automations behind **Show archived**) and clickable workspace folders that open in the
+  **Sessions | Automations** (⌘1 / ⌘2, the last one remembered; archived automations behind
+  **Show archived**) and clickable workspace folders that open in the
   file manager when the folder is on this Mac. The folder is the one the gateway reports for the
   session or automation; until the gateway reports it, the control is disabled and says so.
 - **Sessions exist only on the gateway.** The switcher no longer offers to remove a session (the
   gateway has no session delete), and there is no `sessions-legacy/` folder, no local-only session
   and no one-time cleanup of old local sessions any more: a session is listed if and only if the
   gateway lists it. An unreadable cached transcript is discarded and rebuilt from the gateway.
-- **Automations tab rows are easier to read**: a coloured status pill (active, paused, running,
-  waiting for you, failed), "last 3 min ago · next in 2 min" (`1 h 06 min` beyond an hour, `next —`
-  when paused), the last result on one line (red when it failed) and a right-aligned toolbar of
-  icons with tooltips: Open, Last run, Pause or Resume, Run now, Stop (while running), Modify,
-  Archive and the folder. Session rows show the folder as an icon too.
+- **An automation card looks like a session card**: title and "40 min ago" (when it last ran), a
+  "waiting for you" or "failed" chip only when it applies, the last result, then `every 5 min` ·
+  `next in 2 min` · `#32` · the folder icon, and one button showing its state (green ▶ with a glow when
+  active, amber ⏸ when paused, pulsing while a run is in progress) that pauses or resumes it, with a
+  spinner until the gateway confirms. Clicking the
+  card opens the automation (Run now, Stop, Edit, Archive and Discuss are there). Session and
+  automation cards show the workspace folder as an icon.
+- **The Assistant finds this computer's gateway.** Without `--gateway-url` or a saved sign-in, the
+  app connects to the gateway the AbstractGateway rule finds on this computer (its running
+  server, pinned OS service or stored Network port) when AbstractGateway 0.6.0 or later is
+  installed in the same Python environment, so a gateway the installer moved off a busy port 8080
+  is found. Otherwise the default stays `http://127.0.0.1:8080`. A sign-in saved against
+  `http://127.0.0.1:8080` follows the moved gateway; any other saved URL is kept. An installed
+  gateway that cannot be imported stops the app with its error. The full order is in
+  [docs/api.md](docs/api.md#which-gateway-the-app-connects-to). The macOS app bundle does not
+  include AbstractGateway and keeps using its saved sign-in or `http://127.0.0.1:8080`.
 
 ## [0.7.0] - 2026-09-27
 
@@ -3045,7 +3074,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.7.0"
+version = "0.8.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -3612,18 +3641,67 @@ if __name__ == "__main__":
 """
 Runtime configuration for AbstractAssistant.
 
-Tray mode is gateway-first and resolves gateway connection settings from the
-environment. File-based `config.toml` loading is intentionally unsupported.
+Tray mode is gateway-first and resolves gateway connection settings from launch
+flags (with their legacy environment aliases). File-based `config.toml` loading
+is intentionally unsupported.
+
+Which gateway the app connects to, first match wins:
+
+1. `--gateway-url` (legacy alias: `ABSTRACTGATEWAY_URL` / `ABSTRACTFLOW_GATEWAY_URL`);
+2. the sign-in saved in Settings -> Connection (`gateway_connection.json`);
+3. this computer's gateway, by the gateway's own `local_gateway()` rule, when an
+   abstractgateway that provides it (0.6.0 or later) is installed in the same
+   Python as the Assistant;
+4. `BUILTIN_GATEWAY_URL` (http://127.0.0.1:8080).
+
+Tiers 3 and 4 form `DEFAULT_GATEWAY_URL`, resolved once per process.
 """
 
 from __future__ import annotations
 
+import importlib
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+
+BUILTIN_GATEWAY_URL = "http://127.0.0.1:8080"
+
+_GATEWAY_MODULES = frozenset({"abstractgateway", "abstractgateway.first_run"})
 
 
-DEFAULT_GATEWAY_URL = "http://127.0.0.1:8080"
+def _gateway_local_rule() -> Optional[Callable[[], Mapping[str, Any]]]:
+    """The gateway's `local_gateway()` rule, or None when this Python has none.
+
+    None means exactly one of two things: abstractgateway is not installed next
+    to the Assistant (the Assistant's own install, the frozen macOS app), or the
+    installed gateway predates the rule (abstractgateway < 0.6.0 has no
+    `first_run.local_gateway`). Any other failure to import an installed
+    gateway (a missing dependency of the gateway, a syntax error) is raised.
+    """
+    try:
+        first_run = importlib.import_module("abstractgateway.first_run")
+    except ModuleNotFoundError as exc:
+        if exc.name in _GATEWAY_MODULES:
+            return None
+        raise
+    return getattr(first_run, "local_gateway", None)
+
+
+def _local_gateway_url() -> str:
+    """Tiers 3-4 of the module rule: this computer's gateway, else the built-in URL.
+
+    The gateway's rule reads its data directory's records (the running gateway,
+    a pinned OS service, the stored Network setting port), so an installer that
+    moved the gateway off a busy 8080 is followed. Errors raised by the rule
+    itself propagate: they belong to the gateway's install, not to this app.
+    """
+    rule = _gateway_local_rule()
+    if rule is None:
+        return BUILTIN_GATEWAY_URL
+    return str(rule()["url"]).strip().rstrip("/")
+
+
+DEFAULT_GATEWAY_URL = _local_gateway_url()
 
 
 def _env_first(*names: str) -> str:
@@ -3852,11 +3930,11 @@ local UX concerns plus device-side tool gating.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from abstractassistant.config import DEFAULT_GATEWAY_URL
+from abstractassistant.config import BUILTIN_GATEWAY_URL, DEFAULT_GATEWAY_URL
 from abstractassistant.speculation import normalize_speculation
 
 
@@ -4433,7 +4511,13 @@ class PreferencesStore(JsonStore):
 
 class GatewayConnectionStore(JsonStore):
     def load(self) -> GatewayConnectionPreferences:
-        return GatewayConnectionPreferences.from_dict(self._read() or {})
+        loaded = GatewayConnectionPreferences.from_dict(self._read() or {})
+        # A sign-in saved against the old built-in default follows this computer's
+        # gateway when it lives elsewhere (the installer moves it off a busy 8080);
+        # a URL chosen on purpose is kept.
+        if loaded.base_url == BUILTIN_GATEWAY_URL != DEFAULT_GATEWAY_URL:
+            return replace(loaded, base_url=DEFAULT_GATEWAY_URL)
+        return loaded
 
     def save(self, connection: GatewayConnectionPreferences) -> None:
         self._write(connection.to_dict())
@@ -14385,6 +14469,9 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "CONTROL_COMMANDS",
+    "PENDING_TEXT",
+    "command_confirmed",
+    "current_run",
     "REGULAR_SESSION_KINDS",
     "SCHEDULE_PRESETS",
     "API_ERROR_TEXT",
@@ -14528,13 +14615,24 @@ def last_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None)
     return f"last {relative_span((now - when).total_seconds())} ago"
 
 
+def current_run(summary: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+    """The occurrence in progress, from the gateway's ``current_occurrence``
+    (``{index, run_id, attempt, status: admitted|running|backoff}``, null when
+    none). Absent = no running state is shown: never inferred from
+    ``last_occurrence``."""
+    current = summary.get("current_occurrence")
+    if isinstance(current, Mapping) and current.get("status") in {"admitted", "running", "backoff"}:
+        return current
+    return None
+
+
 def next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
     """ "next in 2 min" from the gateway's next fire time; "next —" when paused,
     ended or not scheduled; "next: now" when due."""
     now = now or datetime.now(timezone.utc)
     if summary.get("status") != "active":
         return "next —"
-    when = _parse_ts(summary.get("next_fire_at"))
+    when = _parse_ts(summary.get("next_fire_at"))  # the gateway's time only; no client arithmetic
     if when is None:
         return "next —"
     delta = (when - now).total_seconds()
@@ -14548,7 +14646,7 @@ def status_pill(summary: Mapping[str, Any]) -> Tuple[str, str]:
     attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
     if status in {"active", "paused"} and int(attention.get("pending_waits") or 0):
         return "waiting for you", "waiting"
-    if status in {"active", "paused"} and occurrence_in_progress(summary):
+    if status in {"active", "paused"} and current_run(summary) is not None:
         return "running", "running"
     if status == "active":
         return "active", "active"
@@ -14571,25 +14669,20 @@ CONTROL_COMMANDS = {
 _IN_PROGRESS = {"running", "waiting", "backoff"}
 
 
-def occurrence_in_progress(summary: Mapping[str, Any], occurrences: Sequence[Mapping[str, Any]] = ()) -> bool:
-    last = summary.get("last_occurrence")
-    if isinstance(last, Mapping) and last.get("status") in _IN_PROGRESS:
-        return True
-    return any(o.get("status") in _IN_PROGRESS for o in occurrences)
+def occurrence_in_progress(summary: Mapping[str, Any]) -> bool:
+    """Whether a run is in progress: the gateway's ``current_occurrence`` (see
+    ``current_run``), the one source in the whole app — never inferred from
+    ``last_occurrence`` or from occurrence rows."""
+    return current_run(summary) is not None
 
 
-def automation_controls(
-    summary: Mapping[str, Any],
-    occurrences: Sequence[Mapping[str, Any]] = (),
-    *,
-    busy: bool = False,
-) -> Dict[str, Tuple[bool, str]]:
+def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Dict[str, Tuple[bool, str]]:
     """``control -> (enabled, reason)``. The server decides what the principal
     may do (``capabilities``); the status decides which of them apply now.
     Run now stays enabled while paused (it does not resume)."""
     caps = set(summary.get("capabilities") or ())
     status = summary.get("status")
-    running = occurrence_in_progress(summary, occurrences)
+    running = occurrence_in_progress(summary)
     live = status in {"active", "paused"}
 
     def gate(control: str, ok: bool, reason: str) -> Tuple[bool, str]:
@@ -14612,6 +14705,35 @@ def automation_controls(
         "archive": gate("archive", True, ""),
         "discuss": gate("discuss", True, ""),
     }
+
+
+# ------------------------------------------------------- pending commands
+
+# What a control's button says while its command waits for the gateway.
+PENDING_TEXT = {
+    "pause": "Pausing…",
+    "resume": "Resuming…",
+    "run_now": "Starting a run…",
+    "stop_current": "Stopping…",
+    "archive": "Archiving…",
+}
+
+
+def command_confirmed(control: str, before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+    """Whether ``after`` (a fresh summary) shows the effect of ``control``
+    applied to ``before`` — read from the gateway's state, never assumed."""
+    status = after.get("status")
+    if control == "pause":
+        return status == "paused"
+    if control == "resume":
+        return status == "active"
+    if control == "archive":
+        return status == "archived"
+    if control == "run_now":
+        return int(after.get("occurrence_count") or 0) > int(before.get("occurrence_count") or 0) or occurrence_in_progress(after)
+    if control == "stop_current":
+        return not occurrence_in_progress(after)
+    raise ValueError(f"unknown control {control!r}")
 
 
 # ------------------------------------------------------ occurrences as chat

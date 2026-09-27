@@ -24,6 +24,25 @@ assistant run --help
 Connection settings resolve from global flags first, then the environment. Global flags must
 appear before a subcommand.
 
+### Which gateway the app connects to
+
+The first match wins:
+
+1. `--gateway-url URL` (or its legacy environment alias `ABSTRACTGATEWAY_URL` /
+   `ABSTRACTFLOW_GATEWAY_URL`);
+2. the sign-in saved in Settings → Connection (`gateway_connection.json`);
+3. this computer's gateway, found by the gateway's own rule (its running server, else its pinned
+   OS service, else the port stored in its Network setting, else `127.0.0.1:8080`). This tier
+   applies when AbstractGateway 0.6.0 or later is installed in the same Python environment as the
+   Assistant, as the AbstractFramework installer does;
+4. `http://127.0.0.1:8080`, when AbstractGateway is not installed next to the Assistant (for
+   example the macOS app bundle) or the installed gateway is older than 0.6.0.
+
+A sign-in saved against `http://127.0.0.1:8080` follows tier 3 when this computer's gateway
+answers elsewhere; a sign-in saved for any other URL is kept as you chose it. If an installed
+AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error
+instead of guessing a URL.
+
 - `--gateway-url URL` — the gateway to use. Without `--gateway-token`, the sign-in saved for that
   gateway in `gateway_connection.json` is used.
 - `--gateway-token TOKEN`
@@ -86,8 +105,8 @@ pass `--gateway-token`) and exits with status 2.
 
 ## Environment variables
 
-- `ABSTRACTGATEWAY_URL` / `ABSTRACTFLOW_GATEWAY_URL` — gateway base URL (default
-  `http://127.0.0.1:8080`)
+- `ABSTRACTGATEWAY_URL` / `ABSTRACTFLOW_GATEWAY_URL` — legacy alias of `--gateway-url` (see
+  [Which gateway the app connects to](#which-gateway-the-app-connects-to))
 - `ABSTRACTGATEWAY_AUTH_TOKEN` / `ABSTRACTFLOW_GATEWAY_AUTH_TOKEN` — bearer token
 - `ABSTRACTASSISTANT_GATEWAY_TTS_MODEL`, `ABSTRACTASSISTANT_GATEWAY_TTS_PROVIDER`,
   `ABSTRACTASSISTANT_GATEWAY_TTS_VOICE`, `ABSTRACTASSISTANT_GATEWAY_STT_MODEL`,

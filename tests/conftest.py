@@ -53,6 +53,11 @@ import socket  # noqa: E402
 for _name in ("ABSTRACTGATEWAY_AUTH_TOKEN", "ABSTRACTFLOW_GATEWAY_AUTH_TOKEN", "ABSTRACTFLOW_GATEWAY_URL"):
     os.environ.pop(_name, None)
 os.environ["ABSTRACTGATEWAY_URL"] = "http://127.0.0.1:9"
+# The default URL is this computer's gateway (config._local_gateway_url reads its data
+# dir's records), which may be a live one on another port: point it at an empty dir.
+import tempfile  # noqa: E402
+
+os.environ["ABSTRACTGATEWAY_DATA_DIR"] = tempfile.mkdtemp(prefix="abstractassistant-tests-gateway-data-")
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 _FORBIDDEN_PORTS = {8080}

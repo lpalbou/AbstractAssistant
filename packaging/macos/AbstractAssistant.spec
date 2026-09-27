@@ -67,7 +67,11 @@ a = Analysis(
     runtime_hooks=[],
     # pygame is only reachable through nltk's lazy timit corpus import; bundling
     # it drags SDL dylibs whose codesign processing can fail (libwebp bincache).
-    excludes=["PyQt6", "PySide2", "PySide6", "pygame"],
+    # abstractgateway: config._gateway_local_rule imports it to find this computer's
+    # gateway when both share a Python (the console's install); a frozen bundle must
+    # not carry a whole gateway, so the app uses its saved sign-in or 127.0.0.1:8080
+    # (the console still opens it with --gateway-url).
+    excludes=["PyQt6", "PySide2", "PySide6", "pygame", "abstractgateway"],
     noarchive=False,
     optimize=0,
 )

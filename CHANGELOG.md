@@ -5,6 +5,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+## [0.8.0] - 2026-09-27
+
 ### Added
 - **+ New automation** in the switcher's Automations tab: the Schedule window, empty, for a task
   that is not the current conversation; the new automation is selected in the tab after creation.
@@ -77,6 +79,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   spinner until the gateway confirms. Clicking the
   card opens the automation (Run now, Stop, Edit, Archive and Discuss are there). Session and
   automation cards show the workspace folder as an icon.
+- **The Assistant finds this computer's gateway.** Without `--gateway-url` or a saved sign-in, the
+  app connects to the gateway the AbstractGateway rule finds on this computer (its running
+  server, pinned OS service or stored Network port) when AbstractGateway 0.6.0 or later is
+  installed in the same Python environment, so a gateway the installer moved off a busy port 8080
+  is found. Otherwise the default stays `http://127.0.0.1:8080`. A sign-in saved against
+  `http://127.0.0.1:8080` follows the moved gateway; any other saved URL is kept. An installed
+  gateway that cannot be imported stops the app with its error. The full order is in
+  [docs/api.md](docs/api.md#which-gateway-the-app-connects-to). The macOS app bundle does not
+  include AbstractGateway and keeps using its saved sign-in or `http://127.0.0.1:8080`.
 
 ## [0.7.0] - 2026-09-27
 

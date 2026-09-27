@@ -7,11 +7,11 @@ local UX concerns plus device-side tool gating.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from abstractassistant.config import DEFAULT_GATEWAY_URL
+from abstractassistant.config import BUILTIN_GATEWAY_URL, DEFAULT_GATEWAY_URL
 from abstractassistant.speculation import normalize_speculation
 
 
@@ -588,7 +588,13 @@ class PreferencesStore(JsonStore):
 
 class GatewayConnectionStore(JsonStore):
     def load(self) -> GatewayConnectionPreferences:
-        return GatewayConnectionPreferences.from_dict(self._read() or {})
+        loaded = GatewayConnectionPreferences.from_dict(self._read() or {})
+        # A sign-in saved against the old built-in default follows this computer's
+        # gateway when it lives elsewhere (the installer moves it off a busy 8080);
+        # a URL chosen on purpose is kept.
+        if loaded.base_url == BUILTIN_GATEWAY_URL != DEFAULT_GATEWAY_URL:
+            return replace(loaded, base_url=DEFAULT_GATEWAY_URL)
+        return loaded
 
     def save(self, connection: GatewayConnectionPreferences) -> None:
         self._write(connection.to_dict())

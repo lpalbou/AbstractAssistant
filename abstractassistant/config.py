@@ -1,18 +1,67 @@
 """
 Runtime configuration for AbstractAssistant.
 
-Tray mode is gateway-first and resolves gateway connection settings from the
-environment. File-based `config.toml` loading is intentionally unsupported.
+Tray mode is gateway-first and resolves gateway connection settings from launch
+flags (with their legacy environment aliases). File-based `config.toml` loading
+is intentionally unsupported.
+
+Which gateway the app connects to, first match wins:
+
+1. `--gateway-url` (legacy alias: `ABSTRACTGATEWAY_URL` / `ABSTRACTFLOW_GATEWAY_URL`);
+2. the sign-in saved in Settings -> Connection (`gateway_connection.json`);
+3. this computer's gateway, by the gateway's own `local_gateway()` rule, when an
+   abstractgateway that provides it (0.6.0 or later) is installed in the same
+   Python as the Assistant;
+4. `BUILTIN_GATEWAY_URL` (http://127.0.0.1:8080).
+
+Tiers 3 and 4 form `DEFAULT_GATEWAY_URL`, resolved once per process.
 """
 
 from __future__ import annotations
 
+import importlib
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+
+BUILTIN_GATEWAY_URL = "http://127.0.0.1:8080"
+
+_GATEWAY_MODULES = frozenset({"abstractgateway", "abstractgateway.first_run"})
 
 
-DEFAULT_GATEWAY_URL = "http://127.0.0.1:8080"
+def _gateway_local_rule() -> Optional[Callable[[], Mapping[str, Any]]]:
+    """The gateway's `local_gateway()` rule, or None when this Python has none.
+
+    None means exactly one of two things: abstractgateway is not installed next
+    to the Assistant (the Assistant's own install, the frozen macOS app), or the
+    installed gateway predates the rule (abstractgateway < 0.6.0 has no
+    `first_run.local_gateway`). Any other failure to import an installed
+    gateway (a missing dependency of the gateway, a syntax error) is raised.
+    """
+    try:
+        first_run = importlib.import_module("abstractgateway.first_run")
+    except ModuleNotFoundError as exc:
+        if exc.name in _GATEWAY_MODULES:
+            return None
+        raise
+    return getattr(first_run, "local_gateway", None)
+
+
+def _local_gateway_url() -> str:
+    """Tiers 3-4 of the module rule: this computer's gateway, else the built-in URL.
+
+    The gateway's rule reads its data directory's records (the running gateway,
+    a pinned OS service, the stored Network setting port), so an installer that
+    moved the gateway off a busy 8080 is followed. Errors raised by the rule
+    itself propagate: they belong to the gateway's install, not to this app.
+    """
+    rule = _gateway_local_rule()
+    if rule is None:
+        return BUILTIN_GATEWAY_URL
+    return str(rule()["url"]).strip().rstrip("/")
+
+
+DEFAULT_GATEWAY_URL = _local_gateway_url()
 
 
 def _env_first(*names: str) -> str:
