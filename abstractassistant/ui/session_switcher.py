@@ -59,7 +59,7 @@ from ..core.automations import (
     group_by_automation,
     last_run_text,
     next_run_text,
-    occurrence_in_progress,
+    current_run,
     status_pill,
     trigger_summary,
 )
@@ -835,7 +835,7 @@ class AutomationTabRow(RowCard):
         progress. The card's only control."""
         controls = automation_controls(summary)
         status = summary.get("status")
-        running = occurrence_in_progress(summary)
+        running = current_run(summary) is not None
         if status == "active":
             kind, control, icon, color, tip = "active", "pause", "play", THEME.positive, "Active — click to pause"
         elif status == "paused":
@@ -918,17 +918,22 @@ class AutomationTabRow(RowCard):
 
     @staticmethod
     def _result_text(summary: Dict[str, Any], last: Optional[Dict[str, Any]]) -> str:
+        current = current_run(summary)
+        if current is not None:
+            text = f"Run #{current.get('index')} running"
+            return f"{text} · paused after this run" if summary.get("status") == "paused" else text
         if last is None:
             return "No run yet."
-        if last.get("status") in {"running", "admitted", "backoff"}:
-            text = f"Run #{last.get('index')} running"
-            return f"{text} · paused after this run" if summary.get("status") == "paused" else text
         text = " ".join(str(last.get("excerpt") or "").split())
         if not text and last.get("status") == "waiting":
             attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
             waits = [w for w in attention.get("waits") or [] if isinstance(w, dict) and w.get("prompt")]
             text = " ".join(str(waits[0]["prompt"]).split()) if waits else ""
-        return text or f"Run #{last.get('index')} {last.get('status') or ''}".strip()
+        status = str(last.get("status") or "")
+        # Never "running" from the last occurrence: that is current_occurrence's job.
+        if status in {"admitted", "running", "backoff"}:
+            status = ""
+        return text or f"Run #{last.get('index')} {status}".strip()
 
     @staticmethod
     def _chip_label(chip: QWidget) -> QLabel:

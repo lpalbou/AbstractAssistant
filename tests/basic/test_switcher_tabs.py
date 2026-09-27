@@ -185,7 +185,7 @@ def test_status_pills_per_state() -> None:
     from abstractassistant.core.automations import status_pill
 
     news, journal, triage = _by_id(NEWS), _by_id(JOURNAL), _by_id(TRIAGE)
-    running = dict(news, last_occurrence=dict(news["last_occurrence"], status="running"))
+    running = dict(news, current_occurrence={"index": 7, "run_id": "r7", "attempt": 1, "status": "running"})
     assert status_pill(news) == ("active", "active")
     assert status_pill(journal) == ("paused", "paused")
     assert status_pill(running) == ("running", "running")
@@ -402,7 +402,8 @@ def _variant(base: str, *, status: str, running: bool) -> Dict[str, Any]:
     summary = _by_id(base)
     summary["status"] = status
     summary["attention"] = dict(summary["attention"], pending_waits=0, waits=[])
-    summary["last_occurrence"] = dict(summary["last_occurrence"], index=37, status="running" if running else "completed")
+    summary["last_occurrence"] = dict(summary["last_occurrence"], index=36, status="completed")
+    summary["current_occurrence"] = {"index": 37, "run_id": "r37", "attempt": 1, "status": "running"} if running else None
     if status == "archived":
         summary["capabilities"] = ["discuss"]
     return summary
@@ -448,13 +449,38 @@ def test_the_state_button_shows_the_state(status, running, glyph_kind, tooltip, 
 
 
 @pytest.mark.basic
-def test_an_active_automation_without_next_fire_at_still_says_when_next() -> None:
+def test_next_comes_only_from_the_gateway() -> None:
     from datetime import datetime, timezone
 
     from abstractassistant.core.automations import next_run_text
 
+    now = datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc)
     summary = _variant(NEWS, status="active", running=True)
-    summary.pop("next_fire_at", None)  # the gateway omits it while a run is in progress
-    now = datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc)  # anchor 2026-09-25T08:00, every 8 h -> next 16:00
+    summary["next_fire_at"] = "2026-09-27T16:00:00+00:00"
     assert next_run_text(summary, now=now) == "next in 7 h"
-    assert next_run_text(dict(summary, status="paused"), now=now) == "next —"
+    for value in (None, "absent"):
+        missing = dict(summary)
+        if value == "absent":
+            missing.pop("next_fire_at")
+        else:
+            missing["next_fire_at"] = None
+        assert next_run_text(missing, now=now) == "next —"  # no schedule arithmetic in the client
+
+
+@pytest.mark.basic
+def test_the_card_never_infers_running_from_the_last_occurrence() -> None:
+    _app()
+    summary = _by_id(NEWS)
+    summary["last_occurrence"] = dict(summary["last_occurrence"], index=37, status="running", excerpt="")
+    summary.pop("current_occurrence", None)
+    row = switcher_module.AutomationTabRow(summary)
+    assert row.state_button.pulsing is False
+    assert "running" not in row.result_label.toolTip()
+    from abstractassistant.core.automations import status_pill
+
+    assert status_pill(summary)[1] != "running"
+    summary["current_occurrence"] = {"index": 38, "run_id": "r38", "attempt": 2, "status": "backoff"}
+    live = switcher_module.AutomationTabRow(summary)
+    assert live.state_button.pulsing is True and live.result_label.toolTip() == "Run #38 running"
+    row.deleteLater()
+    live.deleteLater()
