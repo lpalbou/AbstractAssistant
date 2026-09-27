@@ -1,6 +1,6 @@
 # 0852 — Automations in the Assistant: gateway-fed section, "Schedule this", notifications, Discuss
 
-**Status**: planned · **Priority**: high · **Created**: 2026-09-26
+**Status**: completed — UNRELEASED (local commits on `main`; package still 0.7.0; the release is in the framework wave, root backlog 0941) · **Priority**: high · **Created**: 2026-09-26 · **Completed**: 2026-09-27
 **Package**: abstractassistant · **Wave**: Automations v1 (next minor wave; mission **A**)
 **Related**: abstractframework backlog 0928 (root Automations v1 item)
 
@@ -315,3 +315,59 @@ binding) / archive, an `ask_user` wait answered from the palette (typed `kind`),
 (ECHO[2]), a follow-up turn (ECHO[4]), and `session_kind=chat,discussion` sent because the gateway
 advertises it. Not walked for real: a `tool_approval` wait (needs a tool-calling agent; covered by the
 fixture stub).
+
+## Completion report (2026-09-27)
+
+**Status: completed — UNRELEASED.** Local commits on `main`, no version bump, not pushed. Umbrella record:
+abstractframework backlog 0928 (completed); release: root 0941. The Assistant needs no new gateway pin: the section is
+gated at runtime on `contracts.common.automations.available`.
+
+**Commits:** `e3a0445` … `d142d00`, plus docs `7248daf`, `05161da`, `52d75df` (12 commits; tip `52d75df`).
+- **Built against the fixtures:**
+  - `e3a0445`: the contract-F client, the switcher section, the automation view, "Schedule this conversation", tray
+    notifications.
+  - `2f38ef5`: tests with the fixture stub and the three scenarios.
+  - `2768176`: a poll never rebuilds under the user's typing.
+  - `57225cf`: docs.
+- **Capability gate, `1b7b4c9`:** absent or false hides everything; unreadable capabilities are an error.
+- **Decision D1, `af7e6af`:**
+  - wait answers are chosen by `kind` (`gateway/client.py` `wait_answer_payload`, shared with live chats);
+  - tool-approval waits list their tool calls;
+  - the Schedule sheet sends `policy.tool_approval` with the consent line;
+  - the session list sends `session_kind=chat,discussion` when the gateway advertises it.
+- **`3a8f4c8`:** docs and integration evidence.
+- **Review 49 A49-2, `cce2d67`:** an event wait is answered with `{payload: <JSON>}`.
+- **`d142d00`:** re-vendors the six fixtures from abstractuic `a9b73ab`. Legacy rows open read-only. A duplicate receipt
+  reads "already received". The clock button acts only once a poll confirmed automations.
+- **Docs:** `7248daf`, `05161da`, `52d75df`.
+
+**Tests and walk:**
+- Suite **967** (review 49 ran 966 passed / 1 skipped on its export; the skip needs an abstractuic checkout).
+- `tests/basic/test_automations.py`, with the fixtures in `tests/basic/fixtures/automations/` (byte-identical to the kit;
+  root `scripts/check_identity_sync.py`).
+- **27/27-step walk** of the real `AssistantPalette` (offscreen, scratch HOME) against a hermetic gateway, with 0
+  provider calls (section "Integration against the hermetic gateway" above).
+- Mutations 4/4 RED (review 49).
+
+**Review:** 49 GO for the operator's machine (root `untracked/missions-2026-09-25/REVIEW/49-assistant-automations.md`).
+- A49-1 (waits untyped at the committed gateway) → gateway `2146145` / `f9269d9`.
+- A49-2 → `cce2d67` + gateway `5161785` (the gateway refuses non-`{payload: <object>}` event answers).
+
+**Definition of Done, against what shipped:**
+- **Scenarios 1 and 3:** walked (independent and growing monitors, Discuss badged, occurrences as chats). The
+  framework E2E showed the history bundles and growing context with the real model.
+- **Scenario 2:** an `ask_user` wait was answered from the palette, and a notify-only-when-urgent result shows once.
+- **Quiet results:** quiet by default instead of `notify:false` (contracts pass).
+- **Automations created elsewhere** (for example by the Observer) appear without local action.
+- **Regular chats:** no automation or occurrence session appears among them.
+- **Discuss:** the target's normal tools on a read-only workspace (ruling 8).
+
+**Residuals:**
+- **A49-3.** `NotificationLedger.add` swallows write errors ("in-memory dedupe still holds") and caps at 2,000 keys
+  (`core/automations.py`, `MAX_KEYS = 2000`). A failed write or an evicted key re-notifies silently. Log the failure and
+  document the cap.
+- **A49-4.** On gateways that do not advertise the `session_kind` filter, the client-side fallback can hide chats when a
+  page is full of occurrence rows.
+- **Tool list.** The target's tool list is not shown for `@default` targets in the Schedule sheet's consent line.
+- **Not walked for real:** a `tool_approval` wait with a tool-calling agent. It is covered by the fixture stub and the
+  framework E2E (gateway side).

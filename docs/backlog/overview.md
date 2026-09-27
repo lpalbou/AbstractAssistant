@@ -7,9 +7,13 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 9
+- Planned: 7
 - Proposed: 5
-- Completed: 1
+- Completed: 3
+
+Counts recomputed from disk on 2026-09-27 while completing 0852 (the block said 9 / 1 before). Flagged, not fixed in
+that pass: `completed/0853_sessions_are_gateway_first.md` sits in `completed/` but its status line still reads
+"planned" and it is listed under Planned Items below; 0009 is on disk but not in the table.
 - Deprecated: 0
 - Recurrent: 0
 
@@ -37,7 +41,6 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 | ID | Item | Status | Notes |
 |---|---|---|---|
 | [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Planned | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
-| [0852](planned/0852_automations_in_the_assistant.md) | Automations in the Assistant | Planned | Automations v1 mission A (root 0928): gateway-fed Automations section grouped by `automation_id`, tray "Automations…", "Schedule this conversation…", `changed_since` polling into tray notifications, occurrences as a chat, Discuss as a normal session, answering occurrence waits; regular list = `chat` + `discussion` by `session_kind`. Needs gateway API + abstractuic fixtures. Contracts pass 2026-09-27: see the item's section and root `untracked/design/automations-CONTRACTS.md`. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |
 | [0002](planned/0002_gateway_native_assistant_v2_rollout.md) | Gateway-native assistant v2 rollout | Planned | Broader rollout and legacy de-emphasis after the single-path contract cleanup. |
@@ -57,6 +60,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [0852](completed/0852_automations_in_the_assistant.md) | Automations in the Assistant | Completed 2026-09-27, UNRELEASED | Automations v1 mission A (root 0928): gateway-fed Automations section, the automation view (chat pairs, controls, Discuss, wait answers by kind), "Schedule this conversation" with the tool-approval consent, tray notifications from a 60 s / 5 min poll, and a regular list of `chat` + `discussion`. `e3a0445`…`52d75df`; suite 967; walk 27/27 against a hermetic gateway; review 49 GO. Release: root 0941. |
 | [0005](completed/0005_single_gateway_workflow_contract_cleanup.md) | Single gateway workflow contract cleanup | Completed | Removed active hybrid runtime behavior and codified the canonical managed workflow boundary. |
 
 ## Deprecated Items
