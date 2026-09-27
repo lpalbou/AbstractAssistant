@@ -225,25 +225,20 @@ CONTROL_COMMANDS = {
 _IN_PROGRESS = {"running", "waiting", "backoff"}
 
 
-def occurrence_in_progress(summary: Mapping[str, Any], occurrences: Sequence[Mapping[str, Any]] = ()) -> bool:
-    last = summary.get("last_occurrence")
-    if isinstance(last, Mapping) and last.get("status") in _IN_PROGRESS:
-        return True
-    return any(o.get("status") in _IN_PROGRESS for o in occurrences)
+def occurrence_in_progress(summary: Mapping[str, Any]) -> bool:
+    """Whether a run is in progress: the gateway's ``current_occurrence`` (see
+    ``current_run``), the one source in the whole app — never inferred from
+    ``last_occurrence`` or from occurrence rows."""
+    return current_run(summary) is not None
 
 
-def automation_controls(
-    summary: Mapping[str, Any],
-    occurrences: Sequence[Mapping[str, Any]] = (),
-    *,
-    busy: bool = False,
-) -> Dict[str, Tuple[bool, str]]:
+def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Dict[str, Tuple[bool, str]]:
     """``control -> (enabled, reason)``. The server decides what the principal
     may do (``capabilities``); the status decides which of them apply now.
     Run now stays enabled while paused (it does not resume)."""
     caps = set(summary.get("capabilities") or ())
     status = summary.get("status")
-    running = occurrence_in_progress(summary, occurrences)
+    running = occurrence_in_progress(summary)
     live = status in {"active", "paused"}
 
     def gate(control: str, ok: bool, reason: str) -> Tuple[bool, str]:

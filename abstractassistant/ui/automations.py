@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import (
 
 from ..core.automations import (
     CONTROL_COMMANDS,
+    current_run,
     PENDING_TEXT,
     command_confirmed,
     SCHEDULE_PRESETS,
@@ -69,7 +70,6 @@ from .styles import alpha, dialog_stylesheet, refresh_style
 __all__ = [
     "AUTOMATIONS_POLL_VISIBLE_MS",
     "AUTOMATIONS_POLL_HIDDEN_MS",
-    "AutomationRow",
     "AutomationView",
     "AutomationsHub",
     "ScheduleSheet",
@@ -98,10 +98,7 @@ def _next_run_text(summary: Mapping[str, Any]) -> str:
         return STATUS_LABELS.get(str(status), str(status)).lower()
     nxt = summary.get("next_fire_at")
     if not nxt:
-        last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), Mapping) else {}
-        # While an occurrence runs or waits, the gateway reports no next time
-        # (due ticks coalesce after it).
-        return str(last.get("status") or "no next run") if last.get("status") in {"running", "waiting", "backoff", "admitted"} else "no next run"
+        return "no next run"
     try:
         when = datetime.fromisoformat(str(nxt).replace("Z", "+00:00"))
         delta = (when - datetime.now(timezone.utc)).total_seconds()
@@ -218,144 +215,6 @@ def automation_row_qss() -> str:
 
 
 # ---------------------------------------------------------- switcher rows
-
-
-class AutomationRow(QFrame):
-    """One automation in the switcher's Automations section."""
-
-    chosen = pyqtSignal(str)
-
-    def __init__(self, summary: Mapping[str, Any], *, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.summary = dict(summary)
-        self.automation_id = str(summary.get("automation_id") or "")
-        self.setObjectName("sessionRow")
-        self.setProperty("active", "false")
-        self.setProperty("selected", "false")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setAttribute(Qt.WA_Hover, True)
-
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 7, 8, 7)
-        root.setSpacing(9)
-        self.spine = QFrame(self)
-        self.spine.setObjectName("rowSpine")
-        self.spine.setFixedWidth(3)
-        self.spine.setProperty("tone", self._spine_tone())
-        self.spine.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        root.addWidget(self.spine)
-
-        column = QVBoxLayout()
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(3)
-        root.addLayout(column, 1)
-
-        head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(6)
-        self.title_label = QLabel(str(summary.get("title") or "Automation"), self)
-        self.title_label.setObjectName("rowTitle")
-        self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        head.addWidget(self.title_label, 1)
-        self.badge_label = QLabel(self.badge_text, self)
-        self.badge_label.setObjectName("autoBadge")
-        self.badge_label.setVisible(bool(self.badge_text))
-        head.addWidget(self.badge_label, 0, Qt.AlignVCenter)
-        self.next_label = QLabel(_next_run_text(summary), self)
-        self.next_label.setObjectName("rowTime")
-        self.next_label.setToolTip(f"Next run: {format_utc(summary.get('next_fire_at'))}" if summary.get("next_fire_at") else "")
-        head.addWidget(self.next_label, 0, Qt.AlignVCenter)
-        column.addLayout(head)
-
-        status = STATUS_LABELS.get(str(summary.get("status") or ""), str(summary.get("status") or ""))
-        mode = "growing" if summary.get("context_mode") == "growing" else "independent"
-        self.cadence_label = QLabel(f"{self.cadence} · {status} · {mode}", self)
-        self.cadence_label.setObjectName("autoCadence")
-        self.cadence_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        column.addWidget(self.cadence_label)
-
-        last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), Mapping) else None
-        excerpt = ""
-        tone = ""
-        if last is not None:
-            last_status = str(last.get("status") or "")
-            text = str(last.get("excerpt") or "")
-            if not text and last_status == "waiting":
-                # The question itself, from the summary's pending waits.
-                attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
-                waits = [w for w in attention.get("waits") or [] if isinstance(w, Mapping) and w.get("prompt")]
-                text = f"waiting for you: {waits[0]['prompt']}" if waits else ""
-            excerpt = f"#{last.get('index')} {last_status}: {_clip(text)}".rstrip(": ")
-            if last_status in {"failed", "waiting"}:
-                tone = "warn"
-        self.excerpt_label = QLabel(excerpt or "No run yet.", self)
-        self.excerpt_label.setObjectName("autoExcerpt")
-        if tone:
-            self.excerpt_label.setProperty("tone", tone)
-        self.excerpt_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        column.addWidget(self.excerpt_label)
-        self.setToolTip(
-            "\n".join(
-                line
-                for line in (
-                    str(summary.get("title") or ""),
-                    self.cadence,
-                    f"Next run: {format_utc(summary.get('next_fire_at'))}" if summary.get("next_fire_at") else "",
-                    f"Automation id: {self.automation_id}",
-                )
-                if line
-            )
-        )
-
-    @property
-    def cadence(self) -> str:
-        trigger = self.summary.get("trigger")
-        return trigger_summary(trigger) if isinstance(trigger, Mapping) else ""
-
-    @property
-    def badge_text(self) -> str:
-        attention = self.summary.get("attention") if isinstance(self.summary.get("attention"), Mapping) else {}
-        parts = []
-        unseen = int(attention.get("unseen_count") or 0)
-        waits = int(attention.get("pending_waits") or 0)
-        if unseen:
-            parts.append(f"{unseen} NEW")
-        if waits:
-            parts.append("WAITING")
-        return " · ".join(parts)
-
-    def _spine_tone(self) -> str:
-        attention = self.summary.get("attention") if isinstance(self.summary.get("attention"), Mapping) else {}
-        if int(attention.get("pending_waits") or 0) or int(attention.get("unseen_count") or 0):
-            return "warn"
-        status = self.summary.get("status")
-        if status == "active":
-            return "fresh"
-        return "idle"
-
-    def matches(self, query: str) -> bool:
-        needle = " ".join(str(query or "").lower().split())
-        if not needle:
-            return True
-        hay = " ".join(
-            str(x or "").lower()
-            for x in (self.summary.get("title"), self.cadence, (self.summary.get("last_occurrence") or {}).get("excerpt"))
-        )
-        return all(word in hay for word in needle.split())
-
-    def elide_labels(self, width: int) -> None:
-        from PyQt5.QtGui import QFontMetrics
-
-        available = max(80, int(width) - 150)
-        self.title_label.setText(
-            QFontMetrics(self.title_label.font()).elidedText(str(self.summary.get("title") or ""), Qt.ElideRight, available)
-        )
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        if event.button() == Qt.LeftButton:
-            self.chosen.emit(self.automation_id)
-            return
-        super().mouseReleaseEvent(event)
 
 
 # ------------------------------------------------------------ the view
@@ -898,7 +757,7 @@ class AutomationView(QFrame):
         return str(self.summary.get("automation_id") or "")
 
     def controls(self) -> Dict[str, Any]:
-        return automation_controls(self.summary, self.occurrences, busy=self.busy)
+        return automation_controls(self.summary, busy=self.busy)
 
     def set_summary(self, summary: Mapping[str, Any]) -> None:
         """Re-render the header and controls. The chat pairs are rebuilt only
@@ -914,7 +773,9 @@ class AutomationView(QFrame):
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
         status = STATUS_LABELS.get(str(summary.get("status") or ""), str(summary.get("status") or ""))
         mode = "Growing — each run sees the previous runs" if summary.get("context_mode") == "growing" else "Independent — each run starts fresh"
-        parts = [trigger_summary(trigger), status, _next_run_text(summary), mode, f"{int(summary.get('occurrence_count') or 0)} runs"]
+        current = current_run(summary)
+        running = f"run #{current.get('index')} running" if current is not None else ""
+        parts = [trigger_summary(trigger), status, running, _next_run_text(summary), mode, f"{int(summary.get('occurrence_count') or 0)} runs"]
         self.meta_label.setText(" · ".join(p for p in parts if p))
         attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
         lines = []

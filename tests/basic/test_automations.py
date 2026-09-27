@@ -465,8 +465,12 @@ def test_controls_follow_status_and_run_now_stays_enabled_while_paused() -> None
     active = automation_controls(news)
     assert active["pause"][0] is True and active["resume"][0] is False and active["run_now"][0] is True
     assert active["stop_current"][0] is False
-    busy = automation_controls(triage)  # the last occurrence is waiting
+    # A run in progress = the gateway's current_occurrence, never last_occurrence.
+    busy = automation_controls(dict(triage, current_occurrence={"index": 7, "run_id": "r7", "attempt": 1, "status": "running"}))
     assert busy["run_now"][0] is False and busy["stop_current"][0] is True
+    assert busy["run_now"][1] == "An occurrence is in progress."
+    inferred = automation_controls(dict(triage, current_occurrence=None))  # last_occurrence says "waiting"
+    assert inferred["run_now"][0] is True and inferred["stop_current"][0] is False
     archived = automation_controls(dict(news, status="archived"))
     assert not any(enabled for enabled, _ in archived.values())
     legacy = automation_controls(legacy_row)  # the real legacy row: capabilities ["legacy"]
@@ -724,6 +728,7 @@ def palette(stub, tmp_path, monkeypatch):
 @pytest.mark.basic
 def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(palette, stub) -> None:
     window, _controller = palette
+    stub.summary(TRIAGE)["current_occurrence"] = {"index": 7, "run_id": "ade23773", "attempt": 1, "status": "running"}
     window._poll_automations()
     assert [t for t, _ in window._notified] == [
         "2 urgent emails",
@@ -747,7 +752,8 @@ def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(pa
     assert any("IMAP read timed out" in t and "3 attempts" in t for t in failed_texts)
     # Viewing acknowledged the DISPLAYED items (the last one's cursor).
     assert stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/seen")[-1]["body"] == {"attention_cursor": "att1:2"}
-    # Busy (waiting occurrence): run now off, stop current on.
+    # A run in progress (current_occurrence): run now off, stop current on, said in the header.
+    assert "run #7 running" in view.meta_label.text()
     assert not view.control_buttons["run_now"].isEnabled()
     assert view.control_buttons["stop_current"].isEnabled()
     window._close_automation_view()
@@ -1034,22 +1040,6 @@ def test_the_runs_filters_are_read_from_the_capabilities() -> None:
     )
     assert "session_kind" in advertised.runs_list_filters()
     assert AssistantCapabilities.from_discovery_response({"capabilities": {"contracts": {"common": {}}}}).runs_list_filters() == []
-
-
-@pytest.mark.basic
-def test_a_waiting_row_without_an_excerpt_shows_the_question() -> None:
-    global _APP
-    _APP = _qt()
-    from abstractassistant.ui.automations import AutomationRow
-
-    triage = _summary_fixture(TRIAGE)
-    triage["last_occurrence"]["excerpt"] = ""  # what the gateway sends while an occurrence waits
-    triage.pop("next_fire_at", None)
-    row = AutomationRow(triage)
-    assert row.excerpt_label.text().startswith("#7 waiting: waiting for you: The landlord asks")
-    assert row.next_label.text() == "waiting"
-    row.deleteLater()
-
 
 
 @pytest.mark.basic
@@ -1624,3 +1614,26 @@ def test_the_views_controls_are_pending_until_the_state_changes(palette, stub, t
     held[1][2](False, AutomationApiError(status=409, reason_code="invalid_state", message="Automation is archived."))
     assert view.pending is None and view.control_buttons["resume"].isEnabled()
     assert "archived" in view.error_label.text().lower()
+
+
+@pytest.mark.basic
+def test_the_view_never_infers_a_run_in_progress_from_the_last_occurrence(palette, stub) -> None:
+    """One source for "a run is in progress" in the whole app: current_occurrence."""
+    window, _controller = palette
+    news = stub.summary(NEWS)
+    news["last_occurrence"] = dict(news["last_occurrence"], status="running")
+    news.pop("current_occurrence", None)
+    window._poll_automations()
+    window._open_automation(NEWS)
+    view = window.automation_view
+    assert view.control_buttons["run_now"].isEnabled() and not view.control_buttons["stop_current"].isEnabled()
+    assert "running" not in view.meta_label.text()
+    news["current_occurrence"] = {"index": 7, "run_id": "r7", "attempt": 1, "status": "admitted"}
+    window._poll_automations()
+    assert not view.control_buttons["run_now"].isEnabled() and view.control_buttons["stop_current"].isEnabled()
+    assert "run #7 running" in view.meta_label.text()
+    # The pending confirmations read it too: Stop is confirmed once it is gone.
+    from abstractassistant.core.automations import command_confirmed
+
+    assert command_confirmed("stop_current", news, dict(news, current_occurrence=None)) is True
+    assert command_confirmed("stop_current", news, dict(news, last_occurrence=dict(news["last_occurrence"], status="running"))) is False
