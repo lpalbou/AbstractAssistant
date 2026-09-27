@@ -61,7 +61,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
 - [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
 - [docs/architecture.md](docs/architecture.md): components, gateway boundary, sessions on the gateway, automations (diagram, polling, capability gate), run lifecycle with live replies, console sign-in hand-over, module map
-- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
+- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), which gateway the app connects to (incl. the `~/.abstractframework/gateway.json` pointer file), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
@@ -840,8 +840,11 @@ archived** in the tab's header, and **+ New automation** creates one (below). Ea
 - the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
   runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
   folder and it is on this Mac), and at the far right the card's one button, which shows the
-  automation's state: a green ▶ with a soft glow when it is active (click to pause), an amber ⏸
-  when it is paused (click to resume), grey when archived. It pulses slowly while a run is in
+  automation's state in words and as a glyph, the word on the left: **Active ▶** in green, the ▶
+  with a soft glow (click to pause); **Paused ⏸** in amber (click to resume); **Archived** in grey,
+  disabled. The word is the gateway's status for the automation, with the same wording as the
+  other AbstractFramework clients, and it changes only when the gateway reports the new state.
+  The button pulses slowly while a run is in
   progress (line 2 then reads "Run #37 running", plus "· paused after this run" when paused). After
   a click it spins until the gateway confirms the new state; if the gateway refuses, it comes back
   with the reason in its tooltip.
@@ -1091,19 +1094,36 @@ The first match wins:
 1. `--gateway-url URL` (or its legacy environment alias `ABSTRACTGATEWAY_URL` /
    `ABSTRACTFLOW_GATEWAY_URL`);
 2. the sign-in saved in Settings → Connection (`gateway_connection.json`);
-3. this computer's gateway, found by the gateway's own rule (its running server, else its pinned
-   OS service, else the port stored in its Network setting, else `127.0.0.1:8080`). This tier
-   applies when AbstractGateway 0.6.0 or later is installed in the same Python environment as the
-   Assistant, as the AbstractFramework installer does;
-4. `http://127.0.0.1:8080`, when AbstractGateway is not installed next to the Assistant (for
-   example the macOS app bundle) or the installed gateway is older than 0.6.0.
+3. this computer's gateway:
+   - when AbstractGateway 0.6.0 or later is installed in the same Python environment as the
+     Assistant (as the AbstractFramework installer does), the gateway's own rule: its running
+     server, else its pinned OS service, else the port stored in its Network setting, else
+     `127.0.0.1:8080`;
+   - otherwise (the macOS app bundle, which does not include AbstractGateway, or a gateway older
+     than 0.6.0), the local gateway pointer file `~/.abstractframework/gateway.json`, which the
+     AbstractFramework installer and `abstractgateway serve` write with the address the gateway
+     listens on;
+4. `http://127.0.0.1:8080`.
 
-The gateway's rule is consulted only when neither tier 1 nor tier 2 applies, so a launch that
-names its gateway, or a saved sign-in, never depends on it. A sign-in saved against
-`http://127.0.0.1:8080` follows tier 3 when this computer's gateway answers elsewhere; a sign-in
-saved for any other URL is kept as you chose it. When tier 3 is needed and an installed
-AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error instead
-of guessing a URL.
+Tier 3 is consulted only when neither tier 1 nor tier 2 applies, so a launch that names its
+gateway, or a saved sign-in, never depends on it. A sign-in saved against `http://127.0.0.1:8080`
+follows tier 3 when this computer's gateway answers elsewhere; a sign-in saved for any other URL is
+kept as you chose it. When tier 3 is needed and an installed AbstractGateway cannot be imported, or
+its rule fails, the Assistant stops with that error instead of guessing a URL.
+
+The pointer file is read once per launch and holds no token. A missing file is normal (no
+installer ran, or the gateway was uninstalled) and gives tier 4. The app ignores the file, logs one
+warning naming the reason, and uses tier 4 when the file cannot be read, is not JSON, has a
+`schema` other than `1`, has a `url` that is not `http`/`https` on `127.0.0.1`, `::1` or
+`localhost`, or (macOS, Linux) is owned by another user. The file's format:
+
+```json
+{"schema": 1, "url": "http://127.0.0.1:8081", "port": 8081,
+ "data_dir": "/Users/me/Library/Application Support/abstractgateway",
+ "updated_at": "2026-09-27T12:00:00Z", "written_by": "installer"}
+```
+
+Only `schema` and `url` are read; the other fields are for the gateway and the installer.
 
 - `--gateway-url URL` — the gateway to use. Without `--gateway-token`, the sign-in saved for that
   gateway in `gateway_connection.json` is used.
@@ -1190,6 +1210,9 @@ All under `~/.abstractassistant/`:
   ([automations.md](automations.md#notifications-and-the-two-polls)). Deleting it can repeat
   notifications for items still unseen on the gateway; nothing else is lost.
 - `downloads/`, `gateway_audio/` — downloaded artifacts and cached speech audio
+
+Read, never written: `~/.abstractframework/gateway.json`, the local gateway pointer file (see
+[Which gateway the app connects to](#which-gateway-the-app-connects-to)).
 
 ## Run input pins
 
@@ -1363,6 +1386,11 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 - `gateway_connection.json` — gateway URL and sign-in state
 - the session cache (see [Sessions](#sessions)) — rebuildable from the gateway at any time
 - downloaded artifacts
+
+It reads, and never writes, the local gateway pointer file `~/.abstractframework/gateway.json`
+that the AbstractFramework installer and `abstractgateway serve` keep, to find this computer's
+gateway when AbstractGateway is not installed in the Assistant's Python (the macOS app bundle).
+The order is in [api.md](api.md#which-gateway-the-app-connects-to).
 
 ## Sessions
 
@@ -2357,6 +2385,23 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## Unreleased
+
+### Changed
+- **Automation cards say their state in words.** In the switcher's Automations tab, the button on
+  the right of each card reads **Active ▶** (green) or **Paused ⏸** (amber), the word to the left
+  of the glyph, instead of the glyph alone; an archived automation reads **Archived** (grey). The
+  word is the gateway's status, with the same wording as the other clients, and changes only once
+  the gateway reports the new state.
+
+### Added
+- **The macOS app finds a gateway that is not on port 8080.** Without AbstractGateway in its own
+  Python (the app bundle), the Assistant reads the local gateway pointer file
+  `~/.abstractframework/gateway.json`, written by the AbstractFramework installer and by
+  `abstractgateway serve`, after `--gateway-url` and the saved sign-in and before
+  `http://127.0.0.1:8080`. A sign-in saved against the old `http://127.0.0.1:8080` default follows
+  it. Only a loopback URL in a file you own with `schema` 1 is used; any other file is ignored with
+  one warning. A missing file is normal. See
+  [docs/api.md](docs/api.md#which-gateway-the-app-connects-to).
 
 ## [0.8.0] - 2026-09-27
 
@@ -3661,9 +3706,11 @@ Which gateway the app connects to, first match wins:
 
 1. `--gateway-url` (legacy alias: `ABSTRACTGATEWAY_URL` / `ABSTRACTFLOW_GATEWAY_URL`);
 2. the sign-in saved in Settings -> Connection (`gateway_connection.json`);
-3. this computer's gateway, by the gateway's own `local_gateway()` rule, when an
+3. this computer's gateway: by the gateway's own `local_gateway()` rule when an
    abstractgateway that provides it (0.6.0 or later) is installed in the same
-   Python as the Assistant;
+   Python as the Assistant; otherwise (the frozen macOS app, an Assistant-only
+   install) by the local gateway pointer file `~/.abstractframework/gateway.json`
+   that the installer and the gateway's `serve` write (`read_gateway_pointer()`);
 4. `BUILTIN_GATEWAY_URL` (http://127.0.0.1:8080).
 
 Tier 1 is `resolve_gateway_connection()` (its `url` is empty when no flag or
@@ -3676,11 +3723,23 @@ from __future__ import annotations
 
 import functools
 import importlib
+import json
+import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, NamedTuple, Optional
+from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
 
 BUILTIN_GATEWAY_URL = "http://127.0.0.1:8080"
+
+# The local gateway pointer file (root backlog 0943): where this computer's
+# installed gateway listens, written by the installer and by `abstractgateway
+# serve`. Loopback URL only, owned by the current user, never a token.
+GATEWAY_POINTER_SCHEMA = 1
+_POINTER_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 _GATEWAY_MODULES = frozenset({"abstractgateway", "abstractgateway.first_run"})
 
@@ -3703,6 +3762,59 @@ def _gateway_local_rule() -> Optional[Callable[[], Mapping[str, Any]]]:
     return getattr(first_run, "local_gateway", None)
 
 
+def gateway_pointer_path() -> Path:
+    """`~/.abstractframework/gateway.json` (`%USERPROFILE%` on Windows)."""
+    return Path.home() / ".abstractframework" / "gateway.json"
+
+
+def read_gateway_pointer(path: Optional[Path] = None) -> str:
+    """The URL recorded in the local gateway pointer file, or "".
+
+    "" without a word when the file does not exist (no installer ran, or the
+    gateway was uninstalled). A file that exists but is not a pointer this app
+    may follow -- unreadable, not JSON, an unknown ``schema``, a ``url`` that is
+    not http(s) on 127.0.0.1 / ::1 / localhost, or (POSIX) a file owned by
+    another user -- is ignored with one warning naming the reason: it must
+    never send this app's credentials anywhere else, and it must never stop a
+    launch (the contract in root backlog 0943).
+    """
+    path = gateway_pointer_path() if path is None else path
+    try:
+        raw = path.read_text(encoding="utf-8")
+        owner = path.stat().st_uid
+    except FileNotFoundError:
+        return ""
+    except OSError as exc:
+        return _refuse_pointer(path, f"unreadable ({exc})")
+    if hasattr(os, "getuid") and owner != os.getuid():
+        return _refuse_pointer(path, f"owned by uid {owner}, not by this user")
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        return _refuse_pointer(path, f"not JSON ({exc})")
+    if not isinstance(data, dict):
+        return _refuse_pointer(path, "not a JSON object")
+    schema = data.get("schema")
+    if type(schema) is not int or schema != GATEWAY_POINTER_SCHEMA:
+        return _refuse_pointer(path, f"unknown schema {schema!r}")
+    url = data.get("url")
+    if not isinstance(url, str):
+        return _refuse_pointer(path, "no url")
+    try:
+        parts = urlsplit(url.strip())
+        parts.port  # noqa: B018 -- raises on a malformed port
+    except ValueError as exc:
+        return _refuse_pointer(path, f"malformed url {url!r} ({exc})")
+    if parts.scheme not in {"http", "https"} or parts.hostname not in _POINTER_HOSTS:
+        return _refuse_pointer(path, f"url {url!r} is not a loopback http(s) URL")
+    return url.strip().rstrip("/")
+
+
+def _refuse_pointer(path: Path, reason: str) -> str:
+    logger.warning("Ignoring the local gateway pointer %s: %s", path, reason)
+    return ""
+
+
 def _local_gateway_url() -> str:
     """Tiers 3-4 of the module rule: this computer's gateway, else the built-in URL.
 
@@ -3710,10 +3822,13 @@ def _local_gateway_url() -> str:
     a pinned OS service, the stored Network setting port), so an installer that
     moved the gateway off a busy 8080 is followed. Errors raised by the rule
     itself propagate: they belong to the gateway's install, not to this app.
+    Without the rule in this Python, the pointer file the installer and the
+    gateway's `serve` write carries the same value; the rule, when present,
+    stays authoritative and the pointer is not read.
     """
     rule = _gateway_local_rule()
     if rule is None:
-        return BUILTIN_GATEWAY_URL
+        return read_gateway_pointer() or BUILTIN_GATEWAY_URL
     return str(rule()["url"]).strip().rstrip("/")
 
 
