@@ -1200,3 +1200,38 @@ def test_occurrence_turns_render_through_the_chat_message_widget(palette, stub, 
     image = window.grab()
     assert not image.isNull()
     image.save(str(tmp_path / "automation_view.png"))
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize(
+    "markdown, raw, tag",
+    [
+        ("[Trigger schedule@1 · occurrence 1]\n## Heading here\nbody", "## ", "<h2"),
+        ("Intro line\n- item one\n- item two", "- item", "<li"),
+        ("Intro line\n1. first\n2. second", "1. first", "<li"),
+        ('Intro line\n```json\n{"a": 1}\n```', "```", "monospace"),
+        ("Intro line\n| A | B |\n|---|---|\n| 1 | 2 |", "|---|", "<table"),
+    ],
+)
+def test_the_chat_answer_renderer_handles_blocks_right_after_a_text_line(markdown, raw, tag) -> None:
+    """CommonMark: headings and fences interrupt a paragraph; a list and a table
+    right after a line render too — no blank line needed (answers and
+    automation turns rendered as answers)."""
+    global _APP
+    _APP = _qt()
+    import abstractassistant.app as app_module
+    from abstractassistant.utils.markdown_renderer import MarkdownRenderer
+
+    card = app_module.MessageCard(
+        message={"role": "assistant", "content": markdown, "ts": "2026-09-27T00:00:00Z"},
+        message_key="md",
+        renderer=MarkdownRenderer(theme="friendly_grayscale"),
+        on_open_artifact=lambda *a: None,
+        bubble_width=500,
+    )
+    browsers = card.findChildren(app_module.AutoSizingTextBrowser)
+    text = "\n".join(b.toPlainText() for b in browsers)
+    html = "".join(b.toHtml() for b in browsers)
+    assert raw not in text, f"{raw!r} shown literally"
+    assert tag in html
+    card.deleteLater()
