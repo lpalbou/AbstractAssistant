@@ -94,6 +94,9 @@ class SessionDigest:
     # gateway-derived: the liveliest run state of the session
     # (waiting / running / failed / done / unknown), "" when not on the gateway
     state: str = ""
+    # False for a session another client of the gateway started (see
+    # session_cache.OWN_SESSION_PREFIX)
+    own: bool = True
 
     @property
     def total_tokens(self) -> int:

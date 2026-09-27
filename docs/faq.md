@@ -84,12 +84,13 @@ nothing is estimated. Reattached runs show no total time because the start was n
 
 ## How do I find an old chat, and can I delete one?
 
-Click the chat name in the header. The switcher lists every session the gateway holds for you —
-including sessions started from AbstractCode or another device — with its topic, last activity
-and what it holds (turns, state, and once opened here, tool calls, tokens, running time and
-workspace folder), grouped by recency and filtered as you type. The pencil renames a session on
-this device; the bin removes it from this list after an in-row confirmation and drops its cached
-transcript. The gateway has no session delete, so the runs stay there.
+Click the chat name in the header. The switcher lists this app's sessions on the gateway —
+including those from the Assistant on another device — with its topic, last activity and what it
+holds (turns, state, and once opened here, tool calls, tokens, running time and workspace
+folder), grouped by recency and filtered as you type. **All gateway sessions** in its header also
+lists sessions from AbstractCode and other clients. The pencil renames a session on this device;
+the bin removes it from this list after an in-row confirmation and moves its local copy to
+`~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.
 
 ## I upgraded and some old chats are gone from the list
 

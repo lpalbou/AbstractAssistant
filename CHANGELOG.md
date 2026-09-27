@@ -7,12 +7,14 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Changed
 - **Sessions come from the gateway.** The session switcher lists the gateway's sessions — the
-  root runs of the connected gateway grouped by session — so a session started from AbstractCode,
-  another device or any other client appears too, with its first question as its title, its turn
-  count and whether a run is running or waiting for you. Opening a session shows the cached
+  root runs of the connected gateway grouped by session — so a session started by the Assistant
+  on another device appears too, with its first question as its title, its turn count and whether
+  a run is running or waiting for you. **All gateway sessions** in the switcher header also lists
+  sessions from AbstractCode and other clients; the choice is kept. Opening a session shows the cached
   transcript at once and replaces it with the gateway's history.
 - Renaming a session sets a label on this device. Removing a session hides it from this list and
-  drops its cached transcript; its runs stay on the gateway, which has no session delete.
+  moves its local copy to `~/.abstractassistant/sessions-legacy/`; its runs stay on the gateway,
+  which has no session delete.
 - The files under `~/.abstractassistant/` for sessions (`session_cache.json`, `sessions/`) are a
   cache that can be deleted at any time: only local labels and removals are lost.
 - When the gateway cannot be reached, the switcher shows the cached sessions under
@@ -20,8 +22,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Fixed
 - An unreadable cached transcript is no longer replaced by an empty one: it is moved to
-  `~/.abstractassistant/sessions-legacy/` and rebuilt from the gateway, and the palette says so
-  when the gateway cannot rebuild it.
+  `~/.abstractassistant/sessions-legacy/` and rebuilt from the gateway, and the palette says so —
+  on every start — until the gateway has rebuilt it.
 
 ### Migration
 - On first launch the earlier local session index (`sessions.json`, `session.json`) is converted

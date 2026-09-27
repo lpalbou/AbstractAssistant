@@ -5575,6 +5575,8 @@ class AssistantPalette(QMainWindow):
     sessions_refreshed = pyqtSignal(object)
     # The active session's cached copy was unreadable and could not be rebuilt.
     session_sync_failed = pyqtSignal(str)
+    # A sync ended after the user had switched to another session: sync that one.
+    session_sync_again = pyqtSignal()
     # Meter readings arrive on the audio thread; this hops them to the GUI.
     speech_level_received = pyqtSignal(object)
     # The player started or stopped: no message key, so auto-speak and the
@@ -5715,6 +5717,7 @@ class AssistantPalette(QMainWindow):
         self.session_attachments_restored.connect(self._on_session_attachments_restored)
         self.sessions_refreshed.connect(self._on_sessions_refreshed)
         self.session_sync_failed.connect(self._on_session_sync_failed)
+        self.session_sync_again.connect(self._sync_session_from_gateway)
         self.speech_level_received.connect(self._on_speech_level)
         self.speech_activity_changed.connect(self._refresh_tray_feedback)
         self._voice_conversation: Optional[VoiceConversation] = None
@@ -6326,6 +6329,7 @@ class AssistantPalette(QMainWindow):
             switcher.new_chat_requested.connect(self._create_session)
             switcher.rename_requested.connect(self._rename_session)
             switcher.delete_requested.connect(self._delete_session)
+            switcher.scope_changed.connect(self._set_session_scope)
             self._session_switcher = switcher
         self._warm_session_digests()
         switcher.set_digests(
@@ -6379,6 +6383,12 @@ class AssistantPalette(QMainWindow):
         if not callable(setter):
             return
         controller = self._controller
+        scope = getattr(switcher, "set_show_all", None)
+        if callable(scope):
+            try:
+                scope(bool(controller.show_all_sessions()))
+            except Exception:
+                pass
         try:
             state = dict(controller.session_list_state() or {})
         except Exception:
@@ -6433,7 +6443,26 @@ class AssistantPalette(QMainWindow):
         self._set_history_status()
         self._set_status("Ready")
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
+        try:
+            notice = str(self._controller.session_notice() or "")
+        except Exception:
+            notice = ""
+        if notice:
+            # An empty transcript would say nothing: say where the text is.
+            self._set_banner(notice, tone="info", key="session")
         self._sync_session_from_gateway()
+
+    def _set_session_scope(self, show_all: bool) -> None:
+        """The switcher's "All gateway sessions" toggle (kept in the cache)."""
+        try:
+            self._controller.set_show_all_sessions(bool(show_all))
+        except Exception as exc:
+            self._set_banner(f"Could not change the session list: {exc}", tone="error")
+            return
+        self._invalidate_session_digests()
+        self._refresh_open_session_switcher()
+        # Newly visible rows get their titles first.
+        self._refresh_sessions_from_gateway()
 
     def _sync_session_from_gateway(self) -> None:
         """Replace the session on screen with the gateway's history.
@@ -6452,7 +6481,8 @@ class AssistantPalette(QMainWindow):
         self._attachment_backfill_running = True
         # The redraw it may trigger belongs to THIS session: a switch while the
         # call was in flight must not rebuild (or re-render) the new one.
-        self._attachment_backfill_session = self._active_session_id()
+        started_for = self._active_session_id()
+        self._attachment_backfill_session = started_for
         controller = self._controller
 
         def _work() -> None:
@@ -6477,6 +6507,12 @@ class AssistantPalette(QMainWindow):
                         candidate = controller.probe_reattach_candidate()
                         if candidate:
                             self.reattach_candidate.emit(candidate)
+                now = str(getattr(controller, "active_session_id", "") or "").strip()
+                if now and now != started_for:
+                    # The user switched while this ran, and that switch's own
+                    # sync was skipped (one at a time): sync the session on
+                    # screen now.
+                    self.session_sync_again.emit()
             except Exception:
                 return  # the palette was destroyed meanwhile
 
@@ -6560,7 +6596,15 @@ class AssistantPalette(QMainWindow):
             self._set_history_status()
             self._set_status("Ready")
             self.refresh_history(request=self._history_scroll_request(mode="bottom"))
-        self._set_banner("Session removed from the list.", tone="info", key="session")
+        try:
+            kept = str(self._controller.session_legacy_dir() or "")
+        except Exception:
+            kept = ""
+        self._set_banner(
+            f"Session removed from the list; its local text is kept in {kept}." if kept else "Session removed from the list.",
+            tone="info",
+            key="session",
+        )
         self._warm_session_digests()
         self._refresh_session_picker(select_session_id=new_active or None)
         self._refresh_open_session_switcher()

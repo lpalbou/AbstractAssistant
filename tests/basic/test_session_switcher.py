@@ -390,9 +390,10 @@ def _key(key, modifiers=Qt.NoModifier):
 
 
 @pytest.mark.basic
-def test_removing_a_session_hides_it_and_drops_only_its_cache(tmp_path: Path) -> None:
+def test_removing_a_session_hides_it_and_keeps_its_text(tmp_path: Path) -> None:
     """The gateway has no delete route: "remove" is a local preference that
-    hides the row and drops the cached transcript; the active session moves
+    hides the row; the cached folder MOVES to sessions-legacy (it is the only
+    copy for a session that exists only here), and the active session moves
     to the newest remaining gateway session."""
     cache = SessionCache(tmp_path)
     first = cache.create_session()
@@ -406,6 +407,7 @@ def test_removing_a_session_hides_it_and_drops_only_its_cache(tmp_path: Path) ->
     new_active = cache.remove_from_list(first)
 
     assert folder.exists() is False
+    assert (tmp_path / "sessions-legacy" / first / "session.json").exists()
     assert cache.is_hidden(first)
     assert new_active == "sess_other" == cache.active_session_id
     # Survives a reload.
@@ -701,3 +703,29 @@ def test_palette_opens_the_switcher_with_digests_already_loaded() -> None:
     # Rename/delete refresh it explicitly instead.
     AssistantPalette._refresh_open_session_switcher(palette)
     assert opened and opened[0][1] == "today"
+
+
+@pytest.mark.basic
+def test_an_open_switcher_grows_when_the_gateway_rows_arrive() -> None:
+    """The popup opens on the cached list (maybe one row) and the gateway's
+    answer lands after: it must grow to show the rows, not scroll a sliver."""
+    from PyQt5.QtCore import QPoint, QRect
+
+    app = _app()
+    switcher = SessionSwitcher()
+    stamp = NOW.isoformat()
+    switcher.set_digests([SessionDigest(session_id="a", title="A", updated_at=stamp)], active_session_id="a")
+    switcher.open_at(QPoint(10, 10), screen_geometry=QRect(0, 0, 1440, 900))
+    for _ in range(10):
+        app.processEvents()
+    opened = switcher.height()
+
+    switcher.set_digests(
+        [SessionDigest(session_id=f"s{i}", title=f"S{i}", updated_at=stamp, turns=2) for i in range(8)],
+        active_session_id="a",
+    )
+    for _ in range(10):
+        app.processEvents()
+
+    assert switcher.height() > opened + 150
+    switcher.close()

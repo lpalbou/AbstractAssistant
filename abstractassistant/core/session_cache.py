@@ -43,11 +43,31 @@ from typing import Any, Dict, Iterable, List, Optional
 from .gateway_sessions import GatewaySession
 from .session_store import SessionSnapshot, SessionStore
 
-__all__ = ["SessionCache", "safe_title", "CACHE_FILE", "LEGACY_INDEX_FILE", "LEGACY_DIR"]
+__all__ = [
+    "SessionCache",
+    "safe_title",
+    "is_own_session",
+    "CACHE_FILE",
+    "LEGACY_INDEX_FILE",
+    "LEGACY_DIR",
+    "OWN_SESSION_PREFIX",
+    "UNREADABLE_MARKER",
+]
 
 CACHE_FILE = "session_cache.json"
 LEGACY_INDEX_FILE = "sessions.json"
 LEGACY_DIR = "sessions-legacy"
+# Written next to a cached transcript that could not be read, until the
+# gateway has rebuilt it — so the problem is still said after a restart.
+UNREADABLE_MARKER = "session.unreadable.json"
+# This client's OWN naming convention for the ids it mints (`create_session`).
+# The default list shows sessions whose id carries it; every other session on
+# the gateway is "not ours" and appears under "All gateway sessions" — ids of
+# other clients are never classified further. A session another client created
+# with a `sess_`-shaped id counts as ours. The gateway's `session_kind` on
+# `/runs` rows (framework backlog 0928 / contracts C11) replaces this test once
+# it ships.
+OWN_SESSION_PREFIX = "sess_"
 _CACHE_VERSION = 1
 
 _TITLE_MAX = 80  # session-picker title bound (marked when it bites; ADR-0026)
@@ -72,6 +92,11 @@ def safe_title(title: str) -> str:
     return t[: _TITLE_MAX - 1].rstrip() + "…"
 
 
+def is_own_session(session_id: str) -> bool:
+    """Whether a session id follows this client's own naming (see OWN_SESSION_PREFIX)."""
+    return str(session_id or "").strip().startswith(OWN_SESSION_PREFIX)
+
+
 def _placeholder(title: str) -> bool:
     return str(title or "").strip().lower() in {"", "new session", "new chat"}
 
@@ -93,6 +118,9 @@ class SessionCache:
         self._fetched_at = ""
         self._truncated = False
         self._notice = ""
+        # The list shows this client's own sessions unless the user asked for
+        # every session on the gateway.
+        self._show_all = False
         # Sessions converted from the 0.6.1-and-earlier local index that the gateway has
         # not yet confirmed: {session_id: {"created_at", "updated_at"}}.
         self._legacy_pending: Dict[str, Dict[str, str]] = {}
@@ -195,11 +223,14 @@ class SessionCache:
             return str(session_id or "").strip() in self._hidden
 
     def remove_from_list(self, session_id: str) -> str:
-        """Hide a session from this list and drop its cached transcript.
+        """Hide a session from this list; its local text is KEPT.
 
         The gateway has no route to delete a session, so its runs stay there;
-        this is a local preference, like a label. Returns the active session id
-        afterwards (a new session when the removed one was active).
+        hiding is a local preference, like a label. The cached folder moves to
+        ``sessions-legacy/`` rather than being deleted: for a session that
+        exists only on this machine (never run, or an old local session the
+        migration has not decided yet) it is the only copy. Returns the active
+        session id afterwards (a new session when the removed one was active).
         """
         sid = str(session_id or "").strip()
         if not sid:
@@ -210,13 +241,12 @@ class SessionCache:
             self._labels.pop(sid, None)
             self._legacy_pending.pop(sid, None)
             folder = self.data_dir_for(sid)
-            sessions_root = (self._base_dir / "sessions").resolve()
-            try:
-                resolved = folder.resolve()
-            except Exception:
-                resolved = folder
-            if resolved != sessions_root and sessions_root in resolved.parents:
-                shutil.rmtree(resolved, ignore_errors=True)
+            if folder.exists():
+                target = self.legacy_dir / folder.name
+                if target.exists():
+                    target = self.legacy_dir / f"{folder.name}-removed-{uuid.uuid4().hex[:6]}"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(folder), str(target))
             if self._active_session_id == sid:
                 candidates = [r.session_id for r in self._rows if r.session_id not in self._hidden]
                 if candidates:
@@ -225,6 +255,51 @@ class SessionCache:
                     self._mint_locked()
             self._save_locked()
             return self._active_session_id
+
+    def legacy_copy_for(self, session_id: str) -> Optional[Path]:
+        """The kept transcript of a session moved to ``sessions-legacy/``, if any."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            return None
+        candidate = self.legacy_dir / self.data_dir_for(sid).name / "session.json"
+        return candidate if candidate.exists() else None
+
+    # ------------------------------------------------------ unreadable marker
+
+    def mark_unreadable(self, session_id: str, problem: str) -> None:
+        folder = self.data_dir_for(session_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / UNREADABLE_MARKER).write_text(
+            json.dumps({"problem": str(problem), "at": _utc_now_iso()}, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def unreadable_problem(self, session_id: str) -> str:
+        marker = self.data_dir_for(session_id) / UNREADABLE_MARKER
+        if not marker.exists():
+            return ""
+        try:
+            return str(json.loads(marker.read_text(encoding="utf-8")).get("problem") or "") or "The local copy of this session could not be read."
+        except Exception:
+            return "The local copy of this session could not be read."
+
+    def clear_unreadable(self, session_id: str) -> None:
+        try:
+            (self.data_dir_for(session_id) / UNREADABLE_MARKER).unlink()
+        except FileNotFoundError:
+            pass
+
+    # ------------------------------------------------------------ list scope
+
+    @property
+    def show_all(self) -> bool:
+        with self._lock:
+            return self._show_all
+
+    def set_show_all(self, value: bool) -> None:
+        with self._lock:
+            self._show_all = bool(value)
+            self._save_locked()
 
     # --------------------------------------------------------- gateway rows
 
@@ -323,11 +398,6 @@ class SessionCache:
 
     def _load(self) -> None:
         with self._lock:
-            legacy_index = self._base_dir / LEGACY_INDEX_FILE
-            if not self._path.exists() and legacy_index.exists():
-                self._convert_legacy_index(legacy_index)
-                self._save_locked()
-                return
             data: Any = None
             if self._path.exists():
                 try:
@@ -346,11 +416,18 @@ class SessionCache:
                 self._fetched_at = str(data.get("fetched_at") or "")
                 self._truncated = bool(data.get("truncated"))
                 self._notice = str(data.get("notice") or "")
+                self._show_all = bool(data.get("show_all"))
                 pending = data.get("legacy_pending")
                 if isinstance(pending, dict):
                     self._legacy_pending = {
                         str(k): {kk: str(vv) for kk, vv in dict(v or {}).items()} for k, v in pending.items()
                     }
+            legacy_index = self._base_dir / LEGACY_INDEX_FILE
+            if legacy_index.exists():
+                # Also resumes a conversion interrupted by a crash: every step
+                # below is idempotent.
+                self._convert_legacy_index(legacy_index)
+                return
             if not self._active_session_id:
                 self._mint_locked()
             self._save_locked()
@@ -358,57 +435,78 @@ class SessionCache:
     def _convert_legacy_index(self, legacy_index: Path) -> None:
         """Step one of the migration: the 0.6.1-and-earlier files become this cache.
 
-        Local only. Every old session keeps its transcript (moved into
-        ``sessions/<id>/`` when it was the legacy base session) and its rename
-        (as a label); all of them are PENDING until the gateway confirms them.
+        Local only, and crash-safe: every old session with text on disk is
+        first RECORDED — its rename as a label, the session as PENDING until
+        the gateway confirms it — and ``session_cache.json`` is written
+        (atomic rename) before any file moves. Only then is the legacy base
+        session's transcript moved into ``sessions/<id>/`` and the old index
+        set aside into ``sessions-legacy/``. A crash at any point leaves either
+        the old index in place (the next start resumes here) or a cache that
+        already references everything.
         """
         try:
             data = json.loads(legacy_index.read_text(encoding="utf-8"))
         except Exception:
             data = None
         records = data.get("sessions") if isinstance(data, dict) else None
+        records = [item for item in (records if isinstance(records, list) else []) if isinstance(item, dict)]
         base_snapshot = self._base_dir / "session.json"
-        for item in records if isinstance(records, list) else []:
-            if not isinstance(item, dict):
-                continue
-            sid = str(item.get("session_id") or "").strip()
-            if not sid:
-                continue
+        confirmed = {row.session_id for row in self._rows}
+
+        def _source(item: Dict[str, Any]) -> Path:
             rel = str(item.get("path") or "").strip() or "."
+            return base_snapshot if rel == "." else self._base_dir / Path(rel)
+
+        # 1. Record everything, then persist — before anything moves.
+        for item in records:
+            sid = str(item.get("session_id") or "").strip()
+            if not sid or sid in self._hidden:
+                continue
             target = self.data_dir_for(sid)
-            if rel == ".":
-                if not base_snapshot.exists():
-                    continue
-                target.mkdir(parents=True, exist_ok=True)
-                if not (target / "session.json").exists():
-                    shutil.move(str(base_snapshot), str(target / "session.json"))
-            else:
-                source = self._base_dir / Path(rel)
-                if not source.exists():
-                    continue
-                if source.resolve() != target.resolve() and not target.exists():
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(source), str(target))
+            if not (_source(item).exists() or (target / "session.json").exists()):
+                continue
             title = str(item.get("title") or "")
-            if not _placeholder(title):
+            if not _placeholder(title) and sid not in self._labels:
                 self._labels[sid] = safe_title(title)
-            self._legacy_pending[sid] = {
-                "created_at": str(item.get("created_at") or ""),
-                "updated_at": str(item.get("updated_at") or ""),
-            }
-        active = str(data.get("active_session_id") or "").strip() if isinstance(data, dict) else ""
-        if active in self._legacy_pending:
-            self._active_session_id = active
-        elif self._legacy_pending:
-            newest = sorted(self._legacy_pending.items(), key=lambda kv: kv[1].get("updated_at", ""), reverse=True)
-            self._active_session_id = newest[0][0]
-        else:
-            self._mint_locked()
-        # The old index is kept, not deleted; so is a base snapshot no record
-        # referenced (a legacy session the user had deleted).
+            if sid not in confirmed and sid not in self._legacy_pending:
+                self._legacy_pending[sid] = {
+                    "created_at": str(item.get("created_at") or ""),
+                    "updated_at": str(item.get("updated_at") or ""),
+                }
+        if not self._active_session_id:
+            active = str(data.get("active_session_id") or "").strip() if isinstance(data, dict) else ""
+            if active and (active in self._legacy_pending or active in confirmed):
+                self._active_session_id = active
+            elif self._legacy_pending:
+                newest = sorted(self._legacy_pending.items(), key=lambda kv: kv[1].get("updated_at", ""), reverse=True)
+                self._active_session_id = newest[0][0]
+            else:
+                self._mint_locked()
+        self._save_locked()
+
+        # 2. Move transcripts into the cache layout (skipped when already done).
+        for item in records:
+            sid = str(item.get("session_id") or "").strip()
+            if not sid or sid in self._hidden:
+                continue
+            source = _source(item)
+            target = self.data_dir_for(sid)
+            if not source.exists():
+                continue
+            if source == base_snapshot:
+                if not (target / "session.json").exists():
+                    target.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(base_snapshot), str(target / "session.json"))
+            elif source.resolve() != target.resolve() and not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source), str(target))
+
+        # 3. The old index is kept, not deleted; so is a base snapshot no
+        # record referenced (a legacy session the user had deleted).
         self._set_aside(legacy_index, keep_name=True)
         if base_snapshot.exists():
             self._set_aside(base_snapshot, keep_name=True)
+        self._save_locked()
 
     def set_aside(self, path: Path) -> Optional[Path]:
         """Move an unreadable cache file into ``sessions-legacy/`` (kept, never
@@ -440,6 +538,7 @@ class SessionCache:
             "rows": [r.to_dict() for r in self._rows],
             "fetched_at": self._fetched_at,
             "truncated": self._truncated,
+            "show_all": self._show_all,
         }
         if self._notice:
             payload["notice"] = self._notice

@@ -231,6 +231,19 @@ def _build_qss() -> str:
         font-weight: 700;
     }}
     QPushButton#switcherPrimary:hover {{ background: {THEME.primary_hover}; }}
+    QPushButton#switcherScope {{
+        color: {THEME.text_muted};
+        background: transparent;
+        border: 1px solid {THEME.border_subtle};
+        border-radius: 9px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+    }}
+    QPushButton#switcherScope:checked {{
+        color: {THEME.accent_text};
+        border-color: {THEME.accent_border};
+    }}
     QLabel#switcherHint {{
         color: {THEME.text_faint};
         font-size: 10px;
@@ -352,7 +365,7 @@ class SessionRow(QFrame):
         self.delete_button.setObjectName("rowAction")
         self.delete_button.setIcon(symbol_icon("trash", color=THEME.text_muted, size=12))
         self.delete_button.setIconSize(QSize(12, 12))
-        self.delete_button.setToolTip("Remove this session from the list (its runs stay on the gateway)")
+        self.delete_button.setToolTip("Remove this session from the list (text kept in sessions-legacy)")
         self.delete_button.setCursor(Qt.PointingHandCursor)
         self.delete_button.clicked.connect(self.ask_delete)
         self.delete_button.hide()
@@ -395,7 +408,7 @@ class SessionRow(QFrame):
         confirm.setContentsMargins(0, 2, 0, 2)
         confirm.setSpacing(8)
         # The gateway has no route to delete a session: its runs stay there.
-        message = QLabel("Remove from this list? Its runs stay on the gateway.")
+        message = QLabel("Remove from this list? Text kept in sessions-legacy.")
         message.setObjectName("rowConfirm")
         confirm.addWidget(message, 1)
         yes = QPushButton("Remove")
@@ -445,6 +458,8 @@ class SessionRow(QFrame):
                 else f"{digest.turns} turn(s) on the gateway"
             )
             out.append(_metric("message-square", format_count(digest.turns), tooltip))
+        if not digest.own:
+            out.append(_metric("", "other client", "Started by another client of this gateway."))
         if digest.state == "waiting":
             out.append(_metric("hand", "waiting", "A run of this session is waiting for you.", tone="warn"))
         elif digest.state == "running":
@@ -590,6 +605,8 @@ class SessionSwitcher(QDialog):
     new_chat_requested = pyqtSignal()
     rename_requested = pyqtSignal(str, str)
     delete_requested = pyqtSignal(str)
+    # True = every session on the gateway, False = this client's own.
+    scope_changed = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -631,6 +648,15 @@ class SessionSwitcher(QDialog):
         self.new_button.setIconSize(QSize(12, 12))
         self.new_button.setToolTip("Start a new session (⌘N)")
         self.new_button.clicked.connect(self._on_new_chat)
+        self.scope_button = QPushButton("All gateway sessions")
+        self.scope_button.setObjectName("switcherScope")
+        self.scope_button.setCheckable(True)
+        self.scope_button.setCursor(Qt.PointingHandCursor)
+        self.scope_button.setToolTip(
+            "Show every session on the gateway, including those started by other clients"
+        )
+        self.scope_button.toggled.connect(self.scope_changed.emit)
+        header.addWidget(self.scope_button, 0, Qt.AlignVCenter)
         header.addWidget(self.new_button, 0, Qt.AlignVCenter)
         root.addLayout(header)
 
@@ -688,6 +714,12 @@ class SessionSwitcher(QDialog):
             refresh_style(row)
 
     # -------------------------------------------------------------- rendering
+
+    def set_show_all(self, value: bool) -> None:
+        """Reflect the stored scope without emitting `scope_changed`."""
+        self.scope_button.blockSignals(True)
+        self.scope_button.setChecked(bool(value))
+        self.scope_button.blockSignals(False)
 
     def set_status(self, text: str, *, tone: str = "", tooltip: str = "") -> None:
         """The header line under the title ("" hides it)."""
@@ -759,6 +791,21 @@ class SessionSwitcher(QDialog):
         self._apply_filter()
         self._select_active()
         self._fit_list()
+        self._grow_to_rows()
+
+    def _grow_to_rows(self) -> None:
+        """An open popup grows (never shrinks) up to its full height when rows
+        arrive after it opened — the gateway's list lands after the cached one,
+        which may have been a single row."""
+        if not self.isVisible():
+            return
+        # The scroll area's own size hint does not follow its content; the
+        # list's does.
+        self.list_layout.activate()
+        wanted = self.height() - self.scroll.height() + self.list_host.sizeHint().height()
+        target = min(SWITCHER_HEIGHT, wanted)
+        if target > self.height():
+            self.resize(SWITCHER_WIDTH, target)
 
     def _fit_list(self) -> None:
         """Settle rows that were built without a resize to trigger them.

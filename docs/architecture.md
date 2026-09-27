@@ -80,9 +80,13 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 
 ## Sessions
 
-Sessions live on the gateway. A session is the set of root runs that share a `session_id`, so a
-session started from AbstractCode, another Assistant install or any other client of the same
-gateway appears in the switcher too.
+Sessions live on the gateway. A session is the set of root runs that share a `session_id`.
+
+- **Scope.** By default the switcher lists this app's own sessions: those whose id follows the
+  Assistant's naming (`sess_…`), including the ones another Assistant install created. The
+  **All gateway sessions** toggle in the switcher header lists every session on the gateway
+  (AbstractCode, flows, schedules, other channels), marked "other client"; the choice is kept.
+  Once the gateway reports a session kind on `/runs`, that field replaces the id test.
 
 - **List.** The switcher's rows are one `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`
   page folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
@@ -91,7 +95,8 @@ gateway appears in the switcher too.
   covers the newest 5,000 root runs; when the gateway holds more, the switcher header says so.
   Opening the switcher paints the cached list, then asks the gateway off the GUI thread.
 - **Titles.** A session is named by its first user turn, read from the gateway
-  (`/runs/{first_run_id}/input_data`, up to 40 sessions per refresh, then cached). Renaming a
+  (`/runs/{first_run_id}/input_data`, up to 40 sessions per refresh — the rows the list shows
+  first — then cached). Renaming a
   session sets a local label on this device that is shown instead.
 - **Transcripts.** Opening a session paints its cached transcript at once, then reads the
   gateway's history bundle of the session's latest root run (with its session turns) and replaces
@@ -99,7 +104,8 @@ gateway appears in the switcher too.
 - **New sessions.** The app mints the id; the session is listed while it is the active one and
   becomes a gateway session with its first run.
 - **Remove from list.** The gateway has no session delete; removing a row hides it on this device
-  and drops its cached transcript. Its runs stay on the gateway.
+  and moves its cached transcript to `sessions-legacy/` (for a session that exists only on this
+  Mac it is the only copy). Its runs stay on the gateway.
 - **Offline.** The switcher shows the cached rows under a "Cached — gateway unreachable" line
   and cached transcripts stay readable; nothing is deleted, and the next successful fetch
   reconciles.
@@ -110,14 +116,16 @@ The cache under `~/.abstractassistant/`:
   sessions and the last list the gateway returned
 - `sessions/<session_id>/session.json` — the cached transcript, last run id and granted workspace
   root of a session. An unreadable file is moved to `sessions-legacy/` and rebuilt from the
-  gateway; if the gateway cannot rebuild it, the palette says so.
+  gateway; until that succeeds a `session.unreadable.json` marker in the session folder keeps the
+  problem on record, and the palette says so on every start.
 
 Deleting the cache loses only local labels and removals. The chat switcher's metrics (tool calls,
 tokens, running time) are computed from the cached transcripts and appear once a session has been
 opened on this device.
 
 **Upgrading from 0.6.1 or earlier.** The earlier local index (`sessions.json`, `session.json`) is converted on
-first launch and kept in `sessions-legacy/`. On the first complete list from the gateway, local
+first launch and kept in `sessions-legacy/`; the new cache is written before the old index is
+moved, and an interrupted conversion resumes on the next start. On the first complete list from the gateway, local
 sessions the gateway does not know are removed from the list; their folders move to
 `sessions-legacy/` and the switcher says so once. Renames of the sessions that remain are kept as
 local labels.

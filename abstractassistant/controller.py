@@ -985,6 +985,18 @@ class AssistantController:
     def session_problem(self) -> str:
         return str(self.llm_manager.session_problem() or "")
 
+    def session_notice(self) -> str:
+        return str(self.llm_manager.session_notice() or "")
+
+    def show_all_sessions(self) -> bool:
+        return bool(self.llm_manager.show_all_sessions())
+
+    def set_show_all_sessions(self, value: bool) -> None:
+        self.llm_manager.set_show_all_sessions(bool(value))
+
+    def session_legacy_dir(self) -> str:
+        return str(self.llm_manager.session_legacy_dir())
+
     def rename_session(self, session_id: str, title: str) -> None:
         self.llm_manager.rename_session(session_id, title)
 

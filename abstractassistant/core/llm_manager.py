@@ -25,7 +25,7 @@ from .gateway_sessions import (
     fold_session_rows,
     prompt_from_input_data,
 )
-from .session_cache import SessionCache
+from .session_cache import SessionCache, is_own_session
 from .session_digest import SessionDigestCache, digest_from_record
 from .session_store import SessionSnapshotUnreadable, SessionStore, SessionSnapshot
 from ..gateway import GatewayClient, GatewayClientConfig, get_cached_assistant_capabilities
@@ -91,9 +91,6 @@ class LLMManager:
 
         self.data_dir = (Path(data_dir).expanduser() if data_dir is not None else (Path.home() / ".abstractassistant"))
         self._session_cache = SessionCache(self.data_dir)
-        # session id -> why its cached transcript could not be read (cleared
-        # once the gateway rebuilt it).
-        self._unreadable_sessions: Dict[str, str] = {}
         # One gateway list refresh at a time; the last failure is shown on the
         # session list until a refresh succeeds.
         self._session_refresh_lock = threading.Lock()
@@ -185,7 +182,11 @@ class LLMManager:
         except SessionSnapshotUnreadable as exc:
             aside = self._session_cache.set_aside(store.path)
             where = f"; the file was moved to {aside}" if aside is not None else ""
-            self._unreadable_sessions[sid] = f"The local copy of this session could not be read ({exc}){where}."
+            # Persisted next to the cache (not only in memory) until the
+            # gateway has rebuilt it, so a restart still says so.
+            self._session_cache.mark_unreadable(
+                sid, f"The local copy of this session could not be read ({exc}){where}."
+            )
             snap = None
         if snap is None:
             snap = SessionSnapshot(session_id=sid, actor_id="gateway", messages=[], last_run_id=None)
@@ -520,10 +521,13 @@ class LLMManager:
             payload = asdict(digest)
             payload["display_title"] = digest.display_title
             payload["on_gateway"] = row is not None
+            payload["own"] = is_own_session(session_id)
             out.append(payload)
 
+        show_all = store.show_all
         for row in store.rows():
-            _add(row.session_id, created_at=row.created_at, updated_at=row.updated_at, row=row)
+            if show_all or is_own_session(row.session_id):
+                _add(row.session_id, created_at=row.created_at, updated_at=row.updated_at, row=row)
         for session_id, meta in store.legacy_pending().items():
             _add(session_id, created_at=meta.get("created_at", ""), updated_at=meta.get("updated_at", ""))
         if active not in seen:
@@ -573,14 +577,19 @@ class LLMManager:
                 )
                 self._session_cache.set_rows(rows, truncated=truncated)
             store = self._session_cache
-            wanted = [
+            untitled = [
                 row
                 for row in rows
                 if row.first_run_id
                 and not store.is_hidden(row.session_id)
                 and not store.label(row.session_id)
                 and store.prompt(row.session_id) is None
-            ][:SESSION_PROMPT_MAX]
+            ]
+            # The rows the list shows first (this client's own, unless every
+            # gateway session is shown), newest first; the cap stays.
+            show_all = store.show_all
+            untitled.sort(key=lambda row: 0 if (show_all or is_own_session(row.session_id)) else 1)
+            wanted = untitled[:SESSION_PROMPT_MAX]
             prompts: Dict[str, str] = {}
             for row in wanted:
                 try:
@@ -615,7 +624,7 @@ class LLMManager:
         with self._snapshot_lock:
             snap = self._ensure_gateway_snapshot()
         sid = str(snap.session_id or "").strip()
-        problem = self._unreadable_sessions.get(sid, "")
+        problem = self._session_cache.unreadable_problem(sid)
         row = self._session_cache.row(sid)
         if row is None and problem:
             # The cache that would name the latest run is gone: ask the list.
@@ -654,12 +663,34 @@ class LLMManager:
             if self._gateway_snapshot is not snap:
                 return {"changed": False, "error": ""}
             changed = self.replace_gateway_messages(messages, last_run_id=run_id)
-        self._unreadable_sessions.pop(sid, None)
+        self._session_cache.clear_unreadable(sid)
         return {"changed": bool(changed), "error": ""}
 
     def session_problem(self) -> str:
         """Why the active session's cached copy could not be read ("" if fine)."""
-        return self._unreadable_sessions.get(str(self.active_session_id), "")
+        return self._session_cache.unreadable_problem(str(self.active_session_id))
+
+    def session_notice(self) -> str:
+        """A line to show instead of an empty transcript: the active session
+        was moved to ``sessions-legacy/`` (removed from the list, or dropped
+        by the migration while an older list was on screen)."""
+        sid = str(self.active_session_id)
+        if self.session_messages() or self._session_cache.row(sid) is not None:
+            return ""
+        kept = self._session_cache.legacy_copy_for(sid)
+        if kept is None:
+            return ""
+        return f"This session is no longer in the list; its text is kept in {kept}."
+
+    def show_all_sessions(self) -> bool:
+        return self._session_cache.show_all
+
+    def set_show_all_sessions(self, value: bool) -> None:
+        """Every session on the gateway (True) or this client's own (False)."""
+        self._session_cache.set_show_all(bool(value))
+
+    def session_legacy_dir(self) -> Path:
+        return self._session_cache.legacy_dir
 
     def rename_session(self, session_id: str, title: str) -> None:
         """A LOCAL label for the session, shown instead of its opening prompt."""
