@@ -21,8 +21,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from pathlib import Path
 
-from PyQt5.QtCore import QEvent, QSize, Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices, QFontMetrics
+from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QColor, QDesktopServices, QFontMetrics, QIcon, QPainter, QPixmap, QRadialGradient
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -711,6 +711,36 @@ def missing_folder_button(field: str, *, parent: QWidget) -> QPushButton:
 _PILL_SPINE = {"active": "fresh", "running": "active", "waiting": "warn", "failed": "warn", "paused": "idle", "ended": "idle"}
 
 
+# Halo intensities of the pulse (a slow breath: up, then down).
+_PULSE_LEVELS = (0.25, 0.4, 0.55, 0.7, 0.85, 0.7, 0.55, 0.4)
+
+
+def _bloom_icon(glyph: str, color: str, intensity: float, *, size: int = 24, glyph_size: int = 14) -> QIcon:
+    """The glyph over a soft radial halo of its own colour (``intensity`` 0 =
+    no halo). Painted into the icon — no graphics effect."""
+    ratio = 2
+    pixmap = QPixmap(size * ratio, size * ratio)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    if intensity > 0:
+        halo = QColor(color)
+        gradient = QRadialGradient(size * ratio / 2, size * ratio / 2, size * ratio / 2)
+        halo.setAlphaF(max(0.0, min(1.0, intensity)))
+        gradient.setColorAt(0.0, halo)
+        halo.setAlphaF(0.0)
+        gradient.setColorAt(1.0, halo)
+        painter.setBrush(gradient)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(0, 0, size * ratio, size * ratio)
+    glyph_pixmap = symbol_icon(glyph, color=color, size=glyph_size).pixmap(glyph_size * ratio, glyph_size * ratio)
+    offset = (size - glyph_size) * ratio // 2
+    painter.drawPixmap(offset, offset, glyph_size * ratio, glyph_size * ratio, glyph_pixmap)
+    painter.end()
+    pixmap.setDevicePixelRatio(ratio)
+    return QIcon(pixmap)
+
+
 def _compact_every(every: str) -> str:
     """ "30m" -> "every 30 min", "8h" -> "every 8 h", "7d" -> "every 7 d" (UTC in the tooltip)."""
     unit = {"s": "s", "m": "min", "h": "h", "d": "d"}.get(every[-1:], "")
@@ -799,25 +829,54 @@ class AutomationTabRow(RowCard):
         self.setToolTip(f"{summary.get('title') or ''}\nAutomation id: {aid}")
 
     def _state_button(self, summary: Dict[str, Any]) -> QPushButton:
-        """▶ when paused (resume), ⏸ when active (pause), a running variant
-        while an occurrence runs (pause). The card's only control."""
+        """The automation's STATE (not the next action): active = a green ▶
+        with a soft bloom (click pauses); paused = an amber ⏸ (click resumes);
+        archived/ended = disabled grey. A slow pulse while a run is in
+        progress. The card's only control."""
         controls = automation_controls(summary)
-        if summary.get("status") == "paused":
-            control, icon, tip = "resume", "play", "Paused — click to resume"
-        elif occurrence_in_progress(summary):
-            control, icon, tip = "pause", "loader", "Running — click to pause"
+        status = summary.get("status")
+        running = occurrence_in_progress(summary)
+        if status == "active":
+            kind, control, icon, color, tip = "active", "pause", "play", THEME.positive, "Active — click to pause"
+        elif status == "paused":
+            kind, control, icon, color, tip = "paused", "resume", "pause", THEME.warning, "Paused — click to resume"
         else:
-            control, icon, tip = "pause", "pause", "Active — click to pause"
-        enabled, reason = controls[control]
-        button = _icon_button(
-            icon,
-            tip if enabled else f"{tip.split(' — ')[0]} — {reason}",
-            parent=self,
-            tint=THEME.text_secondary if enabled else THEME.text_faint,
-        )
+            kind, control, icon, color, tip = "ended", "resume", "play", THEME.text_faint, "Archived" if status == "archived" else str(status or "ended").capitalize()
+        enabled, reason = controls[control] if kind != "ended" else (False, "")
+        if kind != "ended" and not enabled:
+            tip = f"{tip.split(' — ')[0]} — {reason}"
+            color = THEME.text_faint
+        button = _icon_button(icon, tip, parent=self, tint=color)
         button.setObjectName("rowState")
+        # Room for the halo around the glyph.
+        button.setFixedSize(28, 26)
+        button.setIconSize(QSize(24, 24))
         button.setEnabled(bool(enabled))
         button.state_control = control
+        button.state_kind = kind
+        button.state_color = color
+        button.pulsing = False
+        button.bloom = 0.0
+        if kind in {"active", "paused"} and enabled:
+            # A soft halo painted behind the glyph (the bloom): steady for an
+            # active automation, and a slow pulse while a run is in progress.
+            steady = 0.55 if kind == "active" else 0.0
+            button.bloom = steady
+            button.setIcon(_bloom_icon(icon, color, steady))
+            if running:
+                frames = [_bloom_icon(icon, color, level) for level in _PULSE_LEVELS]
+                pulse = QTimer(button)  # owned by the button: dies with it
+                pulse.setInterval(130)
+                pulse.frame = 0
+
+                def _tick(b=button, t=pulse, f=frames) -> None:
+                    t.frame = (t.frame + 1) % len(f)
+                    b.setIcon(f[t.frame])
+
+                pulse.timeout.connect(_tick)
+                pulse.start()
+                button.pulse = pulse
+                button.pulsing = True
         button.clicked.connect(lambda: self._clicked(control))
         return button
 
@@ -835,6 +894,10 @@ class AutomationTabRow(RowCard):
         """Spinner + disabled until the gateway confirms (or refuses)."""
         self._pending = control
         button = self.state_button
+        pulse = getattr(button, "pulse", None)
+        if pulse is not None:
+            pulse.stop()
+        button.pulsing = False
         button.setEnabled(False)
         button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=14))
         button.setToolTip(PENDING_TEXT[control])
@@ -857,6 +920,9 @@ class AutomationTabRow(RowCard):
     def _result_text(summary: Dict[str, Any], last: Optional[Dict[str, Any]]) -> str:
         if last is None:
             return "No run yet."
+        if last.get("status") in {"running", "admitted", "backoff"}:
+            text = f"Run #{last.get('index')} running"
+            return f"{text} · paused after this run" if summary.get("status") == "paused" else text
         text = " ".join(str(last.get("excerpt") or "").split())
         if not text and last.get("status") == "waiting":
             attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}

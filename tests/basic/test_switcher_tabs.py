@@ -346,7 +346,7 @@ def test_archived_automations_are_hidden_until_asked_for() -> None:
     assert archived["automation_id"] in ids()
     row = next(r for r in sw.automation_tab_rows if r.automation_id == archived["automation_id"])
     assert not row.state_button.isEnabled()
-    assert row.state_button.toolTip().endswith("Archived: history is kept, nothing runs.")
+    assert row.state_button.toolTip() == "Archived"
     sw.deleteLater()
 
 
@@ -368,7 +368,7 @@ def test_the_card_has_exactly_one_button_the_state_toggle() -> None:
             assert gone not in tips.replace("open workspace", ""), (gone, tips)
     assert (rows[NEWS].state_button.state_control, rows[NEWS].state_button.toolTip()) == ("pause", "Active — click to pause")
     assert (rows[JOURNAL].state_button.state_control, rows[JOURNAL].state_button.toolTip()) == ("resume", "Paused — click to resume")
-    assert (rows[TRIAGE].state_button.state_control, rows[TRIAGE].state_button.toolTip()) == ("pause", "Running — click to pause")
+    assert (rows[TRIAGE].state_button.state_control, rows[TRIAGE].state_button.toolTip()) == ("pause", "Active — click to pause")
     got: List[tuple] = []
     sw.automation_control_requested.connect(lambda a, c: got.append((a, c)))
     rows[NEWS].state_button.click()
@@ -395,3 +395,66 @@ def test_the_card_lines_last_time_result_and_metrics() -> None:
     assert [w.text() for w in paused.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"][1] == "next —"
     row.deleteLater()
     paused.deleteLater()
+
+
+
+def _variant(base: str, *, status: str, running: bool) -> Dict[str, Any]:
+    summary = _by_id(base)
+    summary["status"] = status
+    summary["attention"] = dict(summary["attention"], pending_waits=0, waits=[])
+    summary["last_occurrence"] = dict(summary["last_occurrence"], index=37, status="running" if running else "completed")
+    if status == "archived":
+        summary["capabilities"] = ["discuss"]
+    return summary
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize(
+    "status, running, glyph_kind, tooltip, control, pulsing, line2",
+    [
+        ("active", False, "active", "Active — click to pause", "pause", False, None),
+        ("active", True, "active", "Active — click to pause", "pause", True, "Run #37 running"),
+        ("paused", False, "paused", "Paused — click to resume", "resume", False, None),
+        ("paused", True, "paused", "Paused — click to resume", "resume", True, "Run #37 running · paused after this run"),
+        ("archived", False, "ended", "Archived", "resume", False, None),
+    ],
+)
+def test_the_state_button_shows_the_state(status, running, glyph_kind, tooltip, control, pulsing, line2) -> None:
+    """The button shows the automation's STATE: active = green ▶ with a bloom,
+    paused = amber ⏸, archived = grey; a pulse only while a run is in progress."""
+    from abstractassistant.theme import THEME
+
+    _app()
+    row = switcher_module.AutomationTabRow(_variant(NEWS, status=status, running=running))
+    button = row.state_button
+    assert (button.state_kind, button.toolTip(), button.state_control, button.pulsing) == (glyph_kind, tooltip, control, pulsing)
+    expected_color = {"active": THEME.positive, "paused": THEME.warning, "ended": THEME.text_faint}[glyph_kind]
+    assert button.state_color == expected_color
+    assert button.isEnabled() is (status != "archived")
+    assert (button.bloom > 0) is (status == "active")  # the bloom: active only (steady)
+    if line2 is not None:
+        assert row.result_label.toolTip() == line2
+    if status == "active" and not running:
+        assert row.meta_text.split(" · ")[-1].startswith("next")
+    got: List[tuple] = []
+    row.control_requested.connect(lambda a, c: got.append((a, c)))
+    button.click()
+    if status == "archived":
+        assert got == []
+    else:
+        assert got == [(NEWS, control)]
+        assert row.state_button.toolTip() in ("Pausing…", "Resuming…") and row.state_button.pulsing is False
+    row.deleteLater()
+
+
+@pytest.mark.basic
+def test_an_active_automation_without_next_fire_at_still_says_when_next() -> None:
+    from datetime import datetime, timezone
+
+    from abstractassistant.core.automations import next_run_text
+
+    summary = _variant(NEWS, status="active", running=True)
+    summary.pop("next_fire_at", None)  # the gateway omits it while a run is in progress
+    now = datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc)  # anchor 2026-09-25T08:00, every 8 h -> next 16:00
+    assert next_run_text(summary, now=now) == "next in 7 h"
+    assert next_run_text(dict(summary, status="paused"), now=now) == "next —"

@@ -72,7 +72,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   gateway lists it. An unreadable cached transcript is discarded and rebuilt from the gateway.
 - **An automation card looks like a session card**: title and "40 min ago" (when it last ran), a
   "waiting for you" or "failed" chip only when it applies, the last result, then `every 5 min` ·
-  `next in 2 min` · `#32` · the folder icon, and one button that pauses or resumes it. Clicking the
+  `next in 2 min` · `#32` · the folder icon, and one button showing its state (green ▶ with a glow when
+  active, amber ⏸ when paused, pulsing while a run is in progress) that pauses or resumes it, with a
+  spinner until the gateway confirms. Clicking the
   card opens the automation (Run now, Stop, Edit, Archive and Discuss are there). Session and
   automation cards show the workspace folder as an icon.
 

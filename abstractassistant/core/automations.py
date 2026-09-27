@@ -19,7 +19,7 @@ import re
 import tempfile
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -170,13 +170,36 @@ def last_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None)
     return f"last {relative_span((now - when).total_seconds())} ago"
 
 
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def projected_next_tick(summary: Mapping[str, Any], *, now: datetime) -> Optional[datetime]:
+    """The next ``schedule@1`` grid tick after ``now`` (anchor + k·every), for an
+    active automation whose summary gives no ``next_fire_at`` (the gateway
+    omits it while a run is in progress). Display only; None when unknowable."""
+    trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
+    if trigger.get("source_id") != "schedule" or trigger.get("source_version") != 1:
+        return None
+    config = trigger.get("config") if isinstance(trigger.get("config"), Mapping) else {}
+    every = parse_duration(config.get("every"))
+    anchor = _parse_ts(config.get("anchor") or config.get("start_at"))
+    if every is None or anchor is None:
+        return None
+    step = every[0] * _UNIT_SECONDS[every[1]]
+    elapsed = (now - anchor).total_seconds()
+    if elapsed < 0:
+        return anchor
+    ticks = int(elapsed // step) + 1
+    return anchor + timedelta(seconds=ticks * step)
+
+
 def next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
     """ "next in 2 min" from the gateway's next fire time; "next —" when paused,
     ended or not scheduled; "next: now" when due."""
     now = now or datetime.now(timezone.utc)
     if summary.get("status") != "active":
         return "next —"
-    when = _parse_ts(summary.get("next_fire_at"))
+    when = _parse_ts(summary.get("next_fire_at")) or projected_next_tick(summary, now=now)
     if when is None:
         return "next —"
     delta = (when - now).total_seconds()
