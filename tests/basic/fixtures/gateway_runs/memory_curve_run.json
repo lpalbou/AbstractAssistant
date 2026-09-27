@@ -1,0 +1,38 @@
+{
+ "_source": "Live gateway 127.0.0.1:8080, 2026-09-27, read-only GETs: the Memory-monitor discussion 'draw me the curve of memory over time'. answer = the agent run's terminal output.answer (ledger cursor 352, verbatim); workspace = GET /api/gateway/runs/{root_run_id}/workspace (verbatim); workspace_files = GET .../workspace/files entries (verbatim). The PNG itself is not vendored: tests write a synthetic PNG of png_size under workspace_files[0].path in a temporary workspace.",
+ "root_run_id": "d13819e4-d1b4-5854-8ba2-d517619dcc32",
+ "agent_run_id": "4ba8a4a0-f3cc-48f2-ae84-79eeda1f64a3",
+ "answer": "Here's the memory curve from the last 20 samples (13:26 → 14:04 UTC, 2-min intervals):\n\n![Memory over time](memory_curve.png)\n\n**Summary:** Free memory oscillates between ~62 GB and ~112 GB, with occasional spikes up (likely cache eviction or a process finishing). The baseline hovers around **65–68 GB free (~51%)**, well above the 10% alert threshold. No sustained pressure observed.",
+ "workspace": {
+  "run_id": "d13819e4-d1b4-5854-8ba2-d517619dcc32",
+  "workspace_root": "/Users/albou/tmp/abstractframework/runtime/workspaces/session-discussion-session-d13819e4-d1b4-5854-8b-e17a2292a742",
+  "kind": "session",
+  "session_id": "discussion-session:d13819e4-d1b4-5854-8ba2-d517619dcc32",
+  "exists": true,
+  "host": {
+   "hostname": "forge.local",
+   "caller_is_this_machine": true
+  },
+  "open_supported": true
+ },
+ "workspace_files": [
+  {
+   "name": "memory_curve.png",
+   "path": "memory_curve.png",
+   "type": "file",
+   "size_bytes": 92271,
+   "mtime": "2026-09-27T14:09:20.441254Z"
+  },
+  {
+   "name": "memory_curve.py",
+   "path": "memory_curve.py",
+   "type": "file",
+   "size_bytes": 1743,
+   "mtime": "2026-09-27T14:09:19.623130Z"
+  }
+ ],
+ "png_size": [
+  1800,
+  750
+ ]
+}

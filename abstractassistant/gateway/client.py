@@ -16,7 +16,7 @@ import socket
 import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 import urllib.error
 import urllib.request
 import urllib.response
@@ -2146,6 +2146,56 @@ class GatewayClient:
             body_text = _read_error(e, label="download_run_artifact_content failed")
             raise GatewayHttpError(
                 f"download_run_artifact_content failed: {body_text}",
+                status=int(getattr(e, "code", 0) or 0),
+                retry_after_s=_retry_after_s(dict(e.headers)),
+                body_text=body_text,
+            )
+
+    def get_run_workspace(self, *, run_id: str, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        """``GET /runs/{id}/workspace``: the run's folder on the gateway host
+        (``workspace_root``), whether it ``exists`` and whether this caller sits
+        on that host (``host.caller_is_this_machine``)."""
+        rid = str(run_id or "").strip()
+        if not rid:
+            raise ValueError("get_run_workspace: run_id is required")
+        return self._request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/runs/{quote(rid, safe='')}/workspace"),
+            label="get_run_workspace failed",
+            timeout_s=timeout_s,
+        )
+
+    def download_run_workspace_file(
+        self,
+        *,
+        run_id: str,
+        path: str,
+        max_bytes: int = 25_000_000,
+        timeout_s: Optional[float] = None,
+    ) -> Tuple[bytes, str]:
+        """``GET /runs/{id}/workspace/content?path=``: one file of the run's
+        workspace (``path`` relative to it), for a client on another machine."""
+        rid = str(run_id or "").strip()
+        rel = str(path or "").strip()
+        if not rid:
+            raise ValueError("download_run_workspace_file: run_id is required")
+        if not rel:
+            raise ValueError("download_run_workspace_file: path is required")
+        url = self._url(f"/api/gateway/runs/{quote(rid, safe='')}/workspace/content", query={"path": rel})
+        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        timeout = self._cfg.timeout_s if timeout_s is None else float(timeout_s)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                limit = int(max_bytes)
+                raw = resp.read(limit + 1 if limit > 0 else -1) or b""
+                if limit > 0 and len(raw) > limit:
+                    raise RuntimeError(f"Workspace file too large (over {limit} bytes)")
+                content_type = str(resp.headers.get("content-type") or "").strip() or "application/octet-stream"
+                return raw, content_type
+        except urllib.error.HTTPError as e:
+            body_text = _read_error(e, label="download_run_workspace_file failed")
+            raise GatewayHttpError(
+                f"download_run_workspace_file failed: {body_text}",
                 status=int(getattr(e, "code", 0) or 0),
                 retry_after_s=_retry_after_s(dict(e.headers)),
                 body_text=body_text,

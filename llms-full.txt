@@ -516,6 +516,13 @@ Runs read and write files inside a workspace on the gateway host. Choose a folde
 Workspace to work in your own files; otherwise the gateway assigns a folder to the first run of a
 chat and later turns of that chat reuse it. The chat picker's tooltip shows the current folder.
 
+A picture a run saves in its workspace and names in its answer (`![Memory over time](memory_curve.png)`)
+appears inside the reply at the reply's width; click it to open the file full size. On the
+gateway's own machine the file is read in place; from another machine the app fetches a copy
+through the gateway into `~/.abstractassistant/downloads/`. A picture it cannot reach is shown as
+its caption and file name. In the **files** detail view, **Open file** opens each created or
+modified file the same way.
+
 ## 9. Local data
 
 `~/.abstractassistant/` holds the chat registry and snapshots, the gateway connection state, local
@@ -1224,6 +1231,10 @@ the stream. Whether the gateway offers live replies is read from
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
+- Run workspace files: `GET /api/gateway/runs/{run_id}/workspace` (where the run's files are and
+  whether this client is on that machine) and `GET /api/gateway/runs/{run_id}/workspace/content?path=`
+  (a copy of a picture an answer names, or of a file opened from the files view, when the client
+  is on another machine)
 - Automations ([automations.md](automations.md)), used only when the capabilities advertise
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and
@@ -2364,6 +2375,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   checks every 60 seconds while the palette is visible and every 5 minutes while it is hidden.
 
 ### Fixed
+- **A picture the run made shows in the answer.** `![Memory over time](memory_curve.png)` used to render as a small, unclickable document icon (Qt's missing-image glyph: the path is relative to the run's workspace, which the renderer never resolved); the picture now appears at the reply's width and a click opens it, read in place on the gateway's machine or fetched through `GET /runs/{id}/workspace/content` from elsewhere, and the files view has **Open file** on every created or modified file.
 - **The global summon shortcut never worked.** The default `cmd+shift+space` was rejected by the
   hotkey library (`space` must be written `<space>`), and even a valid combination could not fire
   because keys were compared un-normalised (right ⌘, Space). Both are fixed. On macOS the shortcut

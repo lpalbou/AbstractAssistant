@@ -129,6 +129,13 @@ Runs read and write files inside a workspace on the gateway host. Choose a folde
 Workspace to work in your own files; otherwise the gateway assigns a folder to the first run of a
 chat and later turns of that chat reuse it. The chat picker's tooltip shows the current folder.
 
+A picture a run saves in its workspace and names in its answer (`![Memory over time](memory_curve.png)`)
+appears inside the reply at the reply's width; click it to open the file full size. On the
+gateway's own machine the file is read in place; from another machine the app fetches a copy
+through the gateway into `~/.abstractassistant/downloads/`. A picture it cannot reach is shown as
+its caption and file name. In the **files** detail view, **Open file** opens each created or
+modified file the same way.
+
 ## 9. Local data
 
 `~/.abstractassistant/` holds the chat registry and snapshots, the gateway connection state, local

@@ -169,6 +169,10 @@ the stream. Whether the gateway offers live replies is read from
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
+- Run workspace files: `GET /api/gateway/runs/{run_id}/workspace` (where the run's files are and
+  whether this client is on that machine) and `GET /api/gateway/runs/{run_id}/workspace/content?path=`
+  (a copy of a picture an answer names, or of a file opened from the files view, when the client
+  is on another machine)
 - Automations ([automations.md](automations.md)), used only when the capabilities advertise
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and

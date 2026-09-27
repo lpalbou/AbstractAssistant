@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from urllib.parse import urlparse
+import warnings
 import wave
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -41,6 +42,7 @@ from PyQt5.QtGui import (
     QColor,
     QCursor,
     QDesktopServices,
+    QImage,
     QImageReader,
     QFont,
     QFontMetrics,
@@ -140,6 +142,7 @@ from abstractassistant.gateway.tool_usage import (
 from abstractassistant.utils.icon_generator import IconGenerator
 from abstractassistant.utils.markdown_renderer import (
     MarkdownRenderer,
+    ResolvedImage,
     split_markdown_mermaid_blocks,
 )
 
@@ -155,10 +158,17 @@ from .core import tool_presenter as _presenter
 from .core.link_targets import (
     click_action,
     describe_link,
+    exists_locally,
     file_href,
     local_path_from_href,
     mentioned_local_files,
     path_kind,
+)
+from .core.workspace_images import (
+    downloaded_workspace_path,
+    local_workspace_image,
+    workspace_relative_path,
+    workspace_relative_to_root,
 )
 from .ui.activity import RunActivityCard, RunActivityModel, build_activity_qss
 from .gateway.live_deltas import (
@@ -317,8 +327,8 @@ _tool_call_reason = _presenter.tool_call_reason
 _tool_call_summary = _presenter.tool_call_summary
 
 
-def _assistant_html(renderer: MarkdownRenderer, content: str) -> str:
-    base = renderer.render(content)
+def _assistant_html(renderer: MarkdownRenderer, content: str, *, image_resolver=None) -> str:
+    base = renderer.render(content, image_resolver=image_resolver)
     # `!important` beats the renderer's own stylesheet, so this block decides
     # the reply's colours — it has to be translated to the active theme too, or
     # a light theme renders light text on a light card.
@@ -2191,6 +2201,9 @@ DIRECT_CHAT_SYSTEM_PROMPT = (
 
 
 class AutoSizingTextBrowser(QTextBrowser):
+    # Class-level default (see MessageCard): tests build instances via __new__.
+    _inline_images: Optional[Dict[str, Any]] = None
+
     def __init__(
         self,
         *,
@@ -2242,15 +2255,26 @@ class AutoSizingTextBrowser(QTextBrowser):
         else:
             QToolTip.hideText()
 
+    def register_inline_image(self, url: str, image: "QImage") -> None:
+        """Serve ``image`` for ``url`` (an ``aa-image:`` name the card chose)."""
+        if self._inline_images is None:
+            self._inline_images = {}
+        self._inline_images[str(url)] = image
+
     def loadResource(self, kind: int, url: QUrl):  # noqa: N802
-        """Inline `data:` images only (that is all a reply ever embeds — mermaid).
+        """Inline `data:` images, and the images the card registered itself.
 
         The default loader reads ANY url a message names, on the GUI thread, while
         the message renders: `<img src="file:///home/…">` or a path on an autofs /
         network mount blocks the whole app for the mount timeout, and a model can
-        be made to write one by a page it quotes.
+        be made to write one by a page it quotes. A picture the run produced is
+        loaded by the card (from a file it resolved inside the run's workspace)
+        and registered under an `aa-image:` name before the HTML is set.
         """
-        if str(url.scheme() or "").lower() != "data":
+        scheme = str(url.scheme() or "").lower()
+        if scheme == "aa-image":
+            return (self._inline_images or {}).get(url.toString())
+        if scheme != "data":
             return None
         return super().loadResource(kind, url)
 
@@ -3067,11 +3091,17 @@ class MessageCard(QFrame):
         voice_state: str = "idle",
         parent: Optional[QWidget] = None,
         markdown_user_body: bool = False,
+        resolve_image=None,
     ) -> None:
         """``markdown_user_body``: render a user bubble's body as markdown
         (off by default: a person's typed prompt stays literal). On only for
         text the system composed in the user's seat — an automation's task
-        turn ("[Trigger …]\n## …")."""
+        turn ("[Trigger …]\n## …").
+
+        ``resolve_image(src, message)`` returns the local file an answer's
+        markdown image names (a picture the run wrote in its workspace), or
+        None; resolved images render inline at the bubble's width, and a
+        click opens the file (`_inline_image_resolver`)."""
         super().__init__(parent)
         role = str(message.get("role") or "").strip()
         is_user = role == "user"
@@ -3101,6 +3131,13 @@ class MessageCard(QFrame):
         self._role = role
         self._history_message_key = str(message_key or "").strip()
         self._media_artifacts = _message_media_artifacts(message)
+        self._message = message
+        self._renderer = renderer
+        self._resolve_image = resolve_image if callable(resolve_image) else None
+        # (browser, markdown) of blocks that show a resolved image: re-rendered
+        # when the bubble width changes, since an image is sized to it.
+        self._image_blocks: List[tuple] = []
+        self._image_text_width = 0
 
         self.setObjectName("messageContainer")
         root = QVBoxLayout(self)
@@ -3221,7 +3258,14 @@ class MessageCard(QFrame):
                 browser.setStyleSheet(
                     f"background: transparent; border: none; color: {THEME.text_primary}; padding: 0px; margin: 0px;"
                 )
-                browser.setHtml(_assistant_html(renderer, rendered_text))
+                text_width = max(96, int(bubble_width or 0)) - 24
+                resolver, placed = self._inline_image_resolver(browser, text_width)
+                browser.setHtml(
+                    _assistant_html(renderer, rendered_text, image_resolver=resolver)
+                )
+                if placed:
+                    self._image_blocks.append((browser, rendered_text))
+                    self._image_text_width = text_width
                 browser.refresh_height()
                 bubble_layout.addWidget(browser)
 
@@ -3392,6 +3436,14 @@ class MessageCard(QFrame):
             return
         width_val = max(96, int(bubble_width or 0))
         bubble.setFixedWidth(width_val)
+        if self._image_blocks and width_val - 24 != self._image_text_width:
+            # Pictures are sized to the text width: lay them out again.
+            self._image_text_width = width_val - 24
+            for browser, text in list(self._image_blocks):
+                resolver, _placed = self._inline_image_resolver(browser, width_val - 24)
+                browser.setHtml(
+                    _assistant_html(self._renderer, text, image_resolver=resolver)
+                )
         for browser in self.findChildren(AutoSizingTextBrowser):
             browser.refresh_height(width_val - 24)
         for preview in self.findChildren(MermaidPreviewCard):
@@ -3401,6 +3453,57 @@ class MessageCard(QFrame):
 
     def sync_to_viewport_width(self, viewport_width: int) -> None:
         self.set_bubble_width(_message_bubble_width(viewport_width, role=self._role))
+
+    # Set on instances in __init__; class defaults keep __new__-built cards safe.
+    _resolve_image = None
+    _image_blocks: List[tuple] = []
+    _image_text_width = 0
+
+    def _inline_image_resolver(self, browser: "AutoSizingTextBrowser", text_width: int):
+        """A markdown image resolver for one text block, and the list it fills.
+
+        Each image the palette resolves to a local file is loaded HERE (the
+        file was found inside the run's workspace, on this machine), fitted to
+        ``text_width`` without upscaling, rendered at the screen's pixel ratio,
+        and registered on ``browser`` under an ``aa-image:`` name. The markdown
+        renderer then wraps it in a link to the file, so a click opens it full
+        size through the same policy as every other file link.
+        """
+        placed: List[str] = []
+        resolve = self._resolve_image
+        if resolve is None:
+            return None, placed
+        message = self._message
+
+        def _resolver(src: str, alt: str) -> Optional[ResolvedImage]:
+            try:
+                path = resolve(src, message)
+            except Exception:
+                path = None
+            if not path:
+                return None
+            image = QImage(str(path))
+            if image.isNull() or image.width() <= 0 or image.height() <= 0:
+                return None
+            width = max(1, min(int(image.width()), int(text_width)))
+            height = max(1, round(image.height() * width / image.width()))
+            try:
+                ratio = float(browser.devicePixelRatioF() or 1.0)
+            except Exception:
+                ratio = 1.0
+            scaled = image.scaled(
+                max(1, round(width * ratio)),
+                max(1, round(height * ratio)),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            scaled.setDevicePixelRatio(ratio)
+            url = f"aa-image://img{len(placed) + 1}"
+            browser.register_inline_image(url, scaled)
+            placed.append(str(path))
+            return ResolvedImage(src=url, href=file_href(str(path)), width=width, height=height)
+
+        return _resolver, placed
 
     def set_voice_state(self, state: str) -> None:
         self._apply_voice_button_state(str(state or "").strip())
@@ -5142,11 +5245,17 @@ class FileOperationCard(QFrame):
     """One card per file mutation (created / modified / moved / deleted)."""
 
     def __init__(
-        self, *, operation: FileOperation, index: int, parent: Optional[QWidget] = None
+        self,
+        *,
+        operation: FileOperation,
+        index: int,
+        on_open: Optional[Callable[[str], str]] = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("toolApprovalCallCard")
         action = str(operation.action or "").strip().lower()
+        self.open_button: Optional[QPushButton] = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
@@ -5209,6 +5318,25 @@ class FileOperationCard(QFrame):
             rows.append(("tool", operation.via))
         root.addWidget(_details_grid(rows, self))
 
+        # The file itself, one click away: in place on this machine, else via
+        # the gateway's workspace file route (the palette's `_open_run_file`).
+        # A deleted file has nothing left to open.
+        target = str(display_path or "").strip()
+        if callable(on_open) and target and action != "deleted":
+            button = QPushButton("Open file")
+            button.setObjectName("toolApprovalSecondaryButton")
+            button.setCursor(QCursor(Qt.PointingHandCursor))
+            button.setToolTip(target)
+
+            def _open(_checked: bool = False, path: str = target, b=button) -> None:
+                problem = on_open(path)
+                if problem:
+                    QToolTip.showText(QCursor.pos(), problem, b)
+
+            button.clicked.connect(_open)
+            root.addWidget(button, 0, Qt.AlignLeft)
+            self.open_button = button
+
 
 # Post-hoc tool/file dialogs share the application stylesheet plus the
 # approval card rules (usageStatusChip / usageCardError live there now).
@@ -5217,6 +5345,30 @@ def _usage_dialog_style() -> str:
     light app."""
     return dialog_stylesheet() + build_approval_qss()
 ToolApprovalDialog = ToolApprovalSheet
+
+
+class GatewayCallWorker(QThread):
+    """Run one blocking gateway call off the GUI thread; ``done(result, error)``."""
+
+    done = pyqtSignal(object, str)
+
+    def __init__(self, call: Callable[[], Any], parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._call = call
+
+    def run(self) -> None:
+        try:
+            result = self._call()
+        except Exception as exc:  # reported through `done`, never raised in a thread
+            self.done.emit(None, str(exc) or exc.__class__.__name__)
+            return
+        self.done.emit(result, "")
+
+
+def _message_run_id(message: Dict[str, Any]) -> str:
+    """The run that produced a message (top-level, else its metadata)."""
+    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    return str(message.get("run_id") or metadata.get("run_id") or "").strip()
 
 
 class ToolUsageLookupWorker(QThread):
@@ -5418,10 +5570,12 @@ class FileActivityDialog(QDialog):
         source: str = "",
         run_ids: Optional[List[str]] = None,
         error: str = "",
+        on_open_file: Optional[Callable[[str], str]] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Files affected")
+        self._on_open_file = on_open_file if callable(on_open_file) else None
         self.resize(680, 520)
         self._message = dict(message or {})
 
@@ -5527,7 +5681,12 @@ class FileActivityDialog(QDialog):
             self._clear_host()
             for index, operation in enumerate(operations):
                 self._host_layout.addWidget(
-                    FileOperationCard(operation=operation, index=index, parent=self._host)
+                    FileOperationCard(
+                        operation=operation,
+                        index=index,
+                        on_open=self._on_open_file,
+                        parent=self._host,
+                    )
                 )
             self._host_layout.addStretch(1)
             return
@@ -7905,6 +8064,7 @@ class AssistantPalette(QMainWindow):
                     voice_state=(
                         "idle" if is_user else self._message_voice_state(message)
                     ),
+                    resolve_image=None if is_user else self._resolve_message_image,
                 )
                 self._history_cards_by_key[message_key] = card
                 self.history_layout.addWidget(card)
@@ -9366,6 +9526,203 @@ class AssistantPalette(QMainWindow):
             parent=self,
         )
 
+    # -- files in a run's workspace (pictures an answer names, files it touched)
+
+    # Class-level defaults: palettes built via __new__ in tests have no __init__ state.
+    _run_workspaces: Optional[Dict[str, Dict[str, Any]]] = None
+    _workspace_calls: Optional[List[Any]] = None
+
+    def _workspace_cache_dir(self) -> Path:
+        return Path(self._controller.data_dir) / "downloads"
+
+    def _start_gateway_call(self, call: Callable[[], Any], on_done: Callable[[Any, str], None]) -> None:
+        worker = GatewayCallWorker(call, parent=self)
+        if self._workspace_calls is None:
+            self._workspace_calls = []
+        self._workspace_calls.append(worker)
+
+        def _finished(result: Any, error: str, w=worker) -> None:
+            try:
+                self._workspace_calls.remove(w)
+            except (ValueError, AttributeError):
+                pass
+            on_done(result, error)
+
+        worker.done.connect(_finished)
+        worker.start()
+
+    def _run_workspace(self, run_id: str, *, then: Optional[Callable[[], None]] = None) -> Optional[Dict[str, Any]]:
+        """Where a run's files are: ``{"root", "local"}`` once known, else None.
+
+        Asked once per run, off the GUI thread (``GET /runs/{id}/workspace``);
+        ``then`` runs when the answer arrives. ``local`` is true only when the
+        gateway says this client sits on its host AND the folder exists — a
+        same-named folder on another machine is not the run's workspace.
+        """
+        rid = str(run_id or "").strip()
+        if not rid:
+            return None
+        if self._run_workspaces is None:
+            self._run_workspaces = {}
+        known = self._run_workspaces.get(rid)
+        if known is not None:
+            if known.get("pending"):
+                if then is not None:
+                    known.setdefault("then", []).append(then)
+                return None
+            return None if known.get("error") else known
+        gateway = None
+        try:
+            gateway = self._controller.llm_manager.gateway_client()
+        except Exception:
+            gateway = None
+        if gateway is None:
+            self._run_workspaces[rid] = {"error": "no gateway connection"}
+            return None
+        entry: Dict[str, Any] = {"pending": True, "then": [then] if then is not None else []}
+        self._run_workspaces[rid] = entry
+
+        def _done(result: Any, error: str) -> None:
+            waiting = list(entry.get("then") or [])
+            if error or not isinstance(result, dict):
+                self._run_workspaces[rid] = {"error": error or "unexpected answer"}
+                warnings.warn(f"#FALLBACK: the workspace of run {rid} is unknown: {error}")
+            else:
+                host = result.get("host") if isinstance(result.get("host"), dict) else {}
+                self._run_workspaces[rid] = {
+                    "root": str(result.get("workspace_root") or "").strip(),
+                    "local": bool(host.get("caller_is_this_machine")) and bool(result.get("exists")),
+                }
+            for callback in waiting:
+                try:
+                    callback()
+                except Exception as exc:
+                    warnings.warn(f"#FALLBACK: after the workspace lookup of run {rid}: {exc}")
+
+        self._start_gateway_call(lambda: gateway.get_run_workspace(run_id=rid), _done)
+        return None
+
+    def _fetch_workspace_file(self, run_id: str, relative_path: str, target: Path, *, then: Callable[[str], None]) -> None:
+        """Copy one workspace file through ``GET /runs/{id}/workspace/content``
+        into ``target`` (once; concurrent asks share the download), then call
+        ``then(error)`` — ``""`` on success."""
+        key = f"{run_id}\n{relative_path}"
+        pending = self.__dict__.setdefault("_workspace_downloads", {})
+        if key in pending:
+            pending[key].append(then)
+            return
+        pending[key] = [then]
+        gateway = self._controller.llm_manager.gateway_client()
+
+        def _download() -> str:
+            if gateway is None:
+                raise RuntimeError("no gateway connection")
+            data, _content_type = gateway.download_run_workspace_file(run_id=run_id, path=relative_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            partial = target.with_name(target.name + ".part")
+            partial.write_bytes(data)
+            os.replace(partial, target)
+            return str(target)
+
+        def _done(_result: Any, error: str) -> None:
+            if error:
+                warnings.warn(f"#FALLBACK: could not fetch {relative_path} of run {run_id}: {error}")
+            for callback in pending.pop(key, []):
+                callback(error)
+
+        self._start_gateway_call(_download, _done)
+
+    def _resolve_message_image(self, src: str, message: Dict[str, Any]) -> Optional[str]:
+        """The local file a markdown image in an answer names, or None.
+
+        A relative reference is a file in the run's workspace (the folder the
+        agent wrote it in). On the gateway's own machine the file is read in
+        place; otherwise a copy is fetched through the gateway's workspace file
+        route. Either lookup happens once, off the GUI thread, and the
+        transcript is redrawn when it lands — meanwhile the image shows as a
+        labelled mention, never as Qt's broken-image glyph.
+        """
+        run_id = _message_run_id(message)
+        if not run_id:
+            return None
+        workspace = self._run_workspace(run_id, then=self._redraw_for_workspace_files)
+        if not workspace or not workspace.get("root"):
+            return None
+        root = str(workspace["root"])
+        if workspace.get("local"):
+            return local_workspace_image(src, root)
+        text = str(src or "").strip()
+        relative = workspace_relative_path(text)
+        if relative is None:
+            local = local_path_from_href(text) if text.lower().startswith("file:") else (text if text.startswith("/") else "")
+            relative = workspace_relative_to_root(local, root) if local else None
+        if relative is None or path_kind(relative) != "image":
+            return None
+        target = downloaded_workspace_path(self._workspace_cache_dir(), run_id=run_id, relative_path=relative)
+        if target is None:
+            return None
+        if target.is_file():
+            return str(target)
+        self._fetch_workspace_file(
+            run_id, relative, target, then=lambda error: None if error else self._redraw_for_workspace_files()
+        )
+        return None
+
+    def _redraw_for_workspace_files(self) -> None:
+        try:
+            self.refresh_history()
+        except RuntimeError:
+            pass  # the palette is being torn down
+
+    def _open_run_file(self, message: Dict[str, Any], path: str) -> str:
+        """Open a file a run touched: in place when it is on this machine,
+        else a copy fetched through the gateway's workspace file route.
+        Returns "" or why nothing opened (a fetch reports later, as a banner)."""
+        target = str(path or "").strip()
+        if not target:
+            return "No file path."
+        if exists_locally(target):
+            return activate_message_link(file_href(target))
+        run_id = _message_run_id(message)
+
+        def _via_gateway() -> None:
+            workspace = (self._run_workspaces or {}).get(run_id) or {}
+            if workspace.get("error"):
+                self._set_banner(f"Could not open {Path(target).name}: {workspace['error']}", tone="warn", key="workspace-file")
+                return
+            root = str(workspace.get("root") or "")
+            relative = workspace_relative_to_root(target, root) if root else None
+            copy = (
+                downloaded_workspace_path(self._workspace_cache_dir(), run_id=run_id, relative_path=relative)
+                if relative
+                else None
+            )
+            if copy is None:
+                self._set_banner(
+                    f"{Path(target).name} is not in this run's workspace, so the gateway cannot send it.",
+                    tone="warn",
+                    key="workspace-file",
+                )
+                return
+            if copy.is_file():
+                problem = activate_message_link(file_href(str(copy)))
+                if problem:
+                    self._set_banner(problem, tone="warn", key="workspace-file")
+                return
+
+            def _opened(error: str) -> None:
+                problem = f"Could not fetch {copy.name}: {error}" if error else activate_message_link(file_href(str(copy)))
+                if problem:
+                    self._set_banner(problem, tone="warn", key="workspace-file")
+
+            self._fetch_workspace_file(run_id, relative, copy, then=_opened)
+
+        if not run_id:
+            return f"Not found on this computer: {target}"
+        if self._run_workspace(run_id, then=_via_gateway) is not None:
+            _via_gateway()
+        return ""
+
     def _open_artifact(self, artifact: Dict[str, Any], *, run_id: str) -> None:
         try:
             path = self._controller.download_artifact(run_id=run_id, artifact=artifact)
@@ -9390,6 +9747,7 @@ class AssistantPalette(QMainWindow):
             message=message,
             tool_calls=_assistant_tool_calls_for_message(message),
             source="metadata",
+            on_open_file=lambda path, m=message: self._open_run_file(m, path),
             parent=self,
         )
         self._run_usage_lookup(

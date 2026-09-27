@@ -41,6 +41,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   checks every 60 seconds while the palette is visible and every 5 minutes while it is hidden.
 
 ### Fixed
+- **A picture the run made shows in the answer.** `![Memory over time](memory_curve.png)` used to render as a small, unclickable document icon (Qt's missing-image glyph: the path is relative to the run's workspace, which the renderer never resolved); the picture now appears at the reply's width and a click opens it, read in place on the gateway's machine or fetched through `GET /runs/{id}/workspace/content` from elsewhere, and the files view has **Open file** on every created or modified file.
 - **The global summon shortcut never worked.** The default `cmd+shift+space` was rejected by the
   hotkey library (`space` must be written `<space>`), and even a valid combination could not fire
   because keys were compared un-normalised (right ⌘, Space). Both are fixed. On macOS the shortcut

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import html
+from typing import Callable, Optional
 import uuid
 from html.parser import HTMLParser
 import json
@@ -783,6 +784,105 @@ def _themed_panel(fragment: str) -> str:
     return retint_stylesheet(str(fragment or ""), source=DEFAULT_THEME, target=THEME)
 
 
+@dataclass(frozen=True)
+class ResolvedImage:
+    """An image the renderer may show inline.
+
+    ``src`` is a URL the text browser can load without touching the disk or
+    the network (a ``data:`` URI, or a resource the card registered on its
+    document); ``href`` is what a click on the picture opens; ``width`` /
+    ``height`` are the displayed size in pixels (already fitted to the bubble).
+    """
+
+    src: str
+    href: str
+    width: int
+    height: int
+
+
+ImageResolver = Callable[[str, str], Optional[ResolvedImage]]
+
+
+def _render_markdown_image(renderer, tokens, idx, options, env) -> str:
+    """One markdown image, placed by the caller's resolver.
+
+    A resolved image renders at its fitted size inside a link, so a click
+    opens it full size. Anything else never becomes an ``<img>``: Qt would
+    draw its "missing image" glyph — a small, unclickable document icon — for
+    every reference it cannot load (the 2026-09-27 "non clickable icon and no
+    curve" defect). A web image becomes a link to it, a local path a file
+    link, and a reference nothing can open a plain labelled mention.
+    ``data:`` images (inline, nothing to fetch) keep the default rendering.
+    """
+    token = tokens[idx]
+    src = str(token.attrGet("src") or "").strip()
+    alt = renderer.renderInlineAsText(token.children or [], options, env) if token.children else ""
+    if src.lower().startswith("data:image/"):
+        return renderer.image(tokens, idx, options, env)
+    resolver = env.get("image_resolver") if isinstance(env, dict) else None
+    resolved = None
+    if callable(resolver):
+        try:
+            resolved = resolver(src, alt)
+        except Exception:
+            resolved = None
+    if isinstance(resolved, ResolvedImage):
+        return (
+            f'<a class="aa-image" href="{html.escape(resolved.href, quote=True)}">'
+            f'<img src="{html.escape(resolved.src, quote=True)}" '
+            f'width="{int(resolved.width)}" height="{int(resolved.height)}" '
+            f'alt="{html.escape(alt, quote=True)}" /></a>'
+        )
+    name = src.rsplit("/", 1)[-1] if src else ""
+    label = html.escape(f"{alt} ({name})" if alt and name and alt != name else (alt or name or "image"))
+    scheme = src.split(":", 1)[0].lower() if ":" in src else ""
+    if scheme in {"http", "https"}:
+        return f'<a href="{html.escape(src, quote=True)}">{label}</a>'
+    local_href = file_href(src) if src.startswith(("/", "~/")) else (src if scheme == "file" else "")
+    if local_href:
+        return f'<a class="aa-file" href="{html.escape(local_href, quote=True)}">{label}</a>'
+    return f'<span class="aa-image-missing">{label}</span>'
+
+
+def _figure_only(inline_token) -> bool:
+    """True for a paragraph whose content is images (and line breaks) only."""
+    children = list(getattr(inline_token, "children", None) or [])
+    images = 0
+    for child in children:
+        if child.type == "image":
+            images += 1
+        elif child.type in {"softbreak", "hardbreak"}:
+            continue
+        elif child.type == "text" and not str(child.content or "").strip():
+            continue
+        else:
+            return False
+    return images > 0
+
+
+# A paragraph that is only a picture is a figure: a block with a 100% line
+# height. Qt applies the reply's proportional `line-height` to the whole line
+# box, so a 250 px picture in a `<p>` got ~60 px of blank space under it (and
+# a plain `<div>` inherits the same line height from `.markdown-content`).
+_FIGURE_OPEN = '<div class="aa-figure" style="line-height: 100%; margin: 2px 0 8px 0;">'
+
+
+def _render_paragraph_open(renderer, tokens, idx, options, env) -> str:
+    token = tokens[idx]
+    following = tokens[idx + 1] if idx + 1 < len(tokens) else None
+    if not token.hidden and following is not None and following.type == "inline" and _figure_only(following):
+        return _FIGURE_OPEN
+    return renderer.renderToken(tokens, idx, options, env)
+
+
+def _render_paragraph_close(renderer, tokens, idx, options, env) -> str:
+    token = tokens[idx]
+    preceding = tokens[idx - 1] if idx > 0 else None
+    if not token.hidden and preceding is not None and preceding.type == "inline" and _figure_only(preceding):
+        return "</div>\n"
+    return renderer.renderToken(tokens, idx, options, env)
+
+
 class MarkdownRenderer:
     """Markdown renderer with CommonMark/GFM parsing for Qt rich text."""
 
@@ -810,6 +910,9 @@ class MarkdownRenderer:
                 "highlight": self._highlight_code,
             },
         )
+        self._markdown.add_render_rule("image", _render_markdown_image)
+        self._markdown.add_render_rule("paragraph_open", _render_paragraph_open)
+        self._markdown.add_render_rule("paragraph_close", _render_paragraph_close)
 
     def _highlight_segment(self, code: str, language: str) -> str:
         try:
@@ -866,14 +969,18 @@ class MarkdownRenderer:
             highlighted = self._highlight_segment(code, language)
         return self._code_block_html(highlighted, language)
 
-    def render(self, markdown_text: str) -> str:
+    def render(self, markdown_text: str, *, image_resolver: ImageResolver | None = None) -> str:
+        """``image_resolver(src, alt)`` places each markdown image: see
+        `_render_markdown_image`. Without one, no image the text names is
+        loaded (a label or link stands in for it)."""
         try:
             prepared, mermaid = _replace_mermaid_fences(
                 _prepare_markdown_source(unfence_lone_targets(markdown_text))
             )
+            env = {"image_resolver": image_resolver}
             html_content = _restore_mermaid_placeholders(
                 _autolink_html_text(
-                    _unwrap_generated_code_panels(self._markdown.render(prepared))
+                    _unwrap_generated_code_panels(self._markdown.render(prepared, env))
                 ),
                 mermaid,
             )
