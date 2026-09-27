@@ -1,0 +1,141 @@
+{
+  "items": [
+    {
+      "name": "revise",
+      "request": {
+        "method": "PATCH",
+        "path": "/api/gateway/automations/fddce731-4abf-54d3-81b9-15856efbfd7a",
+        "body": {
+          "command_id": "cmd-0a1b-revise",
+          "expected_revision": 1,
+          "changes": {
+            "trigger": {
+              "source_id": "schedule",
+              "source_version": 1,
+              "config": {
+                "start_at": "2026-09-25T08:00:00Z",
+                "every": "6h",
+                "anchor": "2026-09-25T08:00:00Z"
+              }
+            }
+          }
+        }
+      },
+      "status": 200,
+      "response": {
+        "command_id": "cmd-0a1b-revise",
+        "accepted": true,
+        "duplicate": false,
+        "seq": 41
+      }
+    },
+    {
+      "name": "pause",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/fddce731-4abf-54d3-81b9-15856efbfd7a/commands",
+        "body": {
+          "command_id": "cmd-0a1b-pause",
+          "type": "automation.pause"
+        }
+      },
+      "status": 200,
+      "response": {
+        "command_id": "cmd-0a1b-pause",
+        "accepted": true,
+        "duplicate": false,
+        "seq": 42
+      }
+    },
+    {
+      "name": "pause (repeat)",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/fddce731-4abf-54d3-81b9-15856efbfd7a/commands",
+        "body": {
+          "command_id": "cmd-0a1b-pause",
+          "type": "automation.pause"
+        }
+      },
+      "status": 200,
+      "response": {
+        "command_id": "cmd-0a1b-pause",
+        "accepted": true,
+        "duplicate": true,
+        "seq": 42
+      }
+    },
+    {
+      "name": "run_now",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/69892c76-5362-5646-a528-b9f982c8d993/commands",
+        "body": {
+          "command_id": "cmd-0a1b-run-now",
+          "type": "automation.run_now"
+        }
+      },
+      "status": 200,
+      "response": {
+        "command_id": "cmd-0a1b-run-now",
+        "accepted": true,
+        "duplicate": false,
+        "seq": 43
+      }
+    },
+    {
+      "name": "resume",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/69892c76-5362-5646-a528-b9f982c8d993/commands",
+        "body": {
+          "command_id": "cmd-0a1b-resume",
+          "type": "automation.resume"
+        }
+      },
+      "status": 200,
+      "response": {
+        "command_id": "cmd-0a1b-resume",
+        "accepted": true,
+        "duplicate": false,
+        "seq": 44
+      }
+    },
+    {
+      "name": "stop_current",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e/commands",
+        "body": {
+          "command_id": "cmd-0a1b-stop",
+          "type": "automation.stop_current"
+        }
+      },
+      "status": 200,
+      "response": {
+        "command_id": "cmd-0a1b-stop",
+        "accepted": true,
+        "duplicate": false,
+        "seq": 45
+      }
+    },
+    {
+      "name": "archive",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/69892c76-5362-5646-a528-b9f982c8d993/commands",
+        "body": {
+          "command_id": "cmd-0a1b-archive",
+          "type": "automation.archive"
+        }
+      },
+      "status": 200,
+      "response": {
+        "command_id": "cmd-0a1b-archive",
+        "accepted": true,
+        "duplicate": false,
+        "seq": 46
+      }
+    }
+  ]
+}

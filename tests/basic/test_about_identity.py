@@ -129,12 +129,15 @@ def test_tray_menu_has_about_which_opens_the_about_page() -> None:
         def _create_session(self):
             pass
 
+        def open_automations(self):
+            pass
+
         def _open_settings(self, section: str = ""):
             opened.append(section)
 
     menu = app_module._build_tray_menu(palette=_Palette(), quit_app=lambda: None)
     labels = [a.text() for a in menu.actions() if not a.isSeparator()]
-    assert labels == ["Show", "Hide", "New Session", "Settings", "About AbstractAssistant…", "Quit"]
+    assert labels == ["Show", "Hide", "New Session", "Automations…", "Settings", "About AbstractAssistant…", "Quit"]
     about = next(a for a in menu.actions() if a.text() == "About AbstractAssistant…")
     about.trigger()
     assert opened == ["about"]

@@ -25,6 +25,7 @@ from ..gateway import (
     GatewayEventAdapter,
     build_run_input_data,
 )
+from ..gateway.client import wait_response_command
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.live_deltas import ASSISTANT_DELTA
@@ -797,15 +798,7 @@ class GatewayWorker(QThread):
         return fallback, merged_meta
 
     def _submit_resume(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
-        self._gateway.submit_command(
-            command={
-                "command_id": f"resume_{int(time.time() * 1000)}",
-                "run_id": str(run_id),
-                "type": "resume",
-                "payload": {"wait_key": wait_key, "payload": payload},
-                "client_id": "abstractassistant",
-            }
-        )
+        self._gateway.submit_command(command=wait_response_command(run_id=str(run_id), wait_key=wait_key, payload=payload))
 
     def submit_wait_response(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
         """Submit a runtime wait response through Gateway without owning the wait.

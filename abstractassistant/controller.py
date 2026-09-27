@@ -16,6 +16,7 @@ from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
+from abstractassistant.gateway.automations import AutomationsClient
 from abstractassistant.gateway.run_input import MEDIA_OVERRIDE_INPUT_KEYS
 from abstractassistant.gateway.tool_usage import (
     extract_sub_run_ids_from_record,
@@ -1022,6 +1023,47 @@ class AssistantController:
 
     def session_messages(self) -> List[Dict[str, Any]]:
         return self.llm_manager.session_messages()
+
+    # ------------------------------------------------------------ automations
+
+    def automations_client(self) -> AutomationsClient:
+        """Contract-F client over the CURRENT gateway connection."""
+        gateway = self.llm_manager.gateway_client()
+        if gateway is None:
+            raise RuntimeError("Gateway client is not configured")
+        return AutomationsClient(gateway)
+
+    def automation_notification_ledger_path(self) -> Path:
+        """Where the already-notified attention keys live (per data dir)."""
+        return Path(self.llm_manager.data_dir) / "automations_notified.json"
+
+    def last_user_prompt(self) -> str:
+        """The active conversation's last user message (the "Schedule this" seed)."""
+        for message in reversed(self.session_messages() or []):
+            if isinstance(message, dict) and str(message.get("role") or "") == "user":
+                meta = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+                if str((meta or {}).get("kind") or "") == "operator_guidance":
+                    continue
+                text = str(message.get("content") or "").strip()
+                if text:
+                    return text
+        return ""
+
+    def answer_wait(self, *, run_id: str, wait_key: str, response: str) -> Dict[str, Any]:
+        """Answer a pending human wait of a run this client did not start (an
+        automation occurrence): the same ``resume`` command the live worker
+        sends for an ask-user answer. Blocking: call it off the GUI thread."""
+        return self.gateway.submit_wait_response(
+            run_id=run_id, wait_key=wait_key, payload={"response": str(response or "")}
+        )
+
+    def open_gateway_session(self, session_id: str, *, run_id: str) -> None:
+        """Switch to a session the gateway just created (a Discuss session),
+        remembering its run so the palette can follow it like any reattach."""
+        self.llm_manager.switch_session(session_id)
+        self.llm_manager.replace_gateway_messages(
+            list(self.llm_manager.session_messages() or []), last_run_id=str(run_id or "").strip() or None
+        )
 
     def route_rows(self) -> List[CapabilityRouteRow]:
         return self.gateway_service.list_capability_routes()

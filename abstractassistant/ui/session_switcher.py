@@ -46,8 +46,10 @@ from ..core.session_digest import (
     sort_digests,
     workspace_label,
 )
+from ..core.automations import attention_total, group_by_automation
 from ..icons import symbol_icon
 from ..theme import METRICS, THEME
+from .automations import AutomationRow, automation_row_qss
 from .styles import alpha, dialog_stylesheet, refresh_style
 
 __all__ = ["SessionRow", "SessionSwitcher", "SESSION_SWITCHER_QSS"]
@@ -295,8 +297,17 @@ class SessionRow(QFrame):
     rename_committed = pyqtSignal(str, str)
     delete_confirmed = pyqtSignal(str)
     focus_requested = pyqtSignal(object)
+    # A discussion row's "about automation <title>" badge was clicked.
+    automation_requested = pyqtSignal(str)
 
-    def __init__(self, digest: SessionDigest, *, active: bool, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        digest: SessionDigest,
+        *,
+        active: bool,
+        parent: Optional[QWidget] = None,
+        automation_title: str = "",
+    ) -> None:
         super().__init__(parent)
         self.digest = digest
         self.session_id = digest.session_id
@@ -340,6 +351,24 @@ class SessionRow(QFrame):
         self.rename_edit.returnPressed.connect(self._commit_rename)
         self.rename_edit.installEventFilter(self)
         head.addWidget(self.rename_edit, 1)
+
+        # A discussion is an ordinary session forked from an automation: the
+        # gateway's `session_kind` says so (never the id), and the badge names
+        # the automation and opens it.
+        self.about_button: Optional[QPushButton] = None
+        if digest.session_kind == "discussion":
+            name = automation_title or "an automation"
+            self.about_button = QPushButton(f"about automation {name}", self)
+            self.about_button.setObjectName("aboutAutomation")
+            self.about_button.setCursor(Qt.PointingHandCursor)
+            self.about_button.setToolTip(
+                "A forked session seeded from this automation's runs; its workspace is "
+                "read-only and nothing is written back. Click to open the automation."
+            )
+            self.about_button.clicked.connect(
+                lambda: self.automation_requested.emit(self.digest.automation_id)
+            )
+            head.addWidget(self.about_button, 0, Qt.AlignVCenter)
 
         if active:
             badge = QLabel("ACTIVE")
@@ -607,6 +636,8 @@ class SessionSwitcher(QDialog):
     delete_requested = pyqtSignal(str)
     # True = every session on the gateway, False = this client's own.
     scope_changed = pyqtSignal(bool)
+    # An automation row (or a discussion's badge) was chosen.
+    automation_chosen = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -621,6 +652,12 @@ class SessionSwitcher(QDialog):
         self._group_labels: Dict[str, QLabel] = {}
         self._active_id = ""
         self._selected_index = -1
+        # The Automations section (gateway-fed, grouped by automation_id).
+        self._automations: List[Dict[str, Any]] = []
+        self._automation_status = ""
+        self._automation_rows: List[AutomationRow] = []
+        self._automation_label: Optional[QLabel] = None
+        self._automation_status_label: Optional[QLabel] = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -708,7 +745,7 @@ class SessionSwitcher(QDialog):
 
     def restyle(self) -> None:
         """Re-read the palette (the theme changed, or this is the first paint)."""
-        self.setStyleSheet(dialog_stylesheet() + build_switcher_qss())
+        self.setStyleSheet(dialog_stylesheet() + build_switcher_qss() + automation_row_qss())
         # Called from __init__ too, before any row exists.
         for row in getattr(self, "_rows", ()) or ():
             refresh_style(row)
@@ -764,9 +801,56 @@ class SessionSwitcher(QDialog):
                 widget.deleteLater()
         self._rows = []
         self._group_labels = {}
+        self._automation_rows = []
+        self._automation_label = None
+        self._automation_status_label = None
+
+    def set_automations(self, summaries: Sequence[Any], *, status: str = "") -> None:
+        """Render the Automations section: one row per ``automation_id``.
+
+        ``status`` is the section's own line (unreachable, not offered by this
+        gateway); an empty list with no status hides the section."""
+        grouped = [dict(s) for s in group_by_automation(summaries or [])]
+        text = str(status or "").strip()
+        if grouped == self._automations and text == self._automation_status:
+            return
+        self._automations = grouped
+        self._automation_status = text
+        self._rebuild()
+
+    @property
+    def automation_rows(self) -> List[AutomationRow]:
+        return list(self._automation_rows)
+
+    def _build_automation_section(self) -> None:
+        if not self._automations and not self._automation_status:
+            return
+        unread = attention_total(self._automations)
+        title = "AUTOMATIONS" + (f" · {unread} NEW" if unread else "")
+        label = QLabel(title, self.list_host)
+        label.setObjectName("switcherGroup")
+        self.list_layout.addWidget(label)
+        self._automation_label = label
+        if self._automation_status:
+            status = QLabel(self._automation_status, self.list_host)
+            status.setObjectName("switcherStatus")
+            status.setWordWrap(True)
+            self.list_layout.addWidget(status)
+            self._automation_status_label = status
+        for summary in self._automations:
+            row = AutomationRow(summary, parent=self.list_host)
+            row.chosen.connect(self._on_automation_chosen)
+            self.list_layout.addWidget(row)
+            self._automation_rows.append(row)
+
+    def _on_automation_chosen(self, automation_id: str) -> None:
+        self.automation_chosen.emit(str(automation_id))
+        self.close()
 
     def _rebuild(self) -> None:
         self._clear_rows()
+        self._build_automation_section()
+        titles = {str(s.get("automation_id")): str(s.get("title") or "") for s in self._automations}
         by_group: Dict[str, List[SessionDigest]] = {}
         for digest in self._digests:
             by_group.setdefault(recency_group(digest.last_activity), []).append(digest)
@@ -779,7 +863,13 @@ class SessionSwitcher(QDialog):
             self.list_layout.addWidget(label)
             self._group_labels[group] = label
             for digest in entries:
-                row = SessionRow(digest, active=digest.session_id == self._active_id, parent=self.list_host)
+                row = SessionRow(
+                    digest,
+                    active=digest.session_id == self._active_id,
+                    parent=self.list_host,
+                    automation_title=titles.get(digest.automation_id, ""),
+                )
+                row.automation_requested.connect(self._on_automation_chosen)
                 row.chosen.connect(self._on_row_chosen)
                 row.rename_committed.connect(self.rename_requested.emit)
                 row.delete_confirmed.connect(self._on_delete_confirmed)
@@ -817,6 +907,8 @@ class SessionSwitcher(QDialog):
         """
         for row in self._rows:
             row.elide_labels(self.width() - 60)
+        for row in self._automation_rows:
+            row.elide_labels(self.width() - 60)
         self.list_layout.activate()
 
     def _refresh_count(self) -> None:
@@ -841,6 +933,13 @@ class SessionSwitcher(QDialog):
             any_visible = any_visible or visible
         for group, label in self._group_labels.items():
             label.setVisible(bool(visible_groups.get(group)))
+        any_automation = False
+        for row in self._automation_rows:
+            visible = row.matches(query)
+            row.setVisible(visible)
+            any_automation = any_automation or visible
+        if self._automation_label is not None:
+            self._automation_label.setVisible(any_automation or bool(self._automation_status and not query.strip()))
         if not self._rows:
             self.empty_label.setText("No sessions yet. Start one with New session.")
             self.empty_label.show()

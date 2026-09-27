@@ -1195,6 +1195,9 @@ def test_launch_tray_app_shows_palette_when_bundle_requests_visible_launch(
         def __init__(self, **_kwargs) -> None:
             pass
 
+        def open_automations(self) -> None:
+            pass
+
         def attach_tray(self, _tray) -> None:
             events.append("attach-tray")
 
@@ -1324,6 +1327,9 @@ def test_launch_tray_app_waits_for_native_tray_readiness_before_visible_launch(
     class _Palette:
         def __init__(self, **_kwargs) -> None:
             self.show_count = 0
+
+        def open_automations(self) -> None:
+            pass
 
         def attach_tray(self, _tray) -> None:
             events.append("attach-tray")

@@ -105,6 +105,12 @@ class _Controller:
     def prefetch(self) -> None:
         return None
 
+    def automations_client(self):
+        raise RuntimeError("no gateway in the smoke tests")
+
+    def automation_notification_ledger_path(self):
+        return None
+
     def probe_reattach_candidate(self, **kwargs):
         return None
 

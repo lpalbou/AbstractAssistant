@@ -8,6 +8,11 @@ AbstractCode uses (``abstractcode/tui/src/runner.rs`` ``fold_session_rows``,
 divergence from those is a bug in one of the three:
 
 - a run without a ``session_id`` (or without a ``run_id``) is not a session;
+- a run whose ``session_kind`` is ``automation`` or ``occurrence`` is not a
+  REGULAR session: those are listed under the Automations section (grouped by
+  ``automation_id``), never here. ``chat`` and ``discussion`` stay; a row
+  without ``session_kind`` (a gateway that does not stamp it) is a chat. The
+  kind is the gateway's own stamp — never inferred from an id prefix;
 - a child run (``parent_run_id`` set) is never a turn;
 - turns = the root runs of the session in the page;
 - recency = the newest ``updated_at`` (``created_at`` when absent) — the field
@@ -33,6 +38,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from .automations import is_regular_session_kind
 from .session_digest import parse_timestamp
 
 __all__ = [
@@ -75,6 +81,10 @@ class GatewaySession:
     first_run_id: str = ""
     latest_run_id: str = ""
     turns: int = 0
+    # The gateway's `session_kind` of the session's turns ("" = not stamped,
+    # i.e. a chat) and, for a discussion, the automation it is about.
+    session_kind: str = ""
+    automation_id: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -85,6 +95,8 @@ class GatewaySession:
             "first_run_id": self.first_run_id,
             "latest_run_id": self.latest_run_id,
             "turns": int(self.turns),
+            "session_kind": self.session_kind,
+            "automation_id": self.automation_id,
         }
 
     @classmethod
@@ -107,6 +119,8 @@ class GatewaySession:
             first_run_id=str(raw.get("first_run_id") or ""),
             latest_run_id=str(raw.get("latest_run_id") or ""),
             turns=turns,
+            session_kind=str(raw.get("session_kind") or ""),
+            automation_id=str(raw.get("automation_id") or ""),
         )
 
 
@@ -145,6 +159,8 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
     for index, run in enumerate(items):
         if not isinstance(run, dict):
             continue
+        if not is_regular_session_kind(_text(run.get("session_kind"))):
+            continue
         if _text(run.get("parent_run_id")):
             continue
         sid = _text(run.get("session_id"))
@@ -165,6 +181,8 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
         newest = max(group, key=lambda entry: (_when(_activity(entry[1])), -entry[0]))[1]
         oldest = min(group, key=lambda entry: (_when(_created(entry[1])), entry[0]))[1]
         latest = max(group, key=lambda entry: (_when(_created(entry[1])), -entry[0]))[1]
+        kind = next((_text(run.get("session_kind")) for _i, run in group if _text(run.get("session_kind"))), "")
+        automation_id = next((_text(run.get("automation_id")) for _i, run in group if _text(run.get("automation_id"))), "")
         rows.append(
             GatewaySession(
                 session_id=sid,
@@ -174,6 +192,8 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
                 first_run_id=_text(oldest.get("run_id")),
                 latest_run_id=_text(latest.get("run_id")),
                 turns=len(group),
+                session_kind=kind,
+                automation_id=automation_id if kind == "discussion" else "",
             )
         )
     # Newest first by the field the gateway paged on; ties by id (stable).

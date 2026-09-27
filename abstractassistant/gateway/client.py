@@ -203,6 +203,22 @@ def _encode_multipart(
     return body, content_type_header
 
 
+def wait_response_command(*, run_id: str, wait_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The command that answers a run's pending wait: ``resume`` with
+    ``{wait_key, payload}`` on the WAITING run."""
+    rid = str(run_id or "").strip()
+    key = str(wait_key or "").strip()
+    if not rid or not key:
+        raise ValueError("wait_response_command: run_id and wait_key are required")
+    return {
+        "command_id": f"resume_{int(time.time() * 1000)}",
+        "run_id": rid,
+        "type": "resume",
+        "payload": {"wait_key": key, "payload": dict(payload or {})},
+        "client_id": "abstractassistant",
+    }
+
+
 class GatewayClient:
     """HTTP client wrapper for the gateway control plane."""
 
@@ -1137,6 +1153,13 @@ class GatewayClient:
             body=body,
             label="submit_command failed",
         )
+
+    def submit_wait_response(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Answer a run's pending wait: a ``resume`` command carrying
+        ``{wait_key, payload}`` on the WAITING run (the one path every wait
+        answer takes — tool approvals, ask-user, and waits of automation
+        occurrences the Assistant never started)."""
+        return self.submit_command(command=wait_response_command(run_id=run_id, wait_key=wait_key, payload=payload))
 
     def _submit_run_command(self, *, run_id: str, type_: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         rid = str(run_id or "").strip()

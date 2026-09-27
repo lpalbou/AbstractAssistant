@@ -1,0 +1,182 @@
+{
+  "items": [
+    {
+      "automation_id": "fddce731-4abf-54d3-81b9-15856efbfd7a",
+      "title": "AI news monitor",
+      "status": "active",
+      "trigger": {
+        "binding_id": "6bc5f0d4-3a5d-597f-8e5a-9c06d4561e0c",
+        "source_id": "schedule",
+        "source_version": 1,
+        "config": {
+          "start_at": "2026-09-25T08:00:00Z",
+          "every": "8h",
+          "anchor": "2026-09-25T08:00:00Z"
+        }
+      },
+      "context_mode": "independent",
+      "next_fire_at": "2026-09-27T08:00:00Z",
+      "occurrence_count": 6,
+      "last_occurrence": {
+        "run_id": "cadb53cd-8124-5aa8-84c8-49c521d5c25e",
+        "index": 6,
+        "status": "completed",
+        "attempts": 1,
+        "fired_at": "2026-09-27T00:00:00Z",
+        "finished_at": "2026-09-27T00:02:19Z",
+        "excerpt": "No major announcements since the last check.",
+        "notify": null
+      },
+      "attention": {
+        "pending_waits": 0,
+        "unread": false,
+        "unseen_count": 0,
+        "cursor": "att1:3",
+        "items": [],
+        "waits": []
+      },
+      "legacy": false,
+      "revision": 1,
+      "updated_at": "2026-09-27T00:02:19Z",
+      "capabilities": [
+        "revise",
+        "pause",
+        "resume",
+        "run_now",
+        "stop_current",
+        "archive",
+        "discuss"
+      ],
+      "session_kind": "automation"
+    },
+    {
+      "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
+      "title": "Inbox triage",
+      "status": "active",
+      "trigger": {
+        "binding_id": "f4f0390d-6d95-51a9-9e93-5b212ddac78c",
+        "source_id": "schedule",
+        "source_version": 1,
+        "config": {
+          "start_at": "2026-09-27T04:00:00Z",
+          "every": "30m",
+          "anchor": "2026-09-27T04:00:00Z"
+        }
+      },
+      "context_mode": "growing",
+      "next_fire_at": "2026-09-27T07:00:00Z",
+      "occurrence_count": 7,
+      "last_occurrence": {
+        "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
+        "index": 7,
+        "status": "waiting",
+        "attempts": 1,
+        "fired_at": "2026-09-27T06:30:00Z",
+        "excerpt": "Waiting for you: the landlord asks whether Tuesday works for the boiler inspection.",
+        "notify": null
+      },
+      "attention": {
+        "pending_waits": 1,
+        "unread": true,
+        "unseen_count": 2,
+        "cursor": "att1:2",
+        "items": [
+          {
+            "kind": "notify",
+            "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
+            "run_id": "66d53ae1-24ec-5d8b-b4a6-fbf2656e8849",
+            "index": 2,
+            "at": "2026-09-27T04:31:12Z",
+            "title": "2 urgent emails",
+            "body": "Accountant needs the signed tax form by noon; building manager asks to confirm access tomorrow 9:00.",
+            "cursor": "att1:1"
+          },
+          {
+            "kind": "failure",
+            "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
+            "run_id": "5f7b076a-c40b-5fa2-820c-0665a603ed1e",
+            "index": 5,
+            "at": "2026-09-27T05:33:05Z",
+            "title": "Inbox triage failed after 3 attempts",
+            "body": "Mail provider timed out (IMAP read timeout after 60 s).",
+            "cursor": "att1:2"
+          }
+        ],
+        "waits": [
+          {
+            "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
+            "wait_key": "ask_user:reply-landlord",
+            "index": 7,
+            "prompt": "The landlord asks whether Tuesday works for the boiler inspection. Reply now?"
+          }
+        ]
+      },
+      "legacy": false,
+      "revision": 1,
+      "updated_at": "2026-09-27T06:30:04Z",
+      "capabilities": [
+        "revise",
+        "pause",
+        "resume",
+        "run_now",
+        "stop_current",
+        "archive",
+        "discuss"
+      ],
+      "session_kind": "automation"
+    },
+    {
+      "automation_id": "69892c76-5362-5646-a528-b9f982c8d993",
+      "title": "Weekly journal monitor",
+      "status": "paused",
+      "trigger": {
+        "binding_id": "832da695-061c-5032-af2f-e711b676138b",
+        "source_id": "schedule",
+        "source_version": 1,
+        "config": {
+          "start_at": "2026-09-06T07:00:00Z",
+          "every": "7d",
+          "anchor": "2026-09-06T07:00:00Z",
+          "count": 12
+        }
+      },
+      "context_mode": "independent",
+      "occurrence_count": 3,
+      "last_occurrence": {
+        "run_id": "056b4f2c-9d81-5404-a63f-433a044d5abc",
+        "index": 3,
+        "status": "completed",
+        "attempts": 1,
+        "fired_at": "2026-09-20T07:00:00Z",
+        "finished_at": "2026-09-20T07:04:51Z",
+        "excerpt": "Three new papers on sparse attention; summaries in the workspace.",
+        "notify": {
+          "title": "3 new papers",
+          "body": "Three new sparse-attention papers this week."
+        }
+      },
+      "attention": {
+        "pending_waits": 0,
+        "unread": false,
+        "unseen_count": 0,
+        "cursor": "att1:1",
+        "items": [],
+        "waits": []
+      },
+      "legacy": false,
+      "revision": 2,
+      "updated_at": "2026-09-22T18:40:10Z",
+      "capabilities": [
+        "revise",
+        "pause",
+        "resume",
+        "run_now",
+        "stop_current",
+        "archive",
+        "discuss"
+      ],
+      "session_kind": "automation"
+    }
+  ],
+  "next_cursor": null
+}

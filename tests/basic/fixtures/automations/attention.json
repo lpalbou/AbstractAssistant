@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "kind": "notify",
+      "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
+      "run_id": "66d53ae1-24ec-5d8b-b4a6-fbf2656e8849",
+      "index": 2,
+      "at": "2026-09-27T04:31:12Z",
+      "title": "2 urgent emails",
+      "body": "Accountant needs the signed tax form by noon; building manager asks to confirm access tomorrow 9:00.",
+      "cursor": "att1:1"
+    },
+    {
+      "kind": "failure",
+      "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
+      "run_id": "5f7b076a-c40b-5fa2-820c-0665a603ed1e",
+      "index": 5,
+      "at": "2026-09-27T05:33:05Z",
+      "title": "Inbox triage failed after 3 attempts",
+      "body": "Mail provider timed out (IMAP read timeout after 60 s).",
+      "cursor": "att1:2"
+    }
+  ],
+  "next_cursor": null
+}

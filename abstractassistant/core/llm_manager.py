@@ -517,6 +517,8 @@ class LLMManager:
                     state=str(row.state or ""),
                     first_prompt=prompt or digest.first_prompt,
                     last_run_id=row.latest_run_id or digest.last_run_id,
+                    session_kind=row.session_kind,
+                    automation_id=row.automation_id,
                 )
             payload = asdict(digest)
             payload["display_title"] = digest.display_title
@@ -526,7 +528,10 @@ class LLMManager:
 
         show_all = store.show_all
         for row in store.rows():
-            if show_all or is_own_session(row.session_id):
+            # A discussion is this principal's own fork of its own automation
+            # (the gateway scopes automations per principal), whatever id the
+            # gateway minted for its session.
+            if show_all or is_own_session(row.session_id) or row.session_kind == "discussion":
                 _add(row.session_id, created_at=row.created_at, updated_at=row.updated_at, row=row)
         for session_id, meta in store.legacy_pending().items():
             _add(session_id, created_at=meta.get("created_at", ""), updated_at=meta.get("updated_at", ""))

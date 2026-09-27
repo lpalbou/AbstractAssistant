@@ -1,0 +1,121 @@
+{
+  "items": [
+    {
+      "status": 401,
+      "body": {
+        "detail": {
+          "reason_code": "unauthorized",
+          "message": "Sign in to the gateway."
+        }
+      }
+    },
+    {
+      "status": 403,
+      "body": {
+        "detail": {
+          "reason_code": "forbidden",
+          "message": "This token cannot manage automations."
+        }
+      }
+    },
+    {
+      "status": 404,
+      "body": {
+        "detail": {
+          "reason_code": "automation_not_found",
+          "message": "Automation not found."
+        }
+      }
+    },
+    {
+      "status": 404,
+      "body": {
+        "detail": {
+          "reason_code": "occurrence_not_found",
+          "message": "Automation has no occurrence 12.",
+          "field": "occurrence_index"
+        }
+      }
+    },
+    {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason_code": "revision_conflict",
+          "message": "Automation is at revision 4, not 3.",
+          "field": "expected_revision",
+          "command_id": "cmd-0a1b-revise"
+        }
+      }
+    },
+    {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason_code": "automation_busy",
+          "message": "An occurrence is already running or queued.",
+          "command_id": "cmd-0a1b-run-now"
+        }
+      }
+    },
+    {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_state",
+          "message": "Automation is archived.",
+          "command_id": "cmd-0a1b-resume"
+        }
+      }
+    },
+    {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason_code": "identity_conflict",
+          "message": "request_id was already used with a different request.",
+          "field": "request_id"
+        }
+      }
+    },
+    {
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_request",
+          "message": "Request body is not valid JSON."
+        }
+      }
+    },
+    {
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_definition",
+          "message": "every must match ^[1-9][0-9]*[smhd]$.",
+          "field": "trigger.config.every"
+        }
+      }
+    },
+    {
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "unsupported_feature",
+          "message": "changed_since is not supported in v1.",
+          "field": "changed_since"
+        }
+      }
+    },
+    {
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "unknown_trigger_source",
+          "message": "No trigger source cron@1.",
+          "field": "trigger.source_id"
+        }
+      }
+    }
+  ]
+}

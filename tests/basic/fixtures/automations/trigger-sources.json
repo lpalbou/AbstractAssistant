@@ -1,0 +1,105 @@
+{
+  "items": [
+    {
+      "id": "schedule",
+      "version": 1,
+      "label": "Schedule",
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "every": {
+            "type": "string",
+            "format": "duration",
+            "pattern": "^[1-9][0-9]*[smhd]$"
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "anchor": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "event_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tick",
+          "scheduled_at"
+        ],
+        "properties": {
+          "tick": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "coalesced": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "first_tick",
+              "last_tick",
+              "missed_count"
+            ],
+            "properties": {
+              "first_tick": {
+                "type": "integer"
+              },
+              "last_tick": {
+                "type": "integer"
+              },
+              "missed_count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      },
+      "capabilities": {
+        "kind": "time"
+      },
+      "available": true
+    },
+    {
+      "id": "manual",
+      "version": 1,
+      "label": "Manual",
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "event_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command_id"
+        ],
+        "properties": {
+          "command_id": {
+            "type": "string"
+          }
+        }
+      },
+      "capabilities": {
+        "kind": "manual"
+      },
+      "available": true
+    }
+  ]
+}

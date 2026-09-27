@@ -171,6 +171,14 @@ from .gateway.live_deltas import (
     end_reason_text,
 )
 from .ui.session_switcher import SessionSwitcher
+from .core.automations import NotificationLedger, target_from_workflow
+from .ui.automations import (
+    AUTOMATIONS_POLL_HIDDEN_MS,
+    AUTOMATIONS_POLL_VISIBLE_MS,
+    AutomationsHub,
+    AutomationView,
+    ScheduleSheet,
+)
 from .theme import DEFAULT_THEME, THEME, activate_metrics
 from .retint import parse_color, retint_stylesheet
 from .ui.approval import (
@@ -5718,6 +5726,21 @@ class AssistantPalette(QMainWindow):
         self.sessions_refreshed.connect(self._on_sessions_refreshed)
         self.session_sync_failed.connect(self._on_session_sync_failed)
         self.session_sync_again.connect(self._sync_session_from_gateway)
+        # Automations (contract F): the hub does every call off the GUI thread.
+        self._automations = AutomationsHub(
+            client_factory=self._controller.automations_client,
+            notify=self._notify_automation,
+            ledger=NotificationLedger(self._controller.automation_notification_ledger_path()),
+            parent=self,
+        )
+        self._automations.summaries_changed.connect(self._on_automations_changed)
+        self._automations_timer = QTimer(self)
+        self._automations_timer.setInterval(AUTOMATIONS_POLL_HIDDEN_MS)
+        self._automations_timer.timeout.connect(self._poll_automations)
+        self._automations_timer.start()
+        self._automations_menu_action = None
+        self._automation_view_id = ""
+        self._schedule_sheet = None
         self.speech_level_received.connect(self._on_speech_level)
         self.speech_activity_changed.connect(self._refresh_tray_feedback)
         self._voice_conversation: Optional[VoiceConversation] = None
@@ -5866,6 +5889,16 @@ class AssistantPalette(QMainWindow):
         tools.clicked.connect(self._open_tool_settings)
         header_actions.addWidget(tools)
 
+        schedule = QPushButton()
+        schedule.setObjectName("iconButton")
+        schedule.setIcon(_symbol_icon("clock", size=16))
+        schedule.setIconSize(QSize(16, 16))
+        schedule.setFixedSize(28, 28)
+        schedule.setToolTip("Schedule this conversation…")
+        schedule.clicked.connect(self._open_schedule_sheet)
+        header_actions.addWidget(schedule)
+        self.schedule_button = schedule
+
         self.auto_speak = QPushButton()
         self.auto_speak.setObjectName("topIconToggleButton")
         self.auto_speak.setCheckable(True)
@@ -5923,6 +5956,18 @@ class AssistantPalette(QMainWindow):
         history_wrap.addWidget(self.banner_label)
         history_wrap.addWidget(self.chat_status_label)
         history_wrap.addWidget(self.history_scroll, 1)
+        # An automation opened from the switcher replaces the transcript in
+        # place (its occurrences read as a chat); "← Chat" brings it back.
+        self.automation_view = AutomationView(self.history_card)
+        self.automation_view.hide()
+        self.automation_view.back_requested.connect(self._close_automation_view)
+        self.automation_view.control_requested.connect(self._on_automation_control)
+        self.automation_view.revise_requested.connect(self._on_automation_revise)
+        self.automation_view.discuss_requested.connect(self._on_automation_discuss)
+        self.automation_view.wait_answered.connect(self._on_automation_wait_answer)
+        self.automation_view.load_more_requested.connect(self._on_automation_load_more)
+        self.automation_view.retry_requested.connect(self._automations.retry)
+        history_wrap.addWidget(self.automation_view, 1)
 
         self.composer_card = AttachmentDropFrame(central)
         self.composer_card.setObjectName("composerCard")
@@ -6330,7 +6375,9 @@ class AssistantPalette(QMainWindow):
             switcher.rename_requested.connect(self._rename_session)
             switcher.delete_requested.connect(self._delete_session)
             switcher.scope_changed.connect(self._set_session_scope)
+            switcher.automation_chosen.connect(self._open_automation)
             self._session_switcher = switcher
+        self._apply_automations_to_switcher(switcher)
         self._warm_session_digests()
         switcher.set_digests(
             self._session_records(), active_session_id=self._active_session_id()
@@ -6346,6 +6393,273 @@ class AssistantPalette(QMainWindow):
         switcher.open_at(origin, screen_geometry=self._available_screen_geometry())
         # The rows above are the cache; the gateway's answer replaces them.
         self._refresh_sessions_from_gateway()
+        self._poll_automations()
+
+    # ------------------------------------------------------------ automations
+
+    def _poll_automations(self) -> None:
+        hub = self._state("_automations")
+        if hub is not None:
+            hub.poll()
+
+    def _notify_automation(self, title: str, body: str) -> None:
+        self._notify(str(title or "Automation"), str(body or title or ""), duration_ms=7000)
+
+    def _automations_status_text(self) -> str:
+        hub = self._state("_automations")
+        if hub is None:
+            return ""
+        if hub.error:
+            return f"Automations: {hub.error}"
+        if hub.available is True and not hub.summaries:
+            return "No automation yet. Schedule a conversation with the clock button."
+        return ""
+
+    def _apply_automations_to_switcher(self, switcher: Any) -> None:
+        hub = self._state("_automations")
+        if hub is None:
+            return  # a palette built without __init__ (tests)
+        if hub.available is False:
+            switcher.set_automations([], status="")
+            return
+        switcher.set_automations(hub.summaries, status=self._automations_status_text())
+
+    def _on_automations_changed(self, _summaries: Any) -> None:
+        hub = self._automations
+        switcher = self._state("_session_switcher")
+        if switcher is not None:
+            try:
+                if switcher.isVisible():
+                    self._apply_automations_to_switcher(switcher)
+            except RuntimeError:
+                self._session_switcher = None
+        unread = hub.unread
+        action = self._state("_automations_menu_action")
+        if action is not None:
+            try:
+                action.setText(f"Automations… ({unread} new)" if unread else "Automations…")
+                action.setVisible(hub.available is not False)
+            except RuntimeError:
+                self._automations_menu_action = None
+        view_id = self._state("_automation_view_id", "")
+        if view_id:
+            summary = hub.summary(view_id)
+            if summary is not None:
+                self.automation_view.set_summary(summary)
+
+    def open_automations(self) -> None:
+        """Tray "Automations…": show the palette with the switcher open on the
+        Automations section."""
+        self.show_palette()
+        QTimer.singleShot(0, self._open_session_switcher)
+
+    def _open_automation(self, automation_id: str) -> None:
+        aid = str(automation_id or "").strip()
+        summary = self._automations.summary(aid)
+        if summary is None:
+            self._set_banner("That automation is not in the list any more.", tone="info", key="automation")
+            return
+        self._automation_view_id = aid
+        view = self.automation_view
+        view.set_error("")
+        view.set_notice("Loading runs…")
+        view.set_occurrences([], next_cursor=None)
+        view.set_summary(summary)
+        self.history_scroll.hide()
+        self.chat_status_label.hide()
+        self.composer_card.hide()
+        view.show()
+
+        def loaded(ok: bool, value: Any) -> None:
+            if self._state("_automation_view_id") != aid:
+                return
+            view.set_notice("")
+            if not ok:
+                view.set_error(self._automations.error_text(value))
+                return
+            view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
+            view.scroll_to_latest()
+            # Viewing acknowledges the attention items the view DISPLAYED.
+            self._automations.mark_seen(summary)
+
+        self._automations.load_occurrences(aid, loaded)
+
+    def _close_automation_view(self) -> None:
+        self._automation_view_id = ""
+        self.automation_view.hide()
+        self.history_scroll.show()
+        self.composer_card.show()
+        self.refresh_history()
+
+    def _reload_open_automation(self) -> None:
+        aid = self._state("_automation_view_id", "")
+        if not aid:
+            return
+        view = self.automation_view
+
+        def loaded(ok: bool, value: Any) -> None:
+            if ok and self._state("_automation_view_id") == aid:
+                view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"))
+
+        self._automations.poll()
+        self._automations.load_occurrences(aid, loaded)
+
+    def _automation_call_done(self, success_notice: str) -> Callable[[bool, Any], None]:
+        view = self.automation_view
+
+        def done(ok: bool, value: Any) -> None:
+            view.set_busy(False)
+            if not ok:
+                view.set_error(self._automations.error_text(value), retry=self._automations.can_retry)
+                return
+            view.set_error("")
+            receipt = value if isinstance(value, dict) else {}
+            duplicate = " (already received)" if receipt.get("duplicate") else ""
+            view.set_notice(f"{success_notice}{duplicate}" if receipt.get("accepted", True) else "The gateway did not accept the request.")
+            self._reload_open_automation()
+
+        return done
+
+    def _on_automation_control(self, control: str) -> None:
+        aid = self._state("_automation_view_id", "")
+        if not aid:
+            return
+        labels = {
+            "pause": "Paused: no scheduled run until you resume.",
+            "resume": "Resumed: the next run is on the schedule.",
+            "run_now": "Run requested.",
+            "stop_current": "Stop requested.",
+            "archive": "Archived. Its history is kept.",
+        }
+        self.automation_view.set_busy(True)
+        self._automations.command(aid, control, self._automation_call_done(labels.get(control, "Done.")))
+
+    def _on_automation_revise(self, changes: Any) -> None:
+        summary = self._automations.summary(self._state("_automation_view_id", ""))
+        if summary is None or not isinstance(changes, dict):
+            return
+        self.automation_view.set_busy(True)
+        self._automations.revise(summary, changes, self._automation_call_done("Saved; applies from the next run."))
+
+    def _on_automation_load_more(self) -> None:
+        aid = self._state("_automation_view_id", "")
+        view = self.automation_view
+        cursor = view.next_cursor
+        if not aid or not cursor:
+            return
+
+        def loaded(ok: bool, value: Any) -> None:
+            if not ok:
+                view.set_error(self._automations.error_text(value))
+                return
+            if self._state("_automation_view_id") == aid:
+                view.set_occurrences(value.get("items") or [], next_cursor=value.get("next_cursor"), append=True)
+
+        self._automations.load_occurrences(aid, loaded, cursor=cursor)
+
+    def _on_automation_wait_answer(self, run_id: str, wait_key: str, response: str) -> None:
+        view = self.automation_view
+        view.set_busy(True)
+        controller = self._controller
+
+        def done(ok: bool, value: Any) -> None:
+            view.set_busy(False)
+            if not ok:
+                view.set_error(f"Your answer did not reach the gateway ({value}). The run is still waiting; try again.")
+                return
+            view.set_notice("Answer sent; the occurrence continues.")
+            self._reload_open_automation()
+
+        self._automations.run(
+            lambda: controller.answer_wait(run_id=run_id, wait_key=wait_key, response=response), done
+        )
+
+    def _on_automation_discuss(self, index: int, prompt: str) -> None:
+        aid = self._state("_automation_view_id", "")
+        if not aid:
+            return
+        if self._state("_worker") is not None:
+            self.automation_view.set_error("Wait for the current reply to finish (or stop it) before opening a discussion.")
+            return
+        view = self.automation_view
+        view.set_busy(True)
+
+        def done(ok: bool, value: Any) -> None:
+            view.set_busy(False)
+            if not ok:
+                view.set_error(self._automations.error_text(value), retry=self._automations.can_retry)
+                return
+            self._open_discussion(value if isinstance(value, dict) else {})
+
+        self._automations.discuss(aid, int(index), str(prompt), done)
+
+    def _open_discussion(self, result: Dict[str, Any]) -> None:
+        """Discuss answered: its session is an ordinary gateway session —
+        switch to it and follow its first run like any reattach."""
+        session_id = str(result.get("session_id") or "").strip()
+        run_id = str(result.get("run_id") or "").strip()
+        if not session_id or not run_id:
+            self.automation_view.set_error("The gateway did not return the discussion's session.")
+            return
+        try:
+            self._controller.open_gateway_session(session_id, run_id=run_id)
+        except Exception as exc:
+            self.automation_view.set_error(f"Could not open the discussion: {exc}")
+            return
+        self._close_automation_view()
+        self._tray_completion_unread = False
+        self._set_history_status()
+        self._set_banner(
+            "Discussion opened: a forked session with a read-only workspace; nothing is written back to the automation.",
+            tone="info",
+            key="session",
+        )
+        self._invalidate_session_digests()
+        self._refresh_session_picker(select_session_id=session_id)
+        self._on_reattach_candidate({"run_id": run_id, "status": "running", "waiting": None})
+        self._refresh_sessions_from_gateway()
+
+    def _open_schedule_sheet(self) -> None:
+        """"Schedule this conversation…": the conversation's workflow and its
+        last prompt prefill the sheet (the workflow is resolved off the GUI
+        thread; the catalog may need a round trip)."""
+        controller = self._controller
+        prompt = controller.last_user_prompt()
+
+        def resolved(ok: bool, value: Any) -> None:
+            selection = value if ok else None
+            label = str(getattr(selection, "label", "") or getattr(selection, "bundle_id", "") or "")
+            if getattr(selection, "is_gateway_default", False):
+                label = f"gateway default ({label})" if label else "gateway default"
+            sheet = ScheduleSheet(target=target_from_workflow(selection), target_label=label, prompt=prompt, parent=self)
+            sheet.submitted.connect(lambda body, s=sheet: self._submit_schedule(s, body))
+            self._schedule_sheet = sheet
+            self._automations.trigger_sources(
+                lambda ok2, sources: sheet.set_trigger_sources(sources.get("items") or [])
+                if ok2 and isinstance(sources, dict)
+                else sheet.set_error(self._automations.error_text(sources))
+            )
+            sheet.show()
+            sheet.raise_()
+
+        self._automations.run(controller.current_workflow, resolved)
+
+    def _submit_schedule(self, sheet: Any, body: Dict[str, Any]) -> None:
+        def done(ok: bool, value: Any) -> None:
+            if not ok:
+                sheet.submit_failed(
+                    self._automations.error_text(value), reuse_id=self._automations.no_gateway_answer(value)
+                )
+                return
+            sheet.close()
+            summary = value.get("summary") if isinstance(value, dict) else None
+            if isinstance(summary, dict) and summary.get("automation_id"):
+                hub = self._automations
+                hub.summaries = [s for s in hub.summaries if s.get("automation_id") != summary["automation_id"]] + [summary]
+                self._open_automation(str(summary["automation_id"]))
+            self._poll_automations()
+
+        self._automations.create(body, done)
 
     def _refresh_open_session_switcher(self) -> None:
         """Re-render the popup's rows (rename, delete, or the gateway answered)."""
@@ -7071,6 +7385,9 @@ class AssistantPalette(QMainWindow):
         # rule in `_hide_if_inactive`, the tray toggle, Esc, closeEvent —
         # rather than one of them, so Settings cannot be left behind.
         super().hideEvent(event)
+        timer = self._state("_automations_timer")
+        if timer is not None:
+            timer.setInterval(AUTOMATIONS_POLL_HIDDEN_MS)
         for dialog in self._settings_family_dialogs():
             try:
                 # A Settings window the user is TYPING IN keeps itself alive:
@@ -7086,6 +7403,10 @@ class AssistantPalette(QMainWindow):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        timer = self._state("_automations_timer")
+        if timer is not None:
+            timer.setInterval(AUTOMATIONS_POLL_VISIBLE_MS)
+            QTimer.singleShot(0, self._poll_automations)
         QTimer.singleShot(0, self._sync_native_traffic_lights)
         QTimer.singleShot(0, self._restore_deferred_history_scroll_on_show)
         self._request_connection_status_refresh()
@@ -11264,6 +11585,7 @@ def _build_tray_menu(*, palette, quit_app) -> QMenu:
     menu.addAction("Show", palette.show_palette)
     menu.addAction("Hide", palette.hide)
     menu.addAction("New Session", palette._create_session)
+    palette._automations_menu_action = menu.addAction("Automations…", palette.open_automations)
     menu.addAction("Settings", palette._open_settings)
     menu.addSeparator()
     menu.addAction("About AbstractAssistant\u2026", lambda: palette._open_settings("about"))
