@@ -6670,9 +6670,11 @@ class AssistantPalette(QMainWindow):
                     if ok:
                         switcher.set_status("")
                     else:
-                        switcher.set_status(self._automations.error_text(value), tone="warn")
+                        # The card's button comes back, carrying the gateway's reason.
+                        switcher.command_failed(str(automation_id), self._automations.error_text(value))
                 except RuntimeError:
                     return
+            # The confirmed state shows as soon as the gateway has it.
             self._poll_automations()
 
         self._automations.command(str(automation_id), str(control), done)
@@ -6747,6 +6749,8 @@ class AssistantPalette(QMainWindow):
         def done(ok: bool, value: Any) -> None:
             view.set_busy(False)
             if not ok:
+                # The pending control comes back, with the gateway's reason.
+                view.end_pending()
                 view.set_error(self._automations.error_text(value), retry=self._automations.can_retry)
                 return
             view.set_error("")

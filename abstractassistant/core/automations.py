@@ -25,6 +25,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "CONTROL_COMMANDS",
+    "PENDING_TEXT",
+    "command_confirmed",
     "REGULAR_SESSION_KINDS",
     "SCHEDULE_PRESETS",
     "API_ERROR_TEXT",
@@ -252,6 +254,35 @@ def automation_controls(
         "archive": gate("archive", True, ""),
         "discuss": gate("discuss", True, ""),
     }
+
+
+# ------------------------------------------------------- pending commands
+
+# What a control's button says while its command waits for the gateway.
+PENDING_TEXT = {
+    "pause": "Pausing…",
+    "resume": "Resuming…",
+    "run_now": "Starting a run…",
+    "stop_current": "Stopping…",
+    "archive": "Archiving…",
+}
+
+
+def command_confirmed(control: str, before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+    """Whether ``after`` (a fresh summary) shows the effect of ``control``
+    applied to ``before`` — read from the gateway's state, never assumed."""
+    status = after.get("status")
+    if control == "pause":
+        return status == "paused"
+    if control == "resume":
+        return status == "active"
+    if control == "archive":
+        return status == "archived"
+    if control == "run_now":
+        return int(after.get("occurrence_count") or 0) > int(before.get("occurrence_count") or 0) or occurrence_in_progress(after)
+    if control == "stop_current":
+        return not occurrence_in_progress(after)
+    raise ValueError(f"unknown control {control!r}")
 
 
 # ------------------------------------------------------ occurrences as chat

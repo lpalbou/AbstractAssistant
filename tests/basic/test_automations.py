@@ -1521,3 +1521,106 @@ def test_new_automation_from_the_switcher_creates_and_selects_the_row(palette, s
     assert switcher.tab == "automations"
     assert created in [r.automation_id for r in switcher.automation_tab_rows]
     assert switcher.selected_automation_id == created
+
+
+def _held_commands(window) -> List[tuple]:
+    """Hold command callbacks (the gateway 'thinking'); the test releases them."""
+    held: List[tuple] = []
+    window._automations.command = lambda aid, control, done: held.append((aid, control, done))
+    return held
+
+
+def _card(switcher, aid):
+    return next(r for r in switcher.automation_tab_rows if r.automation_id == aid)
+
+
+@pytest.mark.basic
+def test_the_card_button_is_pending_until_the_gateway_confirms(palette, stub) -> None:
+    from abstractassistant.ui.session_switcher import SessionSwitcher
+
+    window, _controller = palette
+    window._poll_automations()
+    switcher = SessionSwitcher()
+    window._session_switcher = switcher
+    switcher.automation_control_requested.connect(window._on_switcher_automation_control)
+    window._apply_automations_to_switcher(switcher)
+    switcher.set_tab("automations")
+    switcher.show()  # the palette refreshes an open switcher on every poll
+    real_command = window._automations.command
+    held = _held_commands(window)
+
+    card = _card(switcher, NEWS)
+    card.state_button.click()
+    # Immediately: disabled, spinner, "Pausing…", exactly one command.
+    assert not card.state_button.isEnabled() and card.state_button.toolTip() == "Pausing…"
+    assert [(a, c) for a, c, _ in held] == [(NEWS, "pause")]
+    card.state_button.click()
+    card._clicked("pause")
+    assert len(held) == 1, "never the same command twice while pending"
+    # A poll that brings a CHANGED summary (not yet the new state) keeps it pending.
+    stub.summary(NEWS)["updated_at"] = "2026-09-27T09:00:00+00:00"
+    window._poll_automations()
+    card = _card(switcher, NEWS)
+    assert switcher.is_pending(NEWS) and not card.state_button.isEnabled()
+    # The gateway applies it; the result arrives; the refresh shows "paused".
+    window._automations.command = real_command
+    real_command(NEWS, "pause", held[0][2])
+    card = _card(switcher, NEWS)
+    assert not switcher.is_pending(NEWS)
+    assert card.state_button.isEnabled() and card.state_button.state_control == "resume"
+    switcher.deleteLater()
+
+
+@pytest.mark.basic
+def test_a_refused_command_brings_the_button_back_with_the_reason(palette, stub) -> None:
+    from abstractassistant.ui.session_switcher import SessionSwitcher
+
+    window, _controller = palette
+    window._poll_automations()
+    switcher = SessionSwitcher()
+    window._session_switcher = switcher
+    switcher.automation_control_requested.connect(window._on_switcher_automation_control)
+    window._apply_automations_to_switcher(switcher)
+    switcher.set_tab("automations")
+    held = _held_commands(window)
+    _card(switcher, NEWS).state_button.click()
+    busy = AutomationApiError(status=409, reason_code="automation_busy", message="An occurrence is already running.")
+    held[0][2](False, busy)
+    card = _card(switcher, NEWS)
+    assert card.state_button.isEnabled() and card.pending is None
+    assert "Last attempt failed" in card.state_button.toolTip() and "already running" in card.state_button.toolTip()
+    assert "already running" in switcher.status_text
+    # A second click is a new action: a fresh command.
+    card.state_button.click()
+    assert len(held) == 2
+    switcher.deleteLater()
+
+
+@pytest.mark.basic
+def test_the_views_controls_are_pending_until_the_state_changes(palette, stub, tmp_path) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(NEWS)
+    view = window.automation_view
+    held = _held_commands(window)
+    view.control_buttons["pause"].click()
+    assert view.pending == "pause" and view.control_buttons["pause"].text() == "Pausing…"
+    assert not any(b.isEnabled() for b in view.control_buttons.values())
+    assert len(held) == 1
+    window.resize(560, 760)
+    window.show()
+    _APP.processEvents()
+    window.grab().save(str(tmp_path / "view-pending.png"))
+    # The result arrives but the state has not changed yet: still pending.
+    held[0][2](True, {"command_id": "c", "accepted": True, "duplicate": False, "seq": 1})
+    assert view.pending == "pause"
+    # The next summary shows "paused": confirmed.
+    stub.summary(NEWS)["status"] = "paused"
+    window._poll_automations()
+    assert view.pending is None and view.control_buttons["resume"].isEnabled()
+    assert view.control_buttons["pause"].text() == "Pause"
+    # A refusal: back at once, the reason shown.
+    view.control_buttons["resume"].click()
+    held[1][2](False, AutomationApiError(status=409, reason_code="invalid_state", message="Automation is archived."))
+    assert view.pending is None and view.control_buttons["resume"].isEnabled()
+    assert "archived" in view.error_label.text().lower()

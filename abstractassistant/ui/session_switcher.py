@@ -52,8 +52,10 @@ from ..core.session_digest import (
     workspace_label,
 )
 from ..core.automations import (
+    PENDING_TEXT,
     attention_total,
     automation_controls,
+    command_confirmed,
     group_by_automation,
     last_run_text,
     next_run_text,
@@ -816,8 +818,38 @@ class AutomationTabRow(RowCard):
         button.setObjectName("rowState")
         button.setEnabled(bool(enabled))
         button.state_control = control
-        button.clicked.connect(lambda: self.control_requested.emit(self.automation_id, control))
+        button.clicked.connect(lambda: self._clicked(control))
         return button
+
+    def _clicked(self, control: str) -> None:
+        if self.pending is not None:
+            return  # disabled while pending; never send the same command twice
+        self.set_pending(control)
+        self.control_requested.emit(self.automation_id, control)
+
+    @property
+    def pending(self) -> Optional[str]:
+        return getattr(self, "_pending", None)
+
+    def set_pending(self, control: str) -> None:
+        """Spinner + disabled until the gateway confirms (or refuses)."""
+        self._pending = control
+        button = self.state_button
+        button.setEnabled(False)
+        button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=14))
+        button.setToolTip(PENDING_TEXT[control])
+
+    def restore_state(self, reason: str = "") -> None:
+        """Back to ▶/⏸ (the command failed or was never confirmed)."""
+        self._pending = None
+        layout = self.state_button.parentWidget().layout()
+        fresh = self._state_button(self.summary)
+        if reason:
+            fresh.setToolTip(f"{fresh.toolTip()}\nLast attempt failed: {reason}")
+        layout.replaceWidget(self.state_button, fresh)
+        self.state_button.hide()
+        self.state_button.deleteLater()
+        self.state_button = fresh
 
     # ------------------------------------------------------------- content
 
@@ -924,6 +956,9 @@ class SessionSwitcher(QDialog):
         self._automation_status = ""
         self._automations_available = False
         self._auto_rows: List[AutomationTabRow] = []
+        # automation_id -> (control, summary before, token): sent, not yet confirmed.
+        self._pending: Dict[str, tuple] = {}
+        self._pending_token = 0
         self.load_more_button: Optional[QPushButton] = None
 
         outer = QVBoxLayout(self)
@@ -1228,7 +1263,14 @@ class SessionSwitcher(QDialog):
                 continue
             row = AutomationTabRow(summary, parent=self.auto_host)
             row.open_requested.connect(self._on_automation_open)
-            row.control_requested.connect(self.automation_control_requested.emit)
+            row.control_requested.connect(self._on_row_control)
+            pending = self._pending.get(row.automation_id)
+            if pending is not None:
+                control, before, _token = pending
+                if command_confirmed(control, before, summary):
+                    del self._pending[row.automation_id]
+                else:
+                    row.set_pending(control)
             row.focus_requested.connect(self._on_row_hovered)
             self.auto_layout.addWidget(row)
             self._auto_rows.append(row)
@@ -1421,6 +1463,42 @@ class SessionSwitcher(QDialog):
     def _on_new_chat(self) -> None:
         self.new_chat_requested.emit()
         self.close()
+
+    PENDING_TIMEOUT_MS = 30_000
+
+    def _on_row_control(self, automation_id: str, control: str) -> None:
+        from PyQt5.QtCore import QTimer
+
+        summary = next((s for s in self._automations if s.get("automation_id") == automation_id), {})
+        self._pending_token += 1
+        token = self._pending_token
+        self._pending[automation_id] = (control, dict(summary), token)
+        # Owned by the popup: it dies with it, never fires into a deleted one.
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._expire_pending(automation_id, token))
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(self.PENDING_TIMEOUT_MS)
+        self.automation_control_requested.emit(automation_id, control)
+
+    def is_pending(self, automation_id: str) -> bool:
+        return automation_id in self._pending
+
+    def command_failed(self, automation_id: str, reason: str) -> None:
+        """The gateway refused (or never answered): the card's button comes
+        back, its tooltip carrying the reason; the status line says it too."""
+        self._pending.pop(automation_id, None)
+        for row in self._auto_rows:
+            if row.automation_id == automation_id:
+                row.restore_state(reason)
+        self.set_status(reason, tone="warn")
+
+    def _expire_pending(self, automation_id: str, token: int) -> None:
+        pending = self._pending.get(automation_id)
+        if pending is not None and pending[2] == token:
+            self.command_failed(
+                automation_id, "The gateway has not confirmed the change yet; it may still be applying it."
+            )
 
     def _on_new_automation(self) -> None:
         self.new_automation_requested.emit()

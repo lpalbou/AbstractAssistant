@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from PyQt5.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -39,6 +40,8 @@ from PyQt5.QtWidgets import (
 
 from ..core.automations import (
     CONTROL_COMMANDS,
+    PENDING_TEXT,
+    command_confirmed,
     SCHEDULE_PRESETS,
     STATUS_LABELS,
     NotificationLedger,
@@ -768,6 +771,10 @@ class AutomationView(QFrame):
         self.setObjectName("autoView")
         self.summary: Dict[str, Any] = {}
         self.occurrences: List[Dict[str, Any]] = []
+        # A command sent and not yet confirmed by the gateway's state.
+        self.pending: Optional[str] = None
+        self._pending_before: Dict[str, Any] = {}
+        self._pending_token = 0
         self.next_cursor: Optional[str] = None
         self.busy = False
         self.pairs: List[OccurrencePair] = []
@@ -902,6 +909,7 @@ class AutomationView(QFrame):
             return
         before = self.controls()["discuss"] if self.summary else None
         self.summary = incoming
+        self._check_pending()
         self.title_label.setText(str(summary.get("title") or "Automation"))
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
         status = STATUS_LABELS.get(str(summary.get("status") or ""), str(summary.get("status") or ""))
@@ -960,6 +968,11 @@ class AutomationView(QFrame):
         if not self.summary:
             for button in self.control_buttons.values():
                 button.setEnabled(False)
+            return
+        if self.pending is not None:
+            for control, button in self.control_buttons.items():
+                button.setEnabled(False)
+                button.setToolTip(PENDING_TEXT[self.pending] if control == self.pending else "Waiting for the gateway…")
             return
         state = self.controls()
         for control, button in self.control_buttons.items():
@@ -1036,11 +1049,62 @@ class AutomationView(QFrame):
             self.edit_box.hide()
             self.archive_confirm.show()
             return
+        if self.pending is not None:
+            return  # one command at a time; the buttons are disabled anyway
+        self.begin_pending(control)
         self.control_requested.emit(control)
 
     def _confirm_archive(self) -> None:
         self.archive_confirm.hide()
+        if self.pending is not None:
+            return
+        self.begin_pending("archive")
         self.control_requested.emit("archive")
+
+    # ---------------------------------------------------------- pending
+
+    PENDING_TIMEOUT_MS = 30_000
+
+    def begin_pending(self, control: str) -> None:
+        """The clicked control shows a spinner and every control is disabled
+        until the gateway's state confirms the command (or it fails)."""
+        from PyQt5.QtCore import QTimer
+
+        self.pending = control
+        self._pending_before = dict(self.summary)
+        self._pending_token += 1
+        token = self._pending_token
+        button = self.control_buttons[control]
+        button.setText(PENDING_TEXT[control])
+        button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=12))
+        self._apply_controls()
+        # Owned by the view: it dies with the view, never fires into a deleted one.
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._expire_pending(token))
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(self.PENDING_TIMEOUT_MS)
+
+    def end_pending(self, error: str = "") -> None:
+        """Back to the normal controls: confirmed (``error`` empty) or failed."""
+        if self.pending is None:
+            return
+        button = self.control_buttons[self.pending]
+        button.setText(dict(self.CONTROL_LABELS)[self.pending])
+        button.setIcon(QIcon())
+        self.pending = None
+        self._pending_before = {}
+        self._apply_controls()
+        if error:
+            self.set_error(error)
+
+    def _expire_pending(self, token: int) -> None:
+        if self.pending is not None and token == self._pending_token:
+            self.end_pending("The gateway has not confirmed the change yet; it may still be applying it. Refresh or try again.")
+
+    def _check_pending(self) -> None:
+        if self.pending is not None and self.summary and command_confirmed(self.pending, self._pending_before, self.summary):
+            self.end_pending()
 
     def _save_edit(self) -> None:
         every = self.edit_every.text().strip() if self.edit_every.isEnabled() else None
@@ -1286,6 +1350,7 @@ class AutomationsHub(QObject):
         self.available: Optional[bool] = None
         self.error = ""
         self._polling = False
+        self._poll_again = False
         self._retry: Optional[Callable[[], None]] = None
         self._finished.connect(self._deliver)
 
@@ -1341,8 +1406,12 @@ class AutomationsHub(QObject):
         """Fetch every summary (full pages) + the unseen attention pages, then
         notify what is new. One poll at a time."""
         if self._polling:
+            # A poll is in flight: run another right after it (a command result
+            # must not wait for the next interval to show its confirmed state).
+            self._poll_again = True
             return
         self._polling = True
+        self._poll_again = False
 
         def work():
             if not self._available():
@@ -1376,6 +1445,9 @@ class AutomationsHub(QObject):
             self.summaries_changed.emit(list(self.summaries))
             if on_done is not None:
                 on_done()
+            if self._poll_again:
+                self._poll_again = False
+                self.poll()
 
         self._submit(work, done)
 
