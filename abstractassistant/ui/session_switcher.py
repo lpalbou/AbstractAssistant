@@ -357,8 +357,8 @@ class SessionRow(QFrame):
         # the automation and opens it.
         self.about_button: Optional[QPushButton] = None
         if digest.session_kind == "discussion":
-            name = automation_title or "an automation"
-            self.about_button = QPushButton(f"about automation {name}", self)
+            label = f"about automation {automation_title}" if automation_title else "about an automation"
+            self.about_button = QPushButton(label, self)
             self.about_button.setObjectName("aboutAutomation")
             self.about_button.setCursor(Qt.PointingHandCursor)
             self.about_button.setToolTip(

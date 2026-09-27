@@ -659,7 +659,14 @@ class AutomationView(QFrame):
         return automation_controls(self.summary, self.occurrences, busy=self.busy)
 
     def set_summary(self, summary: Mapping[str, Any]) -> None:
-        self.summary = dict(summary)
+        """Re-render the header and controls. The chat pairs are rebuilt only
+        when what they show changes (the discuss gate): a 60-s poll must not
+        wipe an answer or a discuss prompt being typed."""
+        incoming = dict(summary)
+        if incoming == self.summary:
+            return
+        before = self.controls()["discuss"] if self.summary else None
+        self.summary = incoming
         self.title_label.setText(str(summary.get("title") or "Automation"))
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
         status = STATUS_LABELS.get(str(summary.get("status") or ""), str(summary.get("status") or ""))
@@ -676,13 +683,15 @@ class AutomationView(QFrame):
             lines.append(f"{int(attention.get('pending_waits'))} occurrence(s) waiting for you")
         self.attention_label.setText("\n".join(lines))
         self.attention_label.setVisible(bool(lines))
-        self.edit_title.setText(str(summary.get("title") or ""))
-        every = (trigger.get("config") or {}).get("every") if trigger.get("source_id") == "schedule" else None
-        self.edit_every.setText(str(every or ""))
-        self.edit_every.setEnabled(trigger.get("source_id") == "schedule")
-        self.edit_context.setCurrentIndex(1 if summary.get("context_mode") == "growing" else 0)
+        if not self.edit_box.isVisibleTo(self):  # never under the user's typing
+            self.edit_title.setText(str(summary.get("title") or ""))
+            every = (trigger.get("config") or {}).get("every") if trigger.get("source_id") == "schedule" else None
+            self.edit_every.setText(str(every or ""))
+            self.edit_every.setEnabled(trigger.get("source_id") == "schedule")
+            self.edit_context.setCurrentIndex(1 if summary.get("context_mode") == "growing" else 0)
         self._apply_controls()
-        self._rebuild_pairs()
+        if self.controls()["discuss"] != before:
+            self._rebuild_pairs()
 
     def set_occurrences(self, rows: Sequence[Mapping[str, Any]], *, next_cursor: Optional[str], append: bool = False) -> None:
         incoming = [dict(r) for r in rows if isinstance(r, Mapping)]

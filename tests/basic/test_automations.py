@@ -900,3 +900,17 @@ def test_a_gateway_without_the_automations_api_shows_no_section(palette, stub) -
     assert switcher.automation_rows == [] and switcher._automation_label is None
     switcher.deleteLater()
 
+
+
+@pytest.mark.basic
+def test_a_poll_never_wipes_an_answer_being_typed(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    waiting = next(p for p in window.automation_view.pairs if p.index == 7)
+    waiting.wait_inputs[0]["edit"].setText("Tuesday is fine, 10:00")
+    stub.summary(TRIAGE)["next_fire_at"] = "2026-09-27T07:30:00Z"  # the summary moves on
+    window._poll_automations()
+    assert window.automation_view.summary["next_fire_at"] == "2026-09-27T07:30:00Z"
+    still = next(p for p in window.automation_view.pairs if p.index == 7)
+    assert still is waiting and still.wait_inputs[0]["edit"].text() == "Tuesday is fine, 10:00"
