@@ -287,3 +287,35 @@ def test_new_automation_button_lives_in_the_automations_tab() -> None:
     sw.new_automation_button.click()
     assert asked == [1]
     sw.deleteLater()
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("width", [448, 460])
+@pytest.mark.parametrize("tab", ["sessions", "automations"])
+def test_the_header_count_is_elided_never_clipped(width, tab) -> None:
+    """The count ("146 sessions · 3 today", "4 automations · 4 new") takes the
+    room the header buttons leave and ends with "…" when short of it."""
+    from PyQt5.QtGui import QFontMetrics
+
+    _app()
+    sw = SessionSwitcher()
+    sw.set_digests(
+        [SessionDigest(session_id=f"s{i}", title=f"t{i}", updated_at="2026-08-01T12:00:00Z") for i in range(146)],
+        more=True,
+    )
+    sw.set_automations(_summaries(), available=True)
+    sw.set_tab(tab)
+    sw.resize(width, 600)
+    sw.show()
+    _app().processEvents()
+    label = sw.count_label
+    room = label.contentsRect().width()
+    shown = label.text()
+    metrics = QFontMetrics(label.font())
+    assert label.geometry().right() < sw.show_archived.geometry().left() or not sw.show_archived.isVisibleTo(sw)
+    assert metrics.horizontalAdvance(shown) <= room, (shown, room)
+    if metrics.horizontalAdvance(label.full_text) > room:
+        assert shown.endswith("…") and label.toolTip() == label.full_text
+    else:
+        assert shown == label.full_text
+    sw.deleteLater()

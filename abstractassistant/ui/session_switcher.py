@@ -946,6 +946,40 @@ class AutomationTabRow(QFrame):
         super().mouseReleaseEvent(event)
 
 
+class ElidingLabel(QLabel):
+    """A one-line label that shows its text elided ("…") to whatever width
+    the layout gives it — re-elided on every resize, so a header count is
+    never hard-clipped by the buttons next to it. Full text in the tooltip."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__("", parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(0)
+
+    @property
+    def full_text(self) -> str:
+        return self._full
+
+    def set_full_text(self, text: str) -> None:
+        self._full = str(text or "")
+        self.setToolTip(self._full)
+        self._elide()
+
+    def _elide(self) -> None:
+        width = self.contentsRect().width()
+        metrics = QFontMetrics(self.font())
+        shown = self._full if width <= 1 or metrics.horizontalAdvance(self._full) <= width else metrics.elidedText(
+            self._full, Qt.ElideRight, width
+        )
+        if shown != self.text():
+            super().setText(shown)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(event)
+        self._elide()
+
+
 TAB_HINTS = {
     "sessions": "↑↓ move · ↵ open · ⌘1/⌘2 tabs · esc close",
     "automations": "↑↓ move · ↵ open · ⌘1/⌘2 tabs · esc close",
@@ -1007,7 +1041,7 @@ class SessionSwitcher(QDialog):
         self.title_label = QLabel("Sessions")
         self.title_label.setObjectName("switcherTitle")
         header.addWidget(self.title_label, 0, Qt.AlignVCenter)
-        self.count_label = QLabel("")
+        self.count_label = ElidingLabel(self)
         self.count_label.setObjectName("switcherCount")
         # The count never widens the popup: it takes what the header leaves
         # and is elided (full text in its tooltip).
@@ -1368,10 +1402,7 @@ class SessionSwitcher(QDialog):
         return self._count_text
 
     def _elide_count(self) -> None:
-        width = self.count_label.width()
-        metrics = QFontMetrics(self.count_label.font())
-        text = self._count_text
-        self.count_label.setText(text if width <= 1 else metrics.elidedText(text, Qt.ElideRight, width))
+        self.count_label.set_full_text(self._count_text)
 
     # -------------------------------------------------------------- filtering
 
