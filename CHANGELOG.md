@@ -18,8 +18,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `~/.abstractframework/gateway.json`, written by the AbstractFramework installer and by
   `abstractgateway serve`, after `--gateway-url` and the saved sign-in and before
   `http://127.0.0.1:8080`. A sign-in saved against the old `http://127.0.0.1:8080` default follows
-  it. Only a loopback URL in a file you own with `schema` 1 is used; any other file is ignored with
-  one warning. A missing file is normal. See
+  it. Only a regular file you own, with `schema` 1 and a bare loopback `scheme://host:port` URL,
+  is used; any other file is ignored with one warning. A missing file is normal. See
   [docs/api.md](docs/api.md#which-gateway-the-app-connects-to).
 
 ## [0.8.0] - 2026-09-27

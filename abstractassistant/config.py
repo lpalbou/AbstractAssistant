@@ -29,6 +29,7 @@ import importlib
 import json
 import logging
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, NamedTuple, Optional
@@ -75,24 +76,42 @@ def read_gateway_pointer(path: Optional[Path] = None) -> str:
 
     "" without a word when the file does not exist (no installer ran, or the
     gateway was uninstalled). A file that exists but is not a pointer this app
-    may follow -- unreadable, not JSON, an unknown ``schema``, a ``url`` that is
-    not http(s) on 127.0.0.1 / ::1 / localhost, or (POSIX) a file owned by
-    another user -- is ignored with one warning naming the reason: it must
-    never send this app's credentials anywhere else, and it must never stop a
-    launch (the contract in root backlog 0943).
+    may follow is ignored with one warning naming the reason: it must never
+    send this app's credentials anywhere else, and it must never stop a launch.
+    The rules are the shared reader rules of root backlog 0943 (the same as the
+    ui-kit app-server's `gateway_pointer.js`, checked against the shared case
+    table in `tests/basic/fixtures/gateway_pointer/cases.json`):
+
+    - a regular file, never a symlink, owned by the current user (POSIX);
+    - a JSON object whose ``schema`` is the integer 1;
+    - a ``url`` that is ``http``/``https`` on 127.0.0.1, [::1] or localhost,
+      with no user info and nothing after the port (no path, query or
+      fragment). It is returned as ``scheme://host:port``.
     """
     path = gateway_pointer_path() if path is None else path
     try:
-        raw = path.read_text(encoding="utf-8")
-        owner = path.stat().st_uid
+        # O_NOFOLLOW: a symlink is refused (ELOOP) instead of followed.
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except FileNotFoundError:
         return ""
     except OSError as exc:
+        if path.is_symlink():
+            return _refuse_pointer(path, "not a regular file (a symlink)")
         return _refuse_pointer(path, f"unreadable ({exc})")
-    if hasattr(os, "getuid") and owner != os.getuid():
-        return _refuse_pointer(path, f"owned by uid {owner}, not by this user")
     try:
-        data = json.loads(raw)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or path.is_symlink():
+            return _refuse_pointer(path, "not a regular file")
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            return _refuse_pointer(path, f"owned by uid {info.st_uid}, not by this user")
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            raw = handle.read()
+    except OSError as exc:
+        return _refuse_pointer(path, f"unreadable ({exc})")
+    finally:
+        os.close(fd)
+    try:
+        data = json.loads(raw.decode("utf-8"))
     except ValueError as exc:
         return _refuse_pointer(path, f"not JSON ({exc})")
     if not isinstance(data, dict):
@@ -110,7 +129,12 @@ def read_gateway_pointer(path: Optional[Path] = None) -> str:
         return _refuse_pointer(path, f"malformed url {url!r} ({exc})")
     if parts.scheme not in {"http", "https"} or parts.hostname not in _POINTER_HOSTS:
         return _refuse_pointer(path, f"url {url!r} is not a loopback http(s) URL")
-    return url.strip().rstrip("/")
+    if parts.username is not None or parts.password is not None or parts.path not in {"", "/"} or parts.query or parts.fragment:
+        return _refuse_pointer(path, f"url {url!r} must be scheme://host:port only")
+    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    default_port = {"http": 80, "https": 443}[parts.scheme]
+    port = "" if parts.port in (None, default_port) else f":{parts.port}"
+    return f"{parts.scheme}://{host}{port}"
 
 
 def _refuse_pointer(path: Path, reason: str) -> str:
