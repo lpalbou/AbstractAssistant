@@ -44,6 +44,14 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   because keys were compared un-normalised (right ⌘, Space). Both are fixed. On macOS the shortcut
   is only registered when the launching process may read the keyboard (System Settings → Privacy &
   Security → Accessibility / Input Monitoring); otherwise it is not started and the reason is logged.
+- **An automation's run list no longer ends in a band of empty space.** Scrolled to the bottom, the
+  last run now ends the list; before, every run added about 26 px of blank space below it (over a
+  thousand pixels on an automation with a few dozen runs).
+- **An automation's runs look exactly like a chat.** Each task is the chat's own message bubble on
+  the right, under a small "#86 · schedule … · fired 13:42 UTC" line, and each answer is the chat's
+  assistant card on the left, under its status line (completed, failed with its reason, waiting),
+  with no extra frame around them and the same edges as a conversation. **Discuss** is a compact
+  action under the answer.
 
 ### Changed
 - The session switcher lists only the sessions the gateway marks as chats or discussions; the

@@ -1292,6 +1292,191 @@ def test_discuss_wording_matches_the_web_and_the_captured_response_carries_both_
     assert tone == "info" and captured["response"]["mounted_workspace"] in text
 
 
+# ------------------------------------------- layout: the chat's geometry
+
+
+def _settle() -> None:
+    from PyQt5.QtCore import QCoreApplication, QEvent
+
+    for _ in range(4):
+        _APP.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def _tall_palette(window, height: int = 900) -> None:
+    """A tall palette on a screen big enough to honour it (the offscreen
+    screen is 800x600, and the palette clamps to its screen)."""
+    from PyQt5.QtCore import QRect
+
+    window._available_screen_geometry = lambda: QRect(0, 0, 1600, 1200)
+    import dataclasses
+
+    window._controller.preferences = dataclasses.replace(window._controller.preferences, window_width=620, window_height=height)
+    window.resize(620, height)
+    window.show()
+    window._reflow_shell()
+    _settle()
+
+
+def _list_extent(view) -> tuple:
+    """(content widget height, bottom of the last row + the layout's margins)."""
+    layout = view.list_layout
+    rows = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget() is not None]
+    margins = layout.contentsMargins()
+    bottom = max(r.geometry().bottom() + 1 for r in rows) + margins.bottom()
+    stacked = sum(r.height() for r in rows) + layout.spacing() * (len(rows) - 1) + margins.top() + margins.bottom()
+    return view.list_host.height(), bottom, stacked
+
+
+@pytest.mark.basic
+def test_the_occurrence_list_ends_at_its_last_row(palette, stub) -> None:
+    """Defect 2026-09-27: under the last occurrence the list kept a band of
+    empty space as tall as half the view (1400 px on an 86-run automation):
+    the content widget was sized to the SUM of its rows' minimum heights —
+    each word-wrapped caption/Discuss label counted at its narrowest width —
+    instead of their height at the real width."""
+    window, _controller = palette
+    rows = copy.deepcopy(_fixture("occurrences.json")["items"])
+    stub.occurrences[TRIAGE] = [r for r in rows if r["index"] in {5, 6, 7}]
+    _tall_palette(window)
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    _settle()
+    view = window.automation_view
+    assert [p.index for p in view.pairs] == [5, 6, 7]
+    viewport = view.scroll.viewport().height()
+    assert viewport > 500, "the view must be tall for the measurement to mean anything"
+
+    def check(label: str) -> None:
+        # The cause, measured: no row may claim a minimum height above the
+        # height it is laid out at (the scroll area never sizes its content
+        # below the sum of those minimums).
+        for pair in view.pairs:
+            assert pair.minimumSizeHint().height() <= pair.height(), f"{label}: #{pair.index} claims more than it shows"
+            button = pair.discuss_button
+            assert button.minimumSizeHint().height() <= button.height() or not button.isVisible()
+        assert view.list_host.minimumSizeHint().height() <= _list_extent(view)[2]
+        host, bottom, stacked = _list_extent(view)
+        assert bottom == stacked, f"{label}: rows overlap or leave holes"
+        if stacked > viewport:
+            assert host - bottom <= view.list_layout.spacing(), f"{label}: {host - bottom} px of empty space after the last row"
+        else:
+            assert host == viewport, f"{label}: a short list fills the viewport, no more"
+        bar = view.scroll.verticalScrollBar()
+        assert bar.maximum() == max(0, host - viewport)
+
+    check("3 occurrences")
+    assert _list_extent(view)[2] > viewport, "3 fixture occurrences overflow a 900-px palette"
+    # A refresh that removes rows, then one that adds them back.
+    view.set_occurrences([r for r in rows if r["index"] in {6, 7}], next_cursor=None)
+    _settle()
+    check("2 occurrences")
+    view.set_occurrences(rows, next_cursor=None)
+    _settle()
+    check("7 occurrences")
+
+
+@pytest.mark.basic
+def test_an_occurrence_is_a_chat_exchange_with_the_chats_edges(palette, stub) -> None:
+    """Ruling 2026-09-27: automation turns use the chat's rendering container.
+    The task is the chat's user bubble (right), the answer the chat's
+    assistant card (left), Discuss a compact action under the card, and no
+    frame around the pair; the edges are the chat's at the same width."""
+    import abstractassistant.app as app_module
+    from PyQt5.QtCore import QPoint
+    from PyQt5.QtWidgets import QFrame, QWidget
+
+    window, controller = palette
+    _tall_palette(window)
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    _settle()
+    view = window.automation_view
+    assert view.scroll.verticalScrollBar().isVisible(), "the list scrolls (the chat is compared scrolled too)"
+    names = {w.objectName() for w in view.findChildren(QWidget)}
+    assert not names & {"autoTrigger", "autoAnswer"}, "no frame around the pair"
+
+    def left(w) -> int:
+        return w.mapTo(window, QPoint(0, 0)).x()
+
+    def right(w) -> int:
+        return left(w) + w.width()
+
+    edges = set()
+    for pair in view.pairs:
+        assert type(pair) is not QFrame and not isinstance(pair, QFrame)
+        task = pair.trigger_text
+        assert type(task) is app_module.MessageCard and task._bubble.objectName() == "userBubble"
+        # The caption sits above the task bubble, right-aligned with it.
+        assert pair.task_meta.geometry().bottom() < task.geometry().top()
+        edges.add(("task-right", right(task._bubble)))
+        card = pair.answer_text if pair.answer_text is not None else pair.note
+        assert card is not None
+        if pair.answer_text is not None:
+            assert type(card) is app_module.MessageCard and card._bubble.objectName() == "assistantBubble"
+            box = card._bubble
+        else:
+            box = card  # a failure / wait / nothing-yet note, the same column
+        edges.add(("answer-left", left(box)))
+        # Discuss: under the card, right-aligned with it, label unchanged.
+        row = pair.discuss_row
+        assert row.mapTo(window, QPoint(0, 0)).y() >= box.mapTo(window, QPoint(0, box.height())).y()
+        assert right(pair.discuss_button) == right(box)
+        assert pair.discuss_button.text() == "Discuss — fork at this occurrence (own workspace, automation files read-only)"
+        assert pair.discuss_button.height() < 40, "one compact line at this width"
+        assert not pair.discuss_box.isVisible()
+    # The information stays: failed reason + red tone, waiting highlighted.
+    failed = next(p for p in view.pairs if p.index == 5)
+    assert failed.note.property("tone") == "failed" and "IMAP read timed out" in failed.note.findChildren(type(view.title_label))[0].text()
+    assert failed.status_meta.property("tone") == "failed" and failed.badge.text().startswith("Failed after 3")
+    waiting = next(p for p in view.pairs if p.index == 7)
+    assert waiting.note.property("tone") == "waiting" and waiting.wait_inputs
+    notified = next(p for p in view.pairs if p.index == 2)
+    assert notified.badge.text() == "Notified" and notified.answer.property("tone") == "notified"
+    # The widths are the chat's rule for the list's viewport width.
+    vw = view.scroll.viewport().width()
+    for pair in view.pairs:
+        assert pair.trigger_text._bubble.width() == app_module._message_bubble_width(vw, role="user")
+        assert pair.answer.width() == app_module._message_bubble_width(vw, role="assistant")
+        if pair.answer_text is not None:
+            assert pair.answer_text._bubble.width() == pair.answer.width()
+    task_right = {x for k, x in edges if k == "task-right"}
+    answer_left = {x for k, x in edges if k == "answer-left"}
+    assert len(task_right) == 1 and len(answer_left) == 1, edges
+
+    # The chat, scrolled too, at the same palette width.
+    window._close_automation_view()
+    controller._messages = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"message {i}\n\n" + "line\n\n" * 6, "ts": "2026-09-27T09:00:00Z"}
+        for i in range(12)
+    ]
+    window.refresh_history()
+    _settle()
+    assert window.history_scroll.verticalScrollBar().isVisible()
+    cards = [c for c in window.history_host.findChildren(app_module.MessageCard)]
+    user = next(c for c in cards if c._bubble.objectName() == "userBubble")
+    answer = next(c for c in cards if c._bubble.objectName() == "assistantBubble")
+    assert right(user._bubble) == task_right.pop(), "task bubble right edge = chat user bubble right edge"
+    assert left(answer._bubble) == answer_left.pop(), "answer card left edge = chat card left edge"
+
+
+@pytest.mark.basic
+def test_discuss_opens_its_prompt_under_the_card(palette, stub) -> None:
+    window, _controller = palette
+    _tall_palette(window)
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    _settle()
+    pair = next(p for p in window.automation_view.pairs if p.index == 6)
+    assert not pair.discuss_box.isVisible()
+    pair.discuss_button.click()
+    _settle()
+    assert pair.discuss_box.isVisible()
+    assert pair.discuss_box.geometry().top() >= pair.discuss_row.geometry().bottom()
+    assert pair.discuss_edit.placeholderText() == "What do you want to discuss about this result?"
+
+
+
 @pytest.mark.basic
 def test_switcher_inline_controls_edit_and_tab_go_through_the_palette(palette, stub) -> None:
     window, controller = palette

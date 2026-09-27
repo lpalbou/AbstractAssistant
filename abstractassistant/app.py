@@ -5968,7 +5968,11 @@ class AssistantPalette(QMainWindow):
         history_wrap.addWidget(self.history_scroll, 1)
         # An automation opened from the switcher replaces the transcript in
         # place (its occurrences read as a chat); "← Chat" brings it back.
-        self.automation_view = AutomationView(render_turn=self._automation_turn_card, parent=self.history_card)
+        self.automation_view = AutomationView(
+            render_turn=self._automation_turn_card,
+            bubble_width=_message_bubble_width,
+            parent=self.history_card,
+        )
         self.automation_view.hide()
         self.automation_view.back_requested.connect(self._close_automation_view)
         self.automation_view.control_requested.connect(self._on_automation_control)

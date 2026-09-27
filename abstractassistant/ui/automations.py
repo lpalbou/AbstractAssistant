@@ -155,24 +155,20 @@ def automation_row_qss() -> str:
         color: {THEME.attention_text}; background: {THEME.attention_bg};
         border: 1px solid {THEME.attention_border}; border-radius: 8px; padding: 5px 8px; font-size: 11px;
     }}
-    QFrame#autoTrigger {{
-        background: {alpha(THEME.accent, 0.08)};
-        border: 1px solid {THEME.border_subtle};
-        border-radius: 10px;
-    }}
-    QFrame#autoAnswer {{
+    QWidget#autoOccurrence, QWidget#autoAnswerColumn {{ background: transparent; border: none; }}
+    /* An answer side that is not an answer (failure, wait, nothing yet): the
+       chat's assistant bubble shape, toned by the occurrence. */
+    QFrame#autoNote {{
         background: {THEME.overlay_faint};
         border: 1px solid {THEME.border_subtle};
-        border-radius: 10px;
+        border-radius: 16px;
     }}
-    QFrame#autoTrigger[tone="quiet"], QFrame#autoAnswer[tone="quiet"] {{
-        background: transparent;
-        border-color: {alpha(THEME.text_faint, 0.18)};
-    }}
-    QFrame#autoAnswer[tone="failed"] {{ background: {THEME.danger_bg}; border: 1px solid {alpha(THEME.danger, 0.55)}; }}
-    QFrame#autoAnswer[tone="waiting"] {{ background: {THEME.attention_bg}; border: 1px solid {THEME.attention_border}; }}
-    QFrame#autoAnswer[tone="notified"] {{ border: 1px solid {THEME.accent_border}; }}
+    QFrame#autoNote[tone="quiet"] {{ background: transparent; border-color: {alpha(THEME.text_faint, 0.18)}; }}
+    QFrame#autoNote[tone="failed"] {{ background: {THEME.danger_bg}; border: 1px solid {alpha(THEME.danger, 0.55)}; }}
+    QFrame#autoNote[tone="waiting"] {{ background: {THEME.attention_bg}; border: 1px solid {THEME.attention_border}; }}
     QLabel#autoTurnMeta {{ color: {THEME.text_faint}; font-size: 10px; font-weight: 700; }}
+    QLabel#autoTurnMeta[tone="failed"] {{ color: {THEME.danger_text}; }}
+    QLabel#autoTurnMeta[tone="waiting"] {{ color: {THEME.attention_text}; }}
     QLabel#autoTurnText {{ color: {THEME.text_primary}; font-size: 12px; }}
     QLabel#autoTurnText[tone="quiet"] {{ color: {THEME.text_muted}; }}
     QLabel#autoTurnBadge {{ color: {THEME.attention_text}; font-size: 10px; font-weight: 800; }}
@@ -190,17 +186,18 @@ def automation_row_qss() -> str:
     }}
     QPushButton#autoControl:hover, QPushButton#autoSmall:hover {{ background: {THEME.overlay_hover}; }}
     QPushButton#autoControl:disabled, QPushButton#autoSmall:disabled {{ color: {THEME.text_faint}; }}
+    /* The Discuss action under an answer: compact, like the chat's action row. */
     QLabel#autoWrapButton {{
-        color: {THEME.text_secondary};
-        background: {THEME.overlay_faint};
+        color: {THEME.text_muted};
+        background: transparent;
         border: 1px solid {THEME.border_subtle};
-        border-radius: 8px;
-        padding: 3px 9px;
-        font-size: 11px;
+        border-radius: 9px;
+        padding: 2px 9px;
+        font-size: 10px;
         font-weight: 600;
     }}
-    QLabel#autoWrapButton:hover {{ background: {THEME.overlay_hover}; }}
-    QLabel#autoWrapButton:disabled {{ color: {THEME.text_faint}; }}
+    QLabel#autoWrapButton:hover {{ color: {THEME.text_primary}; background: {THEME.overlay_hover}; }}
+    QLabel#autoWrapButton:disabled {{ color: {THEME.text_faint}; border-color: {alpha(THEME.text_faint, 0.18)}; }}
     QPushButton#autoDanger {{
         color: {THEME.text_strong}; background: {THEME.danger_bg};
         border: 1px solid {alpha(THEME.danger, 0.55)}; border-radius: 8px; padding: 3px 10px; font-size: 11px;
@@ -364,6 +361,22 @@ class AutomationRow(QFrame):
 # The palette provides it (its `MessageCard`), so an occurrence reads exactly
 # like a chat turn.
 TurnRenderer = Callable[[str, str, str, int], QWidget]
+# (list viewport width, role) -> that role's bubble width: the chat's own rule
+# (`app._message_bubble_width`), so the task bubble's right edge and the answer
+# card's left edge land where a chat's do.
+BubbleWidth = Callable[..., int]
+
+
+def _clock_utc(ts: Any, *, seconds: bool = False) -> str:
+    """A caption's time: ``13:42 UTC`` today, with the date on other days."""
+    try:
+        when = datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return format_utc(ts)
+    clock = when.strftime("%H:%M:%S" if seconds else "%H:%M")
+    if when.date() != datetime.now(timezone.utc).date():
+        clock = f"{when.strftime('%Y-%m-%d')} {clock}"
+    return f"{clock} UTC"
 
 
 def _button(text: str, name: str = "autoControl", *, parent: Optional[QWidget] = None, tooltip: str = "") -> QPushButton:
@@ -399,7 +412,21 @@ class WrappingButton(QLabel):
         self.setWordWrap(True)
         self.setTextFormat(Qt.PlainText)
         self.setCursor(Qt.PointingHandCursor)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        # Its height is its height for the width it gets (heightForWidth).
+        # A `Minimum` vertical policy made its sizeHint its MINIMUM height —
+        # and a word-wrapped label's sizeHint is taken at a narrow guessed
+        # width (2-3 lines). The occurrence list's minimum height summed that
+        # over every row, and the scroll area never sizes its content below
+        # its minimum: 26 px of empty space per occurrence under the last one.
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt API)
+        # One line when the row has room (a word-wrapped QLabel otherwise
+        # guesses a narrow, two-line shape); the layout shrinks it and it
+        # wraps (heightForWidth) only when the palette is narrower.
+        margins = self.contentsMargins()
+        width = self.fontMetrics().horizontalAdvance(self.text()) + margins.left() + margins.right() + 2 * self.frameWidth() + 2
+        return QSize(width, self.heightForWidth(width))
 
     def click(self) -> None:
         if self.isEnabled():
@@ -425,7 +452,10 @@ def discuss_help(index: int) -> str:
 
 
 class OccurrencePair(QWidget):
-    """One occurrence as two chat turns: the trigger/task turn and the answer."""
+    """One occurrence as a chat exchange, with the chat's own geometry: the
+    task turn is the chat's user bubble (right-aligned) under a muted caption,
+    the answer is the chat's assistant card (left) under a muted status line,
+    and Discuss is a compact action under the card. No frame around the pair."""
 
     discuss_requested = pyqtSignal(int, str)
     wait_answered = pyqtSignal(str, str, str, object)  # run_id, wait_key, kind, answer
@@ -437,47 +467,52 @@ class OccurrencePair(QWidget):
         discuss_enabled: bool,
         discuss_reason: str,
         render_turn: "TurnRenderer",
-        turn_width: int,
+        bubble_width: "BubbleWidth",
+        viewport_width: int,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
+        self.setObjectName("autoOccurrence")
         self.view = view
+        self._bubble_width = bubble_width
         # The turns are rendered by the palette's own chat message widget
         # (markdown, tables, code, JSON) — never by a second renderer here.
+        # (role, card) so a resize gives each the chat's width for its role.
         self.turn_cards: List[QWidget] = []
+        self._turn_roles: List[str] = []
         row = view.row
         self.index = int(row.get("index") or 0)
         quiet = view.tone == "quiet"
+        user_width = bubble_width(viewport_width, role="user")
+        answer_width = bubble_width(viewport_width, role="assistant")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(8)  # the chat's gap between turns
 
-        # -- the trigger / task turn (the "user" side) ----------------------
-        self.trigger = QFrame(self)
-        self.trigger.setObjectName("autoTrigger")
-        self.trigger.setProperty("tone", "quiet" if quiet else "")
-        tl = QVBoxLayout(self.trigger)
-        tl.setContentsMargins(10, 6, 10, 6)
-        tl.setSpacing(2)
+        # -- the task turn: the chat's user bubble, caption above it ---------
+        task = QVBoxLayout()
+        task.setContentsMargins(0, 0, 0, 0)
+        task.setSpacing(3)
         trig = row.get("trigger") if isinstance(row.get("trigger"), Mapping) else {}
-        meta = f"#{self.index} · {trig.get('summary') or trig.get('source_id') or 'trigger'} · fired {format_utc(row.get('fired_at'))}"
-        tl.addWidget(_text_label(meta, "autoTurnMeta", parent=self.trigger))
-        self.trigger_text = render_turn("user", str(row.get("user_turn") or ""), str(row.get("fired_at") or ""), turn_width)
-        self.turn_cards.append(self.trigger_text)
-        tl.addWidget(self.trigger_text)
-        wrap_t = QHBoxLayout()
-        wrap_t.setContentsMargins(40, 0, 0, 0)
-        wrap_t.addWidget(self.trigger)
-        layout.addLayout(wrap_t)
+        meta = f"#{self.index} · {trig.get('summary') or trig.get('source_id') or 'trigger'} · fired {_clock_utc(row.get('fired_at'))}"
+        self.task_meta = _text_label(meta, "autoTurnMeta", parent=self)
+        self.task_meta.setAlignment(Qt.AlignRight)
+        self.task_meta.setToolTip(f"fired {format_utc(row.get('fired_at'))}")
+        task.addWidget(self.task_meta)
+        self.trigger_text = self._turn("user", str(row.get("user_turn") or ""), str(row.get("fired_at") or ""), user_width, render_turn)
+        task.addWidget(self.trigger_text)
+        layout.addLayout(task)
 
-        # -- the answer turn --------------------------------------------------
-        self.answer = QFrame(self)
-        self.answer.setObjectName("autoAnswer")
+        # -- the answer side: a column exactly as wide as the chat's card ----
+        self.answer = QWidget(self)
+        self.answer.setObjectName("autoAnswerColumn")
         self.answer.setProperty("tone", view.tone)
+        self.answer.setFixedWidth(answer_width)
         al = QVBoxLayout(self.answer)
-        al.setContentsMargins(10, 6, 10, 8)
-        al.setSpacing(4)
+        al.setContentsMargins(0, 0, 0, 0)
+        al.setSpacing(3)
         head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
         head.setSpacing(6)
         self.badge = QLabel(view.badge, self.answer)
         self.badge.setObjectName("autoTurnBadge")
@@ -485,44 +520,56 @@ class OccurrencePair(QWidget):
         self.badge.setVisible(bool(view.badge))
         head.addWidget(self.badge, 0)
         finished = row.get("finished_at")
-        head.addWidget(
-            _text_label(
-                f"{view.status_text}{' · ' + format_utc(finished) if finished else ''}",
-                "autoTurnMeta",
-                parent=self.answer,
-            ),
-            1,
+        self.status_meta = _text_label(
+            f"{view.status_text}{' · ' + _clock_utc(finished, seconds=True) if finished else ''}",
+            "autoTurnMeta",
+            parent=self.answer,
+            tone=view.tone if view.tone in {"failed", "waiting"} else "",
         )
-        self.discuss_button = WrappingButton(DISCUSS_LABEL, self.answer)
-        self.discuss_button.setToolTip(
-            discuss_help(self.index) if discuss_enabled and view.can_discuss else (discuss_reason or "Not while it is running")
-        )
-        self.discuss_button.setEnabled(bool(discuss_enabled and view.can_discuss))
-        self.discuss_button.clicked.connect(self._start_discuss)
+        if finished:
+            self.status_meta.setToolTip(f"finished {format_utc(finished)}")
+        head.addWidget(self.status_meta, 1)
         al.addLayout(head)
-        al.addWidget(self.discuss_button)
 
         notify = row.get("notify") if isinstance(row.get("notify"), Mapping) else None
         if notify is not None and notify.get("title"):
             al.addWidget(_text_label(str(notify.get("title")), "autoTurnBadge", parent=self.answer, tone="notified"))
+
+        # A failure, a wait or "nothing yet" is said in a card of the chat's
+        # assistant-bubble shape, toned by the occurrence.
+        self.note: Optional[QFrame] = None
         failure = row.get("failure") if isinstance(row.get("failure"), Mapping) else None
+        waits = [w for w in (row.get("waits") or []) if isinstance(w, Mapping)]
         answer_text = str(row.get("answer") or "")
-        if failure is not None:
-            attempts = int(failure.get("attempts") or row.get("attempts") or 1)
-            failure_text = f"{failure.get('message') or 'The occurrence failed.'} ({failure.get('reason_code') or 'failed'}, {attempts} attempt{'s' if attempts != 1 else ''})"
-            al.addWidget(_text_label(failure_text, "autoTurnText", parent=self.answer))
+        self.wait_inputs: List[Dict[str, Any]] = []
+        if failure is not None or waits or not answer_text:
+            self.note = QFrame(self.answer)
+            self.note.setObjectName("autoNote")
+            self.note.setProperty("tone", view.tone)
+            nl = QVBoxLayout(self.note)
+            nl.setContentsMargins(12, 10, 12, 12)
+            nl.setSpacing(6)
+            if failure is not None:
+                attempts = int(failure.get("attempts") or row.get("attempts") or 1)
+                failure_text = f"{failure.get('message') or 'The occurrence failed.'} ({failure.get('reason_code') or 'failed'}, {attempts} attempt{'s' if attempts != 1 else ''})"
+                nl.addWidget(_text_label(failure_text, "autoTurnText", parent=self.note))
+            # Pending waits, answered from here by their KIND (decision D1).
+            for wait in waits:
+                nl.addWidget(self._wait_box(wait, row, parent=self.note))
+            if failure is None and not waits and not answer_text:
+                nl.addWidget(_text_label("(no answer)", "autoTurnText", parent=self.note, tone="quiet"))
+            al.addWidget(self.note)
         self.answer_text: Optional[QWidget] = None
         if answer_text:
-            self.answer_text = render_turn("assistant", answer_text, str(row.get("finished_at") or row.get("fired_at") or ""), turn_width)
-            self.turn_cards.append(self.answer_text)
+            self.answer_text = self._turn(
+                "assistant", answer_text, str(row.get("finished_at") or row.get("fired_at") or ""), answer_width, render_turn
+            )
             al.addWidget(self.answer_text)
-        elif failure is None and view.tone != "waiting":
-            al.addWidget(_text_label("(no answer)", "autoTurnText", parent=self.answer, tone="quiet"))
         if quiet:
             # Quiet runs stay readable but recede.
             from PyQt5.QtWidgets import QGraphicsOpacityEffect
 
-            for card in self.turn_cards:
+            for card in [*self.turn_cards, *([self.note] if self.note is not None else [])]:
                 effect = QGraphicsOpacityEffect(card)
                 effect.setOpacity(0.62)
                 card.setGraphicsEffect(effect)
@@ -532,11 +579,20 @@ class OccurrencePair(QWidget):
             names = ", ".join(str(a.get("name") or a.get("artifact_id")) for a in artifacts if isinstance(a, Mapping))
             al.addWidget(_text_label(f"Files: {names}", "autoTurnMeta", parent=self.answer))
 
-        # -- pending waits, answered from here by their KIND (decision D1) -
-        self.wait_inputs: List[Dict[str, Any]] = []
-        for wait in row.get("waits") or []:
-            if isinstance(wait, Mapping):
-                al.addWidget(self._wait_box(wait, row))
+        # -- Discuss: a compact action under the card, right-aligned --------
+        self.discuss_row = QWidget(self.answer)
+        dr = QHBoxLayout(self.discuss_row)
+        dr.setContentsMargins(0, 1, 0, 0)
+        dr.setSpacing(0)
+        dr.addStretch(1)
+        self.discuss_button = WrappingButton(DISCUSS_LABEL, self.discuss_row)
+        self.discuss_button.setToolTip(
+            discuss_help(self.index) if discuss_enabled and view.can_discuss else (discuss_reason or "Not while it is running")
+        )
+        self.discuss_button.setEnabled(bool(discuss_enabled and view.can_discuss))
+        self.discuss_button.clicked.connect(self._start_discuss)
+        dr.addWidget(self.discuss_button, 0)
+        al.addWidget(self.discuss_row)
 
         # -- the discuss prompt (inline, shown on demand) -------------------
         self.discuss_box = QWidget(self.answer)
@@ -553,13 +609,26 @@ class OccurrencePair(QWidget):
         self.discuss_box.hide()
         al.addWidget(self.discuss_box)
 
-        wrap_a = QHBoxLayout()
-        wrap_a.setContentsMargins(0, 0, 40, 0)
-        wrap_a.addWidget(self.answer)
-        layout.addLayout(wrap_a)
+        side = QHBoxLayout()
+        side.setContentsMargins(0, 0, 0, 0)
+        side.addWidget(self.answer, 0)
+        side.addStretch(1)
+        layout.addLayout(side)
 
-    def _wait_box(self, wait: Mapping[str, Any], row: Mapping[str, Any]) -> QWidget:
-        box = QWidget(self.answer)
+    def _turn(self, role: str, content: str, ts: str, width: int, render_turn: "TurnRenderer") -> QWidget:
+        card = render_turn(role, content, ts, width)
+        self.turn_cards.append(card)
+        self._turn_roles.append(role)
+        return card
+
+    def fit(self, viewport_width: int) -> None:
+        """The chat's widths for this list width (a resize, a first layout)."""
+        for role, card in zip(self._turn_roles, self.turn_cards):
+            card.set_bubble_width(self._bubble_width(viewport_width, role=role))
+        self.answer.setFixedWidth(self._bubble_width(viewport_width, role="assistant"))
+
+    def _wait_box(self, wait: Mapping[str, Any], row: Mapping[str, Any], *, parent: QWidget) -> QWidget:
+        box = QWidget(parent)
         bl = QVBoxLayout(box)
         bl.setContentsMargins(0, 2, 0, 0)
         bl.setSpacing(4)
@@ -692,9 +761,10 @@ class AutomationView(QFrame):
         ("archive", "Archive"),
     )
 
-    def __init__(self, *, render_turn: "TurnRenderer", parent: Optional[QWidget] = None) -> None:
+    def __init__(self, *, render_turn: "TurnRenderer", bubble_width: "BubbleWidth", parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._render_turn = render_turn
+        self._bubble_width = bubble_width
         self.setObjectName("autoView")
         self.summary: Dict[str, Any] = {}
         self.occurrences: List[Dict[str, Any]] = []
@@ -702,9 +772,16 @@ class AutomationView(QFrame):
         self.busy = False
         self.pairs: List[OccurrencePair] = []
 
+        # The list spans the history card's full inner width, exactly like the
+        # chat's transcript (same x-edges for the bubbles); only the header is
+        # inset.
         root = QVBoxLayout(self)
-        root.setContentsMargins(4, 2, 4, 2)
+        root.setContentsMargins(0, 2, 0, 2)
         root.setSpacing(6)
+        top = QVBoxLayout()
+        top.setContentsMargins(4, 0, 4, 0)
+        top.setSpacing(6)
+        root.addLayout(top)
 
         head = QHBoxLayout()
         head.setSpacing(8)
@@ -715,9 +792,9 @@ class AutomationView(QFrame):
         self.title_label.setObjectName("autoViewTitle")
         self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         head.addWidget(self.title_label, 1)
-        root.addLayout(head)
+        top.addLayout(head)
         self.meta_label = _text_label("", "autoViewMeta", parent=self)
-        root.addWidget(self.meta_label)
+        top.addWidget(self.meta_label)
 
         controls = QHBoxLayout()
         controls.setSpacing(5)
@@ -728,7 +805,7 @@ class AutomationView(QFrame):
             controls.addWidget(button)
             self.control_buttons[control] = button
         controls.addStretch(1)
-        root.addLayout(controls)
+        top.addLayout(controls)
 
         # Archive confirmation, inside the palette (never a modal).
         self.archive_confirm = QWidget(self)
@@ -742,7 +819,7 @@ class AutomationView(QFrame):
         ac.addWidget(self.archive_yes)
         ac.addWidget(self.archive_no)
         self.archive_confirm.hide()
-        root.addWidget(self.archive_confirm)
+        top.addWidget(self.archive_confirm)
 
         # Edit (title + interval + context), inline.
         self.edit_box = QWidget(self)
@@ -767,7 +844,7 @@ class AutomationView(QFrame):
         for w, stretch in ((self.edit_title, 1), (self.edit_every, 0), (self.edit_context, 0), (self.edit_save, 0), (self.edit_cancel, 0)):
             el.addWidget(w, stretch)
         self.edit_box.hide()
-        root.addWidget(self.edit_box)
+        top.addWidget(self.edit_box)
 
         self.error_row = QWidget(self)
         er = QHBoxLayout(self.error_row)
@@ -778,14 +855,14 @@ class AutomationView(QFrame):
         self.retry_button.clicked.connect(self.retry_requested.emit)
         er.addWidget(self.retry_button, 0)
         self.error_row.hide()
-        root.addWidget(self.error_row)
+        top.addWidget(self.error_row)
 
         self.notice_label = _text_label("", "autoViewNotice", parent=self)
         self.notice_label.hide()
-        root.addWidget(self.notice_label)
+        top.addWidget(self.notice_label)
         self.attention_label = _text_label("", "autoAttention", parent=self)
         self.attention_label.hide()
-        root.addWidget(self.attention_label)
+        top.addWidget(self.attention_label)
 
         self.scroll = QScrollArea(self)
         self.scroll.setObjectName("autoScroll")
@@ -795,8 +872,9 @@ class AutomationView(QFrame):
         self.list_host = QWidget()
         self.list_host.setObjectName("autoList")
         self.list_layout = QVBoxLayout(self.list_host)
-        self.list_layout.setContentsMargins(0, 0, 6, 0)
-        self.list_layout.setSpacing(10)
+        # The chat's transcript: no margins, 8 px between turns.
+        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setSpacing(8)
         self.list_layout.setAlignment(Qt.AlignTop)
         self.scroll.setWidget(self.list_host)
         self.scroll.viewport().installEventFilter(self)
@@ -914,7 +992,8 @@ class AutomationView(QFrame):
                 discuss_enabled=discuss_enabled,
                 discuss_reason=discuss_reason,
                 render_turn=self._render_turn,
-                turn_width=self.turn_width(),
+                bubble_width=self._bubble_width,
+                viewport_width=self.list_width(),
                 parent=self.list_host,
             )
             pair.discuss_requested.connect(self.discuss_requested.emit)
@@ -922,9 +1001,10 @@ class AutomationView(QFrame):
             self.list_layout.addWidget(pair)
             self.pairs.append(pair)
 
-    def turn_width(self) -> int:
-        """The bubble width for a turn: the list's width minus the pair's indent and frame."""
-        return max(160, int(self.scroll.viewport().width() or self.width()) - 76)
+    def list_width(self) -> int:
+        """The width the turns are laid out in: the list's viewport, as the
+        chat sizes its bubbles from the transcript's viewport."""
+        return int(self.scroll.viewport().width() or self.width())
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt API)
         # The bubbles follow the list's own width (the viewport is sized after
@@ -934,10 +1014,9 @@ class AutomationView(QFrame):
         return super().eventFilter(obj, event)
 
     def _fit_turns(self) -> None:
-        width = self.turn_width()
+        width = self.list_width()
         for pair in self.pairs:
-            for card in pair.turn_cards:
-                card.set_bubble_width(width)
+            pair.fit(width)
 
     def scroll_to_latest(self) -> None:
         """Newest run in view — after the rebuilt pairs are laid out."""
