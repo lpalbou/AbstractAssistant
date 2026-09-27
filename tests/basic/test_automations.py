@@ -466,7 +466,7 @@ def test_controls_follow_status_and_run_now_stays_enabled_while_paused() -> None
     assert active["pause"][0] is True and active["resume"][0] is False and active["run_now"][0] is True
     assert active["stop_current"][0] is False
     # A run in progress = the gateway's current_occurrence, never last_occurrence.
-    busy = automation_controls(dict(triage, current_occurrence={"index": 7, "run_id": "r7", "attempt": 1, "status": "running"}))
+    busy = automation_controls(triage)  # the fixture's current_occurrence: run #7
     assert busy["run_now"][0] is False and busy["stop_current"][0] is True
     assert busy["run_now"][1] == "An occurrence is in progress."
     inferred = automation_controls(dict(triage, current_occurrence=None))  # last_occurrence says "waiting"
@@ -626,8 +626,9 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     assert rows[0].state_chip is not None and rows[1].state_chip is None
     assert rows[0].meta_text.startswith("every 30 minutes (UTC) · last ")
     assert rows[2].state_button.state_control == "resume" and rows[2].meta_text.endswith("next —")
-    # The real gateway sends an empty excerpt while waiting: the question shows.
-    assert rows[0].result_label.toolTip().startswith("The landlord asks")
+    # The fixture's current_occurrence (#7): the card says so and pulses.
+    assert rows[0].result_label.toolTip() == "Run #7 running" and rows[0].state_button.pulsing is True
+    assert rows[1].state_button.pulsing is False
     assert switcher.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
@@ -728,7 +729,6 @@ def palette(stub, tmp_path, monkeypatch):
 @pytest.mark.basic
 def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(palette, stub) -> None:
     window, _controller = palette
-    stub.summary(TRIAGE)["current_occurrence"] = {"index": 7, "run_id": "ade23773", "attempt": 1, "status": "running"}
     window._poll_automations()
     assert [t for t, _ in window._notified] == [
         "2 urgent emails",

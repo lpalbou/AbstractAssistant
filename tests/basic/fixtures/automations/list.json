@@ -15,7 +15,14 @@
         }
       },
       "context_mode": "growing",
+      "workspace_root": "/srv/abstractgateway/data/workspaces/session-automation-53443dd0-25c4-5fa8-bdad-e1ac3-db8ae8ce21b3",
       "next_fire_at": "2026-09-27T07:00:00.412307+00:00",
+      "current_occurrence": {
+        "index": 7,
+        "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
+        "attempt": 1,
+        "status": "running"
+      },
       "occurrence_count": 7,
       "attention": {
         "pending_waits": 2,
@@ -115,7 +122,9 @@
         }
       },
       "context_mode": "independent",
+      "workspace_root": "/srv/abstractgateway/data/workspaces/session-automation-fddce731-4abf-54d3-81b9-15856-00b6fb72a0f3",
       "next_fire_at": "2026-09-27T08:00:00.108652+00:00",
+      "current_occurrence": null,
       "occurrence_count": 6,
       "attention": {
         "pending_waits": 0,
@@ -165,6 +174,8 @@
         }
       },
       "context_mode": "independent",
+      "workspace_root": "/srv/abstractgateway/data/workspaces/session-automation-69892c76-5362-5646-a528-b9f98-a36538cb1e40",
+      "current_occurrence": null,
       "occurrence_count": 3,
       "attention": {
         "pending_waits": 0,
@@ -230,6 +241,7 @@
         "legacy"
       ],
       "session_kind": "automation",
+      "workspace_root": "/srv/abstractgateway/data/workspaces/a0fab4a28b097d25bf998201ae88e39d",
       "next_fire_at": "2026-09-27T11:15:12.340488+00:00",
       "last_occurrence": {
         "run_id": "7af5a440-b8cc-493f-8475-4e2fe13f0e3a",

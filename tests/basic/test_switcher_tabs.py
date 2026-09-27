@@ -122,13 +122,18 @@ def test_workspace_folders_open_locally_and_say_when_they_are_on_the_gateway(tmp
     assert not missing.isEnabled() and missing.toolTip() == "The gateway does not report this folder (/runs row workspace_root)."
     # Automations: the folder from the summary; a summary without it says which field is missing.
     with_root = dict(_by_id(NEWS), workspace_root=str(here))
-    sw.set_automations([with_root, _by_id(JOURNAL)], available=True)
+    legacy = {k: v for k, v in _by_id(JOURNAL).items() if k != "workspace_root"}  # a gateway without the field
+    sw.set_automations([with_root, legacy], available=True)
     sw.set_tab("automations")
     rows = {r.automation_id: r for r in sw.automation_tab_rows}
     rows[NEWS].folder.click()
     assert opened == [str(here), str(here)]
-    assert not rows[JOURNAL].folder.isEnabled()
-    assert rows[JOURNAL].folder.toolTip() == "The gateway does not report this folder (AutomationSummary.workspace_root)."
+    assert not rows[legacy["automation_id"]].folder.isEnabled()
+    assert rows[legacy["automation_id"]].folder.toolTip() == "The gateway does not report this folder (AutomationSummary.workspace_root)."
+    # Every non-legacy fixture row reports its folder; on this Mac it is the gateway host's.
+    journal = switcher_module.AutomationTabRow(_by_id(JOURNAL))
+    assert journal.folder.toolTip().startswith("Workspace folder on the gateway host:\n") and journal.folder.text() == ""
+    journal.deleteLater()
     sw.deleteLater()
 
 
