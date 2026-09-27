@@ -1235,3 +1235,34 @@ def test_the_chat_answer_renderer_handles_blocks_right_after_a_text_line(markdow
     assert raw not in text, f"{raw!r} shown literally"
     assert tag in html
     card.deleteLater()
+
+
+
+@pytest.mark.basic
+def test_the_task_turn_renders_markdown_while_a_chat_prompt_stays_literal(palette, stub) -> None:
+    """The fixture's task turn is "[Trigger …]\n## Inbox triage\n…" (composed by
+    the automation): the user bubble renders it as markdown; the chat's user
+    bubble with the same text stays literal (a person's typed prompt)."""
+    import abstractassistant.app as app_module
+
+    window, _controller = palette
+    row = next(r for r in _fixture("occurrences.json")["items"] if r["index"] == 1)
+    assert row["user_turn"].startswith("[Trigger ") and "\n## Inbox triage\n" in row["user_turn"]
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    pair = next(p for p in window.automation_view.pairs if p.index == 1)
+    task = pair.trigger_text
+    assert type(task) is app_module.MessageCard
+    body = task.findChildren(app_module.AutoSizingTextBrowser)
+    assert any("<h2" in b.toHtml() for b in body)
+    assert not any("## Inbox triage" in b.toPlainText() for b in body)
+
+    chat = app_module.MessageCard(
+        message={"role": "user", "content": row["user_turn"], "ts": row["fired_at"]},
+        message_key="chat",
+        renderer=window._renderer,
+        on_open_artifact=lambda *a: None,
+        bubble_width=400,
+    )
+    assert any("## Inbox triage" in b.toPlainText() for b in chat.findChildren(app_module.AutoSizingTextBrowser))
+    chat.deleteLater()

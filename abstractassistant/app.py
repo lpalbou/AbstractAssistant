@@ -3066,7 +3066,12 @@ class MessageCard(QFrame):
         on_show_files=None,
         voice_state: str = "idle",
         parent: Optional[QWidget] = None,
+        markdown_user_body: bool = False,
     ) -> None:
+        """``markdown_user_body``: render a user bubble's body as markdown
+        (off by default: a person's typed prompt stays literal). On only for
+        text the system composed in the user's seat — an automation's task
+        turn ("[Trigger …]\n## …")."""
         super().__init__(parent)
         role = str(message.get("role") or "").strip()
         is_user = role == "user"
@@ -3188,7 +3193,9 @@ class MessageCard(QFrame):
             browser.setStyleSheet(
                 f"background: transparent; border: none; color: {THEME.text_strong}; padding: 0px; margin: 0px;"
             )
-            browser.setHtml(_user_html(self._content))
+            browser.setHtml(
+                _assistant_html(renderer, self._content) if markdown_user_body else _user_html(self._content)
+            )
             browser.refresh_height()
             # Short prompts share a row with their time/actions instead of
             # reserving an empty 28px header above a single line of text.
@@ -6465,6 +6472,8 @@ class AssistantPalette(QMainWindow):
             on_open_artifact=self._open_artifact_from_message,
             build_media_preview=self._build_media_preview,
             bubble_width=bubble_width,
+            # The task turn is composed by the automation, never typed.
+            markdown_user_body=role == "user",
         )
 
     def open_automations(self) -> None:
