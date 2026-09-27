@@ -812,3 +812,27 @@ def test_the_switcher_lists_every_clients_sessions_with_no_toggle(tmp_path: Path
             assert not hasattr(switcher, "scope_button")
         finally:
             _close(window, app)
+
+
+
+@pytest.mark.basic
+def test_a_sessions_folder_comes_only_from_the_gateway_row(tmp_path: Path) -> None:
+    """Operator ruling 2026-09-27: the folder is the `/runs` row's
+    `workspace_root`; a folder remembered in the local transcript is never used."""
+    from abstractassistant.core.session_store import SessionSnapshot, SessionStore
+
+    data = tmp_path / "data"
+    with FakeGateway() as gw:
+        for item in gw.page["items"]:
+            if item["session_id"] == "sess_hot":
+                item["workspace_root"] = "/srv/ws/hot"
+        manager = _manager(data, gw.url)
+        manager.refresh_sessions_from_gateway()
+        # The cache remembers a folder for sess_alpha; the gateway row does not report one.
+        SessionStore(data / "sessions" / "sess_alpha" / "session.json").save(
+            SessionSnapshot(session_id="sess_alpha", actor_id="gateway", messages=[{"role": "user", "content": "hi"}],
+                            last_run_id=None, workspace_root="/Users/me/cached")
+        )
+        rows = _rows(manager)
+    assert (rows["sess_hot"]["workspace_root"], rows["sess_hot"]["workspace_reported"]) == ("/srv/ws/hot", True)
+    assert (rows["sess_alpha"]["workspace_root"], rows["sess_alpha"]["workspace_reported"]) == ("", False)

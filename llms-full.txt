@@ -68,7 +68,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 ## Topic Deep Dives
 - [docs/settings.md](docs/settings.md): every setting (workflow choice, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): scheduled tasks on the gateway as the Assistant shows them: the Automations section, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+- [docs/automations.md](docs/automations.md): scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -249,7 +249,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
-- [automations.md](automations.md) — scheduled tasks on the gateway: the Automations section, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
+- [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
 
 ## Design records
 
@@ -458,9 +458,10 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock, on a
   gateway that offers automations), toggle spoken replies, and open Settings (⌘,); the orb at
   the right shows whether the gateway is reachable.
-- **Chat switcher**: click the chat name in the header. It lists your sessions on the gateway,
-  including those the Assistant created on another device; **All gateway sessions** in its header
-  adds sessions from AbstractCode and other clients. Chats are grouped by recency (today,
+- **Chat switcher**: click the chat name in the header. Its **Sessions** tab lists every session
+  on the gateway, whichever client started it (the Assistant on any device, AbstractCode,
+  AbstractObserver), 100 at a time; its **Automations** tab lists the gateway's automations with
+  their controls. Chats are grouped by recency (today,
   yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
   its latest question, when it was last active, its turns and state, and once opened on this Mac
   its tool calls, tokens, running time and workspace folder. A chat whose tools failed or whose
@@ -822,9 +823,11 @@ routes they use, see [architecture.md](architecture.md#automations) and
 
 ## Where automations appear
 
-Click the chat name in the palette header. On a gateway that offers automations, the switcher lists
-an **Automations** section above your chats: one row per automation you own, whichever app created
-it (the Assistant, AbstractObserver or another client). Each row shows:
+Click the chat name in the palette header. On a gateway that offers automations, the switcher has
+two tabs, **Sessions | Automations** (⌘1 / ⌘2, or ← / → while the filter is empty; the last tab is
+remembered). The **Automations** tab lists every automation, whichever app created it (the
+Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
+archived** in the tab's header. Each row shows:
 
 - the title, and a badge when something needs you: `2 NEW` (unseen results or failures) and
   `WAITING` (a run waits for your answer);
@@ -834,16 +837,23 @@ it (the Assistant, AbstractObserver or another client). Each row shows:
 - the last run's number, status and the first line of its result (`#12 completed: …`), or
   `waiting for you: <question>`.
 
-The section header counts what needs you (`AUTOMATIONS · 3 NEW`: unseen items plus waiting runs).
+Under it, controls chosen by the automation's state: **Open**, **Last** (opens it scrolled to its
+latest run), **Pause** or **Resume**, **Run now** (also while paused), **Stop** (only while a run is
+in progress), **Edit schedule…** (opens the automation with its edit form), **Archive** (asks for
+confirmation in the row) and the automation's folder. A control that does not apply is disabled
+with the reason in its tooltip; the rules are the same as in the automation view. Enter opens the
+selected automation.
+
+The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
-you have none yet, the section says so and points to the clock button.
+you have none yet, the tab says so and points to the clock button.
 
 The **Automations…** entry in the menu-bar icon's menu carries the same count
 (`Automations… (3 new)`) and opens the palette with the switcher.
 
 ### Automations and your sessions
 
-The sessions an automation runs in are listed under their automation, never among your chats. The
+The sessions an automation runs in are listed under their automation, never in the Sessions tab. The
 gateway stamps every session with a kind (`chat`, `automation`, `occurrence`, `discussion`), and
 the switcher lists only `chat` and `discussion` sessions; it never guesses from a session's id.
 A session from a gateway that does not stamp kinds counts as a chat. When the gateway advertises
@@ -891,7 +901,7 @@ one (see [Limits](#limits)).
 
 ## Reading an automation
 
-Click a row in the Automations section. The palette shows the automation in place of the
+Click a row in the Automations tab. The palette shows the automation in place of the
 conversation, and **← Chat** returns to it.
 
 The header gives the title and one line with the cadence, status, next run, context mode and run
@@ -1001,12 +1011,12 @@ Ordinary results never notify. Notifications are not repeated after a relaunch:
 
 The Assistant reads the gateway's capabilities (`contracts.common.automations.available`):
 
-- **Advertised** (`true`): the Automations section, the tray entry, the clock button and the polls
+- **Advertised** (`true`): the Automations tab, the tray entry, the clock button and the polls
   described above.
-- **Not advertised** (absent or `false`): no Automations section, no tray entry and no clock
+- **Not advertised** (absent or `false`): no Automations tab, no tray entry and no clock
   button, and the polls make no automation request. A gateway that stops advertising automations
   hides them again at the next poll.
-- **Capabilities could not be read**: the Automations section shows an error line instead of
+- **Capabilities could not be read**: the Automations tab shows an error line instead of
   hiding, so an unreachable gateway is never mistaken for one without automations.
 
 The clock button and the tray entry appear only after a poll has confirmed that the gateway offers
@@ -1187,9 +1197,9 @@ the stream. Whether the gateway offers live replies is read from
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
 - Workflow: `/api/gateway/workflow-catalog`, `/api/gateway/visualflows`,
   `/api/gateway/visualflows/{flow_id}/publish`, `/api/gateway/admin/workflow-catalog/promote`
-- Sessions: `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false` (the
-  session list; `&session_kind=chat,discussion` is added when the gateway lists `session_kind`
-  among `runs.list.filters` in its capabilities); titles come from a session's first run's
+- Sessions: `GET /api/gateway/runs?limit=200&offset=N&root_only=true&include_ledger_len=false`
+  pages (the session list, 100 sessions at a time; `&session_kind=chat,discussion` is added when
+  the gateway lists `session_kind` among `runs.list.filters` in its capabilities); titles come from a session's first run's
   `input_data` and transcripts from its latest run's `history_bundle`
   ([architecture.md](architecture.md#sessions))
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
@@ -1322,23 +1332,23 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 
 Sessions live on the gateway. A session is the set of root runs that share a `session_id`.
 
-- **Scope.** By default the switcher lists this app's own sessions: those whose id follows the
-  Assistant's naming (`sess_…`), including the ones another Assistant install created. The
-  **All gateway sessions** toggle in the switcher header lists every session on the gateway
-  (AbstractCode, flows, schedules, other channels), marked "other client"; the choice is kept. A
-  discussion opened from an automation is always listed, whatever id the gateway gave it.
+- **Scope.** Every client sees the same pool of sessions: the switcher's **Sessions** tab lists
+  every chat and discussion session on the gateway, whichever client started it (the Assistant on
+  any device, AbstractCode, AbstractObserver, flows, other channels). There is no "this app's
+  sessions" filter and no toggle; nothing is ever classified by its id.
 - **Kinds.** The gateway stamps each session with a kind (`chat`, `automation`, `occurrence`,
   `discussion`). The switcher lists `chat` and `discussion` sessions; `automation` and
-  `occurrence` sessions belong to the [Automations](#automations) section. A run without a kind
+  `occurrence` sessions belong to the [Automations](#automations) tab. A run without a kind
   (a gateway that does not stamp it) counts as a chat. The kind is read from the gateway, never
   inferred from an id.
 
-- **List.** The switcher's rows are one `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`
-  page (plus `&session_kind=chat,discussion` when the gateway lists `session_kind` among its
-  advertised `runs.list.filters`) folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
+- **List.** The switcher reads `GET /api/gateway/runs?limit=200&offset=N&root_only=true&include_ledger_len=false`
+  pages (plus `&session_kind=chat,discussion` when the gateway lists `session_kind` among its
+  advertised `runs.list.filters`) and folds them by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
   newest first by the last run's `updated_at`, turn count = root runs, state = the liveliest run
-  (waiting, then running, then failed, then done; an unreported status is unknown). The page
-  covers the newest 5,000 root runs; when the gateway holds more, the switcher header says so.
+  (waiting, then running, then failed, then done; an unreported status is unknown). It shows 100
+  sessions; **Load more sessions** at the end of the list reads further pages until 100 more (or
+  the end). The gateway reports no total, so the header says "100+ sessions" while more exist.
   Opening the switcher paints the cached list, then asks the gateway off the GUI thread.
 - **Titles.** A session is named by its first user turn, read from the gateway
   (`/runs/{first_run_id}/input_data`, up to 40 sessions per refresh — the rows the list shows
@@ -1388,7 +1398,7 @@ automation itself. The user guide is [automations.md](automations.md).
 ```mermaid
 flowchart LR
   subgraph Desktop["AbstractAssistant (this Mac)"]
-    Switcher["Session switcher\nAutomations section · discussion badge"]
+    Switcher["Session switcher\nSessions | Automations tabs · discussion badge"]
     View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
     Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
     Hub["AutomationsHub\ncalls off the GUI thread\npolls 60 s visible / 5 min hidden"]
@@ -1692,11 +1702,12 @@ nothing is estimated. Reattached runs show no total time because the start was n
 
 ## How do I find an old chat, and can I delete one?
 
-Click the chat name in the header. The switcher lists this app's sessions on the gateway —
-including those from the Assistant on another device — with its topic, last activity and what it
-holds (turns, state, and once opened here, tool calls, tokens, running time and workspace
-folder), grouped by recency and filtered as you type. **All gateway sessions** in its header also
-lists sessions from AbstractCode and other clients. The pencil renames a session on this device;
+Click the chat name in the header. The **Sessions** tab lists every session on the gateway —
+whichever client started it: the Assistant on any device, AbstractCode, AbstractObserver — with
+its topic, last activity and what it holds (turns, state, and once opened here, tool calls,
+tokens, running time, and the workspace folder the gateway reports, which opens in Finder when it
+is on this Mac), grouped
+by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The pencil renames a session on this device;
 the bin removes it from this list after an in-row confirmation and moves its local copy to
 `~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.
 
@@ -1707,7 +1718,7 @@ Yes, on a gateway that offers automations. The clock button in the palette heade
 ("every 8 hours", "every 7 days", or once at a time), whether each run starts fresh
 (Independent, the default) or sees the previous runs (Growing), and whether its tools run without
 asking (the default) or ask each time. The gateway runs it, also when the Assistant is closed.
-Automations are listed in the session switcher's **Automations** section and under
+Automations are listed in the session switcher's **Automations** tab and under
 **Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume, run
 now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
 notable, failures after all retries, and runs waiting for your answer; ordinary results stay
@@ -1727,7 +1738,7 @@ calls from the automation; see [automations.md](automations.md#tool-consent).
 
 ## Why don't the sessions of my automations appear among my chats?
 
-Each automation's runs are grouped under the automation in the **Automations** section, not
+Each automation's runs are grouped under the automation in the **Automations** tab, not
 listed as chats: the switcher lists only sessions the gateway marks as chats or discussions. A
 **Discuss** session is an ordinary chat and does appear, with the badge
 "about automation <title>"; the automation's files are mounted read-only and the discussion has
@@ -1857,14 +1868,14 @@ The switcher shows the sessions it last received and your cached transcripts sta
 nothing is deleted. Check the connection orb and Settings → Connection. The next successful fetch
 from the gateway replaces the cached list. See [architecture.md](architecture.md#sessions).
 
-## The switcher has no Automations section
+## The switcher has no Automations tab
 
 The gateway does not advertise automations in its capabilities
-(`contracts.common.automations.available`), so the Assistant shows no section, no
+(`contracts.common.automations.available`), so the Assistant shows no Automations tab, no
 **Automations…** tray entry and no clock button in the header. Automations need a gateway
 version that offers them; ask the gateway operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
 
-## The Automations section shows "Automations: …" instead of rows
+## The Automations tab shows "Automations: …" instead of rows
 
 The last check failed; the line gives the reason, and the rows are the ones last received. "The
 gateway could not be reached" means the connection is down (check the orb). "Sign in to the gateway
@@ -2321,9 +2332,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Added
 - **Automations.** On a gateway that advertises automations in its capabilities, the session
-  switcher has an **Automations** section above your chats: one row per automation with its
-  cadence ("every 8 hours (UTC)"), status, context mode, next run, last result, and a `NEW` /
-  `WAITING` badge when something needs you. **Automations…** in the tray menu shows the same count
+  switcher has an **Automations** tab: one row per automation with its cadence ("every 8 hours
+  (UTC)"), status, context mode, next run, last result, and a `NEW` / `WAITING` badge when
+  something needs you. **Automations…** in the tray menu shows the same count
   and opens the switcher. On a gateway without automations, neither appears. See
   [docs/automations.md](docs/automations.md).
 - **An automation's runs read as a chat.** Opening an automation shows each run as the task it was
@@ -2358,11 +2369,26 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   because keys were compared un-normalised (right ⌘, Space). Both are fixed. On macOS the shortcut
   is only registered when the launching process may read the keyboard (System Settings → Privacy &
   Security → Accessibility / Input Monitoring); otherwise it is not started and the reason is logged.
+- **An automation's run list no longer ends in a band of empty space.** Scrolled to the bottom, the
+  last run now ends the list; before, every run added about 26 px of blank space below it (over a
+  thousand pixels on an automation with a few dozen runs).
+- **An automation's runs look exactly like a chat.** Each task is the chat's own message bubble on
+  the right, under a small "#86 · schedule … · fired 13:42 UTC" line, and each answer is the chat's
+  assistant card on the left, under its status line (completed, failed with its reason, waiting),
+  with no extra frame around them and the same edges as a conversation. **Discuss** is a compact
+  action under the answer.
 
 ### Changed
 - The session switcher lists only the sessions the gateway marks as chats or discussions; the
   sessions an automation runs in are listed under the automation. When the gateway supports it, the
   session list asks for those kinds only.
+- The session switcher lists every session on the gateway, whichever client started it (no "All
+  gateway sessions" toggle), 100 at a time with **Load more sessions**; it has two tabs,
+  **Sessions | Automations** (⌘1 / ⌘2, the last one remembered), with inline controls for each
+  automation (Open, Last, Pause or Resume, Run now, Stop while running, Edit schedule…, Archive;
+  archived automations behind **Show archived**) and clickable workspace folders that open in the
+  file manager when the folder is on this Mac. The folder is the one the gateway reports for the
+  session or automation; until the gateway reports it, the control is disabled and says so.
 
 ## [0.7.0] - 2026-09-27
 
@@ -5384,11 +5410,15 @@ class AssistantController:
     def session_notice(self) -> str:
         return str(self.llm_manager.session_notice() or "")
 
-    def show_all_sessions(self) -> bool:
-        return bool(self.llm_manager.show_all_sessions())
+    def load_more_sessions(self) -> Dict[str, Any]:
+        """One more page of sessions (blocking: off the GUI thread)."""
+        return dict(self.llm_manager.load_more_sessions() or {})
 
-    def set_show_all_sessions(self, value: bool) -> None:
-        self.llm_manager.set_show_all_sessions(bool(value))
+    def switcher_tab(self) -> str:
+        return str(self.llm_manager.switcher_tab())
+
+    def set_switcher_tab(self, tab: str) -> None:
+        self.llm_manager.set_switcher_tab(tab)
 
     def session_legacy_dir(self) -> str:
         return str(self.llm_manager.session_legacy_dir())
@@ -7012,7 +7042,7 @@ class GatewayClient:
     REGULAR_SESSION_KINDS_QUERY = "chat,discussion"
 
     @staticmethod
-    def session_listing_path(limit: int, *, session_kind_filter: bool = False) -> str:
+    def session_listing_path(limit: int, *, offset: int = 0, session_kind_filter: bool = False) -> str:
         """The exact query the session list sends — PINNED by a test.
 
         The same query AbstractCode's session board sends
@@ -7028,18 +7058,24 @@ class GatewayClient:
         (``session_kind_filter=True``): without it, automation occurrences
         (turn roots too) would eat the page budget of the chats.
         """
-        path = f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+        path = (
+            f"/api/gateway/runs?limit={max(1, int(limit))}&offset={max(0, int(offset))}"
+            "&root_only=true&include_ledger_len=false"
+        )
         if session_kind_filter:
             path += f"&session_kind={GatewayClient.REGULAR_SESSION_KINDS_QUERY}"
         return path
 
     def list_session_runs(
-        self, *, limit: int, timeout_s: Optional[float] = None, session_kind_filter: bool = False
+        self, *, limit: int, offset: int = 0, timeout_s: Optional[float] = None, session_kind_filter: bool = False
     ) -> Dict[str, Any]:
-        """One page of root runs, newest first, for the session list."""
+        """One page of turn roots, newest first, for the session list."""
         return self._request_json(
             method="GET",
-            url=_join(self._cfg.base_url, self.session_listing_path(limit, session_kind_filter=session_kind_filter)),
+            url=_join(
+                self._cfg.base_url,
+                self.session_listing_path(limit, offset=offset, session_kind_filter=session_kind_filter),
+            ),
             label="list_session_runs failed",
             timeout_s=timeout_s,
         )
@@ -13344,18 +13380,21 @@ from .automations import is_regular_session_kind
 from .session_digest import parse_timestamp
 
 __all__ = [
-    "SESSION_LIST_LIMIT",
+    "SESSION_PAGE_RUNS",
+    "SESSION_PAGE_SESSIONS",
     "SESSION_PROMPT_MAX",
     "GatewaySession",
     "fold_session_rows",
     "prompt_from_input_data",
 ]
 
-# The page the session list asks for — the same N AbstractCode's session board
-# uses (`abstractcode/tui/src/ui/modals.rs` SESSION_LIST_LIMIT). The page covers
-# the most recent N ROOT RUNS across all sessions; `has_more` says when the
-# store holds more. One request per refresh, never polled.
-SESSION_LIST_LIMIT = 5000
+# The session list reads `/runs` in pages of SESSION_PAGE_RUNS turn roots
+# (`offset` paging, `has_more` says whether a next page exists) and shows
+# SESSION_PAGE_SESSIONS sessions at a time; "Load more" reads further pages
+# until SESSION_PAGE_SESSIONS more sessions (or the end). Every gateway session
+# of kind chat or discussion is listed, whichever client started it.
+SESSION_PAGE_RUNS = 200
+SESSION_PAGE_SESSIONS = 100
 # How many sessions' opening prompts one refresh fetches (one request each),
 # newest first — AbstractCode's SESSION_PROMPT_MAX. Fetched prompts are cached,
 # so the next refresh continues where this one stopped.
@@ -13387,6 +13426,11 @@ class GatewaySession:
     # i.e. a chat) and, for a discussion, the automation it is about.
     session_kind: str = ""
     automation_id: str = ""
+    # The latest turn's workspace folder, from the gateway's `/runs` row
+    # (`workspace_root`); `workspace_reported` = the row carries that field at
+    # all (older gateways do not).
+    workspace_root: str = ""
+    workspace_reported: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -13399,6 +13443,8 @@ class GatewaySession:
             "turns": int(self.turns),
             "session_kind": self.session_kind,
             "automation_id": self.automation_id,
+            "workspace_root": self.workspace_root,
+            "workspace_reported": self.workspace_reported,
         }
 
     @classmethod
@@ -13423,6 +13469,8 @@ class GatewaySession:
             turns=turns,
             session_kind=str(raw.get("session_kind") or ""),
             automation_id=str(raw.get("automation_id") or ""),
+            workspace_root=str(raw.get("workspace_root") or ""),
+            workspace_reported=bool(raw.get("workspace_reported")),
         )
 
 
@@ -13496,6 +13544,8 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
                 turns=len(group),
                 session_kind=kind,
                 automation_id=automation_id if kind == "discussion" else "",
+                workspace_root=_text(latest.get("workspace_root")),
+                workspace_reported="workspace_root" in latest,
             )
         )
     # Newest first by the field the gateway paged on; ties by id (stable).
@@ -13574,11 +13624,11 @@ from .session_store import SessionSnapshot, SessionStore
 __all__ = [
     "SessionCache",
     "safe_title",
-    "is_own_session",
     "CACHE_FILE",
     "LEGACY_INDEX_FILE",
     "LEGACY_DIR",
-    "OWN_SESSION_PREFIX",
+    "SESSION_ID_PREFIX",
+    "SWITCHER_TABS",
     "UNREADABLE_MARKER",
 ]
 
@@ -13588,14 +13638,13 @@ LEGACY_DIR = "sessions-legacy"
 # Written next to a cached transcript that could not be read, until the
 # gateway has rebuilt it — so the problem is still said after a restart.
 UNREADABLE_MARKER = "session.unreadable.json"
-# This client's OWN naming convention for the ids it mints (`create_session`).
-# The default list shows sessions whose id carries it; every other session on
-# the gateway is "not ours" and appears under "All gateway sessions" — ids of
-# other clients are never classified further. A session another client created
-# with a `sess_`-shaped id counts as ours. The gateway's `session_kind` on
-# `/runs` rows (framework backlog 0928 / contracts C11) replaces this test once
-# it ships.
-OWN_SESSION_PREFIX = "sess_"
+# How this client names the sessions it mints (`create_session`). A naming
+# convention only: the list shows EVERY gateway session (operator ruling
+# 2026-09-27, "all clients must have access to the same pool of sessions"), so
+# nothing is ever classified by its id.
+SESSION_ID_PREFIX = "sess_"
+# The switcher's two tabs; the last one used is remembered here.
+SWITCHER_TABS = ("sessions", "automations")
 _CACHE_VERSION = 1
 
 _TITLE_MAX = 80  # session-picker title bound (marked when it bites; ADR-0026)
@@ -13620,11 +13669,6 @@ def safe_title(title: str) -> str:
     return t[: _TITLE_MAX - 1].rstrip() + "…"
 
 
-def is_own_session(session_id: str) -> bool:
-    """Whether a session id follows this client's own naming (see OWN_SESSION_PREFIX)."""
-    return str(session_id or "").strip().startswith(OWN_SESSION_PREFIX)
-
-
 def _placeholder(title: str) -> bool:
     return str(title or "").strip().lower() in {"", "new session", "new chat"}
 
@@ -13646,9 +13690,7 @@ class SessionCache:
         self._fetched_at = ""
         self._truncated = False
         self._notice = ""
-        # The list shows this client's own sessions unless the user asked for
-        # every session on the gateway.
-        self._show_all = False
+        self._switcher_tab = SWITCHER_TABS[0]
         # Sessions converted from the 0.6.1-and-earlier local index that the gateway has
         # not yet confirmed: {session_id: {"created_at", "updated_at"}}.
         self._legacy_pending: Dict[str, Dict[str, str]] = {}
@@ -13703,7 +13745,7 @@ class SessionCache:
             return sid
 
     def _mint_locked(self) -> str:
-        sid = f"sess_{uuid.uuid4().hex}"
+        sid = f"{SESSION_ID_PREFIX}{uuid.uuid4().hex}"
         SessionStore(self.data_dir_for(sid) / "session.json").save(
             SessionSnapshot(session_id=sid, actor_id="gateway", messages=[], last_run_id=None)
         )
@@ -13817,17 +13859,20 @@ class SessionCache:
         except FileNotFoundError:
             pass
 
-    # ------------------------------------------------------------ list scope
+    # ------------------------------------------------------- switcher tab
 
     @property
-    def show_all(self) -> bool:
+    def switcher_tab(self) -> str:
         with self._lock:
-            return self._show_all
+            return self._switcher_tab
 
-    def set_show_all(self, value: bool) -> None:
+    def set_switcher_tab(self, tab: str) -> None:
+        if tab not in SWITCHER_TABS:
+            raise ValueError(f"unknown switcher tab {tab!r}")
         with self._lock:
-            self._show_all = bool(value)
-            self._save_locked()
+            if tab != self._switcher_tab:
+                self._switcher_tab = tab
+                self._save_locked()
 
     # --------------------------------------------------------- gateway rows
 
@@ -13944,7 +13989,8 @@ class SessionCache:
                 self._fetched_at = str(data.get("fetched_at") or "")
                 self._truncated = bool(data.get("truncated"))
                 self._notice = str(data.get("notice") or "")
-                self._show_all = bool(data.get("show_all"))
+                tab = str(data.get("switcher_tab") or "")
+                self._switcher_tab = tab if tab in SWITCHER_TABS else SWITCHER_TABS[0]
                 pending = data.get("legacy_pending")
                 if isinstance(pending, dict):
                     self._legacy_pending = {
@@ -14066,7 +14112,7 @@ class SessionCache:
             "rows": [r.to_dict() for r in self._rows],
             "fetched_at": self._fetched_at,
             "truncated": self._truncated,
-            "show_all": self._show_all,
+            "switcher_tab": self._switcher_tab,
         }
         if self._notice:
             payload["notice"] = self._notice
@@ -14664,10 +14710,10 @@ def automation_controls(
             return False, "Working…"
         if summary.get("legacy"):
             return False, "Legacy schedule: managed with its existing controls."
-        if control not in caps:
-            return False, "Not permitted for this automation."
         if status == "archived":
             return False, "Archived: history is kept, nothing runs."
+        if control not in caps:
+            return False, "Not permitted for this automation."
         return (True, "") if ok else (False, reason)
 
     return {

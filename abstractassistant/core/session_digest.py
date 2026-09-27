@@ -98,6 +98,8 @@ class SessionDigest:
     # the automation it is about (the switcher badges it).
     session_kind: str = ""
     automation_id: str = ""
+    # The gateway `/runs` row reports `workspace_root` (older gateways do not).
+    workspace_reported: bool = False
 
     @property
     def total_tokens(self) -> int:

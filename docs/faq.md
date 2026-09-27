@@ -87,7 +87,8 @@ nothing is estimated. Reattached runs show no total time because the start was n
 Click the chat name in the header. The **Sessions** tab lists every session on the gateway —
 whichever client started it: the Assistant on any device, AbstractCode, AbstractObserver — with
 its topic, last activity and what it holds (turns, state, and once opened here, tool calls,
-tokens, running time and workspace folder, which opens in Finder when it is on this Mac), grouped
+tokens, running time, and the workspace folder the gateway reports, which opens in Finder when it
+is on this Mac), grouped
 by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The pencil renames a session on this device;
 the bin removes it from this list after an in-row confirmation and moves its local copy to
 `~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.

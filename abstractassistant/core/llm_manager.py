@@ -522,11 +522,14 @@ class LLMManager:
                     last_run_id=row.latest_run_id or digest.last_run_id,
                     session_kind=row.session_kind,
                     automation_id=row.automation_id,
-                    # The gateway row's folder when it reports one; else the
-                    # folder the gateway granted this session's last turn
-                    # (read back from the run and kept with the transcript).
-                    workspace_root=row.workspace_root or digest.workspace_root,
+                    # The folder comes ONLY from the gateway's `/runs` row.
+                    workspace_root=row.workspace_root,
+                    workspace_reported=row.workspace_reported,
                 )
+            else:
+                # Not on the gateway (yet): no folder is shown, whatever the
+                # local cache remembers.
+                digest = replace(digest, workspace_root="", workspace_reported=False)
             payload = asdict(digest)
             payload["display_title"] = digest.display_title
             payload["on_gateway"] = row is not None

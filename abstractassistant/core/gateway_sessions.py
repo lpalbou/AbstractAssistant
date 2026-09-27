@@ -88,8 +88,11 @@ class GatewaySession:
     # i.e. a chat) and, for a discussion, the automation it is about.
     session_kind: str = ""
     automation_id: str = ""
-    # The latest turn's workspace folder when the gateway's row reports it.
+    # The latest turn's workspace folder, from the gateway's `/runs` row
+    # (`workspace_root`); `workspace_reported` = the row carries that field at
+    # all (older gateways do not).
     workspace_root: str = ""
+    workspace_reported: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -103,6 +106,7 @@ class GatewaySession:
             "session_kind": self.session_kind,
             "automation_id": self.automation_id,
             "workspace_root": self.workspace_root,
+            "workspace_reported": self.workspace_reported,
         }
 
     @classmethod
@@ -128,6 +132,7 @@ class GatewaySession:
             session_kind=str(raw.get("session_kind") or ""),
             automation_id=str(raw.get("automation_id") or ""),
             workspace_root=str(raw.get("workspace_root") or ""),
+            workspace_reported=bool(raw.get("workspace_reported")),
         )
 
 
@@ -202,6 +207,7 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
                 session_kind=kind,
                 automation_id=automation_id if kind == "discussion" else "",
                 workspace_root=_text(latest.get("workspace_root")),
+                workspace_reported="workspace_root" in latest,
             )
         )
     # Newest first by the field the gateway paged on; ties by id (stable).

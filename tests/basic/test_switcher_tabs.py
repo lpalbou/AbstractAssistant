@@ -172,6 +172,10 @@ def test_workspace_folders_open_locally_and_say_when_they_are_on_the_gateway(tmp
     local.click()
     assert opened == [str(here)]
     assert not remote.isEnabled() and remote.toolTip() == "on the gateway host: /srv/gateway/ws/abc"
+    # A gateway session whose /runs row does not carry the folder: said, not guessed.
+    sw.set_digests([SessionDigest(session_id="sess_g", title="G", updated_at="2026-09-27T06:00:00Z", state="done", turns=1)])
+    missing = sw._rows[0].findChildren(type(sw.new_button), "rowFolder")[0]
+    assert not missing.isEnabled() and missing.toolTip() == "The gateway does not report this folder (/runs row workspace_root)."
     # Automations: the folder from the summary; a summary without it says which field is missing.
     with_root = dict(_by_id(NEWS), workspace_root=str(here))
     sw.set_automations([with_root, _by_id(JOURNAL)], available=True)
@@ -180,7 +184,7 @@ def test_workspace_folders_open_locally_and_say_when_they_are_on_the_gateway(tmp
     rows[NEWS].folder.click()
     assert opened == [str(here), str(here)]
     assert not rows[JOURNAL].folder.isEnabled()
-    assert "AutomationSummary.workspace_root" in rows[JOURNAL].folder.toolTip()
+    assert rows[JOURNAL].folder.toolTip() == "The gateway does not report this folder (AutomationSummary.workspace_root)."
     sw.deleteLater()
 
 

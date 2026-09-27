@@ -7,9 +7,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### Added
 - **Automations.** On a gateway that advertises automations in its capabilities, the session
-  switcher has an **Automations** section above your chats: one row per automation with its
-  cadence ("every 8 hours (UTC)"), status, context mode, next run, last result, and a `NEW` /
-  `WAITING` badge when something needs you. **Automations…** in the tray menu shows the same count
+  switcher has an **Automations** tab: one row per automation with its cadence ("every 8 hours
+  (UTC)"), status, context mode, next run, last result, and a `NEW` / `WAITING` badge when
+  something needs you. **Automations…** in the tray menu shows the same count
   and opens the switcher. On a gateway without automations, neither appears. See
   [docs/automations.md](docs/automations.md).
 - **An automation's runs read as a chat.** Opening an automation shows each run as the task it was
@@ -57,6 +57,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - The session switcher lists only the sessions the gateway marks as chats or discussions; the
   sessions an automation runs in are listed under the automation. When the gateway supports it, the
   session list asks for those kinds only.
+- The session switcher lists every session on the gateway, whichever client started it (no "All
+  gateway sessions" toggle), 100 at a time with **Load more sessions**; it has two tabs,
+  **Sessions | Automations** (⌘1 / ⌘2, the last one remembered), with inline controls for each
+  automation (Open, Last, Pause or Resume, Run now, Stop while running, Edit schedule…, Archive;
+  archived automations behind **Show archived**) and clickable workspace folders that open in the
+  file manager when the folder is on this Mac. The folder is the one the gateway reports for the
+  session or automation; until the gateway reports it, the control is disabled and says so.
 
 ## [0.7.0] - 2026-09-27
 

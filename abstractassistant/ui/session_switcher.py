@@ -546,6 +546,9 @@ class SessionRow(QFrame):
         if digest.workspace_root:
             # Clickable: opens the folder when it is on this machine.
             out.append(folder_button(digest.workspace_root, parent=self))
+        elif digest.state and not digest.workspace_reported:
+            # A gateway session whose `/runs` row does not carry the folder.
+            out.append(missing_folder_button("/runs row workspace_root", parent=self))
         if digest.failed_tools:
             out.append(
                 _metric(
@@ -685,6 +688,17 @@ def folder_button(path: str, *, parent: QWidget, label: str = "") -> QPushButton
     return button
 
 
+def missing_folder_button(field: str, *, parent: QWidget) -> QPushButton:
+    """The folder control when the gateway does not report the folder:
+    disabled, naming the missing field."""
+    button = QPushButton("folder", parent)
+    button.setObjectName("rowFolder")
+    button.setIcon(symbol_icon("folder", color=THEME.text_faint, size=11))
+    button.setEnabled(False)
+    button.setToolTip(f"The gateway does not report this folder ({field}).")
+    return button
+
+
 # --------------------------------------------------------- automation tab
 
 
@@ -746,12 +760,8 @@ class AutomationTabRow(QFrame):
         if isinstance(root, str) and root:
             self.folder = folder_button(root, parent=self)
         else:
-            # The automations list does not carry the folder yet: say so.
-            self.folder = QPushButton("folder", self)
-            self.folder.setObjectName("rowFolder")
-            self.folder.setIcon(symbol_icon("folder", color=THEME.text_faint, size=11))
-            self.folder.setEnabled(False)
-            self.folder.setToolTip("The gateway does not report this automation's folder (AutomationSummary.workspace_root).")
+            # The automations list does not carry the folder: say so.
+            self.folder = missing_folder_button("AutomationSummary.workspace_root", parent=self)
         bar.addWidget(self.folder, 0)
         self.controls_host = QWidget(self)
         self.controls_host.setLayout(bar)
