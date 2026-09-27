@@ -182,6 +182,7 @@ def _build_qss() -> str:
         font-weight: 600;
     }}
     QLabel#rowMetric[tone="warn"] {{ color: {THEME.attention}; }}
+    QLabel#rowMetric[tone="danger"] {{ color: {THEME.danger_text}; }}
     QLabel#rowMetric[tone="accent"] {{ color: {THEME.accent_text}; }}
     QLabel#rowMetricIcon {{ background: transparent; border: none; }}
     QLabel#rowBadge {{
@@ -273,13 +274,13 @@ def _build_qss() -> str:
         background: {alpha(THEME.accent, 0.14)};
         border-color: {THEME.accent_border};
     }}
-    QPushButton#rowFolder, QPushButton#rowIcon {{
+    QPushButton#rowFolder, QPushButton#rowIcon, QPushButton#rowState {{
         background: transparent;
         border: 1px solid transparent;
         border-radius: 6px;
         padding: 0px;
     }}
-    QPushButton#rowFolder:hover, QPushButton#rowIcon:hover {{
+    QPushButton#rowFolder:hover, QPushButton#rowIcon:hover, QPushButton#rowState:hover {{
         background: {THEME.overlay_hover};
         border-color: {THEME.border_subtle};
     }}
@@ -328,7 +329,7 @@ def _metric(icon: str, text: str, tooltip: str, tone: str = "") -> QWidget:
     row = QHBoxLayout(host)
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(3)
-    color = {"warn": THEME.attention, "accent": THEME.accent_text}.get(tone, THEME.text_muted)
+    color = {"warn": THEME.attention, "accent": THEME.accent_text, "danger": THEME.danger_text}.get(tone, THEME.text_muted)
     if icon:
         glyph = QLabel()
         glyph.setObjectName("rowMetricIcon")
@@ -716,14 +717,16 @@ def _compact_every(every: str) -> str:
 
 
 class AutomationTabRow(RowCard):
-    """One automation: the SAME card as a session row (``RowCard``), with an
-    automation's content — title + status pill (+ "N new"); a metric line
-    (schedule · mode · last … ago · next in …); one elided result line; an
-    icon toolbar chosen by state (``core.automations.automation_controls``)."""
+    """One automation: the SAME card as a session row, clean and simple.
 
-    open_requested = pyqtSignal(str, str)  # automation_id, "top" | "latest"
-    edit_requested = pyqtSignal(str)
-    control_requested = pyqtSignal(str, str)  # automation_id, pause|resume|run_now|stop_current|archive
+    Line 1: title … the time since the last run ("40 min ago"), plus a state
+    chip only when it waits for you or failed. Line 2: the last result. Line 3
+    (metric chips): "every 5 min" · "next in 2 min" · "#32" · folder icon, and
+    at the far right ONE state button (pause / resume). Clicking the card opens
+    the automation view, where the other controls live."""
+
+    open_requested = pyqtSignal(str, str)  # automation_id, "latest"
+    control_requested = pyqtSignal(str, str)  # automation_id, pause|resume
     focus_requested = pyqtSignal(object)
 
     def __init__(self, summary: Dict[str, Any], *, parent: Optional[QWidget] = None) -> None:
@@ -731,11 +734,11 @@ class AutomationTabRow(RowCard):
         self.summary = dict(summary)
         self.automation_id = str(summary.get("automation_id") or "")
         aid = self.automation_id
-        pill_text, pill_tone = status_pill(summary)
-        self.set_spine_tone(_PILL_SPINE.get(pill_tone, "normal"))
+        _pill_text, tone = status_pill(summary)
+        self.set_spine_tone(_PILL_SPINE.get(tone, "normal"))
         column = self.column
 
-        # -- line 1: title, status pill, new count (the session title line) ----
+        # -- line 1: title … state chip · last run time ------------------------
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
         head.setSpacing(6)
@@ -743,174 +746,109 @@ class AutomationTabRow(RowCard):
         self.title_label.setObjectName("rowTitle")
         self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         head.addWidget(self.title_label, 1)
-        self.pill = QLabel(pill_text.upper(), self)
-        self.pill.setObjectName("rowBadge")
-        self.pill.setProperty("tone", pill_tone)
-        head.addWidget(self.pill, 0, Qt.AlignVCenter)
-        attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
-        unseen = int(attention.get("unseen_count") or 0)
-        self.new_badge = QLabel(f"{unseen} NEW", self)
-        self.new_badge.setObjectName("rowBadge")
-        self.new_badge.setProperty("tone", "new")
-        self.new_badge.setVisible(unseen > 0)
-        head.addWidget(self.new_badge, 0, Qt.AlignVCenter)
+        self.state_chip: Optional[QWidget] = None
+        if tone == "waiting":
+            self.state_chip = _metric("hand", "waiting for you", "A run is waiting for your answer.", tone="warn")
+        elif tone == "failed" or (summary.get("last_occurrence") or {}).get("status") == "failed":
+            self.state_chip = _metric("circle-alert", "failed", "The last run failed.", tone="danger")
+        if self.state_chip is not None:
+            head.addWidget(self.state_chip, 0, Qt.AlignVCenter)
+        self.time_label = QLabel("", self)
+        self.time_label.setObjectName("rowTime")
+        head.addWidget(self.time_label, 0, Qt.AlignVCenter)
         column.addLayout(head)
 
         # -- line 2: the last result (the session preview line) ---------------
         last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), dict) else None
-        result, failed = self._result_text(summary, last)
-        self._result_text_full = result
-        self.result_label = QLabel(result, self)
+        self._result_text_full = self._result_text(summary, last)
+        self.result_label = QLabel(self._result_text_full, self)
         self.result_label.setObjectName("rowPreview")
-        self.result_label.setProperty("tone", "failed" if failed else "")
         self.result_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.result_label.setToolTip(result)
+        self.result_label.setToolTip(self._result_text_full)
         column.addWidget(self.result_label)
 
-        # -- line 3: metrics with icons (the session metric line) -------------
+        # -- line 3: metric chips … the one state button -----------------------
         self.metrics_host = QWidget(self)
         metrics = QHBoxLayout(self.metrics_host)
         metrics.setContentsMargins(0, 1, 0, 0)
-        metrics.setSpacing(8)
+        metrics.setSpacing(10)
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), dict) else {}
         self._schedule = trigger_summary(trigger)
-        self._mode = "growing" if summary.get("context_mode") == "growing" else "independent"
         every = (trigger.get("config") or {}).get("every") if trigger.get("source_id") == "schedule" else None
         short = _compact_every(every) if isinstance(every, str) else self._schedule
-        self._schedule_chip = _metric("clock", short, f"Schedule: {self._schedule}")
-        self._mode_chip = _metric(
-            "list-tree",
-            self._mode,
-            "Growing: each run sees the previous runs" if self._mode == "growing" else "Independent: each run starts fresh",
-        )
-        metrics.addWidget(self._schedule_chip, 0, Qt.AlignVCenter)
-        metrics.addWidget(self._mode_chip, 0, Qt.AlignVCenter)
-        self._last_chip = _metric("circle-check", "", "Last run")
+        metrics.addWidget(_metric("clock", short, f"Schedule: {self._schedule}"), 0, Qt.AlignVCenter)
         self._next_chip = _metric("chevron-right", "", "Next run")
-        metrics.addWidget(self._last_chip, 0, Qt.AlignVCenter)
         metrics.addWidget(self._next_chip, 0, Qt.AlignVCenter)
-        metrics.addStretch(1)
-        self.metrics_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        column.addWidget(self.metrics_host)
-
-        # -- line 4: the icon toolbar, right-aligned --------------------------
-        bar = QHBoxLayout()
-        bar.setContentsMargins(0, 0, 0, 0)
-        bar.setSpacing(2)
-        bar.addStretch(1)
-        controls = automation_controls(summary)
-        self.buttons: Dict[str, QPushButton] = {}
-
-        def add(key: str, icon: str, tooltip: str, state, slot) -> None:
-            enabled, reason = state
-            button = _icon_button(
-                icon,
-                tooltip if enabled else f"{tooltip} — {reason}",
-                parent=self,
-                tint=THEME.text_secondary if enabled else THEME.text_faint,
-            )
-            button.setEnabled(bool(enabled))
-            button.clicked.connect(slot)
-            bar.addWidget(button, 0, Qt.AlignVCenter)
-            self.buttons[key] = button
-
-        always = (True, "")
-        add("open", "eye", "Open", always, lambda: self.open_requested.emit(aid, "top"))
-        if last is not None:
-            add("last", "arrow-down-to-line", "Last run", always, lambda: self.open_requested.emit(aid, "latest"))
-        if summary.get("status") == "paused":
-            add("resume", "play", "Resume", controls["resume"], lambda: self.control_requested.emit(aid, "resume"))
-        else:
-            add("pause", "pause", "Pause", controls["pause"], lambda: self.control_requested.emit(aid, "pause"))
-        add("run_now", "zap", "Run now", controls["run_now"], lambda: self.control_requested.emit(aid, "run_now"))
-        if occurrence_in_progress(summary):
-            add("stop_current", "stop", "Stop the current run", controls["stop_current"], lambda: self.control_requested.emit(aid, "stop_current"))
-        add("revise", "square-pen", "Modify", controls["revise"], lambda: self.edit_requested.emit(aid))
-        add("archive", "archive", "Archive", controls["archive"], self.ask_archive)
+        count = int(summary.get("occurrence_count") or 0)
+        metrics.addWidget(_metric("message-square", f"#{count}", f"{count} run(s)"), 0, Qt.AlignVCenter)
         root = summary.get("workspace_root")
         if isinstance(root, str) and root:
             self.folder = folder_button(root, parent=self)
         else:
             self.folder = missing_folder_button("AutomationSummary.workspace_root", parent=self)
-        bar.addWidget(self.folder, 0, Qt.AlignVCenter)
-        self.controls_host = QWidget(self)
-        self.controls_host.setLayout(bar)
-        self.controls_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        column.addWidget(self.controls_host)
-
-        # -- archive confirmation, inside the row (never a modal) ------------
-        self.confirm_host = QWidget(self)
-        confirm = QHBoxLayout(self.confirm_host)
-        confirm.setContentsMargins(0, 2, 0, 2)
-        confirm.setSpacing(8)
-        message = QLabel("Archive? History is kept; nothing runs any more.", self.confirm_host)
-        message.setObjectName("rowConfirm")
-        message.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        confirm.addWidget(message, 1)
-        self.archive_yes = QPushButton("Archive", self.confirm_host)
-        self.archive_yes.setObjectName("rowConfirmYes")
-        self.archive_yes.clicked.connect(self._confirm_archive)
-        confirm.addWidget(self.archive_yes, 0)
-        no = QPushButton("Cancel", self.confirm_host)
-        no.setObjectName("rowConfirmNo")
-        no.clicked.connect(self.cancel_archive)
-        confirm.addWidget(no, 0)
-        self.confirm_host.hide()
-        column.addWidget(self.confirm_host)
+        metrics.addWidget(self.folder, 0, Qt.AlignVCenter)
+        metrics.addStretch(1)
+        self.state_button = self._state_button(summary)
+        metrics.addWidget(self.state_button, 0, Qt.AlignVCenter)
+        self.metrics_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        column.addWidget(self.metrics_host)
 
         self.refresh_times()
         self.setToolTip(f"{summary.get('title') or ''}\nAutomation id: {aid}")
 
+    def _state_button(self, summary: Dict[str, Any]) -> QPushButton:
+        """▶ when paused (resume), ⏸ when active (pause), a running variant
+        while an occurrence runs (pause). The card's only control."""
+        controls = automation_controls(summary)
+        if summary.get("status") == "paused":
+            control, icon, tip = "resume", "play", "Paused — click to resume"
+        elif occurrence_in_progress(summary):
+            control, icon, tip = "pause", "loader", "Running — click to pause"
+        else:
+            control, icon, tip = "pause", "pause", "Active — click to pause"
+        enabled, reason = controls[control]
+        button = _icon_button(
+            icon,
+            tip if enabled else f"{tip.split(' — ')[0]} — {reason}",
+            parent=self,
+            tint=THEME.text_secondary if enabled else THEME.text_faint,
+        )
+        button.setObjectName("rowState")
+        button.setEnabled(bool(enabled))
+        button.state_control = control
+        button.clicked.connect(lambda: self.control_requested.emit(self.automation_id, control))
+        return button
+
     # ------------------------------------------------------------- content
 
     @staticmethod
-    def _result_text(summary: Dict[str, Any], last: Optional[Dict[str, Any]]) -> tuple:
+    def _result_text(summary: Dict[str, Any], last: Optional[Dict[str, Any]]) -> str:
         if last is None:
-            return "No run yet.", False
-        status = str(last.get("status") or "")
+            return "No run yet."
         text = " ".join(str(last.get("excerpt") or "").split())
-        if not text and status == "waiting":
+        if not text and last.get("status") == "waiting":
             attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
             waits = [w for w in attention.get("waits") or [] if isinstance(w, dict) and w.get("prompt")]
-            text = f"waiting for you: {' '.join(str(waits[0]['prompt']).split())}" if waits else "waiting for you"
-        head = f"#{last.get('index')} {status}"
-        return (f"{head}: {text}" if text else head), status == "failed"
+            text = " ".join(str(waits[0]["prompt"]).split()) if waits else ""
+        return text or f"Run #{last.get('index')} {last.get('status') or ''}".strip()
 
     @staticmethod
     def _chip_label(chip: QWidget) -> QLabel:
         return next(w for w in chip.findChildren(QLabel) if w.objectName() == "rowMetric")
 
     def refresh_times(self, now=None) -> None:
-        """"last … ago" / "next in …", relative to ``now`` (again on every poll)."""
-        last = last_run_text(self.summary, now=now)
-        nxt = next_run_text(self.summary, now=now)
-        # The chips drop the words their icons say ("last", "next").
-        self._chip_label(self._last_chip).setText(last[len("last "):] if last.startswith("last ") else last)
-        self._chip_label(self._next_chip).setText(nxt[len("next "):] if nxt.startswith("next ") else nxt.replace("next: ", ""))
-        self._meta_text = " · ".join((self._schedule, self._mode, last, nxt))
+        """Last and next run times, relative to ``now`` (again on every poll)."""
+        last = last_run_text(self.summary, now=now)  # "last 40 min ago" / "last —"
+        nxt = next_run_text(self.summary, now=now)  # "next in 2 min" / "next —" / "next: now"
+        self.time_label.setText(last[len("last "):])
+        self.time_label.setToolTip(f"Last run: {last[len('last '):]}")
+        self._chip_label(self._next_chip).setText(nxt.replace("next: ", "next "))
+        self._meta_text = " · ".join((self._schedule, last, nxt))
         self.metrics_host.setToolTip(self._meta_text)
 
     @property
     def meta_text(self) -> str:
         return self._meta_text
-
-    # ------------------------------------------------------------- archive
-
-    def ask_archive(self) -> None:
-        self.controls_host.hide()
-        self.confirm_host.show()
-
-    def cancel_archive(self) -> None:
-        self.confirm_host.hide()
-        self.controls_host.show()
-
-    @property
-    def confirming_archive(self) -> bool:
-        return self.confirm_host.isVisibleTo(self)
-
-    def _confirm_archive(self) -> None:
-        self.cancel_archive()
-        self.control_requested.emit(self.automation_id, "archive")
 
     # ----------------------------------------------------------- behaviour
 
@@ -922,9 +860,7 @@ class AutomationTabRow(RowCard):
         needle = " ".join(str(query or "").lower().split())
         if not needle:
             return True
-        hay = " ".join(
-            str(x or "").lower() for x in (self.summary.get("title"), self._meta_text, self._result_text_full)
-        )
+        hay = " ".join(str(x or "").lower() for x in (self.summary.get("title"), self._meta_text, self._result_text_full))
         return all(word in hay for word in needle.split())
 
     def elide_labels(self, width: int) -> None:
@@ -933,21 +869,15 @@ class AutomationTabRow(RowCard):
             metrics.elidedText(str(self.summary.get("title") or ""), Qt.ElideRight, max(60, int(width) - 170))
         )
         result_metrics = QFontMetrics(self.result_label.font())
-        self.result_label.setText(result_metrics.elidedText(self._result_text_full, Qt.ElideRight, max(60, int(width) - 40)))
-        # The metric chips never clip: the mode chip (the least needed; it is in
-        # the tooltip) makes room first.
-        room = max(60, int(width) - 30)
-        chips = (self._schedule_chip, self._mode_chip, self._last_chip, self._next_chip)
-        needed = sum(c.sizeHint().width() for c in chips) + 8 * (len(chips) - 1)
-        self._mode_chip.setVisible(needed <= room)
+        self.result_label.setText(result_metrics.elidedText(self._result_text_full, Qt.ElideRight, max(60, int(width) - 60)))
 
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt API)
         self.focus_requested.emit(self)
         super().enterEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        if event.button() == Qt.LeftButton and not self.confirming_archive:
-            self.open_requested.emit(self.automation_id, "top")
+        if event.button() == Qt.LeftButton:
+            self.open_requested.emit(self.automation_id, "latest")
             return
         super().mouseReleaseEvent(event)
 
@@ -972,7 +902,6 @@ class SessionSwitcher(QDialog):
     automation_chosen = pyqtSignal(str)
     # (automation_id, "top" | "latest")
     automation_open_requested = pyqtSignal(str, str)
-    automation_edit_requested = pyqtSignal(str)
     automation_control_requested = pyqtSignal(str, str)
     new_automation_requested = pyqtSignal()
 
@@ -1299,7 +1228,6 @@ class SessionSwitcher(QDialog):
                 continue
             row = AutomationTabRow(summary, parent=self.auto_host)
             row.open_requested.connect(self._on_automation_open)
-            row.edit_requested.connect(self._on_automation_edit)
             row.control_requested.connect(self.automation_control_requested.emit)
             row.focus_requested.connect(self._on_row_hovered)
             self.auto_layout.addWidget(row)
@@ -1490,10 +1418,6 @@ class SessionSwitcher(QDialog):
         self.automation_open_requested.emit(str(automation_id), str(where))
         self.close()
 
-    def _on_automation_edit(self, automation_id: str) -> None:
-        self.automation_edit_requested.emit(str(automation_id))
-        self.close()
-
     def _on_new_chat(self) -> None:
         self.new_chat_requested.emit()
         self.close()
@@ -1565,11 +1489,6 @@ class SessionSwitcher(QDialog):
         key = event.key()
         modifiers = event.modifiers()
         if key == Qt.Key_Escape:
-            row = self._row_at(self._selected_index)
-            if isinstance(row, AutomationTabRow) and row.confirming_archive:
-                row.cancel_archive()
-                event.accept()
-                return
             self.close()
             event.accept()
             return
@@ -1590,7 +1509,7 @@ class SessionSwitcher(QDialog):
             else:
                 automation_id = self.selected_automation_id
                 if automation_id:
-                    self._on_automation_open(automation_id, "top")
+                    self._on_automation_open(automation_id, "latest")
             event.accept()
             return
         if key == Qt.Key_N and modifiers & Qt.ControlModifier:

@@ -619,11 +619,11 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     _APP.processEvents()
     rows = switcher.automation_rows
     assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, LEGACY]
-    assert (rows[0].pill.text(), rows[0].new_badge.text()) == ("WAITING FOR YOU", "2 NEW")
-    assert rows[0].meta_text.startswith("every 30 minutes (UTC) · growing · last ")
-    assert rows[2].pill.text() == "PAUSED" and rows[2].meta_text.endswith("next —")
+    assert rows[0].state_chip is not None and rows[1].state_chip is None
+    assert rows[0].meta_text.startswith("every 30 minutes (UTC) · last ")
+    assert rows[2].state_button.state_control == "resume" and rows[2].meta_text.endswith("next —")
     # The real gateway sends an empty excerpt while waiting: the question shows.
-    assert "waiting for you: The landlord asks" in rows[0].result_label.toolTip()
+    assert rows[0].result_label.toolTip().startswith("The landlord asks")
     assert switcher.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
@@ -1485,8 +1485,19 @@ def test_switcher_inline_controls_edit_and_tab_go_through_the_palette(palette, s
     sent = stub.calls("POST", f"{AUTOMATIONS_PATH}/{NEWS}/commands")[-1]["body"]
     assert sent["type"] == "automation.pause"
     assert window._automations.summary(NEWS)["status"] == "paused"
-    window._edit_automation(JOURNAL)
-    assert window.automation_view.isVisibleTo(window) and window.automation_view.edit_box.isVisibleTo(window.automation_view)
+    # The card's one button, clicked in the real switcher: resume goes to the gateway.
+    from abstractassistant.ui.session_switcher import SessionSwitcher
+
+    switcher = SessionSwitcher()
+    switcher.automation_control_requested.connect(window._on_switcher_automation_control)
+    window._apply_automations_to_switcher(switcher)
+    switcher.set_tab("automations")
+    card = next(r for r in switcher.automation_tab_rows if r.automation_id == NEWS)
+    assert card.state_button.state_control == "resume"
+    card.state_button.click()
+    assert stub.calls("POST", f"{AUTOMATIONS_PATH}/{NEWS}/commands")[-1]["body"]["type"] == "automation.resume"
+    assert window._automations.summary(NEWS)["status"] == "active"
+    switcher.deleteLater()
     window._on_switcher_tab_changed("automations")
     assert controller.switcher_tab() == "automations"
 

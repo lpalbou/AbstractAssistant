@@ -6548,7 +6548,6 @@ class AssistantPalette(QMainWindow):
             switcher.rename_requested.connect(self._rename_session)
             switcher.automation_chosen.connect(self._open_automation)
             switcher.automation_open_requested.connect(self._open_automation)
-            switcher.automation_edit_requested.connect(self._edit_automation)
             switcher.automation_control_requested.connect(self._on_switcher_automation_control)
             switcher.load_more_requested.connect(self._load_more_sessions)
             switcher.tab_changed.connect(self._on_switcher_tab_changed)
@@ -6659,14 +6658,6 @@ class AssistantPalette(QMainWindow):
             self._controller.set_switcher_tab(str(tab))
         except Exception as exc:
             self._set_banner(f"Could not remember the switcher tab: {exc}", tone="warn", key="session")
-
-    def _edit_automation(self, automation_id: str) -> None:
-        """"Edit schedule…" in the switcher: the automation view with its edit form open."""
-        self._open_automation(automation_id, where="top")
-        if self._state("_automation_view_id") == str(automation_id):
-            button = self.automation_view.control_buttons["revise"]
-            if button.isEnabled():
-                button.click()
 
     def _on_switcher_automation_control(self, automation_id: str, control: str) -> None:
         """An inline control of the Automations tab (pause / resume / run now /

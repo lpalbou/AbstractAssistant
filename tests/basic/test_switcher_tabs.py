@@ -86,69 +86,13 @@ def test_tabs_switch_by_keyboard_and_the_last_one_is_remembered(tmp_path: Path) 
 
 
 @pytest.mark.basic
-def test_archived_automations_are_hidden_until_asked_for() -> None:
-    summaries = _summaries()
-    archived = dict(_by_id(NEWS), automation_id="00000000-0000-4000-8000-00000000a1c4", title="Old monitor",
-                    status="archived", capabilities=["discuss"])
-    sw = _switcher(summaries + [archived])
-    sw.set_tab("automations")
-    ids = lambda: [r.automation_id for r in sw.automation_tab_rows]  # noqa: E731
-    assert archived["automation_id"] not in ids()
-    sw.show_archived.click()
-    assert archived["automation_id"] in ids()
-    row = next(r for r in sw.automation_tab_rows if r.automation_id == archived["automation_id"])
-    assert not any(b.isEnabled() for k, b in row.buttons.items() if k not in ("open", "last"))
-    assert row.buttons["pause"].toolTip() == "Pause — Archived: history is kept, nothing runs."
-    sw.deleteLater()
-
-
-@pytest.mark.basic
-def test_inline_controls_follow_the_automations_state() -> None:
-    sw = _switcher()
-    sw.set_tab("automations")
-    rows = {r.automation_id: r for r in sw.automation_tab_rows}
-    active, paused, running = rows[NEWS], rows[JOURNAL], rows[TRIAGE]
-    # Active: Pause (not Resume), Run now, no Stop (nothing running).
-    assert "pause" in active.buttons and "resume" not in active.buttons and "stop_current" not in active.buttons
-    assert active.buttons["pause"].isEnabled() and active.buttons["run_now"].isEnabled()
-    # Paused: Resume instead of Pause; Run now stays enabled (it does not resume).
-    assert "resume" in paused.buttons and "pause" not in paused.buttons
-    assert paused.buttons["resume"].isEnabled() and paused.buttons["run_now"].isEnabled()
-    # Running (waiting occurrence): Stop shown; Run now disabled with the reason.
-    assert running.buttons["stop_current"].isEnabled()
-    assert not running.buttons["run_now"].isEnabled()
-    assert running.buttons["run_now"].toolTip() == "Run now — An occurrence is in progress."
-    # Clicks become requests.
-    got: List[tuple] = []
-    sw.automation_control_requested.connect(lambda a, c: got.append((a, c)))
-    opened: List[tuple] = []
-    sw.automation_open_requested.connect(lambda a, w: opened.append((a, w)))
-    edits: List[str] = []
-    sw.automation_edit_requested.connect(edits.append)
-    active.buttons["pause"].click()
-    paused.buttons["resume"].click()
-    running.buttons["stop_current"].click()
-    assert got == [(NEWS, "pause"), (JOURNAL, "resume"), (TRIAGE, "stop_current")]
-    active.buttons["archive"].click()  # asks first, inside the row
-    assert active.confirm_host.isVisibleTo(active) and got[-1] != (NEWS, "archive")
-    active.archive_yes.click()
-    assert got[-1] == (NEWS, "archive")
-    sw.show()
-    sw.set_tab("automations")
-    active.buttons["last"].click()
-    active.buttons["revise"].click()
-    assert (NEWS, "latest") in opened and edits == [NEWS]
-    sw.deleteLater()
-
-
-@pytest.mark.basic
 def test_enter_opens_the_selected_automation() -> None:
     sw = _switcher()
     sw.set_tab("automations")
     opened: List[tuple] = []
     sw.automation_open_requested.connect(lambda a, w: opened.append((a, w)))
     _key(sw, Qt.Key_Return)
-    assert opened == [(sw.automation_tab_rows[0].automation_id, "top")]
+    assert opened == [(sw.automation_tab_rows[0].automation_id, "latest")]
     sw.deleteLater()
 
 
@@ -250,28 +194,11 @@ def test_status_pills_per_state() -> None:
     assert status_pill(dict(news, status="failed")) == ("failed", "failed")
     sw = _switcher()
     sw.set_tab("automations")
-    tones = {r.automation_id: r.pill.property("tone") for r in sw.automation_tab_rows}
-    assert tones[NEWS] == "active" and tones[JOURNAL] == "paused" and tones[TRIAGE] == "waiting"
-    sw.deleteLater()
-
-
-@pytest.mark.basic
-def test_the_toolbar_is_icons_with_tooltips_by_state() -> None:
-    sw = _switcher()
-    sw.set_tab("automations")
     rows = {r.automation_id: r for r in sw.automation_tab_rows}
-    for row in rows.values():
-        for key, button in list(row.buttons.items()) + [("folder", row.folder)]:
-            assert button.text() == "" and not button.icon().isNull(), key
-            assert button.toolTip(), key
-    assert rows[NEWS].buttons["revise"].toolTip() == "Modify"
-    assert list(rows[NEWS].buttons) == ["open", "last", "pause", "run_now", "revise", "archive"]
-    assert list(rows[JOURNAL].buttons) == ["open", "last", "resume", "run_now", "revise", "archive"]
-    assert list(rows[TRIAGE].buttons) == ["open", "last", "pause", "run_now", "stop_current", "revise", "archive"]
-    # Failed last result reads red.
-    failed = dict(_by_id(NEWS), last_occurrence=dict(_by_id(NEWS)["last_occurrence"], status="failed"))
-    sw.set_automations([failed], available=True)
-    assert sw.automation_tab_rows[0].result_label.property("tone") == "failed"
+    # A state chip only when waiting for you (or failed); none otherwise.
+    assert rows[NEWS].state_chip is None and rows[JOURNAL].state_chip is None
+    chip = [w.text() for w in rows[TRIAGE].state_chip.findChildren(type(rows[TRIAGE].title_label)) if w.text()]
+    assert chip == ["waiting for you"]
     sw.deleteLater()
 
 
@@ -378,7 +305,7 @@ def test_a_session_row_and_an_automation_row_are_the_same_card() -> None:
     assert issubclass(SessionRow, RowCard) and issubclass(AutomationTabRow, RowCard)
     assert session.objectName() == automation.objectName() == "sessionRow"
     assert session.spine.objectName() == automation.spine.objectName() == "rowSpine"
-    assert automation.title_label.objectName() == "rowTitle" and automation.pill.objectName() == "rowBadge"
+    assert automation.title_label.objectName() == "rowTitle" and automation.time_label.objectName() == "rowTime"
     assert automation.result_label.objectName() == "rowPreview"
     qss = sw.styleSheet()
     assert qss.count("QFrame#sessionRow {") == 1 and "autoTabRow" not in qss
@@ -403,3 +330,68 @@ def test_a_workspace_folder_never_shows_its_name(tmp_path: Path) -> None:
         assert folder_buttons and folder_buttons[0].text() == ""
         assert folder_buttons[0].toolTip() == f"Open workspace folder\n{folder}"
     sw.deleteLater()
+
+
+
+@pytest.mark.basic
+def test_archived_automations_are_hidden_until_asked_for() -> None:
+    summaries = _summaries()
+    archived = dict(_by_id(NEWS), automation_id="00000000-0000-4000-8000-00000000a1c4", title="Old monitor",
+                    status="archived", capabilities=["discuss"])
+    sw = _switcher(summaries + [archived])
+    sw.set_tab("automations")
+    ids = lambda: [r.automation_id for r in sw.automation_tab_rows]  # noqa: E731
+    assert archived["automation_id"] not in ids()
+    sw.show_archived.click()
+    assert archived["automation_id"] in ids()
+    row = next(r for r in sw.automation_tab_rows if r.automation_id == archived["automation_id"])
+    assert not row.state_button.isEnabled()
+    assert row.state_button.toolTip().endswith("Archived: history is kept, nothing runs.")
+    sw.deleteLater()
+
+
+@pytest.mark.basic
+def test_the_card_has_exactly_one_button_the_state_toggle() -> None:
+    """Operator: the same card as a session; its ONLY control is the state
+    button (paused ▶ resume, active ⏸ pause, running ⏸ pause). Clicking the
+    card opens the automation; no Open / Last / Run now / Modify / Archive."""
+    from PyQt5.QtWidgets import QPushButton
+
+    sw = _switcher()
+    sw.set_tab("automations")
+    rows = {r.automation_id: r for r in sw.automation_tab_rows}
+    for row in rows.values():
+        buttons = [b for b in row.findChildren(QPushButton) if b.objectName() != "rowFolder"]
+        assert buttons == [row.state_button], [b.toolTip() for b in buttons]
+        tips = " ".join(b.toolTip() for b in row.findChildren(QPushButton)).lower()
+        for gone in ("open", "last run", "run now", "modify", "archive"):
+            assert gone not in tips.replace("open workspace", ""), (gone, tips)
+    assert (rows[NEWS].state_button.state_control, rows[NEWS].state_button.toolTip()) == ("pause", "Active — click to pause")
+    assert (rows[JOURNAL].state_button.state_control, rows[JOURNAL].state_button.toolTip()) == ("resume", "Paused — click to resume")
+    assert (rows[TRIAGE].state_button.state_control, rows[TRIAGE].state_button.toolTip()) == ("pause", "Running — click to pause")
+    got: List[tuple] = []
+    sw.automation_control_requested.connect(lambda a, c: got.append((a, c)))
+    rows[NEWS].state_button.click()
+    rows[JOURNAL].state_button.click()
+    assert got == [(NEWS, "pause"), (JOURNAL, "resume")]
+    sw.deleteLater()
+
+
+@pytest.mark.basic
+def test_the_card_lines_last_time_result_and_metrics() -> None:
+    from datetime import datetime, timezone
+
+    from PyQt5.QtWidgets import QLabel
+
+    news = _by_id(NEWS)
+    row = switcher_module.AutomationTabRow(news)
+    now = datetime(2026, 9, 27, 0, 42, 30, tzinfo=timezone.utc)  # 40 min after the last run finished
+    row.refresh_times(now=now)
+    assert row.time_label.text() == "40 min ago"
+    assert row.result_label.toolTip() == "No major announcements since the last check."
+    chips = [w.text() for w in row.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"]
+    assert chips == ["every 8 h", "next in 7 h 17 min", "#6"]
+    paused = switcher_module.AutomationTabRow(_by_id(JOURNAL))
+    assert [w.text() for w in paused.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"][1] == "next —"
+    row.deleteLater()
+    paused.deleteLater()

@@ -33,22 +33,17 @@ remembered). The **Automations** tab lists every automation, whichever app creat
 Assistant, AbstractObserver or another client); archived ones are hidden until you turn on **Show
 archived** in the tab's header, and **+ New automation** creates one (below). Each row shows:
 
-- the title and a coloured status pill: **active** (green), **paused** (amber), **running** (blue),
-  **waiting for you** (highlighted), **failed** (red), archived or completed (grey); `2 new` when
-  unseen results or failures wait for you;
-- the cadence, the context mode and the last and next runs as times, for example
-  `every 5 minutes (UTC) · growing · last 3 min ago · next in 2 min` (`1 h 06 min` style beyond an
-  hour; `next —` when paused or not scheduled); the times follow each refresh;
-- the last result on one line (`#12 completed: …`, or `waiting for you: <question>`), red when the
-  run failed.
+- the title, and on the right when it last ran (`40 min ago`, `1 h 06 min ago`) — with
+  "✋ waiting for you" when a run waits for your answer, or a red "failed" when the last run failed;
+- the last result, on one line;
+- the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
+  runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
+  folder and it is on this Mac), and at the far right the card's one button: ⏸ pauses an active
+  automation (a spinner shows while a run is in progress; clicking it pauses too), ▶ resumes a
+  paused one.
 
-Under it, a toolbar of icons (each named in its tooltip) chosen by the automation's state:
-**Open**, **Last run** (opens it scrolled to its latest run), **Pause** or **Resume**, **Run now**
-(also while paused), **Stop the current run** (only while a run is in progress), **Modify** (opens
-the automation with its edit form), **Archive** (asks for confirmation in the row) and the
-automation's **folder** — it opens in the file manager when the gateway reports it and it is on
-this Mac. A control that does not apply is dimmed, with the reason in its tooltip; the rules are the
-same as in the automation view. Enter opens the selected automation.
+The card looks like a session card. Click it (or press Enter) to open the automation, where
+**Run now**, **Stop**, **Edit**, **Archive** and **Discuss** live. The times follow each refresh.
 
 The tab's label counts what needs you (`Automations · 3 new`: unseen items plus waiting runs).
 Typing in the switcher filters automations by title, cadence and last result, like chats. When
