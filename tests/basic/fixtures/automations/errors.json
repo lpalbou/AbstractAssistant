@@ -1,119 +1,355 @@
 {
   "items": [
     {
+      "name": "unauthorized",
+      "request": {
+        "method": "GET",
+        "path": "/api/gateway/automations",
+        "body": null
+      },
       "status": 401,
       "body": {
         "detail": {
           "reason_code": "unauthorized",
-          "message": "Sign in to the gateway."
+          "message": "Unauthorized"
         }
       }
     },
     {
+      "name": "forbidden (contract F; not captured — the capture ran with user auth off)",
+      "request": {
+        "method": "GET",
+        "path": "/api/gateway/automations",
+        "body": null
+      },
       "status": 403,
       "body": {
         "detail": {
           "reason_code": "forbidden",
-          "message": "This token cannot manage automations."
+          "message": "Forbidden"
         }
       }
     },
     {
+      "name": "automation_not_found",
+      "request": {
+        "method": "GET",
+        "path": "/api/gateway/automations/00000000-0000-4000-8000-000000000000",
+        "body": null
+      },
       "status": 404,
       "body": {
         "detail": {
           "reason_code": "automation_not_found",
-          "message": "Automation not found."
+          "message": "Automation 00000000-0000-4000-8000-000000000000 does not exist."
         }
       }
     },
     {
+      "name": "occurrence_not_found",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/0ec12dbb-afef-5aac-89e5-d13edeb5423c/discuss",
+        "body": {
+          "request_id": "cap-d",
+          "occurrence_index": 999,
+          "prompt": "x"
+        }
+      },
       "status": 404,
       "body": {
         "detail": {
           "reason_code": "occurrence_not_found",
-          "message": "Automation has no occurrence 12.",
+          "message": "Automation 0ec12dbb-afef-5aac-89e5-d13edeb5423c has no occurrence 999.",
           "field": "occurrence_index"
         }
       }
     },
     {
+      "name": "revision_conflict",
+      "request": {
+        "method": "PATCH",
+        "path": "/api/gateway/automations/0ec12dbb-afef-5aac-89e5-d13edeb5423c",
+        "body": {
+          "command_id": "cap-stale",
+          "expected_revision": 9,
+          "changes": {
+            "title": "x"
+          }
+        }
+      },
       "status": 409,
       "body": {
         "detail": {
           "reason_code": "revision_conflict",
-          "message": "Automation is at revision 4, not 3.",
+          "message": "Automation is at revision 2, not 9.",
           "field": "expected_revision",
-          "command_id": "cmd-0a1b-revise"
+          "command_id": "cap-stale"
         }
       }
     },
     {
+      "name": "automation_busy",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/5e7bb2a6-844e-5a71-88d7-286c80c16838/commands",
+        "body": {
+          "command_id": "cap-busy-2",
+          "type": "automation.run_now"
+        }
+      },
       "status": 409,
       "body": {
         "detail": {
           "reason_code": "automation_busy",
-          "message": "An occurrence is already running or queued.",
-          "command_id": "cmd-0a1b-run-now"
+          "message": "An occurrence is already running or waiting to run.",
+          "command_id": "cap-busy-2"
         }
       }
     },
     {
+      "name": "invalid_state",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/74d5a91d-5dbe-51f9-a198-a749b67fd316/commands",
+        "body": {
+          "command_id": "cap-archived",
+          "type": "automation.resume"
+        }
+      },
       "status": 409,
       "body": {
         "detail": {
           "reason_code": "invalid_state",
-          "message": "Automation is archived.",
-          "command_id": "cmd-0a1b-resume"
+          "message": "Automation is archived; only archive is possible.",
+          "command_id": "cap-archived"
         }
       }
     },
     {
+      "name": "resume_payload_mismatch_tool_approval",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/commands",
+        "body": {
+          "command_id": "cap-mismatch",
+          "run_id": "196d79a8-905e-5d3d-b2f7-48c6b5f616a7",
+          "type": "resume",
+          "payload": {
+            "wait_key": "tool_approval:196d79a8-905e-5d3d-b2f7-48c6b5f616a7:tools:ef103da74042b71410abb3869587ec31",
+            "payload": {
+              "response": "approve"
+            }
+          }
+        }
+      },
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_request",
+          "message": "this run waits for tool_approval; answer with payload.payload = {approved: true|false}",
+          "field": "payload"
+        }
+      }
+    },
+    {
+      "name": "resume_payload_mismatch_ask_user",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/commands",
+        "body": {
+          "command_id": "cap-mismatch-2",
+          "run_id": "2610d9e8-4120-58ae-afa3-c560f3751c3b",
+          "type": "resume",
+          "payload": {
+            "wait_key": "user:2610d9e8-4120-58ae-afa3-c560f3751c3b:ask",
+            "payload": {
+              "approved": true
+            }
+          }
+        }
+      },
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_request",
+          "message": "this run waits for ask_user; answer with payload.payload = {response}",
+          "field": "payload"
+        }
+      }
+    },
+    {
+      "name": "forbidden_probe_run_command_on_automation_root",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/commands",
+        "body": {
+          "command_id": "cap-root",
+          "run_id": "0ec12dbb-afef-5aac-89e5-d13edeb5423c",
+          "type": "pause",
+          "payload": {}
+        }
+      },
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_state",
+          "message": "'pause' does not apply to an automation; use the automation.* commands (e.g. automation.pause, automation.archive)"
+        }
+      }
+    },
+    {
+      "name": "identity_conflict",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations",
+        "body": {
+          "request_id": "cap-busy",
+          "title": "Different body",
+          "target": {
+            "bundle_ref": "acceptance-automations@1.0.0",
+            "flow_id": "echo"
+          },
+          "trigger": {
+            "source_id": "manual",
+            "source_version": 1,
+            "config": {}
+          }
+        }
+      },
       "status": 409,
       "body": {
         "detail": {
           "reason_code": "identity_conflict",
-          "message": "request_id was already used with a different request.",
+          "message": "request_id 'cap-busy' was already used for a different automation request",
           "field": "request_id"
         }
       }
     },
     {
+      "name": "invalid_request",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations",
+        "body": null
+      },
       "status": 422,
       "body": {
         "detail": {
           "reason_code": "invalid_request",
-          "message": "Request body is not valid JSON."
+          "message": "The request body is not valid JSON."
         }
       }
     },
     {
+      "name": "invalid_request_unknown_field",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations",
+        "body": {
+          "request_id": "cap-x",
+          "title": "x",
+          "surprise": 1
+        }
+      },
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_request",
+          "message": "target: Field required",
+          "field": "target"
+        }
+      }
+    },
+    {
+      "name": "invalid_definition",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations",
+        "body": {
+          "request_id": "cap-def",
+          "title": "x",
+          "target": {
+            "bundle_ref": "acceptance-automations@1.0.0",
+            "flow_id": "echo"
+          },
+          "trigger": {
+            "source_id": "schedule",
+            "source_version": 1,
+            "config": {
+              "every": "1.5h"
+            }
+          }
+        }
+      },
       "status": 422,
       "body": {
         "detail": {
           "reason_code": "invalid_definition",
-          "message": "every must match ^[1-9][0-9]*[smhd]$.",
+          "message": "config.every must match ^[1-9][0-9]*[smhd]$ (whole seconds, minutes, hours or days), got '1.5h'",
           "field": "trigger.config.every"
         }
       }
     },
     {
+      "name": "unsupported_feature",
+      "request": {
+        "method": "GET",
+        "path": "/api/gateway/automations?changed_since=2026-01-01T00:00:00Z",
+        "body": null
+      },
       "status": 422,
       "body": {
         "detail": {
           "reason_code": "unsupported_feature",
-          "message": "changed_since is not supported in v1.",
+          "message": "changed_since is not supported in automations v1: there is no correct aggregate change cursor across a controller and its occurrences yet; poll complete pages",
           "field": "changed_since"
         }
       }
     },
     {
+      "name": "unknown_trigger_source",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations",
+        "body": {
+          "request_id": "cap-src",
+          "title": "x",
+          "target": {
+            "bundle_ref": "acceptance-automations@1.0.0",
+            "flow_id": "echo"
+          },
+          "trigger": {
+            "source_id": "cron",
+            "source_version": 1,
+            "config": {}
+          }
+        }
+      },
       "status": 422,
       "body": {
         "detail": {
           "reason_code": "unknown_trigger_source",
-          "message": "No trigger source cron@1.",
+          "message": "unknown trigger source 'cron'@1",
           "field": "trigger.source_id"
+        }
+      }
+    },
+    {
+      "name": "seen_beyond_latest",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/5de6e985-91d5-5b59-8a5c-8d848aaab45c/seen",
+        "body": {
+          "attention_cursor": "att1:999"
+        }
+      },
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason_code": "invalid_request",
+          "message": "attention_cursor att1:999 is beyond the automation's latest attention item (att1:2).",
+          "field": "attention_cursor"
         }
       }
     }

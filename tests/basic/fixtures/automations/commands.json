@@ -6,16 +6,16 @@
         "method": "PATCH",
         "path": "/api/gateway/automations/fddce731-4abf-54d3-81b9-15856efbfd7a",
         "body": {
-          "command_id": "cmd-0a1b-revise",
+          "command_id": "1f86d513-9156-4264-a277-e098a8f1fc02",
           "expected_revision": 1,
           "changes": {
             "trigger": {
               "source_id": "schedule",
               "source_version": 1,
               "config": {
-                "start_at": "2026-09-25T08:00:00Z",
-                "every": "6h",
-                "anchor": "2026-09-25T08:00:00Z"
+                "start_at": "2026-09-25T08:00:00.108652+00:00",
+                "anchor": "2026-09-25T08:00:00.108652+00:00",
+                "every": "6h"
               }
             }
           }
@@ -23,10 +23,10 @@
       },
       "status": 200,
       "response": {
-        "command_id": "cmd-0a1b-revise",
+        "command_id": "1f86d513-9156-4264-a277-e098a8f1fc02",
         "accepted": true,
         "duplicate": false,
-        "seq": 41
+        "seq": 4
       }
     },
     {
@@ -35,52 +35,52 @@
         "method": "POST",
         "path": "/api/gateway/automations/fddce731-4abf-54d3-81b9-15856efbfd7a/commands",
         "body": {
-          "command_id": "cmd-0a1b-pause",
+          "command_id": "a3e6f56b-c8d9-44e9-ae9b-8a175ee0bad1",
           "type": "automation.pause"
         }
       },
       "status": 200,
       "response": {
-        "command_id": "cmd-0a1b-pause",
+        "command_id": "a3e6f56b-c8d9-44e9-ae9b-8a175ee0bad1",
         "accepted": true,
         "duplicate": false,
-        "seq": 42
+        "seq": 1
       }
     },
     {
-      "name": "pause (repeat)",
+      "name": "pause (repeat, same command_id)",
       "request": {
         "method": "POST",
         "path": "/api/gateway/automations/fddce731-4abf-54d3-81b9-15856efbfd7a/commands",
         "body": {
-          "command_id": "cmd-0a1b-pause",
+          "command_id": "a3e6f56b-c8d9-44e9-ae9b-8a175ee0bad1",
           "type": "automation.pause"
         }
       },
       "status": 200,
       "response": {
-        "command_id": "cmd-0a1b-pause",
-        "accepted": true,
+        "command_id": "a3e6f56b-c8d9-44e9-ae9b-8a175ee0bad1",
+        "accepted": false,
         "duplicate": true,
-        "seq": 42
+        "seq": 1
       }
     },
     {
-      "name": "run_now",
+      "name": "run_now while paused",
       "request": {
         "method": "POST",
         "path": "/api/gateway/automations/69892c76-5362-5646-a528-b9f982c8d993/commands",
         "body": {
-          "command_id": "cmd-0a1b-run-now",
+          "command_id": "8d290364-a7f8-4790-9760-409c7034c1a8",
           "type": "automation.run_now"
         }
       },
       "status": 200,
       "response": {
-        "command_id": "cmd-0a1b-run-now",
+        "command_id": "8d290364-a7f8-4790-9760-409c7034c1a8",
         "accepted": true,
         "duplicate": false,
-        "seq": 43
+        "seq": 2
       }
     },
     {
@@ -89,16 +89,16 @@
         "method": "POST",
         "path": "/api/gateway/automations/69892c76-5362-5646-a528-b9f982c8d993/commands",
         "body": {
-          "command_id": "cmd-0a1b-resume",
+          "command_id": "8c6ddbbf-8535-4e6a-a799-10bb0415ea74",
           "type": "automation.resume"
         }
       },
       "status": 200,
       "response": {
-        "command_id": "cmd-0a1b-resume",
+        "command_id": "8c6ddbbf-8535-4e6a-a799-10bb0415ea74",
         "accepted": true,
         "duplicate": false,
-        "seq": 44
+        "seq": 3
       }
     },
     {
@@ -107,16 +107,16 @@
         "method": "POST",
         "path": "/api/gateway/automations/53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e/commands",
         "body": {
-          "command_id": "cmd-0a1b-stop",
+          "command_id": "0b7d2e91-3c4f-4a6b-9e2d-5f8a1c7b3e40",
           "type": "automation.stop_current"
         }
       },
       "status": 200,
       "response": {
-        "command_id": "cmd-0a1b-stop",
+        "command_id": "0b7d2e91-3c4f-4a6b-9e2d-5f8a1c7b3e40",
         "accepted": true,
         "duplicate": false,
-        "seq": 45
+        "seq": 5
       }
     },
     {
@@ -125,16 +125,98 @@
         "method": "POST",
         "path": "/api/gateway/automations/69892c76-5362-5646-a528-b9f982c8d993/commands",
         "body": {
-          "command_id": "cmd-0a1b-archive",
+          "command_id": "e4a1c9d2-7b3f-4e8a-a6c5-2d9f0b1e7c38",
           "type": "automation.archive"
         }
       },
       "status": 200,
       "response": {
-        "command_id": "cmd-0a1b-archive",
+        "command_id": "e4a1c9d2-7b3f-4e8a-a6c5-2d9f0b1e7c38",
         "accepted": true,
         "duplicate": false,
-        "seq": 46
+        "seq": 6
+      }
+    },
+    {
+      "name": "seen",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e/seen",
+        "body": {
+          "attention_cursor": "att1:2"
+        }
+      },
+      "status": 200,
+      "response": {
+        "attention_cursor": "att1:2"
+      }
+    },
+    {
+      "name": "discuss",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/automations/53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e/discuss",
+        "body": {
+          "request_id": "38d02117-24d3-4277-8309-684992fc255e",
+          "occurrence_index": 2,
+          "prompt": "Draft the reply to Clara."
+        }
+      },
+      "status": 200,
+      "response": {
+        "session_id": "discussion-session:eed8eec8-4938-5a9c-a982-fbe282eb50ac",
+        "run_id": "eed8eec8-4938-5a9c-a982-fbe282eb50ac",
+        "session_kind": "discussion"
+      }
+    },
+    {
+      "name": "answer ask_user wait",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/commands",
+        "body": {
+          "command_id": "92c4992f-df41-4819-bcf1-4519e4d51701",
+          "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
+          "type": "resume",
+          "payload": {
+            "wait_key": "user:ade23773-2d37-5460-973c-08d35f7af010:ask",
+            "payload": {
+              "response": "Reply: Tuesday works"
+            }
+          },
+          "client_id": "web_pwa"
+        }
+      },
+      "status": 200,
+      "response": {
+        "accepted": true,
+        "duplicate": false,
+        "seq": 7
+      }
+    },
+    {
+      "name": "answer tool_approval wait",
+      "request": {
+        "method": "POST",
+        "path": "/api/gateway/commands",
+        "body": {
+          "command_id": "1c809acf-a6a2-4aa7-b0ae-3aa3a529f639",
+          "run_id": "791d1c3c-ba36-5d75-b2d2-f7fd29a804ee",
+          "type": "resume",
+          "payload": {
+            "wait_key": "tool_approval:791d1c3c-ba36-5d75-b2d2-f7fd29a804ee:tools:3f0a9c1d7e4b2a6f8c5d0e9b1a7f3c2d",
+            "payload": {
+              "approved": true
+            }
+          },
+          "client_id": "web_pwa"
+        }
+      },
+      "status": 200,
+      "response": {
+        "accepted": true,
+        "duplicate": false,
+        "seq": 8
       }
     }
   ]

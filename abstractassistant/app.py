@@ -5899,6 +5899,8 @@ class AssistantPalette(QMainWindow):
         schedule.clicked.connect(self._open_schedule_sheet)
         header_actions.addWidget(schedule)
         self.schedule_button = schedule
+        # Shown once a poll confirms the gateway offers automations.
+        schedule.hide()
 
         self.auto_speak = QPushButton()
         self.auto_speak.setObjectName("topIconToggleButton")
@@ -6436,6 +6438,9 @@ class AssistantPalette(QMainWindow):
             except RuntimeError:
                 self._session_switcher = None
         unread = hub.unread
+        button = self._state("schedule_button")
+        if button is not None:
+            button.setVisible(hub.available is True)
         action = self._state("_automations_menu_action")
         if action is not None:
             try:
@@ -6471,6 +6476,14 @@ class AssistantPalette(QMainWindow):
         self.chat_status_label.hide()
         self.composer_card.hide()
         view.show()
+        if summary.get("legacy"):
+            # A schedule from before automations: the gateway serves no
+            # definition or occurrences for it (GET /automations/{id} → 404).
+            view.set_notice(
+                "This is an older scheduled run, kept with its own controls. Manage it from the Observer, "
+                "or recreate it as an automation."
+            )
+            return
 
         def loaded(ok: bool, value: Any) -> None:
             if self._state("_automation_view_id") != aid:
@@ -6516,8 +6529,13 @@ class AssistantPalette(QMainWindow):
                 return
             view.set_error("")
             receipt = value if isinstance(value, dict) else {}
-            duplicate = " (already received)" if receipt.get("duplicate") else ""
-            view.set_notice(f"{success_notice}{duplicate}" if receipt.get("accepted", True) else "The gateway did not accept the request.")
+            if receipt.get("duplicate"):
+                # The same command id was already queued: the first one stands.
+                view.set_notice(f"{success_notice} (already received)")
+            elif receipt.get("accepted") is True:
+                view.set_notice(success_notice)
+            else:
+                view.set_error("The gateway did not accept the request.")
             self._reload_open_automation()
 
         return done
@@ -6629,6 +6647,10 @@ class AssistantPalette(QMainWindow):
         """"Schedule this conversation…": the conversation's workflow and its
         last prompt prefill the sheet (the workflow is resolved off the GUI
         thread; the catalog may need a round trip)."""
+        if self._automations.available is not True:
+            # No automation route before a poll confirmed the gateway offers them.
+            self._set_banner("This gateway does not offer automations.", tone="info", key="automation")
+            return
         controller = self._controller
         prompt = controller.last_user_prompt()
 

@@ -1,55 +1,6 @@
 {
   "items": [
     {
-      "automation_id": "fddce731-4abf-54d3-81b9-15856efbfd7a",
-      "title": "AI news monitor",
-      "status": "active",
-      "trigger": {
-        "binding_id": "6bc5f0d4-3a5d-597f-8e5a-9c06d4561e0c",
-        "source_id": "schedule",
-        "source_version": 1,
-        "config": {
-          "start_at": "2026-09-25T08:00:00Z",
-          "every": "8h",
-          "anchor": "2026-09-25T08:00:00Z"
-        }
-      },
-      "context_mode": "independent",
-      "next_fire_at": "2026-09-27T08:00:00Z",
-      "occurrence_count": 6,
-      "last_occurrence": {
-        "run_id": "cadb53cd-8124-5aa8-84c8-49c521d5c25e",
-        "index": 6,
-        "status": "completed",
-        "attempts": 1,
-        "fired_at": "2026-09-27T00:00:00Z",
-        "finished_at": "2026-09-27T00:02:19Z",
-        "excerpt": "No major announcements since the last check.",
-        "notify": null
-      },
-      "attention": {
-        "pending_waits": 0,
-        "unread": false,
-        "unseen_count": 0,
-        "cursor": "att1:3",
-        "items": [],
-        "waits": []
-      },
-      "legacy": false,
-      "revision": 1,
-      "updated_at": "2026-09-27T00:02:19Z",
-      "capabilities": [
-        "revise",
-        "pause",
-        "resume",
-        "run_now",
-        "stop_current",
-        "archive",
-        "discuss"
-      ],
-      "session_kind": "automation"
-    },
-    {
       "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
       "title": "Inbox triage",
       "status": "active",
@@ -58,23 +9,14 @@
         "source_id": "schedule",
         "source_version": 1,
         "config": {
-          "start_at": "2026-09-27T04:00:00Z",
-          "every": "30m",
-          "anchor": "2026-09-27T04:00:00Z"
+          "start_at": "2026-09-27T04:00:00.412307+00:00",
+          "anchor": "2026-09-27T04:00:00.412307+00:00",
+          "every": "30m"
         }
       },
       "context_mode": "growing",
-      "next_fire_at": "2026-09-27T07:00:00Z",
+      "next_fire_at": "2026-09-27T07:00:00.412307+00:00",
       "occurrence_count": 7,
-      "last_occurrence": {
-        "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
-        "index": 7,
-        "status": "waiting",
-        "attempts": 1,
-        "fired_at": "2026-09-27T06:30:00Z",
-        "excerpt": "Waiting for you: a question about the landlord's boiler inspection and 1 tool call to approve.",
-        "notify": null
-      },
       "attention": {
         "pending_waits": 2,
         "unread": true,
@@ -86,7 +28,7 @@
             "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
             "run_id": "66d53ae1-24ec-5d8b-b4a6-fbf2656e8849",
             "index": 2,
-            "at": "2026-09-27T04:31:12Z",
+            "at": "2026-09-27T04:31:12.930311+00:00",
             "title": "2 urgent emails",
             "body": "Accountant needs the signed tax form by noon; building manager asks to confirm access tomorrow 9:00.",
             "cursor": "att1:1"
@@ -96,26 +38,30 @@
             "automation_id": "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e",
             "run_id": "5f7b076a-c40b-5fa2-820c-0665a603ed1e",
             "index": 5,
-            "at": "2026-09-27T05:33:05Z",
-            "title": "Inbox triage failed after 3 attempts",
-            "body": "Mail provider timed out (IMAP read timeout after 60 s).",
+            "at": "2026-09-27T05:33:06.074400+00:00",
+            "title": "Inbox triage failed",
+            "body": "IMAP read timed out after 60 s (imap.example.com:993)",
             "cursor": "att1:2"
           }
         ],
         "waits": [
           {
             "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
-            "wait_key": "ask_user:reply-landlord",
-            "index": 7,
+            "wait_key": "user:ade23773-2d37-5460-973c-08d35f7af010:ask",
             "kind": "ask_user",
-            "prompt": "The landlord asks whether Tuesday works for the boiler inspection. Reply now?"
+            "reason": "user",
+            "prompt": "The landlord asks whether Tuesday works for the boiler inspection. Reply now?",
+            "choices": [
+              "Reply: Tuesday works",
+              "Leave it for later"
+            ],
+            "index": 7
           },
           {
-            "run_id": "35935671-bfc8-54ff-9b5b-d22f925adc45",
-            "wait_key": "tool_approval:call_7f3a",
-            "index": 7,
+            "run_id": "791d1c3c-ba36-5d75-b2d2-f7fd29a804ee",
+            "wait_key": "tool_approval:791d1c3c-ba36-5d75-b2d2-f7fd29a804ee:tools:3f0a9c1d7e4b2a6f8c5d0e9b1a7f3c2d",
             "kind": "tool_approval",
-            "prompt": "Approve 1 tool call?",
+            "reason": "user",
             "details": [
               {
                 "name": "send_email",
@@ -124,15 +70,16 @@
                   "subject": "Signed tax form",
                   "body": "Hi Clara, the signed form is attached. Best regards."
                 },
-                "call_id": "call_7f3a"
+                "call_id": "rtcall_3f0a9c1d7e4b2a6f8c5d0e9b1a7f3c2d_1"
               }
-            ]
+            ],
+            "index": 7
           }
         ]
       },
       "legacy": false,
       "revision": 1,
-      "updated_at": "2026-09-27T06:30:04Z",
+      "updated_at": "2026-09-27T06:30:04.530612+00:00",
       "capabilities": [
         "revise",
         "pause",
@@ -142,7 +89,65 @@
         "archive",
         "discuss"
       ],
-      "session_kind": "automation"
+      "session_kind": "automation",
+      "last_occurrence": {
+        "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
+        "index": 7,
+        "status": "waiting",
+        "attempts": 1,
+        "fired_at": "2026-09-27T06:30:00.412307+00:00",
+        "excerpt": "",
+        "notify": null
+      }
+    },
+    {
+      "automation_id": "fddce731-4abf-54d3-81b9-15856efbfd7a",
+      "title": "AI news monitor",
+      "status": "active",
+      "trigger": {
+        "binding_id": "6bc5f0d4-3a5d-597f-8e5a-9c06d4561e0c",
+        "source_id": "schedule",
+        "source_version": 1,
+        "config": {
+          "start_at": "2026-09-25T08:00:00.108652+00:00",
+          "anchor": "2026-09-25T08:00:00.108652+00:00",
+          "every": "8h"
+        }
+      },
+      "context_mode": "independent",
+      "next_fire_at": "2026-09-27T08:00:00.108652+00:00",
+      "occurrence_count": 6,
+      "attention": {
+        "pending_waits": 0,
+        "unread": false,
+        "unseen_count": 0,
+        "cursor": "att1:3",
+        "items": [],
+        "waits": []
+      },
+      "legacy": false,
+      "revision": 1,
+      "updated_at": "2026-09-27T00:02:19.510869+00:00",
+      "capabilities": [
+        "revise",
+        "pause",
+        "resume",
+        "run_now",
+        "stop_current",
+        "archive",
+        "discuss"
+      ],
+      "session_kind": "automation",
+      "last_occurrence": {
+        "run_id": "cadb53cd-8124-5aa8-84c8-49c521d5c25e",
+        "index": 6,
+        "status": "completed",
+        "attempts": 1,
+        "fired_at": "2026-09-27T00:00:00.108652+00:00",
+        "excerpt": "No major announcements since the last check.",
+        "notify": null,
+        "finished_at": "2026-09-27T00:02:19.510869+00:00"
+      }
     },
     {
       "automation_id": "69892c76-5362-5646-a528-b9f982c8d993",
@@ -153,27 +158,14 @@
         "source_id": "schedule",
         "source_version": 1,
         "config": {
-          "start_at": "2026-09-06T07:00:00Z",
+          "start_at": "2026-09-06T07:00:00.551930+00:00",
+          "anchor": "2026-09-06T07:00:00.551930+00:00",
           "every": "7d",
-          "anchor": "2026-09-06T07:00:00Z",
           "count": 12
         }
       },
       "context_mode": "independent",
       "occurrence_count": 3,
-      "last_occurrence": {
-        "run_id": "056b4f2c-9d81-5404-a63f-433a044d5abc",
-        "index": 3,
-        "status": "completed",
-        "attempts": 1,
-        "fired_at": "2026-09-20T07:00:00Z",
-        "finished_at": "2026-09-20T07:04:51Z",
-        "excerpt": "Three new papers on sparse attention; summaries in the workspace.",
-        "notify": {
-          "title": "3 new papers",
-          "body": "Three new sparse-attention papers this week."
-        }
-      },
       "attention": {
         "pending_waits": 0,
         "unread": false,
@@ -184,7 +176,7 @@
       },
       "legacy": false,
       "revision": 2,
-      "updated_at": "2026-09-22T18:40:10Z",
+      "updated_at": "2026-09-22T18:40:10.337160+00:00",
       "capabilities": [
         "revise",
         "pause",
@@ -194,7 +186,61 @@
         "archive",
         "discuss"
       ],
-      "session_kind": "automation"
+      "session_kind": "automation",
+      "last_occurrence": {
+        "run_id": "056b4f2c-9d81-5404-a63f-433a044d5abc",
+        "index": 3,
+        "status": "completed",
+        "attempts": 1,
+        "fired_at": "2026-09-20T07:00:00.551930+00:00",
+        "excerpt": "Three new papers on sparse attention; summaries in the workspace.",
+        "notify": {
+          "title": "3 new papers",
+          "body": "Three new sparse-attention papers this week."
+        },
+        "finished_at": "2026-09-20T07:04:51.576308+00:00"
+      }
+    },
+    {
+      "automation_id": "6e02471f-51ab-499f-a882-2249078e30d0",
+      "title": "echo",
+      "status": "active",
+      "trigger": {
+        "binding_id": "6e02471f-51ab-499f-a882-2249078e30d0",
+        "source_id": "schedule",
+        "source_version": 1,
+        "config": {
+          "every": "1h"
+        }
+      },
+      "context_mode": "growing",
+      "occurrence_count": 2,
+      "attention": {
+        "pending_waits": 0,
+        "unread": false,
+        "unseen_count": 0,
+        "cursor": "att1:0",
+        "items": [],
+        "waits": []
+      },
+      "legacy": true,
+      "revision": null,
+      "updated_at": "2026-09-27T10:15:12.341264+00:00",
+      "capabilities": [
+        "legacy"
+      ],
+      "session_kind": "automation",
+      "next_fire_at": "2026-09-27T11:15:12.340488+00:00",
+      "last_occurrence": {
+        "run_id": "7af5a440-b8cc-493f-8475-4e2fe13f0e3a",
+        "index": 2,
+        "status": "completed",
+        "attempts": 1,
+        "fired_at": "2026-09-27T10:15:12.331230+00:00",
+        "excerpt": "ECHO[0] Legacy hourly digest || ",
+        "notify": null,
+        "finished_at": "2026-09-27T10:15:12.337112+00:00"
+      }
     }
   ],
   "next_cursor": null

@@ -64,6 +64,11 @@ FIXTURE_FILES = (
 NEWS = "fddce731-4abf-54d3-81b9-15856efbfd7a"
 TRIAGE = "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e"
 JOURNAL = "69892c76-5362-5646-a528-b9f982c8d993"
+LEGACY = "6e02471f-51ab-499f-a882-2249078e30d0"
+
+
+def _summary_fixture(aid: str) -> Dict[str, Any]:
+    return copy.deepcopy(next(s for s in _fixture("list.json")["items"] if s["automation_id"] == aid))
 
 
 def _fixture(name: str) -> Any:
@@ -332,16 +337,16 @@ def test_client_sends_the_exact_paths_and_bodies_of_contract_f(stub) -> None:
     commands = {c["name"]: c for c in _fixture("commands.json")["items"]}
 
     page = client.list()
-    assert [s["automation_id"] for s in page["items"]] == [NEWS, TRIAGE, JOURNAL]
+    assert [s["automation_id"] for s in page["items"]] == [TRIAGE, NEWS, JOURNAL, LEGACY]
     assert client.get(NEWS)["summary"]["title"] == "AI news monitor"
 
     revise = commands["revise"]["request"]
     receipt = client.revise(NEWS, changes=revise["body"]["changes"], expected_revision=1, command_id=revise["body"]["command_id"])
-    assert receipt["command_id"] == "cmd-0a1b-revise"
+    assert receipt["command_id"] == revise["body"]["command_id"]
     sent = stub.calls("PATCH")[-1]
     assert (sent["path"], sent["body"]) == (revise["path"], revise["body"])
 
-    for name in ("pause", "run_now", "resume", "archive"):
+    for name in ("pause", "run_now while paused", "resume", "archive"):
         request = commands[name]["request"]
         aid = request["path"].split("/")[4]
         client.command(aid, request["body"]["type"], command_id=request["body"]["command_id"])
@@ -434,19 +439,20 @@ def test_the_wait_answer_is_the_existing_resume_command(stub) -> None:
 def test_the_section_groups_by_automation_id_never_by_session() -> None:
     items = _fixture("list.json")["items"]
     # The same automation twice (a second page repeating it) is still ONE row.
-    grouped = group_by_automation(items + [dict(items[1], title="Inbox triage (renamed)")])
-    assert [s["automation_id"] for s in grouped] == [NEWS, TRIAGE, JOURNAL]
-    assert grouped[1]["title"] == "Inbox triage (renamed)"
+    grouped = group_by_automation(items + [dict(items[0], title="Inbox triage (renamed)")])
+    assert [s["automation_id"] for s in grouped] == [TRIAGE, NEWS, JOURNAL, LEGACY]
+    assert grouped[0]["title"] == "Inbox triage (renamed)"
     assert [trigger_summary(s["trigger"]) for s in items] == [
-        "every 8 hours (UTC)",
         "every 30 minutes (UTC)",
+        "every 8 hours (UTC)",
         "every 7 days (UTC) · 12 runs max",
+        "every hour (UTC)",
     ]
 
 
 @pytest.mark.basic
 def test_controls_follow_status_and_run_now_stays_enabled_while_paused() -> None:
-    news, triage, journal = _fixture("list.json")["items"]
+    news, triage, journal, legacy_row = (_summary_fixture(a) for a in (NEWS, TRIAGE, JOURNAL, LEGACY))
     paused = automation_controls(journal)
     assert paused["run_now"][0] is True, "run now must stay enabled while paused"
     assert paused["pause"][0] is False and paused["resume"][0] is True
@@ -457,8 +463,10 @@ def test_controls_follow_status_and_run_now_stays_enabled_while_paused() -> None
     assert busy["run_now"][0] is False and busy["stop_current"][0] is True
     archived = automation_controls(dict(news, status="archived"))
     assert not any(enabled for enabled, _ in archived.values())
-    legacy = automation_controls(dict(news, legacy=True, capabilities=["legacy"]))
+    legacy = automation_controls(legacy_row)  # the real legacy row: capabilities ["legacy"]
     assert not any(enabled for enabled, _ in legacy.values())
+    # Archived rows only offer discuss (capabilities per status).
+    assert automation_controls(dict(news, status="archived", capabilities=["discuss"]))["discuss"][0] is False
     assert automation_controls(dict(news, capabilities=["pause"]))["discuss"][0] is False
     assert not any(enabled for enabled, _ in automation_controls(news, busy=True).values())
 
@@ -545,7 +553,7 @@ def test_notifications_fire_once_per_item_and_never_for_quiet_ticks(tmp_path) ->
     first = new_attention_notices(summaries, pages, ledger)
     assert [(n.kind, n.title) for n in first] == [
         ("notify", "2 urgent emails"),
-        ("failure", "Inbox triage failed after 3 attempts"),
+        ("failure", "Inbox triage failed"),
         ("wait", "Inbox triage is waiting for you"),
         ("wait", "Inbox triage needs your approval"),
     ]
@@ -555,18 +563,19 @@ def test_notifications_fire_once_per_item_and_never_for_quiet_ticks(tmp_path) ->
     assert new_attention_notices(summaries, pages, NotificationLedger(tmp_path / "notified.json")) == []
     # A quiet tick (completed, notify null, no attention item) never notifies,
     # even when it is new; the news monitor's last run is exactly that.
-    quiet = dict(summaries[0], last_occurrence=dict(summaries[0]["last_occurrence"], index=7, run_id="new-quiet"))
+    news = _summary_fixture(NEWS)
+    quiet = dict(news, last_occurrence=dict(news["last_occurrence"], index=7, run_id="new-quiet"))
     assert new_attention_notices([quiet], {}, NotificationLedger()) == []
 
 
 @pytest.mark.basic
 def test_seen_acknowledges_the_last_displayed_item_not_the_latest_cursor() -> None:
-    triage = _fixture("list.json")["items"][1]
+    triage = _summary_fixture(TRIAGE)
     # More unseen items exist than the summary displays (<= 20): the latest
     # cursor is beyond the last displayed item and must stay unseen.
     beyond = dict(triage, attention=dict(triage["attention"], cursor="att1:9", unseen_count=9))
     assert rules.attention_ack_cursor(beyond) == "att1:2"
-    assert rules.attention_ack_cursor(_fixture("list.json")["items"][0]) is None
+    assert rules.attention_ack_cursor(_summary_fixture(NEWS)) is None
 
 
 # --------------------------------------------------------------------- Qt
@@ -603,11 +612,12 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     switcher.show()
     _APP.processEvents()
     rows = switcher.automation_rows
-    assert [r.automation_id for r in rows] == [NEWS, TRIAGE, JOURNAL]
-    assert rows[1].badge_text == "2 NEW · WAITING"
-    assert rows[1].cadence_label.text() == "every 30 minutes (UTC) · Active · growing"
+    assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, LEGACY]
+    assert rows[0].badge_text == "2 NEW · WAITING"
+    assert rows[0].cadence_label.text() == "every 30 minutes (UTC) · Active · growing"
     assert rows[2].next_label.text() == "paused"
-    assert "Waiting for you" in rows[1].excerpt_label.text()
+    # The real gateway sends an empty excerpt while waiting: the question shows.
+    assert "waiting for you: The landlord asks" in rows[0].excerpt_label.text()
     assert switcher._automation_label.text() == "AUTOMATIONS · 4 NEW"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
@@ -705,7 +715,7 @@ def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(pa
     window._poll_automations()
     assert [t for t, _ in window._notified] == [
         "2 urgent emails",
-        "Inbox triage failed after 3 attempts",
+        "Inbox triage failed",
         "Inbox triage is waiting for you",
         "Inbox triage needs your approval",
     ]
@@ -722,7 +732,7 @@ def test_palette_poll_notifies_once_and_opens_an_automation_with_its_controls(pa
     assert tones == ["quiet", "notified", "quiet", "quiet", "failed", "quiet", "waiting"]
     # The failed pair shows its failure reason and attempts.
     failed_texts = [w.text() for w in view.pairs[4].answer.findChildren(type(view.title_label))]
-    assert any("IMAP read timeout" in t and "3 attempts" in t for t in failed_texts)
+    assert any("IMAP read timed out" in t and "3 attempts" in t for t in failed_texts)
     # Viewing acknowledged the DISPLAYED items (the last one's cursor).
     assert stub.calls("POST", f"{AUTOMATIONS_PATH}/{TRIAGE}/seen")[-1]["body"] == {"attention_cursor": "att1:2"}
     # Busy (waiting occurrence): run now off, stop current on.
@@ -807,7 +817,7 @@ def test_edit_sends_only_the_changed_fields_with_the_expected_revision(palette, 
     assert sent["expected_revision"] == 1
     assert sent["changes"] == {
         "title": "AI news monitor (EU)",
-        "trigger": {"source_id": "schedule", "source_version": 1, "config": {"start_at": "2026-09-25T08:00:00Z", "every": "6h", "anchor": "2026-09-25T08:00:00Z"}},
+        "trigger": {"source_id": "schedule", "source_version": 1, "config": {"start_at": "2026-09-25T08:00:00.108652+00:00", "anchor": "2026-09-25T08:00:00.108652+00:00", "every": "6h"}},
     }
     view.control_buttons["revise"].click()
     view.edit_every.setText("6 hours")
@@ -838,6 +848,7 @@ def test_discuss_switches_to_the_returned_session(palette, stub) -> None:
 @pytest.mark.basic
 def test_schedule_this_conversation_prefills_and_creates(palette, stub) -> None:
     window, _controller = palette
+    window._poll_automations()
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     assert sheet.prompt_edit.toPlainText() == "Summarise today's AI news in five bullets."
@@ -863,6 +874,7 @@ def test_schedule_this_conversation_prefills_and_creates(palette, stub) -> None:
 
 
 def _schedule(window, *, prompt: str, preset: str, growing: bool = False) -> str:
+    window._poll_automations()  # the clock button acts only once automations are confirmed
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     sheet.prompt_edit.setPlainText(prompt)
@@ -905,7 +917,11 @@ def test_scenario_email_triage_wait_answered_from_the_palette(palette, stub) -> 
     choice.click()
     sent = stub.calls("POST", "/api/gateway/commands")[-1]["body"]
     assert sent["type"] == "resume" and sent["run_id"] == "ade23773-2d37-5460-973c-08d35f7af010"
-    assert sent["payload"] == {"wait_key": "ask_user:reply-landlord", "payload": {"response": "Reply: Tuesday works"}}
+    assert sent["payload"] == {"wait_key": "user:ade23773-2d37-5460-973c-08d35f7af010:ask", "payload": {"response": "Reply: Tuesday works"}}
+    # The same shape the real gateway accepted (commands.json).
+    captured = next(c["request"]["body"] for c in _fixture("commands.json")["items"] if c["name"] == "answer ask_user wait")
+    assert (captured["type"], captured["run_id"], captured["payload"]["wait_key"], set(captured["payload"]["payload"])) == (
+        sent["type"], sent["run_id"], sent["payload"]["wait_key"], {"response"})
     # The occurrence completed; the view reloaded it.
     done = next(p for p in window.automation_view.pairs if p.index == 7)
     assert done.answer.property("tone") != "waiting" and 'Replied: {"response": "Reply: Tuesday works"}' in done.answer_text.text()
@@ -951,7 +967,7 @@ def test_the_section_follows_the_capabilities_descriptor(palette, stub, descript
 
     switcher = SessionSwitcher()
     window._apply_automations_to_switcher(switcher)
-    assert (len(switcher.automation_rows) == 3) is shown
+    assert (len(switcher.automation_rows) == 4) is shown
     assert (switcher._automation_label is not None) is shown
     import abstractassistant.app as app_module
 
@@ -1002,7 +1018,7 @@ def test_a_waiting_row_without_an_excerpt_shows_the_question() -> None:
     _APP = _qt()
     from abstractassistant.ui.automations import AutomationRow
 
-    triage = copy.deepcopy(_fixture("list.json")["items"][1])
+    triage = _summary_fixture(TRIAGE)
     triage["last_occurrence"]["excerpt"] = ""  # what the gateway sends while an occurrence waits
     triage.pop("next_fire_at", None)
     row = AutomationRow(triage)
@@ -1046,8 +1062,8 @@ def test_a_tool_approval_wait_lists_its_calls_and_answers_approved(palette, stub
     assert entry["edit"] is None, "an approval is Approve / Deny, never free text"
     entry["approve"].click()
     sent = stub.calls("POST", "/api/gateway/commands")[-1]["body"]
-    assert sent["run_id"] == "35935671-bfc8-54ff-9b5b-d22f925adc45"
-    assert sent["payload"] == {"wait_key": "tool_approval:call_7f3a", "payload": {"approved": True}}
+    expected = next(c["request"]["body"] for c in _fixture("commands.json")["items"] if c["name"] == "answer tool_approval wait")
+    assert (sent["type"], sent["run_id"], sent["payload"]) == (expected["type"], expected["run_id"], expected["payload"])
 
 
 @pytest.mark.basic
@@ -1082,6 +1098,7 @@ def test_an_event_wait_answers_with_an_object_and_a_kindless_wait_cannot_be_answ
 @pytest.mark.basic
 def test_schedule_sheet_states_the_tool_consent_and_can_ask_each_time(palette, stub) -> None:
     window, _controller = palette
+    window._poll_automations()
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     assert sheet.tools_auto.isChecked()
@@ -1089,3 +1106,51 @@ def test_schedule_sheet_states_the_tool_consent_and_can_ask_each_time(palette, s
     sheet.tools_ask.setChecked(True)
     sheet.submit_button.click()
     assert stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]["policy"] == {"tool_approval": "ask"}
+
+
+@pytest.mark.basic
+def test_the_clock_button_acts_only_once_automations_are_confirmed(palette, stub) -> None:
+    window, _controller = palette
+    # Before any poll: hidden, and opening the sheet calls no automation route.
+    assert not window.schedule_button.isVisibleTo(window)
+    window._open_schedule_sheet()
+    assert window._schedule_sheet is None
+    assert not stub.calls(path_prefix="/api/gateway/automations") and not stub.calls(path_prefix="/api/gateway/trigger-sources")
+    # Not advertised: still hidden, still nothing called.
+    stub.capabilities["capabilities"]["contracts"]["common"].pop("automations")
+    window._poll_automations()
+    assert not window.schedule_button.isVisibleTo(window)
+    window._open_schedule_sheet()
+    assert window._schedule_sheet is None
+    assert not stub.calls(path_prefix="/api/gateway/automations") and not stub.calls(path_prefix="/api/gateway/trigger-sources")
+    # Advertised: shown and working.
+    stub.capabilities["capabilities"]["contracts"]["common"]["automations"] = {"available": True}
+    window._poll_automations()
+    assert window.schedule_button.isVisibleTo(window)
+    window._open_schedule_sheet()
+    assert window._schedule_sheet is not None
+
+
+@pytest.mark.basic
+def test_a_legacy_row_opens_read_only_without_calling_its_routes(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    before = len(stub.calls(path_prefix=f"{AUTOMATIONS_PATH}/{LEGACY}"))
+    window._open_automation(LEGACY)
+    view = window.automation_view
+    assert "older scheduled run" in view.notice_label.text()
+    assert not any(b.isEnabled() for b in view.control_buttons.values())
+    assert len(stub.calls(path_prefix=f"{AUTOMATIONS_PATH}/{LEGACY}")) == before
+
+
+@pytest.mark.basic
+def test_a_duplicate_receipt_reads_as_already_received(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(NEWS)
+    duplicate = next(c["response"] for c in _fixture("commands.json")["items"] if c["request"]["body"] and c["response"].get("duplicate"))
+    real = stub.route
+    stub.route = lambda m, p, q, b: (200, dict(duplicate, command_id=b["command_id"])) if p.endswith("/commands") and m == "POST" else real(m, p, q, b)  # type: ignore[assignment]
+    window.automation_view.control_buttons["pause"].click()
+    assert window.automation_view.notice_label.text().endswith("(already received)")
+    assert not window.automation_view.error_row.isVisibleTo(window.automation_view)
