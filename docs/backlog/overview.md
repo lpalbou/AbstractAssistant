@@ -7,7 +7,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 8
+- Planned: 9
 - Proposed: 5
 - Completed: 1
 - Deprecated: 0
@@ -17,7 +17,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 0. Follow-ups from the 0.5.0 UX pass (2026-09-05): stop publishing/promoting the managed workflow
    from the client (ship it as a gateway-side catalog package and only check presence); list chats
-   from the gateway session store instead of the local registry; add the per-answer "steps" chip
+   from the gateway session store instead of the local registry (now item 0853); add the per-answer "steps" chip
    that re-opens the live activity model after a run; add tray icon states for waiting and voice.
 
 1. Finish the remaining v2 runtime-replayer compliance gaps after the strict terminal replay pass:
@@ -36,6 +36,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [0853](planned/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Planned | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
 | [0852](planned/0852_automations_in_the_assistant.md) | Automations in the Assistant | Planned | Automations v1 mission A (root 0928): gateway-fed Automations section grouped by `automation_id`, tray "Automations…", "Schedule this conversation…", `changed_since` polling into tray notifications, occurrences as a chat, Discuss as a normal session, answering occurrence waits; regular list = `chat` + `discussion` by `session_kind`. Needs gateway API + abstractuic fixtures. Contracts pass 2026-09-27: see the item's section and root `untracked/design/automations-CONTRACTS.md`. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |
