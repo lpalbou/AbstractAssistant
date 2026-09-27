@@ -1,6 +1,6 @@
 # 0853 — Sessions are gateway-first: the local session index is a rebuildable cache, never a source of truth
 
-**Status**: planned · **Priority**: high · **Created**: 2026-09-27
+**Status**: completed (shipped in 0.7.0, 2026-09-27)
 **Package**: abstractassistant · **Found by**: operator, 2026-09-27 (uninstall with data purge,
 reinstall: the Assistant still listed old sessions, "but not fully")
 **Related**: 0852 (Automations in the Assistant — depends on this), 0006 (durable session

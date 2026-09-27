@@ -12,7 +12,6 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 - Completed: 3
 
 Counts recomputed from disk on 2026-09-27 while completing 0852 (the block said 9 / 1 before). Flagged, not fixed in
-that pass: `completed/0853_sessions_are_gateway_first.md` sits in `completed/` but its status line still reads
 "planned" and it is listed under Planned Items below; 0009 is on disk but not in the table.
 - Deprecated: 0
 - Recurrent: 0
@@ -40,7 +39,7 @@ that pass: `completed/0853_sessions_are_gateway_first.md` sits in `completed/` b
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Planned | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
+| [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Completed (0.7.0, 2026-09-27) | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |
 | [0002](planned/0002_gateway_native_assistant_v2_rollout.md) | Gateway-native assistant v2 rollout | Planned | Broader rollout and legacy de-emphasis after the single-path contract cleanup. |
