@@ -1162,25 +1162,21 @@ def test_occurrence_turns_render_through_the_chat_message_widget(palette, stub, 
     from abstractassistant.app import AutoSizingTextBrowser, MessageCard
 
     window, _controller = palette
-    answer = (
-        "## Apple\n\n| Ticker | Price |\n|---|---|\n| AAPL | **231.5** |\n\n"
-        "- up 2%\n- volume high\n\n```json\n{\"ticker\": \"AAPL\", \"price\": 231.5}\n```\n"
-    )
-    row = copy.deepcopy(next(r for r in _fixture("occurrences.json")["items"] if r["index"] == 6))
-    row["answer"] = answer
-    stub.occurrences[TRIAGE] = [row]
+    # Occurrence #2 of the canonical fixtures answers in real markdown:
+    # a heading, a pipe table and a fenced JSON block.
+    assert "|---|" in next(r for r in _fixture("occurrences.json")["items"] if r["index"] == 2)["answer"]
     window.resize(560, 760)
     window.show()
     window._poll_automations()
     window._open_automation(TRIAGE)
     _APP.processEvents()
-    pair = window.automation_view.pairs[0]
+    pair = next(p for p in window.automation_view.pairs if p.index == 2)
     assert type(pair.answer_text) is MessageCard and type(pair.trigger_text) is MessageCard
     browsers = pair.answer_text.findChildren(AutoSizingTextBrowser)
     shown = "\n".join(b.toPlainText() for b in browsers)
     html = "".join(b.toHtml() for b in browsers)
-    assert "Apple" in shown and "AAPL" in shown and "231.5" in shown and "volume high" in shown
-    for raw in ("|---|", "## ", "**231.5**", "```"):
+    assert "2 emails need a reply today" in shown and "Clara (accountant)" in shown and '"urgent": 2' in shown
+    for raw in ("|---|", "## ", "```", "| From |"):
         assert raw not in shown, f"raw markdown {raw!r} shown as text"
     assert "<table" in html
     image = window.grab()
