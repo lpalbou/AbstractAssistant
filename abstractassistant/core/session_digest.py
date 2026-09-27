@@ -1,10 +1,12 @@
-"""What a chat is worth knowing at a glance, computed from local files only.
+"""What a chat is worth knowing at a glance.
 
 The session switcher needs more than "date - first question": how recent the
 chat is, how much work it holds (turns, tool calls, tokens, wall time), where
-its files live, and whether the last turn actually got answered. All of that
-already sits on disk — the session index (`sessions.json`) plus each chat's
-`session.json` snapshot — so a digest is a local read, never a gateway call.
+its files live, and whether the last turn actually got answered. WHICH sessions
+exist, their turn counts, states and titles come from the gateway
+(`gateway_sessions`, cached by `session_cache`); the per-transcript metrics here
+are computed from each session's CACHED `session.json`, so a digest is a local
+read, never a gateway call.
 
 Transcripts can be megabytes, so reads are cached by (path, mtime, size).
 Measured on a real store — 74 chats, 9.8 MB — that is 42 ms cold and under 2 ms
@@ -89,6 +91,9 @@ class SessionDigest:
     last_role: str = ""
     last_message_at: str = ""
     attachments: int = 0
+    # gateway-derived: the liveliest run state of the session
+    # (waiting / running / failed / done / unknown), "" when not on the gateway
+    state: str = ""
 
     @property
     def total_tokens(self) -> int:

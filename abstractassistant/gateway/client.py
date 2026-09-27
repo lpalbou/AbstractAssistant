@@ -479,7 +479,7 @@ class GatewayClient:
             raise ValueError("get_run: run_id is required")
         return self._request_json(method="GET", url=self._url(f"/api/gateway/runs/{rid}"), label="get_run failed")
 
-    def get_run_input_data(self, *, run_id: str) -> Dict[str, Any]:
+    def get_run_input_data(self, *, run_id: str, timeout_s: Optional[float] = None) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("get_run_input_data: run_id is required")
@@ -487,6 +487,31 @@ class GatewayClient:
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/input_data"),
             label="get_run_input_data failed",
+            timeout_s=timeout_s,
+        )
+
+    @staticmethod
+    def session_listing_path(limit: int) -> str:
+        """The exact query the session list sends — PINNED by a test.
+
+        The same query AbstractCode's session board sends
+        (`abstractcode/tui/src/gateway/mod.rs` `session_listing_path`):
+        `root_only=true` because a session's turns are its root runs, and
+        `include_ledger_len=false` because that field costs the gateway a read
+        of every listed run's ledger and nothing here reads it. The gateway
+        REFUSES unknown query parameters with a 400 (`routes/gateway.py`
+        `list_runs`), so a renamed or added parameter does not degrade — it
+        empties the list. Nothing else may be added here.
+        """
+        return f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+
+    def list_session_runs(self, *, limit: int, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        """One page of root runs, newest first, for the session list."""
+        return self._request_json(
+            method="GET",
+            url=_join(self._cfg.base_url, self.session_listing_path(limit)),
+            label="list_session_runs failed",
+            timeout_s=timeout_s,
         )
 
     def list_runs(self, *, limit: int = 50, status: str = "", session_id: str = "", root_only: bool = False) -> Dict[str, Any]:

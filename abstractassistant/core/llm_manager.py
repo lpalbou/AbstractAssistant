@@ -1,9 +1,12 @@
 """Gateway session manager for AbstractAssistant (legacy class name retained).
 
 The assistant is a gateway-native thin client: AbstractGateway owns workflows,
-durable execution, providers, and media routing. This module owns the local
-side of a session — the durable transcript snapshot (`session.json` per
-session), the session index, and a cached `GatewayClient`.
+durable execution, providers, media routing — and the sessions themselves. The
+session list is the gateway's root runs folded by `session_id`
+(`gateway_sessions`), a transcript is the gateway's history for the session,
+and this module keeps only a rebuildable local cache of both
+(`session_cache`: labels, fetched titles, the last list, cached transcripts)
+plus a cached `GatewayClient`.
 """
 
 from __future__ import annotations
@@ -16,10 +19,17 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .session_digest import SessionDigestCache
-from .session_index import SessionIndex
-from .session_store import SessionStore, SessionSnapshot
+from .gateway_sessions import (
+    SESSION_LIST_LIMIT,
+    SESSION_PROMPT_MAX,
+    fold_session_rows,
+    prompt_from_input_data,
+)
+from .session_cache import SessionCache
+from .session_digest import SessionDigestCache, digest_from_record
+from .session_store import SessionSnapshotUnreadable, SessionStore, SessionSnapshot
 from ..gateway import GatewayClient, GatewayClientConfig, get_cached_assistant_capabilities
+from ..gateway.history_seed import seed_messages_from_history_bundle
 import uuid
 import warnings
 
@@ -80,7 +90,14 @@ class LLMManager:
         self._gateway_client: Optional[GatewayClient] = None
 
         self.data_dir = (Path(data_dir).expanduser() if data_dir is not None else (Path.home() / ".abstractassistant"))
-        self._session_index = SessionIndex(self.data_dir)
+        self._session_cache = SessionCache(self.data_dir)
+        # session id -> why its cached transcript could not be read (cleared
+        # once the gateway rebuilt it).
+        self._unreadable_sessions: Dict[str, str] = {}
+        # One gateway list refresh at a time; the last failure is shown on the
+        # session list until a refresh succeeds.
+        self._session_refresh_lock = threading.Lock()
+        self._session_list_error = ""
         # Serializes gateway-snapshot read-copy-write + save. Appends arrive
         # from the GatewayWorker thread, wait-submit threads, and the Qt main
         # thread; without this, concurrent appends are last-writer-wins.
@@ -139,7 +156,7 @@ class LLMManager:
 
     @property
     def active_session_id(self) -> str:
-        return self._session_index.active_session_id
+        return self._session_cache.active_session_id
 
     def get_last_run_id(self) -> Optional[str]:
         """Return the last run id for the active session."""
@@ -150,20 +167,28 @@ class LLMManager:
             return None
 
     def _gateway_store_for(self, session_id: str) -> SessionStore:
-        data_dir = self._session_index.data_dir_for(session_id)
+        data_dir = self._session_cache.data_dir_for(session_id)
         return SessionStore(Path(data_dir) / "session.json")
 
     def _load_gateway_snapshot(self, session_id: str) -> SessionSnapshot:
-        store = self._gateway_store_for(session_id)
-        snap = store.load()
+        """The cached transcript of a session (empty when none is cached yet).
+
+        Nothing is written here: a session opened from the gateway list has no
+        cache until the gateway's history arrives. An UNREADABLE cache is moved
+        aside (never overwritten with an empty transcript) and recorded, so the
+        gateway sync rebuilds it — or the failure is surfaced.
+        """
+        sid = str(session_id)
+        store = self._gateway_store_for(sid)
+        try:
+            snap = store.read()
+        except SessionSnapshotUnreadable as exc:
+            aside = self._session_cache.set_aside(store.path)
+            where = f"; the file was moved to {aside}" if aside is not None else ""
+            self._unreadable_sessions[sid] = f"The local copy of this session could not be read ({exc}){where}."
+            snap = None
         if snap is None:
-            snap = SessionSnapshot(
-                session_id=str(session_id),
-                actor_id="gateway",
-                messages=[],
-                last_run_id=None,
-            )
-            store.save(snap)
+            snap = SessionSnapshot(session_id=sid, actor_id="gateway", messages=[], last_run_id=None)
         self._gateway_store = store
         return snap
 
@@ -430,61 +455,224 @@ class LLMManager:
                 self._gateway_snapshot = snap
             return snap
 
+    # ------------------------------------------------------------ sessions
+
     def list_sessions(self) -> List[Dict[str, str]]:
-        out: List[Dict[str, str]] = []
-        for rec in self._session_index.records():
-            title = rec.title
-            if str(title).strip().lower() in {"", "new session"}:
-                fallback = self._fallback_title_for_session(rec.session_id)
-                if fallback:
-                    title = fallback
-            out.append(
-                {
-                    "session_id": rec.session_id,
-                    "title": str(title),
-                    "created_at": rec.created_at,
-                    "updated_at": rec.updated_at,
-                }
-            )
-        return out
+        """The session list, reduced to id / title / stamps."""
+        return [
+            {
+                "session_id": str(d.get("session_id") or ""),
+                "title": str(d.get("display_title") or d.get("title") or ""),
+                "created_at": str(d.get("created_at") or ""),
+                "updated_at": str(d.get("updated_at") or ""),
+            }
+            for d in self.session_digests()
+        ]
 
     def session_digests(self) -> List[Dict[str, Any]]:
-        """Rich per-chat metrics for the session switcher (local reads only).
+        """The session list for the switcher, from the cache only (no network).
 
-        Safe to call from a worker thread: transcripts are cached by file
-        identity, so only chats that changed are parsed again.
+        Rows are the gateway's sessions as last fetched
+        (`refresh_sessions_from_gateway`), minus the ones removed from this
+        list; plus the active session while it has no gateway run yet ("new,
+        empty"), plus 0.6.1-and-earlier local sessions the migration has not decided yet.
+        Title = local label, else the gateway's opening prompt, else the cached
+        transcript's; metrics come from the cached transcript when there is one.
+        Safe to call from any thread.
         """
         cache = getattr(self, "_session_digest_cache", None)
         if cache is None:
             cache = SessionDigestCache()
             self._session_digest_cache = cache
-        records = [
-            {
-                "session_id": rec.session_id,
-                "title": rec.title,
-                "created_at": rec.created_at,
-                "updated_at": rec.updated_at,
-            }
-            for rec in self._session_index.records()
-        ]
-        digests = cache.warm(records, self._session_index.data_dir_for)
+        store = self._session_cache
+        active = self.active_session_id
         out: List[Dict[str, Any]] = []
-        for digest in digests:
+        seen: set = set()
+
+        def _add(session_id: str, *, created_at: str, updated_at: str, row=None) -> None:
+            if session_id in seen or store.is_hidden(session_id):
+                return
+            seen.add(session_id)
+            record = {
+                "session_id": session_id,
+                "title": store.label(session_id) or "New session",
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }
+            folder = store.data_dir_for(session_id)
+            try:
+                digest = cache.digest(record, folder)
+            except Exception:
+                digest = digest_from_record(record)
+            if row is not None:
+                if digest.detailed and digest.messages == 0:
+                    # A gateway session is never "empty": its cache just has
+                    # not been filled yet.
+                    digest = digest_from_record(record)
+                prompt = store.prompt(session_id)
+                digest = replace(
+                    digest,
+                    turns=int(row.turns),
+                    state=str(row.state or ""),
+                    first_prompt=prompt or digest.first_prompt,
+                    last_run_id=row.latest_run_id or digest.last_run_id,
+                )
             payload = asdict(digest)
-            # The switcher shows a name, an opening question, or "New chat" —
-            # the digest already carries the transcript's first prompt, so no
-            # second read of a possibly huge transcript is needed here.
             payload["display_title"] = digest.display_title
+            payload["on_gateway"] = row is not None
             out.append(payload)
+
+        for row in store.rows():
+            _add(row.session_id, created_at=row.created_at, updated_at=row.updated_at, row=row)
+        for session_id, meta in store.legacy_pending().items():
+            _add(session_id, created_at=meta.get("created_at", ""), updated_at=meta.get("updated_at", ""))
+        if active not in seen:
+            _add(active, created_at="", updated_at=store.last_seen(active))
         return out
 
+    def session_list_state(self) -> Dict[str, Any]:
+        """What the session list header says about its source."""
+        store = self._session_cache
+        return {
+            "error": self._session_list_error,
+            "fetched_at": store.fetched_at,
+            "truncated": store.truncated,
+            "limit": SESSION_LIST_LIMIT,
+            "refreshing": self._session_refresh_lock.locked(),
+            "notice": store.peek_notice(),
+        }
+
+    def take_session_notice(self) -> str:
+        """The one-time migration notice; cleared once taken."""
+        return self._session_cache.take_notice()
+
+    def refresh_sessions_from_gateway(self, *, timeout_s: float = 15.0) -> Dict[str, Any]:
+        """Fetch the session list from the gateway into the cache.
+
+        Blocking network: call it off the GUI thread. One request for the list
+        (the pinned `/runs` query), then up to `SESSION_PROMPT_MAX` opening
+        prompts not fetched before. The first COMPLETE list also runs the
+        one-time migration of 0.6.1-and-earlier local sessions. A failure keeps the
+        cached rows and is reported by `session_list_state()`.
+        """
+        if not self._session_refresh_lock.acquire(blocking=False):
+            return {"ok": False, "skipped": True}
+        try:
+            try:
+                client = self.gateway_client()
+                payload = client.list_session_runs(limit=SESSION_LIST_LIMIT, timeout_s=timeout_s)
+            except Exception as exc:
+                self._session_list_error = f"{type(exc).__name__}: {exc}"
+                return {"ok": False, "error": self._session_list_error}
+            rows, truncated = fold_session_rows(payload)
+            self._session_list_error = ""
+            active_before = self.active_session_id
+            with self._snapshot_lock:
+                removed = self._session_cache.reconcile_legacy(
+                    (row.session_id for row in rows), complete=not truncated
+                )
+                self._session_cache.set_rows(rows, truncated=truncated)
+            store = self._session_cache
+            wanted = [
+                row
+                for row in rows
+                if row.first_run_id
+                and not store.is_hidden(row.session_id)
+                and not store.label(row.session_id)
+                and store.prompt(row.session_id) is None
+            ][:SESSION_PROMPT_MAX]
+            prompts: Dict[str, str] = {}
+            for row in wanted:
+                try:
+                    data = client.get_run_input_data(run_id=row.first_run_id, timeout_s=5.0)
+                except Exception:
+                    continue  # not cached: the next refresh asks again
+                prompts[row.session_id] = prompt_from_input_data(data)
+            store.set_prompts(prompts)
+            return {
+                "ok": True,
+                "rows": len(rows),
+                "truncated": truncated,
+                "removed": int(removed or 0),
+                "active_changed": self.active_session_id != active_before,
+            }
+        finally:
+            self._session_refresh_lock.release()
+
+    def sync_session_from_gateway(self, *, timeout_s: float = 8.0) -> Dict[str, Any]:
+        """Replace the active session's cached transcript with the gateway's.
+
+        Reads the history bundle of the session's latest root run with its
+        session turns (every turn up to that run) through the same seeding the
+        reattach path uses, and REPLACES the cache with it. Skipped — never
+        merged — when the user switched sessions or a turn landed while the
+        call was in flight. Blocking network: call it off the GUI thread.
+
+        Returns ``{"changed", "error"}``; ``error`` is set only when the cached
+        copy was unreadable and the gateway could not rebuild it (a failure the
+        user must see — an offline session otherwise just renders its cache).
+        """
+        with self._snapshot_lock:
+            snap = self._ensure_gateway_snapshot()
+        sid = str(snap.session_id or "").strip()
+        problem = self._unreadable_sessions.get(sid, "")
+        row = self._session_cache.row(sid)
+        if row is None and problem:
+            # The cache that would name the latest run is gone: ask the list.
+            listed = self.refresh_sessions_from_gateway()
+            if listed.get("error"):
+                return {"changed": False, "error": f"{problem} The gateway could not be reached to rebuild it: {listed['error']}"}
+            row = self._session_cache.row(sid)
+        run_id = (row.latest_run_id if row is not None else "") or str(snap.last_run_id or "").strip()
+        if not run_id or run_id.startswith("session_memory_"):
+            # No gateway run yet (a new session), or the synthetic upload run.
+            error = f"{problem} The gateway has no run for it to rebuild from." if problem else ""
+            return {"changed": False, "error": error}
+        try:
+            client = self.gateway_client()
+            bundle = client.get_run_history_bundle(
+                run_id=run_id,
+                include_subruns=True,
+                include_session=True,
+                session_turn_limit=max(200, int(row.turns) if row is not None else 0),
+                ledger_mode="tail",
+                ledger_max_items=2000,
+                timeout_s=timeout_s,
+            )
+            messages = seed_messages_from_history_bundle(
+                bundle,
+                include_tool_calls_for_run_id=run_id,
+                artifact_loader=lambda rid, aid: client.download_run_artifact_content(run_id=rid, artifact_id=aid),
+            )
+        except Exception as exc:
+            error = f"{problem} The gateway could not rebuild it: {type(exc).__name__}: {exc}" if problem else ""
+            return {"changed": False, "error": error}
+        if not messages:
+            error = f"{problem} The gateway returned no turns for it." if problem else ""
+            return {"changed": False, "error": error}
+        with self._snapshot_lock:
+            if self._gateway_snapshot is not snap:
+                return {"changed": False, "error": ""}
+            changed = self.replace_gateway_messages(messages, last_run_id=run_id)
+        self._unreadable_sessions.pop(sid, None)
+        return {"changed": bool(changed), "error": ""}
+
+    def session_problem(self) -> str:
+        """Why the active session's cached copy could not be read ("" if fine)."""
+        return self._unreadable_sessions.get(str(self.active_session_id), "")
+
     def rename_session(self, session_id: str, title: str) -> None:
+        """A LOCAL label for the session, shown instead of its opening prompt."""
         sid = str(session_id or "").strip()
         if sid:
-            self._session_index.update_title(sid, title)
+            self._session_cache.set_label(sid, title)
 
     def delete_session(self, session_id: str) -> str:
-        """Delete a chat and its stored transcript; returns the new active id."""
+        """Remove a session from this list and drop its cached transcript.
+
+        The gateway offers no route to delete a session, so its runs stay
+        there. Returns the active session id afterwards.
+        """
         sid = str(session_id or "").strip()
         if not sid:
             return self.active_session_id
@@ -492,17 +680,17 @@ class LLMManager:
         if cache is not None:
             cache.forget(sid)
         was_active = sid == self.active_session_id
-        new_active = self._session_index.delete_session(sid)
-        if was_active:
-            with self._snapshot_lock:
+        with self._snapshot_lock:
+            new_active = self._session_cache.remove_from_list(sid)
+            if was_active:
                 self._gateway_snapshot = self._load_gateway_snapshot(new_active)
         return new_active
 
     def create_new_session(self) -> str:
-        rec = self._session_index.create_session()
         with self._snapshot_lock:
-            self._gateway_snapshot = self._load_gateway_snapshot(rec.session_id)
-        return rec.session_id
+            sid = self._session_cache.create_session()
+            self._gateway_snapshot = self._load_gateway_snapshot(sid)
+        return sid
 
     def switch_session(self, session_id: str) -> None:
         sid = str(session_id or "").strip()
@@ -510,60 +698,9 @@ class LLMManager:
             raise ValueError("session_id must be non-empty")
         if sid == self.active_session_id:
             return
-        self._session_index.set_active(sid)
         with self._snapshot_lock:
+            self._session_cache.set_active(sid)
             self._gateway_snapshot = self._load_gateway_snapshot(sid)
-
-    @staticmethod
-    def _extract_first_last_questions(messages: List[Dict[str, Any]]) -> tuple[Optional[str], Optional[str]]:
-        prompts: List[str] = []
-        for m in messages:
-            if not isinstance(m, dict):
-                continue
-            if str(m.get("role") or "") != "user":
-                continue
-            content = str(m.get("content") or "").strip()
-            if not content:
-                continue
-            # Ignore runtime ask_user responses (not "questions").
-            if content.startswith("[User response]:"):
-                continue
-            prompts.append(content)
-        if not prompts:
-            return None, None
-        return prompts[0], prompts[-1]
-
-    def _fallback_title_for_session(self, session_id: str) -> Optional[str]:
-        """Local-only fallback title derived from transcript (no network)."""
-        sid = str(session_id or "").strip()
-        if not sid:
-            return None
-        try:
-            data_dir = self._session_index.data_dir_for(sid)
-            snap = SessionStore(Path(data_dir) / "session.json").load()
-        except Exception:
-            return None
-        if snap is None or not isinstance(getattr(snap, "messages", None), list):
-            return None
-        first, last = self._extract_first_last_questions(list(snap.messages))
-        if not first and not last:
-            return None
-
-        def _clean(s: Optional[str]) -> str:
-            txt = str(s or "").replace("\n", " ").replace("\r", " ").strip()
-            return " ".join(txt.split())
-
-        def _trunc(txt: str, n: int) -> str:
-            t = _clean(txt)
-            if len(t) <= n:
-                return t
-            return (t[: max(0, n - 1)].rstrip() + "…").strip()
-
-        first_txt = _clean(first)
-        last_txt = _clean(last)
-        if not first_txt:
-            return _trunc(last_txt, 80) if last_txt else None
-        return _trunc(first_txt, 80)
 
     def append_message(
         self,

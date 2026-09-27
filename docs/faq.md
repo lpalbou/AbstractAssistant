@@ -84,11 +84,18 @@ nothing is estimated. Reattached runs show no total time because the start was n
 
 ## How do I find an old chat, and can I delete one?
 
-Click the chat name in the header. The switcher lists every chat with its topic, last activity and
-what it holds (turns, tool calls, tokens, running time, workspace folder), grouped by recency and
-filtered as you type. The pencil renames a chat; the bin deletes it and its transcript after an
-in-row confirmation. Deleting removes that chat's folder under `~/.abstractassistant/sessions/`;
-the gateway keeps its own durable session data.
+Click the chat name in the header. The switcher lists every session the gateway holds for you —
+including sessions started from AbstractCode or another device — with its topic, last activity
+and what it holds (turns, state, and once opened here, tool calls, tokens, running time and
+workspace folder), grouped by recency and filtered as you type. The pencil renames a session on
+this device; the bin removes it from this list after an in-row confirmation and drops its cached
+transcript. The gateway has no session delete, so the runs stay there.
+
+## I upgraded and some old chats are gone from the list
+
+Sessions now come from the gateway. Chats that existed only on this Mac (for example after the
+gateway was reset) are removed from the list once; the switcher says how many, and their text is
+kept under `~/.abstractassistant/sessions-legacy/`.
 
 ## Where are downloads stored?
 

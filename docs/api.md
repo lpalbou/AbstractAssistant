@@ -101,8 +101,10 @@ All under `~/.abstractassistant/`:
 - `preferences.json` — local overrides and UI preferences (reference in
   [settings.md](settings.md#preferences-file))
 - `gateway_connection.json` — gateway URL, sign-in mode, token or session state
-- `sessions.json`, `sessions/<id>/session.json` — chat registry, transcript snapshot, last run id,
-  granted workspace root
+- `session_cache.json`, `sessions/<id>/session.json` — the rebuildable session cache: active
+  session, local labels, fetched titles, the last gateway list, cached transcripts, last run id,
+  granted workspace root ([architecture.md](architecture.md#sessions))
+- `sessions-legacy/` — files kept from the 0.6.1-and-earlier local session index and unreadable cache files
 - `downloads/`, `gateway_audio/` — downloaded artifacts and cached speech audio
 
 ## Run input pins

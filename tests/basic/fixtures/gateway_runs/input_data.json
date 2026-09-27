@@ -1,0 +1,7 @@
+{
+  "run_alpha_1": {"run_id": "run_alpha_1", "workflow_id": "assistant", "input_data": {"prompt": "Plan the Q3 launch checklist"}},
+  "run_beta_1": {"run_id": "run_beta_1", "workflow_id": "assistant", "input_data": {"prompt": "Summarize the release notes"}},
+  "run_cold_1": {"run_id": "run_cold_1", "workflow_id": "assistant", "input_data": {"prompt": "What is on today's news?"}},
+  "run_hot_1": {"run_id": "run_hot_1", "workflow_id": "abstractcode:agent", "prompt": "Refactor the router module"},
+  "run_unknown_1": {"run_id": "run_unknown_1", "workflow_id": "assistant", "input_data": {}}
+}

@@ -31,7 +31,7 @@ flowchart LR
     Worker["GatewayWorker (QThread)\nstart run · follow ledger · waits"]
     Live["gateway/live_deltas\nllm.delta → live reply events"]
     VoiceMgr["GatewayVoiceManager\nmic capture · playback"]
-    Prefs[("preferences.json\ngateway_connection.json\nsessions/*/session.json")]
+    Prefs[("preferences.json\ngateway_connection.json\nsession cache (rebuildable)")]
   end
   Gateway["AbstractGateway\nworkflow catalog · default workflow\nruns · ledger SSE + live deltas\ntools + policy · workspace policy\ncapability defaults · voice routes · /about"]
   Runtime["AbstractRuntime\ndurable runs · waits · artifacts\nlive token deltas"]
@@ -75,11 +75,52 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 - `preferences.json` — local overrides sent per request (model routes, reasoning effort,
   workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
-- `sessions.json` — the chat registry (id, title, created/updated stamps, active chat)
-- `sessions/` — the transcript snapshot, last run id and granted workspace root of each chat.
-  The chat switcher's metrics (turns, tool calls, tokens, running time) are computed from these
-  files and cached by file identity, so listing chats costs no gateway call
+- the session cache (see [Sessions](#sessions)) — rebuildable from the gateway at any time
 - downloaded artifacts
+
+## Sessions
+
+Sessions live on the gateway. A session is the set of root runs that share a `session_id`, so a
+session started from AbstractCode, another Assistant install or any other client of the same
+gateway appears in the switcher too.
+
+- **List.** The switcher's rows are one `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`
+  page folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
+  newest first by the last run's `updated_at`, turn count = root runs, state = the liveliest run
+  (waiting, then running, then failed, then done; an unreported status is unknown). The page
+  covers the newest 5,000 root runs; when the gateway holds more, the switcher header says so.
+  Opening the switcher paints the cached list, then asks the gateway off the GUI thread.
+- **Titles.** A session is named by its first user turn, read from the gateway
+  (`/runs/{first_run_id}/input_data`, up to 40 sessions per refresh, then cached). Renaming a
+  session sets a local label on this device that is shown instead.
+- **Transcripts.** Opening a session paints its cached transcript at once, then reads the
+  gateway's history bundle of the session's latest root run (with its session turns) and replaces
+  the cache with it. Attachments come back from the turn's artifact references.
+- **New sessions.** The app mints the id; the session is listed while it is the active one and
+  becomes a gateway session with its first run.
+- **Remove from list.** The gateway has no session delete; removing a row hides it on this device
+  and drops its cached transcript. Its runs stay on the gateway.
+- **Offline.** The switcher shows the cached rows under a "Cached — gateway unreachable" line
+  and cached transcripts stay readable; nothing is deleted, and the next successful fetch
+  reconciles.
+
+The cache under `~/.abstractassistant/`:
+
+- `session_cache.json` — active session, local labels, fetched titles, last-seen stamps, removed
+  sessions and the last list the gateway returned
+- `sessions/<session_id>/session.json` — the cached transcript, last run id and granted workspace
+  root of a session. An unreadable file is moved to `sessions-legacy/` and rebuilt from the
+  gateway; if the gateway cannot rebuild it, the palette says so.
+
+Deleting the cache loses only local labels and removals. The chat switcher's metrics (tool calls,
+tokens, running time) are computed from the cached transcripts and appear once a session has been
+opened on this device.
+
+**Upgrading from 0.6.1 or earlier.** The earlier local index (`sessions.json`, `session.json`) is converted on
+first launch and kept in `sessions-legacy/`. On the first complete list from the gateway, local
+sessions the gateway does not know are removed from the list; their folders move to
+`sessions-legacy/` and the switcher says so once. Renames of the sessions that remain are kept as
+local labels.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.

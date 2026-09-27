@@ -1,0 +1,48 @@
+{
+  "run_alpha_3": {
+    "version": 1,
+    "root_run_id": "run_alpha_3",
+    "input_data": {"prompt": "And the staffing risks?"},
+    "ledgers": {},
+    "session": {
+      "session_id": "sess_alpha",
+      "turns": [
+        {"run_id": "run_alpha_1", "prompt": "Plan the Q3 launch checklist", "answer": "Here is the checklist.",
+         "status": "completed", "created_at": "2026-09-20T09:00:00+00:00", "updated_at": "2026-09-20T09:01:00+00:00"},
+        {"run_id": "run_alpha_2", "prompt": "Add the budget line", "answer": "Budget added.",
+         "status": "completed", "created_at": "2026-09-21T10:00:00+00:00", "updated_at": "2026-09-21T10:02:00+00:00",
+         "attachments": [{"$artifact": "art_budget", "filename": "budget.xlsx"}]},
+        {"run_id": "run_alpha_3", "prompt": "And the staffing risks?", "answer": "Two risks stand out.",
+         "status": "waiting", "created_at": "2026-09-26T08:00:00+00:00", "updated_at": "2026-09-26T08:05:00+00:00"}
+      ]
+    }
+  },
+  "run_beta_2": {
+    "version": 1,
+    "root_run_id": "run_beta_2",
+    "input_data": {"prompt": "Retry with the full text"},
+    "ledgers": {},
+    "session": {
+      "session_id": "sess_beta",
+      "turns": [
+        {"run_id": "run_beta_1", "prompt": "Summarize the release notes", "answer": "The release adds three features.",
+         "status": "running", "created_at": "2026-09-25T11:00:00+00:00", "updated_at": "2026-09-25T12:00:00+00:00"},
+        {"run_id": "run_beta_2", "prompt": "Retry with the full text", "answer": "Full summary follows.",
+         "status": "failed", "created_at": "2026-09-25T12:10:00+00:00", "updated_at": "2026-09-25T12:30:00+00:00"}
+      ]
+    }
+  },
+  "run_cold_1": {
+    "version": 1,
+    "root_run_id": "run_cold_1",
+    "input_data": {"prompt": "What is on today's news?"},
+    "ledgers": {},
+    "session": {
+      "session_id": "sess_cold",
+      "turns": [
+        {"run_id": "run_cold_1", "prompt": "What is on today's news?", "answer": "Three headlines today.",
+         "status": "completed", "created_at": "2026-09-26T07:00:00+00:00", "updated_at": "2026-09-26T07:00:00+00:00"}
+      ]
+    }
+  }
+}

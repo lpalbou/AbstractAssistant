@@ -99,7 +99,9 @@ The desktop client stores under `~/.abstractassistant/`:
 - `preferences.json` — this app's overrides and preferences (model routes, reasoning effort,
   reply streaming, workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
-- `sessions/` — chat snapshots, last run ids and each chat's granted workspace folder
+- `session_cache.json`, `sessions/` — a rebuildable cache of the gateway's sessions (local labels,
+  cached transcripts, each session's granted workspace folder); the sessions themselves live on
+  the gateway
 - downloads and cached audio
 
 ## Documentation

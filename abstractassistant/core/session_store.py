@@ -1,8 +1,8 @@
-"""Session persistence for AbstractAssistant.
+"""The cached transcript of one session (``sessions/<id>/session.json``).
 
-This module stores *host UX state* (session id, actor id, and chat transcript snapshot)
-separately from AbstractRuntime stores. The runtime remains the source of truth for run
-durability; this file is a convenience for fast app startup and UX continuity.
+A CACHE of what the gateway holds: painted instantly when a session opens and
+replaced by the gateway's history as soon as it answers (see ``session_cache``).
+An unreadable file is reported, never silently replaced by an empty one.
 """
 
 from __future__ import annotations
@@ -67,6 +67,10 @@ class SessionSnapshot:
         )
 
 
+class SessionSnapshotUnreadable(Exception):
+    """The cached transcript exists but cannot be parsed."""
+
+
 class SessionStore:
     def __init__(self, path: Path):
         self._path = Path(path)
@@ -75,18 +79,28 @@ class SessionStore:
     def path(self) -> Path:
         return self._path
 
-    def load(self) -> Optional[SessionSnapshot]:
+    def read(self) -> Optional[SessionSnapshot]:
+        """The snapshot, None when there is no file, or raise
+        ``SessionSnapshotUnreadable`` when the file exists but is not a
+        snapshot — a caller must never mistake that for "empty"."""
         if not self._path.exists():
             return None
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-        except Exception:
-            return None
+        except Exception as exc:
+            raise SessionSnapshotUnreadable(f"{self._path}: {type(exc).__name__}: {exc}") from exc
         if not isinstance(data, dict):
-            return None
+            raise SessionSnapshotUnreadable(f"{self._path}: not a JSON object")
         try:
             return SessionSnapshot.from_dict(data)
-        except Exception:
+        except Exception as exc:
+            raise SessionSnapshotUnreadable(f"{self._path}: {exc}") from exc
+
+    def load(self) -> Optional[SessionSnapshot]:
+        """Lenient read: None when missing OR unreadable."""
+        try:
+            return self.read()
+        except SessionSnapshotUnreadable:
             return None
 
     def save(self, snapshot: SessionSnapshot) -> None:

@@ -1,0 +1,30 @@
+{
+  "items": [
+    {"run_id": "run_hot_1", "workflow_id": "abstractcode:agent", "status": "running", "session_id": "sess_hot",
+     "parent_run_id": null, "created_at": "2026-08-01T09:00:00+00:00", "updated_at": "2026-09-26T12:00:00+00:00"},
+    {"run_id": "run_alpha_3_agent", "workflow_id": "agent", "status": "running", "session_id": "sess_alpha",
+     "parent_run_id": "run_alpha_3", "created_at": "2026-09-26T08:00:01+00:00", "updated_at": "2026-09-26T08:05:00+00:00"},
+    {"run_id": "run_alpha_3", "workflow_id": "assistant", "status": "waiting", "session_id": "sess_alpha",
+     "parent_run_id": null, "created_at": "2026-09-26T08:00:00+00:00", "updated_at": "2026-09-26T08:05:00+00:00",
+     "waiting": {"reason": "subworkflow"}},
+    {"run_id": "run_cold_1", "workflow_id": "assistant", "status": "completed", "session_id": "sess_cold",
+     "parent_run_id": null, "created_at": "2026-09-26T07:00:00+00:00", "updated_at": "2026-09-26T07:00:00+00:00"},
+    {"run_id": "run_beta_2", "workflow_id": "assistant", "status": "failed", "session_id": "sess_beta",
+     "parent_run_id": null, "created_at": "2026-09-25T12:10:00+00:00", "updated_at": "2026-09-25T12:30:00+00:00"},
+    {"run_id": "run_beta_1", "workflow_id": "assistant", "status": "running", "session_id": "sess_beta",
+     "parent_run_id": null, "created_at": "2026-09-25T11:00:00+00:00", "updated_at": "2026-09-25T12:00:00+00:00"},
+    {"run_id": "run_no_session", "workflow_id": "assistant", "status": "completed", "session_id": null,
+     "parent_run_id": null, "created_at": "2026-09-24T10:00:00+00:00", "updated_at": "2026-09-24T10:00:00+00:00"},
+    {"run_id": "", "workflow_id": "assistant", "status": "completed", "session_id": "sess_no_run_id",
+     "parent_run_id": null, "created_at": "2026-09-24T09:00:00+00:00", "updated_at": "2026-09-24T09:00:00+00:00"},
+    {"run_id": "run_unknown_1", "workflow_id": "assistant", "status": "", "session_id": "sess_unknown",
+     "parent_run_id": null, "created_at": "2026-09-23T09:00:00+00:00"},
+    {"run_id": "run_alpha_2", "workflow_id": "assistant", "status": "completed", "session_id": "sess_alpha",
+     "parent_run_id": null, "created_at": "2026-09-21T10:00:00+00:00", "updated_at": "2026-09-21T10:02:00+00:00"},
+    {"run_id": "run_alpha_1", "workflow_id": "assistant", "status": "completed", "session_id": "sess_alpha",
+     "parent_run_id": null, "created_at": "2026-09-20T09:00:00+00:00", "updated_at": "2026-09-20T09:01:00+00:00"}
+  ],
+  "count": 11,
+  "offset": 0,
+  "has_more": false
+}

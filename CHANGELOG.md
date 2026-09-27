@@ -3,6 +3,33 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## Unreleased
+
+### Changed
+- **Sessions come from the gateway.** The session switcher lists the gateway's sessions — the
+  root runs of the connected gateway grouped by session — so a session started from AbstractCode,
+  another device or any other client appears too, with its first question as its title, its turn
+  count and whether a run is running or waiting for you. Opening a session shows the cached
+  transcript at once and replaces it with the gateway's history.
+- Renaming a session sets a label on this device. Removing a session hides it from this list and
+  drops its cached transcript; its runs stay on the gateway, which has no session delete.
+- The files under `~/.abstractassistant/` for sessions (`session_cache.json`, `sessions/`) are a
+  cache that can be deleted at any time: only local labels and removals are lost.
+- When the gateway cannot be reached, the switcher shows the cached sessions under
+  "Cached — gateway unreachable" and deletes nothing.
+
+### Fixed
+- An unreadable cached transcript is no longer replaced by an empty one: it is moved to
+  `~/.abstractassistant/sessions-legacy/` and rebuilt from the gateway, and the palette says so
+  when the gateway cannot rebuild it.
+
+### Migration
+- On first launch the earlier local session index (`sessions.json`, `session.json`) is converted
+  and kept in `~/.abstractassistant/sessions-legacy/`. On the first complete list from the gateway,
+  sessions the gateway does not know are removed from the list once, with one notice in the
+  switcher giving their number; their text is kept in `sessions-legacy/`. Renames of the remaining
+  sessions are kept.
+
 ## [0.6.1] - 2026-09-27
 
 ### Changed

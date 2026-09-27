@@ -1,4 +1,4 @@
-"""The chat switcher: digests computed from local files, and the popup itself."""
+"""The chat switcher: digests (gateway rows + cached transcripts), and the popup itself."""
 
 from __future__ import annotations
 
@@ -24,7 +24,8 @@ from abstractassistant.core.session_digest import (
     sort_digests,
     workspace_label,
 )
-from abstractassistant.core.session_index import SessionIndex
+from abstractassistant.core.gateway_sessions import GatewaySession
+from abstractassistant.core.session_cache import SessionCache
 from abstractassistant.ui.session_switcher import SessionRow, SessionSwitcher
 
 NOW = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
@@ -389,46 +390,36 @@ def _key(key, modifiers=Qt.NoModifier):
 
 
 @pytest.mark.basic
-def test_index_delete_removes_the_chat_folder_and_keeps_one_active(tmp_path: Path) -> None:
-    index = SessionIndex(tmp_path)
-    first = index.create_session()
-    second = index.create_session()
-    data_dir = index.data_dir_for(first.session_id)
-    assert data_dir.exists()
+def test_removing_a_session_hides_it_and_drops_only_its_cache(tmp_path: Path) -> None:
+    """The gateway has no delete route: "remove" is a local preference that
+    hides the row and drops the cached transcript; the active session moves
+    to the newest remaining gateway session."""
+    cache = SessionCache(tmp_path)
+    first = cache.create_session()
+    cache.set_rows(
+        [GatewaySession(session_id=first, turns=2), GatewaySession(session_id="sess_other", turns=1)],
+        truncated=False,
+    )
+    folder = cache.data_dir_for(first)
+    assert folder.exists()
 
-    index.set_active(first.session_id)
-    new_active = index.delete_session(first.session_id)
+    new_active = cache.remove_from_list(first)
 
-    assert data_dir.exists() is False
-    assert new_active != first.session_id
-    assert first.session_id not in [r.session_id for r in index.records()]
-    # The app always has somewhere to write.
-    assert index.active_session_id == new_active
-    assert second.session_id in [r.session_id for r in index.records()]
-
-
-@pytest.mark.basic
-def test_index_delete_of_the_last_chat_creates_a_fresh_one(tmp_path: Path) -> None:
-    index = SessionIndex(tmp_path)
-    for record in list(index.records()):
-        active = index.delete_session(record.session_id)
-    assert len(index.records()) == 1
-    assert index.active_session_id == active
-    assert index.records()[0].title == "New session"
+    assert folder.exists() is False
+    assert cache.is_hidden(first)
+    assert new_active == "sess_other" == cache.active_session_id
+    # Survives a reload.
+    assert SessionCache(tmp_path).is_hidden(first)
 
 
 @pytest.mark.basic
-def test_deleted_legacy_chat_does_not_come_back_on_reload(tmp_path: Path) -> None:
-    index = SessionIndex(tmp_path)
-    legacy = [r for r in index.records() if r.path == "."][0]
-    index.create_session()
-    index.delete_session(legacy.session_id)
-    assert (tmp_path / "session.json").exists() is False
-
-    reloaded = SessionIndex(tmp_path)
-    assert legacy.session_id not in [r.session_id for r in reloaded.records()]
-    # The base data folder itself is never touched.
-    assert (tmp_path / "sessions.json").exists() is True
+def test_removing_the_last_session_mints_a_fresh_one(tmp_path: Path) -> None:
+    cache = SessionCache(tmp_path)
+    only = cache.active_session_id
+    active = cache.remove_from_list(only)
+    assert active != only
+    assert active == cache.active_session_id
+    assert (cache.data_dir_for(active) / "session.json").exists()
 
 
 # ------------------------------------------------------- palette integration

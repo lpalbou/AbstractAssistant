@@ -5571,6 +5571,10 @@ class AssistantPalette(QMainWindow):
     voice_speech_finished = pyqtSignal()
     settings_ready = pyqtSignal(str)
     session_attachments_restored = pyqtSignal(int)
+    # The session list came back from the gateway (payload: the refresh result).
+    sessions_refreshed = pyqtSignal(object)
+    # The active session's cached copy was unreadable and could not be rebuilt.
+    session_sync_failed = pyqtSignal(str)
     # Meter readings arrive on the audio thread; this hops them to the GUI.
     speech_level_received = pyqtSignal(object)
     # The player started or stopped: no message key, so auto-speak and the
@@ -5709,6 +5713,8 @@ class AssistantPalette(QMainWindow):
         self.voice_level_received.connect(self._on_voice_level)
         self.voice_speech_finished.connect(self._on_voice_speech_finished)
         self.session_attachments_restored.connect(self._on_session_attachments_restored)
+        self.sessions_refreshed.connect(self._on_sessions_refreshed)
+        self.session_sync_failed.connect(self._on_session_sync_failed)
         self.speech_level_received.connect(self._on_speech_level)
         self.speech_activity_changed.connect(self._refresh_tray_feedback)
         self._voice_conversation: Optional[VoiceConversation] = None
@@ -6109,9 +6115,10 @@ class AssistantPalette(QMainWindow):
         self._refresh_workflows()
         self._refresh_capability_state()
         self._refresh_submission_state()
-        # The gateway is reachable now: the session on screen can get back any
-        # attachments its local transcript is missing.
-        self._backfill_session_attachments()
+        # The gateway is reachable now: the session list and the transcript on
+        # screen come from it (the local copies are only a cache).
+        self._refresh_sessions_from_gateway()
+        self._sync_session_from_gateway()
         # Clear the transient "Connecting…" banner unless a refresh replaced it
         # with something more specific (e.g. a gateway-unavailable message).
         try:
@@ -6324,15 +6331,20 @@ class AssistantPalette(QMainWindow):
         switcher.set_digests(
             self._session_records(), active_session_id=self._active_session_id()
         )
+        # A migration notice is shown in the popup that first displays it only.
+        self._session_list_notice = ""
+        self._apply_session_list_status(switcher, take_notice=True)
         button = self._state("session_picker")
         try:
             origin = button.mapToGlobal(QPoint(0, button.height() + 6))
         except Exception:
             origin = self.mapToGlobal(QPoint(0, 40))
         switcher.open_at(origin, screen_geometry=self._available_screen_geometry())
+        # The rows above are the cache; the gateway's answer replaces them.
+        self._refresh_sessions_from_gateway()
 
     def _refresh_open_session_switcher(self) -> None:
-        """Re-render the popup's rows after a rename or a delete it triggered."""
+        """Re-render the popup's rows (rename, delete, or the gateway answered)."""
         switcher = self._state("_session_switcher")
         if switcher is None:
             return
@@ -6342,8 +6354,60 @@ class AssistantPalette(QMainWindow):
                     self._session_records(),
                     active_session_id=self._active_session_id(),
                 )
+                self._apply_session_list_status(switcher, take_notice=True)
         except RuntimeError:
             self._session_switcher = None
+
+    def _active_session_listed_on_gateway(self) -> bool:
+        """Whether the cached list already has a gateway row for the session
+        on screen (True when there is no controller to ask)."""
+        if self._state("_controller") is None:
+            return True
+        try:
+            active = self._active_session_id()
+            for record in self._session_records():
+                if str(record.get("session_id") or "") == active:
+                    return bool(record.get("on_gateway", True))
+        except Exception:
+            return True
+        return False
+
+    def _apply_session_list_status(self, switcher: Any, *, take_notice: bool = False) -> None:
+        """The switcher's header line: where the rows come from, and the
+        one-time migration notice."""
+        setter = getattr(switcher, "set_status", None)
+        if not callable(setter):
+            return
+        controller = self._controller
+        try:
+            state = dict(controller.session_list_state() or {})
+        except Exception:
+            return
+        lines: List[str] = []
+        tone = ""
+        tooltip = ""
+        if state.get("error"):
+            lines.append("Cached — gateway unreachable")
+            tone = "warn"
+            tooltip = str(state.get("error"))
+        elif state.get("refreshing") and not state.get("fetched_at"):
+            lines.append("Loading sessions from the gateway…")
+        elif state.get("fetched_at") and state.get("truncated"):
+            lines.append(f"Sessions of the newest {int(state.get('limit') or 0):,} turns")
+        notice = str(state.get("notice") or "")
+        if notice:
+            if take_notice:
+                try:
+                    controller.take_session_notice()
+                except Exception:
+                    pass
+                # Kept for the rest of this popup's life (a refresh re-renders
+                # the header), shown once across launches.
+                self._session_list_notice = notice
+            lines.append(notice)
+        elif self._state("_session_list_notice"):
+            lines.append(str(self._state("_session_list_notice")))
+        setter("\n".join(lines), tone=tone, tooltip=tooltip)
 
     def _switch_to_session(self, session_id: str) -> None:
         target = str(session_id or "").strip()
@@ -6369,15 +6433,17 @@ class AssistantPalette(QMainWindow):
         self._set_history_status()
         self._set_status("Ready")
         self.refresh_history(request=self._history_scroll_request(mode="bottom"))
-        self._backfill_session_attachments()
+        self._sync_session_from_gateway()
 
-    def _backfill_session_attachments(self) -> None:
-        """Ask the runtime for attachments this session's transcript is missing.
+    def _sync_session_from_gateway(self) -> None:
+        """Replace the session on screen with the gateway's history.
 
-        A gateway call, so it runs off the GUI thread; the transcript is already
-        on screen and only redraws if something was actually restored. Offline
-        it is a no-op: the call is bounded, one at a time, and its failure is
-        never shown — the session renders from local files either way.
+        The cached transcript is painted first (instant, and all there is
+        offline); this asks the gateway off the GUI thread and redraws only if
+        the history differs. One at a time. Offline it changes nothing and
+        says nothing — unless the cached copy was unreadable, which is shown.
+        (The `_attachment_backfill_*` names predate this: the sync replaced the
+        attachment backfill and keeps its same-session redraw guard.)
         """
         if bool(self._state("_attachment_backfill_running", False)):
             # Switching sessions with an unreachable gateway must not leave a
@@ -6387,21 +6453,73 @@ class AssistantPalette(QMainWindow):
         # The redraw it may trigger belongs to THIS session: a switch while the
         # call was in flight must not rebuild (or re-render) the new one.
         self._attachment_backfill_session = self._active_session_id()
+        controller = self._controller
 
         def _work() -> None:
+            result: Dict[str, Any] = {}
             try:
-                restored = self._controller.backfill_session_attachments()
+                before = str(controller.last_run_id() or "").strip()
+                result = dict(controller.sync_session_from_gateway() or {})
+                after = str(controller.last_run_id() or "").strip()
+            except Exception:
+                before = after = ""
             finally:
                 self._attachment_backfill_running = False
-            if restored:
-                self.session_attachments_restored.emit(int(restored))
+            try:
+                if result.get("error"):
+                    self.session_sync_failed.emit(str(result["error"]))
+                if result.get("changed"):
+                    self.session_attachments_restored.emit(1)
+                    if after and after != before:
+                        # The cache did not know this session's latest run (it
+                        # was rebuilt from the gateway): a run still waiting on
+                        # the user must be reattached like at launch.
+                        candidate = controller.probe_reattach_candidate()
+                        if candidate:
+                            self.reattach_candidate.emit(candidate)
+            except Exception:
+                return  # the palette was destroyed meanwhile
 
         try:
             threading.Thread(
-                target=_work, name="session-attachments", daemon=True
+                target=_work, name="session-sync", daemon=True
             ).start()
         except Exception:
             self._attachment_backfill_running = False
+
+    def _on_session_sync_failed(self, message: str) -> None:
+        if str(message or "").strip():
+            self._set_banner(str(message), tone="error", key="session")
+
+    def _refresh_sessions_from_gateway(self) -> None:
+        """Fetch the session list from the gateway, off the GUI thread."""
+        if bool(self._state("_sessions_refresh_running", False)):
+            return
+        self._sessions_refresh_running = True
+        controller = self._controller
+
+        def _work() -> None:
+            result: Dict[str, Any] = {}
+            try:
+                result = dict(controller.refresh_sessions() or {})
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)}
+            finally:
+                self._sessions_refresh_running = False
+            try:
+                self.sessions_refreshed.emit(result)
+            except Exception:
+                return  # the palette is gone (quit mid-refresh)
+
+        try:
+            threading.Thread(target=_work, name="session-list", daemon=True).start()
+        except Exception:
+            self._sessions_refresh_running = False
+
+    def _on_sessions_refreshed(self, _result: Any) -> None:
+        self._invalidate_session_digests()
+        self._refresh_session_picker()
+        self._refresh_open_session_switcher()
 
     def _on_session_attachments_restored(self, _count: int) -> None:
         started_for = str(self._state("_attachment_backfill_session", "") or "")
@@ -6442,7 +6560,7 @@ class AssistantPalette(QMainWindow):
             self._set_history_status()
             self._set_status("Ready")
             self.refresh_history(request=self._history_scroll_request(mode="bottom"))
-        self._set_banner("Session deleted.", tone="info", key="session")
+        self._set_banner("Session removed from the list.", tone="info", key="session")
         self._warm_session_digests()
         self._refresh_session_picker(select_session_id=new_active or None)
         self._refresh_open_session_switcher()
@@ -8448,6 +8566,10 @@ class AssistantPalette(QMainWindow):
         self._worker = None
         # The run added turns, tools and tokens: the session's metrics moved.
         self._invalidate_session_digests()
+        if not self._active_session_listed_on_gateway():
+            # Its first run just made this session a gateway session: fetch
+            # the list so the row survives switching away.
+            self._refresh_sessions_from_gateway()
         self._run_busy = False
         self._cancel_requested = False
         self._run_paused = False

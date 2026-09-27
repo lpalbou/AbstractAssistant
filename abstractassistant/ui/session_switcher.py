@@ -6,9 +6,12 @@ turns and tool calls it ran, the tokens and wall time it spent, the folder it
 worked in, and whether the last question went unanswered — so picking one
 is a decision made on facts rather than on a truncated first sentence.
 
-Rows are grouped by recency, filtered as you type, and can be renamed or
-deleted in place (delete asks for confirmation inside the row, never with a
-modal). The widget owns no data: it renders `SessionDigest` values and emits
+The rows are the gateway's sessions (see `core/gateway_sessions`); the popup
+first paints the cached list and is re-rendered when the gateway answers, with
+a header line when the rows are only cached. Rows are grouped by recency,
+filtered as you type, and can be renamed (a local label) or removed from the
+list in place (asked inside the row, never with a modal — the gateway keeps
+the runs). The widget owns no data: it renders `SessionDigest` values and emits
 what the user chose.
 """
 
@@ -104,6 +107,11 @@ def _build_qss() -> str:
         letter-spacing: 0.10em;
         padding: 10px 2px 2px 2px;
     }}
+    QLabel#switcherStatus {{
+        color: {THEME.text_faint};
+        font-size: 11px;
+    }}
+    QLabel#switcherStatus[tone="warn"] {{ color: {THEME.attention}; }}
     QLabel#switcherEmpty {{
         color: {THEME.text_faint};
         font-size: 12px;
@@ -344,7 +352,7 @@ class SessionRow(QFrame):
         self.delete_button.setObjectName("rowAction")
         self.delete_button.setIcon(symbol_icon("trash", color=THEME.text_muted, size=12))
         self.delete_button.setIconSize(QSize(12, 12))
-        self.delete_button.setToolTip("Delete this session and its transcript")
+        self.delete_button.setToolTip("Remove this session from the list (its runs stay on the gateway)")
         self.delete_button.setCursor(Qt.PointingHandCursor)
         self.delete_button.clicked.connect(self.ask_delete)
         self.delete_button.hide()
@@ -378,7 +386,7 @@ class SessionRow(QFrame):
         # Never let the chips widen the row: the popup's width rules, and any
         # metric that does not fit is in the row's tooltip.
         self.metrics_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.metrics_host.setVisible(bool(digest.detailed))
+        self.metrics_host.setVisible(self._has_metrics())
         column.addWidget(self.metrics_host)
 
         # -- delete confirmation (replaces the row's content) --------------- #
@@ -386,10 +394,11 @@ class SessionRow(QFrame):
         confirm = QHBoxLayout(self.confirm_host)
         confirm.setContentsMargins(0, 2, 0, 2)
         confirm.setSpacing(8)
-        message = QLabel("Delete this session and its transcript?")
+        # The gateway has no route to delete a session: its runs stay there.
+        message = QLabel("Remove from this list? Its runs stay on the gateway.")
         message.setObjectName("rowConfirm")
         confirm.addWidget(message, 1)
-        yes = QPushButton("Delete")
+        yes = QPushButton("Remove")
         yes.setObjectName("rowConfirmYes")
         yes.setCursor(Qt.PointingHandCursor)
         yes.clicked.connect(lambda: self.delete_confirmed.emit(self.session_id))
@@ -419,6 +428,10 @@ class SessionRow(QFrame):
             return "idle"
         return "normal"
 
+    def _has_metrics(self) -> bool:
+        # A gateway row whose transcript is not cached yet still knows its turns.
+        return bool(self.digest.detailed or self.digest.turns)
+
     def _metric_widgets(self) -> List[QWidget]:
         digest = self.digest
         out: List[QWidget] = []
@@ -426,13 +439,16 @@ class SessionRow(QFrame):
             out.append(_metric("message-square", "empty", "This session has no messages yet.", tone="warn"))
             return out
         if digest.turns:
-            out.append(
-                _metric(
-                    "message-square",
-                    format_count(digest.turns),
-                    f"{digest.turns} question(s) you asked · {digest.answers} answer(s)",
-                )
+            tooltip = (
+                f"{digest.turns} question(s) you asked · {digest.answers} answer(s)"
+                if digest.detailed
+                else f"{digest.turns} turn(s) on the gateway"
             )
+            out.append(_metric("message-square", format_count(digest.turns), tooltip))
+        if digest.state == "waiting":
+            out.append(_metric("hand", "waiting", "A run of this session is waiting for you.", tone="warn"))
+        elif digest.state == "running":
+            out.append(_metric("clock", "running", "A run of this session is still running.", tone="accent"))
         if digest.tool_calls:
             tools = ", ".join(digest.top_tools) if digest.top_tools else ""
             tooltip = f"{digest.tool_calls} tool call(s)"
@@ -534,7 +550,7 @@ class SessionRow(QFrame):
     def cancel_delete(self) -> None:
         self.confirm_host.hide()
         self.preview_label.setVisible(bool(self._preview_text))
-        self.metrics_host.setVisible(bool(self.digest.detailed))
+        self.metrics_host.setVisible(self._has_metrics())
 
     @property
     def confirming_delete(self) -> bool:
@@ -618,6 +634,15 @@ class SessionSwitcher(QDialog):
         header.addWidget(self.new_button, 0, Qt.AlignVCenter)
         root.addLayout(header)
 
+        # Where the rows come from when it is not simply "the gateway, now":
+        # cached while it is unreachable, a truncated page, the one-time
+        # migration notice.
+        self.status_label = QLabel("", self)
+        self.status_label.setObjectName("switcherStatus")
+        self.status_label.setWordWrap(True)
+        self.status_label.hide()
+        root.addWidget(self.status_label)
+
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("switcherSearch")
         self.search_edit.setPlaceholderText("Filter by topic, folder or tool…")
@@ -650,7 +675,7 @@ class SessionSwitcher(QDialog):
         footer_row = QHBoxLayout(footer)
         footer_row.setContentsMargins(0, 0, 0, 0)
         footer_row.setSpacing(8)
-        hint = QLabel("↑↓ move · ↵ open · ⌘⌫ delete · esc close")
+        hint = QLabel("↑↓ move · ↵ open · ⌘⌫ remove · esc close")
         hint.setObjectName("switcherHint")
         footer_row.addWidget(hint, 1, Qt.AlignVCenter)
         root.addWidget(footer)
@@ -663,6 +688,19 @@ class SessionSwitcher(QDialog):
             refresh_style(row)
 
     # -------------------------------------------------------------- rendering
+
+    def set_status(self, text: str, *, tone: str = "", tooltip: str = "") -> None:
+        """The header line under the title ("" hides it)."""
+        value = str(text or "").strip()
+        self.status_label.setText(value)
+        self.status_label.setToolTip(str(tooltip or ""))
+        self.status_label.setProperty("tone", str(tone or ""))
+        refresh_style(self.status_label)
+        self.status_label.setVisible(bool(value))
+
+    @property
+    def status_text(self) -> str:
+        return self.status_label.text() if self.status_label.isVisibleTo(self) else ""
 
     def set_digests(self, digests: Sequence[Any], *, active_session_id: str = "") -> None:
         """Render the session list. Accepts `SessionDigest` values or dicts."""

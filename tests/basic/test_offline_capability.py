@@ -114,7 +114,7 @@ def test_the_attachment_backfill_is_bounded_and_harmless_when_unreachable() -> N
 
 
 @pytest.mark.basic
-def test_only_one_backfill_runs_at_a_time() -> None:
+def test_only_one_session_sync_runs_at_a_time() -> None:
     """Switching sessions with an unreachable gateway must not leave one
     waiting thread per switch."""
     import abstractassistant.app as app_module
@@ -124,10 +124,15 @@ def test_only_one_backfill_runs_at_a_time() -> None:
     release = threading.Event()
 
     class _Controller:
-        def backfill_session_attachments(self):
+        active_session_id = "sess_1"
+
+        def last_run_id(self):
+            return ""
+
+        def sync_session_from_gateway(self):
             started.append(1)
             release.wait(timeout=5)
-            return 0
+            return {"changed": False, "error": ""}
 
     palette._controller = _Controller()
     palette.session_attachments_restored = type(
@@ -136,7 +141,7 @@ def test_only_one_backfill_runs_at_a_time() -> None:
 
     try:
         for _ in range(5):  # five session switches while the first call hangs
-            app_module.AssistantPalette._backfill_session_attachments(palette)
+            app_module.AssistantPalette._sync_session_from_gateway(palette)
         assert len(started) == 1, f"{len(started)} concurrent gateway calls"
     finally:
         release.set()
@@ -146,7 +151,7 @@ def test_only_one_backfill_runs_at_a_time() -> None:
         if not palette._state("_attachment_backfill_running", False):
             break
         threading.Event().wait(0.02)
-    app_module.AssistantPalette._backfill_session_attachments(palette)
+    app_module.AssistantPalette._sync_session_from_gateway(palette)
     assert len(started) == 2
     release.set()
 

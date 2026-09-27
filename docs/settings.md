@@ -168,5 +168,5 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 
 `~/.abstractassistant/preferences.json` holds every "this app" value above. Missing keys keep
 their defaults: gateway defaults for models, reasoning and reply streaming, no workspace grant, auto-send and
-spoken-style replies on, microphone paused while the assistant speaks. Each chat's `session.json`
-may also carry the `workspace_root` the gateway granted to that chat.
+spoken-style replies on, microphone paused while the assistant speaks. Each session's cached
+`session.json` may also carry the `workspace_root` the gateway granted to that session.

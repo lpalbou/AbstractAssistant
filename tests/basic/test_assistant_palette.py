@@ -10,7 +10,6 @@ import pytest
 
 from abstractassistant.config import Config
 from abstractassistant.core.llm_manager import LLMManager
-from abstractassistant.core.session_index import SessionIndex
 from abstractassistant.core.session_store import SessionSnapshot, SessionStore
 from PyQt5.QtCore import QEvent, Qt
 from PyQt5.QtGui import QKeyEvent, QTextCursor
@@ -815,30 +814,25 @@ def test_assistant_palette_session_button_text_is_short_and_names_the_topic() ->
 
 
 @pytest.mark.basic
-def test_llm_manager_session_fallback_title_uses_first_user_query(
+def test_llm_manager_session_title_falls_back_to_the_cached_first_query(
     tmp_path: Path,
 ) -> None:
-    index = SessionIndex(tmp_path)
-    record = index.create_session()
-    store = SessionStore(index.data_dir_for(record.session_id) / "session.json")
-    store.save(
-        SessionSnapshot(
-            session_id=record.session_id,
-            actor_id=record.actor_id,
-            messages=[
-                {"role": "user", "content": "Plan the Q3 launch checklist"},
-                {"role": "assistant", "content": "Sure, let's map it out."},
-                {"role": "user", "content": "Also estimate the staffing risks"},
-            ],
-            last_run_id=None,
-        )
-    )
-    manager = LLMManager.__new__(LLMManager)
-    manager._session_index = index  # type: ignore[attr-defined]
+    """Offline, with no gateway prompt fetched yet, a session is named by the
+    first question of its cached transcript."""
+    from abstractassistant.config import Config
 
-    title = LLMManager._fallback_title_for_session(manager, record.session_id)
+    manager = LLMManager(config=Config(), data_dir=tmp_path)
+    sid = manager.active_session_id
+    for role, content in (
+        ("user", "Plan the Q3 launch checklist"),
+        ("assistant", "Sure, let's map it out."),
+        ("user", "Also estimate the staffing risks"),
+    ):
+        manager.append_message(role=role, content=content)
 
-    assert title == "Plan the Q3 launch checklist"
+    rows = {d["session_id"]: d for d in manager.session_digests()}
+
+    assert rows[sid]["display_title"] == "Plan the Q3 launch checklist"
 
 
 @pytest.mark.basic

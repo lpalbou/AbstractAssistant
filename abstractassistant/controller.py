@@ -962,26 +962,28 @@ class AssistantController:
         return self.llm_manager.list_sessions()
 
     def session_digests(self) -> List[Dict[str, Any]]:
-        """Per-chat metrics for the switcher. Reads local files only, cached by
-        file identity, so it is fast enough to call on the GUI thread (42 ms for
-        74 chats cold, under 2 ms warm)."""
-        try:
-            return list(self.llm_manager.session_digests() or [])
-        except Exception:
-            # Fall back to the index-only view so the switcher still lists chats.
-            out: List[Dict[str, Any]] = []
-            for record in self.list_sessions() or []:
-                if isinstance(record, dict) and str(record.get("session_id") or "").strip():
-                    out.append(
-                        {
-                            "session_id": str(record.get("session_id")),
-                            "title": str(record.get("title") or "New session"),
-                            "created_at": str(record.get("created_at") or ""),
-                            "updated_at": str(record.get("updated_at") or ""),
-                            "detailed": False,
-                        }
-                    )
-            return out
+        """The session list for the switcher: the gateway's sessions as last
+        fetched, from the local cache (no network), so it is fast enough to
+        call on the GUI thread. `refresh_sessions` updates it."""
+        return list(self.llm_manager.session_digests() or [])
+
+    def refresh_sessions(self) -> Dict[str, Any]:
+        """Fetch the session list from the gateway (blocking: off the GUI thread)."""
+        return dict(self.llm_manager.refresh_sessions_from_gateway() or {})
+
+    def session_list_state(self) -> Dict[str, Any]:
+        return dict(self.llm_manager.session_list_state() or {})
+
+    def take_session_notice(self) -> str:
+        return str(self.llm_manager.take_session_notice() or "")
+
+    def sync_session_from_gateway(self) -> Dict[str, Any]:
+        """Replace the active session's cached transcript with the gateway's
+        history (blocking: off the GUI thread)."""
+        return dict(self.llm_manager.sync_session_from_gateway() or {})
+
+    def session_problem(self) -> str:
+        return str(self.llm_manager.session_problem() or "")
 
     def rename_session(self, session_id: str, title: str) -> None:
         self.llm_manager.rename_session(session_id, title)

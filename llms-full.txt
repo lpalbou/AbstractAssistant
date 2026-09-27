@@ -37,7 +37,8 @@ Included files (in order):
 - abstractassistant/core/voice_conversation.py
 - abstractassistant/core/tool_risk.py
 - abstractassistant/core/gateway_voice_manager.py
-- abstractassistant/core/session_index.py
+- abstractassistant/core/gateway_sessions.py
+- abstractassistant/core/session_cache.py
 - abstractassistant/core/session_store.py
 - abstractassistant/gateway_service.py
 - scripts/update_llms_full.py
@@ -180,7 +181,9 @@ The desktop client stores under `~/.abstractassistant/`:
 - `preferences.json` — this app's overrides and preferences (model routes, reasoning effort,
   reply streaming, workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
-- `sessions/` — chat snapshots, last run ids and each chat's granted workspace folder
+- `session_cache.json`, `sessions/` — a rebuildable cache of the gateway's sessions (local labels,
+  cached transcripts, each session's granted workspace folder); the sessions themselves live on
+  the gateway
 - downloads and cached audio
 
 ## Documentation
@@ -675,8 +678,8 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 
 `~/.abstractassistant/preferences.json` holds every "this app" value above. Missing keys keep
 their defaults: gateway defaults for models, reasoning and reply streaming, no workspace grant, auto-send and
-spoken-style replies on, microphone paused while the assistant speaks. Each chat's `session.json`
-may also carry the `workspace_root` the gateway granted to that chat.
+spoken-style replies on, microphone paused while the assistant speaks. Each session's cached
+`session.json` may also carry the `workspace_root` the gateway granted to that session.
 
 --- docs/voice.md ---
 # Voice
@@ -870,8 +873,10 @@ All under `~/.abstractassistant/`:
 - `preferences.json` — local overrides and UI preferences (reference in
   [settings.md](settings.md#preferences-file))
 - `gateway_connection.json` — gateway URL, sign-in mode, token or session state
-- `sessions.json`, `sessions/<id>/session.json` — chat registry, transcript snapshot, last run id,
-  granted workspace root
+- `session_cache.json`, `sessions/<id>/session.json` — the rebuildable session cache: active
+  session, local labels, fetched titles, the last gateway list, cached transcripts, last run id,
+  granted workspace root ([architecture.md](architecture.md#sessions))
+- `sessions-legacy/` — files kept from the 0.6.1-and-earlier local session index and unreadable cache files
 - `downloads/`, `gateway_audio/` — downloaded artifacts and cached speech audio
 
 ## Run input pins
@@ -969,7 +974,7 @@ flowchart LR
     Worker["GatewayWorker (QThread)\nstart run · follow ledger · waits"]
     Live["gateway/live_deltas\nllm.delta → live reply events"]
     VoiceMgr["GatewayVoiceManager\nmic capture · playback"]
-    Prefs[("preferences.json\ngateway_connection.json\nsessions/*/session.json")]
+    Prefs[("preferences.json\ngateway_connection.json\nsession cache (rebuildable)")]
   end
   Gateway["AbstractGateway\nworkflow catalog · default workflow\nruns · ledger SSE + live deltas\ntools + policy · workspace policy\ncapability defaults · voice routes · /about"]
   Runtime["AbstractRuntime\ndurable runs · waits · artifacts\nlive token deltas"]
@@ -1013,11 +1018,52 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 - `preferences.json` — local overrides sent per request (model routes, reasoning effort,
   workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
-- `sessions.json` — the chat registry (id, title, created/updated stamps, active chat)
-- `sessions/` — the transcript snapshot, last run id and granted workspace root of each chat.
-  The chat switcher's metrics (turns, tool calls, tokens, running time) are computed from these
-  files and cached by file identity, so listing chats costs no gateway call
+- the session cache (see [Sessions](#sessions)) — rebuildable from the gateway at any time
 - downloaded artifacts
+
+## Sessions
+
+Sessions live on the gateway. A session is the set of root runs that share a `session_id`, so a
+session started from AbstractCode, another Assistant install or any other client of the same
+gateway appears in the switcher too.
+
+- **List.** The switcher's rows are one `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`
+  page folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
+  newest first by the last run's `updated_at`, turn count = root runs, state = the liveliest run
+  (waiting, then running, then failed, then done; an unreported status is unknown). The page
+  covers the newest 5,000 root runs; when the gateway holds more, the switcher header says so.
+  Opening the switcher paints the cached list, then asks the gateway off the GUI thread.
+- **Titles.** A session is named by its first user turn, read from the gateway
+  (`/runs/{first_run_id}/input_data`, up to 40 sessions per refresh, then cached). Renaming a
+  session sets a local label on this device that is shown instead.
+- **Transcripts.** Opening a session paints its cached transcript at once, then reads the
+  gateway's history bundle of the session's latest root run (with its session turns) and replaces
+  the cache with it. Attachments come back from the turn's artifact references.
+- **New sessions.** The app mints the id; the session is listed while it is the active one and
+  becomes a gateway session with its first run.
+- **Remove from list.** The gateway has no session delete; removing a row hides it on this device
+  and drops its cached transcript. Its runs stay on the gateway.
+- **Offline.** The switcher shows the cached rows under a "Cached — gateway unreachable" line
+  and cached transcripts stay readable; nothing is deleted, and the next successful fetch
+  reconciles.
+
+The cache under `~/.abstractassistant/`:
+
+- `session_cache.json` — active session, local labels, fetched titles, last-seen stamps, removed
+  sessions and the last list the gateway returned
+- `sessions/<session_id>/session.json` — the cached transcript, last run id and granted workspace
+  root of a session. An unreadable file is moved to `sessions-legacy/` and rebuilt from the
+  gateway; if the gateway cannot rebuild it, the palette says so.
+
+Deleting the cache loses only local labels and removals. The chat switcher's metrics (tool calls,
+tokens, running time) are computed from the cached transcripts and appear once a session has been
+opened on this device.
+
+**Upgrading from 0.6.1 or earlier.** The earlier local index (`sessions.json`, `session.json`) is converted on
+first launch and kept in `sessions-legacy/`. On the first complete list from the gateway, local
+sessions the gateway does not know are removed from the list; their folders move to
+`sessions-legacy/` and the switcher says so once. Renames of the sessions that remain are kept as
+local labels.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.
@@ -1259,11 +1305,18 @@ nothing is estimated. Reattached runs show no total time because the start was n
 
 ## How do I find an old chat, and can I delete one?
 
-Click the chat name in the header. The switcher lists every chat with its topic, last activity and
-what it holds (turns, tool calls, tokens, running time, workspace folder), grouped by recency and
-filtered as you type. The pencil renames a chat; the bin deletes it and its transcript after an
-in-row confirmation. Deleting removes that chat's folder under `~/.abstractassistant/sessions/`;
-the gateway keeps its own durable session data.
+Click the chat name in the header. The switcher lists every session the gateway holds for you —
+including sessions started from AbstractCode or another device — with its topic, last activity
+and what it holds (turns, state, and once opened here, tool calls, tokens, running time and
+workspace folder), grouped by recency and filtered as you type. The pencil renames a session on
+this device; the bin removes it from this list after an in-row confirmation and drops its cached
+transcript. The gateway has no session delete, so the runs stay there.
+
+## I upgraded and some old chats are gone from the list
+
+Sessions now come from the gateway. Chats that existed only on this Mac (for example after the
+gateway was reset) are removed from the list once; the switcher says how many, and their text is
+kept under `~/.abstractassistant/sessions-legacy/`.
 
 ## Where are downloads stored?
 
@@ -1787,6 +1840,33 @@ SOFTWARE.
 
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
+
+## Unreleased
+
+### Changed
+- **Sessions come from the gateway.** The session switcher lists the gateway's sessions — the
+  root runs of the connected gateway grouped by session — so a session started from AbstractCode,
+  another device or any other client appears too, with its first question as its title, its turn
+  count and whether a run is running or waiting for you. Opening a session shows the cached
+  transcript at once and replaces it with the gateway's history.
+- Renaming a session sets a label on this device. Removing a session hides it from this list and
+  drops its cached transcript; its runs stay on the gateway, which has no session delete.
+- The files under `~/.abstractassistant/` for sessions (`session_cache.json`, `sessions/`) are a
+  cache that can be deleted at any time: only local labels and removals are lost.
+- When the gateway cannot be reached, the switcher shows the cached sessions under
+  "Cached — gateway unreachable" and deletes nothing.
+
+### Fixed
+- An unreadable cached transcript is no longer replaced by an empty one: it is moved to
+  `~/.abstractassistant/sessions-legacy/` and rebuilt from the gateway, and the palette says so
+  when the gateway cannot rebuild it.
+
+### Migration
+- On first launch the earlier local session index (`sessions.json`, `session.json`) is converted
+  and kept in `~/.abstractassistant/sessions-legacy/`. On the first complete list from the gateway,
+  sessions the gateway does not know are removed from the list once, with one notice in the
+  switcher giving their number; their text is kept in `sessions-legacy/`. Renames of the remaining
+  sessions are kept.
 
 ## [0.6.1] - 2026-09-27
 
@@ -4748,26 +4828,28 @@ class AssistantController:
         return self.llm_manager.list_sessions()
 
     def session_digests(self) -> List[Dict[str, Any]]:
-        """Per-chat metrics for the switcher. Reads local files only, cached by
-        file identity, so it is fast enough to call on the GUI thread (42 ms for
-        74 chats cold, under 2 ms warm)."""
-        try:
-            return list(self.llm_manager.session_digests() or [])
-        except Exception:
-            # Fall back to the index-only view so the switcher still lists chats.
-            out: List[Dict[str, Any]] = []
-            for record in self.list_sessions() or []:
-                if isinstance(record, dict) and str(record.get("session_id") or "").strip():
-                    out.append(
-                        {
-                            "session_id": str(record.get("session_id")),
-                            "title": str(record.get("title") or "New session"),
-                            "created_at": str(record.get("created_at") or ""),
-                            "updated_at": str(record.get("updated_at") or ""),
-                            "detailed": False,
-                        }
-                    )
-            return out
+        """The session list for the switcher: the gateway's sessions as last
+        fetched, from the local cache (no network), so it is fast enough to
+        call on the GUI thread. `refresh_sessions` updates it."""
+        return list(self.llm_manager.session_digests() or [])
+
+    def refresh_sessions(self) -> Dict[str, Any]:
+        """Fetch the session list from the gateway (blocking: off the GUI thread)."""
+        return dict(self.llm_manager.refresh_sessions_from_gateway() or {})
+
+    def session_list_state(self) -> Dict[str, Any]:
+        return dict(self.llm_manager.session_list_state() or {})
+
+    def take_session_notice(self) -> str:
+        return str(self.llm_manager.take_session_notice() or "")
+
+    def sync_session_from_gateway(self) -> Dict[str, Any]:
+        """Replace the active session's cached transcript with the gateway's
+        history (blocking: off the GUI thread)."""
+        return dict(self.llm_manager.sync_session_from_gateway() or {})
+
+    def session_problem(self) -> str:
+        return str(self.llm_manager.session_problem() or "")
 
     def rename_session(self, session_id: str, title: str) -> None:
         self.llm_manager.rename_session(session_id, title)
@@ -6279,7 +6361,7 @@ class GatewayClient:
             raise ValueError("get_run: run_id is required")
         return self._request_json(method="GET", url=self._url(f"/api/gateway/runs/{rid}"), label="get_run failed")
 
-    def get_run_input_data(self, *, run_id: str) -> Dict[str, Any]:
+    def get_run_input_data(self, *, run_id: str, timeout_s: Optional[float] = None) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
         if not rid:
             raise ValueError("get_run_input_data: run_id is required")
@@ -6287,6 +6369,31 @@ class GatewayClient:
             method="GET",
             url=self._url(f"/api/gateway/runs/{rid}/input_data"),
             label="get_run_input_data failed",
+            timeout_s=timeout_s,
+        )
+
+    @staticmethod
+    def session_listing_path(limit: int) -> str:
+        """The exact query the session list sends — PINNED by a test.
+
+        The same query AbstractCode's session board sends
+        (`abstractcode/tui/src/gateway/mod.rs` `session_listing_path`):
+        `root_only=true` because a session's turns are its root runs, and
+        `include_ledger_len=false` because that field costs the gateway a read
+        of every listed run's ledger and nothing here reads it. The gateway
+        REFUSES unknown query parameters with a 400 (`routes/gateway.py`
+        `list_runs`), so a renamed or added parameter does not degrade — it
+        empties the list. Nothing else may be added here.
+        """
+        return f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+
+    def list_session_runs(self, *, limit: int, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        """One page of root runs, newest first, for the session list."""
+        return self._request_json(
+            method="GET",
+            url=_join(self._cfg.base_url, self.session_listing_path(limit)),
+            label="list_session_runs failed",
+            timeout_s=timeout_s,
         )
 
     def list_runs(self, *, limit: int = 50, status: str = "", session_id: str = "", root_only: bool = False) -> Dict[str, Any]:
@@ -12544,104 +12651,314 @@ class GatewayVoiceManager:
     def _session_run_id(self) -> str:
         return str(session_memory_owner_run_id(self._session_id()))
 
---- abstractassistant/core/session_index.py ---
-"""Durable multi-session index for AbstractAssistant.
+--- abstractassistant/core/gateway_sessions.py ---
+"""The session list, as the gateway knows it.
 
-AbstractAssistant already persists a single session under the data dir:
-- `session.json` (transcript snapshot + ids)
-- `runtime/` (AbstractRuntime stores)
+The gateway is the only source of truth for which sessions exist: a session is
+the set of ROOT runs that carry the same ``session_id``. This module turns one
+``GET /api/gateway/runs`` page into one row per session, with the rules
+AbstractCode uses (``abstractcode/tui/src/runner.rs`` ``fold_session_rows``,
+``abstractcode/web/src/workspace/catalog.ts`` ``normalizeSessionSummaries``) —
+divergence from those is a bug in one of the three:
 
-This module adds a light registry so the tray UI can manage *multiple* sessions.
-New sessions are created under:
-  <data_dir>/sessions/<session_id>/
+- a run without a ``session_id`` (or without a ``run_id``) is not a session;
+- a child run (``parent_run_id`` set) is never a turn;
+- turns = the root runs of the session in the page;
+- recency = the newest ``updated_at`` (``created_at`` when absent) — the field
+  the gateway pages on, so the order matches the page's membership;
+- state = the liveliest run: waiting > running > failed/cancelled > completed;
+  a status the gateway did not report is ``unknown``, never "done";
+- the first run (oldest ``created_at``) is where the session's opening prompt
+  lives; the latest run (newest ``created_at``) is the one whose history bundle
+  carries every turn up to it (``include_session`` stops at that run's
+  ``created_at``), so it anchors the transcript;
+- ``has_more`` other than an explicit ``false`` means the page is truncated:
+  a session missing from it is not provably absent.
+
+Synthetic ``__session_memory__`` runs never reach this fold: the listing drops
+internal workflows server-side unless a ``workflow_id`` filter is sent.
+
+Pure and Qt-free, so it is tested from JSON fixtures without a gateway.
 """
 
 from __future__ import annotations
 
-import json
-import shutil
-import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from .session_digest import parse_timestamp
+
+__all__ = [
+    "SESSION_LIST_LIMIT",
+    "SESSION_PROMPT_MAX",
+    "GatewaySession",
+    "fold_session_rows",
+    "prompt_from_input_data",
+]
+
+# The page the session list asks for — the same N AbstractCode's session board
+# uses (`abstractcode/tui/src/ui/modals.rs` SESSION_LIST_LIMIT). The page covers
+# the most recent N ROOT RUNS across all sessions; `has_more` says when the
+# store holds more. One request per refresh, never polled.
+SESSION_LIST_LIMIT = 5000
+# How many sessions' opening prompts one refresh fetches (one request each),
+# newest first — AbstractCode's SESSION_PROMPT_MAX. Fetched prompts are cached,
+# so the next refresh continues where this one stopped.
+SESSION_PROMPT_MAX = 40
+
+_STATE_RANK = {"waiting": 4, "running": 3, "failed": 2, "done": 1, "unknown": 0}
+_STATUS_TO_STATE = {
+    "waiting": "waiting",
+    "running": "running",
+    "failed": "failed",
+    "cancelled": "failed",
+    "completed": "done",
+}
+_FLOOR = datetime.min.replace(tzinfo=timezone.utc)
+
+
+@dataclass(frozen=True)
+class GatewaySession:
+    """One session row, folded from the gateway's root runs."""
+
+    session_id: str
+    state: str = "unknown"
+    updated_at: str = ""
+    created_at: str = ""
+    first_run_id: str = ""
+    latest_run_id: str = ""
+    turns: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "state": self.state,
+            "updated_at": self.updated_at,
+            "created_at": self.created_at,
+            "first_run_id": self.first_run_id,
+            "latest_run_id": self.latest_run_id,
+            "turns": int(self.turns),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> Optional["GatewaySession"]:
+        if not isinstance(raw, dict):
+            return None
+        sid = str(raw.get("session_id") or "").strip()
+        if not sid:
+            return None
+        state = str(raw.get("state") or "unknown")
+        try:
+            turns = max(0, int(raw.get("turns") or 0))
+        except Exception:
+            turns = 0
+        return cls(
+            session_id=sid,
+            state=state if state in _STATE_RANK else "unknown",
+            updated_at=str(raw.get("updated_at") or ""),
+            created_at=str(raw.get("created_at") or ""),
+            first_run_id=str(raw.get("first_run_id") or ""),
+            latest_run_id=str(raw.get("latest_run_id") or ""),
+            turns=turns,
+        )
+
+
+def _text(value: Any) -> str:
+    return str(value).strip() if isinstance(value, str) else ""
+
+
+def _state_for(run: Dict[str, Any]) -> str:
+    return _STATUS_TO_STATE.get(_text(run.get("status")).lower(), "unknown")
+
+
+def _activity(run: Dict[str, Any]) -> str:
+    return _text(run.get("updated_at")) or _text(run.get("created_at"))
+
+
+def _created(run: Dict[str, Any]) -> str:
+    return _text(run.get("created_at")) or _activity(run)
+
+
+def _when(value: str) -> datetime:
+    return parse_timestamp(value) or _FLOOR
+
+
+def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
+    """Fold one ``/runs`` page into session rows, newest first.
+
+    Returns ``(rows, truncated)``.
+    """
+    body = payload if isinstance(payload, dict) else {}
+    items = body.get("items")
+    if not isinstance(items, list):
+        items = body.get("runs") if isinstance(body.get("runs"), list) else []
+    truncated = body.get("has_more") is not False
+
+    groups: Dict[str, List[Tuple[int, Dict[str, Any]]]] = {}
+    for index, run in enumerate(items):
+        if not isinstance(run, dict):
+            continue
+        if _text(run.get("parent_run_id")):
+            continue
+        sid = _text(run.get("session_id"))
+        rid = _text(run.get("run_id"))
+        if not sid or not rid:
+            continue
+        groups.setdefault(sid, []).append((index, run))
+
+    rows: List[GatewaySession] = []
+    for sid, group in groups.items():
+        state = "unknown"
+        for _index, run in group:
+            candidate = _state_for(run)
+            if _STATE_RANK[candidate] > _STATE_RANK[state]:
+                state = candidate
+        # Ties go to the earlier position in the page (the listing is
+        # newest-first), as in the web fold.
+        newest = max(group, key=lambda entry: (_when(_activity(entry[1])), -entry[0]))[1]
+        oldest = min(group, key=lambda entry: (_when(_created(entry[1])), entry[0]))[1]
+        latest = max(group, key=lambda entry: (_when(_created(entry[1])), -entry[0]))[1]
+        rows.append(
+            GatewaySession(
+                session_id=sid,
+                state=state,
+                updated_at=_activity(newest),
+                created_at=_created(oldest),
+                first_run_id=_text(oldest.get("run_id")),
+                latest_run_id=_text(latest.get("run_id")),
+                turns=len(group),
+            )
+        )
+    # Newest first by the field the gateway paged on; ties by id (stable).
+    rows.sort(key=lambda row: row.session_id)
+    rows.sort(key=lambda row: _when(row.updated_at), reverse=True)
+    return rows, truncated
+
+
+def prompt_from_input_data(payload: Any) -> str:
+    """The prompt a run was started with, from ``GET /runs/{id}/input_data``.
+
+    The same read AbstractCode's session board does (`input_data.prompt`, or a
+    bare `prompt` on older gateways), plus `context.task` — where this client's
+    own run input also carries it (`gateway/run_input.py`).
+    """
+    body = payload if isinstance(payload, dict) else {}
+    for node in (body.get("input_data"), body):
+        if not isinstance(node, dict):
+            continue
+        prompt = _text(node.get("prompt"))
+        if prompt:
+            return prompt
+        context = node.get("context")
+        if isinstance(context, dict):
+            task = _text(context.get("task"))
+            if task:
+                return task
+    return ""
+
+--- abstractassistant/core/session_cache.py ---
+"""The Assistant's local session cache — rebuildable, never a source of truth.
+
+Which sessions exist, their turns and their transcripts belong to the gateway
+(see ``gateway_sessions``). What lives here is only what makes the app fast and
+usable offline, keyed by the gateway ``session_id``:
+
+- ``<data_dir>/session_cache.json`` — the active session id, the user's local
+  labels (renames), the opening prompts already fetched, last-seen stamps,
+  sessions the user removed from this list, and the last session rows the
+  gateway returned (shown, marked as cached, while it cannot be reached);
+- ``<data_dir>/sessions/<session_id>/session.json`` — a cached transcript,
+  painted instantly and REPLACED by the gateway's history when the session is
+  opened.
+
+Deleting all of it loses nothing but labels and removals: the next refresh
+lists the same sessions from the gateway and opening one rebuilds its
+transcript.
+
+A new session still mints its id here (the gateway accepts any id and learns it
+with the first run); until that run exists it is listed only while it is the
+active session.
+
+Migration from the local-first index of 0.6.1 and earlier
+(``sessions.json`` + ``session.json`` in the data dir) happens in two steps:
+at construction the old files are converted to this layout and the old index is
+moved to ``sessions-legacy/``; on the first COMPLETE listing from the gateway,
+every old session the gateway does not know is dropped from the list and its
+folder moved to ``sessions-legacy/`` — never deleted — with one notice.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import shutil
+import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+from .gateway_sessions import GatewaySession
 from .session_store import SessionSnapshot, SessionStore
+
+__all__ = ["SessionCache", "safe_title", "CACHE_FILE", "LEGACY_INDEX_FILE", "LEGACY_DIR"]
+
+CACHE_FILE = "session_cache.json"
+LEGACY_INDEX_FILE = "sessions.json"
+LEGACY_DIR = "sessions-legacy"
+_CACHE_VERSION = 1
+
+_TITLE_MAX = 80  # session-picker title bound (marked when it bites; ADR-0026)
+_SAFE_DIR_NAME = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$")
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_TITLE_MAX = 80  # session-picker title bound (marked when it bites; ADR-0026)
-
-
-def _safe_title(title: str) -> str:
+def safe_title(title: str) -> str:
+    """One line, bounded, for a label or an opening prompt shown as a title."""
     t = str(title or "").strip()
     if not t:
-        return "New session"
-    # Keep dropdown readable. ADR-0026 §1: this string is PERSISTED as the
-    # session's title, so a bare cut reads back forever as the whole title —
-    # mark it instead. The conversation itself is never touched.
-    t = t.replace("\n", " ").replace("\r", " ").strip()
+        return ""
+    # ADR-0026 §1: a bare cut reads back as the whole title — mark it instead.
+    # The conversation itself is never touched.
+    t = " ".join(t.replace("\n", " ").replace("\r", " ").split())
     if len(t) <= _TITLE_MAX:
         return t
-    #[WARNING:TRUNCATION] persisted session title bounded for the picker
+    #[WARNING:TRUNCATION] session title bounded for the picker
     return t[: _TITLE_MAX - 1].rstrip() + "…"
 
 
-@dataclass(frozen=True)
-class SessionRecord:
-    session_id: str
-    actor_id: str
-    title: str
-    path: str  # relative to base_dir, "." for legacy/base session
-    created_at: str
-    updated_at: str
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "session_id": self.session_id,
-            "actor_id": self.actor_id,
-            "title": self.title,
-            "path": self.path,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-        }
-
-    @classmethod
-    def from_dict(cls, raw: Dict[str, Any]) -> "SessionRecord":
-        sid = str(raw.get("session_id") or "").strip()
-        aid = str(raw.get("actor_id") or "").strip()
-        if not sid:
-            raise ValueError("session_id is required")
-        if not aid:
-            raise ValueError("actor_id is required")
-        title = _safe_title(str(raw.get("title") or ""))
-        path = str(raw.get("path") or "").strip() or "."
-        created_at = str(raw.get("created_at") or "").strip() or _utc_now_iso()
-        updated_at = str(raw.get("updated_at") or "").strip() or created_at
-        return cls(
-            session_id=sid,
-            actor_id=aid,
-            title=title,
-            path=path,
-            created_at=created_at,
-            updated_at=updated_at,
-        )
+def _placeholder(title: str) -> bool:
+    return str(title or "").strip().lower() in {"", "new session", "new chat"}
 
 
-class SessionIndex:
-    """Stores the list of durable sessions and the active session."""
+class SessionCache:
+    """Local cache state for the session list (thread-safe)."""
 
     def __init__(self, base_dir: Path):
         self._base_dir = Path(base_dir).expanduser()
         self._base_dir.mkdir(parents=True, exist_ok=True)
-        self._path = self._base_dir / "sessions.json"
-        self._active_session_id: Optional[str] = None
-        self._sessions: List[SessionRecord] = []
-        self._legacy_removed = False
-        self._load_or_bootstrap()
+        self._path = self._base_dir / CACHE_FILE
+        self._lock = threading.RLock()
+        self._active_session_id = ""
+        self._labels: Dict[str, str] = {}
+        self._prompts: Dict[str, str] = {}
+        self._last_seen: Dict[str, str] = {}
+        self._hidden: List[str] = []
+        self._rows: List[GatewaySession] = []
+        self._fetched_at = ""
+        self._truncated = False
+        self._notice = ""
+        # Sessions converted from the 0.6.1-and-earlier local index that the gateway has
+        # not yet confirmed: {session_id: {"created_at", "updated_at"}}.
+        self._legacy_pending: Dict[str, Dict[str, str]] = {}
+        self._load()
+
+    # ------------------------------------------------------------ properties
 
     @property
     def base_dir(self) -> Path:
@@ -12652,257 +12969,360 @@ class SessionIndex:
         return self._path
 
     @property
+    def legacy_dir(self) -> Path:
+        return self._base_dir / LEGACY_DIR
+
+    @property
     def active_session_id(self) -> str:
-        sid = str(self._active_session_id or "").strip()
-        if sid:
-            return sid
-        if self._sessions:
-            return self._sessions[0].session_id
-        # Should not happen; bootstrap guarantees at least one session.
-        return self._ensure_legacy_session().session_id
+        with self._lock:
+            if not self._active_session_id:
+                self._mint_locked()
+                self._save_locked()
+            return self._active_session_id
 
-    def active_record(self) -> SessionRecord:
-        return self.get(self.active_session_id)
-
-    def records(self) -> List[SessionRecord]:
-        # Sort by recency (updated_at is ISO).
-        return sorted(self._sessions, key=lambda r: str(r.updated_at), reverse=True)
-
-    def get(self, session_id: str) -> SessionRecord:
-        sid = str(session_id or "").strip()
-        for r in self._sessions:
-            if r.session_id == sid:
-                return r
-        raise KeyError(f"Unknown session_id: {sid}")
+    # ------------------------------------------------------------- sessions
 
     def data_dir_for(self, session_id: str) -> Path:
-        rec = self.get(session_id)
-        rel = Path(rec.path)
-        return (self._base_dir / rel).resolve()
+        """The cache folder for a gateway session id (any id is accepted)."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            raise ValueError("session_id must be non-empty")
+        name = sid if _SAFE_DIR_NAME.match(sid) else "sha_" + hashlib.sha256(sid.encode("utf-8")).hexdigest()[:32]
+        return self._base_dir / "sessions" / name
 
     def set_active(self, session_id: str) -> None:
         sid = str(session_id or "").strip()
         if not sid:
             raise ValueError("session_id must be non-empty")
-        _ = self.get(sid)  # validate
-        self._active_session_id = sid
-        self._save()
+        with self._lock:
+            self._active_session_id = sid
+            self._last_seen[sid] = _utc_now_iso()
+            self._save_locked()
 
-    def touch(self, session_id: str) -> None:
-        sid = str(session_id or "").strip()
-        if not sid:
-            return
-        now = _utc_now_iso()
-        updated: List[SessionRecord] = []
-        for r in self._sessions:
-            if r.session_id != sid:
-                updated.append(r)
-                continue
-            updated.append(
-                SessionRecord(
-                    session_id=r.session_id,
-                    actor_id=r.actor_id,
-                    title=r.title,
-                    path=r.path,
-                    created_at=r.created_at,
-                    updated_at=now,
-                )
-            )
-        self._sessions = updated
-        self._save()
+    def create_session(self) -> str:
+        """Mint a new session id locally and make it active."""
+        with self._lock:
+            sid = self._mint_locked()
+            self._save_locked()
+            return sid
 
-    def update_title(self, session_id: str, title: str) -> None:
-        sid = str(session_id or "").strip()
-        if not sid:
-            return
-        now = _utc_now_iso()
-        new_title = _safe_title(title)
-        updated: List[SessionRecord] = []
-        for r in self._sessions:
-            if r.session_id != sid:
-                updated.append(r)
-                continue
-            updated.append(
-                SessionRecord(
-                    session_id=r.session_id,
-                    actor_id=r.actor_id,
-                    title=new_title,
-                    path=r.path,
-                    created_at=r.created_at,
-                    updated_at=now,
-                )
-            )
-        self._sessions = updated
-        self._save()
-
-    def create_session(self) -> SessionRecord:
-        """Create a new durable session directory and set it active."""
-        session_id = f"sess_{uuid.uuid4().hex}"
-        actor_id = f"actor_{uuid.uuid4().hex}"
-        now = _utc_now_iso()
-        rel_path = Path("sessions") / session_id
-        data_dir = self._base_dir / rel_path
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create an empty snapshot so the gateway session loader picks up the
-        # intended session/actor ids on first load.
-        store = SessionStore(data_dir / "session.json")
-        store.save(SessionSnapshot(session_id=session_id, actor_id=actor_id, messages=[], last_run_id=None))
-
-        rec = SessionRecord(
-            session_id=session_id,
-            actor_id=actor_id,
-            title="New session",
-            path=str(rel_path).replace("\\", "/"),
-            created_at=now,
-            updated_at=now,
+    def _mint_locked(self) -> str:
+        sid = f"sess_{uuid.uuid4().hex}"
+        SessionStore(self.data_dir_for(sid) / "session.json").save(
+            SessionSnapshot(session_id=sid, actor_id="gateway", messages=[], last_run_id=None)
         )
-        self._sessions.append(rec)
-        self._active_session_id = session_id
-        self._save()
-        return rec
+        self._active_session_id = sid
+        self._last_seen[sid] = _utc_now_iso()
+        return sid
 
-    def delete_session(self, session_id: str) -> str:
-        """Remove a chat and its stored transcript. Returns the session id that
-        is active afterwards.
+    def label(self, session_id: str) -> str:
+        with self._lock:
+            return self._labels.get(str(session_id or "").strip(), "")
 
-        The chat's own folder under ``sessions/`` is removed; the legacy chat
-        (``path == "."``) shares the app's data folder, so only its
-        ``session.json`` is deleted and a marker keeps it from coming back on
-        the next load. Deleting the last remaining chat creates a fresh one so
-        the app always has somewhere to write.
+    def set_label(self, session_id: str, title: str) -> None:
+        sid = str(session_id or "").strip()
+        if not sid:
+            return
+        value = safe_title(title)
+        with self._lock:
+            if value:
+                self._labels[sid] = value
+            else:
+                self._labels.pop(sid, None)
+            self._save_locked()
+
+    def prompt(self, session_id: str) -> Optional[str]:
+        """The gateway opening prompt already fetched ("" = the gateway had
+        none), or None when it was never fetched."""
+        with self._lock:
+            return self._prompts.get(str(session_id or "").strip())
+
+    def set_prompts(self, prompts: Dict[str, str]) -> None:
+        if not prompts:
+            return
+        with self._lock:
+            for sid, text in prompts.items():
+                if str(sid or "").strip():
+                    self._prompts[str(sid).strip()] = safe_title(text)
+            self._save_locked()
+
+    def last_seen(self, session_id: str) -> str:
+        with self._lock:
+            return self._last_seen.get(str(session_id or "").strip(), "")
+
+    def is_hidden(self, session_id: str) -> bool:
+        with self._lock:
+            return str(session_id or "").strip() in self._hidden
+
+    def remove_from_list(self, session_id: str) -> str:
+        """Hide a session from this list and drop its cached transcript.
+
+        The gateway has no route to delete a session, so its runs stay there;
+        this is a local preference, like a label. Returns the active session id
+        afterwards (a new session when the removed one was active).
         """
         sid = str(session_id or "").strip()
-        record = self.get(sid)  # raises KeyError for an unknown chat
-        was_active = sid == self.active_session_id
-
-        if record.path == ".":
-            try:
-                (self._base_dir / "session.json").unlink()
-            except FileNotFoundError:
-                pass
-            except Exception:
-                pass
-            self._legacy_removed = True
-        else:
-            data_dir = (self._base_dir / Path(record.path)).resolve()
+        if not sid:
+            return self.active_session_id
+        with self._lock:
+            if sid not in self._hidden:
+                self._hidden.append(sid)
+            self._labels.pop(sid, None)
+            self._legacy_pending.pop(sid, None)
+            folder = self.data_dir_for(sid)
             sessions_root = (self._base_dir / "sessions").resolve()
-            # Never remove anything outside <data_dir>/sessions/<id>/.
-            if data_dir != sessions_root and sessions_root in data_dir.parents:
-                shutil.rmtree(data_dir, ignore_errors=True)
-
-        self._sessions = [r for r in self._sessions if r.session_id != sid]
-        if not self._sessions:
-            self._active_session_id = ""
-            self._save()
-            return self.create_session().session_id
-        if was_active:
-            self._active_session_id = self.records()[0].session_id
-        self._save()
-        return self.active_session_id
-
-    def _load_or_bootstrap(self) -> None:
-        data = None
-        if self._path.exists():
             try:
-                data = json.loads(self._path.read_text(encoding="utf-8"))
+                resolved = folder.resolve()
             except Exception:
-                data = None
+                resolved = folder
+            if resolved != sessions_root and sessions_root in resolved.parents:
+                shutil.rmtree(resolved, ignore_errors=True)
+            if self._active_session_id == sid:
+                candidates = [r.session_id for r in self._rows if r.session_id not in self._hidden]
+                if candidates:
+                    self._active_session_id = candidates[0]
+                else:
+                    self._mint_locked()
+            self._save_locked()
+            return self._active_session_id
 
-        if not isinstance(data, dict):
-            self._bootstrap()
-            return
+    # --------------------------------------------------------- gateway rows
 
-        sessions_raw = data.get("sessions")
-        sessions: List[SessionRecord] = []
-        if isinstance(sessions_raw, list):
-            for item in sessions_raw:
-                if not isinstance(item, dict):
+    def rows(self) -> List[GatewaySession]:
+        with self._lock:
+            return list(self._rows)
+
+    def row(self, session_id: str) -> Optional[GatewaySession]:
+        sid = str(session_id or "").strip()
+        with self._lock:
+            for row in self._rows:
+                if row.session_id == sid:
+                    return row
+        return None
+
+    @property
+    def fetched_at(self) -> str:
+        with self._lock:
+            return self._fetched_at
+
+    @property
+    def truncated(self) -> bool:
+        with self._lock:
+            return self._truncated
+
+    def set_rows(self, rows: Iterable[GatewaySession], *, truncated: bool) -> None:
+        with self._lock:
+            self._rows = [r for r in rows if isinstance(r, GatewaySession)]
+            self._truncated = bool(truncated)
+            self._fetched_at = _utc_now_iso()
+            self._save_locked()
+
+    # ------------------------------------------------------------ migration
+
+    def legacy_pending(self) -> Dict[str, Dict[str, str]]:
+        with self._lock:
+            return {sid: dict(meta) for sid, meta in self._legacy_pending.items()}
+
+    def reconcile_legacy(self, gateway_ids: Iterable[str], *, complete: bool) -> Optional[int]:
+        """Drop 0.6.1-and-earlier local sessions the gateway does not know.
+
+        Runs once, on the first COMPLETE listing (a truncated page cannot prove
+        a session absent; the decision is then deferred). Returns how many
+        sessions were removed from the list, or None when deferred / nothing
+        was pending. Removed folders move to ``sessions-legacy/`` — the text is
+        kept. The ACTIVE session is never moved while in use: when it is
+        local-only its transcript is copied there and it stays listed only
+        while active, like any session without a gateway run.
+        """
+        with self._lock:
+            if not self._legacy_pending:
+                return None
+            if not complete:
+                return None
+            known = {str(s) for s in gateway_ids}
+            removed = 0
+            for sid in list(self._legacy_pending):
+                if sid in known:
                     continue
+                removed += 1
+                self._labels.pop(sid, None)
+                folder = self.data_dir_for(sid)
+                target = self.legacy_dir / folder.name
+                if not folder.exists():
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if sid == self._active_session_id:
+                    if not target.exists():
+                        shutil.copytree(folder, target)
+                elif not target.exists():
+                    shutil.move(str(folder), str(target))
+            self._legacy_pending = {}
+            if removed:
+                plural = removed != 1
+                self._notice = (
+                    f"{removed} local-only session{'s' if plural else ''} from an earlier version "
+                    f"{'were' if plural else 'was'} removed from the list; their text is kept in {self.legacy_dir}"
+                )
+            self._save_locked()
+            return removed
+
+    def take_notice(self) -> str:
+        """The one-time migration notice (cleared once read)."""
+        with self._lock:
+            notice = self._notice
+            if notice:
+                self._notice = ""
+                self._save_locked()
+            return notice
+
+    def peek_notice(self) -> str:
+        with self._lock:
+            return self._notice
+
+    # ------------------------------------------------------------ persistence
+
+    def _load(self) -> None:
+        with self._lock:
+            legacy_index = self._base_dir / LEGACY_INDEX_FILE
+            if not self._path.exists() and legacy_index.exists():
+                self._convert_legacy_index(legacy_index)
+                self._save_locked()
+                return
+            data: Any = None
+            if self._path.exists():
                 try:
-                    sessions.append(SessionRecord.from_dict(item))
+                    data = json.loads(self._path.read_text(encoding="utf-8"))
                 except Exception:
-                    continue
+                    # A broken cache is rebuilt, never trusted — keep it aside.
+                    self._set_aside(self._path)
+                    data = None
+            if isinstance(data, dict):
+                self._active_session_id = str(data.get("active_session_id") or "").strip()
+                self._labels = {str(k): str(v) for k, v in dict(data.get("labels") or {}).items() if str(v).strip()}
+                self._prompts = {str(k): str(v) for k, v in dict(data.get("prompts") or {}).items()}
+                self._last_seen = {str(k): str(v) for k, v in dict(data.get("last_seen") or {}).items()}
+                self._hidden = [str(s) for s in (data.get("hidden") or []) if str(s).strip()]
+                self._rows = [r for r in (GatewaySession.from_dict(x) for x in (data.get("rows") or [])) if r is not None]
+                self._fetched_at = str(data.get("fetched_at") or "")
+                self._truncated = bool(data.get("truncated"))
+                self._notice = str(data.get("notice") or "")
+                pending = data.get("legacy_pending")
+                if isinstance(pending, dict):
+                    self._legacy_pending = {
+                        str(k): {kk: str(vv) for kk, vv in dict(v or {}).items()} for k, v in pending.items()
+                    }
+            if not self._active_session_id:
+                self._mint_locked()
+            self._save_locked()
 
-        self._legacy_removed = bool(data.get("legacy_removed"))
-        # Always ensure legacy/base session is present (for back-compat) —
-        # unless the user deleted it, which must stay deleted.
-        if self._legacy_removed:
-            legacy = None
-        else:
-            legacy = self._ensure_legacy_session()
-            if not any(r.session_id == legacy.session_id for r in sessions):
-                sessions.append(legacy)
+    def _convert_legacy_index(self, legacy_index: Path) -> None:
+        """Step one of the migration: the 0.6.1-and-earlier files become this cache.
 
-        # Filter out missing directories (except legacy ".").
-        filtered: List[SessionRecord] = []
-        for r in sessions:
-            if r.path == ".":
-                filtered.append(r)
+        Local only. Every old session keeps its transcript (moved into
+        ``sessions/<id>/`` when it was the legacy base session) and its rename
+        (as a label); all of them are PENDING until the gateway confirms them.
+        """
+        try:
+            data = json.loads(legacy_index.read_text(encoding="utf-8"))
+        except Exception:
+            data = None
+        records = data.get("sessions") if isinstance(data, dict) else None
+        base_snapshot = self._base_dir / "session.json"
+        for item in records if isinstance(records, list) else []:
+            if not isinstance(item, dict):
                 continue
-            if (self._base_dir / Path(r.path)).exists():
-                filtered.append(r)
-        if not filtered:
-            legacy = legacy or self._ensure_legacy_session()
-            self._legacy_removed = False
-            filtered = [legacy]
+            sid = str(item.get("session_id") or "").strip()
+            if not sid:
+                continue
+            rel = str(item.get("path") or "").strip() or "."
+            target = self.data_dir_for(sid)
+            if rel == ".":
+                if not base_snapshot.exists():
+                    continue
+                target.mkdir(parents=True, exist_ok=True)
+                if not (target / "session.json").exists():
+                    shutil.move(str(base_snapshot), str(target / "session.json"))
+            else:
+                source = self._base_dir / Path(rel)
+                if not source.exists():
+                    continue
+                if source.resolve() != target.resolve() and not target.exists():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(source), str(target))
+            title = str(item.get("title") or "")
+            if not _placeholder(title):
+                self._labels[sid] = safe_title(title)
+            self._legacy_pending[sid] = {
+                "created_at": str(item.get("created_at") or ""),
+                "updated_at": str(item.get("updated_at") or ""),
+            }
+        active = str(data.get("active_session_id") or "").strip() if isinstance(data, dict) else ""
+        if active in self._legacy_pending:
+            self._active_session_id = active
+        elif self._legacy_pending:
+            newest = sorted(self._legacy_pending.items(), key=lambda kv: kv[1].get("updated_at", ""), reverse=True)
+            self._active_session_id = newest[0][0]
+        else:
+            self._mint_locked()
+        # The old index is kept, not deleted; so is a base snapshot no record
+        # referenced (a legacy session the user had deleted).
+        self._set_aside(legacy_index, keep_name=True)
+        if base_snapshot.exists():
+            self._set_aside(base_snapshot, keep_name=True)
 
-        active = str(data.get("active_session_id") or "").strip()
-        if not active or not any(r.session_id == active for r in filtered):
-            active = filtered[0].session_id
+    def set_aside(self, path: Path) -> Optional[Path]:
+        """Move an unreadable cache file into ``sessions-legacy/`` (kept, never
+        overwritten). Returns where it went, or None if it could not move."""
+        with self._lock:
+            return self._set_aside(Path(path))
 
-        self._sessions = filtered
-        self._active_session_id = active
-        self._save()
+    def _set_aside(self, path: Path, *, keep_name: bool = False) -> Optional[Path]:
+        try:
+            self.legacy_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            name = path.name if keep_name else f"{path.parent.name}-{path.name}.unreadable-{stamp}"
+            target = self.legacy_dir / name
+            if target.exists():
+                target = self.legacy_dir / f"{name}.{uuid.uuid4().hex[:6]}"
+            shutil.move(str(path), str(target))
+            return target
+        except Exception:
+            return None
 
-    def _bootstrap(self) -> None:
-        legacy = self._ensure_legacy_session()
-        self._sessions = [legacy]
-        self._active_session_id = legacy.session_id
-        self._save()
-
-    def _ensure_legacy_session(self) -> SessionRecord:
-        """Ensure base_dir/session.json exists and return its record."""
-        store = SessionStore(self._base_dir / "session.json")
-        snap = store.load()
-        if snap is None:
-            snap = SessionSnapshot(
-                session_id=f"sess_{uuid.uuid4().hex}",
-                actor_id=f"actor_{uuid.uuid4().hex}",
-                messages=[],
-                last_run_id=None,
-            )
-            store.save(snap)
-
-        now = _utc_now_iso()
-        # Keep title best-effort: if an index exists we will override from it.
-        return SessionRecord(
-            session_id=str(snap.session_id),
-            actor_id=str(snap.actor_id),
-            title="New session",
-            path=".",
-            created_at=now,
-            updated_at=now,
-        )
-
-    def _save(self) -> None:
+    def _save_locked(self) -> None:
         payload = {
-            "active_session_id": self.active_session_id,
-            "sessions": [r.to_dict() for r in self._sessions],
+            "version": _CACHE_VERSION,
+            "active_session_id": self._active_session_id,
+            "labels": dict(self._labels),
+            "prompts": dict(self._prompts),
+            "last_seen": dict(self._last_seen),
+            "hidden": list(self._hidden),
+            "rows": [r.to_dict() for r in self._rows],
+            "fetched_at": self._fetched_at,
+            "truncated": self._truncated,
         }
-        if getattr(self, "_legacy_removed", False):
-            payload["legacy_removed"] = True
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+        if self._notice:
+            payload["notice"] = self._notice
+        if self._legacy_pending:
+            payload["legacy_pending"] = {k: dict(v) for k, v in self._legacy_pending.items()}
         self._base_dir.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(self._path)
+        tmp = self._path.with_suffix(f"{self._path.suffix}.tmp-{uuid.uuid4().hex[:8]}")
+        try:
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            tmp.replace(self._path)
+        finally:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
 
 --- abstractassistant/core/session_store.py ---
-"""Session persistence for AbstractAssistant.
+"""The cached transcript of one session (``sessions/<id>/session.json``).
 
-This module stores *host UX state* (session id, actor id, and chat transcript snapshot)
-separately from AbstractRuntime stores. The runtime remains the source of truth for run
-durability; this file is a convenience for fast app startup and UX continuity.
+A CACHE of what the gateway holds: painted instantly when a session opens and
+replaced by the gateway's history as soon as it answers (see ``session_cache``).
+An unreadable file is reported, never silently replaced by an empty one.
 """
 
 from __future__ import annotations
@@ -12967,6 +13387,10 @@ class SessionSnapshot:
         )
 
 
+class SessionSnapshotUnreadable(Exception):
+    """The cached transcript exists but cannot be parsed."""
+
+
 class SessionStore:
     def __init__(self, path: Path):
         self._path = Path(path)
@@ -12975,18 +13399,28 @@ class SessionStore:
     def path(self) -> Path:
         return self._path
 
-    def load(self) -> Optional[SessionSnapshot]:
+    def read(self) -> Optional[SessionSnapshot]:
+        """The snapshot, None when there is no file, or raise
+        ``SessionSnapshotUnreadable`` when the file exists but is not a
+        snapshot — a caller must never mistake that for "empty"."""
         if not self._path.exists():
             return None
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-        except Exception:
-            return None
+        except Exception as exc:
+            raise SessionSnapshotUnreadable(f"{self._path}: {type(exc).__name__}: {exc}") from exc
         if not isinstance(data, dict):
-            return None
+            raise SessionSnapshotUnreadable(f"{self._path}: not a JSON object")
         try:
             return SessionSnapshot.from_dict(data)
-        except Exception:
+        except Exception as exc:
+            raise SessionSnapshotUnreadable(f"{self._path}: {exc}") from exc
+
+    def load(self) -> Optional[SessionSnapshot]:
+        """Lenient read: None when missing OR unreadable."""
+        try:
+            return self.read()
+        except SessionSnapshotUnreadable:
             return None
 
     def save(self, snapshot: SessionSnapshot) -> None:
@@ -13901,7 +14335,8 @@ INCLUDED_FILES: list[str] = [
     "abstractassistant/core/voice_conversation.py",
     "abstractassistant/core/tool_risk.py",
     "abstractassistant/core/gateway_voice_manager.py",
-    "abstractassistant/core/session_index.py",
+    "abstractassistant/core/gateway_sessions.py",
+    "abstractassistant/core/session_cache.py",
     "abstractassistant/core/session_store.py",
     "abstractassistant/gateway_service.py",
     "scripts/update_llms_full.py",
