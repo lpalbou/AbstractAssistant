@@ -45,8 +45,10 @@ dependencies = [
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",
-    # Global hotkey support for the tray shell.
+    # Global hotkey support for the tray shell; HIServices (ApplicationServices)
+    # answers whether macOS lets this process read the keyboard.
     "pynput>=1.7.7",
+    "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
     # Markdown rendering in UI
     "markdown-it-py>=4.0.0",
     "pygments>=2.16.0",

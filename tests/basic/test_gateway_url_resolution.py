@@ -1,9 +1,13 @@
-"""Which gateway the Assistant connects to (abstractassistant.config module rule).
+"""Which gateway the Assistant connects to (the rule in abstractassistant.config).
 
-`DEFAULT_GATEWAY_URL` is resolved when `abstractassistant.config` is imported, so each
-case runs a fresh interpreter whose `abstractgateway` is a stub package written for the
-case (it shadows any real gateway installed in the test environment). No real gateway
-is needed: these run in the Assistant's own CI, where abstractgateway is not installed.
+1. `--gateway-url` (or its env alias); 2. the saved sign-in; 3. the gateway's own
+`local_gateway()` rule; 4. http://127.0.0.1:8080. Tier 3 is consulted only when tiers 1
+and 2 do not apply.
+
+The tier 3-4 cases run a fresh interpreter whose `abstractgateway` is a stub package
+written for the case (it shadows any real gateway installed in the test environment), so
+they run in the Assistant's own CI, where abstractgateway is not installed. The tier 1-2
+cases drive the controller's resolution with `default_gateway_url` replaced.
 """
 
 from __future__ import annotations
@@ -26,11 +30,13 @@ _PROBE = textwrap.dedent(
     if sys.argv[1] == "absent":
         sys.modules["abstractgateway"] = None  # an interpreter without abstractgateway
     from abstractassistant import config
-    print(json.dumps({
-        "default": config.DEFAULT_GATEWAY_URL,
-        "resolved": config.resolve_gateway_connection()[0],
-        "flag": config.resolve_gateway_connection(url_override="http://10.0.0.5:9000/")[0],
-    }))
+    out = {
+        "launch": list(config.resolve_gateway_connection()),
+        "flag": list(config.resolve_gateway_connection(url_override="http://10.0.0.5:9000/")),
+    }
+    if sys.argv[2] == "default":
+        out["default"] = config.default_gateway_url()
+    print(json.dumps(out))
     """
 )
 
@@ -45,7 +51,12 @@ def _stub_gateway(tmp_path: Path, first_run_source: Optional[str]) -> Path:
 
 
 def _probe(
-    tmp_path: Path, stub_root: Optional[Path], *, mode: str = "stub", env_url: str = ""
+    tmp_path: Path,
+    stub_root: Optional[Path],
+    *,
+    mode: str = "stub",
+    ask_default: bool = True,
+    env_url: str = "",
 ) -> subprocess.CompletedProcess:
     env: Dict[str, str] = {
         k: v
@@ -57,7 +68,7 @@ def _probe(
     if env_url:
         env["ABSTRACTGATEWAY_URL"] = env_url
     return subprocess.run(
-        [sys.executable, "-c", _PROBE, mode],
+        [sys.executable, "-c", _PROBE, mode, "default" if ask_default else "no-default"],
         capture_output=True,
         text=True,
         env=env,
@@ -66,7 +77,7 @@ def _probe(
     )
 
 
-def _urls(proc: subprocess.CompletedProcess) -> Dict[str, str]:
+def _result(proc: subprocess.CompletedProcess) -> Dict[str, object]:
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
@@ -76,41 +87,46 @@ _GATEWAY_WITH_RULE = """
         return {"url": "http://127.0.0.1:18081/", "source": "serve_record", "serve": None}
 """
 
+_GATEWAY_WITH_FAILING_RULE = """
+    def local_gateway(data_dir=None):
+        raise PermissionError("gateway data dir unreadable (test)")
+"""
 
-@pytest.mark.basic
-def test_the_gateways_local_rule_is_the_default_and_the_flag_wins(tmp_path: Path) -> None:
-    urls = _urls(_probe(tmp_path, _stub_gateway(tmp_path, _GATEWAY_WITH_RULE)))
-    assert urls == {
-        "default": "http://127.0.0.1:18081",
-        "resolved": "http://127.0.0.1:18081",
-        "flag": "http://10.0.0.5:9000",
-    }
+
+# --- tiers 3-4: default_gateway_url() -------------------------------------------------
 
 
 @pytest.mark.basic
-def test_the_legacy_env_alias_wins_over_the_gateways_rule(tmp_path: Path) -> None:
+def test_the_gateways_local_rule_is_the_default(tmp_path: Path) -> None:
+    out = _result(_probe(tmp_path, _stub_gateway(tmp_path, _GATEWAY_WITH_RULE)))
+    assert out["default"] == "http://127.0.0.1:18081"
+    assert out["launch"] == ["", ""]  # no flag, no env: the launch names no URL
+    assert out["flag"] == ["http://10.0.0.5:9000", ""]
+
+
+@pytest.mark.basic
+def test_the_legacy_env_alias_is_a_launch_url(tmp_path: Path) -> None:
     stub = _stub_gateway(tmp_path, _GATEWAY_WITH_RULE)
-    urls = _urls(_probe(tmp_path, stub, env_url="http://10.0.0.7:8000"))
-    assert urls["default"] == "http://127.0.0.1:18081"
-    assert urls["resolved"] == "http://10.0.0.7:8000"
+    out = _result(_probe(tmp_path, stub, env_url="http://10.0.0.7:8000/"))
+    assert out["launch"] == ["http://10.0.0.7:8000", ""]
 
 
 @pytest.mark.basic
 def test_without_abstractgateway_the_default_is_the_builtin_url(tmp_path: Path) -> None:
-    urls = _urls(_probe(tmp_path, None, mode="absent"))
-    assert urls["default"] == urls["resolved"] == "http://127.0.0.1:8080"
+    out = _result(_probe(tmp_path, None, mode="absent"))
+    assert out["default"] == "http://127.0.0.1:8080"
 
 
 @pytest.mark.basic
 def test_a_gateway_older_than_the_rule_gives_the_builtin_url(tmp_path: Path) -> None:
     # abstractgateway 0.5.1: first_run exists, local_gateway does not.
     stub = _stub_gateway(tmp_path, "def first_run_state(data_dir):\n    return {}\n")
-    urls = _urls(_probe(tmp_path, stub))
-    assert urls["default"] == "http://127.0.0.1:8080"
+    out = _result(_probe(tmp_path, stub))
+    assert out["default"] == "http://127.0.0.1:8080"
 
 
 @pytest.mark.basic
-def test_a_broken_gateway_install_fails_loudly(tmp_path: Path) -> None:
+def test_a_broken_gateway_install_fails_loudly_when_the_rule_is_needed(tmp_path: Path) -> None:
     stub = _stub_gateway(tmp_path, "import abstractgateway_missing_dependency_for_test\n")
     proc = _probe(tmp_path, stub)
     assert proc.returncode != 0
@@ -118,39 +134,94 @@ def test_a_broken_gateway_install_fails_loudly(tmp_path: Path) -> None:
 
 
 @pytest.mark.basic
-def test_an_error_inside_the_gateways_rule_fails_loudly(tmp_path: Path) -> None:
-    stub = _stub_gateway(
-        tmp_path,
-        """
-        def local_gateway(data_dir=None):
-            raise PermissionError("gateway data dir unreadable (test)")
-        """,
-    )
-    proc = _probe(tmp_path, stub)
+def test_an_error_inside_the_gateways_rule_fails_loudly_when_the_rule_is_needed(tmp_path: Path) -> None:
+    proc = _probe(tmp_path, _stub_gateway(tmp_path, _GATEWAY_WITH_FAILING_RULE))
     assert proc.returncode != 0
     assert "gateway data dir unreadable (test)" in proc.stderr
 
 
 @pytest.mark.basic
-def test_a_saved_sign_in_wins_over_the_gateways_rule(tmp_path: Path, monkeypatch) -> None:
-    """Tier 2 over tier 3: no flag, a saved connection, a default from the gateway's rule."""
+def test_importing_config_never_consults_the_gateway(tmp_path: Path) -> None:
+    """A failing rule cannot block a launch that names its gateway: nothing at import
+    (or in resolving the launch's flag) touches the gateway package."""
+    for source in (_GATEWAY_WITH_FAILING_RULE, "import abstractgateway_missing_dependency_for_test\n"):
+        case = tmp_path / str(abs(hash(source)))
+        case.mkdir()
+        out = _result(_probe(case, _stub_gateway(case, source), ask_default=False))
+        assert out["flag"] == ["http://10.0.0.5:9000", ""]
+
+
+# --- tiers 1-2: the controller --------------------------------------------------------
+
+
+def _controller(tmp_path: Path, monkeypatch, *, launch_url: str, saved=None, rule=None):
+    from abstractassistant import controller as controller_mod
     from abstractassistant.config import Config
     from abstractassistant.controller import AssistantController
-    from abstractassistant.preferences import GatewayConnectionPreferences, GatewayConnectionStore
+    from abstractassistant.preferences import GatewayConnectionStore
 
-    from abstractassistant import controller as controller_mod
+    calls = []
 
-    monkeypatch.setattr(controller_mod, "DEFAULT_GATEWAY_URL", "http://127.0.0.1:18081")
+    def fake_rule() -> str:
+        calls.append(1)
+        if rule is None:
+            raise AssertionError("the gateway rule was consulted although a higher tier applies")
+        return rule
+
+    monkeypatch.setattr(controller_mod, "default_gateway_url", fake_rule)
+    monkeypatch.delenv("ABSTRACTGATEWAY_URL", raising=False)
+    monkeypatch.delenv("ABSTRACTFLOW_GATEWAY_URL", raising=False)
     controller = object.__new__(AssistantController)
     controller.connection_store = GatewayConnectionStore(tmp_path / "gateway_connection.json")
-    controller.connection_store.save(
-        GatewayConnectionPreferences(
-            base_url="https://saved.gateway.example", auth_mode="bearer", auth_token="saved"
-        )
+    if saved is not None:
+        controller.connection_store.save(saved)
+    controller.config = Config.from_dict({"gateway": {"url": launch_url}})
+    return AssistantController._load_connection_preferences(controller), calls
+
+
+def _saved(url: str):
+    from abstractassistant.preferences import GatewayConnectionPreferences
+
+    return GatewayConnectionPreferences(base_url=url, auth_mode="session", session_id="s1", user_id="me")
+
+
+@pytest.mark.basic
+def test_a_flag_equal_to_the_discovered_url_beats_a_different_saved_sign_in(tmp_path, monkeypatch) -> None:
+    resolved, calls = _controller(
+        tmp_path,
+        monkeypatch,
+        launch_url="http://127.0.0.1:18081",
+        saved=_saved("https://saved.gateway.example"),
+        rule="http://127.0.0.1:18081",
     )
-    controller.config = Config.from_dict({"gateway": {"url": "http://127.0.0.1:18081"}})
+    assert resolved.base_url == "http://127.0.0.1:18081"
+    assert calls == []
 
-    resolved = AssistantController._load_connection_preferences(controller)
 
+@pytest.mark.basic
+def test_a_flag_never_consults_the_gateway_rule(tmp_path, monkeypatch) -> None:
+    resolved, _ = _controller(tmp_path, monkeypatch, launch_url="http://10.0.0.5:9000")
+    assert resolved.base_url == "http://10.0.0.5:9000"
+
+
+@pytest.mark.basic
+def test_a_saved_sign_in_wins_over_the_rule_without_consulting_it(tmp_path, monkeypatch) -> None:
+    resolved, _ = _controller(tmp_path, monkeypatch, launch_url="", saved=_saved("https://saved.gateway.example"))
     assert resolved.base_url == "https://saved.gateway.example"
-    assert resolved.auth_token == "saved"
+    assert resolved.session_id == "s1"
+
+
+@pytest.mark.basic
+def test_neither_flag_nor_sign_in_uses_the_rule(tmp_path, monkeypatch) -> None:
+    resolved, calls = _controller(tmp_path, monkeypatch, launch_url="", rule="http://127.0.0.1:18081")
+    assert resolved.base_url == "http://127.0.0.1:18081"
+    assert calls == [1]
+
+
+@pytest.mark.basic
+def test_a_sign_in_saved_against_the_builtin_url_follows_the_moved_gateway(tmp_path, monkeypatch) -> None:
+    resolved, _ = _controller(
+        tmp_path, monkeypatch, launch_url="", saved=_saved("http://127.0.0.1:8080"), rule="http://127.0.0.1:18081"
+    )
+    assert resolved.base_url == "http://127.0.0.1:18081"
+    assert resolved.session_id == "s1"

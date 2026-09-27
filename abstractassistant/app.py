@@ -123,7 +123,7 @@ except Exception:  # pragma: no cover - macOS-only enhancement
     NSObject = object  # type: ignore[misc,assignment]
     _MAC_NATIVE_TRAFFIC_LIGHTS_AVAILABLE = False
 
-from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
+from abstractassistant.config import Config
 from abstractassistant.core.speech_text import speech_plain_text
 from abstractassistant.core.file_activity import (
     FileOperation,

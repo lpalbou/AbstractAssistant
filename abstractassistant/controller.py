@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import mimetypes
 from pathlib import Path
@@ -11,7 +12,7 @@ import time
 import warnings
 from typing import Any, Dict, List, Optional
 
-from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
+from abstractassistant.config import BUILTIN_GATEWAY_URL, Config, default_gateway_url
 from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
@@ -1916,9 +1917,16 @@ class AssistantController:
         return self._parse_options(options_text)
 
     def _load_connection_preferences(self) -> GatewayConnectionPreferences:
+        """The connection by the documented order (config.py, docs/api.md):
+        the launch's URL (`--gateway-url` or its env alias), else the saved
+        sign-in, else `default_gateway_url()` -- consulted only in that last
+        case, so a failing gateway rule cannot block a launch that names its
+        gateway or a saved sign-in."""
         gateway = getattr(self.config, "gateway", None)
+        # Tier 1: `config.gateway.url` is non-empty only when the launch named a URL.
+        launch_url = str(getattr(gateway, "url", "") or "").strip().rstrip("/")
         runtime = GatewayConnectionPreferences(
-            base_url=self._normalize_base_url(str(getattr(gateway, "url", "") or DEFAULT_GATEWAY_URL)),
+            base_url=launch_url,
             auth_mode=str(getattr(gateway, "auth_mode", "bearer") or "bearer").strip() or "bearer",
             auth_token=str(getattr(gateway, "auth_token", "") or "").strip(),
             user_id=str(getattr(gateway, "user_id", "") or "").strip(),
@@ -1927,7 +1935,7 @@ class AssistantController:
             session_expires_at=str(getattr(gateway, "session_expires_at", "") or "").strip(),
         )
         if not self.connection_store.path.exists():
-            return runtime
+            return dataclasses.replace(runtime, base_url=launch_url or default_gateway_url())
 
         stored = self.connection_store.load()
         runtime_has_auth = any(
@@ -1938,17 +1946,18 @@ class AssistantController:
                 runtime.user_id,
             )
         )
-        runtime_has_explicit_url = runtime.base_url != DEFAULT_GATEWAY_URL
-        if not (runtime_has_auth or runtime_has_explicit_url):
-            return stored
-        if not runtime_has_auth and runtime.base_url == self._normalize_base_url(stored.base_url):
+        if not (runtime_has_auth or launch_url):
+            return self._saved_sign_in_connection(stored)
+        if not runtime_has_auth and launch_url == str(stored.base_url or "").rstrip("/"):
             # `--gateway-url <url>` alone (how the gateway console launches us)
             # names the gateway we already have a saved sign-in for: keep it.
             return stored
+        # Credentials from the launch: its URL, else the saved sign-in's, else the rule.
+        base_url = launch_url or str(stored.base_url or "").rstrip("/") or default_gateway_url()
 
         if runtime.auth_mode == "session":
             return GatewayConnectionPreferences(
-                base_url=runtime.base_url,
+                base_url=base_url,
                 auth_mode="session",
                 auth_token="",
                 user_id=runtime.user_id,
@@ -1959,7 +1968,7 @@ class AssistantController:
             )
 
         return GatewayConnectionPreferences(
-            base_url=runtime.base_url,
+            base_url=base_url,
             auth_mode="bearer",
             auth_token=runtime.auth_token,
             user_id=stored.user_id,
@@ -1968,6 +1977,16 @@ class AssistantController:
             session_expires_at="",
             remember_session=stored.remember_session,
         )
+
+    def _saved_sign_in_connection(self, stored: GatewayConnectionPreferences) -> GatewayConnectionPreferences:
+        """Tier 2. A saved file naming no gateway takes the rule's URL, and a sign-in
+        saved against the built-in 127.0.0.1:8080 follows this computer's gateway
+        when the rule finds it elsewhere (the installer moves it off a busy 8080);
+        any other saved URL is kept as chosen."""
+        saved_url = str(stored.base_url or "").rstrip("/")
+        if not saved_url or saved_url == BUILTIN_GATEWAY_URL:
+            return dataclasses.replace(stored, base_url=default_gateway_url())
+        return stored
 
     def _save_connection(self, connection: GatewayConnectionPreferences) -> None:
         self.connection = connection
@@ -1980,7 +1999,7 @@ class AssistantController:
         gateway = getattr(self.config, "gateway", None)
         if gateway is None:
             return
-        gateway.url = self._normalize_base_url(connection.base_url or getattr(gateway, "url", DEFAULT_GATEWAY_URL))
+        gateway.url = self._normalize_base_url(connection.base_url)
         gateway.auth_mode = str(connection.auth_mode or "bearer").strip() or "bearer"
         gateway.auth_token = str(connection.auth_token or "").strip()
         gateway.user_id = str(connection.user_id or "").strip()
@@ -2062,7 +2081,7 @@ class AssistantController:
         setattr(self.llm_manager, "current_stt_provider", str(stt_override.get("provider") or "").strip())
 
     def _normalize_base_url(self, value: str) -> str:
-        return str(value or "").strip().rstrip("/") or DEFAULT_GATEWAY_URL
+        return str(value or "").strip().rstrip("/") or default_gateway_url()
 
     def _parse_options(self, options_text: str) -> Dict[str, Any]:
         text = str(options_text or "").strip()

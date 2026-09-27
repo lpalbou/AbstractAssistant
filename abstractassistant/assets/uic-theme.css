@@ -2550,6 +2550,18 @@
   background: var(--warning);
 }
 
+/* Plain-text extra in the cluster (e.g. the signed-in identity rendered by
+ * the console islands' `extras: [{ text }]`): quiet, one line, ellipsized. */
+.af-topbar__identity {
+  font-size: var(--font-size-sm, 12px);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+}
+
 /* --- AfDrawer (right-edge, non-modal, keep-alive) --- */
 
 .af-drawer {
@@ -2713,6 +2725,53 @@
 
 .af-appearance__close:hover {
   filter: brightness(1.12);
+}
+
+/* --- AfAboutDialog (reuses the .af-appearance shell) --- */
+
+.af-about__rows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.af-about__row {
+  display: contents;
+}
+
+@media (max-width: 520px) {
+  .af-about__rows {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .af-about__value {
+    margin-bottom: 8px;
+  }
+}
+
+.af-about__label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.af-about__value {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-sm);
+}
+
+.af-about__link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.af-about__link:hover,
+.af-about__link:focus-visible {
+  text-decoration: underline;
 }
 
 /* ---------------------------------------------------------------------
@@ -3013,3 +3072,208 @@
   font-size: 11px;
   color: var(--danger, #e05555);
 }
+.af-voice-settings { display: grid; gap: 20px; color: var(--text-primary); }
+.af-voice-settings > p { color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin: 0; }
+.af-voice-settings > label { display: grid; gap: 8px; font-size: 13px; }
+.af-voice-settings select, .af-voice-settings textarea { border: 1px solid var(--border-default); background: var(--bg-input, var(--bg-primary)); color: var(--text-primary); border-radius: 8px; padding: 10px; font: inherit; min-width: 0; }
+.af-voice-settings > button { justify-self: start; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.af-pmp__reasoning { display: grid; gap: 8px; margin-top: 16px; font-size: 13px; }
+
+/* ---------------------------------------------------------------------
+ * Automations: AutomationPanel + AfScheduleDialog (Automations v1)
+ * Token-driven only; quiet occurrences are subdued, notable ones carry
+ * the status hues (failed = error, waiting = warning, notified = info).
+ * ------------------------------------------------------------------- */
+.af-auto {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+}
+.af-auto[aria-busy="true"] { cursor: progress; }
+.af-auto__head { display: flex; flex-direction: column; gap: 8px; }
+.af-auto__titlebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.af-auto__title { margin: 0; font-size: var(--font-size-lg); font-weight: 700; overflow-wrap: anywhere; }
+.af-auto__status,
+.af-auto__legacy,
+.af-auto-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+.af-auto__status--active { border-color: var(--success-border); background: var(--success-subtle); }
+.af-auto__status--paused { border-color: var(--warning-border); background: var(--warning-subtle); }
+.af-auto__status--failed { border-color: var(--error-border); background: var(--error-subtle); }
+.af-auto__facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 0;
+}
+.af-auto__facts dt { color: var(--text-secondary); font-weight: 600; }
+.af-auto__facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.af-auto__facts dd.is-notable { font-weight: 700; }
+.af-auto__warn { color: var(--warning); }
+.af-auto__controls-wrap { display: flex; flex-direction: column; gap: 8px; }
+.af-auto__controls,
+.af-auto__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.af-auto__btn {
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, filter 120ms ease;
+}
+.af-auto__btn:hover:not(:disabled) { filter: brightness(1.12); }
+.af-auto__btn:disabled { cursor: default; opacity: 0.55; }
+.af-auto__btn:focus-visible,
+.af-auto-occ__details > summary:focus-visible,
+.af-schedule__advanced > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.af-auto__btn[aria-pressed="true"],
+.af-auto__btn--primary { border-color: var(--accent-border); background: var(--accent-subtle); }
+.af-auto__btn--danger { border-color: var(--error-border); background: var(--error-subtle); }
+.af-auto__btn--quiet { background: transparent; font-weight: 500; }
+.af-auto__more { align-self: center; }
+.af-auto__hint,
+.af-auto-turn__muted,
+.af-auto__empty { margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); }
+.af-auto__confirm,
+.af-auto__revise,
+.af-auto-discuss,
+.af-auto-wait {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  background: var(--bg-secondary);
+}
+.af-auto__confirm { border-color: var(--error-border); background: var(--error-subtle); }
+.af-auto__confirm p { margin: 0; }
+.af-auto__field { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.af-auto__field > legend,
+.af-auto__field > span { color: var(--text-secondary); font-weight: 600; padding: 0; margin-bottom: 4px; }
+.af-auto input:not([type="radio"]),
+.af-auto select,
+.af-auto textarea,
+.af-schedule input:not([type="radio"]),
+.af-schedule select,
+.af-schedule textarea {
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  background: var(--ui-overlay-bg);
+  color: var(--text-primary);
+  font: inherit;
+  min-width: 0;
+}
+.af-auto input[type="number"],
+.af-schedule input[type="number"] { width: 6em; }
+.af-auto__form-errors { margin: 0; padding-left: 18px; color: var(--error); }
+.af-auto__error {
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--error-border);
+  background: var(--error-subtle);
+}
+.af-auto__notice { color: var(--text-secondary); font-size: var(--font-size-xs); }
+.af-auto__attention ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.af-auto__attention-item {
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--info-border);
+  background: var(--info-subtle);
+}
+.af-auto__attention-item--failure { border-color: var(--error-border); background: var(--error-subtle); }
+.af-auto__attention-item--wait { border-color: var(--warning-border); background: var(--warning-subtle); }
+.af-auto__timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.af-auto-occ {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--ui-border-2);
+  border-left-width: 3px;
+}
+.af-auto-occ--quiet { opacity: 0.72; border-color: transparent; border-left-color: var(--ui-border-2); }
+.af-auto-occ--quiet:hover,
+.af-auto-occ--quiet:focus-within { opacity: 1; }
+.af-auto-occ--notified { border-left-color: var(--info); }
+.af-auto-occ--failed { border-color: var(--error-border); border-left-color: var(--error); background: var(--error-subtle); }
+.af-auto-occ--waiting { border-color: var(--warning-border); border-left-color: var(--warning); background: var(--warning-subtle); }
+.af-auto-occ--running { border-left-color: var(--accent); }
+.af-auto-turn { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.af-auto-turn--trigger {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--accent-subtle);
+}
+.af-auto-turn__meta { color: var(--text-muted); font-size: var(--font-size-xs); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.af-auto-turn__index { font-weight: 700; color: var(--text-secondary); }
+.af-auto-turn__text { overflow-wrap: anywhere; }
+.af-auto-turn__empty { color: var(--text-muted); font-style: italic; }
+.af-auto-badge--failed { border-color: var(--error-border); background: var(--error-subtle); }
+.af-auto-badge--waiting { border-color: var(--warning-border); background: var(--warning-subtle); }
+.af-auto-badge--notified { border-color: var(--info-border); background: var(--info-subtle); }
+.af-auto-badge--running { border-color: var(--accent-border); background: var(--accent-subtle); }
+.af-auto-notify { padding: 4px 8px; border-left: 2px solid var(--info); }
+.af-auto-wait__prompt { margin: 0; font-weight: 600; }
+.af-auto-artifacts { margin: 0; padding-left: 18px; }
+.af-auto-artifacts a,
+.af-auto__link { color: var(--accent); text-decoration: none; }
+.af-auto-artifacts a:hover,
+.af-auto__link:hover,
+.af-auto__link:focus-visible { text-decoration: underline; }
+.af-auto-occ__foot { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.af-auto-occ__details > summary,
+.af-schedule__advanced > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--font-size-xs); }
+.af-auto-occ__details[open] { display: flex; flex-direction: column; gap: 6px; }
+.af-auto-discuss,
+.af-auto-occ__foot { align-self: stretch; }
+.af-schedule { width: min(640px, 100%); }
+.af-schedule__form { display: flex; flex-direction: column; gap: 14px; }
+.af-schedule__form > fieldset { border: 1px solid var(--ui-border-2); border-radius: var(--radius-md); padding: 10px 12px; }
+.af-schedule__preview { margin: 0; color: var(--text-secondary); }
+.af-schedule__advanced { display: flex; flex-direction: column; gap: 8px; }
+.af-schedule__advanced[open] > .af-auto__field { margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .af-auto__btn { transition: none; }
+}
+@media (max-width: 520px) {
+  .af-auto__facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .af-auto-turn--trigger { max-width: 100%; }
+}
+.af-auto__reasons { display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); }
+.af-auto-failure { padding: 4px 8px; border-left: 2px solid var(--error); overflow-wrap: anywhere; }
+.af-auto-wait__kind { font-weight: 700; color: var(--text-secondary); }
+.af-auto-wait__calls { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.af-auto-wait__tool { font-family: var(--font-mono); font-weight: 700; }
+.af-auto-wait__args { margin: 2px 0 0; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ui-code-block-bg, var(--bg-secondary)); font-family: var(--font-mono); font-size: var(--font-size-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12em; overflow: auto; }
+.af-schedule__consent { margin: 0; color: var(--text-secondary); }
+.af-auto__definition > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--font-size-xs); }
+.af-auto__definition > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.af-auto__definition[open] > .af-auto__facts { margin-top: 6px; }
+.af-auto__json { margin: 4px 0 0; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ui-code-block-bg, var(--bg-secondary)); font-family: var(--font-mono); font-size: var(--font-size-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.af-auto-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.af-auto-turn__text,
+.af-auto-notify__body,
+.af-auto__attention-body,
+.af-auto-wait__prompt { min-width: 0; overflow-wrap: anywhere; }
+.af-auto-turn__text > .pc-chat-content > .pc-md > :first-child,
+.af-auto-wait__prompt .pc-md > :first-child { margin-top: 0; }

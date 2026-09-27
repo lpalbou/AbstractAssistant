@@ -43,7 +43,8 @@ def test_from_dict_defaults_gateway_url_without_env(monkeypatch) -> None:
 
     cfg = Config.from_dict({})
 
-    assert cfg.gateway.url == "http://127.0.0.1:8080"
+    # No URL named: the controller resolves it (saved sign-in, else the gateway rule).
+    assert cfg.gateway.url == ""
 
 
 @pytest.mark.basic
@@ -75,8 +76,10 @@ def test_resolve_gateway_connection_defaults_url_and_requires_token(monkeypatch)
         resolve_gateway_connection(require_auth_token=True)
 
     url, token = resolve_gateway_connection()
-    assert url == "http://127.0.0.1:8080"
-    assert token == ""
+    assert url == "" and token == ""
+    assert resolve_gateway_connection().url_given is False
+    assert resolve_gateway_connection(url_override="http://127.0.0.1:8080/").url == "http://127.0.0.1:8080"
+    assert resolve_gateway_connection(url_override="http://127.0.0.1:8080").url_given is True
 
 
 @pytest.mark.basic
@@ -97,17 +100,3 @@ def test_default_gateway_url_is_this_computers_gateway_by_the_gateways_rule(tmp_
     assert config_mod._local_gateway_url() == "http://127.0.0.1:8080"
     write_network_setting(tmp_path, mode="localhost", port=18081, internet_acknowledged=None, actor="test")
     assert config_mod._local_gateway_url() == "http://127.0.0.1:18081"
-
-
-@pytest.mark.basic
-def test_a_sign_in_saved_against_the_old_default_follows_the_moved_gateway(tmp_path, monkeypatch) -> None:
-    from abstractassistant import preferences
-    from abstractassistant.preferences import GatewayConnectionPreferences, GatewayConnectionStore
-
-    monkeypatch.setattr(preferences, "DEFAULT_GATEWAY_URL", "http://127.0.0.1:8081")
-    store = GatewayConnectionStore(tmp_path / "gateway_connection.json")
-    store.save(GatewayConnectionPreferences(base_url="http://127.0.0.1:8080", auth_mode="session", session_id="s1"))
-    loaded = store.load()
-    assert loaded.base_url == "http://127.0.0.1:8081" and loaded.session_id == "s1"
-    store.save(GatewayConnectionPreferences(base_url="http://127.0.0.1:18850"))
-    assert store.load().base_url == "http://127.0.0.1:18850"  # a URL chosen on purpose is kept

@@ -62,7 +62,8 @@ a = Analysis(
     binaries=[],
     datas=DATAS,
     hiddenimports=HIDDENIMPORTS,
-    hookspath=[],
+    # Project hooks (see hooks/hook-webrtcvad.py) take precedence over the contrib ones.
+    hookspath=[str(Path(SPECPATH).resolve() / "hooks")],
     hooksconfig={},
     runtime_hooks=[],
     # pygame is only reachable through nltk's lazy timit corpus import; bundling

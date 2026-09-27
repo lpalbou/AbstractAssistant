@@ -43,7 +43,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from ...config import DEFAULT_GATEWAY_URL
+from ...config import default_gateway_url
 from ...core.tool_risk import describe_tool_risk
 from ...icons import symbol_icon
 from ...preferences import (
@@ -143,7 +143,7 @@ class ConnectionPage(SettingsPage):
 
         form = self.add_card(Card("Gateway", "Where runs, tools and speech execute."))
         self.gateway_url_edit = QLineEdit()
-        self.gateway_url_edit.setPlaceholderText(DEFAULT_GATEWAY_URL)
+        self.gateway_url_edit.setPlaceholderText("empty: this computer's gateway")
         form.add_row("Gateway URL", self.gateway_url_edit)
 
         self.auth_mode_combo = QComboBox()
@@ -206,7 +206,7 @@ class ConnectionPage(SettingsPage):
         connection = safe_call(self.controller, "current_connection", default=None)
         if connection is None:
             return
-        self.gateway_url_edit.setText(str(getattr(connection, "base_url", "") or DEFAULT_GATEWAY_URL))
+        self.gateway_url_edit.setText(str(getattr(connection, "base_url", "") or ""))
         idx = self.auth_mode_combo.findData(str(getattr(connection, "auth_mode", "bearer") or "bearer"))
         if idx >= 0:
             self.auth_mode_combo.setCurrentIndex(idx)
@@ -279,7 +279,7 @@ class ConnectionPage(SettingsPage):
         return str(gw.get("version") or "") if isinstance(gw, dict) else ""
 
     def _save_connection(self) -> None:
-        base_url = self.gateway_url_edit.text().strip() or DEFAULT_GATEWAY_URL
+        base_url = self.gateway_url_edit.text().strip() or default_gateway_url()
         auth_mode = str(self.auth_mode_combo.currentData() or "bearer")
         try:
             if auth_mode == "bearer":
@@ -302,7 +302,7 @@ class ConnectionPage(SettingsPage):
 
     def _clear_connection(self) -> None:
         connection = safe_call(self.controller, "current_connection", default=None)
-        base_url = self.gateway_url_edit.text().strip() or DEFAULT_GATEWAY_URL
+        base_url = self.gateway_url_edit.text().strip() or default_gateway_url()
         try:
             if (
                 connection is not None

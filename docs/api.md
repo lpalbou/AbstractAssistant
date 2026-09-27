@@ -38,10 +38,12 @@ The first match wins:
 4. `http://127.0.0.1:8080`, when AbstractGateway is not installed next to the Assistant (for
    example the macOS app bundle) or the installed gateway is older than 0.6.0.
 
-A sign-in saved against `http://127.0.0.1:8080` follows tier 3 when this computer's gateway
-answers elsewhere; a sign-in saved for any other URL is kept as you chose it. If an installed
-AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error
-instead of guessing a URL.
+The gateway's rule is consulted only when neither tier 1 nor tier 2 applies, so a launch that
+names its gateway, or a saved sign-in, never depends on it. A sign-in saved against
+`http://127.0.0.1:8080` follows tier 3 when this computer's gateway answers elsewhere; a sign-in
+saved for any other URL is kept as you chose it. When tier 3 is needed and an installed
+AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error instead
+of guessing a URL.
 
 - `--gateway-url URL` — the gateway to use. Without `--gateway-token`, the sign-in saved for that
   gateway in `gateway_connection.json` is used.

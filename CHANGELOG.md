@@ -57,6 +57,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   assistant card on the left, under its status line (completed, failed with its reason, waiting),
   with no extra frame around them and the same edges as a conversation. **Discuss** is a compact
   action under the answer.
+- **The global shortcut's macOS permission check is exact.** The Accessibility check reads
+  `AXIsProcessTrusted` through `pyobjc-framework-ApplicationServices`, now a declared macOS
+  dependency; a failure of the check is reported instead of being read as "allowed".
+- **The macOS app builds in a clean environment.** `build-macos-app` ships a PyInstaller hook for
+  `webrtcvad-wheels` (the distribution abstractvoice installs), which the stock hook does not
+  recognise.
 
 ### Changed
 - The session switcher lists only the sessions the gateway marks as chats or discussions; the
@@ -84,8 +90,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   server, pinned OS service or stored Network port) when AbstractGateway 0.6.0 or later is
   installed in the same Python environment, so a gateway the installer moved off a busy port 8080
   is found. Otherwise the default stays `http://127.0.0.1:8080`. A sign-in saved against
-  `http://127.0.0.1:8080` follows the moved gateway; any other saved URL is kept. An installed
-  gateway that cannot be imported stops the app with its error. The full order is in
+  `http://127.0.0.1:8080` follows the moved gateway; any other saved URL is kept. A
+  `--gateway-url` always wins over a saved sign-in, also when it names the discovered gateway.
+  The gateway's rule is only consulted when neither applies; then an installed gateway that
+  cannot be imported stops the app with its error. The full order is in
   [docs/api.md](docs/api.md#which-gateway-the-app-connects-to). The macOS app bundle does not
   include AbstractGateway and keeps using its saved sign-in or `http://127.0.0.1:8080`.
 

@@ -14,15 +14,19 @@ Which gateway the app connects to, first match wins:
    Python as the Assistant;
 4. `BUILTIN_GATEWAY_URL` (http://127.0.0.1:8080).
 
-Tiers 3 and 4 form `DEFAULT_GATEWAY_URL`, resolved once per process.
+Tier 1 is `resolve_gateway_connection()` (its `url` is empty when no flag or
+env value was given), tier 2 is applied by the controller, and tiers 3-4 are
+`default_gateway_url()`: consulted only when neither tier 1 nor tier 2 applies,
+then cached for the process.
 """
 
 from __future__ import annotations
 
+import functools
 import importlib
 import os
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, NamedTuple, Optional
 
 BUILTIN_GATEWAY_URL = "http://127.0.0.1:8080"
 
@@ -61,7 +65,14 @@ def _local_gateway_url() -> str:
     return str(rule()["url"]).strip().rstrip("/")
 
 
-DEFAULT_GATEWAY_URL = _local_gateway_url()
+@functools.lru_cache(maxsize=1)
+def default_gateway_url() -> str:
+    """Tiers 3-4, looked up on first use and then fixed for the process.
+
+    Call it only when no `--gateway-url` (or env alias) and no saved sign-in
+    applies: a failing gateway rule must not block a launch that names its
+    gateway."""
+    return _local_gateway_url()
 
 
 def _env_first(*names: str) -> str:
@@ -73,8 +84,8 @@ def _env_first(*names: str) -> str:
 
 
 def _gateway_url_from_env() -> str:
-    """Return the configured gateway URL, or the local default."""
-    return _env_first("ABSTRACTGATEWAY_URL", "ABSTRACTFLOW_GATEWAY_URL") or DEFAULT_GATEWAY_URL
+    """The gateway URL named by the legacy env alias of `--gateway-url`, or ""."""
+    return _env_first("ABSTRACTGATEWAY_URL", "ABSTRACTFLOW_GATEWAY_URL").rstrip("/")
 
 
 def _gateway_auth_token_from_env() -> str:
@@ -82,13 +93,27 @@ def _gateway_auth_token_from_env() -> str:
     return _env_first("ABSTRACTGATEWAY_AUTH_TOKEN", "ABSTRACTFLOW_GATEWAY_AUTH_TOKEN")
 
 
+class GatewayConnection(NamedTuple):
+    """Tier 1 of the module rule: what the launch named.
+
+    `url` is "" when neither `--gateway-url` nor its env alias was given; the
+    controller then applies the saved sign-in, else `default_gateway_url()`."""
+
+    url: str
+    auth_token: str
+
+    @property
+    def url_given(self) -> bool:
+        return bool(self.url)
+
+
 def resolve_gateway_connection(
     *,
     url_override: str | None = None,
     auth_token_override: str | None = None,
     require_auth_token: bool = False,
-) -> Tuple[str, str]:
-    """Resolve gateway URL/token using CLI overrides first, then environment."""
+) -> GatewayConnection:
+    """Resolve the launch's gateway URL/token: CLI overrides first, then environment."""
     gateway_url = str(url_override or "").strip().rstrip("/") or _gateway_url_from_env()
     gateway_auth_token = str(auth_token_override or "").strip() or _gateway_auth_token_from_env()
     if require_auth_token and not gateway_auth_token:
@@ -96,7 +121,7 @@ def resolve_gateway_connection(
             "AbstractAssistant requires gateway authentication. "
             "Export ABSTRACTGATEWAY_AUTH_TOKEN or pass --gateway-token <token>."
         )
-    return gateway_url or DEFAULT_GATEWAY_URL, gateway_auth_token
+    return GatewayConnection(url=gateway_url, auth_token=gateway_auth_token)
 
 
 @dataclass
@@ -111,7 +136,10 @@ class UIConfig:
 
 @dataclass
 class GatewayConfig:
-    """Gateway configuration settings (the assistant is gateway-native)."""
+    """Gateway configuration settings (the assistant is gateway-native).
+
+    `url` is the URL the launch named ("" = none: the controller resolves it
+    from the saved sign-in or `default_gateway_url()` and writes it back)."""
 
     url: str = field(default_factory=_gateway_url_from_env)
     auth_token: str = field(default_factory=_gateway_auth_token_from_env)
@@ -189,7 +217,7 @@ class Config:
                 always_on_top=ui_data.get("always_on_top", True),
             ),
             gateway=GatewayConfig(
-                url=gateway_url or DEFAULT_GATEWAY_URL,
+                url=gateway_url,
                 auth_token=gateway_auth_token,
                 auth_mode=str(gateway_data.get("auth_mode", "bearer") or "bearer").strip() or "bearer",
                 user_id=str(gateway_data.get("user_id", "") or "").strip(),
@@ -260,9 +288,6 @@ class Config:
 
         if self.ui.auto_hide_delay < 0:
             errors.append(f"Invalid auto_hide_delay: {self.ui.auto_hide_delay}")
-
-        if not str(self.gateway.url or "").strip():
-            errors.append("Gateway URL is required")
 
         if str(self.gateway.auth_mode or "bearer").strip() not in {"bearer", "session"}:
             errors.append(f"Invalid gateway auth_mode: {self.gateway.auth_mode}")

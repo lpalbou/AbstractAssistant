@@ -24,12 +24,10 @@ def _macos_input_trusted() -> bool:
     untrusted process starts but never receives a key, so it is not started."""
     if sys.platform != "darwin":
         return True
-    try:
-        import HIServices  # type: ignore[import-not-found]
+    # pyobjc-framework-ApplicationServices is a declared macOS dependency.
+    import HIServices  # type: ignore[import-not-found]
 
-        return bool(HIServices.AXIsProcessTrusted())
-    except Exception:  # pragma: no cover - pyobjc missing: let pynput decide
-        return True
+    return bool(HIServices.AXIsProcessTrusted())
 
 
 def _normalize_sequence(value: str) -> str:

@@ -1098,10 +1098,12 @@ The first match wins:
 4. `http://127.0.0.1:8080`, when AbstractGateway is not installed next to the Assistant (for
    example the macOS app bundle) or the installed gateway is older than 0.6.0.
 
-A sign-in saved against `http://127.0.0.1:8080` follows tier 3 when this computer's gateway
-answers elsewhere; a sign-in saved for any other URL is kept as you chose it. If an installed
-AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error
-instead of guessing a URL.
+The gateway's rule is consulted only when neither tier 1 nor tier 2 applies, so a launch that
+names its gateway, or a saved sign-in, never depends on it. A sign-in saved against
+`http://127.0.0.1:8080` follows tier 3 when this computer's gateway answers elsewhere; a sign-in
+saved for any other URL is kept as you chose it. When tier 3 is needed and an installed
+AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error instead
+of guessing a URL.
 
 - `--gateway-url URL` — the gateway to use. Without `--gateway-token`, the sign-in saved for that
   gateway in `gateway_connection.json` is used.
@@ -2408,6 +2410,12 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   assistant card on the left, under its status line (completed, failed with its reason, waiting),
   with no extra frame around them and the same edges as a conversation. **Discuss** is a compact
   action under the answer.
+- **The global shortcut's macOS permission check is exact.** The Accessibility check reads
+  `AXIsProcessTrusted` through `pyobjc-framework-ApplicationServices`, now a declared macOS
+  dependency; a failure of the check is reported instead of being read as "allowed".
+- **The macOS app builds in a clean environment.** `build-macos-app` ships a PyInstaller hook for
+  `webrtcvad-wheels` (the distribution abstractvoice installs), which the stock hook does not
+  recognise.
 
 ### Changed
 - The session switcher lists only the sessions the gateway marks as chats or discussions; the
@@ -2435,8 +2443,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   server, pinned OS service or stored Network port) when AbstractGateway 0.6.0 or later is
   installed in the same Python environment, so a gateway the installer moved off a busy port 8080
   is found. Otherwise the default stays `http://127.0.0.1:8080`. A sign-in saved against
-  `http://127.0.0.1:8080` follows the moved gateway; any other saved URL is kept. An installed
-  gateway that cannot be imported stops the app with its error. The full order is in
+  `http://127.0.0.1:8080` follows the moved gateway; any other saved URL is kept. A
+  `--gateway-url` always wins over a saved sign-in, also when it names the discovered gateway.
+  The gateway's rule is only consulted when neither applies; then an installed gateway that
+  cannot be imported stops the app with its error. The full order is in
   [docs/api.md](docs/api.md#which-gateway-the-app-connects-to). The macOS app bundle does not
   include AbstractGateway and keeps using its saved sign-in or `http://127.0.0.1:8080`.
 
@@ -3115,8 +3125,10 @@ dependencies = [
     # Tray + Qt UI (kept import-safe; CLI help must not import GUI at import time).
     "Pillow>=10.0.0",
     "PyQt5>=5.15.0",
-    # Global hotkey support for the tray shell.
+    # Global hotkey support for the tray shell; HIServices (ApplicationServices)
+    # answers whether macOS lets this process read the keyboard.
     "pynput>=1.7.7",
+    "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
     # Markdown rendering in UI
     "markdown-it-py>=4.0.0",
     "pygments>=2.16.0",
@@ -3654,15 +3666,19 @@ Which gateway the app connects to, first match wins:
    Python as the Assistant;
 4. `BUILTIN_GATEWAY_URL` (http://127.0.0.1:8080).
 
-Tiers 3 and 4 form `DEFAULT_GATEWAY_URL`, resolved once per process.
+Tier 1 is `resolve_gateway_connection()` (its `url` is empty when no flag or
+env value was given), tier 2 is applied by the controller, and tiers 3-4 are
+`default_gateway_url()`: consulted only when neither tier 1 nor tier 2 applies,
+then cached for the process.
 """
 
 from __future__ import annotations
 
+import functools
 import importlib
 import os
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, NamedTuple, Optional
 
 BUILTIN_GATEWAY_URL = "http://127.0.0.1:8080"
 
@@ -3701,7 +3717,14 @@ def _local_gateway_url() -> str:
     return str(rule()["url"]).strip().rstrip("/")
 
 
-DEFAULT_GATEWAY_URL = _local_gateway_url()
+@functools.lru_cache(maxsize=1)
+def default_gateway_url() -> str:
+    """Tiers 3-4, looked up on first use and then fixed for the process.
+
+    Call it only when no `--gateway-url` (or env alias) and no saved sign-in
+    applies: a failing gateway rule must not block a launch that names its
+    gateway."""
+    return _local_gateway_url()
 
 
 def _env_first(*names: str) -> str:
@@ -3713,8 +3736,8 @@ def _env_first(*names: str) -> str:
 
 
 def _gateway_url_from_env() -> str:
-    """Return the configured gateway URL, or the local default."""
-    return _env_first("ABSTRACTGATEWAY_URL", "ABSTRACTFLOW_GATEWAY_URL") or DEFAULT_GATEWAY_URL
+    """The gateway URL named by the legacy env alias of `--gateway-url`, or ""."""
+    return _env_first("ABSTRACTGATEWAY_URL", "ABSTRACTFLOW_GATEWAY_URL").rstrip("/")
 
 
 def _gateway_auth_token_from_env() -> str:
@@ -3722,13 +3745,27 @@ def _gateway_auth_token_from_env() -> str:
     return _env_first("ABSTRACTGATEWAY_AUTH_TOKEN", "ABSTRACTFLOW_GATEWAY_AUTH_TOKEN")
 
 
+class GatewayConnection(NamedTuple):
+    """Tier 1 of the module rule: what the launch named.
+
+    `url` is "" when neither `--gateway-url` nor its env alias was given; the
+    controller then applies the saved sign-in, else `default_gateway_url()`."""
+
+    url: str
+    auth_token: str
+
+    @property
+    def url_given(self) -> bool:
+        return bool(self.url)
+
+
 def resolve_gateway_connection(
     *,
     url_override: str | None = None,
     auth_token_override: str | None = None,
     require_auth_token: bool = False,
-) -> Tuple[str, str]:
-    """Resolve gateway URL/token using CLI overrides first, then environment."""
+) -> GatewayConnection:
+    """Resolve the launch's gateway URL/token: CLI overrides first, then environment."""
     gateway_url = str(url_override or "").strip().rstrip("/") or _gateway_url_from_env()
     gateway_auth_token = str(auth_token_override or "").strip() or _gateway_auth_token_from_env()
     if require_auth_token and not gateway_auth_token:
@@ -3736,7 +3773,7 @@ def resolve_gateway_connection(
             "AbstractAssistant requires gateway authentication. "
             "Export ABSTRACTGATEWAY_AUTH_TOKEN or pass --gateway-token <token>."
         )
-    return gateway_url or DEFAULT_GATEWAY_URL, gateway_auth_token
+    return GatewayConnection(url=gateway_url, auth_token=gateway_auth_token)
 
 
 @dataclass
@@ -3751,7 +3788,10 @@ class UIConfig:
 
 @dataclass
 class GatewayConfig:
-    """Gateway configuration settings (the assistant is gateway-native)."""
+    """Gateway configuration settings (the assistant is gateway-native).
+
+    `url` is the URL the launch named ("" = none: the controller resolves it
+    from the saved sign-in or `default_gateway_url()` and writes it back)."""
 
     url: str = field(default_factory=_gateway_url_from_env)
     auth_token: str = field(default_factory=_gateway_auth_token_from_env)
@@ -3829,7 +3869,7 @@ class Config:
                 always_on_top=ui_data.get("always_on_top", True),
             ),
             gateway=GatewayConfig(
-                url=gateway_url or DEFAULT_GATEWAY_URL,
+                url=gateway_url,
                 auth_token=gateway_auth_token,
                 auth_mode=str(gateway_data.get("auth_mode", "bearer") or "bearer").strip() or "bearer",
                 user_id=str(gateway_data.get("user_id", "") or "").strip(),
@@ -3901,9 +3941,6 @@ class Config:
         if self.ui.auto_hide_delay < 0:
             errors.append(f"Invalid auto_hide_delay: {self.ui.auto_hide_delay}")
 
-        if not str(self.gateway.url or "").strip():
-            errors.append("Gateway URL is required")
-
         if str(self.gateway.auth_mode or "bearer").strip() not in {"bearer", "session"}:
             errors.append(f"Invalid gateway auth_mode: {self.gateway.auth_mode}")
 
@@ -3930,11 +3967,10 @@ local UX concerns plus device-side tool gating.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from abstractassistant.config import BUILTIN_GATEWAY_URL, DEFAULT_GATEWAY_URL
 from abstractassistant.speculation import normalize_speculation
 
 
@@ -4385,7 +4421,8 @@ class AssistantPreferences:
 
 @dataclass(frozen=True)
 class GatewayConnectionPreferences:
-    base_url: str = DEFAULT_GATEWAY_URL
+    # "" only for a saved file that names no gateway; the controller resolves it.
+    base_url: str = ""
     auth_mode: str = "bearer"
     auth_token: str = ""
     user_id: str = ""
@@ -4402,7 +4439,7 @@ class GatewayConnectionPreferences:
         if auth_mode not in {"bearer", "session"}:
             auth_mode = "bearer"
         return cls(
-            base_url=str(raw.get("base_url") or DEFAULT_GATEWAY_URL).strip().rstrip("/") or DEFAULT_GATEWAY_URL,
+            base_url=str(raw.get("base_url") or "").strip().rstrip("/"),
             auth_mode=auth_mode,
             auth_token=str(raw.get("auth_token") or "").strip(),
             user_id=str(raw.get("user_id") or "").strip(),
@@ -4414,7 +4451,7 @@ class GatewayConnectionPreferences:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "base_url": str(self.base_url or "").strip().rstrip("/") or DEFAULT_GATEWAY_URL,
+            "base_url": str(self.base_url or "").strip().rstrip("/"),
             "auth_mode": str(self.auth_mode or "bearer").strip() or "bearer",
             "auth_token": str(self.auth_token or "").strip(),
             "user_id": str(self.user_id or "").strip(),
@@ -4511,13 +4548,7 @@ class PreferencesStore(JsonStore):
 
 class GatewayConnectionStore(JsonStore):
     def load(self) -> GatewayConnectionPreferences:
-        loaded = GatewayConnectionPreferences.from_dict(self._read() or {})
-        # A sign-in saved against the old built-in default follows this computer's
-        # gateway when it lives elsewhere (the installer moves it off a busy 8080);
-        # a URL chosen on purpose is kept.
-        if loaded.base_url == BUILTIN_GATEWAY_URL != DEFAULT_GATEWAY_URL:
-            return replace(loaded, base_url=DEFAULT_GATEWAY_URL)
-        return loaded
+        return GatewayConnectionPreferences.from_dict(self._read() or {})
 
     def save(self, connection: GatewayConnectionPreferences) -> None:
         self._write(connection.to_dict())
@@ -4527,6 +4558,7 @@ class GatewayConnectionStore(JsonStore):
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import mimetypes
 from pathlib import Path
@@ -4536,7 +4568,7 @@ import time
 import warnings
 from typing import Any, Dict, List, Optional
 
-from abstractassistant.config import Config, DEFAULT_GATEWAY_URL
+from abstractassistant.config import BUILTIN_GATEWAY_URL, Config, default_gateway_url
 from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
@@ -6441,9 +6473,16 @@ class AssistantController:
         return self._parse_options(options_text)
 
     def _load_connection_preferences(self) -> GatewayConnectionPreferences:
+        """The connection by the documented order (config.py, docs/api.md):
+        the launch's URL (`--gateway-url` or its env alias), else the saved
+        sign-in, else `default_gateway_url()` -- consulted only in that last
+        case, so a failing gateway rule cannot block a launch that names its
+        gateway or a saved sign-in."""
         gateway = getattr(self.config, "gateway", None)
+        # Tier 1: `config.gateway.url` is non-empty only when the launch named a URL.
+        launch_url = str(getattr(gateway, "url", "") or "").strip().rstrip("/")
         runtime = GatewayConnectionPreferences(
-            base_url=self._normalize_base_url(str(getattr(gateway, "url", "") or DEFAULT_GATEWAY_URL)),
+            base_url=launch_url,
             auth_mode=str(getattr(gateway, "auth_mode", "bearer") or "bearer").strip() or "bearer",
             auth_token=str(getattr(gateway, "auth_token", "") or "").strip(),
             user_id=str(getattr(gateway, "user_id", "") or "").strip(),
@@ -6452,7 +6491,7 @@ class AssistantController:
             session_expires_at=str(getattr(gateway, "session_expires_at", "") or "").strip(),
         )
         if not self.connection_store.path.exists():
-            return runtime
+            return dataclasses.replace(runtime, base_url=launch_url or default_gateway_url())
 
         stored = self.connection_store.load()
         runtime_has_auth = any(
@@ -6463,17 +6502,18 @@ class AssistantController:
                 runtime.user_id,
             )
         )
-        runtime_has_explicit_url = runtime.base_url != DEFAULT_GATEWAY_URL
-        if not (runtime_has_auth or runtime_has_explicit_url):
-            return stored
-        if not runtime_has_auth and runtime.base_url == self._normalize_base_url(stored.base_url):
+        if not (runtime_has_auth or launch_url):
+            return self._saved_sign_in_connection(stored)
+        if not runtime_has_auth and launch_url == str(stored.base_url or "").rstrip("/"):
             # `--gateway-url <url>` alone (how the gateway console launches us)
             # names the gateway we already have a saved sign-in for: keep it.
             return stored
+        # Credentials from the launch: its URL, else the saved sign-in's, else the rule.
+        base_url = launch_url or str(stored.base_url or "").rstrip("/") or default_gateway_url()
 
         if runtime.auth_mode == "session":
             return GatewayConnectionPreferences(
-                base_url=runtime.base_url,
+                base_url=base_url,
                 auth_mode="session",
                 auth_token="",
                 user_id=runtime.user_id,
@@ -6484,7 +6524,7 @@ class AssistantController:
             )
 
         return GatewayConnectionPreferences(
-            base_url=runtime.base_url,
+            base_url=base_url,
             auth_mode="bearer",
             auth_token=runtime.auth_token,
             user_id=stored.user_id,
@@ -6493,6 +6533,16 @@ class AssistantController:
             session_expires_at="",
             remember_session=stored.remember_session,
         )
+
+    def _saved_sign_in_connection(self, stored: GatewayConnectionPreferences) -> GatewayConnectionPreferences:
+        """Tier 2. A saved file naming no gateway takes the rule's URL, and a sign-in
+        saved against the built-in 127.0.0.1:8080 follows this computer's gateway
+        when the rule finds it elsewhere (the installer moves it off a busy 8080);
+        any other saved URL is kept as chosen."""
+        saved_url = str(stored.base_url or "").rstrip("/")
+        if not saved_url or saved_url == BUILTIN_GATEWAY_URL:
+            return dataclasses.replace(stored, base_url=default_gateway_url())
+        return stored
 
     def _save_connection(self, connection: GatewayConnectionPreferences) -> None:
         self.connection = connection
@@ -6505,7 +6555,7 @@ class AssistantController:
         gateway = getattr(self.config, "gateway", None)
         if gateway is None:
             return
-        gateway.url = self._normalize_base_url(connection.base_url or getattr(gateway, "url", DEFAULT_GATEWAY_URL))
+        gateway.url = self._normalize_base_url(connection.base_url)
         gateway.auth_mode = str(connection.auth_mode or "bearer").strip() or "bearer"
         gateway.auth_token = str(connection.auth_token or "").strip()
         gateway.user_id = str(connection.user_id or "").strip()
@@ -6587,7 +6637,7 @@ class AssistantController:
         setattr(self.llm_manager, "current_stt_provider", str(stt_override.get("provider") or "").strip())
 
     def _normalize_base_url(self, value: str) -> str:
-        return str(value or "").strip().rstrip("/") or DEFAULT_GATEWAY_URL
+        return str(value or "").strip().rstrip("/") or default_gateway_url()
 
     def _parse_options(self, options_text: str) -> Dict[str, Any]:
         text = str(options_text or "").strip()
