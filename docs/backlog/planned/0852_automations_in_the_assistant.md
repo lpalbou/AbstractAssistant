@@ -266,3 +266,16 @@ the Discuss session has the target's normal tools.
 - U — abstractuic `fixtures/automations/*.json`.
 - Minor release of abstractassistant with a raised gateway floor, in the v1 wave order
   (PLAN §3 I).
+
+## Contracts pass (2026-09-27)
+
+Final contracts: untracked/design/automations-CONTRACTS.md (root repo; rev 2 with Astra turn-6 amendments 1–11). They supersede the contract text copied above; earlier text is kept as history. Concrete changes for this item:
+
+- Poll full paginated `GET /api/gateway/automations` (no `changed_since`; remove the `cursor_expired` path). Tray notifications come from `GET /api/gateway/automations/{id}/attention` pages (oldest unseen first) and from new interactive waits; ack = cursor of the last item notified.
+- Quiet is the default: no notification for answers without a `notify` output; failures notify only after all retries; drop `notify:false` wording.
+- Interactive waits include EVENT waits with prompt/choices, not only USER waits.
+- Typed `GatewayApiError(status, reason_code, message, field, command_id)` parsed from `detail`; `_read_error` must not `json.dumps` it.
+- Regular list = `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion`.
+- "Schedule this conversation…" presets are fixed intervals labelled "every N hours/days".
+- Discuss sessions run on a read-only workspace; the badge says so.
+- Fixtures vendored byte-identical in `tests/fixtures/automations/` (incl. `attention.json`), checked by the root `scripts/check_identity_sync.py`, not a local SHA list.
