@@ -279,3 +279,21 @@ Final contracts: untracked/design/automations-CONTRACTS.md (root repo; rev 2 wit
 - "Schedule this conversation…" presets are fixed intervals labelled "every N hours/days".
 - Discuss sessions run on a read-only workspace; the badge says so.
 - Fixtures vendored byte-identical in `tests/fixtures/automations/` (incl. `attention.json`), checked by the root `scripts/check_identity_sync.py`, not a local SHA list.
+
+## Progress (mission A, 2026-09-27) — built against the fixtures, not yet against G
+
+Local commits e3a0445, 2f38ef5, 2768176 (+ docs). Status stays **planned** until the integration pass
+against the hermetic gateway once G ships the routes.
+
+- Client `gateway/automations.py` (ten calls, `AutomationApiError` from `detail.reason_code`,
+  `unreachable` for no answer); rules `core/automations.py`; Qt `ui/automations.py`
+  (`AutomationRow`, `AutomationView`, `ScheduleSheet`, `AutomationsHub`); switcher section; palette
+  view; tray **Automations…**; notifications with a persisted ledger.
+- Fixtures vendored byte-identically (abstractuic b70db16) in `tests/basic/fixtures/automations/`
+  with `CHECKSUMS.sha256` (the mission's location; the root `check_identity_sync.py` group must point
+  there).
+- Regular list: `fold_session_rows` drops `session_kind` `automation|occurrence` rows client-side;
+  the pinned `/runs` query is unchanged (no `session_kind=` parameter yet — the current gateway
+  refuses unknown parameters with a 400).
+- No capability gating: a plain 404 (no envelope) on `GET /automations` marks the API absent and
+  hides the section and the tray entry.

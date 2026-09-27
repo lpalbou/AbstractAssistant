@@ -105,6 +105,8 @@ All under `~/.abstractassistant/`:
   session, local labels, fetched titles, the last gateway list, cached transcripts, last run id,
   granted workspace root ([architecture.md](architecture.md#sessions))
 - `sessions-legacy/` — files kept from the 0.6.1-and-earlier local session index and unreadable cache files
+- `automations_notified.json` — which automation results, failures and waits were already
+  shown as a tray notification (so a relaunch does not repeat them)
 - `downloads/`, `gateway_audio/` — downloaded artifacts and cached speech audio
 
 ## Run input pins
@@ -161,6 +163,11 @@ the stream. Whether the gateway offers live replies is read from
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
+- Automations ([automations.md](automations.md)): `/api/gateway/automations` (list, create),
+  `/api/gateway/automations/{id}` (get, `PATCH` edit), `…/{id}/commands`, `…/{id}/occurrences`,
+  `…/{id}/attention`, `…/{id}/seen`, `…/{id}/discuss`, `/api/gateway/trigger-sources`; errors are
+  read from `detail.reason_code`. Waits of automation runs are answered with the same `resume`
+  command on `/api/gateway/commands`.
 
 ## Python API status
 

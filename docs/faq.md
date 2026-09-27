@@ -92,6 +92,24 @@ lists sessions from AbstractCode and other clients. The pencil renames a session
 the bin removes it from this list after an in-row confirmation and moves its local copy to
 `~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.
 
+## Can the assistant do something on a schedule?
+
+Yes, on a gateway that offers automations. The clock button in the palette header opens
+**Schedule this conversation…**: the conversation's workflow and last question, an interval in UTC
+("every 8 hours", "every 7 days", or once at a time), and whether each run starts fresh
+(Independent, the default) or sees the previous runs (Growing). The gateway runs it, also when the
+Assistant is closed. Automations are listed in the session switcher's **Automations** section and
+under **Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume,
+run now, edit, archive and Discuss. You are notified only for results the workflow marks as
+notable, failures after all retries, and runs waiting for your answer — ordinary results stay
+quiet. Details: [automations.md](automations.md).
+
+## Why don't the sessions of my automations appear among my chats?
+
+Each automation's runs are grouped under the automation in the **Automations** section, not
+listed as chats. A **Discuss** session is an ordinary chat and does appear, with the badge
+"about automation <title>"; its workspace is read-only.
+
 ## I upgraded and some old chats are gone from the list
 
 Sessions now come from the gateway. Chats that existed only on this Mac (for example after the

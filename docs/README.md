@@ -16,6 +16,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
+- [automations.md](automations.md) — scheduled tasks on the gateway: the Automations section, an automation's runs as a chat, answering waits, Discuss, Schedule this conversation, notifications
 
 ## Design records
 

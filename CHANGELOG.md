@@ -3,6 +3,30 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## Unreleased
+
+### Added
+- **Automations.** On a gateway that offers them, the session switcher has an **Automations**
+  section: one row per automation with its cadence ("every 8 hours (UTC)"), next run, last result
+  and a badge when something needs you. Opening one shows its runs as a chat (the task and its
+  answer, quiet runs dimmed, failures with their reason and attempts, runs waiting for you
+  highlighted) with **Pause**, **Resume**, **Run now** (also while paused), **Stop current**,
+  **Edit** (title, interval, context) and **Archive** (confirmed in the palette). See
+  [docs/automations.md](docs/automations.md).
+- **Schedule this conversation…** (clock button in the header): runs the conversation's workflow
+  with its last question on a fixed UTC interval or once, Independent (default) or Growing.
+- **Answer a waiting run** of an automation from the palette, with its choices or free text.
+- **Discuss** a run: opens an ordinary session seeded with the automation's runs up to that one,
+  with the workflow's normal tools and a read-only workspace; it is listed among your chats with
+  the badge "about automation <title>".
+- Tray notifications for automation results marked notable, failures after all retries and runs
+  waiting for you — once each, never for ordinary results; **Automations…** in the tray menu with
+  the count of what is new.
+
+### Changed
+- Sessions that belong to an automation are no longer listed among your chats; the gateway's
+  session kind decides, never the session's name.
+
 ## [0.7.0] - 2026-09-27
 
 Sessions are now listed from the gateway, and the local session files are a rebuildable cache. The
