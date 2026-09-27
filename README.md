@@ -14,8 +14,13 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What you get
 
-- A menu-bar palette whose title tells you what the app is doing, with a recent-chat picker and a
-  live gateway connection orb.
+- A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
+  the gateway (your sessions from every device, optionally every client's) and a live gateway
+  connection orb.
+- Automations: schedule a conversation to run on the gateway at a fixed UTC interval, read its runs
+  as a chat, pause, run now, edit or archive it, answer the runs that wait for you, discuss a
+  result, and get a tray notification only when a result is notable, a run fails or a run waits for
+  you. See [docs/automations.md](docs/automations.md).
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
 - Live replies: with **Stream replies** on (or left to a gateway that streams by default), the
@@ -102,6 +107,8 @@ The desktop client stores under `~/.abstractassistant/`:
 - `session_cache.json`, `sessions/` — a rebuildable cache of the gateway's sessions (local labels,
   cached transcripts, each session's granted workspace folder); the sessions themselves live on
   the gateway
+- `automations_notified.json` — which automation notifications were already shown; automations
+  themselves live on the gateway
 - downloads and cached audio
 
 ## Documentation
@@ -112,6 +119,7 @@ Start with [docs/README.md](docs/README.md).
 - [docs/getting-started.md](docs/getting-started.md)
 - [docs/settings.md](docs/settings.md)
 - [docs/voice.md](docs/voice.md)
+- [docs/automations.md](docs/automations.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/api.md](docs/api.md)
 - [docs/faq.md](docs/faq.md)

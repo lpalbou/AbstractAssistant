@@ -6,29 +6,39 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## Unreleased
 
 ### Added
-- **Automations.** On a gateway that advertises them in its capabilities, the session switcher has an **Automations**
-  section: one row per automation with its cadence ("every 8 hours (UTC)"), next run, last result
-  and a badge when something needs you. Opening one shows its runs as a chat (the task and its
-  answer, quiet runs dimmed, failures with their reason and attempts, runs waiting for you
-  highlighted) with **Pause**, **Resume**, **Run now** (also while paused), **Stop current**,
-  **Edit** (title, interval, context) and **Archive** (confirmed in the palette). See
+- **Automations.** On a gateway that advertises automations in its capabilities, the session
+  switcher has an **Automations** section above your chats: one row per automation with its
+  cadence ("every 8 hours (UTC)"), status, context mode, next run, last result, and a `NEW` /
+  `WAITING` badge when something needs you. **Automations…** in the tray menu shows the same count
+  and opens the switcher. On a gateway without automations, neither appears. See
   [docs/automations.md](docs/automations.md).
+- **An automation's runs read as a chat.** Opening an automation shows each run as the task it was
+  given and its answer, oldest first: quiet runs dimmed, notable results badged, failures with
+  their reason and attempts, runs waiting for you highlighted, older runs on demand. Opening it
+  marks the displayed items as seen on the gateway.
+- **Controls**: **Pause**, **Resume**, **Run now** (also while paused), **Stop current**, **Edit**
+  (title, interval, context) and **Archive** (confirmed in the palette). A request the gateway never
+  received can be retried without being applied twice.
 - **Schedule this conversation…** (clock button in the header): runs the conversation's workflow
-  with its last question on a fixed UTC interval or once, Independent (default) or Growing.
-- **Answer a waiting run** of an automation from the palette: a question with its choices or free
-  text, a tool-approval request with its tool calls and Approve / Deny.
-- The Schedule sheet asks whether the automation's tools run without asking (the default; creating
-  it is the approval) or ask each time.
-- **Discuss** a run: opens an ordinary session seeded with the automation's runs up to that one,
-  with the workflow's normal tools and a read-only workspace; it is listed among your chats with
-  the badge "about automation <title>".
-- Tray notifications for automation results marked notable, failures after all retries and runs
-  waiting for you — once each, never for ordinary results; **Automations…** in the tray menu with
-  the count of what is new.
+  with its last question, editable, every 5 minutes to every 7 days, every N minutes/hours/days, or
+  once at a UTC time; Independent (default) or Growing context; and a tools choice: **Tools run
+  without asking** (the default: creating the automation is the approval) or **Ask each time**.
+- **Answer a waiting run** from the automation, by the kind of answer the gateway says it expects:
+  a question with its choices or free text, a tool approval listing the tool calls with **Approve**
+  / **Deny**, or an event payload typed as JSON. A wait of unknown kind is shown without answer
+  controls.
+- **Discuss** a finished run: opens an ordinary chat seeded with the automation's runs up to that
+  one, with the workflow's normal tools and a read-only workspace; it is listed among your chats
+  with the badge "about automation <title>", which opens the automation.
+- **Tray notifications** for results the workflow marks as notable, runs that failed after all
+  retries and runs waiting for you: once each, also across relaunches
+  (`~/.abstractassistant/automations_notified.json`), never for ordinary results. The Assistant
+  checks every 60 seconds while the palette is visible and every 5 minutes while it is hidden.
 
 ### Changed
-- Sessions that belong to an automation are no longer listed among your chats; the gateway's
-  session kind decides, never the session's name.
+- The session switcher lists only the sessions the gateway marks as chats or discussions; the
+  sessions an automation runs in are listed under the automation. When the gateway supports it, the
+  session list asks for those kinds only.
 
 ## [0.7.0] - 2026-09-27
 

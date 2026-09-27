@@ -10,6 +10,7 @@ See also:
 - [getting-started.md](getting-started.md)
 - [settings.md](settings.md) — every setting, its source and its storage
 - [voice.md](voice.md) — speech features and the conversation loop
+- [automations.md](automations.md) — scheduled tasks on the gateway, as the Assistant shows them
 - [api.md](api.md)
 - [adr/README.md](adr/README.md)
 
@@ -85,11 +86,17 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
 - **Scope.** By default the switcher lists this app's own sessions: those whose id follows the
   Assistant's naming (`sess_…`), including the ones another Assistant install created. The
   **All gateway sessions** toggle in the switcher header lists every session on the gateway
-  (AbstractCode, flows, schedules, other channels), marked "other client"; the choice is kept.
-  Once the gateway reports a session kind on `/runs`, that field replaces the id test.
+  (AbstractCode, flows, schedules, other channels), marked "other client"; the choice is kept. A
+  discussion opened from an automation is always listed, whatever id the gateway gave it.
+- **Kinds.** The gateway stamps each session with a kind (`chat`, `automation`, `occurrence`,
+  `discussion`). The switcher lists `chat` and `discussion` sessions; `automation` and
+  `occurrence` sessions belong to the [Automations](#automations) section. A run without a kind
+  (a gateway that does not stamp it) counts as a chat. The kind is read from the gateway, never
+  inferred from an id.
 
 - **List.** The switcher's rows are one `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`
-  page folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
+  page (plus `&session_kind=chat,discussion` when the gateway lists `session_kind` among its
+  advertised `runs.list.filters`) folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
   newest first by the last run's `updated_at`, turn count = root runs, state = the liveliest run
   (waiting, then running, then failed, then done; an unreported status is unknown). The page
   covers the newest 5,000 root runs; when the gateway holds more, the switcher header says so.
@@ -123,7 +130,7 @@ Deleting the cache loses only local labels and removals. The chat switcher's met
 tokens, running time) are computed from the cached transcripts and appear once a session has been
 opened on this device.
 
-**Upgrading from 0.6.1 or earlier.** The earlier local index (`sessions.json`, `session.json`) is converted on
+**Upgrading from 0.6.1 or earlier.** The local index of those versions (`sessions.json`, `session.json`) is converted on
 first launch and kept in `sessions-legacy/`; the new cache is written before the old index is
 moved, and an interrupted conversion resumes on the next start. On the first complete list from the gateway, local
 sessions the gateway does not know are removed from the list; their folders move to
@@ -132,6 +139,73 @@ local labels.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.
+
+## Automations
+
+An automation is a durable object that the gateway owns and AbstractRuntime executes; the
+Assistant is a view, a creator and a responder over the gateway's Automations API. It never runs an
+automation itself. The user guide is [automations.md](automations.md).
+
+```mermaid
+flowchart LR
+  subgraph Desktop["AbstractAssistant (this Mac)"]
+    Switcher["Session switcher\nAutomations section · discussion badge"]
+    View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
+    Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
+    Hub["AutomationsHub\ncalls off the GUI thread\npolls 60 s visible / 5 min hidden"]
+    Rules["core/automations\nlabels · controls · create body\nnotification ledger"]
+    Client["gateway/automations\nAutomationsClient (ten calls)"]
+    Tray["Tray: Automations… (count)\nnotifications"]
+    Ledger[("automations_notified.json")]
+  end
+  subgraph Gateway["AbstractGateway"]
+    Caps["/discovery/capabilities\ncontracts.common.automations"]
+    Api["/automations · /{id} · /commands\n/occurrences · /attention · /seen\n/discuss · /trigger-sources"]
+    Runs["/runs (session_kind filter)\n/commands (resume a wait)"]
+  end
+  subgraph Runtime["AbstractRuntime"]
+    Auto["Automation\ncontroller run · schedule@1 trigger"]
+    Occ["Occurrences\none run per tick (session kind occurrence)"]
+    Disc["Discussion session\nforked · read-only workspace"]
+  end
+  Switcher --> Hub
+  View --> Hub
+  Sheet --> Hub
+  Hub --> Rules
+  Hub --> Client
+  Hub --> Tray
+  Rules --> Ledger
+  Client -- "available?" --> Caps
+  Client --> Api
+  View -- "wait answer by kind" --> Runs
+  Api --> Auto
+  Auto --> Occ
+  Api -- "discuss" --> Disc
+  Occ -. "rows: user turn · answer · notify · waits" .-> Api
+```
+
+- **Capability gate.** Each poll first reads `contracts.common.automations.available` from the
+  gateway's capabilities. Absent or not `true`: no section, no tray entry and no automation
+  request. Unreadable capabilities are reported as an error, never as "absent".
+- **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
+  and, for each automation with unseen items, its `…/attention` pages. It polls every 60 seconds
+  while the palette is visible, every 5 minutes while it is hidden, and at once when the palette
+  is shown or the switcher opens. One poll runs at a time.
+- **Notifications.** New attention items (notable results, final failures) and pending waits
+  become one tray notification each; their keys are kept in `automations_notified.json` (bounded)
+  so a relaunch does not repeat them. The gateway's per-user seen cursor moves only when the user
+  opens the automation, and only up to the last item the view displayed.
+- **Commands.** Pause, resume, run now, stop current and archive are `POST …/{id}/commands`; an
+  edit is `PATCH …/{id}` with the changed fields and the expected revision. Each user action has
+  one command id; a retry after a failure the gateway never answered re-sends the same id.
+- **Waits.** A waiting occurrence is answered with the `resume` command on
+  `/api/gateway/commands`, with the payload the wait's declared kind accepts (`ask_user`,
+  `tool_approval`, `event`). A wait without a known kind is not answered.
+- **Discuss.** `POST …/{id}/discuss` returns a new `discussion` session and its first run; the
+  palette switches to it and follows the run like any reattached turn.
+- **Errors.** Every non-2xx answer carries `detail.reason_code`, shown as a sentence with the
+  gateway's message. An answer without that envelope, or a body that is not a JSON object, is an
+  `invalid_response` error rather than a silent success.
 
 ## Run lifecycle
 
@@ -202,6 +276,9 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `core/voice_conversation.py`, `ui/voice_strip.py`, `core/gateway_voice_manager.py` — the
   hands-free loop, its status strip, and the local capture/playback layer over gateway speech
   routes.
+- `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
+  client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
+  notifications), and the switcher rows, automation view, Schedule window and polling hub.
 - `ui/styles.py`, `theme.py`, `icons.py` — one token set, one stylesheet builder, the Lucide glyphs.
 
 ## Workflow
@@ -281,4 +358,5 @@ code: quit it and open it again from the console.
 `tests/basic` runs headless (`QT_QPA_PLATFORM=offscreen`) and covers the gateway client and
 adapter, run input pins, preferences, the controller, the workflow choice, the console hand-over,
 live replies, the activity model, the approval sheet and presenter, the settings pages and About,
-the voice conversation loop, and a smoke test that builds the real palette.
+the voice conversation loop, automations (against a loopback stub serving the shared contract
+fixtures in `tests/basic/fixtures/automations/`), and a smoke test that builds the real palette.

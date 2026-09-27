@@ -25,6 +25,7 @@ INCLUDED_FILES: list[str] = [
     "docs/getting-started.md",
     "docs/settings.md",
     "docs/voice.md",
+    "docs/automations.md",
     "docs/api.md",
     "docs/architecture.md",
     "docs/faq.md",
@@ -51,6 +52,8 @@ INCLUDED_FILES: list[str] = [
     "abstractassistant/core/gateway_sessions.py",
     "abstractassistant/core/session_cache.py",
     "abstractassistant/core/session_store.py",
+    "abstractassistant/gateway/automations.py",
+    "abstractassistant/core/automations.py",
     "abstractassistant/gateway_service.py",
     "scripts/update_llms_full.py",
 ]
@@ -63,7 +66,9 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    check = "--check" in args
     out_path = ROOT / "llms-full.txt"
 
     missing: list[str] = []
@@ -81,7 +86,9 @@ def main() -> int:
         "> AbstractAssistant is a macOS-first tray assistant and CLI that is a thin client of AbstractGateway.\n"
         "> This bundle concatenates the documentation set and the core client modules for LLMs and tools.\n\n"
         "Regenerate:\n"
-        "  python scripts/update_llms_full.py\n\n"
+        "  python scripts/update_llms_full.py\n"
+        "Check for drift (exit 1 when stale):\n"
+        "  python scripts/update_llms_full.py --check\n\n"
         "Included files (in order):\n"
         + "\n".join(f"- {p}" for p in INCLUDED_FILES)
         + "\n\n"
@@ -94,7 +101,15 @@ def main() -> int:
         parts.append(f"--- {rel} ---\n")
         parts.append(content + "\n\n")
 
-    out_path.write_text("".join(parts), encoding="utf-8")
+    content = "".join(parts)
+    if check:
+        current = _read_text(out_path) if out_path.exists() else ""
+        if current != content:
+            print("llms-full.txt is stale: run python scripts/update_llms_full.py", file=sys.stderr)
+            return 1
+        print("llms-full.txt is up to date.")
+        return 0
+    out_path.write_text(content, encoding="utf-8")
     return 0
 
 

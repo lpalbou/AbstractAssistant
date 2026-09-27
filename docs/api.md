@@ -106,7 +106,9 @@ All under `~/.abstractassistant/`:
   granted workspace root ([architecture.md](architecture.md#sessions))
 - `sessions-legacy/` — files kept from the 0.6.1-and-earlier local session index and unreadable cache files
 - `automations_notified.json` — which automation results, failures and waits were already
-  shown as a tray notification (so a relaunch does not repeat them)
+  shown as a tray notification, so a relaunch does not repeat them
+  ([automations.md](automations.md#notifications-and-the-two-polls)). Deleting it can repeat
+  notifications for items still unseen on the gateway; nothing else is lost.
 - `downloads/`, `gateway_audio/` — downloaded artifacts and cached speech audio
 
 ## Run input pins
@@ -147,6 +149,11 @@ the stream. Whether the gateway offers live replies is read from
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
 - Workflow: `/api/gateway/workflow-catalog`, `/api/gateway/visualflows`,
   `/api/gateway/visualflows/{flow_id}/publish`, `/api/gateway/admin/workflow-catalog/promote`
+- Sessions: `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false` (the
+  session list; `&session_kind=chat,discussion` is added when the gateway lists `session_kind`
+  among `runs.list.filters` in its capabilities); titles come from a session's first run's
+  `input_data` and transcripts from its latest run's `history_bundle`
+  ([architecture.md](architecture.md#sessions))
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
   `/api/gateway/runs/{run_id}/input_data`, `/api/gateway/runs/{run_id}/history_bundle`,
   `/api/gateway/runs/{run_id}/ledger`, `/api/gateway/runs/{run_id}/ledger/stream`,
@@ -163,11 +170,25 @@ the stream. Whether the gateway offers live replies is read from
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
-- Automations ([automations.md](automations.md)): `/api/gateway/automations` (list, create),
-  `/api/gateway/automations/{id}` (get, `PATCH` edit), `…/{id}/commands`, `…/{id}/occurrences`,
-  `…/{id}/attention`, `…/{id}/seen`, `…/{id}/discuss`, `/api/gateway/trigger-sources`; errors are
-  read from `detail.reason_code`. Waits of automation runs are answered with the same `resume`
-  command on `/api/gateway/commands`.
+- Automations ([automations.md](automations.md)), used only when the capabilities advertise
+  `contracts.common.automations.available: true`:
+  - `GET /api/gateway/automations` (every page, following `next_cursor`) and
+    `POST /api/gateway/automations` (create, with a `request_id`; the Schedule window sends
+    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` trigger, `context.mode`
+    and `policy.tool_approval` = `auto` | `ask`)
+  - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: changed
+    fields, `expected_revision`, `command_id`)
+  - `POST …/{id}/commands` (`automation.pause`, `automation.resume`, `automation.run_now`,
+    `automation.stop_current`, `automation.archive`)
+  - `GET …/{id}/occurrences` (runs, newest first), `GET …/{id}/attention` (unseen items),
+    `POST …/{id}/seen` (the last displayed item's cursor), `POST …/{id}/discuss`
+    (`occurrence_index`, `prompt`)
+  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1)
+
+  Every refusal is read from the `detail.reason_code` envelope. A waiting run of an automation is
+  answered with the `resume` command on `/api/gateway/commands`, whose payload follows the wait's
+  kind: `{"response": text}` for `ask_user`, `{"approved": true|false}` for `tool_approval`,
+  `{"payload": <JSON>}` for `event`.
 
 ## Python API status
 

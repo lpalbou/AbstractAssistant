@@ -96,25 +96,40 @@ the bin removes it from this list after an in-row confirmation and moves its loc
 
 Yes, on a gateway that offers automations. The clock button in the palette header opens
 **Schedule this conversation…**: the conversation's workflow and last question, an interval in UTC
-("every 8 hours", "every 7 days", or once at a time), and whether each run starts fresh
-(Independent, the default) or sees the previous runs (Growing). The gateway runs it, also when the
-Assistant is closed. Automations are listed in the session switcher's **Automations** section and
-under **Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume,
-run now, edit, archive and Discuss. You are notified only for results the workflow marks as
-notable, failures after all retries, and runs waiting for your answer — ordinary results stay
+("every 8 hours", "every 7 days", or once at a time), whether each run starts fresh
+(Independent, the default) or sees the previous runs (Growing), and whether its tools run without
+asking (the default) or ask each time. The gateway runs it, also when the Assistant is closed.
+Automations are listed in the session switcher's **Automations** section and under
+**Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume, run
+now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
+notable, failures after all retries, and runs waiting for your answer; ordinary results stay
 quiet. Details: [automations.md](automations.md).
+
+## Does the Assistant have to stay open for automations to run?
+
+No. The gateway runs them. The Assistant only reads them: every 60 seconds while the palette is
+visible and every 5 minutes while it is hidden, so notifications reach the tray. Results that
+arrive while the Assistant is closed are waiting in the automation, marked new, when you open it.
+
+## Why can't I approve a tool call when a scheduled run uses it?
+
+With **Tools run without asking** (the default), creating the automation is the approval, and its
+runs do not stop to ask. Choose **Ask each time** in the Schedule window to approve each run's tool
+calls from the automation; see [automations.md](automations.md#tool-consent).
 
 ## Why don't the sessions of my automations appear among my chats?
 
 Each automation's runs are grouped under the automation in the **Automations** section, not
-listed as chats. A **Discuss** session is an ordinary chat and does appear, with the badge
+listed as chats: the switcher lists only sessions the gateway marks as chats or discussions. A
+**Discuss** session is an ordinary chat and does appear, with the badge
 "about automation <title>"; its workspace is read-only.
 
 ## I upgraded and some old chats are gone from the list
 
-Sessions now come from the gateway. Chats that existed only on this Mac (for example after the
-gateway was reset) are removed from the list once; the switcher says how many, and their text is
-kept under `~/.abstractassistant/sessions-legacy/`.
+The session list comes from the gateway. When you upgrade from 0.6.1 or earlier, chats that
+existed only on this Mac (for example after the gateway was reset) are removed from the list once;
+the switcher says how many, and their text is kept under `~/.abstractassistant/sessions-legacy/`.
+See [architecture.md](architecture.md#sessions).
 
 ## Where are downloads stored?
 

@@ -51,9 +51,18 @@ Where things live:
 - `abstractassistant/controller.py` — preferences, caches, run scope, run commands
 - `abstractassistant/ui/` — settings pages, approval sheet, activity card, voice strip, shared stylesheet
 - `abstractassistant/core/` — voice conversation loop, tool presentation and risk, voice manager
-- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter, live reply events
+- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter, live reply events,
+  the Automations API client (`gateway/automations.py`)
+- `abstractassistant/core/automations.py`, `abstractassistant/ui/automations.py` — the automation
+  presentation rules and the Qt views ([docs/architecture.md](docs/architecture.md#automations))
 - `abstractassistant/_version.py` — the single version source; keep it equal to `pyproject.toml`
   (a test checks it)
+
+The automation tests run against a loopback stub serving the shared contract fixtures in
+`tests/basic/fixtures/automations/`. They are byte-identical copies of the canonical fixtures
+maintained in AbstractUIC (`ui-kit/scripts/fixtures/automations/`), recorded in
+`CHECKSUMS.sha256`; a test fails when a copy drifts. Update them by copying the canonical files,
+never by editing the copies.
 
 Design tokens are in `abstractassistant/theme.py` and the shared stylesheet in
 `abstractassistant/ui/styles.py`; new UI should use them rather than literal colors.

@@ -5,6 +5,7 @@ See also:
 - [getting-started.md](getting-started.md)
 - [settings.md](settings.md)
 - [voice.md](voice.md)
+- [automations.md](automations.md)
 - [faq.md](faq.md)
 
 ## The header orb is red or the title says "Reconnecting…"
@@ -74,6 +75,46 @@ or reset them. See [settings.md](settings.md#workspace).
 The sheet is modeless and may be behind other windows, or you deferred it with Esc. Show the
 palette again (the question is re-asked), or click **Review** on the waiting step in the activity
 card. The run log (list icon on the activity card) shows the pending wait.
+
+## The switcher says "Cached — gateway unreachable"
+
+The switcher shows the sessions it last received and your cached transcripts stay readable;
+nothing is deleted. Check the connection orb and Settings → Connection. The next successful fetch
+from the gateway replaces the cached list. See [architecture.md](architecture.md#sessions).
+
+## The switcher has no Automations section
+
+The gateway does not advertise automations in its capabilities
+(`contracts.common.automations.available`), so the Assistant shows no section and no
+**Automations…** tray entry. Automations need a gateway version that offers them; ask the gateway
+operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
+
+## The Automations section shows "Automations: …" instead of rows
+
+The last check failed; the line gives the reason, and the rows are the ones last received. "The
+gateway could not be reached" means the connection is down (check the orb). "Sign in to the gateway
+to manage automations" means the saved sign-in is missing or expired: sign in again in Settings →
+Connection or open the Assistant from the gateway console. A line about the gateway's capabilities
+means they could not be read, so the Assistant cannot tell whether the gateway offers automations.
+
+## Schedule stays disabled in "Schedule this conversation…"
+
+The line under the form says what is missing: a task, a valid interval or date (`YYYY-MM-DD HH:MM`,
+UTC), or a workflow for this conversation (Settings → Models → Workflow). "This gateway does not
+offer the schedule@1 trigger source" means the gateway cannot schedule runs; ask its operator.
+
+## An automation run is waiting but there are no answer buttons
+
+The gateway did not say which kind of answer the wait expects, so the Assistant does not guess.
+Answer it from AbstractObserver. See
+[automations.md](automations.md#answering-a-run-that-waits-for-you).
+
+## I do not get automation notifications
+
+Only notable results, failures after all retries and runs waiting for you notify; ordinary results
+never do. While the palette is hidden the Assistant checks every 5 minutes, so a notification can
+arrive up to 5 minutes after the event. Each item notifies once, also across relaunches. Check that
+macOS allows notifications for the Assistant (System Settings → Notifications).
 
 ## A tool is "Disabled on gateway"
 

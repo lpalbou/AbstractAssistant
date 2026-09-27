@@ -5,6 +5,8 @@
 
 Regenerate:
   python scripts/update_llms_full.py
+Check for drift (exit 1 when stale):
+  python scripts/update_llms_full.py --check
 
 Included files (in order):
 - llms.txt
@@ -14,6 +16,7 @@ Included files (in order):
 - docs/getting-started.md
 - docs/settings.md
 - docs/voice.md
+- docs/automations.md
 - docs/api.md
 - docs/architecture.md
 - docs/faq.md
@@ -40,6 +43,8 @@ Included files (in order):
 - abstractassistant/core/gateway_sessions.py
 - abstractassistant/core/session_cache.py
 - abstractassistant/core/session_store.py
+- abstractassistant/gateway/automations.py
+- abstractassistant/core/automations.py
 - abstractassistant/gateway_service.py
 - scripts/update_llms_full.py
 
@@ -55,14 +60,15 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/README.md](docs/README.md): documentation index
 - [docs/INSTALLATION.md](docs/INSTALLATION.md): pip install, the `voice` extra, the optional macOS app bundle
 - [docs/getting-started.md](docs/getting-started.md): start a gateway, launch the palette, first turn, approvals, shortcuts
-- [docs/architecture.md](docs/architecture.md): components, gateway boundary, run lifecycle with live replies, console sign-in hand-over, module map
-- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), environment variables, run input pins, live reply events, gateway routes used, local files
+- [docs/architecture.md](docs/architecture.md): components, gateway boundary, sessions on the gateway, automations (diagram, polling, capability gate), run lifecycle with live replies, console sign-in hand-over, module map
+- [docs/api.md](docs/api.md): CLI entry points and flags (`--gateway-handover-file`, `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
 - [docs/faq.md](docs/faq.md): recurring questions and known limits
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
 - [docs/settings.md](docs/settings.md): every setting (workflow choice, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
+- [docs/automations.md](docs/automations.md): scheduled tasks on the gateway as the Assistant shows them: the Automations section, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -96,8 +102,13 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 
 ## What you get
 
-- A menu-bar palette whose title tells you what the app is doing, with a recent-chat picker and a
-  live gateway connection orb.
+- A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
+  the gateway (your sessions from every device, optionally every client's) and a live gateway
+  connection orb.
+- Automations: schedule a conversation to run on the gateway at a fixed UTC interval, read its runs
+  as a chat, pause, run now, edit or archive it, answer the runs that wait for you, discuss a
+  result, and get a tray notification only when a result is notable, a run fails or a run waits for
+  you. See [docs/automations.md](docs/automations.md).
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
 - Live replies: with **Stream replies** on (or left to a gateway that streams by default), the
@@ -184,6 +195,8 @@ The desktop client stores under `~/.abstractassistant/`:
 - `session_cache.json`, `sessions/` — a rebuildable cache of the gateway's sessions (local labels,
   cached transcripts, each session's granted workspace folder); the sessions themselves live on
   the gateway
+- `automations_notified.json` — which automation notifications were already shown; automations
+  themselves live on the gateway
 - downloads and cached audio
 
 ## Documentation
@@ -194,6 +207,7 @@ Start with [docs/README.md](docs/README.md).
 - [docs/getting-started.md](docs/getting-started.md)
 - [docs/settings.md](docs/settings.md)
 - [docs/voice.md](docs/voice.md)
+- [docs/automations.md](docs/automations.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/api.md](docs/api.md)
 - [docs/faq.md](docs/faq.md)
@@ -226,8 +240,8 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
 - [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, shortcuts
-- [architecture.md](architecture.md) — components, the gateway boundary, the run lifecycle with live replies, the console sign-in hand-over
-- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used, local files
+- [architecture.md](architecture.md) — components, the gateway boundary, sessions on the gateway (scope, kinds, cache, offline), automations (diagram, polling, capability gate), the run lifecycle with live replies, the console sign-in hand-over
+- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
 - [faq.md](faq.md) — recurring questions and known limits
 - [troubleshooting.md](troubleshooting.md) — symptoms, causes and fixes
 
@@ -235,6 +249,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
+- [automations.md](automations.md) — scheduled tasks on the gateway: the Automations section, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
 
 ## Design records
 
@@ -440,15 +455,23 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
 
 - **Header**: the title shows what the app is doing (Running, Reconnecting, Listening, Speaking,
   Not sent); the chat control names the current chat and opens the chat switcher; the buttons
-  start a new chat (⌘N), open Tools & permissions, toggle spoken replies, and open Settings (⌘,);
-  the orb at the right shows whether the gateway is reachable.
-- **Chat switcher**: click the chat name in the header. Chats are grouped by recency (today,
+  start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock), toggle
+  spoken replies, and open Settings (⌘,); the orb at the right shows whether the gateway is
+  reachable.
+- **Chat switcher**: click the chat name in the header. It lists your sessions on the gateway,
+  including those the Assistant created on another device; **All gateway sessions** in its header
+  adds sessions from AbstractCode and other clients. Chats are grouped by recency (today,
   yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
-  its latest question, when it was last active, and its turns, tool calls, tokens, running time
-  and workspace folder. A chat whose tools failed or whose last question was never answered is
-  flagged. Type to filter by topic, folder or tool name; ↑↓ move, Return opens, Esc closes. The
-  pencil renames a chat and the bin deletes it (with its transcript) after an in-row
-  confirmation; ⌘⌫ asks the same for the selected row.
+  its latest question, when it was last active, its turns and state, and once opened on this Mac
+  its tool calls, tokens, running time and workspace folder. A chat whose tools failed or whose
+  last question was never answered is flagged. Type to filter by topic, folder or tool name; ↑↓
+  move, Return opens, Esc closes. The pencil renames a chat on this device and the bin removes it
+  from the list after an in-row confirmation (its runs stay on the gateway, its local copy moves
+  to `~/.abstractassistant/sessions-legacy/`); ⌘⌫ asks the same for the selected row. How
+  sessions work: [architecture.md](architecture.md#sessions).
+- **Automations**: on a gateway that offers them, the switcher also lists your automations above
+  the chats, and the clock button schedules the current conversation to run on a fixed UTC
+  interval. See [automations.md](automations.md).
 - **Transcript**: your messages and the assistant's replies. Each reply ends with a statistics
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and
@@ -769,6 +792,233 @@ low. If the output device stops accepting audio mid-reply, playback is stopped a
 the next reply reopens the device. While the microphone is live, the device list is not
 refreshed, so a device change cannot interrupt capture.
 
+--- docs/automations.md ---
+# Automations
+
+An **automation** runs a task on a schedule on the gateway: "search the news about AI agents every
+8 hours", "triage my inbox every 30 minutes", "summarise my journal every 7 days". The gateway runs
+it; the Assistant lists it, creates it, answers it and tells you when it needs you. Nothing runs on
+this Mac: an automation keeps running while the Assistant is closed or the Mac is asleep.
+
+This page is the user guide. For how automations fit in the app's components and which gateway
+routes they use, see [architecture.md](architecture.md#automations) and
+[api.md](api.md#gateway-routes-used). For the sessions they sit next to, see
+[architecture.md](architecture.md#sessions).
+
+## What an automation is
+
+- **An automation is a durable object on the gateway.** Each run of it (an *occurrence*) is a run of
+  the chosen workflow with the automation's task as its prompt, in a session that belongs to the
+  automation.
+- **Each run is a chat turn.** The Assistant shows an automation's runs as a conversation: what
+  triggered the run and the task it was given, then its answer.
+- **Independent or Growing.** An Independent automation starts every run fresh. A Growing one
+  shows each run the previous runs, like a continuing conversation, within a bounded history.
+- **Quiet by default.** An ordinary result updates the list and never notifies you. You are
+  notified when a result is marked as notable by the workflow, when a run fails after all its
+  retries, and when a run waits for your answer.
+- **Tools are consented once.** Nobody is in front of a scheduled run to approve a tool call, so
+  you decide when you create the automation whether its tools run without asking or ask each time.
+
+## Where automations appear
+
+Click the chat name in the palette header. On a gateway that offers automations, the switcher lists
+an **Automations** section above your chats: one row per automation you own, whichever app created
+it (the Assistant, AbstractObserver or another client). Each row shows:
+
+- the title, and a badge when something needs you: `2 NEW` (unseen results or failures) and
+  `WAITING` (a run waits for your answer);
+- the cadence, its status and its context mode, for example
+  `every 8 hours (UTC) · Active · independent` or `every 7 days (UTC) · 12 runs max · Paused · growing`;
+- when it runs next (`next in 3 h`, `next in 12 min`, `next: now`, `paused`, `running`);
+- the last run's number, status and the first line of its result (`#12 completed: …`), or
+  `waiting for you: <question>`.
+
+The section header counts what needs you (`AUTOMATIONS · 3 NEW`: unseen items plus waiting runs).
+Typing in the switcher filters automations by title, cadence and last result, like chats. When
+you have none yet, the section says so and points to the clock button.
+
+The **Automations…** entry in the menu-bar icon's menu carries the same count
+(`Automations… (3 new)`) and opens the palette with the switcher.
+
+### Automations and your sessions
+
+The sessions an automation runs in are listed under their automation, never among your chats. The
+gateway stamps every session with a kind (`chat`, `automation`, `occurrence`, `discussion`), and
+the switcher lists only `chat` and `discussion` sessions; it never guesses from a session's id.
+A session from a gateway that does not stamp kinds counts as a chat. When the gateway advertises
+the `session_kind` filter on `/runs`, the Assistant asks it for chats and discussions only, so
+automation runs never crowd your chats out of the listing. How the session list works as a whole
+is described in [architecture.md](architecture.md#sessions).
+
+## Schedule this conversation
+
+The clock button in the palette header opens **Schedule this conversation…**, a window beside the
+palette:
+
+- **What**: the conversation's workflow (the one Settings → Models → Workflow selects, shown as
+  "Workflow: …") and a task prefilled with the conversation's last question, which you can edit.
+  The title is optional and defaults to the task's first line (at most 120 characters).
+- **When (UTC)**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days;
+  **every N…** minutes, hours or days; or **once at…** a date and time. For an interval, an
+  optional first-run time (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now.
+  Intervals are fixed durations in UTC: "every 24 hours", never "daily at 08:00 local time".
+- **Context**: **Independent** (the default: each run starts fresh) or **Growing** (each run sees
+  the previous runs).
+- **Tools**: **Tools run without asking** (the default) or **Ask each time**. See
+  [Tool consent](#tool-consent).
+
+A line under the form previews the schedule ("every 8 hours (UTC), first run now") or says what is
+missing. **Schedule** is enabled once the form is complete and the gateway offers the `schedule`
+trigger; it creates the automation and opens it in the palette. If the gateway could not be
+reached, pressing **Schedule** again sends the same request, which the gateway recognises, so the
+automation is never created twice; after a refusal, the next press is a new request.
+
+## Tool consent
+
+The **Tools** choice is sent as the automation's `policy.tool_approval`:
+
+- **Tools run without asking** (`auto`): creating the automation is your approval. Its runs use the
+  workflow's tools without stopping to ask, since nobody is there to answer each run.
+- **Ask each time** (`ask`): every run that wants a tool waits for your approval, and you are
+  notified. You approve or deny from the automation (see
+  [Answering a run that waits for you](#answering-a-run-that-waits-for-you)).
+
+Questions the workflow itself asks you always wait for your answer, whichever you choose.
+
+## Reading an automation
+
+Click a row in the Automations section. The palette shows the automation in place of the
+conversation, and **← Chat** returns to it.
+
+The header gives the title and one line with the cadence, status, next run, context mode and run
+count. Below it, a highlighted block lists what is new ("New · #12 Price above threshold",
+"Failed · #9") and how many runs are waiting for you.
+
+Each run reads as a pair of chat turns, oldest at the top, newest in view:
+
+- **the trigger turn**: the run's number, the gateway's summary of what fired it and when
+  (`#7 · schedule: every 30 minutes (UTC), tick 5 · fired 2026-09-27 06:30 UTC`), then the task
+  the run was given;
+- **the answer turn**: the run's status and finish time, then its answer. A result the workflow
+  marked as notable carries its notification title and a **Notified** badge. A failed run is red,
+  with the gateway's reason and the number of attempts ("Failed after 3 attempts"). A run that
+  waits for you is highlighted with **Waiting for you** and the controls to answer it. A running
+  run shows **Running**. Files the run produced are listed by name.
+
+Quiet runs (completed, nothing to notify) are shown dimmed. **Load older runs** at the top pages
+back through the history.
+
+Opening an automation marks the new items it displayed as seen on the gateway, so the badges clear
+on every device you use; items that arrive after the view loaded stay new. Runs waiting for you
+stay counted until you answer them.
+
+## Controls
+
+| Control | What it does |
+|---|---|
+| **Pause** | No scheduled run until you resume. A run in progress finishes. |
+| **Resume** | Back on the schedule from the next scheduled time; it does not fire at once. |
+| **Run now** | One run immediately. It also works while paused, and the automation stays paused. Disabled while a run is in progress. |
+| **Stop current** | Stops the run in progress. |
+| **Edit** | Title, interval (`30m`, `8h`, `7d`) and context mode, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
+
+A control that does not apply is disabled, with the reason in its tooltip ("Already paused.",
+"An occurrence is in progress.", "Not permitted for this automation."). The gateway decides which
+controls you may use on each automation; an archived automation has none. A legacy schedule (a
+scheduled workflow the gateway lists among automations without automation controls) is shown with
+every control disabled.
+
+After a control, the palette confirms it ("Paused: no scheduled run until you resume.", "Saved;
+applies from the next run.") and reloads the automation. If the gateway could not be reached,
+**Retry** sends the same request again with the same id, so it is never applied twice; once the
+gateway has answered, trying again is a new request. An edit made while the automation changed
+elsewhere is refused with "The automation changed since this view loaded. Reload it, then try
+again."
+
+## Answering a run that waits for you
+
+A run can stop and wait for you. You get a tray notification, and the run shows what it waits for.
+The gateway says which kind of answer each wait expects, and the Assistant answers by that kind,
+never by reading the question's text:
+
+| The run waits for | You see | What is sent |
+|---|---|---|
+| **a question** (`ask_user`) | the question, its choices as buttons, and a free-text field with **Answer** | your text as `{"response": "…"}` |
+| **tool approval** (`tool_approval`, automations set to Ask each time) | the tool calls it would run, each with its arguments, and **Approve** / **Deny** | `{"approved": true}` or `{"approved": false}` |
+| **an event** (`event`) | a field for the event's payload as JSON (`{"key": "value"}`) and **Send event** | `{"payload": <your JSON>}`; text that is not valid JSON is refused in place |
+
+The answer is a `resume` command on the waiting run, the same command the palette sends when you
+answer a question during a chat. A wait whose kind the gateway does not give (or gives as
+something else) is shown without answer controls, with a note to answer it from AbstractObserver,
+rather than answered blindly. If your answer does not reach the gateway, the palette says so and
+the run keeps waiting.
+
+## Discuss a result
+
+**Discuss** on a finished run opens a field ("What do you want to discuss about this result?");
+**Start** asks the gateway to open a new session seeded with the automation's runs up to that one,
+sends your question in it, and switches the palette to it. It is an ordinary chat: it keeps the
+workflow's normal tools and appears among your chats with the badge **about automation <title>**
+(click the badge to open the automation). Its workspace is the automation's, read-only, and nothing
+is written back to the automation.
+
+Discuss is disabled on a run in progress, and the palette asks you to let a running reply finish
+(or stop it) before it opens a discussion.
+
+## Notifications and the two polls
+
+The Assistant reads the automation list from the gateway on two cadences:
+
+- every **60 seconds** while the palette is visible, and once each time you show the palette or
+  open the switcher;
+- every **5 minutes** while the palette is hidden, so that a notification reaches the tray while
+  you work in other apps.
+
+A tray notification is shown once for each:
+
+- result the workflow marked as notable;
+- run that failed after all its retries (3 attempts unless the automation sets another number);
+- run waiting for you ("<title> is waiting for you", or "<title> needs your approval" for a
+  tool approval).
+
+Ordinary results never notify. Notifications are not repeated after a relaunch:
+`~/.abstractassistant/automations_notified.json` remembers which ones were shown. What counts as
+"seen" is kept by the gateway, per user, and moves only when you open the automation.
+
+## When the gateway does not offer automations
+
+The Assistant reads the gateway's capabilities (`contracts.common.automations.available`):
+
+- **Advertised**: the Automations section, the tray entry and the polls described above.
+- **Not advertised**: no Automations section and no tray entry, and the polls make no automation
+  request. The clock button stays in the header; opening it on such a gateway shows the gateway's
+  refusal in the window, and nothing is created.
+- **Capabilities could not be read**: the Automations section shows an error line instead of
+  hiding, so an unreachable gateway is never mistaken for one without automations.
+
+## Offline and errors
+
+- When a check fails, the switcher keeps the automations it last received and shows
+  "Automations: The gateway could not be reached." (or the gateway's reason) above them. The next
+  successful check replaces the line.
+- Every refusal from the gateway is shown in words with the gateway's own message, for example
+  "Sign in to the gateway to manage automations.", "This automation does not exist (or is not
+  yours).", "An occurrence is already running or queued. Wait for it to finish."
+- Automations are scoped to the gateway user you are signed in as: signing in as another user shows
+  that user's automations.
+
+## Limits
+
+- Schedules are fixed intervals in UTC, or one run at a given time. There is no calendar recurrence
+  (weekdays, local time zones).
+- The only triggers the Assistant creates are the schedule and **Run now**.
+- The Schedule window does not set a maximum number of runs or an end date; an automation created
+  elsewhere with one shows it in its cadence.
+- The Assistant edits an automation's title, interval and context mode. It does not change the
+  workflow or the task an automation runs; AbstractObserver manages automations as well.
+
 --- docs/api.md ---
 # API And CLI Reference
 
@@ -877,6 +1127,10 @@ All under `~/.abstractassistant/`:
   session, local labels, fetched titles, the last gateway list, cached transcripts, last run id,
   granted workspace root ([architecture.md](architecture.md#sessions))
 - `sessions-legacy/` — files kept from the 0.6.1-and-earlier local session index and unreadable cache files
+- `automations_notified.json` — which automation results, failures and waits were already
+  shown as a tray notification, so a relaunch does not repeat them
+  ([automations.md](automations.md#notifications-and-the-two-polls)). Deleting it can repeat
+  notifications for items still unseen on the gateway; nothing else is lost.
 - `downloads/`, `gateway_audio/` — downloaded artifacts and cached speech audio
 
 ## Run input pins
@@ -917,6 +1171,11 @@ the stream. Whether the gateway offers live replies is read from
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
 - Workflow: `/api/gateway/workflow-catalog`, `/api/gateway/visualflows`,
   `/api/gateway/visualflows/{flow_id}/publish`, `/api/gateway/admin/workflow-catalog/promote`
+- Sessions: `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false` (the
+  session list; `&session_kind=chat,discussion` is added when the gateway lists `session_kind`
+  among `runs.list.filters` in its capabilities); titles come from a session's first run's
+  `input_data` and transcripts from its latest run's `history_bundle`
+  ([architecture.md](architecture.md#sessions))
 - Runs: `/api/gateway/runs/start`, `/api/gateway/runs/{run_id}`,
   `/api/gateway/runs/{run_id}/input_data`, `/api/gateway/runs/{run_id}/history_bundle`,
   `/api/gateway/runs/{run_id}/ledger`, `/api/gateway/runs/{run_id}/ledger/stream`,
@@ -933,6 +1192,25 @@ the stream. Whether the gateway offers live replies is read from
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
   attachments: `/api/gateway/attachments/upload`
 - Artifacts: `/api/gateway/runs/{run_id}/artifacts`, artifact metadata and content download
+- Automations ([automations.md](automations.md)), used only when the capabilities advertise
+  `contracts.common.automations.available: true`:
+  - `GET /api/gateway/automations` (every page, following `next_cursor`) and
+    `POST /api/gateway/automations` (create, with a `request_id`; the Schedule window sends
+    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` trigger, `context.mode`
+    and `policy.tool_approval` = `auto` | `ask`)
+  - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: changed
+    fields, `expected_revision`, `command_id`)
+  - `POST …/{id}/commands` (`automation.pause`, `automation.resume`, `automation.run_now`,
+    `automation.stop_current`, `automation.archive`)
+  - `GET …/{id}/occurrences` (runs, newest first), `GET …/{id}/attention` (unseen items),
+    `POST …/{id}/seen` (the last displayed item's cursor), `POST …/{id}/discuss`
+    (`occurrence_index`, `prompt`)
+  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1)
+
+  Every refusal is read from the `detail.reason_code` envelope. A waiting run of an automation is
+  answered with the `resume` command on `/api/gateway/commands`, whose payload follows the wait's
+  kind: `{"response": text}` for `ask_user`, `{"approved": true|false}` for `tool_approval`,
+  `{"payload": <JSON>}` for `event`.
 
 ## Python API status
 
@@ -953,6 +1231,7 @@ See also:
 - [getting-started.md](getting-started.md)
 - [settings.md](settings.md) — every setting, its source and its storage
 - [voice.md](voice.md) — speech features and the conversation loop
+- [automations.md](automations.md) — scheduled tasks on the gateway, as the Assistant shows them
 - [api.md](api.md)
 - [adr/README.md](adr/README.md)
 
@@ -1028,11 +1307,17 @@ Sessions live on the gateway. A session is the set of root runs that share a `se
 - **Scope.** By default the switcher lists this app's own sessions: those whose id follows the
   Assistant's naming (`sess_…`), including the ones another Assistant install created. The
   **All gateway sessions** toggle in the switcher header lists every session on the gateway
-  (AbstractCode, flows, schedules, other channels), marked "other client"; the choice is kept.
-  Once the gateway reports a session kind on `/runs`, that field replaces the id test.
+  (AbstractCode, flows, schedules, other channels), marked "other client"; the choice is kept. A
+  discussion opened from an automation is always listed, whatever id the gateway gave it.
+- **Kinds.** The gateway stamps each session with a kind (`chat`, `automation`, `occurrence`,
+  `discussion`). The switcher lists `chat` and `discussion` sessions; `automation` and
+  `occurrence` sessions belong to the [Automations](#automations) section. A run without a kind
+  (a gateway that does not stamp it) counts as a chat. The kind is read from the gateway, never
+  inferred from an id.
 
 - **List.** The switcher's rows are one `GET /api/gateway/runs?limit=5000&root_only=true&include_ledger_len=false`
-  page folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
+  page (plus `&session_kind=chat,discussion` when the gateway lists `session_kind` among its
+  advertised `runs.list.filters`) folded by `session_id` (`core/gateway_sessions.py`), with the same rules as AbstractCode:
   newest first by the last run's `updated_at`, turn count = root runs, state = the liveliest run
   (waiting, then running, then failed, then done; an unreported status is unknown). The page
   covers the newest 5,000 root runs; when the gateway holds more, the switcher header says so.
@@ -1066,7 +1351,7 @@ Deleting the cache loses only local labels and removals. The chat switcher's met
 tokens, running time) are computed from the cached transcripts and appear once a session has been
 opened on this device.
 
-**Upgrading from 0.6.1 or earlier.** The earlier local index (`sessions.json`, `session.json`) is converted on
+**Upgrading from 0.6.1 or earlier.** The local index of those versions (`sessions.json`, `session.json`) is converted on
 first launch and kept in `sessions-legacy/`; the new cache is written before the old index is
 moved, and an interrupted conversion resumes on the next start. On the first complete list from the gateway, local
 sessions the gateway does not know are removed from the list; their folders move to
@@ -1075,6 +1360,73 @@ local labels.
 
 Local overrides never write the gateway's shared configuration. Every screen that shows a value
 says whether it is the gateway default or this app's override.
+
+## Automations
+
+An automation is a durable object that the gateway owns and AbstractRuntime executes; the
+Assistant is a view, a creator and a responder over the gateway's Automations API. It never runs an
+automation itself. The user guide is [automations.md](automations.md).
+
+```mermaid
+flowchart LR
+  subgraph Desktop["AbstractAssistant (this Mac)"]
+    Switcher["Session switcher\nAutomations section · discussion badge"]
+    View["Automation view (ui/automations)\nruns as chat pairs · controls · waits · Discuss"]
+    Sheet["Schedule this conversation…\nwhat · when (UTC) · context · tools"]
+    Hub["AutomationsHub\ncalls off the GUI thread\npolls 60 s visible / 5 min hidden"]
+    Rules["core/automations\nlabels · controls · create body\nnotification ledger"]
+    Client["gateway/automations\nAutomationsClient (ten calls)"]
+    Tray["Tray: Automations… (count)\nnotifications"]
+    Ledger[("automations_notified.json")]
+  end
+  subgraph Gateway["AbstractGateway"]
+    Caps["/discovery/capabilities\ncontracts.common.automations"]
+    Api["/automations · /{id} · /commands\n/occurrences · /attention · /seen\n/discuss · /trigger-sources"]
+    Runs["/runs (session_kind filter)\n/commands (resume a wait)"]
+  end
+  subgraph Runtime["AbstractRuntime"]
+    Auto["Automation\ncontroller run · schedule@1 trigger"]
+    Occ["Occurrences\none run per tick (session kind occurrence)"]
+    Disc["Discussion session\nforked · read-only workspace"]
+  end
+  Switcher --> Hub
+  View --> Hub
+  Sheet --> Hub
+  Hub --> Rules
+  Hub --> Client
+  Hub --> Tray
+  Rules --> Ledger
+  Client -- "available?" --> Caps
+  Client --> Api
+  View -- "wait answer by kind" --> Runs
+  Api --> Auto
+  Auto --> Occ
+  Api -- "discuss" --> Disc
+  Occ -. "rows: user turn · answer · notify · waits" .-> Api
+```
+
+- **Capability gate.** Each poll first reads `contracts.common.automations.available` from the
+  gateway's capabilities. Absent or not `true`: no section, no tray entry and no automation
+  request. Unreadable capabilities are reported as an error, never as "absent".
+- **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
+  and, for each automation with unseen items, its `…/attention` pages. It polls every 60 seconds
+  while the palette is visible, every 5 minutes while it is hidden, and at once when the palette
+  is shown or the switcher opens. One poll runs at a time.
+- **Notifications.** New attention items (notable results, final failures) and pending waits
+  become one tray notification each; their keys are kept in `automations_notified.json` (bounded)
+  so a relaunch does not repeat them. The gateway's per-user seen cursor moves only when the user
+  opens the automation, and only up to the last item the view displayed.
+- **Commands.** Pause, resume, run now, stop current and archive are `POST …/{id}/commands`; an
+  edit is `PATCH …/{id}` with the changed fields and the expected revision. Each user action has
+  one command id; a retry after a failure the gateway never answered re-sends the same id.
+- **Waits.** A waiting occurrence is answered with the `resume` command on
+  `/api/gateway/commands`, with the payload the wait's declared kind accepts (`ask_user`,
+  `tool_approval`, `event`). A wait without a known kind is not answered.
+- **Discuss.** `POST …/{id}/discuss` returns a new `discussion` session and its first run; the
+  palette switches to it and follows the run like any reattached turn.
+- **Errors.** Every non-2xx answer carries `detail.reason_code`, shown as a sentence with the
+  gateway's message. An answer without that envelope, or a body that is not a JSON object, is an
+  `invalid_response` error rather than a silent success.
 
 ## Run lifecycle
 
@@ -1145,6 +1497,9 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 - `core/voice_conversation.py`, `ui/voice_strip.py`, `core/gateway_voice_manager.py` — the
   hands-free loop, its status strip, and the local capture/playback layer over gateway speech
   routes.
+- `gateway/automations.py`, `core/automations.py`, `ui/automations.py` — the Automations API
+  client, its Qt-free presentation rules (labels, enabled controls, chat pairs, the create body,
+  notifications), and the switcher rows, automation view, Schedule window and polling hub.
 - `ui/styles.py`, `theme.py`, `icons.py` — one token set, one stylesheet builder, the Lucide glyphs.
 
 ## Workflow
@@ -1224,7 +1579,8 @@ code: quit it and open it again from the console.
 `tests/basic` runs headless (`QT_QPA_PLATFORM=offscreen`) and covers the gateway client and
 adapter, run input pins, preferences, the controller, the workflow choice, the console hand-over,
 live replies, the activity model, the approval sheet and presenter, the settings pages and About,
-the voice conversation loop, and a smoke test that builds the real palette.
+the voice conversation loop, automations (against a loopback stub serving the shared contract
+fixtures in `tests/basic/fixtures/automations/`), and a smoke test that builds the real palette.
 
 --- docs/faq.md ---
 # FAQ
@@ -1321,11 +1677,44 @@ lists sessions from AbstractCode and other clients. The pencil renames a session
 the bin removes it from this list after an in-row confirmation and moves its local copy to
 `~/.abstractassistant/sessions-legacy/`. The gateway has no session delete, so the runs stay there.
 
+## Can the assistant do something on a schedule?
+
+Yes, on a gateway that offers automations. The clock button in the palette header opens
+**Schedule this conversation…**: the conversation's workflow and last question, an interval in UTC
+("every 8 hours", "every 7 days", or once at a time), whether each run starts fresh
+(Independent, the default) or sees the previous runs (Growing), and whether its tools run without
+asking (the default) or ask each time. The gateway runs it, also when the Assistant is closed.
+Automations are listed in the session switcher's **Automations** section and under
+**Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume, run
+now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
+notable, failures after all retries, and runs waiting for your answer; ordinary results stay
+quiet. Details: [automations.md](automations.md).
+
+## Does the Assistant have to stay open for automations to run?
+
+No. The gateway runs them. The Assistant only reads them: every 60 seconds while the palette is
+visible and every 5 minutes while it is hidden, so notifications reach the tray. Results that
+arrive while the Assistant is closed are waiting in the automation, marked new, when you open it.
+
+## Why can't I approve a tool call when a scheduled run uses it?
+
+With **Tools run without asking** (the default), creating the automation is the approval, and its
+runs do not stop to ask. Choose **Ask each time** in the Schedule window to approve each run's tool
+calls from the automation; see [automations.md](automations.md#tool-consent).
+
+## Why don't the sessions of my automations appear among my chats?
+
+Each automation's runs are grouped under the automation in the **Automations** section, not
+listed as chats: the switcher lists only sessions the gateway marks as chats or discussions. A
+**Discuss** session is an ordinary chat and does appear, with the badge
+"about automation <title>"; its workspace is read-only.
+
 ## I upgraded and some old chats are gone from the list
 
-Sessions now come from the gateway. Chats that existed only on this Mac (for example after the
-gateway was reset) are removed from the list once; the switcher says how many, and their text is
-kept under `~/.abstractassistant/sessions-legacy/`.
+The session list comes from the gateway. When you upgrade from 0.6.1 or earlier, chats that
+existed only on this Mac (for example after the gateway was reset) are removed from the list once;
+the switcher says how many, and their text is kept under `~/.abstractassistant/sessions-legacy/`.
+See [architecture.md](architecture.md#sessions).
 
 ## Where are downloads stored?
 
@@ -1366,6 +1755,7 @@ See also:
 - [getting-started.md](getting-started.md)
 - [settings.md](settings.md)
 - [voice.md](voice.md)
+- [automations.md](automations.md)
 - [faq.md](faq.md)
 
 ## The header orb is red or the title says "Reconnecting…"
@@ -1435,6 +1825,46 @@ or reset them. See [settings.md](settings.md#workspace).
 The sheet is modeless and may be behind other windows, or you deferred it with Esc. Show the
 palette again (the question is re-asked), or click **Review** on the waiting step in the activity
 card. The run log (list icon on the activity card) shows the pending wait.
+
+## The switcher says "Cached — gateway unreachable"
+
+The switcher shows the sessions it last received and your cached transcripts stay readable;
+nothing is deleted. Check the connection orb and Settings → Connection. The next successful fetch
+from the gateway replaces the cached list. See [architecture.md](architecture.md#sessions).
+
+## The switcher has no Automations section
+
+The gateway does not advertise automations in its capabilities
+(`contracts.common.automations.available`), so the Assistant shows no section and no
+**Automations…** tray entry. Automations need a gateway version that offers them; ask the gateway
+operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
+
+## The Automations section shows "Automations: …" instead of rows
+
+The last check failed; the line gives the reason, and the rows are the ones last received. "The
+gateway could not be reached" means the connection is down (check the orb). "Sign in to the gateway
+to manage automations" means the saved sign-in is missing or expired: sign in again in Settings →
+Connection or open the Assistant from the gateway console. A line about the gateway's capabilities
+means they could not be read, so the Assistant cannot tell whether the gateway offers automations.
+
+## Schedule stays disabled in "Schedule this conversation…"
+
+The line under the form says what is missing: a task, a valid interval or date (`YYYY-MM-DD HH:MM`,
+UTC), or a workflow for this conversation (Settings → Models → Workflow). "This gateway does not
+offer the schedule@1 trigger source" means the gateway cannot schedule runs; ask its operator.
+
+## An automation run is waiting but there are no answer buttons
+
+The gateway did not say which kind of answer the wait expects, so the Assistant does not guess.
+Answer it from AbstractObserver. See
+[automations.md](automations.md#answering-a-run-that-waits-for-you).
+
+## I do not get automation notifications
+
+Only notable results, failures after all retries and runs waiting for you notify; ordinary results
+never do. While the palette is hidden the Assistant checks every 5 minutes, so a notification can
+arrive up to 5 minutes after the event. Each item notifies once, also across relaunches. Check that
+macOS allows notifications for the Assistant (System Settings → Notifications).
 
 ## A tool is "Disabled on gateway"
 
@@ -1687,9 +2117,18 @@ Where things live:
 - `abstractassistant/controller.py` — preferences, caches, run scope, run commands
 - `abstractassistant/ui/` — settings pages, approval sheet, activity card, voice strip, shared stylesheet
 - `abstractassistant/core/` — voice conversation loop, tool presentation and risk, voice manager
-- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter, live reply events
+- `abstractassistant/gateway/` — HTTP/SSE client, run input, ledger adapter, live reply events,
+  the Automations API client (`gateway/automations.py`)
+- `abstractassistant/core/automations.py`, `abstractassistant/ui/automations.py` — the automation
+  presentation rules and the Qt views ([docs/architecture.md](docs/architecture.md#automations))
 - `abstractassistant/_version.py` — the single version source; keep it equal to `pyproject.toml`
   (a test checks it)
+
+The automation tests run against a loopback stub serving the shared contract fixtures in
+`tests/basic/fixtures/automations/`. They are byte-identical copies of the canonical fixtures
+maintained in AbstractUIC (`ui-kit/scripts/fixtures/automations/`), recorded in
+`CHECKSUMS.sha256`; a test fails when a copy drifts. Update them by copying the canonical files,
+never by editing the copies.
 
 Design tokens are in `abstractassistant/theme.py` and the shared stylesheet in
 `abstractassistant/ui/styles.py`; new UI should use them rather than literal colors.
@@ -1849,6 +2288,43 @@ SOFTWARE.
 
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
+
+## Unreleased
+
+### Added
+- **Automations.** On a gateway that advertises automations in its capabilities, the session
+  switcher has an **Automations** section above your chats: one row per automation with its
+  cadence ("every 8 hours (UTC)"), status, context mode, next run, last result, and a `NEW` /
+  `WAITING` badge when something needs you. **Automations…** in the tray menu shows the same count
+  and opens the switcher. On a gateway without automations, neither appears. See
+  [docs/automations.md](docs/automations.md).
+- **An automation's runs read as a chat.** Opening an automation shows each run as the task it was
+  given and its answer, oldest first: quiet runs dimmed, notable results badged, failures with
+  their reason and attempts, runs waiting for you highlighted, older runs on demand. Opening it
+  marks the displayed items as seen on the gateway.
+- **Controls**: **Pause**, **Resume**, **Run now** (also while paused), **Stop current**, **Edit**
+  (title, interval, context) and **Archive** (confirmed in the palette). A request the gateway never
+  received can be retried without being applied twice.
+- **Schedule this conversation…** (clock button in the header): runs the conversation's workflow
+  with its last question, editable, every 5 minutes to every 7 days, every N minutes/hours/days, or
+  once at a UTC time; Independent (default) or Growing context; and a tools choice: **Tools run
+  without asking** (the default: creating the automation is the approval) or **Ask each time**.
+- **Answer a waiting run** from the automation, by the kind of answer the gateway says it expects:
+  a question with its choices or free text, a tool approval listing the tool calls with **Approve**
+  / **Deny**, or an event payload typed as JSON. A wait of unknown kind is shown without answer
+  controls.
+- **Discuss** a finished run: opens an ordinary chat seeded with the automation's runs up to that
+  one, with the workflow's normal tools and a read-only workspace; it is listed among your chats
+  with the badge "about automation <title>", which opens the automation.
+- **Tray notifications** for results the workflow marks as notable, runs that failed after all
+  retries and runs waiting for you: once each, also across relaunches
+  (`~/.abstractassistant/automations_notified.json`), never for ordinary results. The Assistant
+  checks every 60 seconds while the palette is visible and every 5 minutes while it is hidden.
+
+### Changed
+- The session switcher lists only the sessions the gateway marks as chats or discussions; the
+  sessions an automation runs in are listed under the automation. When the gateway supports it, the
+  session list asks for those kinds only.
 
 ## [0.7.0] - 2026-09-27
 
@@ -3896,6 +4372,8 @@ from abstractassistant.core.tool_policy import ToolApprovalPolicy
 from abstractassistant.core.gateway_voice_manager import GatewayVoiceManager
 from abstractassistant.core.llm_manager import LLMManager
 from abstractassistant.gateway import GatewayClient, GatewayClientConfig, session_memory_run_id
+from abstractassistant.gateway.automations import AutomationsClient
+from abstractassistant.gateway.client import wait_answer_payload
 from abstractassistant.gateway.run_input import MEDIA_OVERRIDE_INPUT_KEYS
 from abstractassistant.gateway.tool_usage import (
     extract_sub_run_ids_from_record,
@@ -4902,6 +5380,58 @@ class AssistantController:
 
     def session_messages(self) -> List[Dict[str, Any]]:
         return self.llm_manager.session_messages()
+
+    # ------------------------------------------------------------ automations
+
+    def automations_client(self) -> AutomationsClient:
+        """Contract-F client over the CURRENT gateway connection."""
+        gateway = self.llm_manager.gateway_client()
+        if gateway is None:
+            raise RuntimeError("Gateway client is not configured")
+        return AutomationsClient(gateway)
+
+    def automations_available(self) -> bool:
+        """Whether the gateway advertises the Automations API (capabilities
+        ``contracts.common.automations.available``). Blocking on a cold cache:
+        call it off the GUI thread. Raises when the capabilities could not be
+        read, so "unknown" is never shown as "absent"."""
+        caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+        if caps is None or caps.error:
+            raise RuntimeError(f"gateway capabilities unavailable: {getattr(caps, 'error', '') or 'no gateway'}")
+        return caps.automations_available()
+
+    def automation_notification_ledger_path(self) -> Path:
+        """Where the already-notified attention keys live (per data dir)."""
+        return Path(self.llm_manager.data_dir) / "automations_notified.json"
+
+    def last_user_prompt(self) -> str:
+        """The active conversation's last user message (the "Schedule this" seed)."""
+        for message in reversed(self.session_messages() or []):
+            if isinstance(message, dict) and str(message.get("role") or "") == "user":
+                meta = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+                if str((meta or {}).get("kind") or "") == "operator_guidance":
+                    continue
+                text = str(message.get("content") or "").strip()
+                if text:
+                    return text
+        return ""
+
+    def answer_wait(self, *, run_id: str, wait_key: str, kind: str, answer: Any) -> Dict[str, Any]:
+        """Answer a pending wait of a run this client did not start (an
+        automation occurrence): the same ``resume`` command the live worker
+        sends, with the payload the wait's ``kind`` accepts
+        (``wait_answer_payload``). Blocking: call it off the GUI thread."""
+        return self.gateway.submit_wait_response(
+            run_id=run_id, wait_key=wait_key, payload=wait_answer_payload(kind, answer)
+        )
+
+    def open_gateway_session(self, session_id: str, *, run_id: str) -> None:
+        """Switch to a session the gateway just created (a Discuss session),
+        remembering its run so the palette can follow it like any reattach."""
+        self.llm_manager.switch_session(session_id)
+        self.llm_manager.replace_gateway_messages(
+            list(self.llm_manager.session_messages() or []), last_run_id=str(run_id or "").strip() or None
+        )
 
     def route_rows(self) -> List[CapabilityRouteRow]:
         return self.gateway_service.list_capability_routes()
@@ -6111,6 +6641,47 @@ def _encode_multipart(
     return body, content_type_header
 
 
+WAIT_KINDS = ("ask_user", "tool_approval", "event")
+
+
+def wait_answer_payload(kind: str, answer: Any) -> Dict[str, Any]:
+    """The resume payload a wait of this ``kind`` accepts (decision D1): chosen
+    by the wait's declared kind, never from its text. ``ask_user`` →
+    ``{response}``; ``tool_approval`` → ``{approved}`` (a bool); ``event`` →
+    ``{payload: <JSON value>}`` (the runtime's ``ANSWER_PAYLOADS`` and the
+    ui-kit's ``WaitAnswer``). An unknown or missing kind raises:
+    answering a wait the client cannot type would approve or answer nothing."""
+    if kind == "ask_user":
+        return {"response": str(answer if answer is not None else "")}
+    if kind == "tool_approval":
+        if not isinstance(answer, bool):
+            raise ValueError("wait_answer_payload: a tool approval is answered with True or False")
+        return {"approved": answer}
+    if kind == "event":
+        try:
+            json.dumps(answer)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"wait_answer_payload: an event payload must be JSON ({exc})") from None
+        return {"payload": answer}
+    raise ValueError(f"wait_answer_payload: unknown wait kind {kind!r}")
+
+
+def wait_response_command(*, run_id: str, wait_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The command that answers a run's pending wait: ``resume`` with
+    ``{wait_key, payload}`` on the WAITING run."""
+    rid = str(run_id or "").strip()
+    key = str(wait_key or "").strip()
+    if not rid or not key:
+        raise ValueError("wait_response_command: run_id and wait_key are required")
+    return {
+        "command_id": f"resume_{int(time.time() * 1000)}",
+        "run_id": rid,
+        "type": "resume",
+        "payload": {"wait_key": key, "payload": dict(payload or {})},
+        "client_id": "abstractassistant",
+    }
+
+
 class GatewayClient:
     """HTTP client wrapper for the gateway control plane."""
 
@@ -6398,8 +6969,12 @@ class GatewayClient:
             timeout_s=timeout_s,
         )
 
+    # The regular session list's kinds (contract F): automation and occurrence
+    # sessions are listed under their automation, never as chats.
+    REGULAR_SESSION_KINDS_QUERY = "chat,discussion"
+
     @staticmethod
-    def session_listing_path(limit: int) -> str:
+    def session_listing_path(limit: int, *, session_kind_filter: bool = False) -> str:
         """The exact query the session list sends — PINNED by a test.
 
         The same query AbstractCode's session board sends
@@ -6409,15 +6984,24 @@ class GatewayClient:
         of every listed run's ledger and nothing here reads it. The gateway
         REFUSES unknown query parameters with a 400 (`routes/gateway.py`
         `list_runs`), so a renamed or added parameter does not degrade — it
-        empties the list. Nothing else may be added here.
+        empties the list. Nothing else may be added here — except
+        ``session_kind=chat,discussion``, sent ONLY when the gateway lists
+        ``session_kind`` among its advertised ``runs.list.filters``
+        (``session_kind_filter=True``): without it, automation occurrences
+        (turn roots too) would eat the page budget of the chats.
         """
-        return f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+        path = f"/api/gateway/runs?limit={max(1, int(limit))}&root_only=true&include_ledger_len=false"
+        if session_kind_filter:
+            path += f"&session_kind={GatewayClient.REGULAR_SESSION_KINDS_QUERY}"
+        return path
 
-    def list_session_runs(self, *, limit: int, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+    def list_session_runs(
+        self, *, limit: int, timeout_s: Optional[float] = None, session_kind_filter: bool = False
+    ) -> Dict[str, Any]:
         """One page of root runs, newest first, for the session list."""
         return self._request_json(
             method="GET",
-            url=_join(self._cfg.base_url, self.session_listing_path(limit)),
+            url=_join(self._cfg.base_url, self.session_listing_path(limit, session_kind_filter=session_kind_filter)),
             label="list_session_runs failed",
             timeout_s=timeout_s,
         )
@@ -7045,6 +7629,13 @@ class GatewayClient:
             body=body,
             label="submit_command failed",
         )
+
+    def submit_wait_response(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Answer a run's pending wait: a ``resume`` command carrying
+        ``{wait_key, payload}`` on the WAITING run (the one path every wait
+        answer takes — tool approvals, ask-user, and waits of automation
+        occurrences the Assistant never started)."""
+        return self.submit_command(command=wait_response_command(run_id=run_id, wait_key=wait_key, payload=payload))
 
     def _submit_run_command(self, *, run_id: str, type_: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         rid = str(run_id or "").strip()
@@ -8637,6 +9228,7 @@ from ..gateway import (
     GatewayEventAdapter,
     build_run_input_data,
 )
+from ..gateway.client import wait_answer_payload, wait_response_command
 from ..gateway.events import extract_wait_from_record
 from ..gateway.history_seed import seed_messages_from_history_bundle
 from ..gateway.live_deltas import ASSISTANT_DELTA
@@ -8786,7 +9378,7 @@ class GatewayWorker(QThread):
         pending = self._pending_tool_approval_wait or {}
         if str(pending.get("run_id") or "") == rid and str(pending.get("wait_key") or "") == key:
             self._pending_tool_approval_wait = None
-        payload: Dict[str, Any] = {"approved": bool(approved)}
+        payload: Dict[str, Any] = wait_answer_payload("tool_approval", bool(approved))
         if not approved:
             payload["reason"] = "Denied by user"
         self.submit_wait_response(run_id=rid, wait_key=key, payload=payload)
@@ -8821,7 +9413,7 @@ class GatewayWorker(QThread):
         self.submit_wait_response(
             run_id=rid,
             wait_key=key,
-            payload={"response": str(response or "")},
+            payload=wait_answer_payload("ask_user", str(response or "")),
         )
 
     def _upload_attachments(self, *, session_id: str) -> List[Dict[str, Any]]:
@@ -9409,15 +10001,7 @@ class GatewayWorker(QThread):
         return fallback, merged_meta
 
     def _submit_resume(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
-        self._gateway.submit_command(
-            command={
-                "command_id": f"resume_{int(time.time() * 1000)}",
-                "run_id": str(run_id),
-                "type": "resume",
-                "payload": {"wait_key": wait_key, "payload": payload},
-                "client_id": "abstractassistant",
-            }
-        )
+        self._gateway.submit_command(command=wait_response_command(run_id=str(run_id), wait_key=wait_key, payload=payload))
 
     def submit_wait_response(self, *, run_id: str, wait_key: str, payload: Dict[str, Any]) -> None:
         """Submit a runtime wait response through Gateway without owning the wait.
@@ -12688,6 +13272,11 @@ AbstractCode uses (``abstractcode/tui/src/runner.rs`` ``fold_session_rows``,
 divergence from those is a bug in one of the three:
 
 - a run without a ``session_id`` (or without a ``run_id``) is not a session;
+- a run whose ``session_kind`` is ``automation`` or ``occurrence`` is not a
+  REGULAR session: those are listed under the Automations section (grouped by
+  ``automation_id``), never here. ``chat`` and ``discussion`` stay; a row
+  without ``session_kind`` (a gateway that does not stamp it) is a chat. The
+  kind is the gateway's own stamp — never inferred from an id prefix;
 - a child run (``parent_run_id`` set) is never a turn;
 - turns = the root runs of the session in the page;
 - recency = the newest ``updated_at`` (``created_at`` when absent) — the field
@@ -12713,6 +13302,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from .automations import is_regular_session_kind
 from .session_digest import parse_timestamp
 
 __all__ = [
@@ -12755,6 +13345,10 @@ class GatewaySession:
     first_run_id: str = ""
     latest_run_id: str = ""
     turns: int = 0
+    # The gateway's `session_kind` of the session's turns ("" = not stamped,
+    # i.e. a chat) and, for a discussion, the automation it is about.
+    session_kind: str = ""
+    automation_id: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -12765,6 +13359,8 @@ class GatewaySession:
             "first_run_id": self.first_run_id,
             "latest_run_id": self.latest_run_id,
             "turns": int(self.turns),
+            "session_kind": self.session_kind,
+            "automation_id": self.automation_id,
         }
 
     @classmethod
@@ -12787,6 +13383,8 @@ class GatewaySession:
             first_run_id=str(raw.get("first_run_id") or ""),
             latest_run_id=str(raw.get("latest_run_id") or ""),
             turns=turns,
+            session_kind=str(raw.get("session_kind") or ""),
+            automation_id=str(raw.get("automation_id") or ""),
         )
 
 
@@ -12825,6 +13423,8 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
     for index, run in enumerate(items):
         if not isinstance(run, dict):
             continue
+        if not is_regular_session_kind(_text(run.get("session_kind"))):
+            continue
         if _text(run.get("parent_run_id")):
             continue
         sid = _text(run.get("session_id"))
@@ -12845,6 +13445,8 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
         newest = max(group, key=lambda entry: (_when(_activity(entry[1])), -entry[0]))[1]
         oldest = min(group, key=lambda entry: (_when(_created(entry[1])), entry[0]))[1]
         latest = max(group, key=lambda entry: (_when(_created(entry[1])), -entry[0]))[1]
+        kind = next((_text(run.get("session_kind")) for _i, run in group if _text(run.get("session_kind"))), "")
+        automation_id = next((_text(run.get("automation_id")) for _i, run in group if _text(run.get("automation_id"))), "")
         rows.append(
             GatewaySession(
                 session_id=sid,
@@ -12854,6 +13456,8 @@ def fold_session_rows(payload: Any) -> Tuple[List[GatewaySession], bool]:
                 first_run_id=_text(oldest.get("run_id")),
                 latest_run_id=_text(latest.get("run_id")),
                 turns=len(group),
+                session_kind=kind,
+                automation_id=automation_id if kind == "discussion" else "",
             )
         )
     # Newest first by the field the gateway paged on; ties by id (stable).
@@ -13562,6 +14166,913 @@ class SessionStore:
                     tmp.unlink()
             except Exception:
                 pass
+
+--- abstractassistant/gateway/automations.py ---
+"""Automations v1 client — one method per gateway route (contract F).
+
+Mirrors the kit's `createAutomationsClient` (`@abstractframework/ui-kit`,
+`src/automations/client.ts`): the same ten calls, the same full paths under
+``/api/gateway/``, the same error rule. It rides the existing
+:class:`~abstractassistant.gateway.client.GatewayClient` for the base URL, the
+auth headers (bearer or session + CSRF) and the timeout.
+
+- No polling inside and no timers: callers poll FULL pages themselves; v1 has
+  no change cursor, so ``changed_since`` is never sent.
+- Every non-2xx answer must carry the automation error envelope
+  ``{"detail": {"reason_code", "message", "field"?, "command_id"?}}`` and is
+  raised as :class:`AutomationApiError` whose ``reason_code`` is
+  ``detail.reason_code``. A non-2xx without that envelope, or a 2xx body that is
+  not a JSON object, raises ``invalid_response`` — never a silent success. A
+  gateway that cannot be reached raises ``unreachable`` (status 0).
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import urllib.error
+import urllib.request
+import uuid
+from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import quote
+
+from .client import GatewayClient
+
+__all__ = [
+    "AUTOMATIONS_PATH",
+    "TRIGGER_SOURCES_PATH",
+    "AUTOMATION_COMMAND_TYPES",
+    "AutomationApiError",
+    "AutomationsClient",
+    "parse_api_error",
+]
+
+AUTOMATIONS_PATH = "/api/gateway/automations"
+TRIGGER_SOURCES_PATH = "/api/gateway/trigger-sources"
+
+# The `automation.*` command types of contract F (`command_types.py` on the
+# gateway). `automation.revise` is normally sent through PATCH (`revise`).
+AUTOMATION_COMMAND_TYPES = (
+    "automation.revise",
+    "automation.pause",
+    "automation.resume",
+    "automation.run_now",
+    "automation.stop_current",
+    "automation.archive",
+)
+
+# Guard for `list_all`: a gateway handing back the same cursor forever must not
+# spin a poll thread.
+_MAX_PAGES = 200
+
+
+class AutomationApiError(RuntimeError):
+    """A refused or unreadable automation call (contract F error envelope)."""
+
+    def __init__(
+        self,
+        *,
+        status: int,
+        reason_code: str,
+        message: str,
+        field: Optional[str] = None,
+        command_id: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = int(status)
+        self.reason_code = str(reason_code)
+        self.message = str(message)
+        self.field = field
+        self.command_id = command_id
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"AutomationApiError({self.status}, {self.reason_code!r}, {self.message!r})"
+
+
+def parse_api_error(status: int, body: Any) -> AutomationApiError:
+    """The contract envelope yields its ``reason_code``; any other shape is
+    ``invalid_response`` (status kept)."""
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, dict):
+        code = detail.get("reason_code")
+        message = detail.get("message")
+        if isinstance(code, str) and code and isinstance(message, str):
+            field = detail.get("field")
+            command_id = detail.get("command_id")
+            return AutomationApiError(
+                status=status,
+                reason_code=code,
+                message=message,
+                field=field if isinstance(field, str) else None,
+                command_id=command_id if isinstance(command_id, str) else None,
+            )
+    return AutomationApiError(
+        status=status,
+        reason_code="invalid_response",
+        message=f"The gateway answered HTTP {status} without an automation error envelope.",
+    )
+
+
+def _query(params: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in params.items() if v is not None and v != ""}
+
+
+class AutomationsClient:
+    """The ten contract-F calls over one :class:`GatewayClient`."""
+
+    def __init__(self, gateway: GatewayClient, *, new_id: Optional[Callable[[], str]] = None) -> None:
+        self._gateway = gateway
+        self._new_id = new_id or (lambda: uuid.uuid4().hex)
+
+    # ----------------------------------------------------------- transport
+
+    def _call(
+        self,
+        method: str,
+        path: str,
+        *,
+        query: Optional[Dict[str, Any]] = None,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        method = method.upper()
+        gateway = self._gateway
+        url = gateway._url(path, _query(query or {}))
+        headers = {"Accept": "application/json"}
+        headers.update(gateway._headers(mutating=method not in {"GET", "HEAD", "OPTIONS"}))
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=gateway.config.timeout_s) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                raw = resp.read() or b""
+        except urllib.error.HTTPError as exc:
+            status = int(getattr(exc, "code", 0) or 0)
+            try:
+                raw = exc.read() or b""
+            except Exception:
+                raw = b""
+            raise parse_api_error(status, _loads(raw)) from None
+        except (urllib.error.URLError, socket.timeout, OSError) as exc:
+            reason = getattr(exc, "reason", exc)
+            raise AutomationApiError(
+                status=0,
+                reason_code="unreachable",
+                message=f"The gateway could not be reached ({type(exc).__name__}: {reason}).",
+            ) from None
+        parsed = _loads(raw)
+        if not isinstance(parsed, dict):
+            raise AutomationApiError(
+                status=status,
+                reason_code="invalid_response",
+                message=f"The gateway answered {method} {path} with a body that is not a JSON object.",
+            )
+        return parsed
+
+    @staticmethod
+    def _one(automation_id: str) -> str:
+        aid = str(automation_id or "").strip()
+        if not aid:
+            raise ValueError("automation_id is required")
+        return f"{AUTOMATIONS_PATH}/{quote(aid, safe='')}"
+
+    # --------------------------------------------------------------- calls
+
+    def list(self, *, status: Optional[str] = None, cursor: Optional[str] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+        """``GET /automations`` — one ``Page<AutomationSummary>``."""
+        return self._call("GET", AUTOMATIONS_PATH, query={"status": status, "cursor": cursor, "limit": limit})
+
+    def list_all(self, *, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Every summary, following ``next_cursor`` (v1 clients poll full pages)."""
+        items: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        seen: set = set()
+        for _ in range(_MAX_PAGES):
+            page = self.list(status=status, cursor=cursor, limit=limit)
+            batch = page.get("items")
+            if not isinstance(batch, list):
+                raise AutomationApiError(
+                    status=200, reason_code="invalid_response", message="The automation list has no items array."
+                )
+            items.extend(item for item in batch if isinstance(item, dict))
+            nxt = page.get("next_cursor")
+            if not isinstance(nxt, str) or not nxt or nxt in seen:
+                return items
+            seen.add(nxt)
+            cursor = nxt
+        return items
+
+    def get(self, automation_id: str) -> Dict[str, Any]:
+        """``GET /automations/{id}`` → ``{definition, active_revision, summary}``."""
+        return self._call("GET", self._one(automation_id))
+
+    def create(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """``POST /automations`` → ``{automation_id, revision, summary}``."""
+        if not isinstance(body, dict) or not str(body.get("request_id") or "").strip():
+            raise ValueError("create: body.request_id is required")
+        return self._call("POST", AUTOMATIONS_PATH, body=body)
+
+    def revise(
+        self,
+        automation_id: str,
+        *,
+        changes: Dict[str, Any],
+        expected_revision: Optional[int] = None,
+        command_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """``PATCH /automations/{id}`` → ``CommandReceipt``."""
+        body: Dict[str, Any] = {"command_id": command_id or self._new_id()}
+        if expected_revision is not None:
+            body["expected_revision"] = int(expected_revision)
+        body["changes"] = dict(changes or {})
+        return self._call("PATCH", self._one(automation_id), body=body)
+
+    def command(
+        self,
+        automation_id: str,
+        type_: str,
+        *,
+        payload: Optional[Dict[str, Any]] = None,
+        command_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """``POST /automations/{id}/commands`` → ``CommandReceipt``."""
+        if type_ not in AUTOMATION_COMMAND_TYPES:
+            raise ValueError(f"command: unknown automation command type {type_!r}")
+        body: Dict[str, Any] = {"command_id": command_id or self._new_id(), "type": type_}
+        if payload is not None:
+            body["payload"] = dict(payload)
+        return self._call("POST", f"{self._one(automation_id)}/commands", body=body)
+
+    def occurrences(self, automation_id: str, *, cursor: Optional[str] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+        """``GET /automations/{id}/occurrences`` → ``Page<OccurrenceRow>`` (newest first)."""
+        return self._call("GET", f"{self._one(automation_id)}/occurrences", query={"cursor": cursor, "limit": limit})
+
+    def discuss(
+        self,
+        automation_id: str,
+        *,
+        occurrence_index: int,
+        prompt: str,
+        request_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """``POST /automations/{id}/discuss`` → ``{session_id, run_id, session_kind}``."""
+        body = {
+            "request_id": request_id or self._new_id(),
+            "occurrence_index": int(occurrence_index),
+            "prompt": str(prompt),
+        }
+        return self._call("POST", f"{self._one(automation_id)}/discuss", body=body)
+
+    def seen(self, automation_id: str, attention_cursor: str) -> Dict[str, Any]:
+        """``POST /automations/{id}/seen`` → ``{attention_cursor}`` (the max kept)."""
+        cursor = str(attention_cursor or "").strip()
+        if not cursor:
+            raise ValueError("seen: attention_cursor is required")
+        return self._call("POST", f"{self._one(automation_id)}/seen", body={"attention_cursor": cursor})
+
+    def attention(self, automation_id: str, *, cursor: Optional[str] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+        """``GET /automations/{id}/attention`` → ``Page<AttentionItem>`` (unseen, oldest first)."""
+        return self._call("GET", f"{self._one(automation_id)}/attention", query={"cursor": cursor, "limit": limit})
+
+    def trigger_sources(self) -> Dict[str, Any]:
+        """``GET /trigger-sources`` → ``{items: [TriggerSource + {available, …}]}``."""
+        return self._call("GET", TRIGGER_SOURCES_PATH)
+
+
+def _loads(raw: bytes) -> Any:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+
+--- abstractassistant/core/automations.py ---
+"""Automations v1 — pure presentation rules (Qt-free, network-free).
+
+The Qt mirror of the kit's `panel_core.ts` (`@abstractframework/ui-kit`,
+`src/automations/panel_core.ts`): cadence labels, which controls are enabled,
+occurrences as chat pairs, the attention cursor to acknowledge, the schedule
+presets and the exact ``POST /api/gateway/automations`` body. Plus what only
+the Assistant needs: which session kinds belong in the regular list, and the
+notification ledger (one tray notification per attention item / pending wait).
+
+Everything here reads STRUCTURE only — statuses, ``notify`` objects, waits,
+config fields, ``session_kind`` — never model prose and never id prefixes.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import tempfile
+import threading
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+
+__all__ = [
+    "CONTROL_COMMANDS",
+    "REGULAR_SESSION_KINDS",
+    "SCHEDULE_PRESETS",
+    "API_ERROR_TEXT",
+    "AttentionNotice",
+    "NotificationLedger",
+    "OccurrenceView",
+    "ScheduleWhen",
+    "api_error_text",
+    "attention_ack_cursor",
+    "attention_total",
+    "automation_controls",
+    "build_create_request",
+    "default_title",
+    "format_utc",
+    "group_by_automation",
+    "interval_label",
+    "is_regular_session_kind",
+    "new_attention_notices",
+    "occurrence_views",
+    "parse_duration",
+    "revise_changes",
+    "schedule_config",
+    "schedule_label",
+    "target_from_workflow",
+    "trigger_summary",
+]
+
+# ------------------------------------------------------------------ cadence
+
+DURATION_RE = re.compile(r"^([1-9][0-9]*)([smhd])$")
+_UNIT_WORDS = {"s": ("second", "seconds"), "m": ("minute", "minutes"), "h": ("hour", "hours"), "d": ("day", "days")}
+
+
+def parse_duration(value: Any) -> Optional[Tuple[int, str]]:
+    """``"8h"`` → ``(8, "h")``; anything not matching the contract's duration → None."""
+    if not isinstance(value, str):
+        return None
+    m = DURATION_RE.match(value)
+    return (int(m.group(1)), m.group(2)) if m else None
+
+
+def interval_label(every: str) -> str:
+    """``"8h"`` → ``"every 8 hours"``, ``"1h"`` → ``"every hour"`` (fixed UTC intervals)."""
+    parsed = parse_duration(every)
+    if parsed is None:
+        return f"every {every}"
+    amount, unit = parsed
+    one, many = _UNIT_WORDS[unit]
+    return f"every {one}" if amount == 1 else f"every {amount} {many}"
+
+
+def _parse_ts(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def format_utc(ts: Any) -> str:
+    """``2026-09-27T08:00:00Z`` → ``2026-09-27 08:00 UTC`` (seconds only when non-zero)."""
+    parsed = _parse_ts(ts)
+    if parsed is None:
+        return str(ts or "")
+    base = parsed.strftime("%Y-%m-%d %H:%M")
+    return f"{base}{'' if parsed.second == 0 else parsed.strftime(':%S')} UTC"
+
+
+def schedule_label(config: Mapping[str, Any]) -> str:
+    """``schedule@1`` config → ``"every 8 hours (UTC)"`` / ``"once at … UTC"`` + bounds."""
+    cfg = config if isinstance(config, Mapping) else {}
+    every = cfg.get("every")
+    if not isinstance(every, str):
+        start = cfg.get("start_at")
+        return f"once at {format_utc(start)}" if start else "once, now"
+    parts = [f"{interval_label(every)} (UTC)"]
+    count = cfg.get("count")
+    if isinstance(count, int) and not isinstance(count, bool):
+        parts.append(f"{count} {'run' if count == 1 else 'runs'} max")
+    until = cfg.get("until")
+    if isinstance(until, str) and until:
+        parts.append(f"until {format_utc(until)}")
+    return " · ".join(parts)
+
+
+def trigger_summary(trigger: Mapping[str, Any]) -> str:
+    """The cadence label of a ``TriggerBinding``."""
+    t = trigger if isinstance(trigger, Mapping) else {}
+    source, version = t.get("source_id"), t.get("source_version")
+    if source == "schedule" and version == 1:
+        return schedule_label(t.get("config") or {})
+    if source == "manual" and version == 1:
+        return "manual runs only"
+    return f"{source}@{version}"
+
+
+STATUS_LABELS = {
+    "active": "Active",
+    "paused": "Paused",
+    "completed": "Completed",
+    "failed": "Failed",
+    "archived": "Archived",
+}
+
+# ----------------------------------------------------------------- controls
+
+CONTROL_COMMANDS = {
+    "pause": "automation.pause",
+    "resume": "automation.resume",
+    "run_now": "automation.run_now",
+    "stop_current": "automation.stop_current",
+    "archive": "automation.archive",
+}
+_IN_PROGRESS = {"running", "waiting", "backoff"}
+
+
+def occurrence_in_progress(summary: Mapping[str, Any], occurrences: Sequence[Mapping[str, Any]] = ()) -> bool:
+    last = summary.get("last_occurrence")
+    if isinstance(last, Mapping) and last.get("status") in _IN_PROGRESS:
+        return True
+    return any(o.get("status") in _IN_PROGRESS for o in occurrences)
+
+
+def automation_controls(
+    summary: Mapping[str, Any],
+    occurrences: Sequence[Mapping[str, Any]] = (),
+    *,
+    busy: bool = False,
+) -> Dict[str, Tuple[bool, str]]:
+    """``control -> (enabled, reason)``. The server decides what the principal
+    may do (``capabilities``); the status decides which of them apply now.
+    Run now stays enabled while paused (it does not resume)."""
+    caps = set(summary.get("capabilities") or ())
+    status = summary.get("status")
+    running = occurrence_in_progress(summary, occurrences)
+    live = status in {"active", "paused"}
+
+    def gate(control: str, ok: bool, reason: str) -> Tuple[bool, str]:
+        if busy:
+            return False, "Working…"
+        if summary.get("legacy"):
+            return False, "Legacy schedule: managed with its existing controls."
+        if control not in caps:
+            return False, "Not permitted for this automation."
+        if status == "archived":
+            return False, "Archived: history is kept, nothing runs."
+        return (True, "") if ok else (False, reason)
+
+    return {
+        "pause": gate("pause", status == "active", "Already paused." if status == "paused" else "The automation has ended."),
+        "resume": gate("resume", status == "paused", "Already running on schedule." if status == "active" else "The automation has ended."),
+        "run_now": gate("run_now", live and not running, "An occurrence is in progress." if running else "The automation has ended."),
+        "stop_current": gate("stop_current", running, "Nothing is running."),
+        "revise": gate("revise", True, ""),
+        "archive": gate("archive", True, ""),
+        "discuss": gate("discuss", True, ""),
+    }
+
+
+# ------------------------------------------------------ occurrences as chat
+
+
+@dataclass(frozen=True)
+class OccurrenceView:
+    row: Mapping[str, Any]
+    tone: str  # quiet | notified | failed | waiting | running
+    notable: bool
+    badge: str
+    status_text: str
+    can_discuss: bool
+
+
+def occurrence_tone(row: Mapping[str, Any]) -> str:
+    if row.get("status") == "failed":
+        return "failed"
+    if row.get("waits") or row.get("status") == "waiting":
+        return "waiting"
+    if row.get("notify") is not None:
+        return "notified"
+    if row.get("status") in {"running", "backoff"}:
+        return "running"
+    return "quiet"
+
+
+def occurrence_views(rows: Iterable[Mapping[str, Any]]) -> List[OccurrenceView]:
+    """Chronological (oldest first) chat pairs, whatever the page order."""
+    out: List[OccurrenceView] = []
+    for row in sorted((r for r in rows if isinstance(r, Mapping)), key=lambda r: int(r.get("index") or 0)):
+        tone = occurrence_tone(row)
+        attempts = int(row.get("attempts") or 1)
+        attempts_text = f"{attempts} {'attempt' if attempts == 1 else 'attempts'}"
+        badge = {
+            "failed": f"Failed after {attempts_text}",
+            "waiting": "Waiting for you",
+            "notified": "Notified",
+            "running": "Running",
+        }.get(tone, "")
+        status = str(row.get("status") or "")
+        status_text = f"completed after {attempts_text}" if status == "completed" and attempts > 1 else status
+        out.append(
+            OccurrenceView(
+                row=row,
+                tone=tone,
+                notable=tone in {"failed", "waiting", "notified"},
+                badge=badge,
+                status_text=status_text,
+                can_discuss=status not in _IN_PROGRESS,
+            )
+        )
+    return out
+
+
+# ---------------------------------------------------------------- attention
+
+
+def attention_ack_cursor(summary: Mapping[str, Any]) -> Optional[str]:
+    """The cursor to acknowledge after showing ``attention.items``: the LAST
+    DISPLAYED item's, never ``attention.cursor`` (items beyond those shown stay
+    unseen)."""
+    attention = summary.get("attention") if isinstance(summary, Mapping) else None
+    items = attention.get("items") if isinstance(attention, Mapping) else None
+    if isinstance(items, list) and items and isinstance(items[-1], Mapping):
+        cursor = items[-1].get("cursor")
+        return cursor if isinstance(cursor, str) and cursor else None
+    return None
+
+
+def attention_total(summaries: Iterable[Mapping[str, Any]]) -> int:
+    """Unread count for the tray and the section: unseen items + pending waits."""
+    total = 0
+    for summary in summaries:
+        attention = summary.get("attention") if isinstance(summary, Mapping) else None
+        if isinstance(attention, Mapping):
+            total += int(attention.get("unseen_count") or 0) + int(attention.get("pending_waits") or 0)
+    return total
+
+
+def group_by_automation(summaries: Iterable[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    """One row per ``automation_id`` (the last summary seen for an id wins;
+    first-seen order kept). Never grouped by session."""
+    order: List[str] = []
+    by_id: Dict[str, Mapping[str, Any]] = {}
+    for summary in summaries:
+        if not isinstance(summary, Mapping):
+            continue
+        aid = summary.get("automation_id")
+        if not isinstance(aid, str) or not aid:
+            continue
+        if aid not in by_id:
+            order.append(aid)
+        by_id[aid] = summary
+    return [by_id[aid] for aid in order]
+
+
+@dataclass(frozen=True)
+class AttentionNotice:
+    """One tray notification."""
+
+    key: str
+    automation_id: str
+    title: str
+    body: str
+    kind: str  # notify | failure | wait
+
+
+class NotificationLedger:
+    """Which attention items and waits were already notified (per gateway).
+
+    Persisted so a relaunch does not replay old notifications; the gateway's
+    seen cursor is a different thing (it moves when the user VIEWS the
+    automation). Keys are opaque: ``item:<automation_id>:<cursor>`` and
+    ``wait:<run_id>:<wait_key>``. Bounded.
+    """
+
+    MAX_KEYS = 2000
+
+    def __init__(self, path: Optional[Path] = None) -> None:
+        self._path = Path(path) if path is not None else None
+        self._lock = threading.Lock()
+        self._keys: List[str] = []
+        if self._path is not None and self._path.exists():
+            try:
+                data = json.loads(self._path.read_text(encoding="utf-8"))
+                keys = data.get("notified") if isinstance(data, dict) else None
+                if isinstance(keys, list):
+                    self._keys = [str(k) for k in keys if isinstance(k, str)][-self.MAX_KEYS :]
+            except Exception:
+                self._keys = []
+
+    def __contains__(self, key: str) -> bool:
+        with self._lock:
+            return key in self._keys
+
+    def add(self, keys: Iterable[str]) -> None:
+        with self._lock:
+            changed = False
+            for key in keys:
+                if key not in self._keys:
+                    self._keys.append(key)
+                    changed = True
+            if not changed:
+                return
+            self._keys = self._keys[-self.MAX_KEYS :]
+            if self._path is None:
+                return
+            try:
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+                fd, tmp = tempfile.mkstemp(dir=str(self._path.parent), prefix=".notified-")
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump({"schema_version": 1, "notified": self._keys}, handle)
+                os.replace(tmp, self._path)
+            except Exception:
+                pass  # in-memory dedupe still holds for this process
+
+
+def new_attention_notices(
+    summaries: Iterable[Mapping[str, Any]],
+    attention_pages: Mapping[str, Sequence[Mapping[str, Any]]],
+    ledger: NotificationLedger,
+) -> List[AttentionNotice]:
+    """Notices not yet notified: every unseen attention item (from the paged
+    ``…/attention`` route when fetched, else the summary's own items) and every
+    pending interactive wait. Quiet occurrences never produce an item, so they
+    never notify. The caller records the keys once the notices are shown."""
+    out: List[AttentionNotice] = []
+    for summary in summaries:
+        aid = str(summary.get("automation_id") or "")
+        title = str(summary.get("title") or "Automation")
+        attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
+        items = attention_pages.get(aid)
+        if items is None:
+            items = attention.get("items") if isinstance(attention.get("items"), list) else []
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            cursor = str(item.get("cursor") or "")
+            if not cursor:
+                continue
+            key = f"item:{aid}:{cursor}"
+            if key in ledger:
+                continue
+            kind = str(item.get("kind") or "notify")
+            out.append(
+                AttentionNotice(
+                    key=key,
+                    automation_id=aid,
+                    title=str(item.get("title") or title),
+                    body=str(item.get("body") or ("The automation failed." if kind == "failure" else "")),
+                    kind=kind,
+                )
+            )
+        waits = attention.get("waits") if isinstance(attention.get("waits"), list) else []
+        for wait in waits:
+            if not isinstance(wait, Mapping):
+                continue
+            run_id, wait_key = str(wait.get("run_id") or ""), str(wait.get("wait_key") or "")
+            if not run_id or not wait_key:
+                continue
+            key = f"wait:{run_id}:{wait_key}"
+            if key in ledger:
+                continue
+            asks_approval = wait.get("kind") == "tool_approval"
+            out.append(
+                AttentionNotice(
+                    key=key,
+                    automation_id=aid,
+                    title=f"{title} needs your approval" if asks_approval else f"{title} is waiting for you",
+                    body=str(wait.get("prompt") or "An occurrence is waiting for your answer."),
+                    kind="wait",
+                )
+            )
+    return out
+
+
+# -------------------------------------------------------- regular sessions
+
+# The regular session list shows chats and discussions; automation and
+# occurrence sessions live under the Automations section. A row without a
+# `session_kind` comes from a gateway that does not stamp it yet: a chat.
+REGULAR_SESSION_KINDS = frozenset({"chat", "discussion"})
+
+
+def is_regular_session_kind(kind: Any) -> bool:
+    value = str(kind or "").strip()
+    return value == "" or value in REGULAR_SESSION_KINDS
+
+
+# ----------------------------------------------------------------- schedule
+
+
+@dataclass(frozen=True)
+class ScheduleWhen:
+    """``kind="every"`` with ``amount``/``unit`` (m|h|d), or ``kind="once"`` with ``at``."""
+
+    kind: str
+    amount: int = 0
+    unit: str = "h"
+    at: str = ""
+
+
+SCHEDULE_PRESETS: Tuple[Tuple[str, ScheduleWhen], ...] = (
+    ("every 5 minutes", ScheduleWhen("every", 5, "m")),
+    ("every 30 minutes", ScheduleWhen("every", 30, "m")),
+    ("every hour", ScheduleWhen("every", 1, "h")),
+    ("every 8 hours", ScheduleWhen("every", 8, "h")),
+    ("every 24 hours", ScheduleWhen("every", 24, "h")),
+    ("every 7 days", ScheduleWhen("every", 7, "d")),
+)
+
+_LOCAL_INPUT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?$")
+
+
+def utc_from_input(value: str) -> Optional[str]:
+    """``YYYY-MM-DD HH:MM[:SS]`` read as UTC → RFC3339, or None."""
+    m = _LOCAL_INPUT_RE.match(str(value or "").strip())
+    if not m:
+        return None
+    ts = f"{m.group(1)}T{m.group(2)}{m.group(3) or ':00'}Z"
+    return ts if _parse_ts(ts) is not None else None
+
+
+def schedule_config(when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None) -> Tuple[Dict[str, Any], List[str]]:
+    """``schedule@1`` config + the reasons it is invalid."""
+    errors: List[str] = []
+    config: Dict[str, Any] = {}
+    if when.kind == "once":
+        at = utc_from_input(when.at)
+        if not at:
+            errors.append("Pick the date and time (UTC) to run once.")
+        else:
+            config["start_at"] = at
+        return config, errors
+    if when.unit not in {"m", "h", "d"} or not isinstance(when.amount, int) or when.amount < 1:
+        errors.append("The interval must be a whole number of minutes, hours or days (at least 1).")
+    else:
+        config["every"] = f"{when.amount}{when.unit}"
+    if start_at:
+        s = utc_from_input(start_at)
+        if not s:
+            errors.append("First run must be a date and time (UTC).")
+        else:
+            config["start_at"] = s
+    if count is not None:
+        if not isinstance(count, int) or count < 1:
+            errors.append("Maximum runs must be a whole number of at least 1.")
+        else:
+            config["count"] = count
+    return config, errors
+
+
+def default_title(prompt: str) -> str:
+    """The prompt's first line, at most 120 characters."""
+    lines = str(prompt or "").strip().split("\n")
+    first = lines[0].strip() if lines else ""
+    return first if len(first) <= 120 else first[:119] + "…"
+
+
+def target_from_workflow(selection: Any) -> Optional[Dict[str, Any]]:
+    """The create-request ``target`` for the conversation's workflow selection
+    (`preferences.WorkflowSelection`): the gateway default as
+    ``{flow_id:"@default", interface}``, else ``{bundle_ref, flow_id}``."""
+    if selection is None:
+        return None
+    flow_id = str(getattr(selection, "flow_id", "") or "")
+    if not flow_id:
+        return None
+    if flow_id == "@default":
+        interface = str(getattr(selection, "interface", "") or "")
+        return {"flow_id": "@default", "interface": interface} if interface else None
+    bundle_id = str(getattr(selection, "bundle_id", "") or "")
+    if not bundle_id:
+        return None
+    version = str(getattr(selection, "bundle_version", "") or "")
+    return {"bundle_ref": f"{bundle_id}@{version}" if version else bundle_id, "flow_id": flow_id}
+
+
+def build_create_request(
+    *,
+    prompt: str,
+    when: ScheduleWhen,
+    context: str,
+    target: Optional[Mapping[str, Any]],
+    request_id: str,
+    title: str = "",
+    start_at: str = "",
+    count: Optional[int] = None,
+    tool_approval: str = "auto",
+) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """The ``POST /api/gateway/automations`` body, or the reasons it cannot be built.
+
+    ``tool_approval`` (decision D1): ``"auto"`` — creating the automation is
+    the consent, its runs use their tools without asking — or ``"ask"``."""
+    errors: List[str] = []
+    if not target:
+        errors.append("This conversation has no workflow to schedule.")
+    text = str(prompt or "").strip()
+    if not text:
+        errors.append("Write the task to run.")
+    name = str(title or "").strip() or default_title(text)
+    if len(name) > 120:
+        errors.append("Title is at most 120 characters.")
+    if context not in {"independent", "growing"}:
+        errors.append("Context must be Independent or Growing.")
+    if tool_approval not in {"auto", "ask"}:
+        errors.append("Tool approval must be automatic or ask each time.")
+    config, when_errors = schedule_config(when, start_at=start_at, count=count)
+    errors.extend(when_errors)
+    if errors or not target:
+        return None, errors
+    full_target = dict(target)
+    full_target["input_data"] = {**dict(target.get("input_data") or {}), "prompt": text}
+    return (
+        {
+            "request_id": request_id,
+            "title": name,
+            "target": full_target,
+            "trigger": {"source_id": "schedule", "source_version": 1, "config": config},
+            "context": {"mode": context},
+            "policy": {"tool_approval": tool_approval},
+        },
+        [],
+    )
+
+
+# ------------------------------------------------------------------- revise
+
+
+def revise_changes(
+    summary: Mapping[str, Any], *, title: str, every: Optional[str], context: str
+) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """Only the fields that changed (``None`` when nothing did), or errors.
+    A new interval keeps the rest of the schedule config (the server mints a
+    new binding and re-anchors so no past tick fires)."""
+    errors: List[str] = []
+    changes: Dict[str, Any] = {}
+    name = str(title or "").strip()
+    if not name:
+        errors.append("Title is required.")
+    elif len(name) > 120:
+        errors.append("Title is at most 120 characters.")
+    elif name != summary.get("title"):
+        changes["title"] = name
+    trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
+    config = trigger.get("config") if isinstance(trigger.get("config"), Mapping) else {}
+    before = config.get("every") if trigger.get("source_id") == "schedule" else None
+    if every is not None and every != before:
+        if parse_duration(every) is None:
+            errors.append("Interval must be a whole number of minutes, hours or days (e.g. 30m, 8h, 7d).")
+        else:
+            changes["trigger"] = {
+                "source_id": trigger.get("source_id"),
+                "source_version": trigger.get("source_version"),
+                "config": {**dict(config), "every": every},
+            }
+    if context != summary.get("context_mode"):
+        if context not in {"independent", "growing"}:
+            errors.append("Context must be Independent or Growing.")
+        else:
+            changes["context"] = {"mode": context}
+    if errors:
+        return None, errors
+    return (changes or None), []
+
+
+# ------------------------------------------------------------------- errors
+
+API_ERROR_TEXT = {
+    "unauthorized": "Sign in to the gateway to manage automations.",
+    "forbidden": "You are not allowed to do this with automations.",
+    "automation_not_found": "This automation does not exist (or is not yours).",
+    "occurrence_not_found": "That occurrence does not exist.",
+    "revision_conflict": "The automation changed since this view loaded. Reload it, then try again.",
+    "automation_busy": "An occurrence is already running or queued. Wait for it to finish.",
+    "invalid_state": "The automation's current state does not allow this.",
+    "identity_conflict": "This request id was already used for a different request.",
+    "invalid_request": "The gateway rejected the request as malformed.",
+    "invalid_definition": "The automation definition is not valid.",
+    "unsupported_feature": "The gateway does not support this yet.",
+    "unknown_trigger_source": "The gateway does not know this trigger source.",
+    "invalid_response": "The gateway gave an unexpected answer.",
+    "unreachable": "The gateway could not be reached.",
+}
+
+
+def api_error_text(reason_code: str, message: str = "") -> str:
+    """One visible sentence per error code, plus the server's own message."""
+    head = API_ERROR_TEXT.get(str(reason_code), f"The gateway refused the request ({reason_code}).")
+    detail = str(message or "").strip()
+    return f"{head} {detail}" if detail and detail not in head else head
 
 --- abstractassistant/gateway_service.py ---
 """Gateway-facing contract helpers for AbstractAssistant."""
@@ -14437,6 +15948,7 @@ INCLUDED_FILES: list[str] = [
     "docs/getting-started.md",
     "docs/settings.md",
     "docs/voice.md",
+    "docs/automations.md",
     "docs/api.md",
     "docs/architecture.md",
     "docs/faq.md",
@@ -14463,6 +15975,8 @@ INCLUDED_FILES: list[str] = [
     "abstractassistant/core/gateway_sessions.py",
     "abstractassistant/core/session_cache.py",
     "abstractassistant/core/session_store.py",
+    "abstractassistant/gateway/automations.py",
+    "abstractassistant/core/automations.py",
     "abstractassistant/gateway_service.py",
     "scripts/update_llms_full.py",
 ]
@@ -14475,7 +15989,9 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    check = "--check" in args
     out_path = ROOT / "llms-full.txt"
 
     missing: list[str] = []
@@ -14493,7 +16009,9 @@ def main() -> int:
         "> AbstractAssistant is a macOS-first tray assistant and CLI that is a thin client of AbstractGateway.\n"
         "> This bundle concatenates the documentation set and the core client modules for LLMs and tools.\n\n"
         "Regenerate:\n"
-        "  python scripts/update_llms_full.py\n\n"
+        "  python scripts/update_llms_full.py\n"
+        "Check for drift (exit 1 when stale):\n"
+        "  python scripts/update_llms_full.py --check\n\n"
         "Included files (in order):\n"
         + "\n".join(f"- {p}" for p in INCLUDED_FILES)
         + "\n\n"
@@ -14506,7 +16024,15 @@ def main() -> int:
         parts.append(f"--- {rel} ---\n")
         parts.append(content + "\n\n")
 
-    out_path.write_text("".join(parts), encoding="utf-8")
+    content = "".join(parts)
+    if check:
+        current = _read_text(out_path) if out_path.exists() else ""
+        if current != content:
+            print("llms-full.txt is stale: run python scripts/update_llms_full.py", file=sys.stderr)
+            return 1
+        print("llms-full.txt is up to date.")
+        return 0
+    out_path.write_text(content, encoding="utf-8")
     return 0
 
 

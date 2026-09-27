@@ -7,8 +7,8 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [INSTALLATION.md](INSTALLATION.md) — install the package, the `voice` extra, and the optional macOS app bundle
 - [getting-started.md](getting-started.md) — start a gateway, launch the palette, first turn, shortcuts
-- [architecture.md](architecture.md) — components, the gateway boundary, the run lifecycle with live replies, the console sign-in hand-over
-- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used, local files
+- [architecture.md](architecture.md) — components, the gateway boundary, sessions on the gateway (scope, kinds, cache, offline), automations (diagram, polling, capability gate), the run lifecycle with live replies, the console sign-in hand-over
+- [api.md](api.md) — CLI entry points and flags (including the console hand-over and `run --stream`), environment variables, run input pins, live reply events, gateway routes used (sessions and automations included), local files
 - [faq.md](faq.md) — recurring questions and known limits
 - [troubleshooting.md](troubleshooting.md) — symptoms, causes and fixes
 
@@ -16,7 +16,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
-- [automations.md](automations.md) — scheduled tasks on the gateway: the Automations section, an automation's runs as a chat, answering waits, Discuss, Schedule this conversation, notifications
+- [automations.md](automations.md) — scheduled tasks on the gateway: the Automations section, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
 
 ## Design records
 
