@@ -53,6 +53,7 @@ from ..core.session_digest import (
 )
 from ..core.automations import (
     PENDING_TEXT,
+    STATUS_LABELS,
     attention_total,
     automation_controls,
     command_confirmed,
@@ -282,6 +283,14 @@ def _build_qss() -> str:
         border-radius: 6px;
         padding: 0px;
     }}
+    QPushButton#rowState {{
+        padding: 0px 2px 0px 6px;
+        font-size: 10px;
+        font-weight: 700;
+        color: {THEME.text_faint};
+    }}
+    QPushButton#rowState[tone="active"] {{ color: {THEME.positive}; }}
+    QPushButton#rowState[tone="paused"] {{ color: {THEME.warning}; }}
     QPushButton#rowFolder:hover, QPushButton#rowIcon:hover, QPushButton#rowState:hover {{
         background: {THEME.overlay_hover};
         border-color: {THEME.border_subtle};
@@ -754,7 +763,8 @@ class AutomationTabRow(RowCard):
     Line 1: title … the time since the last run ("40 min ago"), plus a state
     chip only when it waits for you or failed. Line 2: the last result. Line 3
     (metric chips): "every 5 min" · "next in 2 min" · "#32" · folder icon, and
-    at the far right ONE state button (pause / resume). Clicking the card opens
+    at the far right ONE state button, word + glyph ("Active ▶" / "Paused ⏸";
+    click pauses / resumes). Clicking the card opens
     the automation view, where the other controls live."""
 
     open_requested = pyqtSignal(str, str)  # automation_id, "latest"
@@ -829,10 +839,13 @@ class AutomationTabRow(RowCard):
         self.setToolTip(f"{summary.get('title') or ''}\nAutomation id: {aid}")
 
     def _state_button(self, summary: Dict[str, Any]) -> QPushButton:
-        """The automation's STATE (not the next action): active = a green ▶
-        with a soft bloom (click pauses); paused = an amber ⏸ (click resumes);
-        archived/ended = disabled grey. A slow pulse while a run is in
-        progress. The card's only control."""
+        """The automation's STATE (not the next action) as a word AND a
+        glyph, the word on the left: "Active ▶" in green with a soft bloom
+        (click pauses); "Paused ⏸" in amber (click resumes); archived/ended =
+        its status word, disabled grey. The word is the gateway's status
+        (``STATUS_LABELS``, the ui-kit's wording) and never changes before the
+        gateway confirms a command. A slow pulse while a run is in progress.
+        The card's only control."""
         controls = automation_controls(summary)
         status = summary.get("status")
         running = current_run(summary) is not None
@@ -846,15 +859,25 @@ class AutomationTabRow(RowCard):
         if kind != "ended" and not enabled:
             tip = f"{tip.split(' — ')[0]} — {reason}"
             color = THEME.text_faint
+        word = STATUS_LABELS.get(str(status), str(status or "ended").capitalize())
         button = _icon_button(icon, tip, parent=self, tint=color)
         button.setObjectName("rowState")
-        # Room for the halo around the glyph.
-        button.setFixedSize(28, 26)
+        # The word left of the glyph: a right-to-left button lays the icon last.
+        button.setText(word)
+        button.setLayoutDirection(Qt.RightToLeft)
+        button.setProperty("tone", kind if color != THEME.text_faint else "")
+        button.setAccessibleName(tip)
+        # Room for the halo around the glyph, and for the word.
+        button.setMinimumWidth(0)
+        button.setMaximumWidth(16777215)
+        button.setFixedHeight(26)
         button.setIconSize(QSize(24, 24))
+        button.adjustSize()
         button.setEnabled(bool(enabled))
         button.state_control = control
         button.state_kind = kind
         button.state_color = color
+        button.state_word = word
         button.pulsing = False
         button.bloom = 0.0
         if kind in {"active", "paused"} and enabled:

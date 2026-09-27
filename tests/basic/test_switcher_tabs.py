@@ -489,3 +489,49 @@ def test_the_card_never_infers_running_from_the_last_occurrence() -> None:
     assert live.state_button.pulsing is True and live.result_label.toolTip() == "Run #38 running"
     row.deleteLater()
     live.deleteLater()
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize(
+    "status, word, tone, enabled",
+    [
+        ("active", "Active", "active", True),
+        ("paused", "Paused", "paused", True),
+        ("archived", "Archived", "", False),
+    ],
+)
+def test_the_state_button_says_the_state_in_words_left_of_the_glyph(status, word, tone, enabled) -> None:
+    """Operator 2026-09-28: "Paused ⏸" / "Active ▶" — the word (the ui-kit's
+    STATUS_LABELS wording, from the gateway's status only) sits LEFT of the
+    glyph, coloured like it, so the icon is never the only signal."""
+    from PyQt5.QtCore import Qt
+
+    _app()
+    row = switcher_module.AutomationTabRow(_variant(NEWS, status=status, running=False))
+    button = row.state_button
+    assert (button.text(), button.state_word, button.property("tone"), button.isEnabled()) == (word, word, tone, enabled)
+    assert button.layoutDirection() == Qt.RightToLeft  # the icon is laid out last = right of the word
+    assert not button.icon().isNull()
+    assert button.accessibleName().startswith(word)
+    assert button.width() > button.iconSize().width() + button.fontMetrics().horizontalAdvance(word) // 2
+    if enabled:
+        button.click()  # pending: the gateway has not confirmed, so the word does not change
+        assert row.state_button.text() == word and not row.state_button.isEnabled()
+        row.restore_state("refused")
+        assert row.state_button.text() == word
+    row.deleteLater()
+
+
+@pytest.mark.basic
+def test_the_state_word_follows_the_gateway_status_only() -> None:
+    """A command the gateway confirms arrives as a new summary: only then does
+    the word change (the card is rebuilt from the gateway's status)."""
+    _app()
+    before = switcher_module.AutomationTabRow(_variant(NEWS, status="active", running=True))
+    assert before.state_button.text() == "Active"
+    after = switcher_module.AutomationTabRow(_variant(NEWS, status="paused", running=True))
+    assert after.state_button.text() == "Paused"
+    unknown = switcher_module.AutomationTabRow(dict(_variant(NEWS, status="archived", running=False), status="completed"))
+    assert unknown.state_button.text() == "Completed" and not unknown.state_button.isEnabled()
+    for row in (before, after, unknown):
+        row.deleteLater()
