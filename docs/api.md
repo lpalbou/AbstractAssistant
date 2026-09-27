@@ -176,8 +176,10 @@ the stream. Whether the gateway offers live replies is read from
     `POST /api/gateway/automations` (create, with a `request_id`; the Schedule window sends
     `title`, `target` with the task as `input_data.prompt`, a `schedule@1` trigger, `context.mode`
     and `policy.tool_approval` = `auto` | `ask`)
-  - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: changed
-    fields, `expected_revision`, `command_id`)
+  - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
+    changed fields among `title`, `trigger` and `context`, with `expected_revision` and
+    `command_id`; the Assistant never sends `target` or `policy`, which only a direct `PATCH`
+    changes)
   - `POST …/{id}/commands` (`automation.pause`, `automation.resume`, `automation.run_now`,
     `automation.stop_current`, `automation.archive`)
   - `GET …/{id}/occurrences` (runs, newest first), `GET …/{id}/attention` (unseen items),

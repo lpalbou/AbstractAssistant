@@ -89,7 +89,9 @@ The **Tools** choice is sent as the automation's `policy.tool_approval`:
   notified. You approve or deny from the automation (see
   [Answering a run that waits for you](#answering-a-run-that-waits-for-you)).
 
-Questions the workflow itself asks you always wait for your answer, whichever you choose.
+Questions the workflow itself asks you always wait for your answer, whichever you choose. The
+choice is kept with the automation; to change it later, archive the automation and schedule a new
+one (see [Limits](#limits)).
 
 ## Reading an automation
 
@@ -221,5 +223,7 @@ The Assistant reads the gateway's capabilities (`contracts.common.automations.av
 - The only triggers the Assistant creates are the schedule and **Run now**.
 - The Schedule window does not set a maximum number of runs or an end date; an automation created
   elsewhere with one shows it in its cadence.
-- The Assistant edits an automation's title, interval and context mode. It does not change the
-  workflow or the task an automation runs; AbstractObserver manages automations as well.
+- **Edit** changes an automation's title, interval and context mode only. The workflow and task
+  it runs (its target) and its tool-approval policy change only through the gateway's
+  `PATCH /api/gateway/automations/{id}` route; no app's edit form changes them. From the apps,
+  archive the automation and schedule a new one.
