@@ -619,16 +619,16 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     _APP.processEvents()
     rows = switcher.automation_rows
     assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, LEGACY]
-    assert (rows[0].pill.text(), rows[0].new_badge.text()) == ("waiting for you", "2 new")
+    assert (rows[0].pill.text(), rows[0].new_badge.text()) == ("WAITING FOR YOU", "2 NEW")
     assert rows[0].meta_text.startswith("every 30 minutes (UTC) · growing · last ")
-    assert rows[2].pill.text() == "paused" and rows[2].meta_text.endswith("next —")
+    assert rows[2].pill.text() == "PAUSED" and rows[2].meta_text.endswith("next —")
     # The real gateway sends an empty excerpt while waiting: the question shows.
     assert "waiting for you: The landlord asks" in rows[0].result_label.toolTip()
     assert switcher.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
     about = switcher._rows[0].about_button
-    assert about is not None and about.text() == "about automation Inbox triage"
+    assert about is not None and about.full_text == "about automation Inbox triage"
     assert switcher._rows[1].about_button is None
     about.click()
     assert chosen == [TRIAGE]

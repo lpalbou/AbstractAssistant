@@ -168,10 +168,10 @@ def test_workspace_folders_open_locally_and_say_when_they_are_on_the_gateway(tmp
     )
     buttons = {r.session_id: r.findChildren(type(sw.new_button), "rowFolder") for r in sw._rows}
     local, remote = buttons["sess_local"][0], buttons["sess_remote"][0]
-    assert local.isEnabled() and local.toolTip() == f"Open {here}"
+    assert local.isEnabled() and local.toolTip() == f"Open workspace folder\n{here}"
     local.click()
     assert opened == [str(here)]
-    assert not remote.isEnabled() and remote.toolTip() == "on the gateway host: /srv/gateway/ws/abc"
+    assert not remote.isEnabled() and remote.toolTip() == "Workspace folder on the gateway host:\n/srv/gateway/ws/abc"
     # A gateway session whose /runs row does not carry the folder: said, not guessed.
     sw.set_digests([SessionDigest(session_id="sess_g", title="G", updated_at="2026-09-27T06:00:00Z", state="done", turns=1)])
     missing = sw._rows[0].findChildren(type(sw.new_button), "rowFolder")[0]
@@ -323,4 +323,83 @@ def test_the_header_needs_no_ellipsis_and_the_tabs_carry_the_counts(width, tab) 
     assert sw.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
     assert sw.tab_buttons["sessions"].toolTip() == "146+ sessions (⌘1)"
     assert sw.tab_buttons["automations"].toolTip() == "4 automations · 1 archived (hidden) · 4 new (⌘2)"
+    sw.deleteLater()
+
+
+def _visible_texts(widget) -> List[str]:
+    from PyQt5.QtWidgets import QLabel, QPushButton
+
+    return [w.text() for w in widget.findChildren((QLabel, QPushButton)) if w.isVisibleTo(widget) and w.text()]
+
+
+@pytest.mark.basic
+@pytest.mark.parametrize("width", [448, 460])
+def test_no_horizontal_scroll_with_very_long_content(tmp_path: Path, width) -> None:
+    """Operator: horizontal scroll is impossible on both tabs. A 400-char
+    title, a 600-char result and a 200-char folder path stay inside the list."""
+    _app()
+    folder = tmp_path / ("x" * 180)
+    folder.mkdir()
+    long_title = "T" * 400
+    sw = SessionSwitcher()
+    sw.set_digests(
+        [SessionDigest(session_id="sess_long", title=long_title, updated_at="2026-09-27T06:00:00Z", detailed=True,
+                       messages=2, turns=1, preview="P" * 600, workspace_root=str(folder),
+                       session_kind="discussion", automation_id=NEWS, state="done")]
+    )
+    summary = dict(_by_id(NEWS), title=long_title, workspace_root=str(folder),
+                   last_occurrence=dict(_by_id(NEWS)["last_occurrence"], excerpt="R" * 600))
+    sw.set_automations([summary], available=True)
+    for tab, scroll in (("sessions", sw.scroll), ("automations", sw.auto_scroll)):
+        sw.set_tab(tab)
+        sw.resize(width, 600)
+        sw.show()
+        _app().processEvents()
+        viewport = scroll.viewport().width()
+        assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
+        assert scroll.horizontalScrollBar().maximum() == 0, tab
+        rows = sw.visible_rows()
+        assert rows and all(r.width() <= viewport for r in rows), (tab, [r.width() for r in rows], viewport)
+        for row in rows:
+            assert not any(len(t) > 120 for t in _visible_texts(row)), tab
+            assert not any("/" in t or "session-" in t for t in _visible_texts(row)), (tab, _visible_texts(row))
+    sw.deleteLater()
+
+
+@pytest.mark.basic
+def test_a_session_row_and_an_automation_row_are_the_same_card() -> None:
+    from abstractassistant.ui.session_switcher import AutomationTabRow, RowCard, SessionRow
+
+    sw = _switcher()
+    session = sw._rows[0]
+    sw.set_tab("automations")
+    automation = sw.automation_tab_rows[0]
+    assert isinstance(session, RowCard) and isinstance(automation, RowCard)
+    assert issubclass(SessionRow, RowCard) and issubclass(AutomationTabRow, RowCard)
+    assert session.objectName() == automation.objectName() == "sessionRow"
+    assert session.spine.objectName() == automation.spine.objectName() == "rowSpine"
+    assert automation.title_label.objectName() == "rowTitle" and automation.pill.objectName() == "rowBadge"
+    assert automation.result_label.objectName() == "rowPreview"
+    qss = sw.styleSheet()
+    assert qss.count("QFrame#sessionRow {") == 1 and "autoTabRow" not in qss
+    sw.deleteLater()
+
+
+@pytest.mark.basic
+def test_a_workspace_folder_never_shows_its_name(tmp_path: Path) -> None:
+    folder = tmp_path / "session-automation-787b7fb6-d7bf-5e16-868e-ba8cf9d5a953"
+    folder.mkdir()
+    _app()
+    sw = SessionSwitcher()
+    sw.set_digests([SessionDigest(session_id="sess_w", title="W", updated_at="2026-09-27T06:00:00Z", detailed=True,
+                                  messages=2, turns=1, workspace_root=str(folder), state="done")])
+    sw.set_automations([dict(_by_id(NEWS), workspace_root=str(folder))], available=True)
+    row = sw._rows[0]
+    sw.set_tab("automations")
+    for card in (row, sw.automation_tab_rows[0]):
+        texts = _visible_texts(card)
+        assert not any("session-" in t or "/" in t for t in texts), texts
+        folder_buttons = card.findChildren(type(sw.new_button), "rowFolder")
+        assert folder_buttons and folder_buttons[0].text() == ""
+        assert folder_buttons[0].toolTip() == f"Open workspace folder\n{folder}"
     sw.deleteLater()

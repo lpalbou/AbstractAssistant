@@ -293,40 +293,12 @@ def _build_qss() -> str:
         font-weight: 700;
     }}
     QPushButton#switcherLoadMore:hover {{ background: {THEME.overlay_hover}; }}
-    QFrame#autoTabRow {{
-        background: {THEME.overlay_faint};
-        border: 1px solid {THEME.border_subtle};
-        border-radius: 10px;
-    }}
-    QFrame#autoTabRow:hover {{ border-color: {THEME.border_strong}; }}
-    QFrame#autoTabRow[selected="true"] {{
-        background: {alpha(THEME.accent, 0.10)};
-        border-color: {THEME.accent_border};
-    }}
-    QLabel#autoTabTitle {{ color: {THEME.text_strong}; font-size: 12px; font-weight: 700; }}
-    QLabel#autoTabMeta {{ color: {THEME.text_muted}; font-size: 10px; font-weight: 600; }}
-    QLabel#autoTabResult {{ color: {THEME.text_secondary}; font-size: 11px; }}
-    QLabel#autoTabResult[tone="failed"] {{ color: {THEME.danger_text}; }}
-    QLabel#autoPill {{
-        border-radius: 8px;
-        padding: 1px 7px;
-        font-size: 9px;
-        font-weight: 800;
-        letter-spacing: 0.04em;
-        color: {THEME.text_muted};
-        background: {alpha(THEME.text_faint, 0.16)};
-        border: 1px solid {alpha(THEME.text_faint, 0.35)};
-    }}
-    QLabel#autoPill[tone="active"] {{ color: {THEME.positive}; background: {THEME.positive_bg}; border-color: {alpha(THEME.positive, 0.45)}; }}
-    QLabel#autoPill[tone="paused"] {{ color: {THEME.warning}; background: {THEME.warning_bg}; border-color: {alpha(THEME.warning, 0.45)}; }}
-    QLabel#autoPill[tone="running"] {{ color: {THEME.accent_text}; background: {THEME.accent_bg}; border-color: {THEME.accent_border}; }}
-    QLabel#autoPill[tone="waiting"] {{ color: {THEME.attention_text}; background: {THEME.attention_bg}; border-color: {THEME.attention_border}; }}
-    QLabel#autoPill[tone="failed"] {{ color: {THEME.danger_text}; background: {THEME.danger_bg}; border-color: {alpha(THEME.danger, 0.55)}; }}
-    QLabel#autoNew {{
-        color: {THEME.accent_text};
-        font-size: 9px;
-        font-weight: 800;
-    }}
+    QLabel#rowBadge[tone="active"] {{ color: {THEME.positive}; background: {THEME.positive_bg}; border-color: {alpha(THEME.positive, 0.45)}; }}
+    QLabel#rowBadge[tone="paused"] {{ color: {THEME.warning}; background: {THEME.warning_bg}; border-color: {alpha(THEME.warning, 0.45)}; }}
+    QLabel#rowBadge[tone="waiting"] {{ color: {THEME.attention_text}; background: {THEME.attention_bg}; border-color: {THEME.attention_border}; }}
+    QLabel#rowBadge[tone="failed"] {{ color: {THEME.danger_text}; background: {THEME.danger_bg}; border-color: {alpha(THEME.danger, 0.55)}; }}
+    QLabel#rowBadge[tone="ended"] {{ color: {THEME.text_muted}; background: {alpha(THEME.text_faint, 0.16)}; border-color: {alpha(THEME.text_faint, 0.35)}; }}
+    QLabel#rowPreview[tone="failed"] {{ color: {THEME.danger_text}; }}
     QLabel#switcherHint {{
         color: {THEME.text_faint};
         font-size: 10px;
@@ -371,7 +343,51 @@ def _metric(icon: str, text: str, tooltip: str, tone: str = "") -> QWidget:
     return host
 
 
-class SessionRow(QFrame):
+class RowCard(QFrame):
+    """The switcher's one card: a frame (`sessionRow` style), a coloured
+    status bar on the left and a column of lines. Sessions and automations are
+    both this card; only their content differs."""
+
+    def __init__(self, parent: Optional[QWidget] = None, *, active: bool = False) -> None:
+        super().__init__(parent)
+        self._selected = False
+        self.setObjectName("sessionRow")
+        self.setProperty("active", "true" if active else "false")
+        self.setProperty("selected", "false")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WA_Hover, True)
+        self.setMinimumWidth(0)
+        # Never wider than the list: long content elides, it never pushes.
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(8, 7, 8, 7)
+        root.setSpacing(9)
+        self.spine = QFrame(self)
+        self.spine.setObjectName("rowSpine")
+        self.spine.setFixedWidth(3)
+        self.spine.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        root.addWidget(self.spine)
+        self.column = QVBoxLayout()
+        self.column.setContentsMargins(0, 0, 0, 0)
+        self.column.setSpacing(3)
+        root.addLayout(self.column, 1)
+
+    def set_spine_tone(self, tone: str) -> None:
+        self.spine.setProperty("tone", tone)
+        refresh_style(self.spine)
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = bool(selected)
+        self.setProperty("selected", "true" if selected else "false")
+        refresh_style(self)
+
+    @property
+    def selected(self) -> bool:
+        return self._selected
+
+
+class SessionRow(RowCard):
     """One session: title, preview, metrics, and in-place rename. (No delete:
     a session exists iff the gateway lists it, and the gateway has none.)"""
 
@@ -389,33 +405,12 @@ class SessionRow(QFrame):
         parent: Optional[QWidget] = None,
         automation_title: str = "",
     ) -> None:
-        super().__init__(parent)
+        super().__init__(parent, active=active)
         self.digest = digest
         self.session_id = digest.session_id
         self._active = bool(active)
-        self._selected = False
-        self.setObjectName("sessionRow")
-        self.setProperty("active", "true" if active else "false")
-        self.setProperty("selected", "false")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setAttribute(Qt.WA_Hover, True)
-        self.setMinimumWidth(0)
-
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 7, 8, 7)
-        root.setSpacing(9)
-
-        self.spine = QFrame()
-        self.spine.setObjectName("rowSpine")
-        self.spine.setFixedWidth(3)
-        self.spine.setProperty("tone", self._spine_tone())
-        self.spine.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        root.addWidget(self.spine)
-
-        column = QVBoxLayout()
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(3)
-        root.addLayout(column, 1)
+        self.set_spine_tone(self._spine_tone())
+        column = self.column
 
         # -- line 1: title, badges, time, actions -------------------------- #
         head = QHBoxLayout()
@@ -439,7 +434,10 @@ class SessionRow(QFrame):
         self.about_button: Optional[QPushButton] = None
         if digest.session_kind == "discussion":
             label = f"about automation {automation_title}" if automation_title else "about an automation"
-            self.about_button = QPushButton(label, self)
+            # Elided: a long automation title never widens the row.
+            shown = QFontMetrics(self.font()).elidedText(label, Qt.ElideRight, 150)
+            self.about_button = QPushButton(shown, self)
+            self.about_button.full_text = label
             self.about_button.setObjectName("aboutAutomation")
             self.about_button.setCursor(Qt.PointingHandCursor)
             self.about_button.setToolTip(
@@ -598,15 +596,6 @@ class SessionRow(QFrame):
         lines.append(f"Session id: {digest.session_id}")
         return "\n".join(lines)
 
-    def set_selected(self, selected: bool) -> None:
-        self._selected = bool(selected)
-        self.setProperty("selected", "true" if selected else "false")
-        refresh_style(self)
-
-    @property
-    def selected(self) -> bool:
-        return self._selected
-
     def elide_labels(self, width: int) -> None:
         """Keep one line per label whatever the popup's width is."""
         available = max(80, int(width) - 150)
@@ -688,7 +677,7 @@ def folder_button(path: str, *, parent: QWidget) -> QPushButton:
     local = bool(path) and Path(path).expanduser().is_dir()
     button = _icon_button(
         "folder",
-        f"Open {path}" if local else f"on the gateway host: {path}",
+        f"Open workspace folder\n{path}" if local else f"Workspace folder on the gateway host:\n{path}",
         parent=parent,
         name="rowFolder",
         tint=THEME.text_secondary if local else THEME.text_faint,
@@ -716,13 +705,21 @@ def missing_folder_button(field: str, *, parent: QWidget) -> QPushButton:
 # --------------------------------------------------------- automation tab
 
 
-class AutomationTabRow(QFrame):
-    """One automation in the Automations tab.
+_PILL_SPINE = {"active": "fresh", "running": "active", "waiting": "warn", "failed": "warn", "paused": "idle", "ended": "idle"}
 
-    Line 1: title (elided) + status pill (+ "N new"); line 2: cadence · context
-    · last … ago · next in …; line 3: the last result (red when failed); on the
-    right, an icon toolbar chosen by the automation's state (the same rules as
-    the automation view: ``core.automations.automation_controls``)."""
+
+def _compact_every(every: str) -> str:
+    """ "30m" -> "every 30 min", "8h" -> "every 8 h", "7d" -> "every 7 d" (UTC in the tooltip)."""
+    unit = {"s": "s", "m": "min", "h": "h", "d": "d"}.get(every[-1:], "")
+    amount = every[:-1]
+    return f"every {amount} {unit}" if unit and amount.isdigit() else f"every {every}"
+
+
+class AutomationTabRow(RowCard):
+    """One automation: the SAME card as a session row (``RowCard``), with an
+    automation's content — title + status pill (+ "N new"); a metric line
+    (schedule · mode · last … ago · next in …); one elided result line; an
+    icon toolbar chosen by state (``core.automations.automation_controls``)."""
 
     open_requested = pyqtSignal(str, str)  # automation_id, "top" | "latest"
     edit_requested = pyqtSignal(str)
@@ -731,65 +728,76 @@ class AutomationTabRow(QFrame):
 
     def __init__(self, summary: Dict[str, Any], *, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setObjectName("autoTabRow")
-        self.setProperty("selected", "false")
-        self.setAttribute(Qt.WA_Hover, True)
-        self.setCursor(Qt.PointingHandCursor)
         self.summary = dict(summary)
         self.automation_id = str(summary.get("automation_id") or "")
-        self._selected = False
         aid = self.automation_id
+        pill_text, pill_tone = status_pill(summary)
+        self.set_spine_tone(_PILL_SPINE.get(pill_tone, "normal"))
+        column = self.column
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(10, 7, 8, 7)
-        outer.setSpacing(3)
-
-        # -- line 1: title, pill, new count ------------------------------------
+        # -- line 1: title, status pill, new count (the session title line) ----
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
         head.setSpacing(6)
         self.title_label = QLabel(str(summary.get("title") or "Automation"), self)
-        self.title_label.setObjectName("autoTabTitle")
+        self.title_label.setObjectName("rowTitle")
         self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         head.addWidget(self.title_label, 1)
-        pill_text, pill_tone = status_pill(summary)
-        self.pill = QLabel(pill_text, self)
-        self.pill.setObjectName("autoPill")
+        self.pill = QLabel(pill_text.upper(), self)
+        self.pill.setObjectName("rowBadge")
         self.pill.setProperty("tone", pill_tone)
         head.addWidget(self.pill, 0, Qt.AlignVCenter)
         attention = summary.get("attention") if isinstance(summary.get("attention"), dict) else {}
         unseen = int(attention.get("unseen_count") or 0)
-        self.new_badge = QLabel(f"{unseen} new", self)
-        self.new_badge.setObjectName("autoNew")
+        self.new_badge = QLabel(f"{unseen} NEW", self)
+        self.new_badge.setObjectName("rowBadge")
+        self.new_badge.setProperty("tone", "new")
         self.new_badge.setVisible(unseen > 0)
         head.addWidget(self.new_badge, 0, Qt.AlignVCenter)
-        outer.addLayout(head)
+        column.addLayout(head)
 
-        # -- line 2: schedule and times; toolbar on the right ------------------
-        middle = QHBoxLayout()
-        middle.setContentsMargins(0, 0, 0, 0)
-        middle.setSpacing(6)
-        self.meta_label = QLabel("", self)
-        self.meta_label.setObjectName("autoTabMeta")
-        self.meta_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        middle.addWidget(self.meta_label, 1)
-        outer.addLayout(middle)
-
-        # -- line 3: the last result (full width) --------------------------------
+        # -- line 2: the last result (the session preview line) ---------------
         last = summary.get("last_occurrence") if isinstance(summary.get("last_occurrence"), dict) else None
         result, failed = self._result_text(summary, last)
+        self._result_text_full = result
         self.result_label = QLabel(result, self)
-        self.result_label.setObjectName("autoTabResult")
+        self.result_label.setObjectName("rowPreview")
         self.result_label.setProperty("tone", "failed" if failed else "")
         self.result_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self._result_text_full = result
-        outer.addWidget(self.result_label)
+        self.result_label.setToolTip(result)
+        column.addWidget(self.result_label)
 
-        # -- the icon toolbar, right-aligned -------------------------------------
-        bottom = QHBoxLayout()
-        bottom.setContentsMargins(0, 0, 0, 0)
-        bottom.setSpacing(2)
-        bottom.addStretch(1)
+        # -- line 3: metrics with icons (the session metric line) -------------
+        self.metrics_host = QWidget(self)
+        metrics = QHBoxLayout(self.metrics_host)
+        metrics.setContentsMargins(0, 1, 0, 0)
+        metrics.setSpacing(8)
+        trigger = summary.get("trigger") if isinstance(summary.get("trigger"), dict) else {}
+        self._schedule = trigger_summary(trigger)
+        self._mode = "growing" if summary.get("context_mode") == "growing" else "independent"
+        every = (trigger.get("config") or {}).get("every") if trigger.get("source_id") == "schedule" else None
+        short = _compact_every(every) if isinstance(every, str) else self._schedule
+        self._schedule_chip = _metric("clock", short, f"Schedule: {self._schedule}")
+        self._mode_chip = _metric(
+            "list-tree",
+            self._mode,
+            "Growing: each run sees the previous runs" if self._mode == "growing" else "Independent: each run starts fresh",
+        )
+        metrics.addWidget(self._schedule_chip, 0, Qt.AlignVCenter)
+        metrics.addWidget(self._mode_chip, 0, Qt.AlignVCenter)
+        self._last_chip = _metric("circle-check", "", "Last run")
+        self._next_chip = _metric("chevron-right", "", "Next run")
+        metrics.addWidget(self._last_chip, 0, Qt.AlignVCenter)
+        metrics.addWidget(self._next_chip, 0, Qt.AlignVCenter)
+        metrics.addStretch(1)
+        self.metrics_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        column.addWidget(self.metrics_host)
+
+        # -- line 4: the icon toolbar, right-aligned --------------------------
+        bar = QHBoxLayout()
+        bar.setContentsMargins(0, 0, 0, 0)
+        bar.setSpacing(2)
+        bar.addStretch(1)
         controls = automation_controls(summary)
         self.buttons: Dict[str, QPushButton] = {}
 
@@ -803,7 +811,7 @@ class AutomationTabRow(QFrame):
             )
             button.setEnabled(bool(enabled))
             button.clicked.connect(slot)
-            bottom.addWidget(button, 0, Qt.AlignVCenter)
+            bar.addWidget(button, 0, Qt.AlignVCenter)
             self.buttons[key] = button
 
         always = (True, "")
@@ -824,18 +832,20 @@ class AutomationTabRow(QFrame):
             self.folder = folder_button(root, parent=self)
         else:
             self.folder = missing_folder_button("AutomationSummary.workspace_root", parent=self)
-        bottom.addWidget(self.folder, 0, Qt.AlignVCenter)
+        bar.addWidget(self.folder, 0, Qt.AlignVCenter)
         self.controls_host = QWidget(self)
-        self.controls_host.setLayout(bottom)
-        outer.addWidget(self.controls_host)
+        self.controls_host.setLayout(bar)
+        self.controls_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        column.addWidget(self.controls_host)
 
-        # -- archive confirmation, inside the row (never a modal) --------------
+        # -- archive confirmation, inside the row (never a modal) ------------
         self.confirm_host = QWidget(self)
         confirm = QHBoxLayout(self.confirm_host)
-        confirm.setContentsMargins(0, 0, 0, 0)
+        confirm.setContentsMargins(0, 2, 0, 2)
+        confirm.setSpacing(8)
         message = QLabel("Archive? History is kept; nothing runs any more.", self.confirm_host)
         message.setObjectName("rowConfirm")
-        message.setWordWrap(True)
+        message.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         confirm.addWidget(message, 1)
         self.archive_yes = QPushButton("Archive", self.confirm_host)
         self.archive_yes.setObjectName("rowConfirmYes")
@@ -846,7 +856,7 @@ class AutomationTabRow(QFrame):
         no.clicked.connect(self.cancel_archive)
         confirm.addWidget(no, 0)
         self.confirm_host.hide()
-        outer.addWidget(self.confirm_host)
+        column.addWidget(self.confirm_host)
 
         self.refresh_times()
         self.setToolTip(f"{summary.get('title') or ''}\nAutomation id: {aid}")
@@ -866,19 +876,19 @@ class AutomationTabRow(QFrame):
         head = f"#{last.get('index')} {status}"
         return (f"{head}: {text}" if text else head), status == "failed"
 
+    @staticmethod
+    def _chip_label(chip: QWidget) -> QLabel:
+        return next(w for w in chip.findChildren(QLabel) if w.objectName() == "rowMetric")
+
     def refresh_times(self, now=None) -> None:
-        """Line 2, relative to ``now`` (called again on every poll)."""
-        trigger = self.summary.get("trigger") if isinstance(self.summary.get("trigger"), dict) else {}
-        mode = "growing" if self.summary.get("context_mode") == "growing" else "independent"
-        parts = [
-            trigger_summary(trigger),
-            mode,
-            last_run_text(self.summary, now=now),
-            next_run_text(self.summary, now=now),
-        ]
-        self._meta_text = " · ".join(p for p in parts if p)
-        self.meta_label.setText(self._meta_text)
-        self.meta_label.setToolTip(self._meta_text)
+        """"last … ago" / "next in …", relative to ``now`` (again on every poll)."""
+        last = last_run_text(self.summary, now=now)
+        nxt = next_run_text(self.summary, now=now)
+        # The chips drop the words their icons say ("last", "next").
+        self._chip_label(self._last_chip).setText(last[len("last "):] if last.startswith("last ") else last)
+        self._chip_label(self._next_chip).setText(nxt[len("next "):] if nxt.startswith("next ") else nxt.replace("next: ", ""))
+        self._meta_text = " · ".join((self._schedule, self._mode, last, nxt))
+        self.metrics_host.setToolTip(self._meta_text)
 
     @property
     def meta_text(self) -> str:
@@ -913,15 +923,9 @@ class AutomationTabRow(QFrame):
         if not needle:
             return True
         hay = " ".join(
-            str(x or "").lower()
-            for x in (self.summary.get("title"), self._meta_text, self._result_text_full)
+            str(x or "").lower() for x in (self.summary.get("title"), self._meta_text, self._result_text_full)
         )
         return all(word in hay for word in needle.split())
-
-    def set_selected(self, selected: bool) -> None:
-        self._selected = bool(selected)
-        self.setProperty("selected", "true" if selected else "false")
-        refresh_style(self)
 
     def elide_labels(self, width: int) -> None:
         metrics = QFontMetrics(self.title_label.font())
@@ -929,11 +933,13 @@ class AutomationTabRow(QFrame):
             metrics.elidedText(str(self.summary.get("title") or ""), Qt.ElideRight, max(60, int(width) - 170))
         )
         result_metrics = QFontMetrics(self.result_label.font())
+        self.result_label.setText(result_metrics.elidedText(self._result_text_full, Qt.ElideRight, max(60, int(width) - 40)))
+        # The metric chips never clip: the mode chip (the least needed; it is in
+        # the tooltip) makes room first.
         room = max(60, int(width) - 30)
-        self.result_label.setText(result_metrics.elidedText(self._result_text_full, Qt.ElideRight, room))
-        self.result_label.setToolTip(self._result_text_full)
-        meta_metrics = QFontMetrics(self.meta_label.font())
-        self.meta_label.setText(meta_metrics.elidedText(self._meta_text, Qt.ElideRight, max(80, int(width) - 30)))
+        chips = (self._schedule_chip, self._mode_chip, self._last_chip, self._next_chip)
+        needed = sum(c.sizeHint().width() for c in chips) + 8 * (len(chips) - 1)
+        self._mode_chip.setVisible(needed <= room)
 
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt API)
         self.focus_requested.emit(self)

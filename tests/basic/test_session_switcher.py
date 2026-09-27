@@ -295,7 +295,7 @@ def test_switcher_rows_show_metrics_and_never_repeat_the_title() -> None:
     # The folder is a glyph (never the word "folder"), its path in the tooltip.
     folders = [w for w in row.metrics_host.findChildren(type(switcher.new_button)) if w.objectName() == "rowFolder"]
     assert [(f.text(), f.icon().isNull()) for f in folders] == [("", False)]
-    assert folders[0].toolTip() == "on the gateway host: /Users/x/proj"
+    assert folders[0].toolTip() == "Workspace folder on the gateway host:\n/Users/x/proj"
     # The second row's preview equals its title: showing it twice says nothing.
     row_two = switcher.visible_rows()[1]
     assert row_two.preview_label.isVisibleTo(row_two) is False
