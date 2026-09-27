@@ -58,7 +58,8 @@ is described in [architecture.md](architecture.md#sessions).
 
 ## Schedule this conversation
 
-The clock button in the palette header opens **Schedule this conversation…**, a window beside the
+The clock button in the palette header (shown once the gateway has confirmed it offers automations)
+opens **Schedule this conversation…**, a window beside the
 palette:
 
 - **What**: the conversation's workflow (the one Settings → Models → Workflow selects, shown as
@@ -133,12 +134,17 @@ stay counted until you answer them.
 
 A control that does not apply is disabled, with the reason in its tooltip ("Already paused.",
 "An occurrence is in progress.", "Not permitted for this automation."). The gateway decides which
-controls you may use on each automation; an archived automation has none. A legacy schedule (a
-scheduled workflow the gateway lists among automations without automation controls) is shown with
-every control disabled.
+controls you may use on each automation; an archived automation has none.
+
+A legacy schedule (a scheduled run from before automations, which the gateway lists among them)
+opens with every control disabled and the notice "This is an older scheduled run, kept with its own
+controls. Manage it from the Observer, or recreate it as an automation." Its runs are not loaded.
 
 After a control, the palette confirms it ("Paused: no scheduled run until you resume.", "Saved;
-applies from the next run.") and reloads the automation. If the gateway could not be reached,
+applies from the next run.") and reloads the automation. When the gateway had already received
+the same request, the confirmation ends with "(already received)": the first one stands and nothing
+is applied twice. A request the gateway did not accept is shown as an error. If the gateway could
+not be reached,
 **Retry** sends the same request again with the same id, so it is never applied twice; once the
 gateway has answered, trying again is a new request. An edit made while the automation changed
 elsewhere is refused with "The automation changed since this view loaded. Reload it, then try
@@ -198,12 +204,16 @@ Ordinary results never notify. Notifications are not repeated after a relaunch:
 
 The Assistant reads the gateway's capabilities (`contracts.common.automations.available`):
 
-- **Advertised**: the Automations section, the tray entry and the polls described above.
-- **Not advertised**: no Automations section and no tray entry, and the polls make no automation
-  request. The clock button stays in the header; opening it on such a gateway shows the gateway's
-  refusal in the window, and nothing is created.
+- **Advertised** (`true`): the Automations section, the tray entry, the clock button and the polls
+  described above.
+- **Not advertised** (absent or `false`): no Automations section, no tray entry and no clock
+  button, and the polls make no automation request. A gateway that stops advertising automations
+  hides them again at the next poll.
 - **Capabilities could not be read**: the Automations section shows an error line instead of
   hiding, so an unreachable gateway is never mistaken for one without automations.
+
+The clock button and the tray entry appear only after a poll has confirmed that the gateway offers
+automations, and no automation route is called before that.
 
 ## Offline and errors
 

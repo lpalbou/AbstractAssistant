@@ -185,8 +185,11 @@ flowchart LR
 ```
 
 - **Capability gate.** Each poll first reads `contracts.common.automations.available` from the
-  gateway's capabilities. Absent or not `true`: no section, no tray entry and no automation
-  request. Unreadable capabilities are reported as an error, never as "absent".
+  gateway's capabilities. The section, the tray entry and the clock button appear only once a poll
+  has read `true`; absent or `false` hides them again, and no automation route is called until a
+  poll has confirmed it. Unreadable capabilities are reported as an error, never as "absent".
+- **Legacy schedules.** A summary marked `legacy` opens read-only with a notice; the view calls none
+  of its routes.
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
   and, for each automation with unseen items, its `…/attention` pages. It polls every 60 seconds
   while the palette is visible, every 5 minutes while it is hidden, and at once when the palette
@@ -197,7 +200,9 @@ flowchart LR
   opens the automation, and only up to the last item the view displayed.
 - **Commands.** Pause, resume, run now, stop current and archive are `POST …/{id}/commands`; an
   edit is `PATCH …/{id}` with the changed fields and the expected revision. Each user action has
-  one command id; a retry after a failure the gateway never answered re-sends the same id.
+  one command id; a retry after a failure the gateway never answered re-sends the same id. A
+receipt marked `duplicate` is confirmed with "(already received)"; a receipt without
+`accepted: true` is shown as an error.
 - **Waits.** A waiting occurrence is answered with the `resume` command on
   `/api/gateway/commands`, with the payload the wait's declared kind accepts (`ask_user`,
   `tool_approval`, `event`). A wait without a known kind is not answered.

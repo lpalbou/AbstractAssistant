@@ -455,9 +455,9 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
 
 - **Header**: the title shows what the app is doing (Running, Reconnecting, Listening, Speaking,
   Not sent); the chat control names the current chat and opens the chat switcher; the buttons
-  start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock), toggle
-  spoken replies, and open Settings (⌘,); the orb at the right shows whether the gateway is
-  reachable.
+  start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock, on a
+  gateway that offers automations), toggle spoken replies, and open Settings (⌘,); the orb at
+  the right shows whether the gateway is reachable.
 - **Chat switcher**: click the chat name in the header. It lists your sessions on the gateway,
   including those the Assistant created on another device; **All gateway sessions** in its header
   adds sessions from AbstractCode and other clients. Chats are grouped by recency (today,
@@ -853,7 +853,8 @@ is described in [architecture.md](architecture.md#sessions).
 
 ## Schedule this conversation
 
-The clock button in the palette header opens **Schedule this conversation…**, a window beside the
+The clock button in the palette header (shown once the gateway has confirmed it offers automations)
+opens **Schedule this conversation…**, a window beside the
 palette:
 
 - **What**: the conversation's workflow (the one Settings → Models → Workflow selects, shown as
@@ -928,12 +929,17 @@ stay counted until you answer them.
 
 A control that does not apply is disabled, with the reason in its tooltip ("Already paused.",
 "An occurrence is in progress.", "Not permitted for this automation."). The gateway decides which
-controls you may use on each automation; an archived automation has none. A legacy schedule (a
-scheduled workflow the gateway lists among automations without automation controls) is shown with
-every control disabled.
+controls you may use on each automation; an archived automation has none.
+
+A legacy schedule (a scheduled run from before automations, which the gateway lists among them)
+opens with every control disabled and the notice "This is an older scheduled run, kept with its own
+controls. Manage it from the Observer, or recreate it as an automation." Its runs are not loaded.
 
 After a control, the palette confirms it ("Paused: no scheduled run until you resume.", "Saved;
-applies from the next run.") and reloads the automation. If the gateway could not be reached,
+applies from the next run.") and reloads the automation. When the gateway had already received
+the same request, the confirmation ends with "(already received)": the first one stands and nothing
+is applied twice. A request the gateway did not accept is shown as an error. If the gateway could
+not be reached,
 **Retry** sends the same request again with the same id, so it is never applied twice; once the
 gateway has answered, trying again is a new request. An edit made while the automation changed
 elsewhere is refused with "The automation changed since this view loaded. Reload it, then try
@@ -993,12 +999,16 @@ Ordinary results never notify. Notifications are not repeated after a relaunch:
 
 The Assistant reads the gateway's capabilities (`contracts.common.automations.available`):
 
-- **Advertised**: the Automations section, the tray entry and the polls described above.
-- **Not advertised**: no Automations section and no tray entry, and the polls make no automation
-  request. The clock button stays in the header; opening it on such a gateway shows the gateway's
-  refusal in the window, and nothing is created.
+- **Advertised** (`true`): the Automations section, the tray entry, the clock button and the polls
+  described above.
+- **Not advertised** (absent or `false`): no Automations section, no tray entry and no clock
+  button, and the polls make no automation request. A gateway that stops advertising automations
+  hides them again at the next poll.
 - **Capabilities could not be read**: the Automations section shows an error line instead of
   hiding, so an unreachable gateway is never mistaken for one without automations.
+
+The clock button and the tray entry appear only after a poll has confirmed that the gateway offers
+automations, and no automation route is called before that.
 
 ## Offline and errors
 
@@ -1412,8 +1422,11 @@ flowchart LR
 ```
 
 - **Capability gate.** Each poll first reads `contracts.common.automations.available` from the
-  gateway's capabilities. Absent or not `true`: no section, no tray entry and no automation
-  request. Unreadable capabilities are reported as an error, never as "absent".
+  gateway's capabilities. The section, the tray entry and the clock button appear only once a poll
+  has read `true`; absent or `false` hides them again, and no automation route is called until a
+  poll has confirmed it. Unreadable capabilities are reported as an error, never as "absent".
+- **Legacy schedules.** A summary marked `legacy` opens read-only with a notice; the view calls none
+  of its routes.
 - **Polling.** `AutomationsHub` reads every page of `GET /automations` (there is no change cursor)
   and, for each automation with unseen items, its `…/attention` pages. It polls every 60 seconds
   while the palette is visible, every 5 minutes while it is hidden, and at once when the palette
@@ -1424,7 +1437,9 @@ flowchart LR
   opens the automation, and only up to the last item the view displayed.
 - **Commands.** Pause, resume, run now, stop current and archive are `POST …/{id}/commands`; an
   edit is `PATCH …/{id}` with the changed fields and the expected revision. Each user action has
-  one command id; a retry after a failure the gateway never answered re-sends the same id.
+  one command id; a retry after a failure the gateway never answered re-sends the same id. A
+receipt marked `duplicate` is confirmed with "(already received)"; a receipt without
+`accepted: true` is shown as an error.
 - **Waits.** A waiting occurrence is answered with the `resume` command on
   `/api/gateway/commands`, with the payload the wait's declared kind accepts (`ask_user`,
   `tool_approval`, `event`). A wait without a known kind is not answered.
@@ -1841,9 +1856,9 @@ from the gateway replaces the cached list. See [architecture.md](architecture.md
 ## The switcher has no Automations section
 
 The gateway does not advertise automations in its capabilities
-(`contracts.common.automations.available`), so the Assistant shows no section and no
-**Automations…** tray entry. Automations need a gateway version that offers them; ask the gateway
-operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
+(`contracts.common.automations.available`), so the Assistant shows no section, no
+**Automations…** tray entry and no clock button in the header. Automations need a gateway
+version that offers them; ask the gateway operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
 
 ## The Automations section shows "Automations: …" instead of rows
 
@@ -2310,8 +2325,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   marks the displayed items as seen on the gateway.
 - **Controls**: **Pause**, **Resume**, **Run now** (also while paused), **Stop current**, **Edit**
   (title, interval, context) and **Archive** (confirmed in the palette). A request the gateway never
-  received can be retried without being applied twice.
-- **Schedule this conversation…** (clock button in the header): runs the conversation's workflow
+  received can be retried without being applied twice; a request it already had is confirmed as
+  "already received". A legacy schedule opens read-only, with a pointer to the Observer.
+- **Schedule this conversation…** (clock button in the header, shown on a gateway that offers
+  automations): runs the conversation's workflow
   with its last question, editable, every 5 minutes to every 7 days, every N minutes/hours/days, or
   once at a UTC time; Independent (default) or Growing context; and a tools choice: **Tools run
   without asking** (the default: creating the automation is the approval) or **Ask each time**.

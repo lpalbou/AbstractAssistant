@@ -85,9 +85,9 @@ from the gateway replaces the cached list. See [architecture.md](architecture.md
 ## The switcher has no Automations section
 
 The gateway does not advertise automations in its capabilities
-(`contracts.common.automations.available`), so the Assistant shows no section and no
-**Automations…** tray entry. Automations need a gateway version that offers them; ask the gateway
-operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
+(`contracts.common.automations.available`), so the Assistant shows no section, no
+**Automations…** tray entry and no clock button in the header. Automations need a gateway
+version that offers them; ask the gateway operator. See [automations.md](automations.md#when-the-gateway-does-not-offer-automations).
 
 ## The Automations section shows "Automations: …" instead of rows
 

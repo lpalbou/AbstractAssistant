@@ -68,9 +68,9 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
 
 - **Header**: the title shows what the app is doing (Running, Reconnecting, Listening, Speaking,
   Not sent); the chat control names the current chat and opens the chat switcher; the buttons
-  start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock), toggle
-  spoken replies, and open Settings (⌘,); the orb at the right shows whether the gateway is
-  reachable.
+  start a new chat (⌘N), open Tools & permissions, schedule this conversation (clock, on a
+  gateway that offers automations), toggle spoken replies, and open Settings (⌘,); the orb at
+  the right shows whether the gateway is reachable.
 - **Chat switcher**: click the chat name in the header. It lists your sessions on the gateway,
   including those the Assistant created on another device; **All gateway sessions** in its header
   adds sessions from AbstractCode and other clients. Chats are grouped by recency (today,

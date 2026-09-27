@@ -18,8 +18,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   marks the displayed items as seen on the gateway.
 - **Controls**: **Pause**, **Resume**, **Run now** (also while paused), **Stop current**, **Edit**
   (title, interval, context) and **Archive** (confirmed in the palette). A request the gateway never
-  received can be retried without being applied twice.
-- **Schedule this conversation…** (clock button in the header): runs the conversation's workflow
+  received can be retried without being applied twice; a request it already had is confirmed as
+  "already received". A legacy schedule opens read-only, with a pointer to the Observer.
+- **Schedule this conversation…** (clock button in the header, shown on a gateway that offers
+  automations): runs the conversation's workflow
   with its last question, editable, every 5 minutes to every 7 days, every N minutes/hours/days, or
   once at a UTC time; Independent (default) or Growing context; and a tools choice: **Tools run
   without asking** (the default: creating the automation is the approval) or **Ask each time**.
