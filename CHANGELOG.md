@@ -3,7 +3,10 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
-## Unreleased
+## [0.7.0] - 2026-09-27
+
+Sessions are now listed from the gateway, and the local session files are a rebuildable cache. The
+first launch migrates local-only sessions to `~/.abstractassistant/sessions-legacy/`; nothing is deleted.
 
 ### Changed
 - **Sessions come from the gateway.** The session switcher lists the gateway's sessions — the
