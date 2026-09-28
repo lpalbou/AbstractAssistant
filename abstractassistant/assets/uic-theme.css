@@ -3112,6 +3112,27 @@
 .af-auto__status--active { border-color: var(--success-border); background: var(--success-subtle); }
 .af-auto__status--paused { border-color: var(--warning-border); background: var(--warning-subtle); }
 .af-auto__status--failed { border-color: var(--error-border); background: var(--error-subtle); }
+/* State = WORD then ICON ("Active ▶"); the icon inherits the word's color. */
+.af-auto__status { display: inline-flex; align-items: center; gap: 4px; }
+.af-auto__status-icon { flex: none; }
+.af-auto__workspace { display: flex; align-items: center; gap: 6px; }
+.af-auto__icon-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ui-border-2);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.af-auto__icon-btn:hover { color: var(--text-primary); background: var(--ui-overlay-bg); }
+.af-auto__icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.af-auto__btn-icon { vertical-align: -2px; }
+/* Turns rendered as shared chat cards (renderTurn): the card is the bubble. */
+.af-auto-turn--card.af-auto-turn--trigger { padding: 0; background: none; }
 .af-auto__facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -3240,6 +3261,11 @@
 .af-auto-artifacts a:hover,
 .af-auto__link:hover,
 .af-auto__link:focus-visible { text-decoration: underline; }
+/* A gateway file opened through the host (onOpenResource): a button that reads as a link. */
+.af-auto__linkbtn { padding: 0; border: none; background: none; font: inherit; color: var(--accent); cursor: pointer; text-align: left; }
+.af-auto__linkbtn:hover,
+.af-auto__linkbtn:focus-visible { text-decoration: underline; }
+.af-auto__linkbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .af-auto-occ__foot { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .af-auto-occ__details > summary,
 .af-schedule__advanced > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--font-size-xs); }
