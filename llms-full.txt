@@ -2392,6 +2392,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+## [0.9.1] - 2026-09-28
+
+No dependency changed.
+
 ### Added
 - **Run now has the shared icon and says what it does.** The automation view's **Run now** shows
   the play-in-a-circle glyph of the web clients, and every control's tooltip (and accessible
@@ -3156,7 +3160,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.9.0"
+version = "0.9.1"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
