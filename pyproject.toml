@@ -102,7 +102,7 @@ include = ["abstractassistant*"]
 exclude = ["tests*", "docs*", "AbstractAssistant.app*"]
 
 [tool.setuptools.package-data]
-abstractassistant = ["assets/*.png"]
+abstractassistant = ["assets/*.png", "assets/automation_controls.json"]
 
 [tool.black]
 line-length = 88

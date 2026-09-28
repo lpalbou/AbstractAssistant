@@ -783,6 +783,88 @@ def test_run_now_while_paused_and_archive_confirmed_in_the_palette(palette, stub
     assert not any(b.isEnabled() for b in view.control_buttons.values())
 
 
+# ------------------------------------------- Run now: shared icon and hint
+
+KIT_CONTROLS = Path(__file__).resolve().parents[3] / "abstractuic" / "ui-kit" / "src" / "automations" / "automation_controls.json"
+VENDORED_CONTROLS = Path(rules.__file__).resolve().parent.parent / "assets" / "automation_controls.json"
+
+
+@pytest.mark.basic
+def test_the_vendored_controls_file_is_the_kits_canonical_file() -> None:
+    """Operator 2026-09-28: one shared "Run now" icon and tooltip in every client.
+    The Assistant keeps a byte-identical copy of the kit's file (the root
+    identity-sync check guards it across repos; this guards it in a checkout)."""
+    if not KIT_CONTROLS.exists():
+        pytest.skip(f"the kit checkout is not beside this repo ({KIT_CONTROLS}); the root identity-sync check covers it")
+    assert VENDORED_CONTROLS.read_bytes() == KIT_CONTROLS.read_bytes()
+
+
+@pytest.mark.basic
+def test_run_now_hint_states_the_runtime_facts_and_adds_the_dynamic_lines() -> None:
+    hint = rules.CONTROL_HINTS["run_now"]
+    assert hint.startswith("Run it once now, without waiting for the schedule.")
+    assert "the next scheduled run keeps its time, or starts right after this run if its time comes first" in hint
+    assert "Does not count toward a run limit." in hint and "Works while paused; it stays paused." in hint
+    assert "Not available while a run is in progress." in hint
+    growing = {"next_fire_at": "2026-09-27T07:00:00.412307+00:00", "context_mode": "growing"}
+    assert rules.control_hint("run_now", growing) == (
+        f"{hint}\nNext scheduled run: 2026-09-27 07:00 UTC.\nGrowing context: later runs see this run in their history."
+    )
+    assert rules.control_hint("run_now", {"context_mode": "independent"}) == hint
+    assert rules.control_hint("pause", growing) == rules.CONTROL_HINTS["pause"]
+
+
+@pytest.mark.basic
+def test_the_run_now_glyph_is_the_kits_play_circle() -> None:
+    _qt()
+    from abstractassistant import icons
+
+    glyph = rules.RUN_NOW_GLYPH
+    assert glyph["name"] == "playCircle" and glyph["view_box"] == "0 0 16 16"
+    document = icons._kit_glyph_document("play-circle", "#123456")
+    assert glyph["svg"].replace("currentColor", "#123456") in document
+    assert 'viewBox="0 0 16 16"' in document and 'stroke-width="1.4"' in document
+    image = icons.symbol_icon("play-circle", color="#123456", size=12).pixmap(24, 24).toImage()
+    assert any(image.pixelColor(x, y).alpha() > 0 for x in range(24) for y in range(24)), "the glyph draws"
+
+
+@pytest.mark.basic
+def test_run_now_carries_the_shared_icon_and_hint_in_the_palette(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(NEWS)
+    view = window.automation_view
+    button = view.control_buttons["run_now"]
+    assert button.isEnabled()
+    summary = stub.summary(NEWS)
+    expected = rules.control_hint("run_now", summary)
+    assert button.toolTip() == expected and button.accessibleDescription() == expected
+    assert "Next scheduled run: 2026-09-27 08:00 UTC." in button.toolTip()
+    from abstractassistant import icons
+    from abstractassistant.theme import THEME
+
+    assert not button.icon().isNull()
+    assert button.icon().cacheKey() == icons.symbol_icon("play-circle", color=THEME.text_secondary, size=12).cacheKey()
+    # Every other control carries its own hint.
+    for control in ("pause", "stop_current", "revise", "archive"):
+        assert rules.CONTROL_HINTS[control] in view.control_buttons[control].toolTip()
+    # After the command is confirmed the button gets its icon back.
+    button.click()
+    view.end_pending()
+    assert button.text() == "Run now" and not button.icon().isNull()
+
+
+@pytest.mark.basic
+def test_a_disabled_run_now_says_why_first_then_the_hint(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_automation(TRIAGE)
+    button = window.automation_view.control_buttons["run_now"]
+    assert not button.isEnabled()
+    assert button.toolTip() == "An occurrence is in progress.\n" + rules.control_hint("run_now", stub.summary(TRIAGE))
+    assert button.toolTip().endswith("Growing context: later runs see this run in their history.")
+
+
 @pytest.mark.basic
 def test_a_gateway_error_ends_the_action_and_a_lost_answer_retries_with_the_same_id(palette, stub) -> None:
     window, _controller = palette

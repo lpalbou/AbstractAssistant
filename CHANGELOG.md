@@ -5,6 +5,17 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+### Added
+- **Run now has the shared icon and says what it does.** The automation view's **Run now** shows
+  the play-in-a-circle glyph of the web clients, and every control's tooltip (and accessible
+  description) is the shared AbstractUIC hint: Run now runs once now instead of waiting, the next
+  scheduled run keeps its time (or starts right after this run if its time comes first), it does
+  not count toward a run limit, works while paused (which stays paused) and is not available while
+  a run is in progress; the tooltip adds the next scheduled time and, for a Growing automation,
+  that later runs see this run. A disabled control's tooltip first gives the reason. The hints and
+  glyph ship as `abstractassistant/assets/automation_controls.json`, a byte-identical copy of the
+  kit's file.
+
 ## [0.9.0] - 2026-09-28
 
 ### Changed

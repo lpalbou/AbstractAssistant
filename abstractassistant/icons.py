@@ -372,6 +372,40 @@ def _resolve(name: str) -> str:
     return _ALIASES.get(n, n)
 
 
+# AbstractUIC kit glyphs drawn verbatim (their own viewBox and stroke), so a
+# control reads the same here as in the web clients. `play-circle` is the
+# kit's `playCircle` — the shared "Run now" icon — vendored with its hint in
+# `assets/automation_controls.json` (a byte-identical copy of the kit's
+# canonical file; the AbstractFramework root `scripts/check_identity_sync.py`
+# fails on drift).
+_KIT_GLYPHS = {"play-circle": "run_now"}
+
+
+def _kit_glyph_document(name: str, color: str) -> str:
+    from .core.automations import AUTOMATION_CONTROLS
+
+    glyph = AUTOMATION_CONTROLS["icons"][_KIT_GLYPHS[name]]
+    body = str(glyph["svg"]).replace("currentColor", color)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{glyph["view_box"]}" fill="none" '
+        f'stroke="{color}" stroke-width="{glyph["stroke_width"]}" stroke-linecap="round" '
+        f'stroke-linejoin="round">{body}</svg>'
+    )
+
+
+def _render_document(document: str, size: int) -> QPixmap:
+    pixmap = QPixmap(int(size) * 2, int(size) * 2)
+    pixmap.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    try:
+        QSvgRenderer(QByteArray(document.encode("utf-8"))).render(painter)
+    finally:
+        painter.end()
+    pixmap.setDevicePixelRatio(2.0)
+    return pixmap
+
+
 def _svg_document(paths, color: str, filled: bool) -> str:
     if filled:
         body = "".join(f'<path d="{d}"/>' for d in paths)
@@ -462,6 +496,13 @@ def symbol_icon(name: str, *, color: str = "", size: int = 18) -> QIcon:
         except Exception:
             frame = 0
         icon = QIcon(_render_spinner(frame, color, size))
+        _ICON_CACHE[key] = icon
+        _remember_spec(icon, name, requested, size)
+        return icon
+
+    if resolved in _KIT_GLYPHS:
+        document = _kit_glyph_document(resolved, color)
+        icon = QIcon(_render_document(document, size))
         _ICON_CACHE[key] = icon
         _remember_spec(icon, name, requested, size)
         return icon

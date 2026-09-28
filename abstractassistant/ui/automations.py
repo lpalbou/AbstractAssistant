@@ -39,7 +39,9 @@ from PyQt5.QtWidgets import (
 )
 
 from ..core.automations import (
+    AUTOMATION_CONTROLS,
     CONTROL_COMMANDS,
+    control_hint,
     current_run,
     PENDING_TEXT,
     command_confirmed,
@@ -614,14 +616,13 @@ class AutomationView(QFrame):
     load_more_requested = pyqtSignal()
     retry_requested = pyqtSignal()
 
-    CONTROL_LABELS = (
-        ("pause", "Pause"),
-        ("resume", "Resume"),
-        ("run_now", "Run now"),
-        ("stop_current", "Stop current"),
-        ("revise", "Edit"),
-        ("archive", "Archive"),
+    # Names from the shared `automation_controls.json` (the kit's CONTROL_LABELS).
+    CONTROL_LABELS = tuple(
+        (control, AUTOMATION_CONTROLS["labels"][control])
+        for control in ("pause", "resume", "run_now", "stop_current", "revise", "archive")
     )
+    # Controls drawn with the kit's glyph (the web clients' icon for the same action).
+    CONTROL_ICONS = {"run_now": "play-circle"}
 
     def __init__(self, *, render_turn: "TurnRenderer", bubble_width: "BubbleWidth", parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -666,7 +667,8 @@ class AutomationView(QFrame):
         controls.setSpacing(5)
         self.control_buttons: Dict[str, QPushButton] = {}
         for control, label in self.CONTROL_LABELS:
-            button = _button(label, "autoControl", parent=self)
+            button = _button(label, "autoControl", parent=self, tooltip=control_hint(control))
+            self._set_control_icon(control, button)
             button.clicked.connect(lambda _=False, c=control: self._on_control(c))
             controls.addWidget(button)
             self.control_buttons[control] = button
@@ -839,7 +841,19 @@ class AutomationView(QFrame):
         for control, button in self.control_buttons.items():
             enabled, reason = state[control]
             button.setEnabled(bool(enabled))
-            button.setToolTip(reason if not enabled else "")
+            # What the control does (the kit's hint, with the next scheduled
+            # time for Run now); a disabled control first says why.
+            hint = control_hint(control, self.summary)
+            button.setToolTip(hint if enabled else f"{reason}\n{hint}")
+            button.setAccessibleDescription(hint)
+
+    def _set_control_icon(self, control: str, button: QPushButton) -> None:
+        glyph = self.CONTROL_ICONS.get(control)
+        if glyph:
+            button.setIcon(symbol_icon(glyph, color=THEME.text_secondary, size=12))
+            button.setIconSize(QSize(12, 12))
+        else:
+            button.setIcon(QIcon())
 
     def _rebuild_pairs(self) -> None:
         while self.list_layout.count():
@@ -952,7 +966,7 @@ class AutomationView(QFrame):
             return
         button = self.control_buttons[self.pending]
         button.setText(dict(self.CONTROL_LABELS)[self.pending])
-        button.setIcon(QIcon())
+        self._set_control_icon(self.pending, button)
         self.pending = None
         self._pending_before = {}
         self._apply_controls()

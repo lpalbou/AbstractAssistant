@@ -263,6 +263,45 @@ def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Di
     }
 
 
+# ------------------------------------------------------ control hints
+
+def _controls_spec_path() -> Path:
+    """The vendored ``automation_controls.json`` (in-repo, installed, or frozen)."""
+    import sys
+
+    frozen_base = getattr(sys, "_MEIPASS", None)
+    if frozen_base:
+        candidate = Path(frozen_base) / "abstractassistant" / "assets" / "automation_controls.json"
+        if candidate.exists():
+            return candidate
+    return Path(__file__).resolve().parent.parent / "assets" / "automation_controls.json"
+
+
+# The controls' names, hints and run-now glyph: a BYTE-IDENTICAL copy of
+# AbstractUIC's canonical `ui-kit/src/automations/automation_controls.json`
+# (the web panel's `CONTROL_HINTS` / `controlHint`, the Observer's rows and
+# AbstractCode's terminal read the same file). The AbstractFramework root
+# `scripts/check_identity_sync.py` fails when this copy drifts. A missing or
+# unreadable copy fails the import: there is no fallback text.
+AUTOMATION_CONTROLS: Dict[str, Any] = json.loads(_controls_spec_path().read_text(encoding="utf-8"))
+CONTROL_HINTS: Dict[str, str] = dict(AUTOMATION_CONTROLS["hints"])
+RUN_NOW_GLYPH: Dict[str, Any] = dict(AUTOMATION_CONTROLS["icons"]["run_now"])
+
+
+def control_hint(control: str, summary: Optional[Mapping[str, Any]] = None) -> str:
+    """A control's tooltip, as the kit's ``controlHint``: the canonical hint,
+    plus, for Run now, the next scheduled time when the gateway reports one
+    and the Growing line when the automation replays its history."""
+    lines = [CONTROL_HINTS[control]]
+    if control == "run_now" and summary:
+        nxt = summary.get("next_fire_at")
+        if nxt:
+            lines.append(AUTOMATION_CONTROLS["run_now_next_run_line"].replace("{time}", format_utc(nxt)))
+        if summary.get("context_mode") == "growing":
+            lines.append(AUTOMATION_CONTROLS["run_now_growing_line"])
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------- pending commands
 
 # What a control's button says while its command waits for the gateway.

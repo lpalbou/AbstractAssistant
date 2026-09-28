@@ -146,13 +146,16 @@ stay counted until you answer them.
 |---|---|
 | **Pause** | No scheduled run until you resume. A run in progress finishes. |
 | **Resume** | Back on the schedule from the next scheduled time; it does not fire at once. |
-| **Run now** | One run immediately. It also works while paused, and the automation stays paused. Disabled while a run is in progress. |
+| **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
 | **Edit** | Title, interval (`30m`, `8h`, `7d`) and context mode, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
 | **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
-A control that does not apply is disabled, with the reason in its tooltip ("Already paused.",
-"An occurrence is in progress.", "Not permitted for this automation."). The gateway decides which
+Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
+control hints). Run now's tooltip adds the next scheduled time ("Next scheduled run: 2026-09-27
+08:00 UTC.") and, for a Growing automation, that later runs see this run. A control that does not
+apply is disabled, and its tooltip first gives the reason ("Already paused.", "An occurrence is in
+progress.", "Not permitted for this automation."). The gateway decides which
 controls you may use on each automation; an archived automation has none.
 
 A legacy schedule (a scheduled run from before automations, which the gateway lists among them)

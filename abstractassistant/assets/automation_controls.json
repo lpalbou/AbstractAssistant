@@ -1,0 +1,33 @@
+{
+  "schema": "abstractframework.automation_controls/1",
+  "canonical": "abstractuic ui-kit/src/automations/automation_controls.json; clients that cannot import the kit vendor a byte-identical copy (root scripts/check_identity_sync.py fails on drift)",
+  "labels": {
+    "pause": "Pause",
+    "resume": "Resume",
+    "run_now": "Run now",
+    "stop_current": "Stop current",
+    "revise": "Edit",
+    "archive": "Archive",
+    "discuss": "Discuss"
+  },
+  "hints": {
+    "pause": "Stop scheduled runs until you resume.\nA run in progress, with its retries, finishes. Run now still works.",
+    "resume": "Restart the schedule at its next time after now.\nTimes missed while paused are skipped; resuming does not run it now.",
+    "run_now": "Run it once now, without waiting for the schedule.\nThe schedule does not move: the next scheduled run keeps its time, or starts right after this run if its time comes first.\nDoes not count toward a run limit. Works while paused; it stays paused.\nNot available while a run is in progress.",
+    "stop_current": "Cancel the run in progress, or its pending retry.\nIt ends as cancelled, with no failure notice. The schedule continues.",
+    "revise": "Change the task, schedule or settings.\nChanges apply from the next run; a run in progress keeps its inputs. A changed schedule restarts from now, so no past time runs.",
+    "archive": "Stop it for good: it will not run again.\nA run in progress finishes; the history stays readable.",
+    "discuss": "Talk about the results in a separate conversation, seeded with the runs up to this one.\nIt has its own workspace (the automation's files are read-only) and never changes the automation."
+  },
+  "run_now_next_run_line": "Next scheduled run: {time}.",
+  "run_now_growing_line": "Growing context: later runs see this run in their history.",
+  "run_now_one_line": "Run it once now, without waiting for the schedule; the next scheduled run keeps its time.",
+  "icons": {
+    "run_now": {
+      "name": "playCircle",
+      "view_box": "0 0 16 16",
+      "stroke_width": 1.4,
+      "svg": "<circle cx=\"8\" cy=\"8\" r=\"6.2\"></circle><path d=\"M6.5 5.6 L11 8 L6.5 10.4 Z\" fill=\"currentColor\" stroke=\"none\"></path>"
+    }
+  }
+}
