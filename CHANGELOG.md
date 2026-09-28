@@ -5,6 +5,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+## [0.9.0] - 2026-09-28
+
 ### Changed
 - **Automation cards say their state in words.** In the switcher's Automations tab, the button on
   the right of each card reads **Active ▶** (green) or **Paused ⏸** (amber), the word to the left
@@ -18,9 +20,16 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `~/.abstractframework/gateway.json`, written by the AbstractFramework installer and by
   `abstractgateway serve`, after `--gateway-url` and the saved sign-in and before
   `http://127.0.0.1:8080`. A sign-in saved against the old `http://127.0.0.1:8080` default follows
-  it. Only a regular file you own and no other user can write, with `schema` 1 and a bare loopback `scheme://host:port` URL,
-  is used; any other file is ignored with one warning. A missing file is normal. See
+  it. Only a regular file you own and no other user can write, with `schema` 1 and a bare
+  loopback `scheme://host:port` URL, is used; any other file is ignored with one warning. A
+  missing file is normal. See
   [docs/api.md](docs/api.md#which-gateway-the-app-connects-to).
+
+### Compatibility
+- The pointer file is written by the AbstractFramework installer and by `abstractgateway serve`
+  from AbstractGateway 0.7.0. With an older gateway and no installer-written file, the app bundle
+  connects to `http://127.0.0.1:8080` as before, or to the gateway you name with `--gateway-url`
+  or save in Settings → Connection. No dependency changed.
 
 ## [0.8.0] - 2026-09-27
 

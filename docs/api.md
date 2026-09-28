@@ -38,8 +38,8 @@ The first match wins:
      `127.0.0.1:8080`;
    - otherwise (the macOS app bundle, which does not include AbstractGateway, or a gateway older
      than 0.6.0), the local gateway pointer file `~/.abstractframework/gateway.json`, which the
-     AbstractFramework installer and `abstractgateway serve` write with the address the gateway
-     listens on;
+     AbstractFramework installer and `abstractgateway serve` (AbstractGateway 0.7.0 or later)
+     write with the address the gateway listens on;
 4. `http://127.0.0.1:8080`.
 
 Tier 3 is consulted only when neither tier 1 nor tier 2 applies, so a launch that names its
