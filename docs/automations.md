@@ -39,8 +39,11 @@ archived** in the tab's header, and **+ New automation** creates one (below). Ea
 - the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
   runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
   folder and it is on this Mac), and at the far right the card's one button, which shows the
-  automation's state: a green ▶ with a soft glow when it is active (click to pause), an amber ⏸
-  when it is paused (click to resume), grey when archived. It pulses slowly while a run is in
+  automation's state in words and as a glyph, the word on the left: **Active ▶** in green, the ▶
+  with a soft glow (click to pause); **Paused ⏸** in amber (click to resume); **Archived** in grey,
+  disabled. The word is the gateway's status for the automation, with the same wording as the
+  other AbstractFramework clients, and it changes only when the gateway reports the new state.
+  The button pulses slowly while a run is in
   progress (line 2 then reads "Run #37 running", plus "· paused after this run" when paused). After
   a click it spins until the gateway confirms the new state; if the gateway refuses, it comes back
   with the reason in its tooltip.

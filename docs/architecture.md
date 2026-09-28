@@ -79,6 +79,11 @@ The assistant is authoritative only for local state under `~/.abstractassistant/
 - the session cache (see [Sessions](#sessions)) — rebuildable from the gateway at any time
 - downloaded artifacts
 
+It reads, and never writes, the local gateway pointer file `~/.abstractframework/gateway.json`
+that the AbstractFramework installer and `abstractgateway serve` keep, to find this computer's
+gateway when AbstractGateway is not installed in the Assistant's Python (the macOS app bundle).
+The order is in [api.md](api.md#which-gateway-the-app-connects-to).
+
 ## Sessions
 
 Sessions live on the gateway. A session is the set of root runs that share a `session_id`.

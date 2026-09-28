@@ -5,6 +5,23 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+### Changed
+- **Automation cards say their state in words.** In the switcher's Automations tab, the button on
+  the right of each card reads **Active ▶** (green) or **Paused ⏸** (amber), the word to the left
+  of the glyph, instead of the glyph alone; an archived automation reads **Archived** (grey). The
+  word is the gateway's status, with the same wording as the other clients, and changes only once
+  the gateway reports the new state.
+
+### Added
+- **The macOS app finds a gateway that is not on port 8080.** Without AbstractGateway in its own
+  Python (the app bundle), the Assistant reads the local gateway pointer file
+  `~/.abstractframework/gateway.json`, written by the AbstractFramework installer and by
+  `abstractgateway serve`, after `--gateway-url` and the saved sign-in and before
+  `http://127.0.0.1:8080`. A sign-in saved against the old `http://127.0.0.1:8080` default follows
+  it. Only a regular file you own, with `schema` 1 and a bare loopback `scheme://host:port` URL,
+  is used; any other file is ignored with one warning. A missing file is normal. See
+  [docs/api.md](docs/api.md#which-gateway-the-app-connects-to).
+
 ## [0.8.0] - 2026-09-27
 
 ### Added

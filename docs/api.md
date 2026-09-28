@@ -31,19 +31,39 @@ The first match wins:
 1. `--gateway-url URL` (or its legacy environment alias `ABSTRACTGATEWAY_URL` /
    `ABSTRACTFLOW_GATEWAY_URL`);
 2. the sign-in saved in Settings → Connection (`gateway_connection.json`);
-3. this computer's gateway, found by the gateway's own rule (its running server, else its pinned
-   OS service, else the port stored in its Network setting, else `127.0.0.1:8080`). This tier
-   applies when AbstractGateway 0.6.0 or later is installed in the same Python environment as the
-   Assistant, as the AbstractFramework installer does;
-4. `http://127.0.0.1:8080`, when AbstractGateway is not installed next to the Assistant (for
-   example the macOS app bundle) or the installed gateway is older than 0.6.0.
+3. this computer's gateway:
+   - when AbstractGateway 0.6.0 or later is installed in the same Python environment as the
+     Assistant (as the AbstractFramework installer does), the gateway's own rule: its running
+     server, else its pinned OS service, else the port stored in its Network setting, else
+     `127.0.0.1:8080`;
+   - otherwise (the macOS app bundle, which does not include AbstractGateway, or a gateway older
+     than 0.6.0), the local gateway pointer file `~/.abstractframework/gateway.json`, which the
+     AbstractFramework installer and `abstractgateway serve` write with the address the gateway
+     listens on;
+4. `http://127.0.0.1:8080`.
 
-The gateway's rule is consulted only when neither tier 1 nor tier 2 applies, so a launch that
-names its gateway, or a saved sign-in, never depends on it. A sign-in saved against
-`http://127.0.0.1:8080` follows tier 3 when this computer's gateway answers elsewhere; a sign-in
-saved for any other URL is kept as you chose it. When tier 3 is needed and an installed
-AbstractGateway cannot be imported, or its rule fails, the Assistant stops with that error instead
-of guessing a URL.
+Tier 3 is consulted only when neither tier 1 nor tier 2 applies, so a launch that names its
+gateway, or a saved sign-in, never depends on it. A sign-in saved against `http://127.0.0.1:8080`
+follows tier 3 when this computer's gateway answers elsewhere; a sign-in saved for any other URL is
+kept as you chose it. When tier 3 is needed and an installed AbstractGateway cannot be imported, or
+its rule fails, the Assistant stops with that error instead of guessing a URL.
+
+The pointer file is read once per launch and holds no token. A missing file is normal (no
+installer ran, or the gateway was uninstalled) and gives tier 4. The app ignores the file, logs one
+warning naming the reason, and uses tier 4 when the file is not a regular file (a symlink is
+refused), is owned by another user (macOS, Linux), cannot be read, is not JSON, has a `schema`
+other than `1`, or has a `url` that is not `http`/`https` on `127.0.0.1`, `[::1]` or `localhost`
+with nothing after the port (no path, query or user info). These are the same rules, checked
+against the same shared cases, as the AbstractFramework web apps and terminal consoles. The file's
+format:
+
+```json
+{"schema": 1, "url": "http://127.0.0.1:8081", "port": 8081,
+ "data_dir": "/Users/me/Library/Application Support/abstractgateway",
+ "updated_at": "2026-09-27T12:00:00Z", "written_by": "installer"}
+```
+
+Only `schema` and `url` are read; the other fields are for the gateway and the installer.
 
 - `--gateway-url URL` — the gateway to use. Without `--gateway-token`, the sign-in saved for that
   gateway in `gateway_connection.json` is used.
@@ -130,6 +150,9 @@ All under `~/.abstractassistant/`:
   ([automations.md](automations.md#notifications-and-the-two-polls)). Deleting it can repeat
   notifications for items still unseen on the gateway; nothing else is lost.
 - `downloads/`, `gateway_audio/` — downloaded artifacts and cached speech audio
+
+Read, never written: `~/.abstractframework/gateway.json`, the local gateway pointer file (see
+[Which gateway the app connects to](#which-gateway-the-app-connects-to)).
 
 ## Run input pins
 
