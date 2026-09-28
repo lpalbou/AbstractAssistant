@@ -51,7 +51,7 @@ its rule fails, the Assistant stops with that error instead of guessing a URL.
 The pointer file is read once per launch and holds no token. A missing file is normal (no
 installer ran, or the gateway was uninstalled) and gives tier 4. The app ignores the file, logs one
 warning naming the reason, and uses tier 4 when the file is not a regular file (a symlink is
-refused), is owned by another user (macOS, Linux), cannot be read, is not JSON, has a `schema`
+refused), is owned by another user or writable by other users (macOS, Linux), cannot be read, is not JSON, has a `schema`
 other than `1`, or has a `url` that is not `http`/`https` on `127.0.0.1`, `[::1]` or `localhost`
 with nothing after the port (no path, query or user info). These are the same rules, checked
 against the same shared cases, as the AbstractFramework web apps and terminal consoles. The file's

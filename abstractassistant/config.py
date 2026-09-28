@@ -82,7 +82,8 @@ def read_gateway_pointer(path: Optional[Path] = None) -> str:
     ui-kit app-server's `gateway_pointer.js`, checked against the shared case
     table in `tests/basic/fixtures/gateway_pointer/cases.json`):
 
-    - a regular file, never a symlink, owned by the current user (POSIX);
+    - a regular file, never a symlink, owned by the current user and
+      writable by nobody else, no group/world write bit (POSIX);
     - a JSON object whose ``schema`` is the integer 1;
     - a ``url`` that is ``http``/``https`` on 127.0.0.1, [::1] or localhost,
       with no user info and nothing after the port (no path, query or
@@ -104,6 +105,8 @@ def read_gateway_pointer(path: Optional[Path] = None) -> str:
             return _refuse_pointer(path, "not a regular file")
         if hasattr(os, "getuid") and info.st_uid != os.getuid():
             return _refuse_pointer(path, f"owned by uid {info.st_uid}, not by this user")
+        if hasattr(os, "getuid") and info.st_mode & 0o022:
+            return _refuse_pointer(path, f"other users can write it (mode {info.st_mode & 0o777:o})")
         with os.fdopen(os.dup(fd), "rb") as handle:
             raw = handle.read()
     except OSError as exc:

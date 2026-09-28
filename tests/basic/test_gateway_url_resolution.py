@@ -263,6 +263,22 @@ def test_a_pointer_file_owned_by_another_user_is_refused(tmp_path: Path, monkeyp
 
 
 @pytest.mark.basic
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="file modes are a POSIX rule")
+@pytest.mark.parametrize("mode", [0o664, 0o646, 0o666])
+def test_a_pointer_file_others_can_write_is_refused(tmp_path: Path, caplog, mode: int) -> None:
+    """The kit reader's rule (app-server gateway_pointer.js): no group/world write bit."""
+    from abstractassistant import config
+
+    path = _write_pointer(tmp_path, "valid.json")
+    path.chmod(0o644)
+    assert config.read_gateway_pointer(path) == "http://127.0.0.1:8081"
+    path.chmod(mode)
+    with caplog.at_level("WARNING", logger="abstractassistant.config"):
+        assert config.read_gateway_pointer(path) == ""
+    assert "other users can write it" in caplog.text
+
+
+@pytest.mark.basic
 def test_a_symlinked_pointer_file_is_refused(tmp_path: Path, caplog) -> None:
     from abstractassistant import config
 
