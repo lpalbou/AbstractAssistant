@@ -302,6 +302,42 @@ def test_a_directory_at_the_pointer_path_is_refused(tmp_path: Path, caplog) -> N
 
 
 @pytest.mark.basic
+def test_a_fifo_at_the_pointer_path_is_refused_without_blocking(tmp_path: Path, caplog) -> None:
+    from abstractassistant import config
+
+    fifo = tmp_path / "gateway.json"
+    os.mkfifo(fifo, 0o600)
+    # No writer ever opens it: a blocking open would hang the launch here.
+    with caplog.at_level("WARNING", logger="abstractassistant.config"):
+        assert config.read_gateway_pointer(fifo) == ""
+    assert "not a regular file" in caplog.text
+
+
+@pytest.mark.basic
+def test_an_oversized_pointer_file_is_refused(tmp_path: Path, caplog) -> None:
+    from abstractassistant import config
+
+    big = tmp_path / "gateway.json"
+    big.write_text(json.dumps({"schema": 1, "url": "http://127.0.0.1:8081", "pad": "x" * config.GATEWAY_POINTER_MAX_BYTES}))
+    big.chmod(0o600)
+    with caplog.at_level("WARNING", logger="abstractassistant.config"):
+        assert config.read_gateway_pointer(big) == ""
+    assert "larger than" in caplog.text
+
+
+@pytest.mark.basic
+def test_deeply_nested_json_is_refused_not_raised(tmp_path: Path, caplog) -> None:
+    from abstractassistant import config
+
+    deep = tmp_path / "gateway.json"
+    deep.write_text("[" * 50_000)
+    deep.chmod(0o600)
+    with caplog.at_level("WARNING", logger="abstractassistant.config"):
+        assert config.read_gateway_pointer(deep) == ""
+    assert "not JSON" in caplog.text
+
+
+@pytest.mark.basic
 def test_the_pointer_path_is_under_the_users_home(tmp_path: Path, monkeypatch) -> None:
     from abstractassistant.config import gateway_pointer_path
 

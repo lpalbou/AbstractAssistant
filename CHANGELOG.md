@@ -21,7 +21,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
   `abstractgateway serve`, after `--gateway-url` and the saved sign-in and before
   `http://127.0.0.1:8080`. A sign-in saved against the old `http://127.0.0.1:8080` default follows
   it. Only a regular file you own and no other user can write, with `schema` 1 and a bare
-  loopback `scheme://host:port` URL, is used; any other file is ignored with one warning. A
+  loopback `scheme://host:port` URL, is used; any other file (including a pipe, a file over
+  64 KiB or unparseable JSON) is ignored with one warning and never delays or stops the launch. A
   missing file is normal. See
   [docs/api.md](docs/api.md#which-gateway-the-app-connects-to).
 

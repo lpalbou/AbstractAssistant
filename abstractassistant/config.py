@@ -43,6 +43,8 @@ BUILTIN_GATEWAY_URL = "http://127.0.0.1:8080"
 # installed gateway listens, written by the installer and by `abstractgateway
 # serve`. Loopback URL only, owned by the current user, never a token.
 GATEWAY_POINTER_SCHEMA = 1
+# A pointer is a few hundred bytes; anything larger is refused unread past this.
+GATEWAY_POINTER_MAX_BYTES = 64 * 1024
 _POINTER_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 _GATEWAY_MODULES = frozenset({"abstractgateway", "abstractgateway.first_run"})
@@ -92,7 +94,9 @@ def read_gateway_pointer(path: Optional[Path] = None) -> str:
     path = gateway_pointer_path() if path is None else path
     try:
         # O_NOFOLLOW: a symlink is refused (ELOOP) instead of followed.
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        # O_NONBLOCK: a FIFO planted at the path opens at once (and is refused
+        # below as not a regular file) instead of blocking the launch.
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
         return ""
     except OSError as exc:
@@ -108,14 +112,16 @@ def read_gateway_pointer(path: Optional[Path] = None) -> str:
         if hasattr(os, "getuid") and info.st_mode & 0o022:
             return _refuse_pointer(path, f"other users can write it (mode {info.st_mode & 0o777:o})")
         with os.fdopen(os.dup(fd), "rb") as handle:
-            raw = handle.read()
+            raw = handle.read(GATEWAY_POINTER_MAX_BYTES + 1)
+        if len(raw) > GATEWAY_POINTER_MAX_BYTES:
+            return _refuse_pointer(path, f"larger than {GATEWAY_POINTER_MAX_BYTES} bytes (a pointer is a few hundred)")
     except OSError as exc:
         return _refuse_pointer(path, f"unreadable ({exc})")
     finally:
         os.close(fd)
     try:
         data = json.loads(raw.decode("utf-8"))
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         return _refuse_pointer(path, f"not JSON ({exc})")
     if not isinstance(data, dict):
         return _refuse_pointer(path, "not a JSON object")
