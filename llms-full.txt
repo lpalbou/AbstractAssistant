@@ -551,6 +551,14 @@ value comes from and where it is stored:
 Gateway defaults apply whenever an override is empty. See [architecture.md](architecture.md) for
 the boundary and [faq.md](faq.md) for common questions.
 
+On/off settings are switches labelled by the feature, the same control as the other
+AbstractFramework apps: on shows an accent track with a check mark and a bold label, off is plain.
+A switch that is a saved setting applies the moment you flip it, and the line at the bottom of the
+page names the new state ("Replies are spoken automatically."); if the save fails, the switch
+flips back and the line says so. The **Voice** page has no Save button: its switches and lists
+apply as they change. A switch inside a form (Keep the session…, on the Connection page) is saved
+by that form's button.
+
 ## Connection
 
 | Control | Meaning | Stored |
@@ -559,7 +567,7 @@ the boundary and [faq.md](faq.md) for common questions.
 | Gateway URL | Where runs, tools and speech execute | connection `base_url` |
 | Sign-in mode | Bearer token (shared, local or operator-run gateways) or Gateway session (one user, personal token exchanged for a session) | connection `auth_mode` |
 | Bearer token / Gateway user / Gateway user token | Credentials for the chosen mode; the eye button reveals the bearer token | connection |
-| Keep the gateway session after this app closes | Session mode only | connection `remember_session` |
+| Keep the session after this app closes | Switch; session mode only; saved by `Connect` | connection `remember_session` |
 
 `Connect` saves and reconnects. `Sign out` clears the local sign-in state (and logs a gateway
 session out).
@@ -623,10 +631,10 @@ on the execution host (fresh configurations use depth 2 only for compatible mode
 |---|---|---|
 | Text → speech / Speech → text | The engines that speak and listen, with "gateway default" or "this app"; `Change…` opens the route in Models & reasoning | gateway / this app |
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
-| Speak replies automatically | Auto-speak final answers (also the speaker toggle in the header) | this app `auto_speak` |
+| Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
-| Send each utterance automatically | Conversation mode: send what you say as a turn; off, words land in the message box | this app `voice_auto_send` |
-| Ask for short, spoken-style replies | Adds a voice-style instruction to each request while a conversation runs | this app `voice_spoken_replies` |
+| Send what you say automatically | Switch, conversation mode: send what you say as a turn; off, words land in the message box; applies at once | this app `voice_auto_send` |
+| Ask for short, spoken-style replies | Switch: adds a voice-style instruction to each request while a conversation runs; applies at once | this app `voice_spoken_replies` |
 | Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
 
 See [voice.md](voice.md) for how the conversation loop behaves.
@@ -671,7 +679,7 @@ Listed as **Appearance** in the sidebar.
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
-| Summon / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
+| Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination is saved with the page's `Save` | this app `hotkey_enabled`, `hotkey_sequence` |
 | Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without
@@ -725,7 +733,7 @@ for failures.
 ## Speak a reply
 
 Every assistant reply has a speaker button. Click it to hear the reply; click again to pause and
-resume. Turn on **Speak replies automatically** (header toggle or Voice settings) to have every
+resume. Switch on **Speak replies automatically** (header toggle or Voice settings) to have every
 final answer spoken. Replies stream from the gateway's streaming TTS lane, so long answers start
 playing within about a second; when the stream is unavailable the assistant says that it is
 synthesizing the whole message first.
@@ -840,15 +848,14 @@ archived** in the tab's header, and **+ New automation** creates one (below). Ea
 - the last result, on one line;
 - the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
   runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
-  folder and it is on this Mac), and at the far right the card's one button, which shows the
-  automation's state in words and as a glyph, the word on the left: **Active ▶** in green, the ▶
-  with a soft glow (click to pause); **Paused ⏸** in amber (click to resume); **Archived** in grey,
-  disabled. The word is the gateway's status for the automation, with the same wording as the
-  other AbstractFramework clients, and it changes only when the gateway reports the new state.
-  The button pulses slowly while a run is in
-  progress (line 2 then reads "Run #37 running", plus "· paused after this run" when paused). After
-  a click it spins until the gateway confirms the new state; if the gateway refuses, it comes back
-  with the reason in its tooltip.
+  folder and it is on this Mac), and at the far right the card's one control, the **Active**
+  switch: on (accent track, check mark, bold label) while the automation runs on its schedule,
+  off while it is paused. Clicking it pauses or resumes the automation. The switch shows the
+  gateway's status and moves only when the gateway reports the new state: after a click it is busy
+  until then, and if the gateway refuses it stays where it was, with the reason in its tooltip.
+  An archived, ended or legacy automation's switch is unavailable, the reason after the label
+  ("Active — Archived") and in its tooltip. While a run is in progress, line 2 reads "Run #37
+  running", plus "· paused after this run" when paused.
 
 The card looks like a session card. Click it (or press Enter) to open the automation, where
 **Run now**, **Stop**, **Edit**, **Archive** and **Discuss** live. The times follow each refresh.
@@ -982,8 +989,7 @@ stay counted until you answer them.
 
 | Control | What it does |
 |---|---|
-| **Pause** | No scheduled run until you resume. A run in progress finishes. |
-| **Resume** | Back on the schedule from the next scheduled time; it does not fire at once. |
+| **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
 | **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
 | **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) and context mode, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
@@ -992,15 +998,16 @@ stay counted until you answer them.
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
 control hints). Run now's tooltip adds the next scheduled time ("Next scheduled run: 2026-09-27
 08:00 UTC.") and, for a Growing automation, that later runs see this run. A control that does not
-apply is disabled, and its tooltip first gives the reason ("Already paused.", "An occurrence is in
-progress.", "Not permitted for this automation."). The gateway decides which
+apply is disabled, and its tooltip first gives the reason ("An occurrence is in progress.", "Not
+permitted for this automation."). The gateway decides which
 controls you may use on each automation; an archived automation has none.
 
 A legacy schedule (a scheduled run from before automations, which the gateway lists among them)
 opens with every control disabled and the notice "This is an older scheduled run, kept with its own
 controls. Manage it from the Observer, or recreate it as an automation." Its runs are not loaded.
 
-After a control, the palette confirms it ("Paused: no scheduled run until you resume.", "Saved;
+After a control, the palette confirms it ("Active is off: scheduled runs are skipped until you
+switch it back on.", "Saved;
 applies from the next run.") and reloads the automation. When the gateway had already received
 the same request, the confirmation ends with "(already received)": the first one stands and nothing
 is applied twice. A request the gateway did not accept is shown as an error. If the gateway could
@@ -2431,6 +2438,39 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## Unreleased
+
+Vendors `@abstractframework/ui-kit` 0.3.3's `automation_controls.json` (it gained the **Active**
+label and hint).
+
+### Changed
+- **On/off settings are switches labelled by the feature**, the same control as the other
+  AbstractFramework apps: on shows an accent track with a check mark and a bold label, off is
+  plain. This covers **Speak replies automatically**, **Send what you say automatically**, **Ask
+  for short, spoken-style replies**, **Summon the assistant from anywhere**, **Keep the session
+  after this app closes** and the Schedule window's **Email me the result**.
+- A switch that is a saved setting applies the moment you flip it, and the page's feedback line
+  names the new state ("Replies are spoken automatically.", "The global shortcut is on."); a failed
+  save flips it back and says so. The **Voice** page has no Save button any more: its switches and
+  lists (output device, voice latency, barge-in) apply as they change.
+- **Automations: an Active switch replaces Pause / Resume.** The automation view's bar leads with
+  **Active** (on = runs on its schedule, off = paused) instead of two Pause and Resume buttons,
+  and each card in the switcher's Automations tab carries the same switch instead of the
+  "Active ▶" / "Paused ⏸" button. The switch shows the gateway's status: after a click it is busy
+  until the gateway confirms, and a refusal leaves it where it was with the reason in its
+  tooltip. An archived, ended or legacy automation's switch is unavailable, with the reason after
+  the label ("Active — Archived") and on hover. The confirmation names the new state ("Active is
+  off: scheduled runs are skipped until you switch it back on.").
+- An unavailable switch stays focusable and shows why instead of being greyed out: **Email me
+  the result** without a usable mailbox says "Connect a mailbox first."
+- The run's pause button, the microphone pause and a reply's play/pause stay one-shot buttons
+  (they act on something running now).
+
+### Added
+- `abstractassistant.ui.switch.AfSwitch` (a `QCheckBox` painted as a switch; Space and Enter
+  switch it) and `tests/basic/test_state_switches.py`: every on/off control in Settings and the
+  Schedule window is a switch, switches apply at once, unavailable switches ignore clicks and
+  keep their reason, dialog labels stay at or under 15 px and weight 600, and no source swaps an
+  on/off verb label (`state-toggle-lint: allow` opts a one-shot action out on its line).
 
 ## [0.10.0] - 2026-09-30
 
@@ -14812,6 +14852,8 @@ __all__ = [
     "attention_ack_cursor",
     "attention_total",
     "automation_controls",
+    "active_toggle_command",
+    "active_short_reason",
     "build_create_request",
     "default_title",
     "format_utc",
@@ -15027,7 +15069,26 @@ def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Di
             return False, "Not permitted for this automation."
         return (True, "") if ok else (False, reason)
 
+    # The "Active" switch (operator 2026-09-30: a persistent on/off setting is
+    # a switch labelled by the feature, never a Pause/Resume verb swap; the
+    # kit's ``automationControls().active``). It needs the capability of the
+    # transition a click would request: pause when active, resume when paused.
+    toggle_cap = "pause" if status == "active" else "resume"
+    if busy:
+        active: Tuple[bool, str] = (False, "Working…")
+    elif summary.get("legacy"):
+        active = (False, "Legacy schedule: managed with its existing controls.")
+    elif status == "archived":
+        active = (False, "Archived: history is kept, nothing runs.")
+    elif not live:
+        active = (False, "The automation has ended.")
+    elif toggle_cap not in caps:
+        active = (False, "Not permitted for this automation.")
+    else:
+        active = (True, "")
+
     return {
+        "active": active,
         "pause": gate("pause", status == "active", "Already paused." if status == "paused" else "The automation has ended."),
         "resume": gate("resume", status == "paused", "Already running on schedule." if status == "active" else "The automation has ended."),
         "run_now": gate("run_now", live and not running, "An occurrence is in progress." if running else "The automation has ended."),
@@ -15036,6 +15097,26 @@ def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Di
         "archive": gate("archive", True, ""),
         "discuss": gate("discuss", True, ""),
     }
+
+
+def active_toggle_command(summary: Mapping[str, Any]) -> str:
+    """The control the "Active" switch sends from this state (the kit's
+    ``activeToggleCommand``): pause when active, resume when paused."""
+    return "pause" if summary.get("status") == "active" else "resume"
+
+
+def active_short_reason(summary: Mapping[str, Any], reason: str) -> str:
+    """The few words painted after an unavailable "Active" switch's label
+    ("Active — Archived"); the full reason is its tooltip."""
+    text = str(reason or "").strip()
+    if summary.get("legacy"):
+        return "Legacy"
+    if ":" in text:
+        return text.split(":", 1)[0]
+    status = str(summary.get("status") or "")
+    if status and status not in {"active", "paused"}:
+        return STATUS_LABELS.get(status, status.capitalize())
+    return text.rstrip(".")
 
 
 # ------------------------------------------------------ control hints

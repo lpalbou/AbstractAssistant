@@ -11,7 +11,7 @@ for failures.
 ## Speak a reply
 
 Every assistant reply has a speaker button. Click it to hear the reply; click again to pause and
-resume. Turn on **Speak replies automatically** (header toggle or Voice settings) to have every
+resume. Switch on **Speak replies automatically** (header toggle or Voice settings) to have every
 final answer spoken. Replies stream from the gateway's streaming TTS lane, so long answers start
 playing within about a second; when the stream is unavailable the assistant says that it is
 synthesizing the whole message first.

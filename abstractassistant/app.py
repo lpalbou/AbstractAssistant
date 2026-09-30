@@ -6771,8 +6771,9 @@ class AssistantPalette(QMainWindow):
         if not aid:
             return
         labels = {
-            "pause": "Paused: no scheduled run until you resume.",
-            "resume": "Resumed: the next run is on the schedule.",
+            # The Active switch sends these; the notice names the new state.
+            "pause": "Active is off: scheduled runs are skipped until you switch it back on.",
+            "resume": "Active is on: the next run is on the schedule.",
             "run_now": "Run requested.",
             "stop_current": "Stop requested.",
             "archive": "Archived. Its history is kept.",

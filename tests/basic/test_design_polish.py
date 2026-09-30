@@ -205,7 +205,8 @@ def test_every_settings_page_puts_its_actions_in_the_footer() -> None:
     _app()
     dlg = SettingsDialog(controller=_Ctl(), apply_hotkey=lambda: None, parent=None)
     assert [b.text() for b in dlg.page_connection.actions()] == ["Reload status", "Sign out", "Connect"]
-    assert [b.text() for b in dlg.page_voice.actions()] == ["Save"]
+    # Voice: switches and choices only, each applied as it changes (no Save).
+    assert [b.text() for b in dlg.page_voice.actions()] == []
     assert [b.text() for b in dlg.page_workspace.actions()] == ["Reset", "Save"]
     assert [b.text() for b in dlg.page_tools.actions()] == ["Use gateway defaults", "Save"]
     assert [b.text() for b in dlg.page_window.actions()] == ["Save"]
@@ -214,7 +215,7 @@ def test_every_settings_page_puts_its_actions_in_the_footer() -> None:
     for page in dlg.pages.values():
         primaries = [b for b in page.actions() if b.objectName() == "primaryButton"]
         assert len(primaries) <= 1, page.title
-    # Every checkbox row on the Voice and Window pages has a label in the left column.
+    # Every switch row on the Voice and Window pages has a label in the left column.
     for page in (dlg.page_voice, dlg.page_window):
         for box in page.findChildren(QCheckBox):
             row = box.parentWidget()

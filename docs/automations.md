@@ -38,15 +38,14 @@ archived** in the tab's header, and **+ New automation** creates one (below). Ea
 - the last result, on one line;
 - the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
   runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
-  folder and it is on this Mac), and at the far right the card's one button, which shows the
-  automation's state in words and as a glyph, the word on the left: **Active ▶** in green, the ▶
-  with a soft glow (click to pause); **Paused ⏸** in amber (click to resume); **Archived** in grey,
-  disabled. The word is the gateway's status for the automation, with the same wording as the
-  other AbstractFramework clients, and it changes only when the gateway reports the new state.
-  The button pulses slowly while a run is in
-  progress (line 2 then reads "Run #37 running", plus "· paused after this run" when paused). After
-  a click it spins until the gateway confirms the new state; if the gateway refuses, it comes back
-  with the reason in its tooltip.
+  folder and it is on this Mac), and at the far right the card's one control, the **Active**
+  switch: on (accent track, check mark, bold label) while the automation runs on its schedule,
+  off while it is paused. Clicking it pauses or resumes the automation. The switch shows the
+  gateway's status and moves only when the gateway reports the new state: after a click it is busy
+  until then, and if the gateway refuses it stays where it was, with the reason in its tooltip.
+  An archived, ended or legacy automation's switch is unavailable, the reason after the label
+  ("Active — Archived") and in its tooltip. While a run is in progress, line 2 reads "Run #37
+  running", plus "· paused after this run" when paused.
 
 The card looks like a session card. Click it (or press Enter) to open the automation, where
 **Run now**, **Stop**, **Edit**, **Archive** and **Discuss** live. The times follow each refresh.
@@ -180,8 +179,7 @@ stay counted until you answer them.
 
 | Control | What it does |
 |---|---|
-| **Pause** | No scheduled run until you resume. A run in progress finishes. |
-| **Resume** | Back on the schedule from the next scheduled time; it does not fire at once. |
+| **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
 | **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
 | **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) and context mode, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
@@ -190,15 +188,16 @@ stay counted until you answer them.
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
 control hints). Run now's tooltip adds the next scheduled time ("Next scheduled run: 2026-09-27
 08:00 UTC.") and, for a Growing automation, that later runs see this run. A control that does not
-apply is disabled, and its tooltip first gives the reason ("Already paused.", "An occurrence is in
-progress.", "Not permitted for this automation."). The gateway decides which
+apply is disabled, and its tooltip first gives the reason ("An occurrence is in progress.", "Not
+permitted for this automation."). The gateway decides which
 controls you may use on each automation; an archived automation has none.
 
 A legacy schedule (a scheduled run from before automations, which the gateway lists among them)
 opens with every control disabled and the notice "This is an older scheduled run, kept with its own
 controls. Manage it from the Observer, or recreate it as an automation." Its runs are not loaded.
 
-After a control, the palette confirms it ("Paused: no scheduled run until you resume.", "Saved;
+After a control, the palette confirms it ("Active is off: scheduled runs are skipped until you
+switch it back on.", "Saved;
 applies from the next run.") and reloads the automation. When the gateway had already received
 the same request, the confirmation ends with "(already received)": the first one stands and nothing
 is applied twice. A request the gateway did not accept is shown as an error. If the gateway could

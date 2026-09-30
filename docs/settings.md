@@ -11,6 +11,14 @@ value comes from and where it is stored:
 Gateway defaults apply whenever an override is empty. See [architecture.md](architecture.md) for
 the boundary and [faq.md](faq.md) for common questions.
 
+On/off settings are switches labelled by the feature, the same control as the other
+AbstractFramework apps: on shows an accent track with a check mark and a bold label, off is plain.
+A switch that is a saved setting applies the moment you flip it, and the line at the bottom of the
+page names the new state ("Replies are spoken automatically."); if the save fails, the switch
+flips back and the line says so. The **Voice** page has no Save button: its switches and lists
+apply as they change. A switch inside a form (Keep the session…, on the Connection page) is saved
+by that form's button.
+
 ## Connection
 
 | Control | Meaning | Stored |
@@ -19,7 +27,7 @@ the boundary and [faq.md](faq.md) for common questions.
 | Gateway URL | Where runs, tools and speech execute | connection `base_url` |
 | Sign-in mode | Bearer token (shared, local or operator-run gateways) or Gateway session (one user, personal token exchanged for a session) | connection `auth_mode` |
 | Bearer token / Gateway user / Gateway user token | Credentials for the chosen mode; the eye button reveals the bearer token | connection |
-| Keep the gateway session after this app closes | Session mode only | connection `remember_session` |
+| Keep the session after this app closes | Switch; session mode only; saved by `Connect` | connection `remember_session` |
 
 `Connect` saves and reconnects. `Sign out` clears the local sign-in state (and logs a gateway
 session out).
@@ -83,10 +91,10 @@ on the execution host (fresh configurations use depth 2 only for compatible mode
 |---|---|---|
 | Text → speech / Speech → text | The engines that speak and listen, with "gateway default" or "this app"; `Change…` opens the route in Models & reasoning | gateway / this app |
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
-| Speak replies automatically | Auto-speak final answers (also the speaker toggle in the header) | this app `auto_speak` |
+| Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
-| Send each utterance automatically | Conversation mode: send what you say as a turn; off, words land in the message box | this app `voice_auto_send` |
-| Ask for short, spoken-style replies | Adds a voice-style instruction to each request while a conversation runs | this app `voice_spoken_replies` |
+| Send what you say automatically | Switch, conversation mode: send what you say as a turn; off, words land in the message box; applies at once | this app `voice_auto_send` |
+| Ask for short, spoken-style replies | Switch: adds a voice-style instruction to each request while a conversation runs; applies at once | this app `voice_spoken_replies` |
 | Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
 
 See [voice.md](voice.md) for how the conversation loop behaves.
@@ -131,7 +139,7 @@ Listed as **Appearance** in the sidebar.
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
-| Summon / Shortcut | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission | this app `hotkey_enabled`, `hotkey_sequence` |
+| Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination is saved with the page's `Save` | this app `hotkey_enabled`, `hotkey_sequence` |
 | Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without

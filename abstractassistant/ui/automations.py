@@ -23,7 +23,6 @@ from PyQt5.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QButtonGroup,
-    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -60,6 +59,8 @@ from ..core.automations import (
     api_error_text,
     attention_ack_cursor,
     attention_total,
+    active_short_reason,
+    active_toggle_command,
     automation_controls,
     build_create_request,
     format_utc,
@@ -75,6 +76,7 @@ from ..gateway.automations import AutomationApiError, AutomationsClient
 from ..gateway.client import WAIT_KINDS
 from ..icons import symbol_icon
 from ..theme import THEME
+from .switch import AfSwitch
 from .styles import alpha, dialog_stylesheet, refresh_style
 
 __all__ = [
@@ -258,6 +260,10 @@ def _button(text: str, name: str = "autoControl", *, parent: Optional[QWidget] =
     if tooltip:
         button.setToolTip(tooltip)
     return button
+
+
+# DESIGN 2026-09-30 §6: an email switch without a mailbox says what to do.
+NOTIFY_UNAVAILABLE_REASON = "Connect a mailbox first."
 
 
 def _text_label(text: str, name: str, *, parent: QWidget, tone: str = "") -> QLabel:
@@ -614,7 +620,8 @@ class OccurrencePair(QWidget):
 
 class AutomationView(QFrame):
     """An automation opened in the palette: its occurrences as a chat, with
-    pause / resume / run now / edit / archive / discuss."""
+    the "Active" switch (on = runs on its schedule, off = paused) and run now /
+    edit / archive / discuss."""
 
     back_requested = pyqtSignal()
     control_requested = pyqtSignal(str)  # pause | resume | run_now | stop_current | archive
@@ -625,10 +632,14 @@ class AutomationView(QFrame):
     retry_requested = pyqtSignal()
 
     # Names from the shared `automation_controls.json` (the kit's CONTROL_LABELS).
+    # Pause/Resume are not buttons: the "Active" switch sends them (operator
+    # 2026-09-30: a persistent on/off state is a switch labelled by the
+    # feature, never a Pause/Resume verb pair). These are the one-shot actions.
     CONTROL_LABELS = tuple(
         (control, AUTOMATION_CONTROLS["labels"][control])
-        for control in ("pause", "resume", "run_now", "stop_current", "revise", "archive")
+        for control in ("run_now", "stop_current", "revise", "archive")
     )
+    ACTIVE_LABEL = AUTOMATION_CONTROLS["labels"]["active"]
     # Controls drawn with the kit's glyph (the web clients' icon for the same action).
     CONTROL_ICONS = {"run_now": "play-circle"}
 
@@ -673,6 +684,15 @@ class AutomationView(QFrame):
 
         controls = QHBoxLayout()
         controls.setSpacing(5)
+        # The automation's state, first in the bar (as the web panel's bar).
+        # The switch shows the gateway's status and changes only when the
+        # gateway confirms: a click sends pause/resume and the switch is busy
+        # until then.
+        self.active_switch = AfSwitch(self.ACTIVE_LABEL, self, reason_inline=True)
+        self.active_switch.set_hint(control_hint("active"))
+        self.active_switch.clicked.connect(lambda _checked=False: self._on_active_clicked())
+        controls.addWidget(self.active_switch)
+        controls.addSpacing(6)
         self.control_buttons: Dict[str, QPushButton] = {}
         for control, label in self.CONTROL_LABELS:
             button = _button(label, "autoControl", parent=self, tooltip=control_hint(control))
@@ -836,17 +856,35 @@ class AutomationView(QFrame):
 
     # --------------------------------------------------------- rendering
 
+    def _apply_active_switch(self, state: Optional[Dict[str, Any]]) -> None:
+        switch = self.active_switch
+        switch.blockSignals(True)
+        switch.setChecked(self.summary.get("status") == "active")
+        switch.blockSignals(False)
+        if state is None:  # nothing loaded, or a command waiting for the gateway
+            switch.set_busy(self.pending is not None)
+            switch.set_unavailable(None if self.pending is not None else "Not loaded yet.")
+            if self.pending is not None:
+                switch.setToolTip(PENDING_TEXT.get(self.pending, "Waiting for the gateway…"))
+            return
+        switch.set_busy(False)
+        enabled, reason = state["active"]
+        switch.set_unavailable(None if enabled else reason, short=active_short_reason(self.summary, reason))
+
     def _apply_controls(self) -> None:
         if not self.summary:
+            self._apply_active_switch(None)
             for button in self.control_buttons.values():
                 button.setEnabled(False)
             return
         if self.pending is not None:
+            self._apply_active_switch(None)
             for control, button in self.control_buttons.items():
                 button.setEnabled(False)
                 button.setToolTip(PENDING_TEXT[self.pending] if control == self.pending else "Waiting for the gateway…")
             return
         state = self.controls()
+        self._apply_active_switch(state)
         for control, button in self.control_buttons.items():
             enabled, reason = state[control]
             button.setEnabled(bool(enabled))
@@ -924,6 +962,15 @@ class AutomationView(QFrame):
 
     # ------------------------------------------------------------ actions
 
+    def _on_active_clicked(self) -> None:
+        # The click already flipped the QCheckBox; the switch shows the
+        # gateway's state until it confirms, so put it back and send the
+        # transition the kit's activeToggleCommand names.
+        self._apply_controls()
+        if not self.summary or not self.controls()["active"][0]:
+            return
+        self._on_control(active_toggle_command(self.summary))
+
     def _on_control(self, control: str) -> None:
         if control == "revise":
             self.archive_confirm.hide()
@@ -958,9 +1005,10 @@ class AutomationView(QFrame):
         self._pending_before = dict(self.summary)
         self._pending_token += 1
         token = self._pending_token
-        button = self.control_buttons[control]
-        button.setText(PENDING_TEXT[control])
-        button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=12))
+        button = self.control_buttons.get(control)  # pause/resume: the Active switch (busy)
+        if button is not None:
+            button.setText(PENDING_TEXT[control])
+            button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=12))
         self._apply_controls()
         # Owned by the view: it dies with the view, never fires into a deleted one.
         timer = QTimer(self)
@@ -973,9 +1021,10 @@ class AutomationView(QFrame):
         """Back to the normal controls: confirmed (``error`` empty) or failed."""
         if self.pending is None:
             return
-        button = self.control_buttons[self.pending]
-        button.setText(dict(self.CONTROL_LABELS)[self.pending])
-        self._set_control_icon(self.pending, button)
+        button = self.control_buttons.get(self.pending)
+        if button is not None:
+            button.setText(dict(self.CONTROL_LABELS)[self.pending])
+            self._set_control_icon(self.pending, button)
         self.pending = None
         self._pending_before = {}
         self._apply_controls()
@@ -1234,9 +1283,10 @@ class ScheduleSheet(QDialog):
         self.email_notice.linkActivated.connect(lambda _href: self.open_my_email_requested.emit())
         self._render_email_notice()
         root.addWidget(self.email_notice)
-        self.notify_email = QCheckBox(EMAIL_TEXT["notify_label"], self)
-        self.notify_email.setObjectName("autoCheck")
-        self.notify_email.setToolTip(EMAIL_TEXT["notify_hint"])
+        # A switch labelled by the feature; it sets this form's state and the
+        # sheet's one primary action (Schedule) saves it.
+        self.notify_email = AfSwitch(EMAIL_TEXT["notify_label"], self)
+        self.notify_email.set_hint(EMAIL_TEXT["notify_hint"])
         root.addWidget(self.notify_email)
         root.addWidget(_text_label(EMAIL_TEXT["notify_hint"], "autoViewMeta", parent=self))
         root.addWidget(_text_label(EMAIL_TEXT["recipients_legend"], "autoViewMeta", parent=self))
@@ -1271,7 +1321,9 @@ class ScheduleSheet(QDialog):
             cause = str(self.email_status["admin_disabled"].get("cause") or "")
         self.email_notice.setToolTip(cause)
         self.email_notice.setVisible(not usable)
-        for widget in (self.notify_email, self.recipients_self, self.recipients_list):
+        # Unavailable (still focusable, reason on hover), never a dead checkbox.
+        self.notify_email.set_unavailable(None if usable else NOTIFY_UNAVAILABLE_REASON)
+        for widget in (self.recipients_self, self.recipients_list):
             widget.setEnabled(usable)
         self._apply_email_gate()
 
