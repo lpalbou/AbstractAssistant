@@ -6771,8 +6771,9 @@ class AssistantPalette(QMainWindow):
         if not aid:
             return
         labels = {
-            "pause": "Paused: no scheduled run until you resume.",
-            "resume": "Resumed: the next run is on the schedule.",
+            # The Active switch sends these; the notice names the new state.
+            "pause": "Active is off: scheduled runs are skipped until you switch it back on.",
+            "resume": "Active is on: the next run is on the schedule.",
             "run_now": "Run requested.",
             "stop_current": "Stop requested.",
             "archive": "Archived. Its history is kept.",
@@ -6902,7 +6903,7 @@ class AssistantPalette(QMainWindow):
                 else sheet.set_error(self._automations.error_text(sources))
             )
             # Email options only with a usable account (framework backlog 0992);
-            # a failed read leaves them off under "Email isn't set up".
+            # a failed read leaves them off under "Connect a mailbox first".
             sheet.open_my_email_requested.connect(self._open_my_email)
             self._automations.my_email(lambda ok3, status: sheet.set_email_status(status if ok3 and isinstance(status, dict) else None))
             sheet.show()
@@ -10759,7 +10760,12 @@ class AssistantPalette(QMainWindow):
             self._end_voice_conversation()
         self._controller.update_preferences(auto_speak=checked)
 
-    def _apply_hotkey(self) -> None:
+    def _apply_hotkey(self) -> Optional[str]:
+        """Arm or stop the summon shortcut from the saved preference.
+
+        Returns why the shortcut could not start (None when it is armed or off),
+        so the Settings switch never says "on" for a shortcut that is not.
+        """
         prefs = self._controller.preferences_store.load()
         self._controller.preferences = prefs
         if not prefs.hotkey_enabled:
@@ -10768,7 +10774,7 @@ class AssistantPalette(QMainWindow):
             self._set_connection_indicator(
                 self._connection_status_state, self._connection_status_detail
             )
-            return
+            return None
         ok = self._hotkey.start(
             sequence=prefs.hotkey_sequence, callback=self.hotkey_activated.emit
         )
@@ -10788,6 +10794,9 @@ class AssistantPalette(QMainWindow):
         self.history_card.setToolTip("")
         if self._status_tone not in {"error", "busy"}:
             self._set_status("Ready")
+        if not ok:
+            return msg or "The shortcut could not be registered."
+        return None
 
     def _refresh_capability_state(self) -> None:
         tts_available = self._controller.supports_tts()

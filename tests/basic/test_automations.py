@@ -633,10 +633,10 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, LEGACY]
     assert rows[0].state_chip is not None and rows[1].state_chip is None
     assert rows[0].meta_text.startswith("every 30 minutes (UTC) · last ")
-    assert rows[2].state_button.state_control == "resume" and rows[2].meta_text.endswith("next —")
+    assert rows[2].active_switch.state_control == "resume" and rows[2].meta_text.endswith("next —")
     # The fixture's current_occurrence (#7): the card says so and pulses.
-    assert rows[0].result_label.toolTip() == "Run #7 running" and rows[0].state_button.pulsing is True
-    assert rows[1].state_button.pulsing is False
+    assert rows[0].result_label.toolTip() == "Run #7 running"
+    assert "running" not in rows[1].result_label.toolTip()
     assert switcher.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
@@ -774,8 +774,9 @@ def test_run_now_while_paused_and_archive_confirmed_in_the_palette(palette, stub
     window._poll_automations()
     window._open_automation(JOURNAL)
     view = window.automation_view
-    assert view.control_buttons["run_now"].isEnabled() and view.control_buttons["resume"].isEnabled()
-    assert not view.control_buttons["pause"].isEnabled()
+    # Paused: the Active switch is off and can be switched on; no Pause/Resume buttons.
+    assert view.control_buttons["run_now"].isEnabled() and view.active_switch.is_actionable()
+    assert not view.active_switch.isChecked() and "pause" not in view.control_buttons and "resume" not in view.control_buttons
     view.control_buttons["run_now"].click()
     sent = stub.calls("POST", f"{AUTOMATIONS_PATH}/{JOURNAL}/commands")[-1]["body"]
     assert sent["type"] == "automation.run_now"
@@ -789,6 +790,7 @@ def test_run_now_while_paused_and_archive_confirmed_in_the_palette(palette, stub
     assert stub.calls("POST", f"{AUTOMATIONS_PATH}/{JOURNAL}/commands")[-1]["body"]["type"] == "automation.archive"
     assert stub.summary(JOURNAL)["status"] == "archived"
     assert not any(b.isEnabled() for b in view.control_buttons.values())
+    assert not view.active_switch.is_actionable() and view.active_switch.unavailable_reason.startswith("Archived")
 
 
 # ------------------------------------------- Run now: shared icon and hint
@@ -854,8 +856,9 @@ def test_run_now_carries_the_shared_icon_and_hint_in_the_palette(palette, stub) 
     assert not button.icon().isNull()
     assert button.icon().cacheKey() == icons.symbol_icon("play-circle", color=THEME.text_secondary, size=12).cacheKey()
     # Every other control carries its own hint.
-    for control in ("pause", "stop_current", "revise", "archive"):
+    for control in ("stop_current", "revise", "archive"):
         assert rules.CONTROL_HINTS[control] in view.control_buttons[control].toolTip()
+    assert view.active_switch.toolTip() == rules.CONTROL_HINTS["active"]
     # After the command is confirmed the button gets its icon back.
     button.click()
     view.end_pending()
@@ -879,10 +882,10 @@ def test_a_gateway_error_ends_the_action_and_a_lost_answer_retries_with_the_same
     window._poll_automations()
     window._open_automation(NEWS)
     view = window.automation_view
-    view.control_buttons["pause"].click()
-    view.control_buttons["resume"].setEnabled(True)
+    view.active_switch.click()
+    view.end_pending()  # a stale view: it still offers "resume"
     stub.summary(NEWS)["status"] = "archived"  # the gateway now refuses
-    view.control_buttons["resume"].click()
+    view._on_control("resume")
     assert "does not allow" in view.error_label.text()
     assert not view.retry_button.isVisibleTo(view), "a gateway answer ends the action: no same-id retry"
     ids = [c["body"]["command_id"] for c in stub.calls("POST", f"{AUTOMATIONS_PATH}/{NEWS}/commands")]
@@ -901,7 +904,7 @@ def test_a_gateway_error_ends_the_action_and_a_lost_answer_retries_with_the_same
     hub._client_factory = lambda: Lost()
     stub.summary(NEWS)["status"] = "active"
     view.set_summary(stub.summary(NEWS))
-    view.control_buttons["pause"].click()
+    view.active_switch.click()
     assert view.retry_button.isVisibleTo(view)
     hub._client_factory = real_factory
     view.retry_button.click()
@@ -1255,7 +1258,7 @@ def test_a_duplicate_receipt_reads_as_already_received(palette, stub) -> None:
     duplicate = next(c["response"] for c in _fixture("commands.json")["items"] if c["request"]["body"] and c["response"].get("duplicate"))
     real = stub.route
     stub.route = lambda m, p, q, b: (200, dict(duplicate, command_id=b["command_id"])) if p.endswith("/commands") and m == "POST" else real(m, p, q, b)  # type: ignore[assignment]
-    window.automation_view.control_buttons["pause"].click()
+    window.automation_view.active_switch.click()
     assert window.automation_view.notice_label.text().endswith("(already received)")
     assert not window.automation_view.error_row.isVisibleTo(window.automation_view)
 
@@ -1573,8 +1576,8 @@ def test_switcher_inline_controls_edit_and_tab_go_through_the_palette(palette, s
     window._apply_automations_to_switcher(switcher)
     switcher.set_tab("automations")
     card = next(r for r in switcher.automation_tab_rows if r.automation_id == NEWS)
-    assert card.state_button.state_control == "resume"
-    card.state_button.click()
+    assert card.active_switch.state_control == "resume" and not card.active_switch.isChecked()
+    card.active_switch.click()
     assert stub.calls("POST", f"{AUTOMATIONS_PATH}/{NEWS}/commands")[-1]["body"]["type"] == "automation.resume"
     assert window._automations.summary(NEWS)["status"] == "active"
     switcher.deleteLater()
@@ -1630,24 +1633,25 @@ def test_the_card_button_is_pending_until_the_gateway_confirms(palette, stub) ->
     held = _held_commands(window)
 
     card = _card(switcher, NEWS)
-    card.state_button.click()
-    # Immediately: disabled, spinner, "Pausing…", exactly one command.
-    assert not card.state_button.isEnabled() and card.state_button.toolTip() == "Pausing…"
+    card.active_switch.click()
+    # Immediately: busy, "Pausing…", still showing the gateway's state, exactly one command.
+    assert card.active_switch.busy and card.active_switch.toolTip() == "Pausing…" and card.active_switch.isChecked()
     assert [(a, c) for a, c, _ in held] == [(NEWS, "pause")]
-    card.state_button.click()
-    card._clicked("pause")
+    card.active_switch.click()
+    card._clicked()
     assert len(held) == 1, "never the same command twice while pending"
     # A poll that brings a CHANGED summary (not yet the new state) keeps it pending.
     stub.summary(NEWS)["updated_at"] = "2026-09-27T09:00:00+00:00"
     window._poll_automations()
     card = _card(switcher, NEWS)
-    assert switcher.is_pending(NEWS) and not card.state_button.isEnabled()
+    assert switcher.is_pending(NEWS) and card.active_switch.busy
     # The gateway applies it; the result arrives; the refresh shows "paused".
     window._automations.command = real_command
     real_command(NEWS, "pause", held[0][2])
     card = _card(switcher, NEWS)
     assert not switcher.is_pending(NEWS)
-    assert card.state_button.isEnabled() and card.state_button.state_control == "resume"
+    assert card.active_switch.is_actionable() and card.active_switch.state_control == "resume"
+    assert not card.active_switch.isChecked()
     switcher.deleteLater()
 
 
@@ -1663,15 +1667,15 @@ def test_a_refused_command_brings_the_button_back_with_the_reason(palette, stub)
     window._apply_automations_to_switcher(switcher)
     switcher.set_tab("automations")
     held = _held_commands(window)
-    _card(switcher, NEWS).state_button.click()
+    _card(switcher, NEWS).active_switch.click()
     busy = AutomationApiError(status=409, reason_code="automation_busy", message="An occurrence is already running.")
     held[0][2](False, busy)
     card = _card(switcher, NEWS)
-    assert card.state_button.isEnabled() and card.pending is None
-    assert "Last attempt failed" in card.state_button.toolTip() and "already running" in card.state_button.toolTip()
+    assert card.active_switch.is_actionable() and card.pending is None
+    assert "Last attempt failed" in card.active_switch.toolTip() and "already running" in card.active_switch.toolTip()
     assert "already running" in switcher.status_text
     # A second click is a new action: a fresh command.
-    card.state_button.click()
+    card.active_switch.click()
     assert len(held) == 2
     switcher.deleteLater()
 
@@ -1683,8 +1687,9 @@ def test_the_views_controls_are_pending_until_the_state_changes(palette, stub, t
     window._open_automation(NEWS)
     view = window.automation_view
     held = _held_commands(window)
-    view.control_buttons["pause"].click()
-    assert view.pending == "pause" and view.control_buttons["pause"].text() == "Pausing…"
+    view.active_switch.click()
+    assert view.pending == "pause" and view.active_switch.busy and view.active_switch.toolTip() == "Pausing…"
+    assert view.active_switch.isChecked(), "the switch shows the gateway's state until it confirms"
     assert not any(b.isEnabled() for b in view.control_buttons.values())
     assert len(held) == 1
     window.resize(560, 760)
@@ -1697,12 +1702,12 @@ def test_the_views_controls_are_pending_until_the_state_changes(palette, stub, t
     # The next summary shows "paused": confirmed.
     stub.summary(NEWS)["status"] = "paused"
     window._poll_automations()
-    assert view.pending is None and view.control_buttons["resume"].isEnabled()
-    assert view.control_buttons["pause"].text() == "Pause"
+    assert view.pending is None and view.active_switch.is_actionable() and not view.active_switch.isChecked()
     # A refusal: back at once, the reason shown.
-    view.control_buttons["resume"].click()
+    view.active_switch.click()
+    assert [c for _a, c, _d in held] == ["pause", "resume"]
     held[1][2](False, AutomationApiError(status=409, reason_code="invalid_state", message="Automation is archived."))
-    assert view.pending is None and view.control_buttons["resume"].isEnabled()
+    assert view.pending is None and view.active_switch.is_actionable() and not view.active_switch.isChecked()
     assert "archived" in view.error_label.text().lower()
 
 
@@ -1746,14 +1751,14 @@ def test_the_email_trigger_needs_the_gateway_to_list_it(palette, stub) -> None:
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     item = sheet.preset_combo.model().item(sheet.preset_combo.findData("email"))
-    assert sheet.notify_email.isEnabled() and not item.isEnabled()
+    assert sheet.notify_email.is_actionable() and not item.isEnabled()
     assert "email.received@1" in item.toolTip()
 
 
 @pytest.mark.basic
 def test_email_wording_is_the_vendored_kit_section() -> None:
     assert rules.EMAIL_TEXT == EMAIL_TEXT
-    assert EMAIL_TEXT["not_set_up"] == "Email isn't set up — open My email"
+    assert EMAIL_TEXT["not_set_up"] == "Connect a mailbox first — open My email"
     assert EMAIL_TEXT["trigger_label"] == "When an email arrives" and EMAIL_TEXT["notify_label"] == "Email me the result"
 
 
@@ -1851,8 +1856,9 @@ def test_schedule_sheet_without_email_shows_the_notice_and_sends_nothing_email(p
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     assert sheet.email_notice.isVisibleTo(sheet) and EMAIL_TEXT["open_my_email"] in sheet.email_notice.text()
-    assert "Email isn" in sheet.email_notice.text()
-    assert not sheet.notify_email.isEnabled() and not sheet.recipients_list.isEnabled()
+    assert "Connect a mailbox first" in sheet.email_notice.text()
+    assert not sheet.notify_email.is_actionable() and not sheet.recipients_list.isEnabled()
+    assert sheet.notify_email.unavailable_reason == "Connect a mailbox first."
     assert sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"]) >= 0
     email_index = sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"])
     assert not sheet.preset_combo.model().item(email_index).isEnabled()

@@ -5,6 +5,45 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+Vendors `@abstractframework/ui-kit` 0.3.3's `automation_controls.json` (it gained the **Active**
+label and hint).
+
+### Changed
+- **On/off settings are switches labelled by the feature**, the same control as the other
+  AbstractFramework apps: on shows an accent track with a check mark and a bold label, off is
+  plain. This covers **Speak replies automatically**, **Send what you say automatically**, **Ask
+  for short, spoken-style replies**, **Summon the assistant from anywhere**, **Keep the session
+  after this app closes** and the Schedule window's **Email me the result**.
+- A switch that is a saved setting applies the moment you flip it, and the page's feedback line
+  names the new state ("Replies are spoken automatically.", "The global shortcut is on."); a failed
+  save flips it back and says so. The **Voice** page has no Save button any more: its switches and
+  lists (output device, voice latency, barge-in) apply as they change.
+- When the global shortcut is switched on but cannot start (another app holds the key combination,
+  or hotkey support is missing), the feedback line says so ("The global shortcut is saved as on but
+  did not start: …") instead of "The global shortcut is on."
+- The Schedule window's email section is titled **Mailbox**, and without a usable mailbox it says
+  "Connect a mailbox first — open My email" (the kit's wording; `automation_controls.json` re-synced
+  with ui-kit 0.3.3 at fc697b9).
+- **Automations: an Active switch replaces Pause / Resume.** The automation view's bar leads with
+  **Active** (on = runs on its schedule, off = paused) instead of two Pause and Resume buttons,
+  and each card in the switcher's Automations tab carries the same switch instead of the
+  "Active ▶" / "Paused ⏸" button. The switch shows the gateway's status: after a click it is busy
+  until the gateway confirms, and a refusal leaves it where it was with the reason in its
+  tooltip. An archived, ended or legacy automation's switch is unavailable, with the reason after
+  the label ("Active — Archived") and on hover. The confirmation names the new state ("Active is
+  off: scheduled runs are skipped until you switch it back on.").
+- An unavailable switch stays focusable and shows why instead of being greyed out: **Email me
+  the result** without a usable mailbox says "Connect a mailbox first."
+- The run's pause button, the microphone pause and a reply's play/pause stay one-shot buttons
+  (they act on something running now).
+
+### Added
+- `abstractassistant.ui.switch.AfSwitch` (a `QCheckBox` painted as a switch; Space and Enter
+  switch it) and `tests/basic/test_state_switches.py`: every on/off control in Settings and the
+  Schedule window is a switch, switches apply at once, unavailable switches ignore clicks and
+  keep their reason, dialog labels stay at or under 15 px and weight 600, and no source swaps an
+  on/off verb label (`state-toggle-lint: allow` opts a one-shot action out on its line).
+
 ## [0.10.0] - 2026-09-30
 
 Ships `@abstractframework/ui-kit` 0.2.0's `automation_controls.json` (vendored). The email options

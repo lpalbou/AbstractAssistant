@@ -1741,7 +1741,7 @@ class RunActivityCard(QFrame):
         self.pause_button.setIcon(
             symbol_icon("play" if self._paused else "pause", color=THEME.text_secondary, size=_GLYPH_PX)
         )
-        self.pause_button.setToolTip("Resume the run" if self._paused else "Pause after the current step")
+        self.pause_button.setToolTip("Resume the run" if self._paused else "Pause after the current step")  # state-toggle-lint: allow one-shot control of a live run (pause after the current step)
 
     def is_paused(self) -> bool:
         return self._paused

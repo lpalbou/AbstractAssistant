@@ -21,8 +21,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from pathlib import Path
 
-from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, QUrl, pyqtSignal
-from PyQt5.QtGui import QColor, QDesktopServices, QFontMetrics, QIcon, QPainter, QPixmap, QRadialGradient
+from PyQt5.QtCore import QEvent, QSize, Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QFontMetrics
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -52,10 +52,13 @@ from ..core.session_digest import (
     workspace_label,
 )
 from ..core.automations import (
+    AUTOMATION_CONTROLS,
     PENDING_TEXT,
-    STATUS_LABELS,
+    active_short_reason,
+    active_toggle_command,
     attention_total,
     automation_controls,
+    control_hint,
     command_confirmed,
     group_by_automation,
     last_run_text,
@@ -67,6 +70,9 @@ from ..core.automations import (
 from ..icons import symbol_icon
 from ..theme import METRICS, THEME
 from .automations import automation_row_qss
+from .switch import AfSwitch
+
+ACTIVE_LABEL = AUTOMATION_CONTROLS["labels"]["active"]
 from .styles import alpha, dialog_stylesheet, refresh_style
 
 __all__ = ["AutomationTabRow", "SessionRow", "SessionSwitcher", "SESSION_SWITCHER_QSS", "folder_button", "open_folder"]
@@ -277,21 +283,16 @@ def _build_qss() -> str:
         background: {alpha(THEME.accent, 0.14)};
         border-color: {THEME.accent_border};
     }}
-    QPushButton#rowFolder, QPushButton#rowIcon, QPushButton#rowState {{
+    QPushButton#rowFolder, QPushButton#rowIcon {{
         background: transparent;
         border: 1px solid transparent;
         border-radius: 6px;
         padding: 0px;
     }}
-    QPushButton#rowState {{
-        padding: 0px 2px 0px 6px;
-        font-size: 10px;
-        font-weight: 700;
-        color: {THEME.text_faint};
+    AfSwitch#rowActive, QCheckBox#rowActive {{
+        font-size: 11px;
     }}
-    QPushButton#rowState[tone="active"] {{ color: {THEME.positive}; }}
-    QPushButton#rowState[tone="paused"] {{ color: {THEME.warning}; }}
-    QPushButton#rowFolder:hover, QPushButton#rowIcon:hover, QPushButton#rowState:hover {{
+    QPushButton#rowFolder:hover, QPushButton#rowIcon:hover {{
         background: {THEME.overlay_hover};
         border-color: {THEME.border_subtle};
     }}
@@ -720,36 +721,6 @@ def missing_folder_button(field: str, *, parent: QWidget) -> QPushButton:
 _PILL_SPINE = {"active": "fresh", "running": "active", "waiting": "warn", "failed": "warn", "paused": "idle", "ended": "idle"}
 
 
-# Halo intensities of the pulse (a slow breath: up, then down).
-_PULSE_LEVELS = (0.25, 0.4, 0.55, 0.7, 0.85, 0.7, 0.55, 0.4)
-
-
-def _bloom_icon(glyph: str, color: str, intensity: float, *, size: int = 24, glyph_size: int = 14) -> QIcon:
-    """The glyph over a soft radial halo of its own colour (``intensity`` 0 =
-    no halo). Painted into the icon — no graphics effect."""
-    ratio = 2
-    pixmap = QPixmap(size * ratio, size * ratio)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing, True)
-    if intensity > 0:
-        halo = QColor(color)
-        gradient = QRadialGradient(size * ratio / 2, size * ratio / 2, size * ratio / 2)
-        halo.setAlphaF(max(0.0, min(1.0, intensity)))
-        gradient.setColorAt(0.0, halo)
-        halo.setAlphaF(0.0)
-        gradient.setColorAt(1.0, halo)
-        painter.setBrush(gradient)
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(0, 0, size * ratio, size * ratio)
-    glyph_pixmap = symbol_icon(glyph, color=color, size=glyph_size).pixmap(glyph_size * ratio, glyph_size * ratio)
-    offset = (size - glyph_size) * ratio // 2
-    painter.drawPixmap(offset, offset, glyph_size * ratio, glyph_size * ratio, glyph_pixmap)
-    painter.end()
-    pixmap.setDevicePixelRatio(ratio)
-    return QIcon(pixmap)
-
-
 def _compact_every(every: str) -> str:
     """ "30m" -> "every 30 min", "8h" -> "every 8 h", "7d" -> "every 7 d" (UTC in the tooltip)."""
     unit = {"s": "s", "m": "min", "h": "h", "d": "d"}.get(every[-1:], "")
@@ -763,9 +734,10 @@ class AutomationTabRow(RowCard):
     Line 1: title … the time since the last run ("40 min ago"), plus a state
     chip only when it waits for you or failed. Line 2: the last result. Line 3
     (metric chips): "every 5 min" · "next in 2 min" · "#32" · folder icon, and
-    at the far right ONE state button, word + glyph ("Active ▶" / "Paused ⏸";
-    click pauses / resumes). Clicking the card opens
-    the automation view, where the other controls live."""
+    at the far right ONE control, the "Active" switch (on = runs on its
+    schedule, off = paused; a click sends pause / resume, the kit's
+    ``activeToggleCommand``). Clicking the card opens the automation view,
+    where the other controls live."""
 
     open_requested = pyqtSignal(str, str)  # automation_id, "latest"
     control_requested = pyqtSignal(str, str)  # automation_id, pause|resume
@@ -809,7 +781,7 @@ class AutomationTabRow(RowCard):
         self.result_label.setToolTip(self._result_text_full)
         column.addWidget(self.result_label)
 
-        # -- line 3: metric chips … the one state button -----------------------
+        # -- line 3: metric chips … the Active switch ---------------------------
         self.metrics_host = QWidget(self)
         metrics = QHBoxLayout(self.metrics_host)
         metrics.setContentsMargins(0, 1, 0, 0)
@@ -830,82 +802,47 @@ class AutomationTabRow(RowCard):
             self.folder = missing_folder_button("AutomationSummary.workspace_root", parent=self)
         metrics.addWidget(self.folder, 0, Qt.AlignVCenter)
         metrics.addStretch(1)
-        self.state_button = self._state_button(summary)
-        metrics.addWidget(self.state_button, 0, Qt.AlignVCenter)
+        self.active_switch = self._active_switch(summary)
+        metrics.addWidget(self.active_switch, 0, Qt.AlignVCenter)
         self.metrics_host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         column.addWidget(self.metrics_host)
 
         self.refresh_times()
         self.setToolTip(f"{summary.get('title') or ''}\nAutomation id: {aid}")
 
-    def _state_button(self, summary: Dict[str, Any]) -> QPushButton:
-        """The automation's STATE (not the next action) as a word AND a
-        glyph, the word on the left: "Active ▶" in green with a soft bloom
-        (click pauses); "Paused ⏸" in amber (click resumes); archived/ended =
-        its status word, disabled grey. The word is the gateway's status
-        (``STATUS_LABELS``, the ui-kit's wording) and never changes before the
-        gateway confirms a command. A slow pulse while a run is in progress.
-        The card's only control."""
+    def _active_switch(self, summary: Dict[str, Any]) -> AfSwitch:
+        """The automation's state as a switch labelled "Active" (operator
+        2026-09-30: a persistent on/off state is a switch labelled by the
+        feature, never a Pause/Resume verb or a word-and-glyph button). It
+        shows the gateway's status and never changes before the gateway
+        confirms a command; archived / ended / legacy / not permitted = the
+        switch unavailable, the reason after the label ("Active — Archived")
+        and on hover. The card's only control."""
         controls = automation_controls(summary)
-        status = summary.get("status")
-        running = current_run(summary) is not None
-        if status == "active":
-            kind, control, icon, color, tip = "active", "pause", "play", THEME.positive, "Active — click to pause"
-        elif status == "paused":
-            kind, control, icon, color, tip = "paused", "resume", "pause", THEME.warning, "Paused — click to resume"
-        else:
-            kind, control, icon, color, tip = "ended", "resume", "play", THEME.text_faint, "Archived" if status == "archived" else str(status or "ended").capitalize()
-        enabled, reason = controls[control] if kind != "ended" else (False, "")
-        if kind != "ended" and not enabled:
-            tip = f"{tip.split(' — ')[0]} — {reason}"
-            color = THEME.text_faint
-        word = STATUS_LABELS.get(str(status), str(status or "ended").capitalize())
-        button = _icon_button(icon, tip, parent=self, tint=color)
-        button.setObjectName("rowState")
-        # The word left of the glyph: a right-to-left button lays the icon last.
-        button.setText(word)
-        button.setLayoutDirection(Qt.RightToLeft)
-        button.setProperty("tone", kind if color != THEME.text_faint else "")
-        button.setAccessibleName(tip)
-        # Room for the halo around the glyph, and for the word.
-        button.setMinimumWidth(0)
-        button.setMaximumWidth(16777215)
-        button.setFixedHeight(26)
-        button.setIconSize(QSize(24, 24))
-        button.adjustSize()
-        button.setEnabled(bool(enabled))
-        button.state_control = control
-        button.state_kind = kind
-        button.state_color = color
-        button.state_word = word
-        button.pulsing = False
-        button.bloom = 0.0
-        if kind in {"active", "paused"} and enabled:
-            # A soft halo painted behind the glyph (the bloom): steady for an
-            # active automation, and a slow pulse while a run is in progress.
-            steady = 0.55 if kind == "active" else 0.0
-            button.bloom = steady
-            button.setIcon(_bloom_icon(icon, color, steady))
-            if running:
-                frames = [_bloom_icon(icon, color, level) for level in _PULSE_LEVELS]
-                pulse = QTimer(button)  # owned by the button: dies with it
-                pulse.setInterval(130)
-                pulse.frame = 0
+        sw = AfSwitch(ACTIVE_LABEL, self, reason_inline=True)
+        sw.setObjectName("rowActive")
+        sw.setChecked(summary.get("status") == "active")
+        sw.set_hint(control_hint("active"))
+        enabled, reason = controls["active"]
+        sw.set_unavailable(None if enabled else reason, short=active_short_reason(summary, reason))
+        sw.setAccessibleName(f"Active: {summary.get('title') or 'automation'}")
+        # Never squeezed by the chips: the label (and a short reason) stay whole.
+        sw.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        sw.setMinimumWidth(sw.sizeHint().width())
+        sw.state_control = active_toggle_command(summary)
+        sw.clicked.connect(lambda _checked=False: self._clicked())
+        return sw
 
-                def _tick(b=button, t=pulse, f=frames) -> None:
-                    t.frame = (t.frame + 1) % len(f)
-                    b.setIcon(f[t.frame])
-
-                pulse.timeout.connect(_tick)
-                pulse.start()
-                button.pulse = pulse
-                button.pulsing = True
-        button.clicked.connect(lambda: self._clicked(control))
-        return button
-
-    def _clicked(self, control: str) -> None:
-        if self.pending is not None:
-            return  # disabled while pending; never send the same command twice
+    def _clicked(self) -> None:
+        sw = self.active_switch
+        # The click flipped the box; the switch shows the gateway's state
+        # until the command is confirmed.
+        sw.blockSignals(True)
+        sw.setChecked(self.summary.get("status") == "active")
+        sw.blockSignals(False)
+        if self.pending is not None or not sw.is_actionable():
+            return  # never send the same command twice
+        control = sw.state_control
         self.set_pending(control)
         self.control_requested.emit(self.automation_id, control)
 
@@ -914,28 +851,22 @@ class AutomationTabRow(RowCard):
         return getattr(self, "_pending", None)
 
     def set_pending(self, control: str) -> None:
-        """Spinner + disabled until the gateway confirms (or refuses)."""
+        """Busy until the gateway confirms (or refuses)."""
         self._pending = control
-        button = self.state_button
-        pulse = getattr(button, "pulse", None)
-        if pulse is not None:
-            pulse.stop()
-        button.pulsing = False
-        button.setEnabled(False)
-        button.setIcon(symbol_icon("loader", color=THEME.accent_text, size=14))
-        button.setToolTip(PENDING_TEXT[control])
+        self.active_switch.set_busy(True)
+        self.active_switch.setToolTip(PENDING_TEXT[control])
 
     def restore_state(self, reason: str = "") -> None:
-        """Back to ▶/⏸ (the command failed or was never confirmed)."""
+        """Back to the gateway's state (the command failed or was never confirmed)."""
         self._pending = None
-        layout = self.state_button.parentWidget().layout()
-        fresh = self._state_button(self.summary)
+        layout = self.active_switch.parentWidget().layout()
+        fresh = self._active_switch(self.summary)
         if reason:
             fresh.setToolTip(f"{fresh.toolTip()}\nLast attempt failed: {reason}")
-        layout.replaceWidget(self.state_button, fresh)
-        self.state_button.hide()
-        self.state_button.deleteLater()
-        self.state_button = fresh
+        layout.replaceWidget(self.active_switch, fresh)
+        self.active_switch.hide()
+        self.active_switch.deleteLater()
+        self.active_switch = fresh
 
     # ------------------------------------------------------------- content
 

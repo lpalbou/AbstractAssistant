@@ -6,9 +6,15 @@ Persistence legend (also in docs/settings.md):
 - ro    = read-only mirror of gateway truth (never written by the assistant)
 
 Layout conventions (shared with ``common.py``): every row has a label in the
-left column — checkboxes included — so controls line up down the page; the
+left column — switches included — so controls line up down the page; the
 page's persistent actions (Save, Connect, …) live in the footer next to the
 feedback line, never inside a card.
+
+On/off settings are switches labelled by the feature (``ui.switch.AfSwitch``,
+operator rule 2026-09-30). A switch that is a saved setting applies the moment
+it is flipped (the feedback line names the new state; a failed save flips it
+back and says so); it never waits for a Save button. A switch inside a form
+with one primary action (Connect) sets that form's state.
 """
 
 from __future__ import annotations
@@ -24,7 +30,6 @@ from PyQt5.QtCore import Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -62,6 +67,7 @@ from ...preferences import (
 )
 from ...gateway_service import workflow_version_suffix
 from ...theme import THEME
+from ..switch import AfSwitch
 from .common import Card, Chip, Note, SegmentedControl, SettingsPage, button, safe_attr, safe_call
 from .route_editor import OVERRIDE_ROUTE_LABELS, RouteOverrideEditor
 
@@ -180,7 +186,8 @@ class ConnectionPage(SettingsPage):
         self._user_token_row = form.add_row("Gateway user token", self.gateway_user_token_edit)
         self.gateway_user_token_label = self._user_token_row.findChild(QLabel, "rowLabel")
 
-        self.remember_session = QCheckBox("Keep the session after this app closes")
+        # Part of the sign-in form: Connect (the page's one primary action) uses it.
+        self.remember_session = AfSwitch("Keep the session after this app closes")
         self._remember_row = form.add_row("Session", self.remember_session)
 
         # Older callers and the dialog alias reach for `connection_feedback`;
@@ -572,7 +579,8 @@ class VoicePage(SettingsPage):
         routes.add_row("Playing on", self.device_summary)
 
         behaviour = self.add_card(Card("Replies"))
-        self.auto_speak = QCheckBox("Speak replies automatically")
+        self.auto_speak = AfSwitch("Speak replies automatically")
+        self._immediate(self.auto_speak, "auto_speak", ("Replies are spoken automatically.", "Replies are not spoken automatically."))
         behaviour.add_row("Read aloud", self.auto_speak)
         self.voice_quality_combo = QComboBox()
         self.voice_quality_combo.addItem("Balanced", "standard")
@@ -591,9 +599,11 @@ class VoicePage(SettingsPage):
                 "Hands-free mode (⌘⇧V or the waveform button): the assistant listens, sends what you say, speaks the reply and listens again.",
             )
         )
-        self.voice_auto_send = QCheckBox("Send what you say automatically")
+        self.voice_auto_send = AfSwitch("Send what you say automatically")
+        self._immediate(self.voice_auto_send, "voice_auto_send", ("What you say is sent automatically.", "What you say lands in the message box; Return sends it."))
         conversation.add_row("Sending", self.voice_auto_send, help_text="Off: your words land in the message box and Return sends them.")
-        self.voice_spoken_replies = QCheckBox("Ask for short, spoken-style replies")
+        self.voice_spoken_replies = AfSwitch("Ask for short, spoken-style replies")
+        self._immediate(self.voice_spoken_replies, "voice_spoken_replies", ("Short, spoken-style replies are on.", "Short, spoken-style replies are off."))
         conversation.add_row("Reply style", self.voice_spoken_replies, help_text="Adds a voice-style instruction to each request while the conversation runs.")
         # A two-option question is a list, like every other choice in Settings —
         # not a stack of radio buttons that has to be read twice to be answered.
@@ -611,8 +621,27 @@ class VoicePage(SettingsPage):
             ),
         )
 
-        self.save_button_voice = button("Save", "primary", on_click=self._save)
-        self.add_actions(self.save_button_voice)
+        # No Save button on this page: every control is a switch or a choice,
+        # and each applies the moment it changes (user actions only:
+        # `activated`, not `currentIndexChanged`, so a refresh saves nothing).
+        for combo in (self.output_device_combo, self.voice_quality_combo, self.voice_mode_combo):
+            combo.activated.connect(lambda _index=0: self._save())
+
+    def _immediate(self, switch: AfSwitch, key: str, messages) -> None:
+        """A switch that is a saved setting: apply on click, say the new
+        state, flip back with an error when the save fails."""
+
+        def apply(checked: bool) -> None:
+            if _update_prefs(self.controller, **{key: bool(checked)}):
+                self.say(messages[0] if checked else messages[1])
+                self.changed.emit()
+            else:
+                switch.blockSignals(True)
+                switch.setChecked(not checked)
+                switch.blockSignals(False)
+                self.say("Could not save the voice settings.", tone="error")
+
+        switch.clicked.connect(apply)
 
     def refresh(self) -> None:
         prefs = _prefs(self.controller)
@@ -1293,7 +1322,8 @@ class WindowPage(SettingsPage):
         )
 
         summon = self.add_card(Card("Global shortcut"))
-        self.hotkey_enabled = QCheckBox("Summon the assistant from anywhere")
+        self.hotkey_enabled = AfSwitch("Summon the assistant from anywhere")
+        self.hotkey_enabled.clicked.connect(self._apply_hotkey_switch)
         summon.add_row("Summon", self.hotkey_enabled)
         self.hotkey_edit = QLineEdit()
         self.hotkey_edit.setPlaceholderText("cmd+shift+space")
@@ -1433,6 +1463,28 @@ class WindowPage(SettingsPage):
         # 0 is a real choice (flush with the screen edge): never `or` it away.
         gap = safe_attr(prefs, "bottom_offset", DEFAULT_SCREEN_EDGE_GAP)
         self.bottom_offset_spin.setValue(DEFAULT_SCREEN_EDGE_GAP if gap is None else int(gap))
+
+    def _apply_hotkey_switch(self, checked: bool) -> None:
+        """The global shortcut switch applies at once (no Save)."""
+        if not _update_prefs(self.controller, hotkey_enabled=bool(checked)):
+            self.hotkey_enabled.blockSignals(True)
+            self.hotkey_enabled.setChecked(not checked)
+            self.hotkey_enabled.blockSignals(False)
+            self.say("Could not save the global shortcut.", tone="error")
+            return
+        failure: Optional[str] = None
+        try:
+            if callable(self._apply_hotkey):
+                result = self._apply_hotkey()
+                failure = result if isinstance(result, str) and result.strip() else None
+        except Exception as exc:
+            failure = str(exc) or "The shortcut could not be registered."
+        if checked and failure:
+            # Saved ON, but not armed: say so instead of "on".
+            self.say(f"The global shortcut is saved as on but did not start: {failure}", tone="error")
+        else:
+            self.say("The global shortcut is on." if checked else "The global shortcut is off.")
+        self.changed.emit()
 
     def _save_preferences(self) -> None:
         ok = _update_prefs(

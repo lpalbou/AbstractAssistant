@@ -350,34 +350,35 @@ def test_archived_automations_are_hidden_until_asked_for() -> None:
     sw.show_archived.click()
     assert archived["automation_id"] in ids()
     row = next(r for r in sw.automation_tab_rows if r.automation_id == archived["automation_id"])
-    assert not row.state_button.isEnabled()
-    assert row.state_button.toolTip() == "Archived"
+    assert not row.active_switch.is_actionable() and not row.active_switch.isChecked()
+    assert row.active_switch.unavailable_reason == "Archived: history is kept, nothing runs."
     sw.deleteLater()
 
 
 @pytest.mark.basic
-def test_the_card_has_exactly_one_button_the_state_toggle() -> None:
-    """Operator: the same card as a session; its ONLY control is the state
-    button (paused ▶ resume, active ⏸ pause, running ⏸ pause). Clicking the
-    card opens the automation; no Open / Last / Run now / Modify / Archive."""
-    from PyQt5.QtWidgets import QPushButton
+def test_the_card_has_exactly_one_control_the_active_switch() -> None:
+    """Operator: the same card as a session; its ONLY control is the "Active"
+    switch (on = pause on click, off = resume on click). Clicking the card
+    opens the automation; no Open / Last / Run now / Modify / Archive, and no
+    Pause/Resume button."""
+    from PyQt5.QtWidgets import QAbstractButton, QPushButton
 
     sw = _switcher()
     sw.set_tab("automations")
     rows = {r.automation_id: r for r in sw.automation_tab_rows}
     for row in rows.values():
-        buttons = [b for b in row.findChildren(QPushButton) if b.objectName() != "rowFolder"]
-        assert buttons == [row.state_button], [b.toolTip() for b in buttons]
+        buttons = [b for b in row.findChildren(QAbstractButton) if b.objectName() != "rowFolder"]
+        assert buttons == [row.active_switch], [b.toolTip() for b in buttons]
         tips = " ".join(b.toolTip() for b in row.findChildren(QPushButton)).lower()
         for gone in ("open", "last run", "run now", "modify", "archive"):
             assert gone not in tips.replace("open workspace", ""), (gone, tips)
-    assert (rows[NEWS].state_button.state_control, rows[NEWS].state_button.toolTip()) == ("pause", "Active — click to pause")
-    assert (rows[JOURNAL].state_button.state_control, rows[JOURNAL].state_button.toolTip()) == ("resume", "Paused — click to resume")
-    assert (rows[TRIAGE].state_button.state_control, rows[TRIAGE].state_button.toolTip()) == ("pause", "Active — click to pause")
+    assert (rows[NEWS].active_switch.state_control, rows[NEWS].active_switch.isChecked()) == ("pause", True)
+    assert (rows[JOURNAL].active_switch.state_control, rows[JOURNAL].active_switch.isChecked()) == ("resume", False)
+    assert (rows[TRIAGE].active_switch.state_control, rows[TRIAGE].active_switch.isChecked()) == ("pause", True)
     got: List[tuple] = []
     sw.automation_control_requested.connect(lambda a, c: got.append((a, c)))
-    rows[NEWS].state_button.click()
-    rows[JOURNAL].state_button.click()
+    rows[NEWS].active_switch.click()
+    rows[JOURNAL].active_switch.click()
     assert got == [(NEWS, "pause"), (JOURNAL, "resume")]
     sw.deleteLater()
 
@@ -416,40 +417,50 @@ def _variant(base: str, *, status: str, running: bool) -> Dict[str, Any]:
 
 @pytest.mark.basic
 @pytest.mark.parametrize(
-    "status, running, glyph_kind, tooltip, control, pulsing, line2",
+    "status, running, checked, actionable, control, line2",
     [
-        ("active", False, "active", "Active — click to pause", "pause", False, None),
-        ("active", True, "active", "Active — click to pause", "pause", True, "Run #37 running"),
-        ("paused", False, "paused", "Paused — click to resume", "resume", False, None),
-        ("paused", True, "paused", "Paused — click to resume", "resume", True, "Run #37 running · paused after this run"),
-        ("archived", False, "ended", "Archived", "resume", False, None),
+        ("active", False, True, True, "pause", None),
+        ("active", True, True, True, "pause", "Run #37 running"),
+        ("paused", False, False, True, "resume", None),
+        ("paused", True, False, True, "resume", "Run #37 running · paused after this run"),
+        ("archived", False, False, False, "resume", None),
     ],
 )
-def test_the_state_button_shows_the_state(status, running, glyph_kind, tooltip, control, pulsing, line2) -> None:
-    """The button shows the automation's STATE: active = green ▶ with a bloom,
-    paused = amber ⏸, archived = grey; a pulse only while a run is in progress."""
-    from abstractassistant.theme import THEME
+def test_the_active_switch_shows_the_state(status, running, checked, actionable, control, line2) -> None:
+    """Operator 2026-09-30: the automation's state is a switch labelled
+    "Active" (on = runs on its schedule, off = paused), never a Pause/Resume
+    verb or a word-and-glyph button. A click sends the kit's
+    activeToggleCommand (pause when active, resume when paused); archived =
+    unavailable, the reason after the label and on hover."""
+    from abstractassistant.ui.switch import AfSwitch
 
     _app()
     row = switcher_module.AutomationTabRow(_variant(NEWS, status=status, running=running))
-    button = row.state_button
-    assert (button.state_kind, button.toolTip(), button.state_control, button.pulsing) == (glyph_kind, tooltip, control, pulsing)
-    expected_color = {"active": THEME.positive, "paused": THEME.warning, "ended": THEME.text_faint}[glyph_kind]
-    assert button.state_color == expected_color
-    assert button.isEnabled() is (status != "archived")
-    assert (button.bloom > 0) is (status == "active")  # the bloom: active only (steady)
+    sw = row.active_switch
+    assert isinstance(sw, AfSwitch) and sw.text() == "Active"
+    assert (sw.isChecked(), sw.is_actionable(), sw.state_control) == (checked, actionable, control)
+    assert sw.isEnabled(), "unavailable is not disabled: the reason stays reachable by keyboard"
+    if status == "archived":
+        assert sw.unavailable_reason == "Archived: history is kept, nothing runs."
+        assert sw.toolTip().startswith("Archived: history is kept") and sw.accessibleDescription() == sw.unavailable_reason
+    else:
+        assert sw.unavailable_reason == "" and sw.toolTip().startswith("On: it runs on its schedule.")
     if line2 is not None:
         assert row.result_label.toolTip() == line2
     if status == "active" and not running:
         assert row.meta_text.split(" · ")[-1].startswith("next")
     got: List[tuple] = []
     row.control_requested.connect(lambda a, c: got.append((a, c)))
-    button.click()
+    sw.click()
     if status == "archived":
-        assert got == []
+        assert got == [] and sw.isChecked() is False
     else:
         assert got == [(NEWS, control)]
-        assert row.state_button.toolTip() in ("Pausing…", "Resuming…") and row.state_button.pulsing is False
+        # Busy until the gateway confirms; the state shown is still the gateway's.
+        assert row.active_switch.busy and row.active_switch.isChecked() is checked
+        assert row.active_switch.toolTip() in ("Pausing…", "Resuming…")
+        row.active_switch.click()
+        assert got == [(NEWS, control)], "never the same command twice"
     row.deleteLater()
 
 
@@ -479,59 +490,43 @@ def test_the_card_never_infers_running_from_the_last_occurrence() -> None:
     summary["last_occurrence"] = dict(summary["last_occurrence"], index=37, status="running", excerpt="")
     summary.pop("current_occurrence", None)
     row = switcher_module.AutomationTabRow(summary)
-    assert row.state_button.pulsing is False
     assert "running" not in row.result_label.toolTip()
     from abstractassistant.core.automations import status_pill
 
     assert status_pill(summary)[1] != "running"
     summary["current_occurrence"] = {"index": 38, "run_id": "r38", "attempt": 2, "status": "backoff"}
     live = switcher_module.AutomationTabRow(summary)
-    assert live.state_button.pulsing is True and live.result_label.toolTip() == "Run #38 running"
+    assert live.result_label.toolTip() == "Run #38 running"
     row.deleteLater()
     live.deleteLater()
 
 
 @pytest.mark.basic
 @pytest.mark.parametrize(
-    "status, word, tone, enabled",
+    "status, checked, short",
     [
-        ("active", "Active", "active", True),
-        ("paused", "Paused", "paused", True),
-        ("archived", "Archived", "", False),
+        ("active", True, ""),
+        ("paused", False, ""),
+        ("archived", False, "Archived"),
+        ("completed", False, "Completed"),
     ],
 )
-def test_the_state_button_says_the_state_in_words_left_of_the_glyph(status, word, tone, enabled) -> None:
-    """Operator 2026-09-28: "Paused ⏸" / "Active ▶" — the word (the ui-kit's
-    STATUS_LABELS wording, from the gateway's status only) sits LEFT of the
-    glyph, coloured like it, so the icon is never the only signal."""
-    from PyQt5.QtCore import Qt
-
+def test_the_active_switch_follows_the_gateway_status_only(status, checked, short) -> None:
+    """The switch shows the gateway's status; a click never moves it before
+    the gateway confirms (a confirmed command arrives as a new summary and the
+    card is rebuilt). An ended automation's switch is unavailable, its reason
+    painted after the label ("Active — Completed"), as the terminal marker."""
     _app()
-    row = switcher_module.AutomationTabRow(_variant(NEWS, status=status, running=False))
-    button = row.state_button
-    assert (button.text(), button.state_word, button.property("tone"), button.isEnabled()) == (word, word, tone, enabled)
-    assert button.layoutDirection() == Qt.RightToLeft  # the icon is laid out last = right of the word
-    assert not button.icon().isNull()
-    assert button.accessibleName().startswith(word)
-    assert button.width() > button.iconSize().width() + button.fontMetrics().horizontalAdvance(word) // 2
-    if enabled:
-        button.click()  # pending: the gateway has not confirmed, so the word does not change
-        assert row.state_button.text() == word and not row.state_button.isEnabled()
+    summary = _variant(NEWS, status="archived" if status == "completed" else status, running=False)
+    summary["status"] = status
+    row = switcher_module.AutomationTabRow(summary)
+    sw = row.active_switch
+    assert sw.isChecked() is checked
+    assert sw._inline_reason() == (f" — {short}" if short else "")
+    if not short:
+        sw.click()  # pending: the gateway has not confirmed, so the state does not move
+        assert row.active_switch.isChecked() is checked and row.active_switch.busy
         row.restore_state("refused")
-        assert row.state_button.text() == word
+        assert row.active_switch.isChecked() is checked and not row.active_switch.busy
+        assert "Last attempt failed: refused" in row.active_switch.toolTip()
     row.deleteLater()
-
-
-@pytest.mark.basic
-def test_the_state_word_follows_the_gateway_status_only() -> None:
-    """A command the gateway confirms arrives as a new summary: only then does
-    the word change (the card is rebuilt from the gateway's status)."""
-    _app()
-    before = switcher_module.AutomationTabRow(_variant(NEWS, status="active", running=True))
-    assert before.state_button.text() == "Active"
-    after = switcher_module.AutomationTabRow(_variant(NEWS, status="paused", running=True))
-    assert after.state_button.text() == "Paused"
-    unknown = switcher_module.AutomationTabRow(dict(_variant(NEWS, status="archived", running=False), status="completed"))
-    assert unknown.state_button.text() == "Completed" and not unknown.state_button.isEnabled()
-    for row in (before, after, unknown):
-        row.deleteLater()

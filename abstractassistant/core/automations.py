@@ -51,6 +51,8 @@ __all__ = [
     "attention_ack_cursor",
     "attention_total",
     "automation_controls",
+    "active_toggle_command",
+    "active_short_reason",
     "build_create_request",
     "default_title",
     "format_utc",
@@ -266,7 +268,26 @@ def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Di
             return False, "Not permitted for this automation."
         return (True, "") if ok else (False, reason)
 
+    # The "Active" switch (operator 2026-09-30: a persistent on/off setting is
+    # a switch labelled by the feature, never a Pause/Resume verb swap; the
+    # kit's ``automationControls().active``). It needs the capability of the
+    # transition a click would request: pause when active, resume when paused.
+    toggle_cap = "pause" if status == "active" else "resume"
+    if busy:
+        active: Tuple[bool, str] = (False, "Working…")
+    elif summary.get("legacy"):
+        active = (False, "Legacy schedule: managed with its existing controls.")
+    elif status == "archived":
+        active = (False, "Archived: history is kept, nothing runs.")
+    elif not live:
+        active = (False, "The automation has ended.")
+    elif toggle_cap not in caps:
+        active = (False, "Not permitted for this automation.")
+    else:
+        active = (True, "")
+
     return {
+        "active": active,
         "pause": gate("pause", status == "active", "Already paused." if status == "paused" else "The automation has ended."),
         "resume": gate("resume", status == "paused", "Already running on schedule." if status == "active" else "The automation has ended."),
         "run_now": gate("run_now", live and not running, "An occurrence is in progress." if running else "The automation has ended."),
@@ -275,6 +296,26 @@ def automation_controls(summary: Mapping[str, Any], *, busy: bool = False) -> Di
         "archive": gate("archive", True, ""),
         "discuss": gate("discuss", True, ""),
     }
+
+
+def active_toggle_command(summary: Mapping[str, Any]) -> str:
+    """The control the "Active" switch sends from this state (the kit's
+    ``activeToggleCommand``): pause when active, resume when paused."""
+    return "pause" if summary.get("status") == "active" else "resume"
+
+
+def active_short_reason(summary: Mapping[str, Any], reason: str) -> str:
+    """The few words painted after an unavailable "Active" switch's label
+    ("Active — Archived"); the full reason is its tooltip."""
+    text = str(reason or "").strip()
+    if summary.get("legacy"):
+        return "Legacy"
+    if ":" in text:
+        return text.split(":", 1)[0]
+    status = str(summary.get("status") or "")
+    if status and status not in {"active", "paused"}:
+        return STATUS_LABELS.get(status, status.capitalize())
+    return text.rstrip(".")
 
 
 # ------------------------------------------------------ control hints
