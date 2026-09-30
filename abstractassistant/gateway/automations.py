@@ -30,6 +30,7 @@ from .client import GatewayClient
 
 __all__ = [
     "AUTOMATIONS_PATH",
+    "MY_EMAIL_PATH",
     "TRIGGER_SOURCES_PATH",
     "AUTOMATION_COMMAND_TYPES",
     "AutomationApiError",
@@ -39,6 +40,8 @@ __all__ = [
 
 AUTOMATIONS_PATH = "/api/gateway/automations"
 TRIGGER_SOURCES_PATH = "/api/gateway/trigger-sources"
+# The signed-in user's own email account (framework backlog 0992; never a secret).
+MY_EMAIL_PATH = "/api/gateway/me/email"
 
 # The `automation.*` command types of contract F (`command_types.py` on the
 # gateway). `automation.revise` is normally sent through PATCH (`revise`).
@@ -269,6 +272,16 @@ class AutomationsClient:
     def trigger_sources(self) -> Dict[str, Any]:
         """``GET /trigger-sources`` → ``{items: [TriggerSource + {available, …}]}``."""
         return self._call("GET", TRIGGER_SOURCES_PATH)
+
+    def my_email(self) -> Dict[str, Any]:
+        """``GET /me/email`` → the user's own account status (``configured``,
+        ``effective_enabled``, ``address``, …; never a secret). Decides whether
+        the Schedule sheet offers the email options."""
+        return self._call("GET", MY_EMAIL_PATH)
+
+    def console_url(self, tab: str = "users") -> str:
+        """The gateway console's tab (My email lives in the Users tab)."""
+        return f"{self._gateway._url('/console')}#{tab}"
 
 
 def _loads(raw: bytes) -> Any:

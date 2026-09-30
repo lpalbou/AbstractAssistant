@@ -108,6 +108,8 @@ class StubGateway:
         self.attention: Dict[str, List[Dict[str, Any]]] = {TRIAGE: copy.deepcopy(_fixture("attention.json")["items"])}
         self.errors = {item["body"]["detail"]["reason_code"]: item for item in _fixture("errors.json")["items"]}
         self.trigger_sources = _fixture("trigger-sources.json")
+        # `GET /api/gateway/me/email` (framework backlog 0992): None = the route is absent (404).
+        self.my_email: Optional[Dict[str, Any]] = None
         # The capabilities descriptor G advertises (contract F).
         self.capabilities: Dict[str, Any] = {
             "capabilities": {
@@ -161,6 +163,12 @@ class StubGateway:
             return 200, self.capabilities
         if path == "/api/gateway/trigger-sources" and method == "GET":
             return 200, self.trigger_sources
+        if path == "/api/gateway/me/email" and method == "GET":
+            if self.my_email is None:
+                return 404, {"detail": "Not Found"}
+            if self.my_email.get("_refuse"):
+                return 403, {"detail": {"reason_code": "email_principal_refused", "message": "Entities have no mailbox."}}
+            return 200, copy.deepcopy(self.my_email)
         if path == "/api/gateway/commands" and method == "POST":
             return self._run_command(body)
         if path == "/api/gateway/runs" and method == "GET":
@@ -1719,3 +1727,192 @@ def test_the_view_never_infers_a_run_in_progress_from_the_last_occurrence(palett
 
     assert command_confirmed("stop_current", news, dict(news, current_occurrence=None)) is True
     assert command_confirmed("stop_current", news, dict(news, last_occurrence=dict(news["last_occurrence"], status="running"))) is False
+
+
+# ------------------------------------------- email automations (0992 WP6)
+
+EMAIL_USABLE = {"configured": True, "enabled": True, "admin_enabled": True, "effective_enabled": True}
+EMAIL_TEXT = json.loads(VENDORED_CONTROLS.read_text(encoding="utf-8"))["email"]
+# The runtime's descriptor as `GET /trigger-sources` lists it (abstractruntime feat/email-accounts).
+EMAIL_SOURCE = {"id": "email.received", "version": 1, "label": "When an email arrives", "config_schema": {"type": "object"},
+                "event_schema": {"type": "object"}, "capabilities": {"kind": "event", "inbox": "email", "content_trust": "untrusted"}, "available": True}
+
+
+@pytest.mark.basic
+def test_the_email_trigger_needs_the_gateway_to_list_it(palette, stub) -> None:
+    stub.my_email = dict(EMAIL_USABLE)
+    window, _controller = palette
+    window._poll_automations()
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    item = sheet.preset_combo.model().item(sheet.preset_combo.findData("email"))
+    assert sheet.notify_email.isEnabled() and not item.isEnabled()
+    assert "email.received@1" in item.toolTip()
+
+
+@pytest.mark.basic
+def test_email_wording_is_the_vendored_kit_section() -> None:
+    assert rules.EMAIL_TEXT == EMAIL_TEXT
+    assert EMAIL_TEXT["not_set_up"] == "Email isn't set up — open My email"
+    assert EMAIL_TEXT["trigger_label"] == "When an email arrives" and EMAIL_TEXT["notify_label"] == "Email me the result"
+
+
+@pytest.mark.basic
+def test_email_rules_mirror_the_kit() -> None:
+    assert rules.parse_entry_list(" A@x.test, b@x.test;\nA@X.test  c@y.test ") == ["a@x.test", "b@x.test", "c@y.test"]
+    assert rules.is_plain_address("a@x.test") and not rules.is_plain_address("A <a@x.test>") and not rules.is_plain_address("a@b@c")
+    assert rules.is_plain_domain("x.test") and not rules.is_plain_domain("*.x.test") and not rules.is_plain_domain("x")
+    assert rules.email_usable(EMAIL_USABLE) and not rules.email_usable({"configured": True, "effective_enabled": False}) and not rules.email_usable(None)
+    default = rules.EmailTriggerForm()
+    assert rules.email_trigger_config(default) == ({"uses_model": True, "every": "1h", "max_batch": 100}, [])
+    assert rules.email_trigger_config(rules.EmailTriggerForm(uses_model=False))[0]["every"] == "60s"
+    config, errors = rules.email_trigger_config(rules.EmailTriggerForm(
+        from_in="Boss@Example.test, a@x.test", from_domain_in="Example.org", to_in="me@example.test",
+        subject_contains="  invoice ", has_attachment="yes", every_amount=10, every_unit="m", max_batch=20,
+    ))
+    assert errors == [] and config == {"uses_model": True, "every": "10m", "max_batch": 20, "filter": {
+        "from_in": ["boss@example.test", "a@x.test"], "from_domain_in": ["example.org"], "to_in": ["me@example.test"],
+        "subject_contains": "invoice", "has_attachment": True}}
+    bad = rules.email_trigger_config(rules.EmailTriggerForm(from_in="nope, ok@x.test", from_domain_in="*.x.test"))[1]
+    assert len(bad) == 2 and "nope" in bad[0] and "ok@x.test" not in bad[0] and "*.x.test" in bad[1]
+    assert rules.email_trigger_config(rules.EmailTriggerForm(every_amount=0, every_unit="m"))[1]
+    assert rules.email_trigger_config(rules.EmailTriggerForm(max_batch=1001))[1]
+    assert trigger_summary({"source_id": "email.received", "source_version": 1, "config": config}) == (
+        "when an email arrives · from boss@example.test, a@x.test, example.org · to me@example.test · "
+        "subject contains “invoice” · with attachments · checked every 10 minutes · up to 20 per run"
+    )
+    assert rules.email_allowed_recipients("self", "x@y.test") == (["self"], [])
+    assert rules.email_allowed_recipients("list", "Boss@example.test, self") == (["self", "boss@example.test"], [])
+    assert rules.email_allowed_recipients("list", " ")[1] and "nope" in rules.email_allowed_recipients("list", "nope")[1][0]
+    assert rules.notify_for(True) == {"channels": ["console", "email"]} and rules.notify_for(False) == {"channels": ["console"]}
+
+
+@pytest.mark.basic
+def test_email_create_body_and_defaults() -> None:
+    body, errors = build_create_request(
+        prompt="Summarise new invoices", when=ScheduleWhen("every", 8, "h"), context="independent",
+        target={"flow_id": "@default", "interface": "i"}, request_id="rq",
+        trigger="email", email=rules.EmailTriggerForm(from_domain_in="example.org"),
+        notify_email=True, email_recipients=("list", "boss@example.test"),
+    )
+    assert errors == [] and body == {
+        "request_id": "rq", "title": "Summarise new invoices",
+        "target": {"flow_id": "@default", "interface": "i", "input_data": {"prompt": "Summarise new invoices"}},
+        "trigger": {"source_id": "email.received", "source_version": 1, "config": {"uses_model": True, "every": "1h", "max_batch": 100, "filter": {"from_domain_in": ["example.org"]}}},
+        "context": {"mode": "independent"},
+        "policy": {"tool_approval": "auto", "email_allowed_recipients": ["self", "boss@example.test"]},
+        "notify": {"channels": ["console", "email"]},
+    }
+    plain, errors = build_create_request(
+        prompt="x", when=ScheduleWhen("every", 5, "m"), context="independent", target={"flow_id": "@default", "interface": "i"},
+        request_id="r", notify_email=False, email_recipients=("self", ""),
+    )
+    assert errors == [] and "notify" not in plain and plain["policy"] == {"tool_approval": "auto"}
+    bad, errors = build_create_request(
+        prompt="x", when=ScheduleWhen("once", at=""), context="independent", target={"flow_id": "@default", "interface": "i"},
+        request_id="r", trigger="email", email=rules.EmailTriggerForm(to_in="bad"),
+    )
+    assert bad is None and len(errors) == 1 and "bad" in errors[0]
+
+
+@pytest.mark.basic
+def test_email_revise_drops_start_at_and_merges_policy() -> None:
+    summary = dict(_summary_fixture(NEWS), trigger={"binding_id": "b", "source_id": "email.received", "source_version": 1,
+        "config": {"account": "self", "folder": "INBOX", "uses_model": True, "every": "1h", "max_batch": 100, "start_at": "2026-09-30T00:00:00Z", "filter": {"from_in": ["a@x.test"]}}})
+    same, errors = rules.revise_changes(summary, title=summary["title"], every="1h", context=summary["context_mode"])
+    assert same is None and errors == []
+    changes, errors = rules.revise_changes(summary, title=summary["title"], every="2h", context=summary["context_mode"],
+                                           definition={"policy": {"email_allowed_recipients": ["self"]}, "notify": {"channels": ["console"]}},
+                                           notify_email=True, email_recipients=("list", "boss@example.test"))
+    assert errors == [] and changes == {
+        "trigger": {"source_id": "email.received", "source_version": 1, "config": {"account": "self", "folder": "INBOX", "uses_model": True, "every": "2h", "max_batch": 100, "filter": {"from_in": ["a@x.test"]}}},
+        "notify": {"channels": ["console", "email"]},
+        "policy": {"email_allowed_recipients": ["self", "boss@example.test"]},
+    }
+    assert rules.revise_changes(summary, title=summary["title"], every="30s", context=summary["context_mode"])[1]
+
+
+@pytest.mark.basic
+def test_client_reads_my_email_and_types_a_refusal(stub) -> None:
+    stub.my_email = dict(EMAIL_USABLE)
+    assert _client(stub).my_email()["effective_enabled"] is True
+    assert stub.calls("GET", "/api/gateway/me/email")[-1]["path"] == "/api/gateway/me/email"
+    stub.my_email = {"_refuse": True}
+    with pytest.raises(AutomationApiError) as exc:
+        _client(stub).my_email()
+    assert exc.value.status == 403 and exc.value.reason_code == "email_principal_refused"
+    assert _client(stub).console_url() == f"{stub.url}/console#users"
+
+
+@pytest.mark.basic
+def test_schedule_sheet_without_email_shows_the_notice_and_sends_nothing_email(palette, stub) -> None:
+    window, _controller = palette
+    window._poll_automations()
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    assert sheet.email_notice.isVisibleTo(sheet) and EMAIL_TEXT["open_my_email"] in sheet.email_notice.text()
+    assert "Email isn" in sheet.email_notice.text()
+    assert not sheet.notify_email.isEnabled() and not sheet.recipients_list.isEnabled()
+    assert sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"]) >= 0
+    email_index = sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"])
+    assert not sheet.preset_combo.model().item(email_index).isEnabled()
+    sheet.submit_button.click()
+    body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
+    assert body["trigger"]["source_id"] == "schedule" and "notify" not in body and body["policy"] == {"tool_approval": "auto"}
+
+
+@pytest.mark.basic
+def test_schedule_sheet_creates_an_email_automation(palette, stub) -> None:
+    stub.my_email = dict(EMAIL_USABLE)
+    stub.trigger_sources = {"items": stub.trigger_sources["items"] + [EMAIL_SOURCE]}
+    window, _controller = palette
+    window._poll_automations()
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    assert not sheet.email_notice.isVisibleTo(sheet)
+    sheet.preset_combo.setCurrentIndex(sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"]))
+    assert sheet.email_box.isVisibleTo(sheet) and not sheet.custom_host.isVisibleTo(sheet)
+    assert sheet.email_every_amount.value() == 1 and sheet.email_every_unit.currentData() == "h"
+    assert sheet.email_rule.text() == EMAIL_TEXT["interval_rule"]
+    assert sheet.preview_label.text() == "when an email arrives · checked every hour · up to 100 per run"
+    sheet.email_from_in.setText("boss@example.test")
+    sheet.email_has_attachment.setCurrentIndex(sheet.email_has_attachment.findData("yes"))
+    sheet.notify_email.setChecked(True)
+    sheet.recipients_list.setChecked(True)
+    sheet.recipients_edit.setText("colleague@example.test")
+    sheet.submit_button.click()
+    body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
+    assert body["trigger"] == {"source_id": "email.received", "source_version": 1, "config": {"uses_model": True, "every": "1h", "max_batch": 100, "filter": {"from_in": ["boss@example.test"], "has_attachment": True}}}
+    assert body["notify"] == {"channels": ["console", "email"]}
+    assert body["policy"] == {"tool_approval": "auto", "email_allowed_recipients": ["self", "colleague@example.test"]}
+
+
+@pytest.mark.basic
+def test_open_my_email_opens_the_gateway_console(palette, stub, monkeypatch) -> None:
+    window, _controller = palette
+    import abstractassistant.app as app_module
+
+    opened: List[str] = []
+    monkeypatch.setattr(app_module, "activate_message_link", lambda href, **_kw: opened.append(href) or "")
+    window._poll_automations()
+    window._open_schedule_sheet()
+    window._schedule_sheet.open_my_email_requested.emit()
+    assert opened == [f"{stub.url}/console#users"]
+
+
+@pytest.mark.basic
+def test_the_view_edits_an_email_triggers_interval(palette, stub) -> None:
+    window, _controller = palette
+    email_summary = dict(_summary_fixture(NEWS), trigger={"binding_id": "b", "source_id": "email.received", "source_version": 1,
+        "config": {"uses_model": True, "every": "1h", "max_batch": 100, "start_at": "2026-09-30T00:00:00Z"}})
+    stub.summaries = [email_summary]
+    window._poll_automations()
+    window._open_automation(NEWS)
+    view = window.automation_view
+    assert "when an email arrives" in view.meta_label.text()
+    assert view.edit_every.isEnabled() and view.edit_every.text() == "1h"
+    view.edit_box.show()
+    view.edit_every.setText("3h")
+    view._save_edit()
+    changes = stub.calls("PATCH")[-1]["body"]["changes"]
+    assert changes == {"trigger": {"source_id": "email.received", "source_version": 1, "config": {"uses_model": True, "every": "3h", "max_batch": 100}}}

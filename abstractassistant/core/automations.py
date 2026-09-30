@@ -21,10 +21,22 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "CONTROL_COMMANDS",
+    "EMAIL_TEXT",
+    "EMAIL_TRIGGER_SOURCE_ID",
+    "EmailTriggerForm",
+    "email_allowed_recipients",
+    "email_trigger_config",
+    "email_trigger_label",
+    "email_usable",
+    "is_email_trigger",
+    "is_plain_address",
+    "is_plain_domain",
+    "notify_for",
+    "parse_entry_list",
     "PENDING_TEXT",
     "command_confirmed",
     "current_run",
@@ -132,6 +144,8 @@ def trigger_summary(trigger: Mapping[str, Any]) -> str:
         return schedule_label(t.get("config") or {})
     if source == "manual" and version == 1:
         return "manual runs only"
+    if is_email_trigger(t):
+        return email_trigger_label(t.get("config") or {})
     return f"{source}@{version}"
 
 
@@ -300,6 +314,195 @@ def control_hint(control: str, summary: Optional[Mapping[str, Any]] = None) -> s
         if summary.get("context_mode") == "growing":
             lines.append(AUTOMATION_CONTROLS["run_now_growing_line"])
     return "\n".join(lines)
+
+
+# ------------------------------------------ email.received@1 (backlog 0992)
+#
+# The Qt mirror of the kit's email block in `panel_core.ts` (ui-kit 0.2.0):
+# same defaults, same validation, same words (the vendored JSON's `email`
+# section). Typed filters only — membership and one literal substring.
+
+EMAIL_TEXT: Dict[str, str] = dict(AUTOMATION_CONTROLS["email"])
+EMAIL_TRIGGER_SOURCE_ID = "email.received"
+EMAIL_TRIGGER_SOURCE_VERSION = 1
+EMAIL_DEFAULT_EVERY_MODEL = "1h"
+EMAIL_DEFAULT_EVERY_NO_MODEL = "60s"
+EMAIL_MIN_EVERY_SECONDS = 60
+EMAIL_DEFAULT_MAX_BATCH = 100
+EMAIL_MAX_BATCH = 1000
+EMAIL_MAX_FILTER_ENTRIES = 200
+EMAIL_MAX_SUBJECT_CONTAINS = 200
+EMAIL_MAX_ALLOWED_RECIPIENTS = 50
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def is_email_trigger(trigger: Any) -> bool:
+    t = trigger if isinstance(trigger, Mapping) else {}
+    return t.get("source_id") == EMAIL_TRIGGER_SOURCE_ID and t.get("source_version") == EMAIL_TRIGGER_SOURCE_VERSION
+
+
+def email_usable(status: Any) -> bool:
+    """True only when ``GET /me/email`` says ``effective_enabled`` (connected,
+    the user's switch on, allowed by an administrator). Unknown = not usable."""
+    return isinstance(status, Mapping) and status.get("effective_enabled") is True
+
+
+def parse_entry_list(text: Any) -> List[str]:
+    """Split on commas, semicolons and white space; trim, lower-case, dedupe (order kept)."""
+    out: List[str] = []
+    for raw in re.split(r"[\s,;]+", str(text or "")):
+        entry = raw.strip().lower()
+        if entry and entry not in out:
+            out.append(entry)
+    return out
+
+
+_ADDRESS_FORBIDDEN = re.compile(r'[\s<>,;:"()\[\]]')
+_DOMAIN_FORBIDDEN = re.compile(r'[\s<>,;:"()\[\]/*]')
+
+
+def is_plain_address(value: str) -> bool:
+    """``name@example.test`` — the runtime's plain-address rule."""
+    a = str(value or "").strip().lower()
+    local, at, domain = a.partition("@")
+    return bool(at and local and domain) and "@" not in domain and not _ADDRESS_FORBIDDEN.search(a)
+
+
+def is_plain_domain(value: str) -> bool:
+    """``example.test`` — no "@", at least one dot, no pattern characters."""
+    d = str(value or "").strip().lower()
+    return bool(d) and "@" not in d and "." in d and not d.startswith(".") and not d.endswith(".") and not _DOMAIN_FORBIDDEN.search(d)
+
+
+def email_default_every(uses_model: bool) -> str:
+    return EMAIL_DEFAULT_EVERY_MODEL if uses_model else EMAIL_DEFAULT_EVERY_NO_MODEL
+
+
+def _duration_seconds(every: str) -> Optional[int]:
+    parsed = parse_duration(every)
+    return None if parsed is None else parsed[0] * _UNIT_SECONDS[parsed[1]]
+
+
+@dataclass(frozen=True)
+class EmailTriggerForm:
+    """The "When an email arrives" fields. List fields are the raw text typed;
+    ``every_amount`` 0 / None = the default for ``uses_model``; ``max_batch``
+    None = 100; ``has_attachment`` ``any`` | ``yes`` | ``no``."""
+
+    uses_model: bool = True
+    every_amount: Optional[int] = None
+    every_unit: str = "h"
+    max_batch: Optional[int] = None
+    from_in: str = ""
+    from_domain_in: str = ""
+    to_in: str = ""
+    subject_contains: str = ""
+    has_attachment: str = "any"
+
+
+def _email_list(text: str, label: str, ok: Callable[[str], bool], kind: str, errors: List[str]) -> Optional[List[str]]:
+    items = parse_entry_list(text)
+    if not items:
+        return None
+    bad = [v for v in items if not ok(v)]
+    if bad:
+        errors.append(f"{label}: {', '.join(bad)} {'is not' if len(bad) == 1 else 'are not'} {kind}.")
+    if len(items) > EMAIL_MAX_FILTER_ENTRIES:
+        errors.append(f"{label}: at most {EMAIL_MAX_FILTER_ENTRIES} entries.")
+    return items
+
+
+def email_trigger_config(form: EmailTriggerForm) -> Tuple[Dict[str, Any], List[str]]:
+    """``email.received@1`` config (explicit ``uses_model``, ``every``,
+    ``max_batch``; ``filter`` only when set) + the reasons it is invalid."""
+    errors: List[str] = []
+    config: Dict[str, Any] = {"uses_model": bool(form.uses_model)}
+    if form.every_amount is None:
+        config["every"] = email_default_every(form.uses_model)
+    elif not isinstance(form.every_amount, int) or form.every_amount < 1 or form.every_unit not in {"m", "h", "d"}:
+        errors.append("The check interval must be a whole number of at least 1.")
+    else:
+        config["every"] = f"{form.every_amount}{form.every_unit}"
+    if "every" in config and (_duration_seconds(config["every"]) or 0) < EMAIL_MIN_EVERY_SECONDS:
+        errors.append("The check interval is at least 60 seconds.")
+    if form.max_batch is None:
+        config["max_batch"] = EMAIL_DEFAULT_MAX_BATCH
+    elif isinstance(form.max_batch, bool) or not isinstance(form.max_batch, int) or not 1 <= form.max_batch <= EMAIL_MAX_BATCH:
+        errors.append(f"At most this many emails per run: a whole number from 1 to {EMAIL_MAX_BATCH}.")
+    else:
+        config["max_batch"] = form.max_batch
+    flt: Dict[str, Any] = {}
+    from_in = _email_list(form.from_in, EMAIL_TEXT["from_in"], is_plain_address, "an email address", errors)
+    if from_in:
+        flt["from_in"] = from_in
+    domains = _email_list(form.from_domain_in, EMAIL_TEXT["from_domain_in"], is_plain_domain, "a domain like example.com", errors)
+    if domains:
+        flt["from_domain_in"] = domains
+    to_in = _email_list(form.to_in, EMAIL_TEXT["to_in"], is_plain_address, "an email address", errors)
+    if to_in:
+        flt["to_in"] = to_in
+    subject = str(form.subject_contains or "").strip()
+    if subject:
+        if len(subject) > EMAIL_MAX_SUBJECT_CONTAINS or "\n" in subject or "\r" in subject:
+            errors.append(f"{EMAIL_TEXT['subject_contains']}: one line of at most {EMAIL_MAX_SUBJECT_CONTAINS} characters.")
+        else:
+            flt["subject_contains"] = subject
+    if form.has_attachment == "yes":
+        flt["has_attachment"] = True
+    elif form.has_attachment == "no":
+        flt["has_attachment"] = False
+    if flt:
+        config["filter"] = flt
+    return config, errors
+
+
+def email_trigger_label(config: Mapping[str, Any]) -> str:
+    """"when an email arrives · from … · checked every hour · up to 100 per run"."""
+    cfg = config if isinstance(config, Mapping) else {}
+    f = cfg.get("filter") if isinstance(cfg.get("filter"), Mapping) else {}
+    parts = ["when an email arrives"]
+    sources = list(f.get("from_in") or []) + list(f.get("from_domain_in") or [])
+    if sources:
+        parts.append("from " + ", ".join(sources))
+    if f.get("to_in"):
+        parts.append("to " + ", ".join(f["to_in"]))
+    if isinstance(f.get("subject_contains"), str) and f["subject_contains"]:
+        parts.append(f"subject contains “{f['subject_contains']}”")
+    if f.get("has_attachment") is True:
+        parts.append("with attachments")
+    if f.get("has_attachment") is False:
+        parts.append("without attachments")
+    every = cfg.get("every") if isinstance(cfg.get("every"), str) else email_default_every(cfg.get("uses_model") is not False)
+    parts.append(f"checked {interval_label(every)}")
+    batch = cfg.get("max_batch") if isinstance(cfg.get("max_batch"), int) else EMAIL_DEFAULT_MAX_BATCH
+    parts.append(f"up to {batch} per run")
+    return " · ".join(parts)
+
+
+def email_allowed_recipients(mode: str, addresses: str = "") -> Tuple[List[str], List[str]]:
+    """``policy.email_allowed_recipients``: ``["self"]`` for "only me",
+    ``["self", ...addresses]`` for "me and these addresses" (at least one)."""
+    if mode != "list":
+        return ["self"], []
+    errors: List[str] = []
+    items = [a for a in parse_entry_list(addresses) if a != "self"]
+    if not items:
+        errors.append("Name at least one address the automation may email, or choose Only me.")
+    bad = [a for a in items if not is_plain_address(a)]
+    if bad:
+        errors.append(f"{EMAIL_TEXT['recipients_list']}: {', '.join(bad)} {'is not an email address' if len(bad) == 1 else 'are not email addresses'}.")
+    if len(items) + 1 > EMAIL_MAX_ALLOWED_RECIPIENTS:
+        errors.append(f"At most {EMAIL_MAX_ALLOWED_RECIPIENTS - 1} addresses.")
+    return ["self", *items], errors
+
+
+def notify_for(email_me: bool) -> Dict[str, Any]:
+    """``notify`` for "Email me the result"."""
+    return {"channels": ["console", "email"] if email_me else ["console"]}
+
+
+def notify_emails(notify: Any) -> bool:
+    return isinstance(notify, Mapping) and "email" in (notify.get("channels") or [])
 
 
 # ------------------------------------------------------- pending commands
@@ -659,11 +862,21 @@ def build_create_request(
     start_at: str = "",
     count: Optional[int] = None,
     tool_approval: str = "auto",
+    trigger: str = "schedule",
+    email: Optional[EmailTriggerForm] = None,
+    notify_email: bool = False,
+    email_recipients: Optional[Tuple[str, str]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """The ``POST /api/gateway/automations`` body, or the reasons it cannot be built.
 
     ``tool_approval`` (decision D1): ``"auto"`` — creating the automation is
-    the consent, its runs use their tools without asking — or ``"ask"``."""
+    the consent, its runs use their tools without asking — or ``"ask"``.
+
+    Email (framework backlog 0992): ``trigger="email"`` builds
+    ``email.received@1`` from ``email`` (``when`` is then ignored);
+    ``notify_email`` sends ``notify: {channels: ["console", "email"]}`` (off
+    sends nothing: the server default); ``email_recipients=("list", text)``
+    sends ``policy.email_allowed_recipients`` (``("self", "")`` sends nothing)."""
     errors: List[str] = []
     if not target:
         errors.append("This conversation has no workflow to schedule.")
@@ -677,34 +890,60 @@ def build_create_request(
         errors.append("Context must be Independent or Growing.")
     if tool_approval not in {"auto", "ask"}:
         errors.append("Tool approval must be automatic or ask each time.")
-    config, when_errors = schedule_config(when, start_at=start_at, count=count)
+    is_email = trigger == "email"
+    if is_email:
+        config, when_errors = email_trigger_config(email or EmailTriggerForm())
+    else:
+        config, when_errors = schedule_config(when, start_at=start_at, count=count)
     errors.extend(when_errors)
+    recipients: Optional[List[str]] = None
+    if email_recipients is not None and email_recipients[0] == "list":
+        recipients, rcpt_errors = email_allowed_recipients("list", email_recipients[1])
+        errors.extend(rcpt_errors)
     if errors or not target:
         return None, errors
     full_target = dict(target)
     full_target["input_data"] = {**dict(target.get("input_data") or {}), "prompt": text}
-    return (
-        {
-            "request_id": request_id,
-            "title": name,
-            "target": full_target,
-            "trigger": {"source_id": "schedule", "source_version": 1, "config": config},
-            "context": {"mode": context},
-            "policy": {"tool_approval": tool_approval},
-        },
-        [],
-    )
+    policy: Dict[str, Any] = {"tool_approval": tool_approval}
+    if recipients is not None:
+        policy["email_allowed_recipients"] = recipients
+    body: Dict[str, Any] = {
+        "request_id": request_id,
+        "title": name,
+        "target": full_target,
+        "trigger": (
+            {"source_id": EMAIL_TRIGGER_SOURCE_ID, "source_version": EMAIL_TRIGGER_SOURCE_VERSION, "config": config}
+            if is_email
+            else {"source_id": "schedule", "source_version": 1, "config": config}
+        ),
+        "context": {"mode": context},
+        "policy": policy,
+    }
+    if notify_email:
+        body["notify"] = notify_for(True)
+    return body, []
 
 
 # ------------------------------------------------------------------- revise
 
 
 def revise_changes(
-    summary: Mapping[str, Any], *, title: str, every: Optional[str], context: str
+    summary: Mapping[str, Any],
+    *,
+    title: str,
+    every: Optional[str],
+    context: str,
+    definition: Optional[Mapping[str, Any]] = None,
+    notify_email: Optional[bool] = None,
+    email_recipients: Optional[Tuple[str, str]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """Only the fields that changed (``None`` when nothing did), or errors.
-    A new interval keeps the rest of the schedule config (the server mints a
-    new binding and re-anchors so no past tick fires)."""
+    A new interval keeps the rest of the trigger config (the server mints a
+    new binding and re-anchors so no past tick fires); for ``email.received@1``
+    the old ``start_at`` is dropped so the revised trigger never re-reads mail,
+    and the interval is at least 60 s. With the committed ``definition``,
+    ``notify_email`` sends ``notify`` and ``email_recipients`` sends only
+    ``policy.email_allowed_recipients`` (the server merges policy)."""
     errors: List[str] = []
     changes: Dict[str, Any] = {}
     name = str(title or "").strip()
@@ -716,21 +955,37 @@ def revise_changes(
         changes["title"] = name
     trigger = summary.get("trigger") if isinstance(summary.get("trigger"), Mapping) else {}
     config = trigger.get("config") if isinstance(trigger.get("config"), Mapping) else {}
-    before = config.get("every") if trigger.get("source_id") == "schedule" else None
+    email_trigger = is_email_trigger(trigger)
+    before = config.get("every") if trigger.get("source_id") == "schedule" or email_trigger else None
     if every is not None and every != before:
         if parse_duration(every) is None:
             errors.append("Interval must be a whole number of minutes, hours or days (e.g. 30m, 8h, 7d).")
+        elif email_trigger and (_duration_seconds(every) or 0) < EMAIL_MIN_EVERY_SECONDS:
+            errors.append("The check interval is at least 60 seconds.")
         else:
+            new_config = {**dict(config), "every": every}
+            if email_trigger:
+                new_config.pop("start_at", None)
             changes["trigger"] = {
                 "source_id": trigger.get("source_id"),
                 "source_version": trigger.get("source_version"),
-                "config": {**dict(config), "every": every},
+                "config": new_config,
             }
     if context != summary.get("context_mode"):
         if context not in {"independent", "growing"}:
             errors.append("Context must be Independent or Growing.")
         else:
             changes["context"] = {"mode": context}
+    if definition is not None:
+        if notify_email is not None and bool(notify_email) != notify_emails(definition.get("notify")):
+            changes["notify"] = notify_for(bool(notify_email))
+        if email_recipients is not None:
+            policy = definition.get("policy") if isinstance(definition.get("policy"), Mapping) else {}
+            current = list(policy.get("email_allowed_recipients") or ["self"])
+            wanted, rcpt_errors = email_allowed_recipients(*email_recipients)
+            errors.extend(rcpt_errors)
+            if not rcpt_errors and wanted != current:
+                changes["policy"] = {"email_allowed_recipients": wanted}
     if errors:
         return None, errors
     return (changes or None), []

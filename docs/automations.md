@@ -85,19 +85,55 @@ The window, beside the palette:
   "Workflow: …") and a task prefilled with the conversation's last question, which you can edit.
   The title is optional and defaults to the task's first line (at most 120 characters).
 - **When (UTC)**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days;
-  **every N…** minutes, hours or days; or **once at…** a date and time. For an interval, an
-  optional first-run time (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now.
-  Intervals are fixed durations in UTC: "every 24 hours", never "daily at 08:00 local time".
+  **every N…** minutes, hours or days; **once at…** a date and time; or **When an email arrives**
+  (see [Email automations](#email-automations)). For an interval, an optional first-run time
+  (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now. Intervals are fixed durations
+  in UTC: "every 24 hours", never "daily at 08:00 local time".
 - **Context**: **Independent** (the default: each run starts fresh) or **Growing** (each run sees
   the previous runs).
 - **Tools**: **Tools run without asking** (the default) or **Ask each time**. See
   [Tool consent](#tool-consent).
+- **Email**: **Email me the result** and **May send email without asking to: Only me (default) /
+  Me and these addresses** (see [Email automations](#email-automations)).
 
 A line under the form previews the schedule ("every 8 hours (UTC), first run now") or says what is
 missing. **Schedule** is enabled once the form is complete and the gateway offers the `schedule`
 trigger; it creates the automation and opens it in the palette. If the gateway could not be
 reached, pressing **Schedule** again sends the same request, which the gateway recognises, so the
 automation is never created twice; after a refusal, the next press is a new request.
+
+## Email automations
+
+The gateway reads your own mailbox once you connect it in the gateway console's **My email**
+(Users tab). The window asks the gateway (`GET /api/gateway/me/email`) whether your account can be
+used now: connected, your own switch on, and allowed by an administrator. If not, or if the gateway
+could not say, the email options are disabled under **"Email isn't set up — open My email"**; the
+link opens `<gateway>/console#users` in your browser. Nothing email-shaped is sent without a usable
+account.
+
+- **When an email arrives** (the trigger `email.received@1`, offered only when the gateway lists
+  it): typed filters, no patterns — from these addresses, from these domains, sent to these
+  addresses, subject contains, attachments (any / only with / only without). Separate entries with
+  commas or new lines; a wrong entry is named. **Check for new mail every** defaults to 1 hour (an
+  automation that runs a model checks once an hour by default; one that needs no model checks every
+  60 s; the shortest interval is 60 s, as the window says). **At most this many emails per run**
+  (default 100, up to 1000): the rest wait for the next run. Each email is read once by the
+  automation; mail that arrived before it was created, or while it was paused, is not processed.
+  Incoming mail is data, never instructions: the automation acts only on its task, and link-opening
+  tools (`fetch_url`, `browser_probe`) always ask.
+- **Email me the result** sends `notify: {channels: ["console", "email"]}`: a run that notifies
+  you, or fails for good, is also emailed to you.
+- **May send email without asking to**: **Only me** (the default, `["self"]`) or **Me and these
+  addresses** (`policy.email_allowed_recipients: ["self", …]`). Sending to anyone else waits for
+  your approval, and your recipient policy in My email still applies.
+
+The wording is the shared AbstractUIC text (`automation_controls.json`, `email` section), the same
+as in the web clients. **Edit** changes an email trigger's interval (the revised trigger starts
+from now, so no email is read twice); Email me the result and the recipients are kept with the
+automation.
+
+Outside automations, the Assistant's local tool approval no longer lets `send_email`,
+`list_emails` or `read_email` run without asking.
 
 ## Tool consent
 
@@ -148,7 +184,7 @@ stay counted until you answer them.
 | **Resume** | Back on the schedule from the next scheduled time; it does not fire at once. |
 | **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
-| **Edit** | Title, interval (`30m`, `8h`, `7d`) and context mode, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) and context mode, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
 | **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared

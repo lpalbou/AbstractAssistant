@@ -6901,10 +6901,25 @@ class AssistantPalette(QMainWindow):
                 if ok2 and isinstance(sources, dict)
                 else sheet.set_error(self._automations.error_text(sources))
             )
+            # Email options only with a usable account (framework backlog 0992);
+            # a failed read leaves them off under "Email isn't set up".
+            sheet.open_my_email_requested.connect(self._open_my_email)
+            self._automations.my_email(lambda ok3, status: sheet.set_email_status(status if ok3 and isinstance(status, dict) else None))
             sheet.show()
             sheet.raise_()
 
         self._automations.run(controller.current_workflow, resolved)
+
+    def _open_my_email(self) -> None:
+        """"open My email": the gateway console's Users tab, where My email lives."""
+        try:
+            url = self._controller.automations_client().console_url("users")
+        except Exception as exc:
+            self._set_banner(f"Could not open the gateway console: {exc}", tone="warn", key="automation")
+            return
+        problem = activate_message_link(url)
+        if problem:
+            self._set_banner(problem, tone="warn", key="automation")
 
     def _submit_schedule(self, sheet: Any, body: Dict[str, Any]) -> None:
         def done(ok: bool, value: Any) -> None:

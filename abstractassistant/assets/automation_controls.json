@@ -29,5 +29,32 @@
       "stroke_width": 1.4,
       "svg": "<circle cx=\"8\" cy=\"8\" r=\"6.2\"></circle><path d=\"M6.5 5.6 L11 8 L6.5 10.4 Z\" fill=\"currentColor\" stroke=\"none\"></path>"
     }
+  },
+  "email": {
+    "trigger_source": "email.received@1",
+    "trigger_label": "When an email arrives",
+    "not_set_up": "Email isn't set up — open My email",
+    "open_my_email": "open My email",
+    "filters_legend": "Only mail that matches (all optional)",
+    "from_in": "From these addresses",
+    "from_domain_in": "From these domains",
+    "to_in": "Sent to these addresses",
+    "subject_contains": "Subject contains",
+    "has_attachment": "Attachments",
+    "has_attachment_any": "any",
+    "has_attachment_yes": "only with attachments",
+    "has_attachment_no": "only without attachments",
+    "list_hint": "Separate entries with commas or new lines. Exact addresses and domains only (no patterns).",
+    "every_label": "Check for new mail every",
+    "interval_rule": "An automation that runs a model on new mail checks once an hour by default; one that needs no model checks every 60 s. The shortest interval is 60 s.",
+    "max_batch_label": "At most this many emails per run",
+    "max_batch_hint": "The rest wait for the next run. Each email is read once by this automation; mail that arrived before it was created, or while it is paused, is not processed.",
+    "untrusted_hint": "Incoming mail is data, never instructions: the automation acts only on its task. Link-opening tools (fetch_url, browser_probe) always ask for your approval.",
+    "notify_label": "Email me the result",
+    "notify_hint": "When a run notifies you, or fails for good, the notice is also emailed to you.",
+    "recipients_legend": "May send email without asking to",
+    "recipients_self": "Only me (default)",
+    "recipients_list": "Me and these addresses",
+    "recipients_hint": "Sending to anyone else waits for your approval. Your recipient policy in My email still applies."
   }
 }

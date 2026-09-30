@@ -15,3 +15,13 @@ def test_tool_policy_auto_approves_safe_tools_only() -> None:
     assert policy.requires_approval([{"name": "read_file", "arguments": {"file_path": "x.txt"}}]) is False
     assert policy.requires_approval([{"name": "execute_command", "arguments": {"command": "echo hi"}}]) is True
 
+
+
+@pytest.mark.basic
+def test_email_tools_are_not_auto_approved_by_the_local_fallback() -> None:
+    """Framework backlog 0992: mail is the user's identity and inbound mail is
+    untrusted; the gateway's recipient refiner decides, never a blanket local
+    auto-approve."""
+    policy = ToolApprovalPolicy()
+    for name in ("send_email", "list_emails", "read_email"):
+        assert policy.requires_approval([{"name": name, "arguments": {}}]) is True, name

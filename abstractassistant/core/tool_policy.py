@@ -20,13 +20,13 @@ _DEFAULT_SAFE_AUTO_APPROVE: Set[str] = {
     "skim_websearch",
     "skim_url",
     "fetch_url",
-    # Comms (delivery + read-only)
+    # Comms (delivery + read-only). Email is NOT here (framework backlog 0992):
+    # sending uses the user's identity and inbound mail is untrusted content,
+    # so send_email / list_emails / read_email ask; the gateway's recipient
+    # refiner decides which sends run unattended.
     "list_email_accounts",
-    "list_emails",
-    "read_email",
     "list_whatsapp_messages",
     "read_whatsapp_message",
-    "send_email",
     "send_whatsapp_message",
     "send_telegram_message",
     "send_telegram_artifact",

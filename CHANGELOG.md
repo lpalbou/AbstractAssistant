@@ -5,6 +5,38 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+## [0.10.0] - unreleased
+
+Needs `@abstractframework/ui-kit` 0.2.0's `automation_controls.json` (vendored here) and an
+AbstractGateway with per-user email (framework backlog 0992; the `email.received@1` trigger and
+`/me/email`).
+
+### Added
+- **Email automations.** **Schedule this conversation…** offers **When an email arrives** (typed
+  filters: from these addresses or domains, sent to these addresses, subject contains,
+  attachments; **Check for new mail every**, 1 hour by default, never under 60 s, with the rule
+  stated; **At most this many emails per run**, default 100), **Email me the result**
+  (`notify.channels: ["console", "email"]`) and **May send email without asking to: Only me /
+  Me and these addresses** (`policy.email_allowed_recipients`). The options are enabled only when
+  the gateway's `GET /me/email` says your account is usable (and the trigger only when the gateway
+  lists `email.received@1`); otherwise the window shows **"Email isn't set up — open My email"**,
+  whose link opens the gateway console's Users tab. Nothing email-shaped is sent without a usable
+  account. The words are the kit's (`automation_controls.json` → `email`).
+- The automation view's **Edit** changes an email trigger's check interval (the old `start_at` is
+  dropped, so no email is read twice); the meta line reads the email trigger ("when an email
+  arrives · from … · checked every hour · up to 100 per run").
+- `AutomationsClient.my_email()` (`GET /api/gateway/me/email`) and `console_url()`;
+  `core/automations.py` mirrors the kit's email rules (`email_trigger_config`,
+  `email_allowed_recipients`, `notify_for`, `email_usable`, …); `build_create_request` and
+  `revise_changes` take the email options.
+
+### Changed
+- **Email tools ask.** The local tool-approval fallback no longer auto-approves `send_email`,
+  `list_emails` or `read_email`: sending uses your identity and inbound mail is untrusted, so the
+  gateway's recipient rules decide which sends run unattended.
+- `abstractassistant/assets/automation_controls.json` is ui-kit 0.2.0's file (adds the `email`
+  section).
+
 ## [0.9.1] - 2026-09-28
 
 No dependency changed.

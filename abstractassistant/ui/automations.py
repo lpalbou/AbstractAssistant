@@ -12,6 +12,7 @@ notifications) are the Qt-free `core/automations.py`.
 
 from __future__ import annotations
 
+import html
 import json
 import threading
 import uuid
@@ -22,6 +23,7 @@ from PyQt5.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -41,7 +43,13 @@ from PyQt5.QtWidgets import (
 from ..core.automations import (
     AUTOMATION_CONTROLS,
     CONTROL_COMMANDS,
+    EMAIL_DEFAULT_MAX_BATCH,
+    EMAIL_MAX_BATCH,
+    EMAIL_TEXT,
+    EmailTriggerForm,
     control_hint,
+    email_usable,
+    is_email_trigger,
     current_run,
     PENDING_TEXT,
     command_confirmed,
@@ -791,9 +799,10 @@ class AutomationView(QFrame):
         self.attention_label.setVisible(bool(lines))
         if not self.edit_box.isVisibleTo(self):  # never under the user's typing
             self.edit_title.setText(str(summary.get("title") or ""))
-            every = (trigger.get("config") or {}).get("every") if trigger.get("source_id") == "schedule" else None
+            has_interval = trigger.get("source_id") == "schedule" or is_email_trigger(trigger)
+            every = (trigger.get("config") or {}).get("every") if has_interval else None
             self.edit_every.setText(str(every or ""))
-            self.edit_every.setEnabled(trigger.get("source_id") == "schedule")
+            self.edit_every.setEnabled(has_interval)
             self.edit_context.setCurrentIndex(1 if summary.get("context_mode") == "growing" else 0)
         self._apply_controls()
         if self.controls()["discuss"] != before:
@@ -1002,9 +1011,16 @@ class AutomationView(QFrame):
 
 class ScheduleSheet(QDialog):
     """"Schedule this conversation…": WHAT (workflow + task), WHEN (fixed UTC
-    interval or once), CONTEXT (Independent / Growing)."""
+    interval, once, or when an email arrives), CONTEXT (Independent /
+    Growing), TOOLS, EMAIL (email me the result, allowed recipients).
+
+    The email options are offered only once ``set_email_status`` received a
+    usable ``GET /me/email``; until then (and when it is not usable) they are
+    disabled under "Email isn't set up — open My email", and nothing
+    email-shaped is sent."""
 
     submitted = pyqtSignal(object)  # the POST /automations body
+    open_my_email_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -1049,6 +1065,7 @@ class ScheduleSheet(QDialog):
             self.preset_combo.addItem(label, when)
         self.preset_combo.addItem("every N…", "custom")
         self.preset_combo.addItem("once at…", "once")
+        self.preset_combo.addItem(EMAIL_TEXT["trigger_label"], "email")
         self.preset_combo.setCurrentIndex(3)  # every 8 hours
         self.preset_combo.currentIndexChanged.connect(self._sync_when)
         root.addWidget(self.preset_combo)
@@ -1072,6 +1089,7 @@ class ScheduleSheet(QDialog):
         self.at_edit.setObjectName("autoInput")
         self.at_edit.setPlaceholderText("First run / run once at YYYY-MM-DD HH:MM (UTC); empty = now")
         root.addWidget(self.at_edit)
+        self._build_email_trigger(root)
 
         root.addWidget(_text_label("Context", "autoViewTitle", parent=self))
         self.independent = QRadioButton("Independent — each run starts fresh", self)
@@ -1092,6 +1110,10 @@ class ScheduleSheet(QDialog):
         tools_group.addButton(self.tools_ask)
         root.addWidget(self.tools_auto)
         root.addWidget(self.tools_ask)
+        self.untrusted_label = _text_label(EMAIL_TEXT["untrusted_hint"], "autoViewMeta", parent=self)
+        root.addWidget(self.untrusted_label)
+
+        self._build_email_options(root)
 
         self.preview_label = _text_label("", "autoViewMeta", parent=self)
         root.addWidget(self.preview_label)
@@ -1107,12 +1129,168 @@ class ScheduleSheet(QDialog):
         buttons.addWidget(self.cancel_button)
         buttons.addWidget(self.submit_button)
         root.addLayout(buttons)
-        for signal in (self.prompt_edit.textChanged, self.at_edit.textChanged, self.custom_amount.valueChanged, self.custom_unit.currentIndexChanged):
+        for signal in (
+            self.prompt_edit.textChanged, self.at_edit.textChanged, self.custom_amount.valueChanged, self.custom_unit.currentIndexChanged,
+            self.email_every_amount.valueChanged, self.email_every_unit.currentIndexChanged, self.email_max_batch.valueChanged,
+            self.email_from_in.textChanged, self.email_from_domain_in.textChanged, self.email_to_in.textChanged,
+            self.email_subject.textChanged, self.email_has_attachment.currentIndexChanged,
+            self.notify_email.toggled, self.recipients_list.toggled, self.recipients_edit.textChanged,
+        ):
             signal.connect(self._update_preview)
+        self.email_status: Optional[Dict[str, Any]] = None
+        self.email_trigger_available: Optional[bool] = None
+        self.set_email_status(None)
         self._sync_when()
+
+    # --------------------------------------------------------------- email
+
+    def _build_email_trigger(self, root: QVBoxLayout) -> None:
+        """"When an email arrives": interval (1 hour by default, never under
+        60 s — the rule is stated), max batch, typed filters."""
+        self.email_box = QWidget(self)
+        box = QVBoxLayout(self.email_box)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        every = QHBoxLayout()
+        every.addWidget(_text_label(EMAIL_TEXT["every_label"], "autoViewMeta", parent=self.email_box))
+        self.email_every_amount = QSpinBox(self.email_box)
+        self.email_every_amount.setObjectName("autoInput")
+        self.email_every_amount.setRange(1, 10_000)
+        self.email_every_amount.setValue(1)
+        self.email_every_unit = QComboBox(self.email_box)
+        self.email_every_unit.setObjectName("autoInput")
+        for label, unit in (("minutes", "m"), ("hours", "h"), ("days", "d")):
+            self.email_every_unit.addItem(label, unit)
+        self.email_every_unit.setCurrentIndex(1)
+        every.addWidget(self.email_every_amount)
+        every.addWidget(self.email_every_unit)
+        every.addStretch(1)
+        box.addLayout(every)
+        self.email_rule = _text_label(EMAIL_TEXT["interval_rule"], "autoViewMeta", parent=self.email_box)
+        box.addWidget(self.email_rule)
+        batch = QHBoxLayout()
+        batch.addWidget(_text_label(EMAIL_TEXT["max_batch_label"], "autoViewMeta", parent=self.email_box))
+        self.email_max_batch = QSpinBox(self.email_box)
+        self.email_max_batch.setObjectName("autoInput")
+        self.email_max_batch.setRange(1, EMAIL_MAX_BATCH)
+        self.email_max_batch.setValue(EMAIL_DEFAULT_MAX_BATCH)
+        batch.addWidget(self.email_max_batch)
+        batch.addStretch(1)
+        box.addLayout(batch)
+        box.addWidget(_text_label(EMAIL_TEXT["max_batch_hint"], "autoViewMeta", parent=self.email_box))
+        box.addWidget(_text_label(EMAIL_TEXT["filters_legend"], "autoViewTitle", parent=self.email_box))
+
+        def line(key: str) -> QLineEdit:
+            edit = QLineEdit(self.email_box)
+            edit.setObjectName("autoInput")
+            edit.setPlaceholderText(EMAIL_TEXT[key])
+            edit.setToolTip(EMAIL_TEXT[key])
+            box.addWidget(edit)
+            return edit
+
+        self.email_from_in = line("from_in")
+        self.email_from_domain_in = line("from_domain_in")
+        self.email_to_in = line("to_in")
+        self.email_subject = line("subject_contains")
+        self.email_subject.setMaxLength(200)
+        attach = QHBoxLayout()
+        attach.addWidget(_text_label(EMAIL_TEXT["has_attachment"], "autoViewMeta", parent=self.email_box))
+        self.email_has_attachment = QComboBox(self.email_box)
+        self.email_has_attachment.setObjectName("autoInput")
+        for value in ("any", "yes", "no"):
+            self.email_has_attachment.addItem(EMAIL_TEXT[f"has_attachment_{value}"], value)
+        attach.addWidget(self.email_has_attachment)
+        attach.addStretch(1)
+        box.addLayout(attach)
+        box.addWidget(_text_label(EMAIL_TEXT["list_hint"], "autoViewMeta", parent=self.email_box))
+        root.addWidget(self.email_box)
+
+    def _build_email_options(self, root: QVBoxLayout) -> None:
+        root.addWidget(_text_label("Email", "autoViewTitle", parent=self))
+        full, link = EMAIL_TEXT["not_set_up"], EMAIL_TEXT["open_my_email"]
+        lead = full[: len(full) - len(link)] if full.endswith(link) else f"{full} "
+        self._email_notice_parts = (lead, link)
+        self.email_notice = QLabel("", self)
+        self.email_notice.setObjectName("autoViewNotice")
+        self.email_notice.setTextFormat(Qt.RichText)
+        self.email_notice.setWordWrap(True)
+        self.email_notice.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
+        self.email_notice.linkActivated.connect(lambda _href: self.open_my_email_requested.emit())
+        self._render_email_notice()
+        root.addWidget(self.email_notice)
+        self.notify_email = QCheckBox(EMAIL_TEXT["notify_label"], self)
+        self.notify_email.setObjectName("autoCheck")
+        self.notify_email.setToolTip(EMAIL_TEXT["notify_hint"])
+        root.addWidget(self.notify_email)
+        root.addWidget(_text_label(EMAIL_TEXT["notify_hint"], "autoViewMeta", parent=self))
+        root.addWidget(_text_label(EMAIL_TEXT["recipients_legend"], "autoViewMeta", parent=self))
+        self.recipients_self = QRadioButton(EMAIL_TEXT["recipients_self"], self)
+        self.recipients_list = QRadioButton(EMAIL_TEXT["recipients_list"], self)
+        self.recipients_self.setChecked(True)
+        group = QButtonGroup(self)
+        group.addButton(self.recipients_self)
+        group.addButton(self.recipients_list)
+        self._recipients_group = group
+        root.addWidget(self.recipients_self)
+        root.addWidget(self.recipients_list)
+        self.recipients_edit = QLineEdit(self)
+        self.recipients_edit.setObjectName("autoInput")
+        self.recipients_edit.setPlaceholderText("colleague@example.com")
+        root.addWidget(self.recipients_edit)
+        root.addWidget(_text_label(EMAIL_TEXT["recipients_hint"], "autoViewMeta", parent=self))
+
+    def _render_email_notice(self) -> None:
+        # The link in the theme's accent (Qt's default link blue is unreadable on the dark themes).
+        lead, link = self._email_notice_parts
+        self.email_notice.setText(
+            f'{html.escape(lead, quote=False)}<a href="my-email" style="color: {THEME.accent_text};">{html.escape(link, quote=False)}</a>'
+        )
+
+    def set_email_status(self, status: Optional[Mapping[str, Any]]) -> None:
+        """``GET /me/email`` (None = unknown or the call failed = not set up)."""
+        self.email_status = dict(status) if isinstance(status, Mapping) else None
+        usable = email_usable(self.email_status)
+        cause = ""
+        if isinstance(self.email_status, Mapping) and isinstance(self.email_status.get("admin_disabled"), Mapping):
+            cause = str(self.email_status["admin_disabled"].get("cause") or "")
+        self.email_notice.setToolTip(cause)
+        self.email_notice.setVisible(not usable)
+        for widget in (self.notify_email, self.recipients_self, self.recipients_list):
+            widget.setEnabled(usable)
+        self._apply_email_gate()
+
+    def _apply_email_gate(self) -> None:
+        offered = self.email_is_usable() and self.email_trigger_available is True
+        item = self.preset_combo.model().item(self.preset_combo.findData("email"))
+        item.setEnabled(offered)
+        item.setToolTip("" if offered or not self.email_is_usable() else "This gateway does not offer the email.received@1 trigger source.")
+        if not offered and self.preset_combo.currentData() == "email":
+            self.preset_combo.setCurrentIndex(3)
+        self._sync_recipients()
+        self._update_preview()
+
+    def email_is_usable(self) -> bool:
+        return email_usable(self.email_status)
+
+    def _sync_recipients(self) -> None:
+        self.recipients_edit.setEnabled(self.email_is_usable() and self.recipients_list.isChecked())
+
+    def email_form(self) -> EmailTriggerForm:
+        return EmailTriggerForm(
+            uses_model=True,
+            every_amount=int(self.email_every_amount.value()),
+            every_unit=str(self.email_every_unit.currentData()),
+            max_batch=int(self.email_max_batch.value()),
+            from_in=self.email_from_in.text(),
+            from_domain_in=self.email_from_domain_in.text(),
+            to_in=self.email_to_in.text(),
+            subject_contains=self.email_subject.text(),
+            has_attachment=str(self.email_has_attachment.currentData()),
+        )
 
     def restyle(self) -> None:
         self.setStyleSheet(dialog_stylesheet() + automation_row_qss())
+        self._render_email_notice()
 
     def set_trigger_sources(self, items: Sequence[Mapping[str, Any]]) -> None:
         """``schedule@1`` must be offered by the gateway, else nothing can be scheduled."""
@@ -1121,9 +1299,14 @@ class ScheduleSheet(QDialog):
             for i in items
         )
         self.schedule_available = available
+        # `email.received@1` is offered only when the gateway lists it (and the account is usable).
+        self.email_trigger_available = any(
+            isinstance(i, Mapping) and i.get("id") == "email.received" and i.get("version") == 1 and i.get("available") is True
+            for i in items
+        )
         if not available:
             self.set_error("This gateway does not offer the schedule@1 trigger source.")
-        self._update_preview()
+        self._apply_email_gate()
 
     def set_error(self, text: str) -> None:
         value = str(text or "").strip()
@@ -1132,6 +1315,8 @@ class ScheduleSheet(QDialog):
 
     def when(self) -> ScheduleWhen:
         data = self.preset_combo.currentData()
+        if data == "email":
+            return SCHEDULE_PRESETS[3][1]  # unused: the email trigger ignores `when`
         if data == "custom":
             return ScheduleWhen("every", int(self.custom_amount.value()), str(self.custom_unit.currentData()))
         if data == "once":
@@ -1141,6 +1326,9 @@ class ScheduleSheet(QDialog):
     def _sync_when(self) -> None:
         data = self.preset_combo.currentData()
         self.custom_host.setVisible(data == "custom")
+        self.email_box.setVisible(data == "email")
+        self.untrusted_label.setVisible(data == "email")
+        self.at_edit.setVisible(data != "email")
         self.at_edit.setPlaceholderText(
             "Run once at YYYY-MM-DD HH:MM (UTC)" if data == "once" else "First run at YYYY-MM-DD HH:MM (UTC); empty = now"
         )
@@ -1155,13 +1343,29 @@ class ScheduleSheet(QDialog):
             target=self.target,
             request_id=self.request_id,
             title=self.title_edit.text(),
-            start_at="" if when.kind == "once" else self.at_edit.text().strip(),
+            start_at="" if when.kind == "once" or self.preset_combo.currentData() == "email" else self.at_edit.text().strip(),
             tool_approval="ask" if self.tools_ask.isChecked() else "auto",
+            # Nothing email-shaped without a usable account.
+            **(
+                {
+                    "trigger": "email" if self.preset_combo.currentData() == "email" and self.email_trigger_available is True else "schedule",
+                    "email": self.email_form(),
+                    "notify_email": self.notify_email.isChecked(),
+                    "email_recipients": ("list" if self.recipients_list.isChecked() else "self", self.recipients_edit.text()),
+                }
+                if self.email_is_usable()
+                else {}
+            ),
         )
 
     def _update_preview(self) -> None:
+        if not hasattr(self, "email_status"):
+            return  # still building
+        self._sync_recipients()
         body, errors = self.build_body()
-        if body is not None:
+        if body is not None and body["trigger"]["source_id"] != "schedule":
+            self.preview_label.setText(trigger_summary(body["trigger"]))
+        elif body is not None:
             config = body["trigger"]["config"]
             first = "" if "every" not in config else (f", first run at {format_utc(config['start_at'])}" if config.get("start_at") else ", first run now")
             self.preview_label.setText(f"{schedule_label(config)}{first}")
@@ -1420,6 +1624,10 @@ class AutomationsHub(QObject):
 
     def trigger_sources(self, done: Callable[[bool, Any], None]) -> None:
         self._submit(lambda: self._client_factory().trigger_sources(), done)
+
+    def my_email(self, done: Callable[[bool, Any], None]) -> None:
+        """``GET /me/email`` (the Schedule sheet's email options)."""
+        self._submit(lambda: self._client_factory().my_email(), done)
 
     def run(self, work: Callable[[], Any], done: Callable[[bool, Any], None]) -> None:
         """Any other blocking call (the wait answer), off the GUI thread."""
