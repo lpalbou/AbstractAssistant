@@ -1472,12 +1472,18 @@ class WindowPage(SettingsPage):
             self.hotkey_enabled.blockSignals(False)
             self.say("Could not save the global shortcut.", tone="error")
             return
+        failure: Optional[str] = None
         try:
             if callable(self._apply_hotkey):
-                self._apply_hotkey()
-        except Exception:
-            pass
-        self.say("The global shortcut is on." if checked else "The global shortcut is off.")
+                result = self._apply_hotkey()
+                failure = result if isinstance(result, str) and result.strip() else None
+        except Exception as exc:
+            failure = str(exc) or "The shortcut could not be registered."
+        if checked and failure:
+            # Saved ON, but not armed: say so instead of "on".
+            self.say(f"The global shortcut is saved as on but did not start: {failure}", tone="error")
+        else:
+            self.say("The global shortcut is on." if checked else "The global shortcut is off.")
         self.changed.emit()
 
     def _save_preferences(self) -> None:

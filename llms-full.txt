@@ -2452,6 +2452,12 @@ label and hint).
   names the new state ("Replies are spoken automatically.", "The global shortcut is on."); a failed
   save flips it back and says so. The **Voice** page has no Save button any more: its switches and
   lists (output device, voice latency, barge-in) apply as they change.
+- When the global shortcut is switched on but cannot start (another app holds the key combination,
+  or hotkey support is missing), the feedback line says so ("The global shortcut is saved as on but
+  did not start: …") instead of "The global shortcut is on."
+- The Schedule window's email section is titled **Mailbox**, and without a usable mailbox it says
+  "Connect a mailbox first — open My email" (the kit's wording; `automation_controls.json` re-synced
+  with ui-kit 0.3.3 at fc697b9).
 - **Automations: an Active switch replaces Pause / Resume.** The automation view's bar leads with
   **Active** (on = runs on its schedule, off = paused) instead of two Pause and Resume buttons,
   and each card in the switcher's Automations tab carries the same switch instead of the

@@ -1758,7 +1758,7 @@ def test_the_email_trigger_needs_the_gateway_to_list_it(palette, stub) -> None:
 @pytest.mark.basic
 def test_email_wording_is_the_vendored_kit_section() -> None:
     assert rules.EMAIL_TEXT == EMAIL_TEXT
-    assert EMAIL_TEXT["not_set_up"] == "Email isn't set up — open My email"
+    assert EMAIL_TEXT["not_set_up"] == "Connect a mailbox first — open My email"
     assert EMAIL_TEXT["trigger_label"] == "When an email arrives" and EMAIL_TEXT["notify_label"] == "Email me the result"
 
 
@@ -1856,7 +1856,7 @@ def test_schedule_sheet_without_email_shows_the_notice_and_sends_nothing_email(p
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     assert sheet.email_notice.isVisibleTo(sheet) and EMAIL_TEXT["open_my_email"] in sheet.email_notice.text()
-    assert "Email isn" in sheet.email_notice.text()
+    assert "Connect a mailbox first" in sheet.email_notice.text()
     assert not sheet.notify_email.is_actionable() and not sheet.recipients_list.isEnabled()
     assert sheet.notify_email.unavailable_reason == "Connect a mailbox first."
     assert sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"]) >= 0

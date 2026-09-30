@@ -35,7 +35,7 @@
   "email": {
     "trigger_source": "email.received@1",
     "trigger_label": "When an email arrives",
-    "not_set_up": "Email isn't set up — open My email",
+    "not_set_up": "Connect a mailbox first — open My email",
     "open_my_email": "open My email",
     "filters_legend": "Only mail that matches (all optional)",
     "from_in": "From these addresses",

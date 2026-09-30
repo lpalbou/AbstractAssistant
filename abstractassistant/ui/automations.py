@@ -1065,7 +1065,7 @@ class ScheduleSheet(QDialog):
 
     The email options are offered only once ``set_email_status`` received a
     usable ``GET /me/email``; until then (and when it is not usable) they are
-    disabled under "Email isn't set up — open My email", and nothing
+    disabled under "Connect a mailbox first — open My email", and nothing
     email-shaped is sent."""
 
     submitted = pyqtSignal(object)  # the POST /automations body
@@ -1271,7 +1271,7 @@ class ScheduleSheet(QDialog):
         root.addWidget(self.email_box)
 
     def _build_email_options(self, root: QVBoxLayout) -> None:
-        root.addWidget(_text_label("Email", "autoViewTitle", parent=self))
+        root.addWidget(_text_label("Mailbox", "autoViewTitle", parent=self))
         full, link = EMAIL_TEXT["not_set_up"], EMAIL_TEXT["open_my_email"]
         lead = full[: len(full) - len(link)] if full.endswith(link) else f"{full} "
         self._email_notice_parts = (lead, link)

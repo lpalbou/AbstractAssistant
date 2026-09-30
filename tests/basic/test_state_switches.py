@@ -195,6 +195,24 @@ def test_the_global_shortcut_switch_applies_at_once() -> None:
 
 
 @pytest.mark.basic
+def test_the_global_shortcut_switch_says_when_the_shortcut_did_not_start() -> None:
+    """Cross-review: a shortcut that fails to arm must not be reported as "on"."""
+    _app()
+    from abstractassistant.ui.settings import SettingsDialog
+    from test_settings_pages import _Controller
+
+    ctl = _Controller()
+    dlg = SettingsDialog(controller=ctl, apply_hotkey=lambda: "Summon shortcut unavailable.", parent=None)
+    page = dlg.page_window
+    page.refresh()
+    page.hotkey_enabled.click()
+    assert ctl.preferences.hotkey_enabled is True
+    assert page.feedback.text() == "The global shortcut is saved as on but did not start: Summon shortcut unavailable."
+    assert page.feedback.property("tone") == "error"
+    dlg.deleteLater()
+
+
+@pytest.mark.basic
 def test_dialog_labels_stay_on_the_type_scale() -> None:
     """No label, switch or option in the Settings dialog or the Schedule sheet
     above 15 px or weight 600 (headings and pills are not labels)."""
