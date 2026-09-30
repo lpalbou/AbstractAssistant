@@ -17,7 +17,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
-- Automations: schedule a conversation to run on the gateway at a fixed UTC interval, read its runs
+- Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
+  email arrives (with the result emailed to you if you want), read its runs
   as a chat, pause, run now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).

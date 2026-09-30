@@ -105,7 +105,8 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A menu-bar palette whose title tells you what the app is doing, with a session switcher fed by
   the gateway (your sessions from every device, optionally every client's) and a live gateway
   connection orb.
-- Automations: schedule a conversation to run on the gateway at a fixed UTC interval, read its runs
+- Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
+  email arrives (with the result emailed to you if you want), read its runs
   as a chat, pause, run now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).
@@ -1323,18 +1324,21 @@ the stream. Whether the gateway offers live replies is read from
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and
     `POST /api/gateway/automations` (create, with a `request_id`; the Schedule window sends
-    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` trigger, `context.mode`
-    and `policy.tool_approval` = `auto` | `ask`)
+    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` or `email.received@1`
+    trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
+    `notify: {"channels": ["console", "email"]}` and `policy.email_allowed_recipients`)
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
-    changed fields among `title`, `trigger` and `context`, with `expected_revision` and
-    `command_id`; the Assistant never sends `target` or `policy`, which only a direct `PATCH`
-    changes)
+    changed fields among `title`, `trigger`, `context`, `notify` and
+    `policy.email_allowed_recipients`, with `expected_revision` and `command_id`; the Assistant
+    never sends `target` or the rest of `policy`, which only a direct `PATCH` changes)
   - `POST …/{id}/commands` (`automation.pause`, `automation.resume`, `automation.run_now`,
     `automation.stop_current`, `automation.archive`)
   - `GET …/{id}/occurrences` (runs, newest first), `GET …/{id}/attention` (unseen items),
     `POST …/{id}/seen` (the last displayed item's cursor), `POST …/{id}/discuss`
     (`occurrence_index`, `prompt`)
-  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1)
+  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1; it
+    offers **When an email arrives** only when `email.received` version 1 is listed)
+  - `GET /api/gateway/me/email` (whether your email account is usable; AbstractGateway 0.8.0+)
 
   Every refusal is read from the `detail.reason_code` envelope. A waiting run of an automation is
   answered with the `resume` command on `/api/gateway/commands`, whose payload follows the wait's
@@ -2428,10 +2432,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
-## [0.10.0] - unreleased
+## [0.10.0] - 2026-09-30
 
-Needs `@abstractframework/ui-kit` 0.2.0's `automation_controls.json` (vendored here) and an
-AbstractGateway with per-user email (framework backlog 0992; the `email.received@1` trigger and
+Ships `@abstractframework/ui-kit` 0.2.0's `automation_controls.json` (vendored). The email options
+need AbstractGateway 0.8.0 or later (per-user email: the `email.received@1` trigger and
 `/me/email`).
 
 ### Added
@@ -2445,6 +2449,9 @@ AbstractGateway with per-user email (framework backlog 0992; the `email.received
   lists `email.received@1`); otherwise the window shows **"Email isn't set up — open My email"**,
   whose link opens the gateway console's Users tab. Nothing email-shaped is sent without a usable
   account. The words are the kit's (`automation_controls.json` → `email`).
+- The Schedule window fits a laptop screen: its fields scroll inside a height capped at 900 px
+  (less on a smaller screen), and the preview, errors and **Cancel** / **Schedule** stay visible
+  below them.
 - The automation view's **Edit** changes an email trigger's check interval (the old `start_at` is
   dropped, so no email is read twice); the meta line reads the email trigger ("when an email
   arrives · from … · checked every hour · up to 100 per run").

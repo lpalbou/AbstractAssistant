@@ -5,10 +5,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
-## [0.10.0] - unreleased
+## [0.10.0] - 2026-09-30
 
-Needs `@abstractframework/ui-kit` 0.2.0's `automation_controls.json` (vendored here) and an
-AbstractGateway with per-user email (framework backlog 0992; the `email.received@1` trigger and
+Ships `@abstractframework/ui-kit` 0.2.0's `automation_controls.json` (vendored). The email options
+need AbstractGateway 0.8.0 or later (per-user email: the `email.received@1` trigger and
 `/me/email`).
 
 ### Added

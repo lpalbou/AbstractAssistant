@@ -221,18 +221,21 @@ the stream. Whether the gateway offers live replies is read from
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and
     `POST /api/gateway/automations` (create, with a `request_id`; the Schedule window sends
-    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` trigger, `context.mode`
-    and `policy.tool_approval` = `auto` | `ask`)
+    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` or `email.received@1`
+    trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
+    `notify: {"channels": ["console", "email"]}` and `policy.email_allowed_recipients`)
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
-    changed fields among `title`, `trigger` and `context`, with `expected_revision` and
-    `command_id`; the Assistant never sends `target` or `policy`, which only a direct `PATCH`
-    changes)
+    changed fields among `title`, `trigger`, `context`, `notify` and
+    `policy.email_allowed_recipients`, with `expected_revision` and `command_id`; the Assistant
+    never sends `target` or the rest of `policy`, which only a direct `PATCH` changes)
   - `POST …/{id}/commands` (`automation.pause`, `automation.resume`, `automation.run_now`,
     `automation.stop_current`, `automation.archive`)
   - `GET …/{id}/occurrences` (runs, newest first), `GET …/{id}/attention` (unseen items),
     `POST …/{id}/seen` (the last displayed item's cursor), `POST …/{id}/discuss`
     (`occurrence_index`, `prompt`)
-  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1)
+  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1; it
+    offers **When an email arrives** only when `email.received` version 1 is listed)
+  - `GET /api/gateway/me/email` (whether your email account is usable; AbstractGateway 0.8.0+)
 
   Every refusal is read from the `detail.reason_code` envelope. A waiting run of an automation is
   answered with the `resume` command on `/api/gateway/commands`, whose payload follows the wait's
