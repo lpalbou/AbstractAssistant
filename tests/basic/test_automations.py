@@ -1916,3 +1916,35 @@ def test_the_view_edits_an_email_triggers_interval(palette, stub) -> None:
     view._save_edit()
     changes = stub.calls("PATCH")[-1]["body"]["changes"]
     assert changes == {"trigger": {"source_id": "email.received", "source_version": 1, "config": {"uses_model": True, "every": "3h", "max_batch": 100}}}
+
+
+SHEET_MAX_HEIGHT = 900  # fits a 13" laptop's usable height (~800-900 px logical) with the palette beside it
+
+
+@pytest.mark.basic
+def test_the_schedule_sheet_fits_a_laptop_screen_and_keeps_its_buttons(palette, stub) -> None:
+    """With the email trigger the form is ~1250 px tall: the fields scroll, the
+    window stays within a laptop's height and Schedule/Cancel stay visible."""
+    stub.my_email = dict(EMAIL_USABLE)
+    stub.trigger_sources = {"items": stub.trigger_sources["items"] + [EMAIL_SOURCE]}
+    window, _controller = palette
+    window._poll_automations()
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    sheet.preset_combo.setCurrentIndex(sheet.preset_combo.findData("email"))
+    sheet.notify_email.setChecked(True)
+    sheet.recipients_list.setChecked(True)
+    _APP.processEvents()
+    sheet.adjustSize()
+    _APP.processEvents()
+    assert sheet.height() <= SHEET_MAX_HEIGHT and sheet.sizeHint().height() <= SHEET_MAX_HEIGHT, (sheet.height(), sheet.sizeHint())
+    for button in (sheet.submit_button, sheet.cancel_button):
+        assert button.isVisibleTo(sheet)
+        top_left = button.mapTo(sheet, button.rect().topLeft())
+        bottom_right = button.mapTo(sheet, button.rect().bottomRight())
+        assert sheet.rect().contains(top_left) and sheet.rect().contains(bottom_right), (button.text(), top_left, bottom_right, sheet.rect())
+    # The fields are reachable by scrolling, not cut off.
+    assert sheet.form_scroll.verticalScrollBar().maximum() > 0
+    sheet.form_scroll.ensureWidgetVisible(sheet.recipients_edit)
+    _APP.processEvents()
+    assert not sheet.recipients_edit.visibleRegion().isEmpty()

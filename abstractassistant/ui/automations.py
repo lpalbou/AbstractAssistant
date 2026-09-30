@@ -1041,9 +1041,24 @@ class ScheduleSheet(QDialog):
         self.request_id = uuid.uuid4().hex
         self.schedule_available: Optional[bool] = None
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
+        # The fields scroll inside a height capped to the screen (a 13" laptop
+        # has ~800-900 px); the preview, the error and Cancel / Schedule stay
+        # in a fixed footer, always visible.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(14, 12, 14, 12)
+        outer.setSpacing(8)
+        self.form_scroll = QScrollArea(self)
+        self.form_scroll.setObjectName("autoScroll")
+        self.form_scroll.setWidgetResizable(True)
+        self.form_scroll.setFrameShape(QFrame.NoFrame)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.form_body = QWidget()
+        self.form_body.setObjectName("autoList")
+        root = QVBoxLayout(self.form_body)
+        root.setContentsMargins(0, 0, 6, 0)
         root.setSpacing(8)
+        self.form_scroll.setWidget(self.form_body)
+        outer.addWidget(self.form_scroll, 1)
 
         root.addWidget(_text_label("What", "autoViewTitle", parent=self))
         root.addWidget(_text_label(f"Workflow: {target_label or 'none'}", "autoViewMeta", parent=self))
@@ -1115,11 +1130,12 @@ class ScheduleSheet(QDialog):
 
         self._build_email_options(root)
 
+        root.addStretch(1)
         self.preview_label = _text_label("", "autoViewMeta", parent=self)
-        root.addWidget(self.preview_label)
+        outer.addWidget(self.preview_label)
         self.error_label = _text_label("", "autoViewError", parent=self)
         self.error_label.hide()
-        root.addWidget(self.error_label)
+        outer.addWidget(self.error_label)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         self.cancel_button = _button("Cancel", "autoControl", parent=self)
@@ -1128,7 +1144,7 @@ class ScheduleSheet(QDialog):
         self.submit_button.clicked.connect(self._submit)
         buttons.addWidget(self.cancel_button)
         buttons.addWidget(self.submit_button)
-        root.addLayout(buttons)
+        outer.addLayout(buttons)
         for signal in (
             self.prompt_edit.textChanged, self.at_edit.textChanged, self.custom_amount.valueChanged, self.custom_unit.currentIndexChanged,
             self.email_every_amount.valueChanged, self.email_every_unit.currentIndexChanged, self.email_max_batch.valueChanged,
@@ -1292,6 +1308,34 @@ class ScheduleSheet(QDialog):
         self.setStyleSheet(dialog_stylesheet() + automation_row_qss())
         self._render_email_notice()
 
+    # The tallest the sheet may be: a 13" laptop's usable height, or less on a smaller screen.
+    MAX_HEIGHT = 900
+
+    def height_cap(self) -> int:
+        screen = self.screen() if hasattr(self, "screen") else None
+        available = screen.availableGeometry().height() if screen is not None else self.MAX_HEIGHT
+        return max(360, min(self.MAX_HEIGHT, available - 48))
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt API)
+        """The whole form when it fits, else the height cap (the fields scroll)."""
+        margins = self.layout().contentsMargins()
+        body = self.form_body.sizeHint()
+        footer = sum(
+            w.sizeHint().height() + self.layout().spacing()
+            for w in (self.preview_label, self.error_label, self.submit_button)
+            if w.isVisibleTo(self) or w is self.submit_button
+        )
+        width = max(body.width() + margins.left() + margins.right() + self.form_scroll.verticalScrollBar().sizeHint().width(), 460)
+        height = body.height() + footer + margins.top() + margins.bottom() + self.layout().spacing()
+        return QSize(width, min(height, self.height_cap()))
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        # Qt's own first sizing stops at 2/3 of the screen; use the cap instead.
+        if not getattr(self, "_sized_once", False):
+            self._sized_once = True
+            self.resize(self.sizeHint())
+        super().showEvent(event)
+
     def set_trigger_sources(self, items: Sequence[Mapping[str, Any]]) -> None:
         """``schedule@1`` must be offered by the gateway, else nothing can be scheduled."""
         available = any(
@@ -1324,6 +1368,7 @@ class ScheduleSheet(QDialog):
         return data
 
     def _sync_when(self) -> None:
+        self.setMaximumHeight(self.height_cap())
         data = self.preset_combo.currentData()
         self.custom_host.setVisible(data == "custom")
         self.email_box.setVisible(data == "email")

@@ -22,6 +22,9 @@ AbstractGateway with per-user email (framework backlog 0992; the `email.received
   lists `email.received@1`); otherwise the window shows **"Email isn't set up — open My email"**,
   whose link opens the gateway console's Users tab. Nothing email-shaped is sent without a usable
   account. The words are the kit's (`automation_controls.json` → `email`).
+- The Schedule window fits a laptop screen: its fields scroll inside a height capped at 900 px
+  (less on a smaller screen), and the preview, errors and **Cancel** / **Schedule** stay visible
+  below them.
 - The automation view's **Edit** changes an email trigger's check interval (the old `start_at` is
   dropped, so no email is read twice); the meta line reads the email trigger ("when an email
   arrives · from … · checked every hour · up to 100 per run").
