@@ -5,6 +5,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+Nothing yet.
+
+## [0.12.0] - 2026-10-01
+
 ### Changed
 - **Settings → Workflow lists only the workflows the gateway lets you run.** The list now comes from
   `GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1` (the admin's availability rules plus
