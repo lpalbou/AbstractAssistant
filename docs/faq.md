@@ -101,8 +101,8 @@ Yes, on a gateway that offers automations. The clock button in the palette heade
 (Independent, the default) or sees the previous runs (Growing), and whether its tools run without
 asking (the default) or ask each time. The gateway runs it, also when the Assistant is closed.
 Automations are listed in the session switcher's **Automations** tab and under
-**Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume, run
-now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
+**Automations…** in the tray menu; opening one shows its runs as a chat with the **Active** switch
+(off = paused), run now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
 notable, failures after all retries, and runs waiting for your answer; ordinary results stay
 quiet. Details: [automations.md](automations.md).
 

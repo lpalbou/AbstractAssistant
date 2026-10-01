@@ -196,9 +196,9 @@ flowchart LR
   become one tray notification each; their keys are kept in `automations_notified.json` (bounded)
   so a relaunch does not repeat them. The gateway's per-user seen cursor moves only when the user
   opens the automation, and only up to the last item the view displayed.
-- **Commands.** Pause, resume, run now, stop current and archive are `POST …/{id}/commands`; an
-  edit is `PATCH …/{id}` with the changed fields and the expected revision. Each user action has
-  one command id; a retry after a failure the gateway never answered re-sends the same id. A
+- **Commands.** Pause and resume (the **Active** switch), run now, stop current and archive are
+  `POST …/{id}/commands`; an edit is `PATCH …/{id}` with the changed fields and the expected
+  revision. Each user action has one command id; a retry after a failure the gateway never answered re-sends the same id. A
 receipt marked `duplicate` is confirmed with "(already received)"; a receipt without
 `accepted: true` is shown as an error.
 - **Waits.** A waiting occurrence is answered with the `resume` command on

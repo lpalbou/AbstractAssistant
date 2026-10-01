@@ -5,8 +5,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
-Vendors `@abstractframework/ui-kit` 0.3.3's `automation_controls.json` (it gained the **Active**
-label and hint).
+## [0.11.0] - 2026-10-01
+
+On/off settings are switches labelled by the feature, and automations get an **Active** switch.
+Ships `@abstractframework/ui-kit` 0.3.3's `automation_controls.json` (vendored; it gained the
+**Active** label and hint). Dependency floors are unchanged.
 
 ### Changed
 - **On/off settings are switches labelled by the feature**, the same control as the other
@@ -23,7 +26,7 @@ label and hint).
   did not start: …") instead of "The global shortcut is on."
 - The Schedule window's email section is titled **Mailbox**, and without a usable mailbox it says
   "Connect a mailbox first — open My email" (the kit's wording; `automation_controls.json` re-synced
-  with ui-kit 0.3.3 at fc697b9).
+  with ui-kit 0.3.3).
 - **Automations: an Active switch replaces Pause / Resume.** The automation view's bar leads with
   **Active** (on = runs on its schedule, off = paused) instead of two Pause and Resume buttons,
   and each card in the switcher's Automations tab carries the same switch instead of the

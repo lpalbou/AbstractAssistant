@@ -131,8 +131,8 @@ as in the web clients. **Edit** changes an email trigger's interval (the revised
 from now, so no email is read twice); Email me the result and the recipients are kept with the
 automation.
 
-Outside automations, the Assistant's local tool approval no longer lets `send_email`,
-`list_emails` or `read_email` run without asking.
+Outside automations, the Assistant's local tool approval asks before `send_email`,
+`list_emails` or `read_email` runs: these tools are not in its auto-approved set.
 
 ## Tool consent
 

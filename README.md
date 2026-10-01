@@ -19,7 +19,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   connection orb.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
   email arrives (with the result emailed to you if you want), read its runs
-  as a chat, pause, run now, edit or archive it, answer the runs that wait for you, discuss a
+  as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with

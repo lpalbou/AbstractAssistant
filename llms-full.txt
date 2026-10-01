@@ -107,7 +107,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   connection orb.
 - Automations: schedule a conversation to run on the gateway at a fixed UTC interval or when an
   email arrives (with the result emailed to you if you want), read its runs
-  as a chat, pause, run now, edit or archive it, answer the runs that wait for you, discuss a
+  as a chat, switch it off or on (**Active**), run it now, edit or archive it, answer the runs that wait for you, discuss a
   result, and get a tray notification only when a result is notable, a run fails or a run waits for
   you. See [docs/automations.md](docs/automations.md).
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
@@ -941,8 +941,8 @@ as in the web clients. **Edit** changes an email trigger's interval (the revised
 from now, so no email is read twice); Email me the result and the recipients are kept with the
 automation.
 
-Outside automations, the Assistant's local tool approval no longer lets `send_email`,
-`list_emails` or `read_email` run without asking.
+Outside automations, the Assistant's local tool approval asks before `send_email`,
+`list_emails` or `read_email` runs: these tools are not in its auto-approved set.
 
 ## Tool consent
 
@@ -1557,9 +1557,9 @@ flowchart LR
   become one tray notification each; their keys are kept in `automations_notified.json` (bounded)
   so a relaunch does not repeat them. The gateway's per-user seen cursor moves only when the user
   opens the automation, and only up to the last item the view displayed.
-- **Commands.** Pause, resume, run now, stop current and archive are `POST …/{id}/commands`; an
-  edit is `PATCH …/{id}` with the changed fields and the expected revision. Each user action has
-  one command id; a retry after a failure the gateway never answered re-sends the same id. A
+- **Commands.** Pause and resume (the **Active** switch), run now, stop current and archive are
+  `POST …/{id}/commands`; an edit is `PATCH …/{id}` with the changed fields and the expected
+  revision. Each user action has one command id; a retry after a failure the gateway never answered re-sends the same id. A
 receipt marked `duplicate` is confirmed with "(already received)"; a receipt without
 `accepted: true` is shown as an error.
 - **Waits.** A waiting occurrence is answered with the `resume` command on
@@ -1829,8 +1829,8 @@ Yes, on a gateway that offers automations. The clock button in the palette heade
 (Independent, the default) or sees the previous runs (Growing), and whether its tools run without
 asking (the default) or ask each time. The gateway runs it, also when the Assistant is closed.
 Automations are listed in the session switcher's **Automations** tab and under
-**Automations…** in the tray menu; opening one shows its runs as a chat with pause, resume, run
-now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
+**Automations…** in the tray menu; opening one shows its runs as a chat with the **Active** switch
+(off = paused), run now, stop, edit, archive and Discuss. You are notified only for results the workflow marks as
 notable, failures after all retries, and runs waiting for your answer; ordinary results stay
 quiet. Details: [automations.md](automations.md).
 
@@ -2439,8 +2439,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
-Vendors `@abstractframework/ui-kit` 0.3.3's `automation_controls.json` (it gained the **Active**
-label and hint).
+## [0.11.0] - 2026-10-01
+
+On/off settings are switches labelled by the feature, and automations get an **Active** switch.
+Ships `@abstractframework/ui-kit` 0.3.3's `automation_controls.json` (vendored; it gained the
+**Active** label and hint). Dependency floors are unchanged.
 
 ### Changed
 - **On/off settings are switches labelled by the feature**, the same control as the other
@@ -2457,7 +2460,7 @@ label and hint).
   did not start: …") instead of "The global shortcut is on."
 - The Schedule window's email section is titled **Mailbox**, and without a usable mailbox it says
   "Connect a mailbox first — open My email" (the kit's wording; `automation_controls.json` re-synced
-  with ui-kit 0.3.3 at fc697b9).
+  with ui-kit 0.3.3).
 - **Automations: an Active switch replaces Pause / Resume.** The automation view's bar leads with
   **Active** (on = runs on its schedule, off = paused) instead of two Pause and Resume buttons,
   and each card in the switcher's Automations tab carries the same switch instead of the
@@ -3281,7 +3284,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.10.0"
+version = "0.11.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
