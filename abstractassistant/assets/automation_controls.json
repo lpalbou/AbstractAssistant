@@ -12,8 +12,8 @@
     "discuss": "Discuss"
   },
   "hints": {
-    "active": "On: it runs on its schedule. Off: paused, scheduled runs are skipped.\nPausing lets a run in progress, with its retries, finish; Run now still works and keeps it paused.\nMaking it active again restarts the schedule at its next time after now; times missed while paused are skipped.",
-    "pause": "Stop scheduled runs until you resume.\nA run in progress, with its retries, finishes. Run now still works.",
+    "active": "On: it runs on its schedule. Off: paused, scheduled runs are skipped.\nPausing lets a run in progress finish, without further retries; Run now still works and keeps it paused.\nMaking it active again restarts the schedule at its next time after now; times missed while paused are skipped.",
+    "pause": "Stop scheduled runs until you resume.\nA run in progress finishes; a pending retry is cancelled. Run now still works.",
     "resume": "Restart the schedule at its next time after now.\nTimes missed while paused are skipped; resuming does not run it now.",
     "run_now": "Run it once now, without waiting for the schedule.\nThe schedule does not move: the next scheduled run keeps its time, or starts right after this run if its time comes first.\nDoes not count toward a run limit. Works while paused; it stays paused.\nNot available while a run is in progress.",
     "stop_current": "Cancel the run in progress, or its pending retry.\nIt ends as cancelled, with no failure notice. The schedule continues.",
