@@ -27,6 +27,15 @@ from abstractassistant.preferences import (
 )
 
 
+def _executable(payload: dict) -> dict:
+    """The fake gateway's answer to GET /bundles?executable_for=abstractassistant.agent.v1:
+    the echo plus owner/shipped on every item (the contract the service checks)."""
+    items = [
+        {"owner": {"kind": "gateway", "user_id": None}, "shipped": False, **item} for item in payload.get("items", [])
+    ]
+    return {**payload, "executable_for": "abstractassistant.agent.v1", "items": items}
+
+
 def _entry(bundle_id: str, version: str, flow_id: str, name: str) -> dict:
     return {
         "bundle_id": bundle_id,
@@ -51,7 +60,11 @@ class _Gateway:
             _entry("research-agent", "1.10.0", "agent", "Research agent"),
         ]
 
-    def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
+    def executable_bundles(self, interface: str) -> dict:
+        assert interface == "abstractassistant.agent.v1"
+        return _executable(self._catalog_payload())
+
+    def _catalog_payload(self) -> dict:
         payload: dict = {"items": list(self.items)}
         if self.default != "absent":
             payload["default_agent_workflows"] = self.default
@@ -147,7 +160,7 @@ class _G1Gateway(_Gateway):
     """The shape G1 serves: resolvable interfaces in default_agent_workflows,
     the others (with the reason) in default_agent_workflows_unavailable."""
 
-    def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
+    def _catalog_payload(self) -> dict:
         return {
             "items": list(self.items),
             "default_agent_workflows": {},
@@ -189,7 +202,7 @@ def test_menu_lists_the_gateway_default_first_then_every_workflow() -> None:
         "Research agent @1.10.0 — research-agent",
     ]
     assert "source: stored" in menu[0]["detail"]
-    assert menu[2]["choice"] == {"bundle_id": "research-agent", "flow_id": "agent", "registry_scope": "tenant_catalog"}
+    assert menu[2]["choice"] == {"bundle_id": "research-agent", "flow_id": "agent", "registry_scope": "private"}
 
 
 @pytest.mark.basic

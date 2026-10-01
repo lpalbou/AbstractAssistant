@@ -719,6 +719,19 @@ class GatewayClient:
     def list_bundles(self) -> Dict[str, Any]:
         return self._request_json(method="GET", url=self._url("/api/gateway/bundles"), label="list_bundles failed")
 
+    def executable_bundles(self, interface: str) -> Dict[str, Any]:
+        """``GET /bundles?executable_for=<interface>``: the workflows declaring
+        ``interface`` that the signed-in principal may run (the gateway applies
+        the admin's availability rules and adds the principal's own)."""
+        iface = str(interface or "").strip()
+        if not iface:
+            raise ValueError("executable_bundles needs the interface the app runs.")
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/bundles", query={"executable_for": iface}),
+            label="executable_bundles failed",
+        )
+
     def workflow_catalog(self, *, scope: str = "tenant_catalog") -> Dict[str, Any]:
         return self._request_json(
             method="GET",

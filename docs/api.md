@@ -95,7 +95,8 @@ SSE.
 Workflow resolution:
 
 - **Gateway default** (the default choice): when the gateway reports a default workflow for
-  `abstractassistant.agent.v1` (`default_agent_workflows` on `/api/gateway/workflow-catalog`),
+  `abstractassistant.agent.v1` (`default_agent_workflows` on
+  `/api/gateway/bundles?executable_for=abstractassistant.agent.v1`),
   each run starts with `flow_id: "@default"` and `interface: "abstractassistant.agent.v1"`, and the
   gateway resolves it at run start. When it reports none, the built-in
   `abstractassistant-orchestrator` workflow runs, and Settings shows the gateway's reason. The app
@@ -190,7 +191,9 @@ the stream. Whether the gateway offers live replies is read from
 - Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
   `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
-- Workflow: `/api/gateway/workflow-catalog`, `/api/gateway/visualflows`,
+- Workflow: `GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1` (the Settings →
+  Workflow list: only the assistant workflows the signed-in person may run, each with `owner` and
+  `shipped`; a gateway that ignores the parameter is reported, not listed), `/api/gateway/visualflows`,
   `/api/gateway/visualflows/{flow_id}/publish`, `/api/gateway/admin/workflow-catalog/promote`
 - Sessions: `GET /api/gateway/runs?limit=200&offset=N&root_only=true&include_ledger_len=false`
   pages (the session list, 100 sessions at a time; `&session_kind=chat,discussion` is added when

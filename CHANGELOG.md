@@ -5,6 +5,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+### Changed
+- **Settings → Workflow lists only the workflows the gateway lets you run.** The list now comes from
+  `GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1` (the admin's availability rules plus
+  your own workflows) instead of the tenant catalog filtered by the app; chosen workflows run from the gateway's
+  bundle registry. A gateway that does not filter per app is reported in Settings instead of listed. There was
+  no "show all workflows" switch in the Assistant, so none is removed.
+
 ## [0.11.0] - 2026-10-01
 
 On/off settings are switches labelled by the feature, and automations get an **Active** switch.

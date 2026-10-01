@@ -93,7 +93,9 @@ so quit a running Assistant before you click **Open**.
 Each turn runs the gateway's default workflow for the assistant (`abstractassistant.agent.v1`).
 When the gateway sets none, the app runs its built-in orchestrator, the
 `abstractassistant-orchestrator` workflow it publishes to your tenant catalog. You can pick
-another assistant workflow in Settings → Models → Workflow.
+another assistant workflow in Settings → Models → Workflow; the list holds only the assistant
+workflows the gateway says you can run (what your admin made available, plus your own:
+`GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1`).
 
 ## Defaults and durability
 

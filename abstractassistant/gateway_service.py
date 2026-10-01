@@ -188,6 +188,40 @@ FIRST_MANAGED_WORKFLOW_VERSION = "0.0.1"
 _PLACEHOLDER_VERSIONS = frozenset({"", "0.0.0"})
 
 
+def executable_contract_problem(payload: Any, interface: str) -> str:
+    """Why ``payload`` is not a ``GET /bundles?executable_for=<interface>``
+    answer, or "" when it is. Mirrors the kit's parseExecutableWorkflows():
+    the echo, ``owner``/``shipped`` on every item, and every listed entrypoint
+    declaring the interface (otherwise the gateway ignored the parameter)."""
+    if not isinstance(payload, dict):
+        return "The gateway's workflow list was not a JSON object."
+    echoed = str(payload.get("executable_for") or "").strip()
+    if echoed != interface:
+        if echoed:
+            return f"The gateway listed workflows for {echoed}, not {interface}."
+        return "This gateway does not filter workflows per app (no executable_for in its answer): update the gateway."
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return "The gateway's workflow list has no items."
+    for record in items:
+        if not isinstance(record, dict) or not str(record.get("bundle_id") or "").strip():
+            return "The gateway listed a workflow without a bundle id."
+        bundle_id = str(record.get("bundle_id")).strip()
+        owner = record.get("owner")
+        if not isinstance(owner, dict) or owner.get("kind") not in ("gateway", "user"):
+            return f"The gateway did not say who owns {bundle_id} (owner missing): update the gateway."
+        if not isinstance(record.get("shipped"), bool):
+            return f"The gateway did not say whether {bundle_id} ships with it (shipped missing): update the gateway."
+        for entry in record.get("entrypoints") or []:
+            if not isinstance(entry, dict):
+                return f"The gateway listed an invalid entrypoint for {bundle_id}."
+            interfaces = entry.get("interfaces") if isinstance(entry.get("interfaces"), list) else []
+            if interface not in [str(i).strip() for i in interfaces]:
+                flow_id = str(entry.get("flow_id") or "").strip()
+                return f"The gateway offered {bundle_id}:{flow_id}, which does not declare {interface}: update the gateway."
+    return ""
+
+
 def workflow_version_suffix(bundle_id: str, version: str, *, named_built_in: bool = False) -> str:
     """The version part of a workflow label: `` @1.2.3`` for a real version.
 
@@ -525,55 +559,42 @@ class AssistantGatewayService:
         return _dedupe(items)
 
     def _catalog_workflows(self) -> tuple[List[WorkflowOption], str]:
+        """The workflows this app can run for the signed-in person, as the
+        GATEWAY lists them: ``GET /bundles?executable_for=abstractassistant.agent.v1``
+        (operator 2026-10-01 — the admin decides what is available to users,
+        users also see their own; no client-side "show all" or interface filter).
+        A gateway that does not honour the contract is an error, never a list."""
         # Never serve a previous read's options when this one fails.
         self._last_catalog_options = []
         try:
-            payload = self._gateway.workflow_catalog(scope="tenant_catalog")
+            payload = self._gateway.executable_bundles(ASSISTANT_INTERFACE)
         except Exception as exc:
             return [], str(exc)
-        items = payload.get("items") if isinstance(payload, dict) else None
-        if not isinstance(items, list):
-            return [], "Gateway workflow catalog response was invalid."
+        problem = executable_contract_problem(payload, ASSISTANT_INTERFACE)
+        if problem:
+            return [], problem
         self._gateway_default = self._parse_gateway_default(payload)
         options: List[WorkflowOption] = []
         self._last_catalog_options = options
-        for record in items:
-            if not isinstance(record, dict):
-                continue
-            actions = record.get("actions")
-            if isinstance(actions, dict) and actions.get("can_run") is False:
-                continue
+        for record in payload["items"]:
             bundle_id = str(record.get("bundle_id") or "").strip()
             bundle_version = str(record.get("bundle_version") or "").strip()
             if not bundle_id or not bundle_version:
                 continue
-            default_entrypoint = str(record.get("default_entrypoint") or "").strip()
-            entrypoints = record.get("entrypoints") if isinstance(record.get("entrypoints"), list) else []
-            for entry in entrypoints:
-                if not isinstance(entry, dict):
-                    continue
-                interfaces = entry.get("interfaces")
-                entry_interfaces = [str(item).strip() for item in interfaces if isinstance(item, str) and str(item).strip()] if isinstance(interfaces, list) else []
-                if not entry_interfaces:
-                    record_interfaces = record.get("interfaces")
-                    if isinstance(record_interfaces, list):
-                        entry_interfaces = [str(item).strip() for item in record_interfaces if isinstance(item, str) and str(item).strip()]
-                if ASSISTANT_INTERFACE not in entry_interfaces:
-                    continue
+            for entry in record.get("entrypoints") or []:
                 flow_id = str(entry.get("flow_id") or "").strip()
                 if not flow_id:
                     continue
                 name = str(entry.get("name") or "").strip() or flow_id
-                label = name
                 options.append(
                     WorkflowOption(
                         bundle_id=bundle_id,
                         flow_id=flow_id,
-                        label=label,
-                        registry_scope="tenant_catalog",
+                        label=name,
+                        registry_scope=str(record.get("registry_scope") or "private").strip() or "private",
                         bundle_version=bundle_version,
-                        description=str(entry.get("description") or record.get("status_reason") or "").strip(),
-                        is_default=bool(record.get("is_default")) and flow_id == default_entrypoint,
+                        description=str(entry.get("description") or record.get("description") or "").strip(),
+                        is_default=bool(entry.get("is_agent_default")),
                     )
                 )
         options.sort(key=lambda option: (_version_sort_key(option.bundle_version), option.label), reverse=True)

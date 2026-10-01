@@ -80,6 +80,15 @@ def _alpha_bbox(pixmap, *, threshold: int = 128) -> tuple[int, int, int, int] | 
     return min_x, min_y, max_x + 1, max_y + 1
 
 
+def _executable(payload: dict) -> dict:
+    """The fake gateway's answer to GET /bundles?executable_for=abstractassistant.agent.v1:
+    the echo plus owner/shipped on every item (the contract the service checks)."""
+    items = [
+        {"owner": {"kind": "gateway", "user_id": None}, "shipped": False, **item} for item in payload.get("items", [])
+    ]
+    return {**payload, "executable_for": "abstractassistant.agent.v1", "items": items}
+
+
 class _GatewayCatalogStub:
     def __init__(self) -> None:
         self.voice_model_calls: list[dict] = []
@@ -118,8 +127,11 @@ class _GatewayCatalogStub:
             ]
         }
 
-    def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
-        assert scope == "tenant_catalog"
+    def executable_bundles(self, interface: str) -> dict:
+        assert interface == "abstractassistant.agent.v1"
+        return _executable(self._catalog_payload())
+
+    def _catalog_payload(self) -> dict:
         return {
             "items": [
                 {
@@ -133,6 +145,7 @@ class _GatewayCatalogStub:
                             "flow_id": "chat",
                             "name": "Default Chat",
                             "interfaces": ["abstractassistant.agent.v1"],
+                            "is_agent_default": True,
                         }
                     ],
                 }
@@ -174,7 +187,8 @@ def test_assistant_palette_gateway_service_uses_catalog_workflows_and_voice_cata
 
     assert workflows[0].bundle_id == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
     assert workflows[0].bundle_version == "2026.06.12"
-    assert workflows[0].registry_scope == "tenant_catalog"
+    # The gateway's executable_for listing serves the bundle registry ("private").
+    assert workflows[0].registry_scope == "private"
     assert workflows[0].is_default is True
     assert routes["output.voice"].options["voice"] == "coral"
     assert [item.id for item in providers] == ["openai"]
@@ -188,8 +202,7 @@ def test_assistant_palette_gateway_service_prefers_catalog_default_when_multiple
     None
 ):
     class _GatewayDefaultStub(_GatewayCatalogStub):
-        def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
-            assert scope == "tenant_catalog"
+        def _catalog_payload(self) -> dict:
             return {
                 "items": [
                     {
@@ -217,6 +230,8 @@ def test_assistant_palette_gateway_service_prefers_catalog_default_when_multiple
                                 "flow_id": "chat",
                                 "name": "Default",
                                 "interfaces": ["abstractassistant.agent.v1"],
+                                # /bundles marks the gateway's agent default per entrypoint.
+                                "is_agent_default": True,
                             }
                         ],
                     },
@@ -239,8 +254,7 @@ def test_assistant_palette_gateway_service_runs_the_newest_version_without_a_cat
     """2026-09-25: the app no longer needs (or claims) a catalog default; the
     catalog keeps every published version and the newest one runs."""
     class _GatewayAmbiguousStub(_GatewayCatalogStub):
-        def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
-            assert scope == "tenant_catalog"
+        def _catalog_payload(self) -> dict:
             return {
                 "items": [
                     {
@@ -374,8 +388,11 @@ class _ManagedWorkflowGatewayStub:
         )
         return {"ok": True}
 
-    def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
-        assert scope == "tenant_catalog"
+    def executable_bundles(self, interface: str) -> dict:
+        assert interface == "abstractassistant.agent.v1"
+        return _executable(self._catalog_payload())
+
+    def _catalog_payload(self) -> dict:
         return {"items": list(self._catalog_items)}
 
     def list_bundles(self) -> dict:
@@ -395,7 +412,8 @@ def test_assistant_palette_gateway_service_reconciles_and_promotes_catalog_workf
     assert gateway.published[0]["bundle_id"] == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
     assert gateway.promoted[0]["bundle_id"] == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
     assert workflows[0].bundle_id == MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID
-    assert workflows[0].registry_scope == "tenant_catalog"
+    # The gateway's executable_for listing serves the bundle registry ("private").
+    assert workflows[0].registry_scope == "private"
 
 
 @pytest.mark.basic
@@ -1424,8 +1442,8 @@ class _WrongGatewaySurfaceStub:
     def list_visualflows(self) -> list[dict]:
         raise RuntimeError("list_visualflows failed: Not Found")
 
-    def workflow_catalog(self, *, scope: str = "tenant_catalog") -> dict:
-        raise RuntimeError("workflow_catalog failed: Not Found")
+    def executable_bundles(self, interface: str) -> dict:
+        raise RuntimeError("executable_bundles failed: Not Found")
 
     def gateway_me(self) -> dict:
         raise RuntimeError("gateway_me failed: Not Found")
