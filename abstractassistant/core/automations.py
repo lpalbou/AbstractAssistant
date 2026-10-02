@@ -521,14 +521,14 @@ def email_trigger_label(config: Mapping[str, Any]) -> str:
 
 
 def email_allowed_recipients(mode: str, addresses: str = "") -> Tuple[List[str], List[str]]:
-    """``policy.email_allowed_recipients``: ``["self"]`` for "only me",
+    """Result recipients: ``["self"]`` for "only me",
     ``["self", ...addresses]`` for "me and these addresses" (at least one)."""
     if mode != "list":
         return ["self"], []
     errors: List[str] = []
     items = [a for a in parse_entry_list(addresses) if a != "self"]
     if not items:
-        errors.append("Name at least one address the automation may email, or choose Only me.")
+        errors.append("Name at least one recipient, or choose Only me.")
     bad = [a for a in items if not is_plain_address(a)]
     if bad:
         errors.append(f"{EMAIL_TEXT['recipients_list']}: {', '.join(bad)} {'is not an email address' if len(bad) == 1 else 'are not email addresses'}.")
@@ -537,9 +537,12 @@ def email_allowed_recipients(mode: str, addresses: str = "") -> Tuple[List[str],
     return ["self", *items], errors
 
 
-def notify_for(email_me: bool) -> Dict[str, Any]:
-    """``notify`` for "Email me the result"."""
-    return {"channels": ["console", "email"] if email_me else ["console"]}
+def notify_for(email_me: bool, recipients: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Result delivery settings; tool permissions are independent."""
+    result: Dict[str, Any] = {"channels": ["console", "email"] if email_me else ["console"]}
+    if recipients and recipients != ["self"]:
+        result["recipients"] = recipients
+    return result
 
 
 def notify_emails(notify: Any) -> bool:
@@ -892,11 +895,27 @@ def target_from_workflow(selection: Any) -> Optional[Dict[str, Any]]:
     return {"bundle_ref": f"{bundle_id}@{version}" if version else bundle_id, "flow_id": flow_id}
 
 
+DEFAULT_GROWING_MAX_TOKENS = 50_000
+GROWING_CONTEXT_HELP = ("Keeps the most recent whole turns within this token budget. "
+                        "The newest turn is kept whole even if it exceeds the budget. "
+                        "Changes apply to future runs.")
+
+
+def _valid_growing_max_tokens(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _automation_context(mode: str, max_tokens: int) -> Dict[str, Any]:
+    return {"mode": mode, **({"growing": {"max_tokens": max_tokens}}
+                            if max_tokens != DEFAULT_GROWING_MAX_TOKENS else {})}
+
+
 def build_create_request(
     *,
     prompt: str,
     when: ScheduleWhen,
     context: str,
+    growing_max_tokens: int = DEFAULT_GROWING_MAX_TOKENS,
     target: Optional[Mapping[str, Any]],
     request_id: str,
     title: str = "",
@@ -917,7 +936,7 @@ def build_create_request(
     ``email.received@1`` from ``email`` (``when`` is then ignored);
     ``notify_email`` sends ``notify: {channels: ["console", "email"]}`` (off
     sends nothing: the server default); ``email_recipients=("list", text)``
-    sends ``policy.email_allowed_recipients`` (``("self", "")`` sends nothing)."""
+    sets ``notify.recipients`` (``("self", "")`` sends nothing)."""
     errors: List[str] = []
     if not target:
         errors.append("This conversation has no workflow to schedule.")
@@ -929,6 +948,8 @@ def build_create_request(
         errors.append("Title is at most 120 characters.")
     if context not in {"independent", "growing"}:
         errors.append("Context must be Independent or Growing.")
+    if context == "growing" and not _valid_growing_max_tokens(growing_max_tokens):
+        errors.append("Max growing context must be a positive whole number of tokens.")
     if tool_approval not in {"auto", "ask"}:
         errors.append("Tool approval must be automatic or ask each time.")
     is_email = trigger == "email"
@@ -938,7 +959,7 @@ def build_create_request(
         config, when_errors = schedule_config(when, start_at=start_at, count=count)
     errors.extend(when_errors)
     recipients: Optional[List[str]] = None
-    if email_recipients is not None and email_recipients[0] == "list":
+    if notify_email and email_recipients is not None and email_recipients[0] == "list":
         recipients, rcpt_errors = email_allowed_recipients("list", email_recipients[1])
         errors.extend(rcpt_errors)
     if errors or not target:
@@ -946,8 +967,6 @@ def build_create_request(
     full_target = dict(target)
     full_target["input_data"] = {**dict(target.get("input_data") or {}), "prompt": text}
     policy: Dict[str, Any] = {"tool_approval": tool_approval}
-    if recipients is not None:
-        policy["email_allowed_recipients"] = recipients
     body: Dict[str, Any] = {
         "request_id": request_id,
         "title": name,
@@ -957,11 +976,11 @@ def build_create_request(
             if is_email
             else {"source_id": "schedule", "source_version": 1, "config": config}
         ),
-        "context": {"mode": context},
+        "context": _automation_context(context, growing_max_tokens if context == "growing" else DEFAULT_GROWING_MAX_TOKENS),
         "policy": policy,
     }
     if notify_email:
-        body["notify"] = notify_for(True)
+        body["notify"] = notify_for(True, recipients)
     return body, []
 
 
@@ -974,6 +993,7 @@ def revise_changes(
     title: str,
     every: Optional[str],
     context: str,
+    growing_max_tokens: Optional[int] = None,
     definition: Optional[Mapping[str, Any]] = None,
     notify_email: Optional[bool] = None,
     email_recipients: Optional[Tuple[str, str]] = None,
@@ -983,8 +1003,7 @@ def revise_changes(
     new binding and re-anchors so no past tick fires); for ``email.received@1``
     the old ``start_at`` is dropped so the revised trigger never re-reads mail,
     and the interval is at least 60 s. With the committed ``definition``,
-    ``notify_email`` sends ``notify`` and ``email_recipients`` sends only
-    ``policy.email_allowed_recipients`` (the server merges policy)."""
+    ``notify_email`` and ``email_recipients`` update result delivery in ``notify``."""
     errors: List[str] = []
     changes: Dict[str, Any] = {}
     name = str(title or "").strip()
@@ -1012,21 +1031,23 @@ def revise_changes(
                 "source_version": trigger.get("source_version"),
                 "config": new_config,
             }
-    if context != summary.get("context_mode"):
-        if context not in {"independent", "growing"}:
-            errors.append("Context must be Independent or Growing.")
-        else:
-            changes["context"] = {"mode": context}
+    before_limit = summary.get("growing_max_tokens", DEFAULT_GROWING_MAX_TOKENS)
     if definition is not None:
-        if notify_email is not None and bool(notify_email) != notify_emails(definition.get("notify")):
-            changes["notify"] = notify_for(bool(notify_email))
-        if email_recipients is not None:
-            policy = definition.get("policy") if isinstance(definition.get("policy"), Mapping) else {}
-            current = list(policy.get("email_allowed_recipients") or ["self"])
-            wanted, rcpt_errors = email_allowed_recipients(*email_recipients)
-            errors.extend(rcpt_errors)
-            if not rcpt_errors and wanted != current:
-                changes["policy"] = {"email_allowed_recipients": wanted}
+        before_limit = (definition.get("context") or {}).get("growing", {}).get("max_tokens", before_limit)
+    limit = before_limit if growing_max_tokens is None or context != "growing" else growing_max_tokens
+    if context not in {"independent", "growing"}:
+        errors.append("Context must be Independent or Growing.")
+    elif not _valid_growing_max_tokens(limit):
+        errors.append("Max growing context must be a positive whole number of tokens.")
+    elif context != summary.get("context_mode") or limit != before_limit:
+        changes["context"] = _automation_context(context, limit)
+    if definition is not None and notify_email is not None:
+        current = list((definition.get("notify") or {}).get("recipients") or ["self"])
+        wanted, rcpt_errors = (email_allowed_recipients(*email_recipients)
+                               if notify_email and email_recipients is not None else (current, []))
+        errors.extend(rcpt_errors)
+        if not rcpt_errors and (bool(notify_email) != notify_emails(definition.get("notify")) or wanted != current):
+            changes["notify"] = notify_for(bool(notify_email), wanted)
     if errors:
         return None, errors
     return (changes or None), []

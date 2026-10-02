@@ -41,6 +41,8 @@ from PyQt5.QtWidgets import (
 
 from ..core.automations import (
     AUTOMATION_CONTROLS,
+    DEFAULT_GROWING_MAX_TOKENS,
+    GROWING_CONTEXT_HELP,
     CONTROL_COMMANDS,
     EMAIL_DEFAULT_MAX_BATCH,
     EMAIL_MAX_BATCH,
@@ -733,11 +735,20 @@ class AutomationView(QFrame):
         self.edit_context.setObjectName("autoInput")
         self.edit_context.addItem("Independent", "independent")
         self.edit_context.addItem("Growing", "growing")
+        self.edit_max_tokens = QSpinBox(self.edit_box)
+        self.edit_max_tokens.setObjectName("autoInput")
+        self.edit_max_tokens.setRange(1, 2_147_483_647)
+        self.edit_max_tokens.setValue(DEFAULT_GROWING_MAX_TOKENS)
+        self.edit_max_tokens.setPrefix("Max tokens: ")
+        self.edit_max_tokens.setAccessibleName("Max growing context (tokens)")
+        self.edit_max_tokens.setToolTip(GROWING_CONTEXT_HELP)
+        self.edit_max_tokens.setVisible(False)
+        self.edit_context.currentIndexChanged.connect(lambda: self.edit_max_tokens.setVisible(self.edit_context.currentData() == "growing"))
         self.edit_save = _button("Save", "autoPrimary", parent=self.edit_box)
         self.edit_save.clicked.connect(self._save_edit)
         self.edit_cancel = _button("Cancel", "autoControl", parent=self.edit_box)
         self.edit_cancel.clicked.connect(self.edit_box.hide)
-        for w, stretch in ((self.edit_title, 1), (self.edit_every, 0), (self.edit_context, 0), (self.edit_save, 0), (self.edit_cancel, 0)):
+        for w, stretch in ((self.edit_title, 1), (self.edit_every, 0), (self.edit_context, 0), (self.edit_max_tokens, 0), (self.edit_save, 0), (self.edit_cancel, 0)):
             el.addWidget(w, stretch)
         self.edit_box.hide()
         top.addWidget(self.edit_box)
@@ -824,6 +835,7 @@ class AutomationView(QFrame):
             self.edit_every.setText(str(every or ""))
             self.edit_every.setEnabled(has_interval)
             self.edit_context.setCurrentIndex(1 if summary.get("context_mode") == "growing" else 0)
+            self.edit_max_tokens.setValue(int(summary.get("growing_max_tokens", DEFAULT_GROWING_MAX_TOKENS)))
         self._apply_controls()
         if self.controls()["discuss"] != before:
             self._rebuild_pairs()
@@ -1046,6 +1058,7 @@ class AutomationView(QFrame):
             title=self.edit_title.text(),
             every=every or None,
             context=str(self.edit_context.currentData()),
+            growing_max_tokens=self.edit_max_tokens.value(),
         )
         if errors:
             self.set_error(" ".join(errors))
@@ -1164,6 +1177,16 @@ class ScheduleSheet(QDialog):
         group.addButton(self.growing)
         root.addWidget(self.independent)
         root.addWidget(self.growing)
+        self.growing_max_tokens = QSpinBox(self)
+        self.growing_max_tokens.setObjectName("autoInput")
+        self.growing_max_tokens.setRange(1, 2_147_483_647)
+        self.growing_max_tokens.setValue(DEFAULT_GROWING_MAX_TOKENS)
+        self.growing_max_tokens.setPrefix("Max growing context (tokens): ")
+        self.growing_max_tokens.setAccessibleName("Max growing context (tokens)")
+        self.growing_max_tokens.setToolTip(GROWING_CONTEXT_HELP)
+        self.growing_max_tokens.setVisible(False)
+        self.growing.toggled.connect(self.growing_max_tokens.setVisible)
+        root.addWidget(self.growing_max_tokens)
 
         root.addWidget(_text_label("Tools", "autoViewTitle", parent=self))
         self.tools_auto = QRadioButton("Tools run without asking (you approve them now by creating this automation)", self)
@@ -1289,7 +1312,11 @@ class ScheduleSheet(QDialog):
         self.notify_email.set_hint(EMAIL_TEXT["notify_hint"])
         root.addWidget(self.notify_email)
         root.addWidget(_text_label(EMAIL_TEXT["notify_hint"], "autoViewMeta", parent=self))
-        root.addWidget(_text_label(EMAIL_TEXT["recipients_legend"], "autoViewMeta", parent=self))
+        self.recipients_container = QWidget(self)
+        recipients_layout = QVBoxLayout(self.recipients_container)
+        recipients_layout.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self.recipients_container)
+        recipients_layout.addWidget(_text_label(EMAIL_TEXT["recipients_legend"], "autoViewMeta", parent=self))
         self.recipients_self = QRadioButton(EMAIL_TEXT["recipients_self"], self)
         self.recipients_list = QRadioButton(EMAIL_TEXT["recipients_list"], self)
         self.recipients_self.setChecked(True)
@@ -1297,13 +1324,13 @@ class ScheduleSheet(QDialog):
         group.addButton(self.recipients_self)
         group.addButton(self.recipients_list)
         self._recipients_group = group
-        root.addWidget(self.recipients_self)
-        root.addWidget(self.recipients_list)
+        recipients_layout.addWidget(self.recipients_self)
+        recipients_layout.addWidget(self.recipients_list)
         self.recipients_edit = QLineEdit(self)
         self.recipients_edit.setObjectName("autoInput")
         self.recipients_edit.setPlaceholderText("colleague@example.com")
-        root.addWidget(self.recipients_edit)
-        root.addWidget(_text_label(EMAIL_TEXT["recipients_hint"], "autoViewMeta", parent=self))
+        recipients_layout.addWidget(self.recipients_edit)
+        recipients_layout.addWidget(_text_label(EMAIL_TEXT["recipients_hint"], "autoViewMeta", parent=self))
 
     def _render_email_notice(self) -> None:
         # The link in the theme's accent (Qt's default link blue is unreadable on the dark themes).
@@ -1341,6 +1368,7 @@ class ScheduleSheet(QDialog):
         return email_usable(self.email_status)
 
     def _sync_recipients(self) -> None:
+        self.recipients_container.setVisible(self.notify_email.isChecked())
         self.recipients_edit.setEnabled(self.email_is_usable() and self.recipients_list.isChecked())
 
     def email_form(self) -> EmailTriggerForm:
@@ -1437,6 +1465,7 @@ class ScheduleSheet(QDialog):
             prompt=self.prompt_edit.toPlainText(),
             when=when,
             context="growing" if self.growing.isChecked() else "independent",
+            growing_max_tokens=self.growing_max_tokens.value(),
             target=self.target,
             request_id=self.request_id,
             title=self.title_edit.text(),

@@ -68,7 +68,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 ## Topic Deep Dives
 - [docs/settings.md](docs/settings.md): every setting (workflow choice, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -905,7 +905,7 @@ The window, beside the palette:
   the previous runs).
 - **Tools**: **Tools run without asking** (the default) or **Ask each time**. See
   [Tool consent](#tool-consent).
-- **Email**: **Email me the result** and **May send email without asking to: Only me (default) /
+- **Email**: **Email result** and **Recipients: Only me (default) /
   Me and these addresses** (see [Email automations](#email-automations)).
 
 A line under the form previews the schedule ("every 8 hours (UTC), first run now") or says what is
@@ -933,15 +933,14 @@ account.
   automation; mail that arrived before it was created, or while it was paused, is not processed.
   Incoming mail is data, never instructions: the automation acts only on its task, and link-opening
   tools (`fetch_url`, `browser_probe`) always ask.
-- **Email me the result** sends `notify: {channels: ["console", "email"]}`: a run that notifies
-  you, or fails for good, is also emailed to you.
-- **May send email without asking to**: **Only me** (the default, `["self"]`) or **Me and these
-  addresses** (`policy.email_allowed_recipients: ["self", …]`). Sending to anyone else waits for
-  your approval, and your recipient policy in My email still applies.
+- **Email result** emails every completed run’s full result.
+- **Recipients** appears when Email result is enabled: **Only me** (default) or
+  **Me and these addresses**. Recipients are stored in `notify.recipients`;
+  this setting does not grant email-tool permissions. The mailbox recipient policy still applies.
 
 The wording is the shared AbstractUIC text (`automation_controls.json`, `email` section), the same
 as in the web clients. **Edit** changes an email trigger's interval (the revised trigger starts
-from now, so no email is read twice); Email me the result and the recipients are kept with the
+from now, so no email is read twice); Email result and the recipients are kept with the
 automation.
 
 Outside automations, the Assistant's local tool approval asks before `send_email`,
@@ -1109,6 +1108,19 @@ automations, and no automation route is called before that.
   it runs (its target) and its tool-approval policy change only through the gateway's
   `PATCH /api/gateway/automations/{id}` route; no app's edit form changes them. From the apps,
   archive the automation and schedule a new one.
+
+## Growing context limit
+
+These options require AbstractGateway 0.11.3 or later.
+
+Choose **Growing** to set **Max growing context (tokens)** when creating or editing an
+automation. The default is 50,000; enter `30000` for a 30,000-token history budget.
+The limit is hidden for **Independent** runs. Changing it affects subsequent occurrences;
+already admitted occurrences retain their history for retries. History retains whole turns,
+including the newest turn even when that turn alone exceeds the budget.
+
+The API field is `context.growing.max_tokens`, a positive integer. Existing definitions
+that omit it retain the 50,000-token default.
 
 --- docs/api.md ---
 # API And CLI Reference
@@ -2447,6 +2459,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 Nothing yet.
 
+## [0.12.2] - 2026-10-02
+
+- Configure the growing-context token budget at automation creation and editing (default 50,000); the field is shown only for Growing context.
+- Email result delivers every completed result to the selected Recipients without changing email-tool permissions.
+
 ## [0.12.1] - 2026-10-02
 
 ### Fixed
@@ -3311,7 +3328,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.12.1"
+version = "0.12.2"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -3340,7 +3357,7 @@ dependencies = [
     # with the [voice] extra for anyone who also wants local transcription.)
     # abstractruntime supplies the session-memory run-id contract shared with
     # the gateway (session_attachments); execution itself stays on the gateway.
-    "abstractruntime>=0.4.32",
+    "abstractruntime>=0.8.4",
     "abstractvoice[audio-io]>=0.11.2",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
@@ -15371,14 +15388,14 @@ def email_trigger_label(config: Mapping[str, Any]) -> str:
 
 
 def email_allowed_recipients(mode: str, addresses: str = "") -> Tuple[List[str], List[str]]:
-    """``policy.email_allowed_recipients``: ``["self"]`` for "only me",
+    """Result recipients: ``["self"]`` for "only me",
     ``["self", ...addresses]`` for "me and these addresses" (at least one)."""
     if mode != "list":
         return ["self"], []
     errors: List[str] = []
     items = [a for a in parse_entry_list(addresses) if a != "self"]
     if not items:
-        errors.append("Name at least one address the automation may email, or choose Only me.")
+        errors.append("Name at least one recipient, or choose Only me.")
     bad = [a for a in items if not is_plain_address(a)]
     if bad:
         errors.append(f"{EMAIL_TEXT['recipients_list']}: {', '.join(bad)} {'is not an email address' if len(bad) == 1 else 'are not email addresses'}.")
@@ -15387,9 +15404,12 @@ def email_allowed_recipients(mode: str, addresses: str = "") -> Tuple[List[str],
     return ["self", *items], errors
 
 
-def notify_for(email_me: bool) -> Dict[str, Any]:
-    """``notify`` for "Email me the result"."""
-    return {"channels": ["console", "email"] if email_me else ["console"]}
+def notify_for(email_me: bool, recipients: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Result delivery settings; tool permissions are independent."""
+    result: Dict[str, Any] = {"channels": ["console", "email"] if email_me else ["console"]}
+    if recipients and recipients != ["self"]:
+        result["recipients"] = recipients
+    return result
 
 
 def notify_emails(notify: Any) -> bool:
@@ -15742,11 +15762,27 @@ def target_from_workflow(selection: Any) -> Optional[Dict[str, Any]]:
     return {"bundle_ref": f"{bundle_id}@{version}" if version else bundle_id, "flow_id": flow_id}
 
 
+DEFAULT_GROWING_MAX_TOKENS = 50_000
+GROWING_CONTEXT_HELP = ("Keeps the most recent whole turns within this token budget. "
+                        "The newest turn is kept whole even if it exceeds the budget. "
+                        "Changes apply to future runs.")
+
+
+def _valid_growing_max_tokens(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _automation_context(mode: str, max_tokens: int) -> Dict[str, Any]:
+    return {"mode": mode, **({"growing": {"max_tokens": max_tokens}}
+                            if max_tokens != DEFAULT_GROWING_MAX_TOKENS else {})}
+
+
 def build_create_request(
     *,
     prompt: str,
     when: ScheduleWhen,
     context: str,
+    growing_max_tokens: int = DEFAULT_GROWING_MAX_TOKENS,
     target: Optional[Mapping[str, Any]],
     request_id: str,
     title: str = "",
@@ -15767,7 +15803,7 @@ def build_create_request(
     ``email.received@1`` from ``email`` (``when`` is then ignored);
     ``notify_email`` sends ``notify: {channels: ["console", "email"]}`` (off
     sends nothing: the server default); ``email_recipients=("list", text)``
-    sends ``policy.email_allowed_recipients`` (``("self", "")`` sends nothing)."""
+    sets ``notify.recipients`` (``("self", "")`` sends nothing)."""
     errors: List[str] = []
     if not target:
         errors.append("This conversation has no workflow to schedule.")
@@ -15779,6 +15815,8 @@ def build_create_request(
         errors.append("Title is at most 120 characters.")
     if context not in {"independent", "growing"}:
         errors.append("Context must be Independent or Growing.")
+    if context == "growing" and not _valid_growing_max_tokens(growing_max_tokens):
+        errors.append("Max growing context must be a positive whole number of tokens.")
     if tool_approval not in {"auto", "ask"}:
         errors.append("Tool approval must be automatic or ask each time.")
     is_email = trigger == "email"
@@ -15788,7 +15826,7 @@ def build_create_request(
         config, when_errors = schedule_config(when, start_at=start_at, count=count)
     errors.extend(when_errors)
     recipients: Optional[List[str]] = None
-    if email_recipients is not None and email_recipients[0] == "list":
+    if notify_email and email_recipients is not None and email_recipients[0] == "list":
         recipients, rcpt_errors = email_allowed_recipients("list", email_recipients[1])
         errors.extend(rcpt_errors)
     if errors or not target:
@@ -15796,8 +15834,6 @@ def build_create_request(
     full_target = dict(target)
     full_target["input_data"] = {**dict(target.get("input_data") or {}), "prompt": text}
     policy: Dict[str, Any] = {"tool_approval": tool_approval}
-    if recipients is not None:
-        policy["email_allowed_recipients"] = recipients
     body: Dict[str, Any] = {
         "request_id": request_id,
         "title": name,
@@ -15807,11 +15843,11 @@ def build_create_request(
             if is_email
             else {"source_id": "schedule", "source_version": 1, "config": config}
         ),
-        "context": {"mode": context},
+        "context": _automation_context(context, growing_max_tokens if context == "growing" else DEFAULT_GROWING_MAX_TOKENS),
         "policy": policy,
     }
     if notify_email:
-        body["notify"] = notify_for(True)
+        body["notify"] = notify_for(True, recipients)
     return body, []
 
 
@@ -15824,6 +15860,7 @@ def revise_changes(
     title: str,
     every: Optional[str],
     context: str,
+    growing_max_tokens: Optional[int] = None,
     definition: Optional[Mapping[str, Any]] = None,
     notify_email: Optional[bool] = None,
     email_recipients: Optional[Tuple[str, str]] = None,
@@ -15833,8 +15870,7 @@ def revise_changes(
     new binding and re-anchors so no past tick fires); for ``email.received@1``
     the old ``start_at`` is dropped so the revised trigger never re-reads mail,
     and the interval is at least 60 s. With the committed ``definition``,
-    ``notify_email`` sends ``notify`` and ``email_recipients`` sends only
-    ``policy.email_allowed_recipients`` (the server merges policy)."""
+    ``notify_email`` and ``email_recipients`` update result delivery in ``notify``."""
     errors: List[str] = []
     changes: Dict[str, Any] = {}
     name = str(title or "").strip()
@@ -15862,21 +15898,23 @@ def revise_changes(
                 "source_version": trigger.get("source_version"),
                 "config": new_config,
             }
-    if context != summary.get("context_mode"):
-        if context not in {"independent", "growing"}:
-            errors.append("Context must be Independent or Growing.")
-        else:
-            changes["context"] = {"mode": context}
+    before_limit = summary.get("growing_max_tokens", DEFAULT_GROWING_MAX_TOKENS)
     if definition is not None:
-        if notify_email is not None and bool(notify_email) != notify_emails(definition.get("notify")):
-            changes["notify"] = notify_for(bool(notify_email))
-        if email_recipients is not None:
-            policy = definition.get("policy") if isinstance(definition.get("policy"), Mapping) else {}
-            current = list(policy.get("email_allowed_recipients") or ["self"])
-            wanted, rcpt_errors = email_allowed_recipients(*email_recipients)
-            errors.extend(rcpt_errors)
-            if not rcpt_errors and wanted != current:
-                changes["policy"] = {"email_allowed_recipients": wanted}
+        before_limit = (definition.get("context") or {}).get("growing", {}).get("max_tokens", before_limit)
+    limit = before_limit if growing_max_tokens is None or context != "growing" else growing_max_tokens
+    if context not in {"independent", "growing"}:
+        errors.append("Context must be Independent or Growing.")
+    elif not _valid_growing_max_tokens(limit):
+        errors.append("Max growing context must be a positive whole number of tokens.")
+    elif context != summary.get("context_mode") or limit != before_limit:
+        changes["context"] = _automation_context(context, limit)
+    if definition is not None and notify_email is not None:
+        current = list((definition.get("notify") or {}).get("recipients") or ["self"])
+        wanted, rcpt_errors = (email_allowed_recipients(*email_recipients)
+                               if notify_email and email_recipients is not None else (current, []))
+        errors.extend(rcpt_errors)
+        if not rcpt_errors and (bool(notify_email) != notify_emails(definition.get("notify")) or wanted != current):
+            changes["notify"] = notify_for(bool(notify_email), wanted)
     if errors:
         return None, errors
     return (changes or None), []

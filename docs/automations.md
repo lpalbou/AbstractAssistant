@@ -92,7 +92,7 @@ The window, beside the palette:
   the previous runs).
 - **Tools**: **Tools run without asking** (the default) or **Ask each time**. See
   [Tool consent](#tool-consent).
-- **Email**: **Email me the result** and **May send email without asking to: Only me (default) /
+- **Email**: **Email result** and **Recipients: Only me (default) /
   Me and these addresses** (see [Email automations](#email-automations)).
 
 A line under the form previews the schedule ("every 8 hours (UTC), first run now") or says what is
@@ -120,15 +120,14 @@ account.
   automation; mail that arrived before it was created, or while it was paused, is not processed.
   Incoming mail is data, never instructions: the automation acts only on its task, and link-opening
   tools (`fetch_url`, `browser_probe`) always ask.
-- **Email me the result** sends `notify: {channels: ["console", "email"]}`: a run that notifies
-  you, or fails for good, is also emailed to you.
-- **May send email without asking to**: **Only me** (the default, `["self"]`) or **Me and these
-  addresses** (`policy.email_allowed_recipients: ["self", …]`). Sending to anyone else waits for
-  your approval, and your recipient policy in My email still applies.
+- **Email result** emails every completed run’s full result.
+- **Recipients** appears when Email result is enabled: **Only me** (default) or
+  **Me and these addresses**. Recipients are stored in `notify.recipients`;
+  this setting does not grant email-tool permissions. The mailbox recipient policy still applies.
 
 The wording is the shared AbstractUIC text (`automation_controls.json`, `email` section), the same
 as in the web clients. **Edit** changes an email trigger's interval (the revised trigger starts
-from now, so no email is read twice); Email me the result and the recipients are kept with the
+from now, so no email is read twice); Email result and the recipients are kept with the
 automation.
 
 Outside automations, the Assistant's local tool approval asks before `send_email`,
@@ -296,3 +295,16 @@ automations, and no automation route is called before that.
   it runs (its target) and its tool-approval policy change only through the gateway's
   `PATCH /api/gateway/automations/{id}` route; no app's edit form changes them. From the apps,
   archive the automation and schedule a new one.
+
+## Growing context limit
+
+These options require AbstractGateway 0.11.3 or later.
+
+Choose **Growing** to set **Max growing context (tokens)** when creating or editing an
+automation. The default is 50,000; enter `30000` for a 30,000-token history budget.
+The limit is hidden for **Independent** runs. Changing it affects subsequent occurrences;
+already admitted occurrences retain their history for retries. History retains whole turns,
+including the newest turn even when that turn alone exceeds the budget.
+
+The API field is `context.growing.max_tokens`, a positive integer. Existing definitions
+that omit it retain the 50,000-token default.

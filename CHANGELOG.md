@@ -7,6 +7,11 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 Nothing yet.
 
+## [0.12.2] - 2026-10-02
+
+- Configure the growing-context token budget at automation creation and editing (default 50,000); the field is shown only for Growing context.
+- Email result delivers every completed result to the selected Recipients without changing email-tool permissions.
+
 ## [0.12.1] - 2026-10-02
 
 ### Fixed

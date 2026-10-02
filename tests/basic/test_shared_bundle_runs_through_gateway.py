@@ -40,6 +40,7 @@ from abstractassistant.gateway.client import GatewayClient, GatewayClientConfig,
 from abstractassistant.gateway_service import ASSISTANT_INTERFACE, AssistantGatewayService  # noqa: E402
 
 SHARED_ID = "shared-assistant-agent"
+DEFAULT_ID = "abstractassistant-orchestrator"
 ADMIN = {"Authorization": "Bearer admin-token"}
 
 
@@ -53,7 +54,7 @@ def _edge(s: str, sh: str, t: str, th: str, i: str) -> dict:
     return {"id": i, "source": s, "sourceHandle": sh, "target": t, "targetHandle": th}
 
 
-def _write_shared_bundle(shared: Path) -> None:
+def _write_shared_bundle(shared: Path, *, bundle_id: str = SHARED_ID) -> None:
     flow = {
         "id": "agent",
         "name": "Shared assistant agent",
@@ -71,7 +72,7 @@ def _write_shared_bundle(shared: Path) -> None:
         "entryNode": "start",
     }
     manifest = {
-        "bundle_format_version": "1", "bundle_id": SHARED_ID, "bundle_version": "1.0.0",
+        "bundle_format_version": "1", "bundle_id": bundle_id, "bundle_version": "1.0.0",
         "created_at": "2026-10-01T00:00:00+00:00", "default_entrypoint": "agent",
         "entrypoints": [{"flow_id": "agent", "name": "Shared assistant agent", "interfaces": [ASSISTANT_INTERFACE]}],
         "flows": {"agent": "flows/agent.json"}, "artifacts": {}, "assets": {},
@@ -81,13 +82,17 @@ def _write_shared_bundle(shared: Path) -> None:
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("manifest.json", json.dumps(manifest))
         z.writestr("flows/agent.json", json.dumps(flow))
-    (shared / f"{SHARED_ID}@1.0.0.flow").write_bytes(buf.getvalue())
+    (shared / f"{bundle_id}@1.0.0.flow").write_bytes(buf.getvalue())
 
 
 @pytest.fixture()
 def gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     shared = tmp_path / "bundles"
     _write_shared_bundle(shared)
+    # Gateway defaults remain executable when hidden. Keep the bundle under test
+    # distinct from the built-in Assistant default, instead of making it the only
+    # eligible workflow and therefore the automatically selected default.
+    _write_shared_bundle(shared, bundle_id=DEFAULT_ID)
     data = tmp_path / "data"
     for key, value in {
         "ABSTRACTGATEWAY_DATA_DIR": str(data),
@@ -157,6 +162,7 @@ def test_a_shared_bundle_listed_for_the_assistant_runs_with_registry_scope_priva
 @pytest.mark.basic
 def test_the_same_shared_bundle_made_unavailable_is_not_listed_and_refused_at_start(gateway) -> None:
     http, gw = gateway["http"], gateway["alice"]
+    assert gw.executable_bundles(ASSISTANT_INTERFACE)["default_agent_workflows"][ASSISTANT_INTERFACE]["bundle_id"] == DEFAULT_ID
     res = http.put(f"/api/gateway/admin/workflows/{SHARED_ID}/availability", headers=ADMIN, json={"available": False})
     assert res.status_code == 200, res.text
     options, error = AssistantGatewayService(gw)._catalog_workflows()

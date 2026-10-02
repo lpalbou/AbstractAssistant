@@ -1759,7 +1759,7 @@ def test_the_email_trigger_needs_the_gateway_to_list_it(palette, stub) -> None:
 def test_email_wording_is_the_vendored_kit_section() -> None:
     assert rules.EMAIL_TEXT == EMAIL_TEXT
     assert EMAIL_TEXT["not_set_up"] == "Connect a mailbox first — open My email"
-    assert EMAIL_TEXT["trigger_label"] == "When an email arrives" and EMAIL_TEXT["notify_label"] == "Email me the result"
+    assert EMAIL_TEXT["trigger_label"] == "When an email arrives" and EMAIL_TEXT["notify_label"] == "Email result"
 
 
 @pytest.mark.basic
@@ -1805,8 +1805,8 @@ def test_email_create_body_and_defaults() -> None:
         "target": {"flow_id": "@default", "interface": "i", "input_data": {"prompt": "Summarise new invoices"}},
         "trigger": {"source_id": "email.received", "source_version": 1, "config": {"uses_model": True, "every": "1h", "max_batch": 100, "filter": {"from_domain_in": ["example.org"]}}},
         "context": {"mode": "independent"},
-        "policy": {"tool_approval": "auto", "email_allowed_recipients": ["self", "boss@example.test"]},
-        "notify": {"channels": ["console", "email"]},
+        "policy": {"tool_approval": "auto"},
+        "notify": {"channels": ["console", "email"], "recipients": ["self", "boss@example.test"]},
     }
     plain, errors = build_create_request(
         prompt="x", when=ScheduleWhen("every", 5, "m"), context="independent", target={"flow_id": "@default", "interface": "i"},
@@ -1831,8 +1831,7 @@ def test_email_revise_drops_start_at_and_merges_policy() -> None:
                                            notify_email=True, email_recipients=("list", "boss@example.test"))
     assert errors == [] and changes == {
         "trigger": {"source_id": "email.received", "source_version": 1, "config": {"account": "self", "folder": "INBOX", "uses_model": True, "every": "2h", "max_batch": 100, "filter": {"from_in": ["a@x.test"]}}},
-        "notify": {"channels": ["console", "email"]},
-        "policy": {"email_allowed_recipients": ["self", "boss@example.test"]},
+        "notify": {"channels": ["console", "email"], "recipients": ["self", "boss@example.test"]},
     }
     assert rules.revise_changes(summary, title=summary["title"], every="30s", context=summary["context_mode"])[1]
 
@@ -1889,8 +1888,8 @@ def test_schedule_sheet_creates_an_email_automation(palette, stub) -> None:
     sheet.submit_button.click()
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
     assert body["trigger"] == {"source_id": "email.received", "source_version": 1, "config": {"uses_model": True, "every": "1h", "max_batch": 100, "filter": {"from_in": ["boss@example.test"], "has_attachment": True}}}
-    assert body["notify"] == {"channels": ["console", "email"]}
-    assert body["policy"] == {"tool_approval": "auto", "email_allowed_recipients": ["self", "colleague@example.test"]}
+    assert body["notify"] == {"channels": ["console", "email"], "recipients": ["self", "colleague@example.test"]}
+    assert body["policy"] == {"tool_approval": "auto"}
 
 
 @pytest.mark.basic
@@ -1954,3 +1953,43 @@ def test_the_schedule_sheet_fits_a_laptop_screen_and_keeps_its_buttons(palette, 
     sheet.form_scroll.ensureWidgetVisible(sheet.recipients_edit)
     _APP.processEvents()
     assert not sheet.recipients_edit.visibleRegion().isEmpty()
+
+
+@pytest.mark.basic
+def test_schedule_sheet_sends_custom_growing_context(palette, stub):
+    window, _controller = palette
+    window._poll_automations()
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    assert sheet.growing_max_tokens.value() == 50_000
+    assert sheet.growing_max_tokens.isHidden()
+    sheet.growing.setChecked(True)
+    assert not sheet.growing_max_tokens.isHidden()
+    sheet.growing_max_tokens.setValue(30_000)
+    sheet.submit_button.click()
+    assert stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]["context"] == {
+        "mode": "growing", "growing": {"max_tokens": 30_000}}
+
+
+@pytest.mark.basic
+def test_view_hydrates_and_edits_only_growing_context_budget(palette, stub):
+    window, _controller = palette
+    stub.summaries = [dict(_summary_fixture(NEWS), context_mode="growing", growing_max_tokens=30_000)]
+    window._poll_automations()
+    window._open_automation(NEWS)
+    view = window.automation_view
+    assert view.edit_max_tokens.value() == 30_000
+    view.edit_box.show()
+    view.edit_max_tokens.setValue(20_000)
+    view._save_edit()
+    assert stub.calls("PATCH")[-1]["body"]["changes"] == {
+        "context": {"mode": "growing", "growing": {"max_tokens": 20_000}}}
+
+
+@pytest.mark.basic
+def test_growing_limit_preserved_for_unrelated_edits_and_mode_switch():
+    summary = dict(_summary_fixture(NEWS), context_mode="growing", growing_max_tokens=30_000)
+    changes, errors = rules.revise_changes(summary, title="New name", every=None, context="growing")
+    assert not errors and changes == {"title": "New name"}
+    changes, errors = rules.revise_changes(summary, title=summary["title"], every=None, context="independent")
+    assert not errors and changes == {"context": {"mode": "independent", "growing": {"max_tokens": 30_000}}}

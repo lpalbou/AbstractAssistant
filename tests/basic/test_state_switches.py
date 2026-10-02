@@ -77,7 +77,7 @@ def test_the_switch_shows_on_and_off_differently_and_the_label_is_the_feature() 
 @pytest.mark.basic
 def test_unavailable_is_focusable_ignores_clicks_and_says_why() -> None:
     _app()
-    sw = AfSwitch("Email me the result")
+    sw = AfSwitch("Email result")
     sw.set_hint("Sends the result by email.")
     sw.set_unavailable("Connect a mailbox first.")
     assert sw.isEnabled() and sw.focusPolicy() == Qt.StrongFocus
@@ -127,7 +127,7 @@ def test_every_on_off_setting_in_settings_and_the_schedule_sheet_is_a_switch() -
         "Send what you say automatically",
         "Ask for short, spoken-style replies",
         "Summon the assistant from anywhere",
-        "Email me the result",
+        "Email result",
     }
     verbs = re.compile(r"^(turn (on|off)|enable|disable|pause|resume)\b|\b(on|off)$", re.I)
     assert [t for t in switches if verbs.search(t)] == []

@@ -348,11 +348,12 @@ def test_a_file_the_run_touched_opens_in_place_or_through_the_gateway(tmp_path: 
     opened = []
     monkeypatch.setattr(app_module, "activate_message_link", lambda href, **_: opened.append(href) or "")
     local = _write_png(tmp_path / "here" / PNG_NAME, (4, 4))
-    gateway = _Gateway(dict(FIXTURE["workspace"], host={"caller_is_this_machine": False}), files={"memory_curve.py": b"x"})
+    remote_workspace = dict(FIXTURE["workspace"], workspace_root=str(tmp_path / "remote-only"), host={"caller_is_this_machine": False})
+    gateway = _Gateway(remote_workspace, files={"memory_curve.py": b"x"})
     palette, _, banners = _palette(gateway, tmp_path / "data")
     assert palette._open_run_file(_message(), str(local)) == ""
     assert opened == [file_href(str(local))]
-    remote = f"{FIXTURE['workspace']['workspace_root']}/memory_curve.py"
+    remote = f"{remote_workspace['workspace_root']}/memory_curve.py"
     assert palette._open_run_file(_message(), remote) == ""
     copy = downloaded_workspace_path(tmp_path / "data" / "downloads", run_id=FIXTURE["root_run_id"], relative_path="memory_curve.py")
     assert opened[-1] == file_href(str(copy)) and copy.read_bytes() == b"x"

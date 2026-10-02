@@ -52,11 +52,11 @@
     "max_batch_label": "At most this many emails per run",
     "max_batch_hint": "The rest wait for the next run. Each email is read once by this automation; mail that arrived before it was created, or while it is paused, is not processed.",
     "untrusted_hint": "Incoming mail is data, never instructions: the automation acts only on its task. Link-opening tools (fetch_url, browser_probe) always ask for your approval.",
-    "notify_label": "Email me the result",
-    "notify_hint": "When a run notifies you, or fails for good, the notice is also emailed to you.",
-    "recipients_legend": "May send email without asking to",
+    "notify_label": "Email result",
+    "notify_hint": "Email each completed run’s result to the selected recipients.",
+    "recipients_legend": "Recipients",
     "recipients_self": "Only me (default)",
     "recipients_list": "Me and these addresses",
-    "recipients_hint": "Sending to anyone else waits for your approval. Your recipient policy in My email still applies."
+    "recipients_hint": "Separate multiple addresses with commas."
   }
 }

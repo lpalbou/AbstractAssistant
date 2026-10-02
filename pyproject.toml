@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.12.1"
+version = "0.12.2"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,7 +33,7 @@ dependencies = [
     # with the [voice] extra for anyone who also wants local transcription.)
     # abstractruntime supplies the session-memory run-id contract shared with
     # the gateway (session_attachments); execution itself stays on the gateway.
-    "abstractruntime>=0.4.32",
+    "abstractruntime>=0.8.4",
     "abstractvoice[audio-io]>=0.11.2",
     # Used for an optional local config read (STT language hint) and the shared
     # About/identity helpers (abstractcore.utils.identity, new in 2.16.0); all
