@@ -548,3 +548,25 @@ def test_the_spin_controls_have_visible_arrows() -> None:
             assert url, f"{control}::{part} has no image; Qt will draw its invisible native arrow"
             assert os.path.exists(url.group(1)), f"{control}::{part} points at a missing file"
         assert re.search(rf"{control}::up-button", css), f"{control} up-button is unstyled"
+
+
+@pytest.mark.basic
+def test_connection_page_has_no_session_retention_switch() -> None:
+    """0.12.1: sessions belong to the gateway/runtime. The Assistant never decides
+    session retention, so "Session · Keep the session after this app closes" is gone
+    and a session sign-in always asks the gateway for its normal (remembered) lifetime."""
+    from PyQt5.QtWidgets import QLabel
+    from abstractassistant.ui.switch import AfSwitch
+
+    dlg, ctl = _dialog()
+    page = dlg.page_connection
+    assert not hasattr(page, "remember_session") and not hasattr(dlg, "remember_session")
+    texts = [w.text() for w in page.findChildren(QLabel)] + [getattr(w, "text", lambda: "")() for w in page.findChildren(AfSwitch)]
+    assert not any("Keep the session" in str(t) for t in texts), texts
+    calls = []
+    ctl.login_gateway_session = lambda **kw: calls.append(kw)
+    page.auth_mode_combo.setCurrentIndex(page.auth_mode_combo.findData("session"))
+    page.gateway_user_edit.setText("admin")
+    page.gateway_user_token_edit.setText("tok")
+    page._save_connection()
+    assert calls and calls[0]["remember"] is True

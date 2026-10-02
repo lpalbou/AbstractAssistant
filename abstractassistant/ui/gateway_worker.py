@@ -262,9 +262,9 @@ class GatewayWorker(QThread):
             return {"flow_id": "@default", "interface": self._interface}
         if not self._bundle_id or not self._flow_id or not self._bundle_version:
             raise RuntimeError("Published assistant workflow selection is incomplete.")
+        # Any scope the gateway resolved (private registry or tenant catalog): the
+        # gateway decides which workflows this user may run, never this client.
         scope = str(self._registry_scope or "").strip() or "tenant_catalog"
-        if scope != "tenant_catalog":
-            raise RuntimeError(f"Unsupported workflow registry_scope for AbstractAssistant: {scope}")
         return {
             "bundle_id": self._bundle_id,
             "flow_id": self._flow_id,

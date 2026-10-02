@@ -183,7 +183,7 @@ class SettingsDialog(QDialog):
         for name in (
             "gateway_url_edit", "auth_mode_combo", "bearer_token_edit", "bearer_token_label",
             "gateway_user_edit", "gateway_user_label", "gateway_user_token_edit", "gateway_user_token_label",
-            "remember_session", "connection_status", "connection_feedback",
+            "connection_status", "connection_feedback",
             "connection_refresh_button", "connection_logout_button", "connection_save_button",
         ):
             setattr(self, name, getattr(conn, name))

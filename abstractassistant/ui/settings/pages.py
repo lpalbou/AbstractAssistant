@@ -186,10 +186,6 @@ class ConnectionPage(SettingsPage):
         self._user_token_row = form.add_row("Gateway user token", self.gateway_user_token_edit)
         self.gateway_user_token_label = self._user_token_row.findChild(QLabel, "rowLabel")
 
-        # Part of the sign-in form: Connect (the page's one primary action) uses it.
-        self.remember_session = AfSwitch("Keep the session after this app closes")
-        self._remember_row = form.add_row("Session", self.remember_session)
-
         # Older callers and the dialog alias reach for `connection_feedback`;
         # it is the page's footer feedback line.
         self.connection_feedback = self.feedback
@@ -219,7 +215,6 @@ class ConnectionPage(SettingsPage):
             self.auth_mode_combo.setCurrentIndex(idx)
         self.bearer_token_edit.setText(str(getattr(connection, "auth_token", "") or ""))
         self.gateway_user_edit.setText(str(getattr(connection, "user_id", "") or ""))
-        self.remember_session.setChecked(bool(getattr(connection, "remember_session", True)))
         self.gateway_user_token_edit.clear()
         self._refresh_connection_fields()
 
@@ -228,7 +223,6 @@ class ConnectionPage(SettingsPage):
         self._bearer_row.setVisible(is_bearer)
         self._user_row.setVisible(not is_bearer)
         self._user_token_row.setVisible(not is_bearer)
-        self._remember_row.setVisible(not is_bearer)
 
     def refresh_status_async(self) -> None:
         """Probe /me off the GUI thread; the old tab blocked for up to 30 s."""
@@ -297,7 +291,9 @@ class ConnectionPage(SettingsPage):
                     base_url=base_url,
                     user_id=self.gateway_user_edit.text().strip(),
                     token=self.gateway_user_token_edit.text(),
-                    remember=bool(self.remember_session.isChecked()),
+                    # No retention switch (0.12.1): sessions belong to the gateway, which
+                    # decides how long a sign-in lives; the Assistant never shortens it.
+                    remember=True,
                 )
                 self.gateway_user_token_edit.clear()
                 self.say("Saved the gateway session on this device.")

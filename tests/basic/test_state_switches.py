@@ -123,7 +123,6 @@ def test_every_on_off_setting_in_settings_and_the_schedule_sheet_is_a_switch() -
     assert plain == []
     switches = {b.text() for root in (dlg, sheet) for b in root.findChildren(AfSwitch)}
     assert switches >= {
-        "Keep the session after this app closes",
         "Speak replies automatically",
         "Send what you say automatically",
         "Ask for short, spoken-style replies",

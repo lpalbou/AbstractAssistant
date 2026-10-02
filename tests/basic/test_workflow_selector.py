@@ -346,3 +346,21 @@ def test_about_shows_the_workflow_and_what_the_last_turn_ran() -> None:
     dlg.page_about._copy_diagnostics()
     diag = json.loads(QApplication.clipboard().text())
     assert diag["resolved_workflow"]["bundle_id"] == "research-agent"
+
+
+@pytest.mark.basic
+def test_worker_runs_any_registry_scope_the_gateway_resolved() -> None:
+    """0.12.1: "Not sent — Unsupported workflow registry_scope for AbstractAssistant:
+    private" — the client refused the shipped orchestrator from the gateway's private
+    registry. The gateway decides which scopes a user may run; the client passes it on."""
+    from abstractassistant.ui.gateway_worker import GatewayWorker
+
+    worker = GatewayWorker.__new__(GatewayWorker)
+    worker._bundle_id, worker._flow_id, worker._bundle_version = "abstractassistant-orchestrator", "c53b1579", "0.0.8"
+    worker._interface = ASSISTANT_INTERFACE
+    for scope in ("private", "tenant_catalog"):
+        worker._registry_scope = scope
+        assert GatewayWorker._resolve_entrypoint(worker) == {
+            "bundle_id": "abstractassistant-orchestrator", "flow_id": "c53b1579",
+            "bundle_version": "0.0.8", "registry_scope": scope,
+        }
