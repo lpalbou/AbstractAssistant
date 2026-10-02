@@ -1993,3 +1993,127 @@ def test_growing_limit_preserved_for_unrelated_edits_and_mode_switch():
     assert not errors and changes == {"title": "New name"}
     changes, errors = rules.revise_changes(summary, title=summary["title"], every=None, context="independent")
     assert not errors and changes == {"context": {"mode": "independent", "growing": {"max_tokens": 30_000}}}
+
+
+@pytest.mark.basic
+def test_automation_tools_reuses_settings_selector_without_saving_chat_preferences(palette, stub):
+    from abstractassistant.ui.settings.pages import ToolsPage
+    window, controller = palette
+    window._poll_automations()
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    inventory = {"items": [
+        {"name": "web_search", "toolset": "web", "available": True, "selected_mode": "ask"},
+        {"name": "write_file", "toolset": "files", "available": True, "selected_mode": "ask"},
+        {"name": "send_email", "toolset": "comms", "available": False, "selected_mode": "ask"},
+    ]}
+    sheet.tool_picker.configure(inventory, None)
+    body, errors = sheet.build_body()
+    assert not errors and "tools" not in body["target"]["input_data"]
+    sheet.tool_picker.click()
+    page = sheet.tool_picker._dialog.findChild(ToolsPage)
+    assert page.selection_only
+    assert page._rows["send_email"]["control"].value() == "disabled"
+    page._rows["write_file"]["control"].set_value("disabled")
+    page.save_button_tools.click()
+    body, errors = sheet.build_body()
+    assert not errors
+    assert body["target"]["input_data"]["tools"] == ["web_search"]
+    assert body["target"]["input_data"]["_runtime"]["allowed_tools"] == ["web_search"]
+    sheet.tool_picker.click()
+    page = sheet.tool_picker._dialog.findChild(ToolsPage)
+    page._rows["web_search"]["control"].set_value("disabled")
+    page.save_button_tools.click()
+    body, errors = sheet.build_body()
+    assert body["target"]["input_data"]["tools"] == []
+    assert body["target"]["input_data"]["_runtime"]["allowed_tools"] == []
+    sheet.tool_picker.click()
+    page = sheet.tool_picker._dialog.findChild(ToolsPage)
+    page.reset_button.click()
+    body, errors = sheet.build_body()
+    assert "tools" not in body["target"]["input_data"]
+    assert "allowed_tools" not in body["target"]["input_data"].get("_runtime", {})
+    assert inventory["items"][0]["selected_mode"] == "ask"
+
+    sheet.tool_picker.configure({"note": "Discovery failed"}, None)
+    assert not sheet.tool_picker.isEnabled()
+    assert "reopen to retry" in sheet.tool_picker.text()
+    assert "Discovery failed" in sheet.tool_picker.toolTip()
+    sheet.tool_picker.configure({}, ["web_search"])
+    assert sheet.tool_picker.isEnabled()
+    assert sheet.tool_picker.selection == ["web_search"]
+    assert "catalog unavailable" in sheet.tool_picker.text()
+
+
+@pytest.mark.basic
+def test_edit_tool_selection_preserves_target_inputs_and_explicit_empty(palette, stub):
+    window, _ = palette
+    window._poll_automations()
+    window._open_automation(NEWS)
+    view = window.automation_view
+    view.control_buttons["revise"].click()
+    target = {"workflow_id": "agent@1:main", "bundle_ref": "agent@1", "flow_id": "main", "input_data": {
+        "prompt": "Keep this task", "model": "model-a", "context": {"custom": 4},
+        "tools": ["web_search", "write_file"], "_runtime": {"allowed_tools": ["web_search"], "thinking": "high"},
+    }}
+    view.set_edit_definition({"definition": {"target": target}}, {"items": [{"name": "web_search", "available": True}]})
+    assert view.edit_tools.selection == ["web_search"]
+    view.edit_tools.selection = []
+    view.edit_save.click()
+    changed = stub.calls("PATCH")[-1]["body"]["changes"]["target"]
+    assert changed["bundle_ref"] == "agent@1"
+    assert "workflow_id" not in changed
+    assert changed["input_data"] == {**target["input_data"], "tools": [], "_runtime": {"allowed_tools": [], "thinking": "high"}}
+    assert target["input_data"]["tools"] == ["web_search", "write_file"]
+
+
+@pytest.mark.basic
+def test_workflow_picker_create_and_edit_keep_recipients(palette, stub, monkeypatch):
+    from types import SimpleNamespace
+    window, _ = palette
+    monkeypatch.setattr(window._controller, "gateway", SimpleNamespace(workflow_input_schema=lambda *args: {"properties": {"prompt": {"type": "string"}}, "required": ["prompt"]}), raising=False)
+    window._poll_automations()
+    window._open_schedule_sheet()
+    sheet = window._schedule_sheet
+    rows = [{"label": "Research workflow", "choice": {"bundle_id": "research", "flow_id": "main"}}]
+    sheet.workflow_picker.set_workflows(rows, sheet.target)
+    sheet.workflow_picker.setCurrentIndex(1)
+    sheet.set_email_status({"configured": True, "effective_enabled": True})
+    sheet.notify_email.setChecked(True)
+    sheet.recipients_list.setChecked(True)
+    sheet.recipients_edit.setText("colleague@example.com")
+    body, errors = sheet.build_body()
+    assert not errors
+    assert body["target"]["bundle_ref"] == "research"
+    assert body["notify"]["recipients"] == ["self", "colleague@example.com"]
+    sheet.close()
+
+    window._open_automation(NEWS)
+    view = window.automation_view
+    view.control_buttons["revise"].click()
+    definition = {"target": {"bundle_ref": "old@1", "flow_id": "main", "input_data": {
+        "prompt": "Keep task", "model": "chosen", "custom_pin": "old", "workspace_root": "/old", "tools": [],
+    }}, "notify": {"channels": ["console", "email"], "recipients": ["self", "colleague@example.com"]}}
+    view.set_edit_definition({"definition": definition}, {})
+    view.edit_workflow.set_workflows(rows, definition["target"])
+    assert view.edit_email.isChecked()
+    assert view.edit_recipients.text() == "self, colleague@example.com"
+    view.edit_workflow.setCurrentIndex(1)
+    view.edit_save.click()
+    changes = stub.calls("PATCH")[-1]["body"]["changes"]
+    assert changes["target"]["bundle_ref"] == "research"
+    assert changes["target"]["input_data"]["prompt"] == "Keep task"
+    assert changes["target"]["input_data"]["tools"] == []
+    assert "custom_pin" not in changes["target"]["input_data"]
+    assert "workspace_root" not in changes["target"]["input_data"]
+    assert "notify" not in changes
+
+
+def test_workflow_switch_requires_inputs_and_applies_defaults():
+    schema = {"input_data_schema": {"properties": {"prompt": {}, "ticket": {}}, "required": ["prompt", "ticket"]}}
+    with pytest.raises(ValueError, match="additional inputs: ticket"):
+        rules.prepare_workflow_input(schema, {"prompt": "Task"})
+    schema["input_data_schema"]["properties"]["ticket"]["default"] = "default-ticket"
+    assert rules.prepare_workflow_input(schema, {"prompt": "Task", "tools": []}) == {"ticket": "default-ticket", "prompt": "Task", "tools": []}
+    with pytest.raises(ValueError, match="does not report"):
+        rules.prepare_workflow_input({}, {"prompt": "Task"})

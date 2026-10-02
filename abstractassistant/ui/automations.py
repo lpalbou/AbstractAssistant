@@ -13,6 +13,7 @@ notifications) are the Qt-free `core/automations.py`.
 from __future__ import annotations
 
 import html
+import copy
 import json
 import threading
 import uuid
@@ -80,6 +81,124 @@ from ..icons import symbol_icon
 from ..theme import THEME
 from .switch import AfSwitch
 from .styles import alpha, dialog_stylesheet, refresh_style
+
+
+def _target_tools(target: Mapping[str, Any]) -> Optional[List[str]]:
+    data = target.get("input_data") or {}
+    tools = data.get("tools")
+    ceiling = (data.get("_runtime") or {}).get("allowed_tools")
+    if isinstance(ceiling, list):
+        return [name for name in tools if name in ceiling] if isinstance(tools, list) else list(ceiling)
+    return list(tools) if isinstance(tools, list) else None
+
+
+def _with_target_tools(target: Mapping[str, Any], tools: Optional[List[str]]) -> Dict[str, Any]:
+    result = copy.deepcopy(dict(target))
+    data = result.setdefault("input_data", {})
+    if tools is None:
+        data.pop("tools", None)
+        runtime = data.get("_runtime")
+        if isinstance(runtime, dict):
+            runtime.pop("allowed_tools", None)
+    else:
+        data["tools"] = list(tools)
+        data.setdefault("_runtime", {})["allowed_tools"] = list(tools)
+    return result
+
+
+class AutomationToolsButton(QPushButton):
+    """Reuse Settings' searchable grouped tool selector with automation-local state."""
+
+    def __init__(self, parent=None):
+        super().__init__("Tools: workflow defaults", parent)
+        self.selection: Optional[List[str]] = None
+        self.inventory: Dict[str, Any] = {}
+        self.setEnabled(False)
+        self.clicked.connect(self._open)
+
+    def configure(self, inventory: Mapping[str, Any], selection: Optional[List[str]]) -> None:
+        self.inventory = copy.deepcopy(dict(inventory))
+        self.selection = list(selection) if selection is not None else None
+        self.setEnabled(bool(self.inventory.get("items")) or self.selection is not None)
+        self._label()
+        if not self.inventory.get("items"):
+            self.setText("Tools unavailable — reopen to retry" if self.selection is None else f"Tools: {len(self.selection)} selected — catalog unavailable")
+            reason = str(self.inventory.get("note") or self.inventory.get("error") or "The gateway did not return a tool list.")
+            self.setToolTip(reason + " Close and reopen this form to retry. Existing selections are preserved.")
+        else:
+            self.setToolTip("Choose the tools available to this automation")
+
+    def _label(self) -> None:
+        self.setText("Tools: workflow defaults" if self.selection is None else f"Tools: {len(self.selection)} selected")
+
+    def _open(self) -> None:
+        from types import SimpleNamespace
+        from .settings.pages import ToolsPage
+
+        inventory = copy.deepcopy(self.inventory)
+        items = inventory.get("items") or []
+        if self.selection is not None:
+            known = {item.get("name") for item in items}
+            items.extend({"name": name, "available": False, "description": "Not currently reported by the gateway"} for name in self.selection if name not in known)
+            for item in items:
+                item["selected_mode"] = "ask" if item.get("name") in self.selection else "disabled"
+        else:
+            for item in items:
+                if item.get("available") is False:
+                    item["selected_mode"] = "disabled"
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Automation tools")
+        dialog.setStyleSheet(dialog_stylesheet())
+        dialog.resize(640, 560)
+        layout = QVBoxLayout(dialog)
+        page = ToolsPage(SimpleNamespace(tool_inventory=lambda: inventory), dialog, selection_only=True)
+        layout.addWidget(page)
+        page.refresh()
+
+        def selected(names):
+            self.selection = list(names) if names is not None else None
+            self._label()
+            dialog.accept()
+
+        page.selection_saved.connect(selected)
+        page.reset_button.clicked.disconnect()
+        page.reset_button.setText("Use workflow defaults")
+        page.reset_button.setToolTip("Remove the automation's explicit tool selection")
+        page.reset_button.clicked.connect(lambda: selected(None))
+        page.reset_button.setEnabled(True)
+        page.reset_button.show()
+        self._dialog = dialog
+        dialog.show()
+
+
+class AutomationWorkflowCombo(QComboBox):
+    """The Settings workflow menu, scoped to this form instead of device preferences."""
+    def set_workflows(self, rows: Sequence[Mapping[str, Any]], target: Mapping[str, Any]) -> None:
+        self.blockSignals(True)
+        self.clear()
+        current = {key: target[key] for key in ("bundle_ref", "flow_id", "interface") if key in target}
+        label = "Gateway default" if current.get("flow_id") == "@default" else f"{current.get('bundle_ref', '')}:{current.get('flow_id', '')}"
+        self.addItem(label, current)
+        for row in rows:
+            choice = row.get("choice")
+            value = ({"bundle_ref": choice["bundle_id"], "flow_id": choice["flow_id"]} if isinstance(choice, dict)
+                     else {"flow_id": "@default", "interface": "abstractassistant.agent.v1"})
+            if value != current:
+                self.addItem(str(row.get("label") or value["flow_id"]), value)
+        self.setCurrentIndex(0)
+        self.setEnabled(bool(rows))
+        self.setAccessibleName("Automation workflow")
+        self.blockSignals(False)
+
+
+def _retarget_input(data: Mapping[str, Any]) -> Dict[str, Any]:
+    keys = ("prompt", "tools", "provider", "model", "temperature", "seed", "max_iterations", "max_in_tokens", "system", "_limits")
+    out = {key: copy.deepcopy(data[key]) for key in keys if key in data}
+    runtime = data.get("_runtime") or {}
+    allowed = ("allowed_tools", "provider", "model", "thinking", "speculation", "stream")
+    if isinstance(runtime, Mapping):
+        out["_runtime"] = {key: copy.deepcopy(runtime[key]) for key in allowed if key in runtime}
+    return out
 
 __all__ = [
     "AUTOMATIONS_POLL_VISIBLE_MS",
@@ -632,6 +751,7 @@ class AutomationView(QFrame):
     wait_answered = pyqtSignal(str, str, str, object)
     load_more_requested = pyqtSignal()
     retry_requested = pyqtSignal()
+    edit_requested = pyqtSignal()
 
     # Names from the shared `automation_controls.json` (the kit's CONTROL_LABELS).
     # Pause/Resume are not buttons: the "Active" switch sends them (operator
@@ -651,6 +771,8 @@ class AutomationView(QFrame):
         self._bubble_width = bubble_width
         self.setObjectName("autoView")
         self.summary: Dict[str, Any] = {}
+        self.edit_target: Optional[Dict[str, Any]] = None
+        self.edit_definition: Optional[Dict[str, Any]] = None
         self.occurrences: List[Dict[str, Any]] = []
         # A command sent and not yet confirmed by the gateway's state.
         self.pending: Optional[str] = None
@@ -683,6 +805,8 @@ class AutomationView(QFrame):
         top.addLayout(head)
         self.meta_label = _text_label("", "autoViewMeta", parent=self)
         top.addWidget(self.meta_label)
+        self.workflow_label = _text_label("", "autoViewMeta", parent=self)
+        top.addWidget(self.workflow_label)
 
         controls = QHBoxLayout()
         controls.setSpacing(5)
@@ -721,7 +845,7 @@ class AutomationView(QFrame):
 
         # Edit (title + interval + context), inline.
         self.edit_box = QWidget(self)
-        el = QHBoxLayout(self.edit_box)
+        el = QHBoxLayout()
         el.setContentsMargins(0, 0, 0, 0)
         el.setSpacing(6)
         self.edit_title = QLineEdit(self.edit_box)
@@ -745,11 +869,38 @@ class AutomationView(QFrame):
         self.edit_max_tokens.setVisible(False)
         self.edit_context.currentIndexChanged.connect(lambda: self.edit_max_tokens.setVisible(self.edit_context.currentData() == "growing"))
         self.edit_save = _button("Save", "autoPrimary", parent=self.edit_box)
+        self.edit_tools = AutomationToolsButton(self.edit_box)
         self.edit_save.clicked.connect(self._save_edit)
         self.edit_cancel = _button("Cancel", "autoControl", parent=self.edit_box)
         self.edit_cancel.clicked.connect(self.edit_box.hide)
-        for w, stretch in ((self.edit_title, 1), (self.edit_every, 0), (self.edit_context, 0), (self.edit_max_tokens, 0), (self.edit_save, 0), (self.edit_cancel, 0)):
+        for w, stretch in ((self.edit_every, 0), (self.edit_context, 0), (self.edit_max_tokens, 1)):
             el.addWidget(w, stretch)
+        # Keep the compact edit controls usable in a narrow palette.
+        edit_rows = QVBoxLayout(self.edit_box)
+        edit_rows.setContentsMargins(0, 0, 0, 0)
+        self.edit_workflow = AutomationWorkflowCombo(self.edit_box)
+        self.edit_workflow.setEnabled(False)
+        edit_rows.addWidget(_text_label("Workflow", "autoViewMeta", parent=self.edit_box))
+        edit_rows.addWidget(self.edit_workflow)
+        edit_rows.addWidget(_text_label("Title", "autoViewMeta", parent=self.edit_box))
+        edit_rows.addWidget(self.edit_title)
+        edit_rows.addLayout(el)
+        edit_rows.addWidget(self.edit_tools)
+        self.edit_email = AfSwitch("Email result", self.edit_box)
+        self.edit_email.setEnabled(False)
+        edit_rows.addWidget(self.edit_email)
+        edit_rows.addWidget(_text_label("Email results to yourself or other addresses. Turn on Email result to choose recipients.", "autoViewMeta", parent=self.edit_box))
+        self.edit_recipients = QLineEdit(self.edit_box)
+        self.edit_recipients.setPlaceholderText("self or colleague@example.com, another@example.com")
+        self.edit_recipients.setAccessibleName("Email result recipients")
+        self.edit_recipients.setVisible(False)
+        self.edit_email.toggled.connect(self.edit_recipients.setVisible)
+        edit_rows.addWidget(self.edit_recipients)
+        edit_actions = QHBoxLayout()
+        edit_actions.addStretch(1)
+        edit_actions.addWidget(self.edit_save)
+        edit_actions.addWidget(self.edit_cancel)
+        edit_rows.addLayout(edit_actions)
         self.edit_box.hide()
         top.addWidget(self.edit_box)
 
@@ -987,6 +1138,13 @@ class AutomationView(QFrame):
         if control == "revise":
             self.archive_confirm.hide()
             self.edit_box.setVisible(not self.edit_box.isVisibleTo(self))
+            if self.edit_box.isVisibleTo(self):
+                self.edit_target = None
+                self.edit_definition = None
+                self.edit_email.setEnabled(False)
+                self.edit_workflow.setEnabled(False)
+                self.edit_tools.setEnabled(False)
+                self.edit_requested.emit()
             return
         if control == "archive":
             self.edit_box.hide()
@@ -1059,13 +1217,41 @@ class AutomationView(QFrame):
             every=every or None,
             context=str(self.edit_context.currentData()),
             growing_max_tokens=self.edit_max_tokens.value(),
+            definition=self.edit_definition,
+            notify_email=self.edit_email.isChecked() if self.edit_definition is not None else None,
+            email_recipients=("self", "") if self.edit_recipients.text().strip() == "self" else ("list", self.edit_recipients.text()),
         )
         if errors:
             self.set_error(" ".join(errors))
             return
+        if self.edit_target is not None and self.edit_tools.selection != _target_tools(self.edit_target):
+            target = _with_target_tools(self.edit_target, self.edit_tools.selection)
+            changes = changes or {}
+            changes["target"] = {key: target[key] for key in ("bundle_ref", "flow_id", "input_data") if key in target}
+        if self.edit_target is not None and self.edit_workflow.currentIndex() > 0:
+            changes = changes or {}
+            data = (changes.get("target") or self.edit_target).get("input_data") or {}
+            changes["target"] = {**self.edit_workflow.currentData(), "input_data": _retarget_input(data)}
         self.edit_box.hide()
         if changes:
             self.revise_requested.emit(changes)
+
+    def set_edit_definition(self, detail: Mapping[str, Any], inventory: Mapping[str, Any]) -> None:
+        definition = detail.get("definition") or {}
+        self.edit_definition = copy.deepcopy(definition)
+        self.edit_target = copy.deepcopy(definition.get("target") or {})
+        self.set_workflow_detail(detail)
+        self.edit_tools.configure(inventory if self.edit_target else {}, _target_tools(self.edit_target))
+        self.edit_workflow.set_workflows([], self.edit_target)
+        notify = definition.get("notify") or {}
+        self.edit_email.setEnabled(True)
+        self.edit_email.setChecked("email" in (notify.get("channels") or []))
+        self.edit_recipients.setText(", ".join(notify.get("recipients") or ["self"]))
+
+    def set_workflow_detail(self, detail: Mapping[str, Any]) -> None:
+        target = (detail.get("definition") or {}).get("target") or {}
+        value = target.get("workflow_id") or f"{target.get('bundle_ref', '')}:{target.get('flow_id', '')}"
+        self.workflow_label.setText(f"Workflow: {value}" if value != ":" else "")
 
 
 # ------------------------------------------------------ schedule sheet
@@ -1074,7 +1260,7 @@ class AutomationView(QFrame):
 class ScheduleSheet(QDialog):
     """"Schedule this conversation…": WHAT (workflow + task), WHEN (fixed UTC
     interval, once, or when an email arrives), CONTEXT (Independent /
-    Growing), TOOLS, EMAIL (email me the result, allowed recipients).
+    Growing), TOOLS, EMAIL (Email result, allowed recipients).
 
     The email options are offered only once ``set_email_status`` received a
     usable ``GET /me/email``; until then (and when it is not usable) they are
@@ -1123,7 +1309,11 @@ class ScheduleSheet(QDialog):
         outer.addWidget(self.form_scroll, 1)
 
         root.addWidget(_text_label("What", "autoViewTitle", parent=self))
-        root.addWidget(_text_label(f"Workflow: {target_label or 'none'}", "autoViewMeta", parent=self))
+        root.addWidget(_text_label("Workflow", "autoViewMeta", parent=self))
+        self.workflow_picker = AutomationWorkflowCombo(self)
+        self.workflow_picker.set_workflows([], self.target or {})
+        self.workflow_picker.setToolTip("Choose the workflow for this automation")
+        root.addWidget(self.workflow_picker)
         self.title_edit = QLineEdit(self)
         self.title_edit.setObjectName("autoInput")
         self.title_edit.setPlaceholderText("Title (defaults to the task's first line)")
@@ -1189,6 +1379,9 @@ class ScheduleSheet(QDialog):
         root.addWidget(self.growing_max_tokens)
 
         root.addWidget(_text_label("Tools", "autoViewTitle", parent=self))
+        self.tool_picker = AutomationToolsButton(self)
+        self.tool_picker.configure({}, _target_tools(self.target or {}))
+        root.addWidget(self.tool_picker)
         self.tools_auto = QRadioButton("Tools run without asking (you approve them now by creating this automation)", self)
         self.tools_ask = QRadioButton("Ask each time (every run waits for your approval)", self)
         self.tools_auto.setChecked(True)
@@ -1311,7 +1504,7 @@ class ScheduleSheet(QDialog):
         self.notify_email = AfSwitch(EMAIL_TEXT["notify_label"], self)
         self.notify_email.set_hint(EMAIL_TEXT["notify_hint"])
         root.addWidget(self.notify_email)
-        root.addWidget(_text_label(EMAIL_TEXT["notify_hint"], "autoViewMeta", parent=self))
+        root.addWidget(_text_label(EMAIL_TEXT["notify_hint"] + " Turn on Email result to choose yourself or other email addresses.", "autoViewMeta", parent=self))
         self.recipients_container = QWidget(self)
         recipients_layout = QVBoxLayout(self.recipients_container)
         recipients_layout.setContentsMargins(0, 0, 0, 0)
@@ -1461,12 +1654,15 @@ class ScheduleSheet(QDialog):
 
     def build_body(self):
         when = self.when()
+        target = self.target
+        if self.workflow_picker.currentIndex() > 0:
+            target = {**self.workflow_picker.currentData(), "input_data": _retarget_input((self.target or {}).get("input_data") or {})}
         return build_create_request(
             prompt=self.prompt_edit.toPlainText(),
             when=when,
             context="growing" if self.growing.isChecked() else "independent",
             growing_max_tokens=self.growing_max_tokens.value(),
-            target=self.target,
+            target=_with_target_tools(target, self.tool_picker.selection) if target else None,
             request_id=self.request_id,
             title=self.title_edit.text(),
             start_at="" if when.kind == "once" or self.preset_combo.currentData() == "email" else self.at_edit.text().strip(),
@@ -1750,6 +1946,9 @@ class AutomationsHub(QObject):
 
     def trigger_sources(self, done: Callable[[bool, Any], None]) -> None:
         self._submit(lambda: self._client_factory().trigger_sources(), done)
+
+    def detail(self, automation_id: str, done: Callable[[bool, Any], None]) -> None:
+        self._submit(lambda: self._client_factory().get(automation_id), done)
 
     def my_email(self, done: Callable[[bool, Any], None]) -> None:
         """``GET /me/email`` (the Schedule sheet's email options)."""

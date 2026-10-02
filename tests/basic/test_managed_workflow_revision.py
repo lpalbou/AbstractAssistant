@@ -80,3 +80,21 @@ def test_an_older_stored_workflow_is_upgraded_once() -> None:
     assert len(gateway.updated) == 1 and len(gateway.published) == 2
     _relaunch(gateway)
     assert len(gateway.updated) == 1 and len(gateway.published) == 2  # and it settles
+
+
+def test_toolless_revision_two_is_upgraded_once() -> None:
+    gateway = _service_with_published_workflow()
+    older = copy.deepcopy(gateway._flows[0])
+    older["description"] = older["description"].replace(
+        f"workflow-revision={wf.MANAGED_ASSISTANT_WORKFLOW_REVISION}", "workflow-revision=2"
+    )
+    start = next(node for node in older["nodes"] if node["id"] == "start")
+    start["data"]["pinDefaults"].pop("tools")
+    gateway._flows = [older]
+
+    _relaunch(gateway)
+    upgraded = next(node for node in gateway._flows[0]["nodes"] if node["id"] == "start")
+    assert "web_search" in upgraded["data"]["pinDefaults"]["tools"]
+    assert len(gateway.updated) == 1 and len(gateway.published) == 2
+    _relaunch(gateway)
+    assert len(gateway.updated) == 1 and len(gateway.published) == 2

@@ -896,9 +896,9 @@ def target_from_workflow(selection: Any) -> Optional[Dict[str, Any]]:
 
 
 DEFAULT_GROWING_MAX_TOKENS = 50_000
-GROWING_CONTEXT_HELP = ("Keeps the most recent whole turns within this token budget. "
-                        "The newest turn is kept whole even if it exceeds the budget. "
-                        "Changes apply to future runs.")
+GROWING_CONTEXT_HELP = ("Limits history carried into the next run, keeping recent whole turns. "
+                        "The newest turn is kept even if oversized. "
+                        "New messages and tool results can grow context beyond this budget.")
 
 
 def _valid_growing_max_tokens(value: Any) -> bool:
@@ -985,6 +985,22 @@ def build_create_request(
 
 
 # ------------------------------------------------------------------- revise
+
+
+def prepare_workflow_input(schema_response: Mapping[str, Any], supplied: Mapping[str, Any]) -> Dict[str, Any]:
+    """Fail closed on unsatisfied required pins before a workflow switch."""
+    schema = schema_response.get("input_data_schema") or schema_response
+    if not isinstance(schema, Mapping) or not isinstance(schema.get("properties"), Mapping):
+        raise ValueError("This workflow does not report its input requirements. Choose another workflow.")
+    inputs = dict(schema_response.get("defaults") or {})
+    for key, field in schema["properties"].items():
+        if isinstance(field, Mapping) and "default" in field:
+            inputs[key] = field["default"]
+    inputs.update(supplied)
+    missing = [str(key) for key in schema.get("required", []) if key not in inputs]
+    if missing:
+        raise ValueError("This workflow needs additional inputs: " + ", ".join(missing) + ". Configure a new automation from that workflow's input form, or choose a compatible workflow.")
+    return inputs
 
 
 def revise_changes(

@@ -1080,6 +1080,13 @@ class GatewayClient:
     def discovery_tools(self) -> Dict[str, Any]:
         return self._request_json(method="GET", url=self._url("/api/gateway/discovery/tools"), label="discovery_tools failed")
 
+    def workflow_input_schema(self, bundle_id: str, flow_id: str, bundle_version: str = "") -> Dict[str, Any]:
+        from urllib.parse import quote
+        return self._request_json(method="GET", url=self._url(
+            f"/api/gateway/bundles/{quote(bundle_id, safe='')}/flows/{quote(flow_id, safe='')}/input_schema",
+            query={"bundle_version": bundle_version} if bundle_version else None,
+        ), label="workflow input schema failed")
+
     def workspace_policy(self) -> Dict[str, Any]:
         """Operator-configured server workspace policy (read-only, thin-client safe)."""
         return self._request_json(

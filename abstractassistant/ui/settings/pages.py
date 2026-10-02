@@ -1034,9 +1034,14 @@ class ToolsPage(SettingsPage):
     nav_title = "Tools"
     subtitle = "How this Mac handles tool requests before they reach the gateway. Off and Ask narrow what the gateway allows; Auto pre-approves a tool even where the gateway would ask. Risk tiers come from the gateway."
     icon = "shield"
+    selection_saved = pyqtSignal(object)
 
-    def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, controller: Any, parent: Optional[QWidget] = None, *, selection_only: bool = False) -> None:
+        self.selection_only = selection_only
         super().__init__(controller, parent)
+        if selection_only:
+            self.title_label.setText("Tools")
+            self.subtitle_label.setText("Choose the tools available to this automation. Its approval setting controls when they may run.")
         self._rows: Dict[str, Dict[str, Any]] = {}
         self.mode_note = Note("", "info")
         self.body.addWidget(self.mode_note)
@@ -1056,6 +1061,10 @@ class ToolsPage(SettingsPage):
         self.reset_button = button("Use gateway defaults", "secondary", tooltip="Set every tool back to the gateway's own approval default", on_click=self._reset_defaults)
         self.save_button_tools = button("Save", "primary", on_click=self._save)
         self.add_actions(self.reset_button, self.save_button_tools)
+        if selection_only:
+            self.reset_button.hide()
+            self.save_button_tools.setText("Use selection")
+            self.mode_note.hide()
 
     def _tool_mode_text(self, mode: str) -> str:
         mode_s = str(mode or "").strip().lower()
@@ -1073,6 +1082,8 @@ class ToolsPage(SettingsPage):
         inventory = safe_call(self.controller, "tool_inventory", default=None) or {}
         items = inventory.get("items") if isinstance(inventory, dict) else []
         self.mode_note.show_text(self._tool_mode_text(str((inventory or {}).get("tool_mode") or "")), "info")
+        if self.selection_only:
+            self.mode_note.hide()
         note = str((inventory or {}).get("note") or "").strip()
         if note:
             self.say(note, tone="warning")
@@ -1109,8 +1120,12 @@ class ToolsPage(SettingsPage):
         card.add_header_widget(glyph)
         all_auto = button("All auto", "ghost", tooltip="Pre-approve the observe/act tools in this group on this Mac (outreach and destructive tools stay on Ask)", on_click=lambda: self._set_group(toolset, "approve"))
         all_ask = button("All ask", "ghost", tooltip="Ask before running any tool in this group", on_click=lambda: self._set_group(toolset, "ask"))
-        card.add_header_widget(all_auto)
-        card.add_header_widget(all_ask)
+        if self.selection_only:
+            all_auto.hide()
+            all_ask.hide()
+        else:
+            card.add_header_widget(all_auto)
+            card.add_header_widget(all_ask)
         for item in sorted(items, key=lambda entry: str(entry.get("name") or "")):
             name = str(item.get("name") or "")
             risk = describe_tool_risk(item)
@@ -1128,7 +1143,7 @@ class ToolsPage(SettingsPage):
             chip = Chip(risk["label"] if available else "Disabled on gateway", risk["tone"] if available else "warning")
             chip.setToolTip(str(risk.get("sentence") or "") if available else "The gateway has this tool switched off; approval cannot run it.")
             head_row.addWidget(chip)
-            control = SegmentedControl([("disabled", "Off"), ("approve", "Auto"), ("ask", "Ask")])
+            control = SegmentedControl([("disabled", "Off"), ("ask", "On")] if self.selection_only else [("disabled", "Off"), ("approve", "Auto"), ("ask", "Ask")])
             default = str(item.get("policy_default") or "ask")
             control.set_tooltips(
                 {
@@ -1138,7 +1153,10 @@ class ToolsPage(SettingsPage):
                 }
             )
             control.set_value(str(item.get("selected_mode") or default))
-            control.setEnabled(available)
+            if self.selection_only:
+                control.set_tooltips({"disabled": "Never offered to the model", "ask": "Available under this automation's approval setting"})
+                control.set_value("disabled" if item.get("selected_mode") == "disabled" else "ask")
+            control.setEnabled(available or (self.selection_only and item.get("selected_mode") != "disabled"))
             control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             head_row.addWidget(control, 0)
             desc_bits = [str(item.get("description") or "").strip(), str(item.get("when_to_use") or "").strip()]
@@ -1204,6 +1222,9 @@ class ToolsPage(SettingsPage):
     def _save(self) -> None:
         if not self._rows:
             self.say("Nothing to save: the gateway reported no tools.", tone="warning")
+            return
+        if self.selection_only:
+            self.selection_saved.emit([name for name, info in self._rows.items() if info["control"].value() != "disabled"])
             return
         # Only rows that differ from the gateway's default are stored, so a
         # tool left on its default keeps following the gateway if that changes.

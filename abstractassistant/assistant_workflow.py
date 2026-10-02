@@ -23,7 +23,8 @@ MANAGED_ASSISTANT_WORKFLOW_MARKER = "managed-by=abstractassistant;scope=tenant-c
 # revision is >= the stored one; a NEWER stored workflow is used as it is.
 #   1 = everything before revisions existed (no marker in the description)
 #   2 = route_call pins `tools: []` / `temperature: 0.0` (2026-09-17)
-MANAGED_ASSISTANT_WORKFLOW_REVISION = 2
+#   3 = explicit agent tool defaults for callers without chat tool selections
+MANAGED_ASSISTANT_WORKFLOW_REVISION = 3
 _REVISION_MARKER_PREFIX = "workflow-revision="
 
 
@@ -230,6 +231,14 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         pin_defaults={
             "use_context": True,
             "system": _BASE_SYSTEM_PROMPT,
+            # Automations and direct API callers do not necessarily supply the
+            # chat client's selected tools. Declare this workflow's baseline,
+            # as basic-agent does; explicit inputs (including []) override it.
+            # Optional communications tools remain gated by the gateway.
+            "tools": [
+                "edit_file", "analyze_code", "execute_command", "fetch_url",
+                "list_files", "read_file", "search_files", "web_search", "write_file",
+            ],
             "max_iterations": 24,
             "temperature": 0.2,
             "seed": -1,

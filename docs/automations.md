@@ -10,6 +10,8 @@ routes they use, see [architecture.md](architecture.md#automations) and
 [api.md](api.md#gateway-routes-used). For the sessions they sit next to, see
 [architecture.md](architecture.md#sessions).
 
+The managed Assistant workflow supplies baseline file, web and command tools when no explicit tool selection is provided. An explicit empty selection disables tools; gateway permissions may narrow any selection. Automations pin their workflow version: to adopt updated defaults, revise the target or create an automation using the updated workflow.
+
 ## What an automation is
 
 - **An automation is a durable object on the gateway.** Each run of it (an *occurrence*) is a run of
@@ -80,8 +82,8 @@ Two ways in, one window:
 
 The window, beside the palette:
 
-- **What**: the conversation's workflow (the one Settings → Models → Workflow selects, shown as
-  "Workflow: …") and a task prefilled with the conversation's last question, which you can edit.
+- **What**: a **Workflow** picker initially set to the conversation workflow, and a task
+  prefilled with the conversation’s last question. Both choices belong to the automation.
   The title is optional and defaults to the task's first line (at most 120 characters).
 - **When (UTC)**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days;
   **every N…** minutes, hours or days; **once at…** a date and time; or **When an email arrives**
@@ -90,7 +92,7 @@ The window, beside the palette:
   in UTC: "every 24 hours", never "daily at 08:00 local time".
 - **Context**: **Independent** (the default: each run starts fresh) or **Growing** (each run sees
   the previous runs).
-- **Tools**: **Tools run without asking** (the default) or **Ask each time**. See
+- **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Tools run without asking** (the default) or **Ask each time** separately. See
   [Tool consent](#tool-consent).
 - **Email**: **Email result** and **Recipients: Only me (default) /
   Me and these addresses** (see [Email automations](#email-automations)).
@@ -127,15 +129,15 @@ account.
 
 The wording is the shared AbstractUIC text (`automation_controls.json`, `email` section), the same
 as in the web clients. **Edit** changes an email trigger's interval (the revised trigger starts
-from now, so no email is read twice); Email result and the recipients are kept with the
-automation.
+from now, so no email is read twice). You can also change **Email result** and its recipients
+in the edit form.
 
 Outside automations, the Assistant's local tool approval asks before `send_email`,
 `list_emails` or `read_email` runs: these tools are not in its auto-approved set.
 
 ## Tool consent
 
-The **Tools** choice is sent as the automation's `policy.tool_approval`:
+Tool selection applies only to this automation and does not change chat preferences. The separate approval choice is sent as `policy.tool_approval`:
 
 - **Tools run without asking** (`auto`): creating the automation is your approval. Its runs use the
   workflow's tools without stopping to ask, since nobody is there to answer each run.
@@ -181,7 +183,7 @@ stay counted until you answer them.
 | **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
 | **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
-| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) and context mode, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`), context mode, workflow, tool selection and result-email recipients, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
 | **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
@@ -288,13 +290,15 @@ automations, and no automation route is called before that.
 
 - Schedules are fixed intervals in UTC, or one run at a given time. There is no calendar recurrence
   (weekdays, local time zones).
-- The only triggers the Assistant creates are the schedule and **Run now**.
+- The Assistant creates scheduled and incoming-email automations; **Run now** starts an additional occurrence.
 - The Schedule window does not set a maximum number of runs or an end date; an automation created
   elsewhere with one shows it in its cadence.
-- **Edit** changes an automation's title, interval and context mode only. The workflow and task
-  it runs (its target) and its tool-approval policy change only through the gateway's
-  `PATCH /api/gateway/automations/{id}` route; no app's edit form changes them. From the apps,
-  archive the automation and schedule a new one.
+- **Edit** changes title, interval, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
+
+Changing workflows preserves the task, portable agent settings, selected tools and result-email
+recipients. The new workflow supplies its input defaults. If additional required inputs are
+missing, the form refuses the change; configure those inputs when creating a new automation
+or choose a compatible workflow.
 
 ## Growing context limit
 
@@ -305,6 +309,10 @@ automation. The default is 50,000; enter `30000` for a 30,000-token history budg
 The limit is hidden for **Independent** runs. Changing it affects subsequent occurrences;
 already admitted occurrences retain their history for retries. History retains whole turns,
 including the newest turn even when that turn alone exceeds the budget.
+
+This budget limits inherited history at the start of a run. New messages, tool results,
+system instructions and generated output can increase the model’s working context beyond it.
+It is not a per-call context or memory limit.
 
 The API field is `context.growing.max_tokens`, a positive integer. Existing definitions
 that omit it retain the 50,000-token default.

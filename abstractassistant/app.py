@@ -6136,6 +6136,7 @@ class AssistantPalette(QMainWindow):
         self.automation_view.back_requested.connect(self._close_automation_view)
         self.automation_view.control_requested.connect(self._on_automation_control)
         self.automation_view.revise_requested.connect(self._on_automation_revise)
+        self.automation_view.edit_requested.connect(self._load_automation_edit)
         self.automation_view.discuss_requested.connect(self._on_automation_discuss)
         self.automation_view.wait_answered.connect(self._on_automation_wait_answer)
         self.automation_view.load_more_requested.connect(self._on_automation_load_more)
@@ -6628,7 +6629,10 @@ class AssistantPalette(QMainWindow):
         if view_id:
             summary = hub.summary(view_id)
             if summary is not None:
+                previous_revision = self.automation_view.summary.get("revision")
                 self.automation_view.set_summary(summary)
+                if previous_revision != summary.get("revision"):
+                    hub.detail(view_id, lambda ok, detail: self.automation_view.set_workflow_detail(detail) if ok and self._state("_automation_view_id") == view_id else None)
 
     def _automation_turn_card(self, role: str, content: str, ts: str, bubble_width: int) -> QWidget:
         """An occurrence's task or answer, rendered by the conversation's own
@@ -6693,6 +6697,7 @@ class AssistantPalette(QMainWindow):
         view.set_notice("Loading runs…")
         view.set_occurrences([], next_cursor=None)
         view.set_summary(summary)
+        view.workflow_label.clear()
         self.history_scroll.hide()
         self.chat_status_label.hide()
         self.composer_card.hide()
@@ -6722,6 +6727,7 @@ class AssistantPalette(QMainWindow):
             self._automations.mark_seen(summary)
 
         self._automations.load_occurrences(aid, loaded)
+        self._automations.detail(aid, lambda ok, detail: view.set_workflow_detail(detail) if ok and self._state("_automation_view_id") == aid else None)
 
     def _close_automation_view(self) -> None:
         self._automation_view_id = ""
@@ -6786,7 +6792,52 @@ class AssistantPalette(QMainWindow):
         if summary is None or not isinstance(changes, dict):
             return
         self.automation_view.set_busy(True)
-        self._automations.revise(summary, changes, self._automation_call_done("Saved; applies from the next run."))
+        def ready(ok: bool, target: Any) -> None:
+            if not ok:
+                self.automation_view.set_busy(False)
+                self.automation_view.edit_box.show()
+                self.automation_view.set_error(str(target))
+                return
+            revised = {**changes, "target": target} if target is not None else changes
+            self._automations.revise(summary, revised, self._automation_call_done("Saved; applies from the next run."))
+        if changes.get("target") and self.automation_view.edit_workflow.currentIndex() > 0:
+            self._automations.run(lambda: self._prepare_automation_target(changes["target"]), ready)
+        else:
+            ready(True, None)
+
+    def _prepare_automation_target(self, target: Dict[str, Any]) -> Dict[str, Any]:
+        from .core.automations import prepare_workflow_input
+        if target.get("flow_id") == "@default":
+            selected = self._controller.gateway_default_workflow()
+            bundle, version, flow = selected.bundle_id, selected.bundle_version, selected.flow_id
+        else:
+            ref = str(target.get("bundle_ref") or "")
+            bundle, separator, version = ref.rpartition("@")
+            if not separator:
+                bundle, version = ref, ""
+            flow = str(target.get("flow_id") or "")
+        schema = self._controller.gateway.workflow_input_schema(bundle, flow, version)
+        return {**target, "input_data": prepare_workflow_input(schema, target.get("input_data") or {})}
+
+    def _load_automation_edit(self) -> None:
+        aid = self._state("_automation_view_id", "")
+        def loaded(ok: bool, detail: Any) -> None:
+            if self._state("_automation_view_id") != aid:
+                return
+            if not ok:
+                self.automation_view.set_error(self._automations.error_text(detail))
+                return
+            def inventory_loaded(ok2: bool, inventory: Any) -> None:
+                if self._state("_automation_view_id") == aid:
+                    self.automation_view.set_edit_definition(detail, inventory if ok2 else {})
+                    def workflows_loaded(ok3: bool, rows: Any) -> None:
+                        if self._state("_automation_view_id") == aid:
+                            self.automation_view.edit_workflow.set_workflows(rows if ok3 else [], self.automation_view.edit_target or {})
+                            if not ok3:
+                                self.automation_view.set_error("Could not load workflows. Close and reopen Edit to retry.")
+                    self._automations.run(lambda: self._controller.workflow_menu(), workflows_loaded)
+            self._automations.run(lambda: self._controller.tool_inventory(), inventory_loaded)
+        self._automations.detail(aid, loaded)
 
     def _on_automation_load_more(self) -> None:
         aid = self._state("_automation_view_id", "")
@@ -6890,6 +6941,14 @@ class AssistantPalette(QMainWindow):
             if getattr(selection, "is_gateway_default", False):
                 label = f"gateway default ({label})" if label else "gateway default"
             sheet = ScheduleSheet(target=target_from_workflow(selection), target_label=label, prompt=prompt, parent=self)
+            self._automations.run(
+                lambda: controller.workflow_menu(),
+                lambda ok_workflows, rows: sheet.workflow_picker.set_workflows(rows if ok_workflows else [], sheet.target or {}),
+            )
+            self._automations.run(
+                lambda: controller.tool_inventory(),
+                lambda ok_tools, inventory: sheet.tool_picker.configure(inventory if ok_tools else {}, sheet.tool_picker.selection),
+            )
             sheet.standalone = bool(standalone)
             if standalone:
                 sheet.setWindowTitle("New automation")
@@ -6945,7 +7004,15 @@ class AssistantPalette(QMainWindow):
                     self._open_automation(str(summary["automation_id"]))
             self._poll_automations()
 
-        self._automations.create(body, done)
+        if sheet.workflow_picker.currentIndex() > 0:
+            def prepared(ok: bool, value: Any) -> None:
+                if not ok:
+                    sheet.submit_failed(str(value), reuse_id=False)
+                else:
+                    self._automations.create({**body, "target": value}, done)
+            self._automations.run(lambda: self._prepare_automation_target(body["target"]), prepared)
+        else:
+            self._automations.create(body, done)
 
     def _refresh_open_session_switcher(self) -> None:
         """Re-render the popup's rows (rename, or the gateway answered)."""
