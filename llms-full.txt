@@ -558,8 +558,7 @@ AbstractFramework apps: on shows an accent track with a check mark and a bold la
 A switch that is a saved setting applies the moment you flip it, and the line at the bottom of the
 page names the new state ("Replies are spoken automatically."); if the save fails, the switch
 flips back and the line says so. The **Voice** page has no Save button: its switches and lists
-apply as they change. A switch inside a form (Keep the session…, on the Connection page) is saved
-by that form's button.
+apply as they change.
 
 ## Connection
 
@@ -569,7 +568,9 @@ by that form's button.
 | Gateway URL | Where runs, tools and speech execute | connection `base_url` |
 | Sign-in mode | Bearer token (shared, local or operator-run gateways) or Gateway session (one user, personal token exchanged for a session) | connection `auth_mode` |
 | Bearer token / Gateway user / Gateway user token | Credentials for the chosen mode; the eye button reveals the bearer token | connection |
-| Keep the session after this app closes | Switch; session mode only; saved by `Connect` | connection `remember_session` |
+
+Sessions belong to the gateway: the Assistant never decides how long a sign-in or a conversation
+session is kept (0.12.1 removed the "Keep the session after this app closes" switch).
 
 `Connect` saves and reconnects. `Sign out` clears the local sign-in state (and logs a gateway
 session out).
@@ -2446,6 +2447,16 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 Nothing yet.
 
+## [0.12.1] - 2026-10-02
+
+### Fixed
+
+- A workflow from the gateway's private registry runs: the Assistant no longer refuses any registry scope the gateway resolves ("Not sent — Unsupported workflow registry_scope for AbstractAssistant: private"). The gateway decides what a user may run.
+
+### Removed
+
+- Settings → Connection: the "Session · Keep the session after this app closes" switch. Sessions belong to the gateway and the runtime; the Assistant never decides how long one is kept.
+
 ## [0.12.0] - 2026-10-01
 
 ### Changed
@@ -3300,7 +3311,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.12.0"
+version = "0.12.1"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10066,9 +10077,9 @@ class GatewayWorker(QThread):
             return {"flow_id": "@default", "interface": self._interface}
         if not self._bundle_id or not self._flow_id or not self._bundle_version:
             raise RuntimeError("Published assistant workflow selection is incomplete.")
+        # Any scope the gateway resolved (private registry or tenant catalog): the
+        # gateway decides which workflows this user may run, never this client.
         scope = str(self._registry_scope or "").strip() or "tenant_catalog"
-        if scope != "tenant_catalog":
-            raise RuntimeError(f"Unsupported workflow registry_scope for AbstractAssistant: {scope}")
         return {
             "bundle_id": self._bundle_id,
             "flow_id": self._flow_id,

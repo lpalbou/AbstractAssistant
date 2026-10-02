@@ -16,8 +16,7 @@ AbstractFramework apps: on shows an accent track with a check mark and a bold la
 A switch that is a saved setting applies the moment you flip it, and the line at the bottom of the
 page names the new state ("Replies are spoken automatically."); if the save fails, the switch
 flips back and the line says so. The **Voice** page has no Save button: its switches and lists
-apply as they change. A switch inside a form (Keep the session…, on the Connection page) is saved
-by that form's button.
+apply as they change.
 
 ## Connection
 
@@ -27,7 +26,9 @@ by that form's button.
 | Gateway URL | Where runs, tools and speech execute | connection `base_url` |
 | Sign-in mode | Bearer token (shared, local or operator-run gateways) or Gateway session (one user, personal token exchanged for a session) | connection `auth_mode` |
 | Bearer token / Gateway user / Gateway user token | Credentials for the chosen mode; the eye button reveals the bearer token | connection |
-| Keep the session after this app closes | Switch; session mode only; saved by `Connect` | connection `remember_session` |
+
+Sessions belong to the gateway: the Assistant never decides how long a sign-in or a conversation
+session is kept (0.12.1 removed the "Keep the session after this app closes" switch).
 
 `Connect` saves and reconnects. `Sign out` clears the local sign-in state (and logs a gateway
 session out).

@@ -7,6 +7,16 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 Nothing yet.
 
+## [0.12.1] - 2026-10-02
+
+### Fixed
+
+- A workflow from the gateway's private registry runs: the Assistant no longer refuses any registry scope the gateway resolves ("Not sent — Unsupported workflow registry_scope for AbstractAssistant: private"). The gateway decides what a user may run.
+
+### Removed
+
+- Settings → Connection: the "Session · Keep the session after this app closes" switch. Sessions belong to the gateway and the runtime; the Assistant never decides how long one is kept.
+
 ## [0.12.0] - 2026-10-01
 
 ### Changed
