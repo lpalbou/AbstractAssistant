@@ -5,6 +5,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+## [0.12.3] - 2026-10-03
+
+- Choose a workflow when creating an automation or change its workflow in Edit while retaining tools and result-email recipients.
+
 - Automation creation and editing reuse the searchable grouped tool selector, independently of global chat settings. Select no tools explicitly or restore workflow defaults; unavailable discovery is explained.
 
 - Managed Assistant workflow revision 3 supplies baseline file, web and command tools when inputs omit tools; explicit empty selections and narrower permissions remain respected. Existing automations retain their pinned workflow until their target is revised.
