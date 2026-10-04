@@ -411,7 +411,10 @@ def test_accessibility_state_is_shown_and_configure_asks_macos(monkeypatch) -> N
     oracle.granted = True
     dlg.show()
     tsp._app().processEvents()
-    page._on_application_state(Qt.ApplicationActive)
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtWidgets import QApplication
+
+    QApplication.sendEvent(page, QEvent(QEvent.ActivationChange))  # back from System Settings
     assert page.accessibility_state.text() == "Granted"
     assert page.accessibility_state.property("tone") == "ok"
     assert applied, "the shortcut is armed once the permission arrives"

@@ -7,8 +7,10 @@ the matching voice routes.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
-Settings → Models & reasoning; the Voice page names each engine and says whether it is the gateway
-default or this app's choice. Leaving an override empty always follows the gateway's current
+Settings → Models & reasoning (Voice output (TTS) / Voice input (STT)). The Voice page only shows
+them, read-only — **Gateway default · supertonic / supertonic-3** from the gateway's
+`GET /api/gateway/voice/defaults`, or **provider / model — this app** — with a **Change under
+Models** link to the route. Leaving an override empty always follows the gateway's current
 default.
 
 See [settings.md](settings.md) for the Voice page and [troubleshooting.md](troubleshooting.md)

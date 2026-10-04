@@ -66,7 +66,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
-- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow, Stream replies, MTP depth, read-only voice engines, collapsible tool categories, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first, stop after / stop at), tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
@@ -558,8 +558,9 @@ On/off settings are switches labelled by the feature, the same control as the ot
 AbstractFramework apps: on shows an accent track with a check mark and a bold label, off is plain.
 A switch that is a saved setting applies the moment you flip it, and the line at the bottom of the
 page names the new state ("Replies are spoken automatically."); if the save fails, the switch
-flips back and the line says so. The **Voice** page has no Save button: its switches and lists
-apply as they change.
+flips back and the line says so. The **Voice**, **Tools** and **Appearance** pages have no Save
+button: their switches, lists and fields apply as they change (a field when you press Return or
+leave it).
 
 ## Connection
 
@@ -581,7 +582,7 @@ session out).
 | Control | Meaning | Stored |
 |---|---|---|
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
-| MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
+| MTP depth | The shared route picker's MTP choice, with the same words as AbstractCode and the gateway console: **Gateway default** (with the gateway's own depth, e.g. **Gateway default (depth 2)**), **Off**, or **Depth N** for each depth the gateway advertises for the selected provider/model. Configurable when the gateway reports the model MTP-capable; for a model it reports without MTP the list is shown disabled with the gateway's sentence (a saved depth stays changeable, marked **(saved; not available)**). Sent as `_runtime.speculation` (`{mode: "native_mtp", num_draft_tokens, require_acceleration: true}`); Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
@@ -596,8 +597,8 @@ The state line above the lists shows two facts: the gateway default (with the ro
 from when the gateway says so) and what this app uses. Provider, model and voice catalogs are read
 from the gateway; when it cannot be reached the lists hold `Gateway default` alone, say why, and
 re-fetch when you open them again — a saved choice stays selected and marked `(saved)`
-rather than being discarded. The chat route accepts an optional provider base URL; the voice route
-adds a voice picker.
+rather than being discarded. The chat route has an optional **Provider base URL** row (a plain row,
+no "Advanced" disclosure); the voice route adds a voice picker.
 
 Where overrides travel: the chat model rides the run input (top-level pins and `_runtime`);
 voice overrides ride each speech request; image, video, music and sound overrides ride the
@@ -648,7 +649,7 @@ its choice per signed-in user in the browser).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Text → speech / Speech → text | The engines that speak and listen, with "gateway default" or "this app"; `Change…` opens the route in Models & reasoning | gateway / this app |
+| Text → speech / Speech → text | Read-only: the engines that speak and listen, as **Gateway default · supertonic / supertonic-3** from the gateway's `GET /api/gateway/voice/defaults` (**not set** when the administrator set none, **unknown** when the gateway could not be asked), or **provider / model — this app** when this app overrides it. The engines are chosen in one place: **Change under Models** opens Models → Voice output (TTS) / Voice input (STT) | gateway / this app |
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
@@ -676,11 +677,13 @@ the posture does not reach makes the run start fail; the palette then shows
 | Control | Meaning | Stored |
 |---|---|---|
 | Tool mode note | The gateway's tool execution mode (approval, local, passthrough, delegated) | gateway |
-| Per-tool Off / Auto / Ask | Off never offers the tool to the model; Auto pre-approves it on this Mac, even where the gateway would ask; Ask prompts every time. The gateway's own default is marked in the tooltip. Save stores only the tools that differ from the gateway default | this app `tool_preferences` |
+| Categories | One collapsible panel per category the gateway reports for its tools (the `toolset` of each tool in `GET /api/gateway/discovery/tools`: camera, comms, files, web, …): the name, the number of tools, then **All auto** / **All ask**. Panels are collapsed except those holding a choice that differs from the gateway default; a panel you open or close stays that way | gateway |
+| Per-tool Off / Auto / Ask | Off never offers the tool to the model; Auto pre-approves it on this Mac, even where the gateway would ask; Ask prompts every time. The gateway's own default is marked in the tooltip. A choice applies at once; only the tools that differ from the gateway default are stored, and a failed save puts the row back with "Not saved." | this app `tool_preferences` |
 | Risk chip and sentence | The gateway's risk tier (reads only, makes changes, reaches outside, destructive) and capability facts (writes, can delete, sends messages, reaches remote services, captures the environment) | gateway |
 | Disabled on gateway | Tools the gateway has turned off; they are never offered to a run | gateway |
-| All auto / All ask | Set every available tool of a toolset at once. All auto leaves outreach and destructive tools on Ask; set those to Auto one by one | this app |
-| Use gateway defaults | Restore each tool to the gateway's approval default (press Save to keep) | this app |
+| All auto / All ask | Pressed-state controls in each panel header: **All auto** is pressed when every tool it may reach is on Auto, **All ask** when every tool of the panel is on Ask, neither when they are mixed; pressing one sets the panel's tools and applies at once. All auto leaves outreach and destructive tools on Ask; set those to Auto one by one. With a filter, only the tools shown are changed | this app |
+| Filter tools | Searches every category (names and descriptions); panels with a match open, the others step aside, and the count reads **2 of 8** | — |
+| Use gateway defaults | Restore each tool to the gateway's approval default (applies at once) | this app |
 
 Off and Ask narrow what the gateway allows; Auto pre-approves on this Mac. Tools you never
 configured follow the gateway's approval default. "Always allow … on this Mac" in the approval
@@ -697,8 +700,9 @@ Listed as **Appearance** in the sidebar.
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
-| Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination is saved with the page's `Save` | this app `hotkey_enabled`, `hotkey_sequence` |
-| Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
+| Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination applies when you press Return or leave the field | this app `hotkey_enabled`, `hotkey_sequence` |
+| Accessibility | macOS only: the permission the shortcut needs, as **Granted** / **Not granted**. **Configure** asks macOS for it (the system prompt, when macOS still offers it) and opens System Settings → Privacy & Security → Accessibility; the state is checked again when you come back to the app or reopen the page, and the shortcut starts as soon as it is granted | macOS |
+| Width / Expanded height / Screen edge gap | Apply as they change. Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without
 the `layout_version: 2` marker are moved to 650 px and 12 px once; any other saved width or gap,
@@ -747,8 +751,10 @@ the matching voice routes.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
-Settings → Models & reasoning; the Voice page names each engine and says whether it is the gateway
-default or this app's choice. Leaving an override empty always follows the gateway's current
+Settings → Models & reasoning (Voice output (TTS) / Voice input (STT)). The Voice page only shows
+them, read-only — **Gateway default · supertonic / supertonic-3** from the gateway's
+`GET /api/gateway/voice/defaults`, or **provider / model — this app** — with a **Change under
+Models** link to the route. Leaving an override empty always follows the gateway's current
 default.
 
 See [settings.md](settings.md) for the Voice page and [troubleshooting.md](troubleshooting.md)
@@ -1376,6 +1382,7 @@ the stream. Whether the gateway offers live replies is read from
   `/api/gateway/workspace/policy/self`
 - Speech and media catalogs: `/api/gateway/audio/speech/models`,
   `/api/gateway/audio/transcriptions/models`, `/api/gateway/voice/voices`,
+  `/api/gateway/voice/defaults` (the default engines Settings → Voice shows),
   `/api/gateway/vision/provider_models`, `/api/gateway/vision/adapters`,
   `/api/gateway/audio/music/providers`, `/api/gateway/audio/music/models`
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
@@ -2122,9 +2129,11 @@ is configured on the gateway side, and press Reload in the route editor.
 
 The summon hotkey needs macOS permission for the process that launched the app (the app bundle,
 or the terminal you started it from) to read the keyboard. Without it the shortcut is not
-registered and the reason is logged (`#FALLBACK: global hotkey … not registered`). Grant it in
-System Settings → Privacy & Security → Accessibility (and Input Monitoring), then save the shortcut
-again in Settings → Appearance, or use the menu-bar icon. Named keys are written plainly
+registered and the reason is logged (`#FALLBACK: global hotkey … not registered`). Settings →
+Appearance → Global shortcut shows the permission (**Granted** / **Not granted**); **Configure**
+asks macOS for it and opens System Settings → Privacy & Security → Accessibility (add Input
+Monitoring there too if macOS asks). The page checks again when you come back and starts the
+shortcut once it is granted; otherwise use the menu-bar icon. Named keys are written plainly
 (`cmd+shift+space`, `ctrl+alt+f5`).
 
 ## Artifact opening fails
@@ -2506,6 +2515,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+- Settings → Models → Chat model: **MTP depth** uses the shared route picker's words (AbstractCode, gateway console): **Gateway default (depth N)**, **Off**, **Depth N** per advertised depth, a saved depth the model no longer offers marked **(saved; not available)**, and the same readiness sentences. For a model the gateway reports without MTP the list is shown disabled with the gateway's sentence. The chat route's optional **Provider base URL** is a plain row (the "Advanced (provider base URL)" disclosure is gone).
+- Settings → Voice: the engines are read-only — **Gateway default · provider / model** from the gateway's `GET /api/gateway/voice/defaults` (or **provider / model — this app** for an override) with a **Change under Models** link that opens Models → Voice output / Voice input. Output device + Test, Playing on, Read aloud, Voice latency and the conversation options stay.
+- Settings → Tools: each category the gateway reports (`toolset`: camera, comms, files, web, …) is a collapsible panel — name, tool count, and **All auto** / **All ask** as pressed-state controls showing whether every tool of the panel is on that mode. Panels start collapsed except those holding an override; the filter searches every category and opens the panels with a match. A tool's mode applies at once: the page's Save button is gone (a failed save puts the row back with "Not saved.").
+- Settings → Appearance → Global shortcut: an **Accessibility** row shows **Granted** / **Not granted**; **Configure** asks macOS for Accessibility access and opens System Settings → Privacy & Security → Accessibility, the state is checked again when you come back, and the shortcut starts once it is granted. The key combination and the window size apply as they change: the page's Save button is gone.
 - **New automation** in the switcher's Automations tab opens the same content as the AbstractCode and AbstractObserver schedule dialog: the **Workflow** list has **Gateway default** first and selected (then the gateway's executable assistant workflows; a target the catalog no longer lists stays selectable), **Task** and **Title**, the schedule with **Stop after this many runs** and **Stop at (UTC)** for a repeating schedule, **Context**, **Tools** with **Run without asking** (and its consent line) or **Ask me before each tool call (the run waits for you)**, **Mailbox**, and **Create automation**. Without a gateway default for the assistant, it starts on the workflow a turn would run.
 - Settings → **Workflow** is its own page, right after Models (it was a card on the Models page): **Gateway default** first and selected until you pick another of the gateway's executable workflows; the choice applies at once, and a refused save says why with "Not saved.". An **Open in AbstractFlow** icon button appears when the gateway serves AbstractFlow at `/apps/flow/` and opens the selected workflow there, signed in (`POST /api/gateway/apps/flow/open` with AbstractFlow's `?bundle=&version=&flow=` link). The choice stays on this Mac: the gateway has no per-account setting for it.
 - Settings → Workspace follows the gateway's round-9 workspace model with the same rows and words as the console and AbstractCode: a friendly **Gateway policy** card (posture badge, shared workspace, allowed and refused workspaces as chips with their mode, everything else under the second posture) replaces the key: value block; then the posture ("Deny everything, allow listed workspaces" / "Allow everything, refuse listed workspaces"), the **Shared workspace** (always on, Read & write), **Allowed workspaces** / **Refused workspaces** each with **Read & write** / **Read-only** / **Refused** (lower, never raise), under the second posture **Everything else** and **Add a workspace path**, and the gateway's effective line verbatim. Each change is one `PUT /api/gateway/workspace/policy/me`; a refused change shows the gateway's sentence with "Not saved.". Requires the gateway's round-9 workspace model.
@@ -5697,6 +5710,26 @@ class AssistantController:
             self._execution_capabilities_cache[key] = (time.monotonic(), result)
         return result
 
+    def voice_defaults(self) -> Dict[str, Any]:
+        """The gateway's default voice engines (``GET /voice/defaults``), as
+        Settings → Voice shows them read-only: ``{"tts": {...}, "stt": {...}}``
+        on success, ``{"error": str}`` when the gateway could not be asked.
+        Cached like the other Settings reads (a failure is not cached)."""
+        with self._cache_lock:
+            cached = getattr(self, "_voice_defaults_cache", None)
+            if cached is not None and cached[1] == self._cache_epoch and self._cache_fresh(cached[0]):
+                return json.loads(json.dumps(cached[2]))
+            epoch = self._cache_epoch
+        try:
+            payload = self.gateway.voice_defaults()
+        except Exception as exc:
+            return {"error": str(exc) or type(exc).__name__}
+        result = dict(payload) if isinstance(payload, dict) else {}
+        with self._cache_lock:
+            if epoch == self._cache_epoch:
+                self._voice_defaults_cache = (time.monotonic(), epoch, result)
+        return json.loads(json.dumps(result))
+
     def workspace_policy(self) -> Dict[str, Any]:
         """This account's workspace folders as the gateway answers them
         (round 9, ``GET /workspace/policy/me``): ``{"state": {policy,
@@ -8044,6 +8077,17 @@ class GatewayClient:
             method="GET",
             url=self._url("/api/gateway/voice/voices", query=query or None),
             label="voice_voices failed",
+        )
+
+    def voice_defaults(self) -> Dict[str, Any]:
+        """``GET /voice/defaults`` (round 6): the gateway's effective voice
+        routes, ``{tts: {route, configured, provider, model, voice[, note]},
+        stt: {route, configured, provider, model[, note]}, source}`` — the
+        one answer every app shows as "Gateway default · provider / model"."""
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/voice/defaults"),
+            label="voice_defaults failed",
         )
 
     def audio_speech_models(

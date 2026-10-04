@@ -26,7 +26,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtCore import QEvent, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QApplication,
@@ -1904,9 +1904,6 @@ class WindowPage(SettingsPage):
             help_text="Works anywhere once macOS grants Accessibility access; otherwise use the menu bar icon.",
         )
         self._accessibility: Optional[bool] = None
-        app = QApplication.instance()
-        if app is not None:
-            app.applicationStateChanged.connect(self._on_application_state)
 
         window = self.add_card(Card("Window size", "Limited by the screen. The chat takes whatever height remains after the header and composer."))
         self.width_spin = QSpinBox()
@@ -2070,9 +2067,12 @@ class WindowPage(SettingsPage):
             )
         return state
 
-    def _on_application_state(self, state) -> None:
-        # Coming back from System Settings: re-check.
-        if state == Qt.ApplicationActive and self.isVisible():
+    def changeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        # Coming back from System Settings re-activates the Settings window:
+        # every widget of it gets ActivationChange, so re-check here (a page
+        # never connects to an application-wide signal it could outlive).
+        super().changeEvent(event)
+        if event.type() == QEvent.ActivationChange and self.isVisible():
             self.refresh_accessibility()
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt API

@@ -16,8 +16,9 @@ On/off settings are switches labelled by the feature, the same control as the ot
 AbstractFramework apps: on shows an accent track with a check mark and a bold label, off is plain.
 A switch that is a saved setting applies the moment you flip it, and the line at the bottom of the
 page names the new state ("Replies are spoken automatically."); if the save fails, the switch
-flips back and the line says so. The **Voice** page has no Save button: its switches and lists
-apply as they change.
+flips back and the line says so. The **Voice**, **Tools** and **Appearance** pages have no Save
+button: their switches, lists and fields apply as they change (a field when you press Return or
+leave it).
 
 ## Connection
 
@@ -39,7 +40,7 @@ session out).
 | Control | Meaning | Stored |
 |---|---|---|
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
-| MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
+| MTP depth | The shared route picker's MTP choice, with the same words as AbstractCode and the gateway console: **Gateway default** (with the gateway's own depth, e.g. **Gateway default (depth 2)**), **Off**, or **Depth N** for each depth the gateway advertises for the selected provider/model. Configurable when the gateway reports the model MTP-capable; for a model it reports without MTP the list is shown disabled with the gateway's sentence (a saved depth stays changeable, marked **(saved; not available)**). Sent as `_runtime.speculation` (`{mode: "native_mtp", num_draft_tokens, require_acceleration: true}`); Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
@@ -54,8 +55,8 @@ The state line above the lists shows two facts: the gateway default (with the ro
 from when the gateway says so) and what this app uses. Provider, model and voice catalogs are read
 from the gateway; when it cannot be reached the lists hold `Gateway default` alone, say why, and
 re-fetch when you open them again — a saved choice stays selected and marked `(saved)`
-rather than being discarded. The chat route accepts an optional provider base URL; the voice route
-adds a voice picker.
+rather than being discarded. The chat route has an optional **Provider base URL** row (a plain row,
+no "Advanced" disclosure); the voice route adds a voice picker.
 
 Where overrides travel: the chat model rides the run input (top-level pins and `_runtime`);
 voice overrides ride each speech request; image, video, music and sound overrides ride the
@@ -106,7 +107,7 @@ its choice per signed-in user in the browser).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Text → speech / Speech → text | The engines that speak and listen, with "gateway default" or "this app"; `Change…` opens the route in Models & reasoning | gateway / this app |
+| Text → speech / Speech → text | Read-only: the engines that speak and listen, as **Gateway default · supertonic / supertonic-3** from the gateway's `GET /api/gateway/voice/defaults` (**not set** when the administrator set none, **unknown** when the gateway could not be asked), or **provider / model — this app** when this app overrides it. The engines are chosen in one place: **Change under Models** opens Models → Voice output (TTS) / Voice input (STT) | gateway / this app |
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
@@ -134,11 +135,13 @@ the posture does not reach makes the run start fail; the palette then shows
 | Control | Meaning | Stored |
 |---|---|---|
 | Tool mode note | The gateway's tool execution mode (approval, local, passthrough, delegated) | gateway |
-| Per-tool Off / Auto / Ask | Off never offers the tool to the model; Auto pre-approves it on this Mac, even where the gateway would ask; Ask prompts every time. The gateway's own default is marked in the tooltip. Save stores only the tools that differ from the gateway default | this app `tool_preferences` |
+| Categories | One collapsible panel per category the gateway reports for its tools (the `toolset` of each tool in `GET /api/gateway/discovery/tools`: camera, comms, files, web, …): the name, the number of tools, then **All auto** / **All ask**. Panels are collapsed except those holding a choice that differs from the gateway default; a panel you open or close stays that way | gateway |
+| Per-tool Off / Auto / Ask | Off never offers the tool to the model; Auto pre-approves it on this Mac, even where the gateway would ask; Ask prompts every time. The gateway's own default is marked in the tooltip. A choice applies at once; only the tools that differ from the gateway default are stored, and a failed save puts the row back with "Not saved." | this app `tool_preferences` |
 | Risk chip and sentence | The gateway's risk tier (reads only, makes changes, reaches outside, destructive) and capability facts (writes, can delete, sends messages, reaches remote services, captures the environment) | gateway |
 | Disabled on gateway | Tools the gateway has turned off; they are never offered to a run | gateway |
-| All auto / All ask | Set every available tool of a toolset at once. All auto leaves outreach and destructive tools on Ask; set those to Auto one by one | this app |
-| Use gateway defaults | Restore each tool to the gateway's approval default (press Save to keep) | this app |
+| All auto / All ask | Pressed-state controls in each panel header: **All auto** is pressed when every tool it may reach is on Auto, **All ask** when every tool of the panel is on Ask, neither when they are mixed; pressing one sets the panel's tools and applies at once. All auto leaves outreach and destructive tools on Ask; set those to Auto one by one. With a filter, only the tools shown are changed | this app |
+| Filter tools | Searches every category (names and descriptions); panels with a match open, the others step aside, and the count reads **2 of 8** | — |
+| Use gateway defaults | Restore each tool to the gateway's approval default (applies at once) | this app |
 
 Off and Ask narrow what the gateway allows; Auto pre-approves on this Mac. Tools you never
 configured follow the gateway's approval default. "Always allow … on this Mac" in the approval
@@ -155,8 +158,9 @@ Listed as **Appearance** in the sidebar.
 |---|---|---|
 | Theme | The colour palettes shared with the other AbstractFramework apps; applies to every window of this app at once | this app `ui_theme` |
 | Text size / Line spacing / Paragraph gap / Bullet gap | How replies are set in the transcript: text size 10–22 px (default 13), line spacing 1.0–2.2 × (default 1.2), paragraph gap 0–28 px and bullet gap 0–16 px (default 3 each). Applies immediately | this app `text_size`, `line_spacing`, `paragraph_spacing`, `bullet_spacing` |
-| Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination is saved with the page's `Save` | this app `hotkey_enabled`, `hotkey_sequence` |
-| Width / Expanded height / Screen edge gap | Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
+| Summon / Key combination | Global hotkey (default `cmd+shift+space`), subject to macOS Accessibility permission. The **Summon the assistant from anywhere** switch applies at once; the key combination applies when you press Return or leave the field | this app `hotkey_enabled`, `hotkey_sequence` |
+| Accessibility | macOS only: the permission the shortcut needs, as **Granted** / **Not granted**. **Configure** asks macOS for it (the system prompt, when macOS still offers it) and opens System Settings → Privacy & Security → Accessibility; the state is checked again when you come back to the app or reopen the page, and the shortcut starts as soon as it is granted | macOS |
+| Width / Expanded height / Screen edge gap | Apply as they change. Palette size; the transcript takes the remaining height. Defaults: width 650 px, height 286 px, gap 12 px. Settings accepts a width of 420–2000 px and a gap of 0–200 px; the only further limit is the screen the window is on (width up to 62% of it, gap up to a quarter of its smaller side). The gap is the space kept between the window (and Settings) and the screen edges it sits against; 0 puts it flush with the edge | this app `window_width`, `window_height`, `bottom_offset` |
 
 Migration note: preferences saved with the 0.5.0 defaults (width 500 px, gap 18 px) and without
 the `layout_version: 2` marker are moved to 650 px and 12 px once; any other saved width or gap,

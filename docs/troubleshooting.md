@@ -161,9 +161,11 @@ is configured on the gateway side, and press Reload in the route editor.
 
 The summon hotkey needs macOS permission for the process that launched the app (the app bundle,
 or the terminal you started it from) to read the keyboard. Without it the shortcut is not
-registered and the reason is logged (`#FALLBACK: global hotkey … not registered`). Grant it in
-System Settings → Privacy & Security → Accessibility (and Input Monitoring), then save the shortcut
-again in Settings → Appearance, or use the menu-bar icon. Named keys are written plainly
+registered and the reason is logged (`#FALLBACK: global hotkey … not registered`). Settings →
+Appearance → Global shortcut shows the permission (**Granted** / **Not granted**); **Configure**
+asks macOS for it and opens System Settings → Privacy & Security → Accessibility (add Input
+Monitoring there too if macOS asks). The page checks again when you come back and starts the
+shortcut once it is granted; otherwise use the menu-bar icon. Named keys are written plainly
 (`cmd+shift+space`, `ctrl+alt+f5`).
 
 ## Artifact opening fails

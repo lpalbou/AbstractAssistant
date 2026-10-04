@@ -215,6 +215,7 @@ the stream. Whether the gateway offers live replies is read from
   `/api/gateway/workspace/policy/self`
 - Speech and media catalogs: `/api/gateway/audio/speech/models`,
   `/api/gateway/audio/transcriptions/models`, `/api/gateway/voice/voices`,
+  `/api/gateway/voice/defaults` (the default engines Settings → Voice shows),
   `/api/gateway/vision/provider_models`, `/api/gateway/vision/adapters`,
   `/api/gateway/audio/music/providers`, `/api/gateway/audio/music/models`
 - Speech execution: run-scoped `voice/tts`, `voice/tts/stream` and `audio/transcribe` routes;
