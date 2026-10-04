@@ -77,7 +77,7 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   their controls. Chats are grouped by recency (today,
   yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
   its latest question, when it was last active, its turns and state, and once opened on this Mac
-  its tool calls, tokens, running time and workspace folder. A chat whose tools failed or whose
+  its tool calls, tokens, running time and workspace. A chat whose tools failed or whose
   last question was never answered is flagged. Type to filter by topic, folder or tool name; ↑↓
   move, Return opens, Esc closes. The pencil renames a chat on this device; there is no delete
   (the gateway has none). How sessions work: [architecture.md](architecture.md#sessions).
@@ -125,9 +125,10 @@ a hands-free conversation. Details and failure handling are in [voice.md](voice.
 
 ## 8. Files and workspace
 
-Runs read and write files inside a workspace on the gateway host. Choose a folder in Settings →
-Workspace to work in your own files; otherwise the gateway assigns a folder to the first run of a
-chat and later turns of that chat reuse it. The chat picker's tooltip shows the current folder.
+Runs read and write files inside a workspace on the gateway host. Choose a run workspace in
+Settings → Workspace to work in your own files; otherwise the gateway gives the chat a private
+workspace of its own on its first run and later turns of that chat reuse it. The chat picker's
+tooltip shows the current workspace.
 
 A picture a run saves in its workspace and names in its answer (`![Memory over time](memory_curve.png)`)
 appears inside the reply at the reply's width; click it to open the file full size. On the

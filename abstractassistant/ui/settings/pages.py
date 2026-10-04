@@ -1003,7 +1003,7 @@ class WorkspacePage(SettingsPage):
         self.folders_card.add_widget(self.effective_label)
 
         # The run's own folder stays a device preference (blank = the
-        # gateway's per-chat folder in the shared workspace).
+        # gateway's private per-chat folder, not the shared workspace).
         self._gateway_local = bool(safe_call(controller, "gateway_is_local", default=True))
         local = self.add_card(Card("Run workspace", "Where the next run reads and writes files. The gateway refuses a workspace its posture does not reach."))
         self.workspace_root_edit = QLineEdit()

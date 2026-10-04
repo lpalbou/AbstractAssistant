@@ -108,7 +108,7 @@ The desktop client stores under `~/.abstractassistant/`:
   reply streaming, workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
 - `session_cache.json`, `sessions/` — a rebuildable cache of the gateway's sessions (local labels,
-  cached transcripts, each session's granted workspace folder); the sessions themselves live on
+  cached transcripts, each session's workspace); the sessions themselves live on
   the gateway
 - `automations_notified.json` — which automation notifications were already shown; automations
   themselves live on the gateway

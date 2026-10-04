@@ -296,7 +296,7 @@ class AssistantPreferences:
     # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
     stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
     # The run's folder, sent as the run-input pin `workspace_root` (blank =
-    # the gateway's per-chat folder in its shared workspace). Round 9: which
+    # the gateway's private per-chat folder in its data directory, not the shared workspace). Round 9: which
     # OTHER folders the tools may use is the account's gateway policy
     # (Settings → Workspace folders), never a local list; the gateway refuses
     # a root outside the account's effective folders.

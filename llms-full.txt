@@ -196,7 +196,7 @@ The desktop client stores under `~/.abstractassistant/`:
   reply streaming, workspace grant, voice options, tool modes, hotkey, window size)
 - `gateway_connection.json` — gateway URL and sign-in state
 - `session_cache.json`, `sessions/` — a rebuildable cache of the gateway's sessions (local labels,
-  cached transcripts, each session's granted workspace folder); the sessions themselves live on
+  cached transcripts, each session's workspace); the sessions themselves live on
   the gateway
 - `automations_notified.json` — which automation notifications were already shown; automations
   themselves live on the gateway
@@ -467,7 +467,7 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   their controls. Chats are grouped by recency (today,
   yesterday, previous 7 and 30 days, older) and each row shows what that chat holds: its topic,
   its latest question, when it was last active, its turns and state, and once opened on this Mac
-  its tool calls, tokens, running time and workspace folder. A chat whose tools failed or whose
+  its tool calls, tokens, running time and workspace. A chat whose tools failed or whose
   last question was never answered is flagged. Type to filter by topic, folder or tool name; ↑↓
   move, Return opens, Esc closes. The pencil renames a chat on this device; there is no delete
   (the gateway has none). How sessions work: [architecture.md](architecture.md#sessions).
@@ -515,9 +515,10 @@ a hands-free conversation. Details and failure handling are in [voice.md](voice.
 
 ## 8. Files and workspace
 
-Runs read and write files inside a workspace on the gateway host. Choose a folder in Settings →
-Workspace to work in your own files; otherwise the gateway assigns a folder to the first run of a
-chat and later turns of that chat reuse it. The chat picker's tooltip shows the current folder.
+Runs read and write files inside a workspace on the gateway host. Choose a run workspace in
+Settings → Workspace to work in your own files; otherwise the gateway gives the chat a private
+workspace of its own on its first run and later turns of that chat reuse it. The chat picker's
+tooltip shows the current workspace.
 
 A picture a run saves in its workspace and names in its answer (`![Memory over time](memory_curve.png)`)
 appears inside the reply at the reply's width; click it to open the file full size. On the
@@ -667,8 +668,8 @@ See [voice.md](voice.md) for how the conversation loop behaves.
 | Workspaces | The same rows and words as the gateway console and AbstractCode: the posture, the **Shared workspace** (always on, Read & write), **Allowed workspaces** and **Refused workspaces**, each with **Read & write** / **Read-only** / **Refused** — you may lower what the admin allows, never raise it. Under "Allow everything, refuse listed workspaces" also **Everything else** (the default mode, which you may lower to Read-only) and **Add a workspace path** (refuse a workspace or make it read-only). Under "Deny everything, allow listed workspaces" one sentence says only the gateway admin can add workspaces. The last line is the gateway's own summary, e.g. "Deny everything, allow listed workspaces · Shared workspace (rw) · /data/project (rw) · /archive (ro)". Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused change shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
 | Run workspace | Where the next run reads and writes files. Empty means the gateway gives the chat a private workspace of its own and the assistant reuses it for later turns. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
 
-The gateway decides which workspaces a run may use and refuses anything its posture does not reach
-(there is no launch-folder trust); this app has no access modes and no local list. A run workspace
+The gateway decides which workspaces a run may use and refuses anything its posture does not reach;
+this app has no access modes and no local list. A run workspace
 the posture does not reach makes the run start fail; the palette then shows
 "Not sent" with the gateway's reason and puts your message back in the composer.
 
@@ -1888,7 +1889,7 @@ nothing is estimated. Reattached runs show no total time because the start was n
 Click the chat name in the header. The **Sessions** tab lists every session on the gateway —
 whichever client started it: the Assistant on any device, AbstractCode, AbstractObserver — with
 its topic, last activity and what it holds (turns, state, and once opened here, tool calls,
-tokens, running time, and the workspace folder the gateway reports, which opens in Finder when it
+tokens, running time, and the workspace the gateway reports, which opens in Finder when it
 is on this Mac), grouped
 by recency and filtered as you type; 100 at a time, with **Load more sessions** at the end. The
 pencil renames a session on this device. There is no delete: a session exists as long as the
@@ -4680,7 +4681,7 @@ class AssistantPreferences:
     # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
     stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
     # The run's folder, sent as the run-input pin `workspace_root` (blank =
-    # the gateway's per-chat folder in its shared workspace). Round 9: which
+    # the gateway's private per-chat folder in its data directory, not the shared workspace). Round 9: which
     # OTHER folders the tools may use is the account's gateway policy
     # (Settings → Workspace folders), never a local list; the gateway refuses
     # a root outside the account's effective folders.
