@@ -199,6 +199,8 @@ def test_helpers_and_the_app_wiring() -> None:
     stored = {"posture": "allowed_only", "default_mode": "rw", "folders": [{"path": "/p", "mode": "rw"}]}
     assert aw.automation_workspace({"target": {"input_data": {"workspace": stored}}}) == stored
     assert aw.automation_workspace({"target": {"input_data": {}}}) is None
+    # The gateway's "follow my default at each run" marker reads as Use my default.
+    assert aw.automation_workspace({"target": {"input_data": {"workspace": {"configured": False}}}}) is None
     assert aw.with_workspace({"a": 1, "workspace_allowed_paths": ["/p"]}, None) == {"a": 1}
     state = aw.run_state(None, {"posture": "allowed_only", "default_mode": "rw", "folders": [], "summary": "s", "gateway_summary": "g"})
     assert state["policy"]["configured"] is False
