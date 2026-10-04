@@ -1,4 +1,4 @@
-"""The seven Settings pages.
+"""The eight Settings pages.
 
 Persistence legend (also in docs/settings.md):
 - conn  = ~/.abstractassistant/gateway_connection.json
@@ -358,22 +358,6 @@ class ModelsPage(SettingsPage):
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
 
-        # WHICH WORKFLOW runs each turn (contract D). The gateway's default is
-        # always the first row and is saved as "@default", never as a copy of
-        # its id, so an operator's later change applies to the next turn.
-        workflow = self.add_card(
-            Card("Workflow", "The agent workflow each new turn runs. A turn already running keeps its workflow.")
-        )
-        self.workflow_combo = QComboBox()
-        self.workflow_combo.setMinimumWidth(320)
-        self.workflow_combo.activated.connect(self._on_workflow_chosen)
-        workflow.add_row("Runs", self.workflow_combo, stretch_control=False)
-        self.workflow_detail = QLabel("")
-        self.workflow_detail.setObjectName("rowHelp")
-        self.workflow_detail.setWordWrap(True)
-        workflow.add_widget(self.workflow_detail)
-        self._workflow_rows: List[Dict[str, Any]] = []
-
         # LIVE REPLIES (contract S): show the reply while the model writes it.
         # "Gateway default" sends nothing, so the gateway's own setting
         # (agents.streaming_default) decides; On/Off ride every run.
@@ -402,7 +386,6 @@ class ModelsPage(SettingsPage):
         self.add_actions(*self.route_editor.action_buttons())
 
     def refresh(self) -> None:
-        self._refresh_workflows()
         self._refresh_stream()
         self.route_editor.refresh()
 
@@ -462,6 +445,69 @@ class ModelsPage(SettingsPage):
         self.say("Saved on this device — applies from the next turn.")
         self.changed.emit()
 
+    def _on_routes_changed(self) -> None:
+        self.changed.emit()
+
+
+# =============================================================== Workflow
+# R10.4 (R10-W3): its own page, right after Models. Other lanes: keep out of this class.
+
+
+class WorkflowPage(SettingsPage):
+    """WHICH WORKFLOW runs each turn (contract D). "Gateway default" is always
+    the first row, selected until the user picks another, and saved as
+    ``@default`` (never a copy of its id), so an admin's later change applies to
+    the next turn. The list is the gateway's executable workflows for this app
+    (``GET /bundles?executable_for=abstractassistant.agent.v1``), the same list
+    the automation sheet offers. The choice applies on change (no Save).
+
+    Stored in preferences.json (pref): the gateway has no per-account
+    preference route for it (AbstractCode keeps its choice per signed-in
+    identity in the browser the same way).
+
+    "Open in AbstractFlow" (an icon button) appears only when the gateway
+    serves AbstractFlow at /apps/flow/ (``GET /api/gateway/apps``); it opens the
+    selected workflow through the gateway's signed-in app door."""
+
+    title = "Workflow"
+    nav_title = "Workflow"
+    subtitle = "The agent workflow each new turn runs. A turn already running keeps its workflow."
+    icon = "list-tree"
+
+    _flow_ready = pyqtSignal(object)
+    _flow_opened = pyqtSignal(object)
+
+    def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
+        super().__init__(controller, parent)
+        card = self.add_card(Card())
+        self.workflow_combo = QComboBox()
+        self.workflow_combo.setMinimumWidth(320)
+        self.workflow_combo.setAccessibleName("Workflow")
+        self.workflow_combo.activated.connect(self._on_workflow_chosen)
+        self.open_flow_button = QPushButton()
+        self.open_flow_button.setObjectName("iconButton")
+        self.open_flow_button.setAutoDefault(False)
+        self.open_flow_button.setIcon(symbol_icon("external", color=THEME.text_secondary, size=14))
+        self.open_flow_button.setToolTip("Open in AbstractFlow")
+        self.open_flow_button.setAccessibleName("Open in AbstractFlow")
+        self.open_flow_button.clicked.connect(self._open_in_flow)
+        self.open_flow_button.setVisible(False)
+        card.add_row("Runs", self.workflow_combo, stretch_control=False, trailing=[self.open_flow_button])
+        self.workflow_detail = QLabel("")
+        self.workflow_detail.setObjectName("rowHelp")
+        self.workflow_detail.setWordWrap(True)
+        card.add_widget(self.workflow_detail)
+        self._workflow_rows: List[Dict[str, Any]] = []
+        self.flow_state: Optional[Dict[str, Any]] = None
+        self._flow_ready.connect(self._apply_flow_state)
+        self._flow_opened.connect(self._apply_flow_opened)
+
+    def refresh(self) -> None:
+        self._refresh_workflows()
+        self._probe_flow()
+
+    # ---------------------------------------------------------- the choice
+
     def _refresh_workflows(self) -> None:
         rows = safe_call(self.controller, "workflow_menu", default=None)
         self._workflow_rows = list(rows or [])
@@ -492,7 +538,13 @@ class ModelsPage(SettingsPage):
         if 0 <= index < len(self._workflow_rows):
             self.workflow_detail.setText(str(self._workflow_rows[index].get("detail") or ""))
         else:
-            self.workflow_detail.setText("Not connected \u2014 the gateway's workflows are not known yet.")
+            self.workflow_detail.setText("Not connected — the gateway's workflows are not known yet.")
+
+    def selected_choice(self) -> Any:
+        index = self.workflow_combo.currentIndex()
+        if 0 <= index < len(self._workflow_rows):
+            return self._workflow_rows[index].get("choice")
+        return None
 
     def _on_workflow_chosen(self, index: int) -> None:
         if not (0 <= index < len(self._workflow_rows)):
@@ -501,14 +553,90 @@ class ModelsPage(SettingsPage):
         try:
             self.controller.set_workflow_choice(choice)
         except Exception as exc:
-            self.say(f"Could not save the workflow: {exc}", tone="error")
+            self.say(f"{str(exc).rstrip('.')}. Not saved.", tone="error")
+            self._refresh_workflows()
             return
         self._show_workflow_detail()
-        self.say("Saved on this device \u2014 applies from the next turn.")
+        self.say("Saved on this device — applies from the next turn.")
         self.changed.emit()
 
-    def _on_routes_changed(self) -> None:
-        self.changed.emit()
+    # ------------------------------------------------- Open in AbstractFlow
+
+    def _probe_flow(self) -> None:
+        """Ask the gateway whether it serves AbstractFlow (off the GUI thread)."""
+        probe = getattr(self.controller, "flow_app", None)
+        if not callable(probe):
+            self._apply_flow_state(None)
+            return
+
+        def work() -> None:
+            try:
+                state = probe()
+            except Exception:
+                state = None
+            try:
+                self._flow_ready.emit(state)
+            except RuntimeError:
+                pass  # the dialog closed meanwhile
+
+        threading.Thread(target=work, name="settings-flow-probe", daemon=True).start()
+
+    def _apply_flow_state(self, state: Any) -> None:
+        self.flow_state = dict(state) if isinstance(state, dict) else None
+        available = bool(self.flow_state and self.flow_state.get("available"))
+        self.open_flow_button.setVisible(available)
+        if available and not self.flow_state.get("running"):
+            self.open_flow_button.setToolTip("Open in AbstractFlow (AbstractFlow is not running on the gateway: start it from the gateway's Apps page)")
+        else:
+            self.open_flow_button.setToolTip("Open in AbstractFlow")
+
+    def _open_in_flow(self) -> None:
+        choice = self.selected_choice()
+        opener = getattr(self.controller, "open_workflow_in_flow_url", None)
+        if choice is None or not callable(opener):
+            return
+        self.open_flow_button.setEnabled(False)
+
+        def work() -> None:
+            try:
+                outcome: Any = (True, opener(choice))
+            except Exception as exc:  # noqa: BLE001 - shown as a sentence
+                outcome = (False, _gateway_sentence(exc))
+            try:
+                self._flow_opened.emit(outcome)
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=work, name="settings-open-flow", daemon=True).start()
+
+    def _apply_flow_opened(self, outcome: Any) -> None:
+        self.open_flow_button.setEnabled(True)
+        ok, value = outcome
+        if not ok:
+            self.say(f"Could not open AbstractFlow: {value}", tone="error")
+            return
+        if not QDesktopServices.openUrl(QUrl(str(value))):
+            self.say("Could not open the browser.", tone="error")
+            return
+        self.say("Opened in AbstractFlow.")
+
+
+def _gateway_sentence(exc: Exception) -> str:
+    """The gateway's own ``message`` (+ ``hint``) from a refusal, else the error text."""
+    body = getattr(exc, "body_text", "")
+    try:
+        data = json.loads(body) if body else None
+    except Exception:
+        data = None
+    if isinstance(data, dict):
+        detail = data.get("detail") if isinstance(data.get("detail"), dict) else data
+        message = str(detail.get("message") or "").strip()
+        hint = str(detail.get("hint") or "").strip()
+        if message:
+            return f"{message} {hint}".strip()
+    if isinstance(body, str) and body.strip():
+        return body.strip()  # the client already reduced the refusal to its message
+    return str(exc)
 
 
 # ================================================================== Voice

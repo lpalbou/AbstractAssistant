@@ -308,8 +308,8 @@ def test_settings_workflow_card_saves_the_sentinel_or_a_workflow() -> None:
     ctl.workflow_menu = real.workflow_menu
     ctl.workflow_choice = real.workflow_choice
     ctl.set_workflow_choice = real.set_workflow_choice
-    dlg.show_section("models")
-    page = dlg.page_models
+    dlg.show_section("workflow")
+    page = dlg.page_workflow
     page.refresh()
     assert page.workflow_combo.count() == 3
     assert page.workflow_combo.itemText(0).startswith("Gateway default → Research agent")

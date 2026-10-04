@@ -880,6 +880,25 @@ class GatewayClient:
             label="publish_visualflow failed",
         )
 
+    def list_apps(self) -> Dict[str, Any]:
+        """``GET /api/gateway/apps``: the gateway's apps (``apps: [{id, installed,
+        running, mounted, app_path, …}]``), as the console's Apps page reads them."""
+        return self._request_json(method="GET", url=self._url("/api/gateway/apps"), label="list_apps failed")
+
+    def open_app(self, app_id: str, *, path: str, origin: str) -> Dict[str, Any]:
+        """``POST /api/gateway/apps/{id}/open`` → ``{open_url, …}``: a one-time
+        sign-in link (relative to this gateway) landing at ``path`` inside the
+        app — the door the console's "Open in AbstractFlow" uses."""
+        app = quote(str(app_id or "").strip(), safe="")
+        if not app:
+            raise ValueError("open_app needs an app id")
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/apps/{app}/open"),
+            body={"path": str(path or "/"), "origin": str(origin or "")},
+            label="open_app failed",
+        )
+
     def discovery_capabilities(self) -> Dict[str, Any]:
         return self._request_json(
             method="GET",

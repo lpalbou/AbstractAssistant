@@ -497,6 +497,66 @@ class AssistantController:
             )
         return rows
 
+    # ------------------------------------------------- Settings → Workflow: Flow
+
+    def flow_app(self) -> Dict[str, Any]:
+        """Is AbstractFlow on this gateway, served through it at ``/apps/flow/``?
+
+        Read from ``GET /api/gateway/apps`` (the console's Apps page): the
+        ``flow`` row ``installed`` and ``mounted`` (``app_path``). Answer
+        ``{"available": bool, "running": bool, "app_path": str}``; raises when
+        the gateway cannot be asked (the page then shows no button)."""
+        payload = self.gateway.list_apps()
+        apps = payload.get("apps") if isinstance(payload, dict) else None
+        row = next((a for a in apps or [] if isinstance(a, dict) and a.get("id") == "flow"), None) or {}
+        app_path = str(row.get("app_path") or "")
+        available = row.get("installed") is True and row.get("mounted") is True and bool(app_path)
+        return {"available": available, "running": row.get("running") is True, "app_path": app_path}
+
+    def workflow_flow_ref(self, choice: Any) -> Optional[Dict[str, str]]:
+        """The ``{bundle_id, version, flow_id}`` a Settings → Workflow choice
+        opens in AbstractFlow: the gateway default resolves to the workflow
+        the gateway reports (else the built-in orchestrator, as a turn would);
+        a chosen workflow opens at its latest version (``version`` empty)."""
+        choice = normalize_workflow_choice(choice)
+        if choice == WORKFLOW_GATEWAY_DEFAULT:
+            default = self.gateway_default_workflow()
+            if default.available and default.bundle_id:
+                return {"bundle_id": default.bundle_id, "version": default.bundle_version, "flow_id": default.flow_id}
+            built_in = self.built_in_workflow()
+            if built_in is None:
+                return None
+            return {"bundle_id": built_in.bundle_id, "version": built_in.bundle_version, "flow_id": built_in.flow_id}
+        bundle_id = str(choice.get("bundle_id") or "")
+        if not bundle_id:
+            return None
+        return {"bundle_id": bundle_id, "version": "", "flow_id": str(choice.get("flow_id") or "")}
+
+    def open_workflow_in_flow_url(self, choice: Any) -> str:
+        """A signed-in AbstractFlow link that opens ``choice``: ``POST
+        /api/gateway/apps/flow/open`` with AbstractFlow's documented deep link
+        ``/?bundle=<id>&version=<v>&flow=<flow_id>`` (abstractflow
+        src/utils/bundleDeepLink.ts; the console's "Open in AbstractFlow"
+        sends the same path). Raises with the gateway's sentence on refusal."""
+        from urllib.parse import urlencode, urlsplit
+
+        ref = self.workflow_flow_ref(choice)
+        if ref is None:
+            raise RuntimeError("No workflow to open: the gateway reports no default and the built-in orchestrator is not published.")
+        query = {"bundle": ref["bundle_id"]}
+        if ref.get("version"):
+            query["version"] = ref["version"]
+        if ref.get("flow_id"):
+            query["flow"] = ref["flow_id"]
+        base = str(self.gateway.config.base_url or "").rstrip("/")
+        parts = urlsplit(base)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        answer = self.gateway.open_app("flow", path="/?" + urlencode(query), origin=origin)
+        open_url = str(answer.get("open_url") or "") if isinstance(answer, dict) else ""
+        if not open_url:
+            raise RuntimeError("The gateway did not return a link to AbstractFlow.")
+        return open_url if "://" in open_url else origin + "/" + open_url.lstrip("/")
+
     def _no_workflow_reason(self, default: GatewayDefaultWorkflow) -> str:
         why = str(getattr(self.gateway_service.workflow_status(), "error", "") or "").strip() or "it is not in the gateway catalog"
         gateway = f" The gateway reports no default for the assistant: {default.reason}." if default.reason else (
@@ -504,7 +564,7 @@ class AssistantController:
         )
         return (
             f"The built-in orchestrator is not published on this gateway ({why}).{gateway} "
-            "Pick a workflow in Settings \u2192 Models \u2192 Workflow, or ask the gateway admin to set a default."
+            "Pick a workflow in Settings \u2192 Workflow, or ask the gateway admin to set a default."
         )
 
     def last_resolved_workflow(self) -> Optional[Dict[str, Any]]:

@@ -181,7 +181,7 @@ def _dialog(controller=None):
 
 
 @pytest.mark.basic
-def test_sidebar_has_seven_sections_and_switches_pages() -> None:
+def test_sidebar_has_eight_sections_and_switches_pages() -> None:
     dlg, _ctl = _dialog()
     assert [dlg.nav.item(i).data(0x0100) for i in range(dlg.nav.count())] == list(SettingsDialog.SECTIONS)
     dlg.show_section("workspace")
@@ -357,7 +357,7 @@ def test_no_settings_page_is_clipped_at_any_size() -> None:
         dlg.resize(width, height)
         dlg.show()
         _app().processEvents()
-        for name in ("connection", "models", "voice", "workspace", "tools", "window", "about"):
+        for name in ("connection", "models", "workflow", "voice", "workspace", "tools", "window", "about"):
             dlg.show_section(name)
             _app().processEvents()
             page = dlg.stack.currentWidget()
@@ -437,7 +437,7 @@ def test_the_window_sizes_itself_to_its_own_pages_and_stays_that_size() -> None:
     assert dlg.height() <= 576, f"settings window is {dlg.height()}px tall"
     assert dlg.height() >= 460, "too short to show a page without scrolling everything"
 
-    for name in ("connection", "models", "voice", "workspace", "tools", "window", "about"):
+    for name in ("connection", "models", "workflow", "voice", "workspace", "tools", "window", "about"):
         dlg.show_section(name)
         _app().processEvents()
         page = dlg.stack.currentWidget()

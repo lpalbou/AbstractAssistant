@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
 from ...icons import symbol_icon
 from ...theme import METRICS, THEME
 from ..styles import alpha, dialog_stylesheet
-from .pages import AboutPage, ConnectionPage, ModelsPage, ToolsPage, VoicePage, WindowPage, WorkspacePage
+from .pages import AboutPage, ConnectionPage, ModelsPage, ToolsPage, VoicePage, WindowPage, WorkflowPage, WorkspacePage
 
 
 def build_settings_qss() -> str:
@@ -112,7 +112,7 @@ class SettingsDialog(QDialog):
     #: after the window was placed on screen).
     fitted = pyqtSignal()
 
-    SECTIONS = ("connection", "models", "voice", "workspace", "tools", "window", "about")
+    SECTIONS = ("connection", "models", "workflow", "voice", "workspace", "tools", "window", "about")
 
     def __init__(self, *, controller: Any, apply_hotkey, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -145,6 +145,7 @@ class SettingsDialog(QDialog):
         self.pages: Dict[str, QWidget] = {}
         self.page_connection = ConnectionPage(controller, self)
         self.page_models = ModelsPage(controller, self)
+        self.page_workflow = WorkflowPage(controller, self)
         self.page_voice = VoicePage(controller, self.page_models.route_editor, self)
         self.page_workspace = WorkspacePage(controller, self)
         self.page_tools = ToolsPage(controller, self)
@@ -153,6 +154,7 @@ class SettingsDialog(QDialog):
         for key, page in (
             ("connection", self.page_connection),
             ("models", self.page_models),
+            ("workflow", self.page_workflow),
             ("voice", self.page_voice),
             ("workspace", self.page_workspace),
             ("tools", self.page_tools),
