@@ -1341,6 +1341,10 @@ class ToolsPage(SettingsPage):
         self.groups: Dict[str, _ToolGroup] = {}
         # Panels the user opened or closed by hand (kept across refreshes).
         self._open_choice: Dict[str, bool] = {}
+        # The gateway's command-sandbox state (GET /discovery/tools
+        # `command_sandbox`) and the state chips of the process-spawning tools.
+        self._command_sandbox: Dict[str, Any] = {}
+        self._sandbox_chips: Dict[str, Chip] = {}
         self.mode_note = Note("", "info")
         self.body.addWidget(self.mode_note)
 
@@ -1381,6 +1385,8 @@ class ToolsPage(SettingsPage):
     def refresh(self) -> None:
         inventory = safe_call(self.controller, "tool_inventory", default=None) or {}
         items = inventory.get("items") if isinstance(inventory, dict) else []
+        sandbox_state = (inventory or {}).get("command_sandbox") if isinstance(inventory, dict) else None
+        self._command_sandbox = dict(sandbox_state) if isinstance(sandbox_state, dict) else {}
         self.mode_note.show_text(self._tool_mode_text(str((inventory or {}).get("tool_mode") or "")), "info")
         if self.selection_only:
             self.mode_note.hide()
@@ -1393,6 +1399,7 @@ class ToolsPage(SettingsPage):
             if widget is not None:
                 widget.deleteLater()
         self._rows = {}
+        self._sandbox_chips: Dict[str, Chip] = {}
         self.groups = {}
         # The categories are the gateway's own `toolset` field on each tool
         # (GET /discovery/tools): no hand-made list, nothing read from names.
@@ -1460,6 +1467,21 @@ class ToolsPage(SettingsPage):
             control.setEnabled(available or (self.selection_only and item.get("selected_mode") != "disabled"))
             control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             head_row.addWidget(control, 0)
+            sandbox_chip = self._sandbox_chip(item)
+            if sandbox_chip is not None:
+                # Second line of the card: the command-sandbox state (R12.1).
+                line = QWidget()
+                stack = QVBoxLayout(line)
+                stack.setContentsMargins(0, 0, 0, 0)
+                stack.setSpacing(4)
+                stack.addWidget(head)
+                state_row = QHBoxLayout()
+                state_row.setContentsMargins(0, 0, 0, 0)
+                state_row.addWidget(sandbox_chip, 1 if sandbox_chip.wordWrap() else 0)
+                if not sandbox_chip.wordWrap():
+                    state_row.addStretch(1)
+                stack.addLayout(state_row)
+                head = line
             desc_bits = [str(item.get("description") or "").strip(), str(item.get("when_to_use") or "").strip()]
             full_description = " ".join(bit for bit in desc_bits if bit) or "No description available."
             description = short_description(full_description)
@@ -1479,6 +1501,37 @@ class ToolsPage(SettingsPage):
                 "search": f"{name}\n{full_description}\n{toolset}".lower(),
             }
         return group
+
+    def _sandbox_chip(self, item: Dict[str, Any]) -> Optional[Chip]:
+        """The command-sandbox state of a process-spawning tool, exactly as the
+        gateway reports it: the row's `sandbox` text is the label, the
+        inventory's `command_sandbox.sentence` its tooltip. A tool the gateway
+        does not mark gets nothing (no client-side guess)."""
+        label = str(item.get("sandbox") or "").strip()
+        if not label or not isinstance(item.get("sandboxed"), bool):
+            return None
+        state = str(self._command_sandbox.get("state") or "").strip().lower()
+        if item["sandboxed"]:
+            tone = "success"
+        elif state == "unsandboxed":
+            tone = "danger"
+        else:
+            tone = "warning"
+        chip = Chip(label, tone)
+        chip.setObjectName("chip")
+        chip.setProperty("sandboxState", "sandboxed" if item["sandboxed"] else (state or "refused"))
+        # One line for the usual short states; a long state (the Landlock
+        # partial sentence) wraps across the card's width instead of
+        # widening the dialog.
+        if len(label) > 60:
+            chip.setWordWrap(True)
+            chip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        chip.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        sentence = str(self._command_sandbox.get("sentence") or "").strip()
+        chip.setToolTip(sentence or label)
+        chip.setAccessibleName(f"Command sandbox: {label}")
+        self._sandbox_chips[str(item.get("name") or "")] = chip
+        return chip
 
     # "All auto" never reaches outreach (3) / destroy (4): those are set to
     # Auto one tool at a time, by name.

@@ -1482,6 +1482,8 @@ class AssistantController:
             payload = {"items": [], "error": str(exc)}
         raw_items = payload.get("items") if isinstance(payload, dict) else []
         tool_mode = str((payload or {}).get("tool_mode") or "").strip().lower() if isinstance(payload, dict) else ""
+        raw_sandbox = (payload or {}).get("command_sandbox") if isinstance(payload, dict) else None
+        command_sandbox = dict(raw_sandbox) if isinstance(raw_sandbox, dict) else {}
         error = str((payload or {}).get("error") or "").strip() if isinstance(payload, dict) else ""
 
         if isinstance(raw_items, list):
@@ -1516,6 +1518,11 @@ class AssistantController:
                         item[flag] = bool(raw.get(flag))
                 if isinstance(raw.get("risk_rank"), int):
                     item["risk_rank"] = int(raw.get("risk_rank"))
+                # Process-spawning tools (R12.1): the gateway's command-sandbox
+                # state for this tool, shown verbatim on its card.
+                if isinstance(raw.get("sandboxed"), bool) and str(raw.get("sandbox") or "").strip():
+                    item["sandboxed"] = bool(raw.get("sandboxed"))
+                    item["sandbox"] = str(raw.get("sandbox")).strip()
                 if isinstance(raw.get("parameters"), dict):
                     item["parameters"] = dict(raw.get("parameters"))
                 items.append(item)
@@ -1561,7 +1568,7 @@ class AssistantController:
                     "policy_source": "gateway" if gateway_default in {"auto", "ask"} else "local",
                 }
             )
-        return {"items": enriched, "tool_mode": tool_mode or "", "note": note}
+        return {"items": enriched, "tool_mode": tool_mode or "", "note": note, "command_sandbox": command_sandbox}
 
     def tool_inventory_by_name(self) -> Dict[str, Dict[str, Any]]:
         """{tool_name: inventory item} for risk badges on approval cards."""

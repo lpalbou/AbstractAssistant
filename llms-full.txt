@@ -706,6 +706,7 @@ earlier versions is ignored.
 | Per-tool Off / Auto / Ask | Off never offers the tool to the model; Auto pre-approves it on this Mac, even where the gateway would ask; Ask prompts every time. The gateway's own default is marked in the tooltip. A choice applies at once; only the tools that differ from the gateway default are stored, and a failed save puts the row back with "Not saved." | this app `tool_preferences` |
 | Risk chip and sentence | The gateway's risk tier (reads only, makes changes, reaches outside, destructive) and capability facts (writes, can delete, sends messages, reaches remote services, captures the environment) | gateway |
 | Disabled on gateway | Tools the gateway has turned off; they are never offered to a run | gateway |
+| Command sandbox | On the tools that start processes (`execute_command`, `shell_exec`, `local_helper_start`, `execute_python`): the gateway's state, verbatim — **Sandboxed to this run's workspaces**, or its refused / unsandboxed state — with the gateway's explanation in the tooltip (`sandboxed` / `sandbox` of each tool and `command_sandbox.sentence` in `GET /api/gateway/discovery/tools`). The app never decides it | gateway |
 | All auto / All ask | Pressed-state controls in each panel header: **All auto** is pressed when every tool it may reach is on Auto, **All ask** when every tool of the panel is on Ask, neither when they are mixed; pressing one sets the panel's tools and applies at once. All auto leaves outreach and destructive tools on Ask; set those to Auto one by one. With a filter, only the tools shown are changed | this app |
 | Filter tools | Searches every category (names and descriptions); panels with a match open, the others step aside, and the count reads **2 of 8** | — |
 | Use gateway defaults | Restore each tool to the gateway's approval default (applies at once) | this app |
@@ -2543,6 +2544,7 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+- Settings → Tools: the tools that start processes show the gateway's command-sandbox state on their card (AbstractGateway round 12): the tool's `sandbox` text verbatim (**Sandboxed to this run's workspaces**, or the refused / unsandboxed state) as a state chip, with the gateway's `command_sandbox.sentence` as its tooltip. Nothing is shown for a tool the gateway does not mark.
 - Settings → Models → Chat model: **MTP depth** uses the shared route picker's words (AbstractCode, gateway console): **Gateway default (depth N)**, **Off**, **Depth N** per advertised depth, a saved depth the model no longer offers marked **(saved; not available)**, and the same readiness sentences. For a model the gateway reports without MTP the list is shown disabled with the gateway's sentence. The chat route's optional **Provider base URL** is a plain row (the "Advanced (provider base URL)" disclosure is gone).
 - Settings → Voice: the **Engines** card is gone — the speech engines are chosen in one place, Models → Voice output (TTS) / Voice input (STT). Output device + Test, Playing on, Read aloud, Voice latency and the conversation options stay.
 - Settings → Tools: each category the gateway reports (`toolset`: camera, comms, files, web, …) is a collapsible panel — name, tool count, and **All auto** / **All ask** as pressed-state controls showing whether every tool of the panel is on that mode. Categories are sorted by name and all start collapsed (those holding an override too); a panel you open stays open, and the filter searches every category and opens the panels with a match. A tool's mode applies at once: the page's Save button is gone (a failed save puts the row back with "Not saved.").
@@ -6451,6 +6453,8 @@ class AssistantController:
             payload = {"items": [], "error": str(exc)}
         raw_items = payload.get("items") if isinstance(payload, dict) else []
         tool_mode = str((payload or {}).get("tool_mode") or "").strip().lower() if isinstance(payload, dict) else ""
+        raw_sandbox = (payload or {}).get("command_sandbox") if isinstance(payload, dict) else None
+        command_sandbox = dict(raw_sandbox) if isinstance(raw_sandbox, dict) else {}
         error = str((payload or {}).get("error") or "").strip() if isinstance(payload, dict) else ""
 
         if isinstance(raw_items, list):
@@ -6485,6 +6489,11 @@ class AssistantController:
                         item[flag] = bool(raw.get(flag))
                 if isinstance(raw.get("risk_rank"), int):
                     item["risk_rank"] = int(raw.get("risk_rank"))
+                # Process-spawning tools (R12.1): the gateway's command-sandbox
+                # state for this tool, shown verbatim on its card.
+                if isinstance(raw.get("sandboxed"), bool) and str(raw.get("sandbox") or "").strip():
+                    item["sandboxed"] = bool(raw.get("sandboxed"))
+                    item["sandbox"] = str(raw.get("sandbox")).strip()
                 if isinstance(raw.get("parameters"), dict):
                     item["parameters"] = dict(raw.get("parameters"))
                 items.append(item)
@@ -6530,7 +6539,7 @@ class AssistantController:
                     "policy_source": "gateway" if gateway_default in {"auto", "ask"} else "local",
                 }
             )
-        return {"items": enriched, "tool_mode": tool_mode or "", "note": note}
+        return {"items": enriched, "tool_mode": tool_mode or "", "note": note, "command_sandbox": command_sandbox}
 
     def tool_inventory_by_name(self) -> Dict[str, Dict[str, Any]]:
         """{tool_name: inventory item} for risk badges on approval cards."""

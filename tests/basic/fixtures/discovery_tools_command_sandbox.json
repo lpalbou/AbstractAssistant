@@ -1,0 +1,78 @@
+{
+ "_source": "GET /api/gateway/discovery/tools on a scratch gateway 68eaaa2 (runtime b7c9feb, core 289528d), macOS 26.3, 2026-10-04; trimmed to 5 tools",
+ "command_sandbox": {
+  "state": "sandboxed",
+  "kind": "macos-sandbox-exec",
+  "kinds": {
+   "allowed_only": "macos-sandbox-exec",
+   "any_except_denied": "macos-sandbox-exec"
+  },
+  "line": "Commands sandboxed: macOS sandbox-exec",
+  "sentence": "Every command a run starts is confined by the operating system to that run's workspaces.",
+  "unsandboxed_commands_allowed": false,
+  "configured": true,
+  "flag": "--unsandboxed-commands"
+ },
+ "tool_mode": "approval",
+ "items": [
+  {
+   "name": "read_file",
+   "description": "Read a text file (line-numbered). Oversized reads return a labeled PARTIAL chunk plus the exact continuation call (start_char).",
+   "toolset": "files",
+   "enabled": true,
+   "mutating": false,
+   "destructive_capable": false,
+   "approval_default": "auto",
+   "risk_tier": "observe",
+   "risk_rank": 1
+  },
+  {
+   "name": "write_file",
+   "description": "Write full file content (create/overwrite/append). WARNING: mode='w' overwrites the entire file; for small edits, use edit_file().",
+   "toolset": "files",
+   "enabled": true,
+   "mutating": true,
+   "destructive_capable": false,
+   "approval_default": "ask",
+   "risk_tier": "act",
+   "risk_rank": 2
+  },
+  {
+   "name": "execute_command",
+   "description": "Execute shell commands safely with security controls and platform detection",
+   "toolset": "system",
+   "enabled": true,
+   "mutating": true,
+   "destructive_capable": true,
+   "approval_default": "ask",
+   "risk_tier": "destroy",
+   "risk_rank": 4,
+   "sandboxed": true,
+   "sandbox": "Sandboxed to this run's workspaces"
+  },
+  {
+   "name": "local_helper_start",
+   "description": "Start one long-lived local helper process for this run (dev server, watcher, background helper) with an optional readiness contract; sandboxed to this run's workspaces, auto-cleaned when the run ends.",
+   "toolset": "system",
+   "enabled": true,
+   "approval_default": "ask",
+   "risk_tier": "destroy",
+   "risk_rank": 4,
+   "sandboxed": true,
+   "sandbox": "Sandboxed to this run's workspaces"
+  },
+  {
+   "name": "shell_exec",
+   "description": "Run a command in a PERSISTENT shell session (cwd/env/venv persist across calls). Sandboxed to this run's workspaces when the host sets a workspace policy; NOT durable (never survives a host restart).",
+   "toolset": "shell",
+   "enabled": false,
+   "mutating": true,
+   "destructive_capable": true,
+   "approval_default": "ask",
+   "risk_tier": "destroy",
+   "risk_rank": 4,
+   "sandboxed": true,
+   "sandbox": "Sandboxed to this run's workspaces"
+  }
+ ]
+}
