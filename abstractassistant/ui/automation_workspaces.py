@@ -142,7 +142,7 @@ class RunWorkspaces(QObject):
         return run_state(value, effective)
 
     def choose_directory(self, start: str) -> str:
-        """The folder picker ("Choose…"); a test replaces this."""
+        """The directory picker ("Choose…"); a test replaces this."""
         return QFileDialog.getExistingDirectory(self._parent_widget, WT["addPlaceholder"], start or str(Path.home())) or ""
 
     # Host API --------------------------------------------------------------
