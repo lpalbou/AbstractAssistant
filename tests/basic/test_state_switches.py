@@ -111,14 +111,14 @@ def test_the_inline_reason_is_the_terminal_marker_shape() -> None:
 
 @pytest.mark.basic
 def test_every_on_off_setting_in_settings_and_the_schedule_sheet_is_a_switch() -> None:
-    """A plain QCheckBox may only be the route editor's "Advanced" disclosure
-    (it shows fields, it is not a setting)."""
+    """No plain QCheckBox anywhere: the route editor's "Advanced" disclosure
+    is gone too (R10.4 — the chat route's base URL is a plain row)."""
     _app()
     from abstractassistant.ui.automations import ScheduleSheet
 
     dlg, _ctl = _dialog()
     sheet = ScheduleSheet(target=None, target_label="Assistant", prompt="p")
-    allowed = {id(dlg.page_models.route_editor.show_advanced)}
+    allowed: set = set()
     plain = [b.text() for root in (dlg, sheet) for b in root.findChildren(QCheckBox) if not isinstance(b, AfSwitch) and id(b) not in allowed]
     assert plain == []
     switches = {b.text() for root in (dlg, sheet) for b in root.findChildren(AfSwitch)}

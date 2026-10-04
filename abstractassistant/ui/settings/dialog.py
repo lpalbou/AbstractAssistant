@@ -177,7 +177,7 @@ class SettingsDialog(QDialog):
         for name in (
             "route_list", "route_label", "route_help", "route_state", "route_feedback",
             "provider_combo", "model_combo", "voice_combo", "voice_label",
-            "reasoning_combo", "resolution_combo", "resolution_label", "show_advanced",
+            "reasoning_combo", "resolution_combo", "resolution_label",
             "base_url_edit", "base_url_label", "options_edit", "options_label",
         ):
             setattr(self, name, getattr(editor, name))

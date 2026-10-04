@@ -34,7 +34,6 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QSizePolicy,
-    QCheckBox,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
@@ -274,22 +273,15 @@ class RouteOverrideEditor(QWidget):
         self.resolution_label.hide()
         self.resolution_combo.hide()
 
-        self.show_advanced = QCheckBox("Advanced (provider base URL)")
-        self.show_advanced.stateChanged.connect(self._apply_advanced_visibility)
-        right.addWidget(self.show_advanced)
-
-        advanced_form = QGridLayout()
-        advanced_form.setHorizontalSpacing(10)
-        advanced_form.setVerticalSpacing(8)
-        advanced_form.setColumnStretch(1, 1)
-        right.addLayout(advanced_form)
-
+        # The chat route's optional provider base URL: a plain row of the
+        # form (no "Advanced" disclosure, R10.4), shown only for the route it
+        # reaches — it rides the chat run only.
         self.base_url_label = QLabel("Provider base URL")
-        advanced_form.addWidget(self.base_url_label, 0, 0)
+        form.addWidget(self.base_url_label, 7, 0)
         self.base_url_edit = QLineEdit()
         self.base_url_edit.setPlaceholderText("Optional, e.g. http://localhost:1234/v1 — rides the chat run only")
         self.base_url_edit.editingFinished.connect(self._reload_catalogs_for_base_url)
-        advanced_form.addWidget(self.base_url_edit, 0, 1)
+        form.addWidget(self.base_url_edit, 7, 1)
 
         # Raw options JSON is kept as a data field (the voice choice is stored
         # in options.voice) but no longer offered as free text: nothing except
@@ -463,7 +455,6 @@ class RouteOverrideEditor(QWidget):
             self.route_state.setText(self._route_state_text(row))
             self.base_url_edit.setText(row.base_url)
             self.options_edit.setPlainText(json_dumps(row.options) if row.options else "")
-            self.show_advanced.setChecked(bool(row.base_url))
 
             self._populate_providers(row=row)
             self._refresh_models_for_provider(row=row)
@@ -921,13 +912,11 @@ class RouteOverrideEditor(QWidget):
         self.voice_combo.setVisible(is_voice)
         if is_voice:
             self._refresh_voice_choices()
-        supports_base_url = row.key in _BASE_URL_ROUTES
-        self.show_advanced.setVisible(supports_base_url)
-        if not supports_base_url:
-            self.show_advanced.setChecked(False)
 
     def _apply_advanced_visibility(self) -> None:
-        visible = bool(self.show_advanced.isChecked()) and bool(self.show_advanced.isVisible() or self.show_advanced.isVisibleTo(self))
+        """The base URL row exists for the routes it reaches (chat) only."""
+        row = self._active_row()
+        visible = row is not None and row.key in _BASE_URL_ROUTES
         self.base_url_label.setVisible(visible)
         self.base_url_edit.setVisible(visible)
 
