@@ -5,7 +5,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
-- The vendored `assets/automation_controls.json` is byte-identical to ui-kit 0.7.0's again: it gains the Unarchive label and hint.
+## [0.13.0] - 2026-10-04
+
+- The vendored `assets/automation_controls.json` matches the UI kit's shared automation controls (ui-kit 0.8.0) byte for byte: it gains the Unarchive label and hint used by clients that offer Unarchive.
 
 ## [0.12.3] - 2026-10-03
 
