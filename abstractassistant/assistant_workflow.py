@@ -24,7 +24,8 @@ MANAGED_ASSISTANT_WORKFLOW_MARKER = "managed-by=abstractassistant;scope=tenant-c
 #   1 = everything before revisions existed (no marker in the description)
 #   2 = route_call pins `tools: []` / `temperature: 0.0` (2026-09-17)
 #   3 = explicit agent tool defaults for callers without chat tool selections
-MANAGED_ASSISTANT_WORKFLOW_REVISION = 3
+#   4 = the router's typed `seconds` argument reaches the sound/music nodes (R10.1, 2026-10-04)
+MANAGED_ASSISTANT_WORKFLOW_REVISION = 4
 _REVISION_MARKER_PREFIX = "workflow-revision="
 
 
@@ -55,7 +56,9 @@ _ROUTER_SYSTEM_PROMPT = (
     "If the request needs a source image for editing, upscaling, or image-to-video and no primary image is available, use mode=need_source_image. "
     "For chat, leave media_prompt empty and assistant_message empty. "
     "For media modes, assistant_message must be a short user-facing confirmation sentence and media_prompt must be the literal prompt to send to the media model. "
-    "Do not use a top-level prompt key in place of media_prompt."
+    "Do not use a top-level prompt key in place of media_prompt. "
+    "For music and sound, set seconds to the clip length the user asked for, as a number of seconds; "
+    "set seconds to null when the user named no length."
 )
 
 _ROUTER_SCHEMA: Dict[str, Any] = {
@@ -78,6 +81,15 @@ _ROUTER_SCHEMA: Dict[str, Any] = {
         "assistant_message": {"type": "string"},
         "media_prompt": {"type": "string"},
         "prompt": {"type": "string"},
+        # The clip length is a typed argument the router fills (R10.1): no code
+        # reads durations out of the prompt text.
+        "seconds": {
+            "type": ["number", "null"],
+            "description": (
+                "Length of the music or sound clip in seconds, as the user asked (a 3 s gunshot = 3). "
+                "null when no length was named: sound effects then last 5 s, music 30 s."
+            ),
+        },
     },
     "required": ["mode", "assistant_message", "media_prompt"],
 }
@@ -337,8 +349,9 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("assistant_message", "assistant_message", "string"),
             _pin("media_prompt", "media_prompt", "string"),
             _pin("prompt", "prompt", "string"),
+            _pin("seconds", "seconds", "number"),
         ],
-        break_config={"selectedPaths": ["mode", "assistant_message", "media_prompt", "prompt"]},
+        break_config={"selectedPaths": ["mode", "assistant_message", "media_prompt", "prompt", "seconds"]},
     )
 
     route_media_prompt = _node(
@@ -579,6 +592,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("prompt", "prompt", "string"),
             _pin("music_provider", "music_provider", "string"),
             _pin("music_model", "music_model", "string"),
+            _pin("duration_s", "duration_s", "number"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -622,6 +636,25 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         # a safety net for older stored copies of the flow.
         pin_defaults={"output": dict(SOUND_OUTPUT_SPEC)},
         effect_config={"provider": "", "model": "", "temperature": 0.2},
+    )
+
+    # The sound node's output spec = the start pin's spec + the router's clip length
+    # (`duration_s`; None when the user named none, so the engine's 5 s default applies).
+    sound_spec = _node(
+        "sound_spec",
+        "set",
+        x=560.0,
+        y=1320.0,
+        label="Sound Length",
+        icon="{}",
+        color="#3498DB",
+        inputs=[
+            _pin("object", "object", "object"),
+            _pin("key", "key", "string"),
+            _pin("value", "value", "any"),
+        ],
+        outputs=[_pin("result", "result", "object")],
+        pin_defaults={"key": "duration_s"},
     )
 
     need_image_message = _node(
@@ -723,6 +756,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         image_to_video,
         music,
         sound,
+        sound_spec,
         need_image_message,
         end_chat,
         end_image,
@@ -835,6 +869,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("route-break-music-prompt", "route_media_prompt", "result", "generate_music", "prompt"),
         _edge("start-music-provider", "start", "music_provider", "generate_music", "music_provider"),
         _edge("start-music-model", "start", "music_model", "generate_music", "music_model"),
+        _edge("route-break-music-seconds", "route_break", "seconds", "generate_music", "duration_s"),
         _edge("music-end-exec", "generate_music", "exec-out", "end_music", "exec-in", animated=True),
         _edge("route-break-music-response", "route_break", "assistant_message", "end_music", "response"),
         _edge("music-end-success", "generate_music", "success", "end_music", "success"),
@@ -847,7 +882,9 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         _edge("music-end-outputs", "generate_music", "outputs", "end_music", "outputs"),
         _edge("switch-sound", "route_switch", "case:sound", "generate_sound", "exec-in", animated=True),
         _edge("route-break-sound-prompt", "route_media_prompt", "result", "generate_sound", "prompt"),
-        _edge("start-sound-output", "start", "sound_output", "generate_sound", "output"),
+        _edge("start-sound-output", "start", "sound_output", "sound_spec", "object"),
+        _edge("route-break-sound-seconds", "route_break", "seconds", "sound_spec", "value"),
+        _edge("sound-spec-output", "sound_spec", "result", "generate_sound", "output"),
         _edge("sound-end-exec", "generate_sound", "exec-out", "end_sound", "exec-in", animated=True),
         _edge("route-break-sound-response", "route_break", "assistant_message", "end_sound", "response"),
         _edge("sound-end-success", "generate_sound", "success", "end_sound", "success"),

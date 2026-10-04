@@ -429,6 +429,7 @@ def test_assistant_palette_managed_workflow_accepts_prompt_alias_for_media_route
         "assistant_message",
         "media_prompt",
         "prompt",
+        "seconds",
     ]
     assert any(pin["id"] == "prompt" for pin in route_break_data["outputs"])
     assert (
@@ -509,7 +510,9 @@ def test_assistant_palette_managed_workflow_declares_media_override_pins() -> No
         ("start-image-to-video-model", "image_to_video_model", "image_to_video", "video_model"),
         ("start-music-provider", "music_provider", "generate_music", "music_provider"),
         ("start-music-model", "music_model", "generate_music", "music_model"),
-        ("start-sound-output", "sound_output", "generate_sound", "output"),
+        # The sound spec passes through sound_spec, which adds the router's
+        # `seconds` as duration_s (R10.1), then reaches generate_sound.output.
+        ("start-sound-output", "sound_output", "sound_spec", "object"),
     ]
     for edge_id, source_handle, target, target_handle in expectations:
         edge = edges.get(edge_id)
@@ -520,6 +523,10 @@ def test_assistant_palette_managed_workflow_declares_media_override_pins() -> No
         assert edge["targetHandle"] == target_handle
         target_pins = {pin["id"] for pin in nodes[target]["data"]["inputs"]}
         assert target_handle in target_pins, f"{target} missing input pin {target_handle}"
+    spec_edge = edges["sound-spec-output"]
+    assert (spec_edge["source"], spec_edge["sourceHandle"], spec_edge["target"], spec_edge["targetHandle"]) == (
+        "sound_spec", "result", "generate_sound", "output"
+    )
 
 
 @pytest.mark.basic

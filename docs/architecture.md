@@ -296,6 +296,12 @@ Settings → Models → Workflow:
   the built-in orchestrator when the gateway sets none;
 - **a chosen workflow**: its latest published version.
 
+The built-in orchestrator first routes the request (a structured answer: `mode`, the confirmation
+sentence, the `media_prompt`, and for music and sound effects the clip length `seconds`, or null
+when you named none). "A 3 s laser gunshot" reaches the sound model as `seconds: 3`; without a
+length a sound effect lasts 5 seconds and music 30. The length is the router model's typed answer;
+the app does not read numbers out of your text.
+
 The app never substitutes another workflow on its own: when the gateway sets no default and the
 built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
 is blocked and the palette says why. A running turn always keeps the workflow it started with.

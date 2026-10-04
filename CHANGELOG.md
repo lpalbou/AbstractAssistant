@@ -7,6 +7,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [0.13.0] - 2026-10-04
 
+- Asking for a sound effect or music with a length ("a SFX laser gunshot of 3s") gives a clip of that length: the built-in orchestrator's router answers a typed `seconds` argument (null when no length is named) that reaches the sound node's output spec (`duration_s`) and the music node's `duration_s`. Without a length a sound effect is 5 seconds and music 30. Workflow revision 4: the app republishes `abstractassistant-orchestrator` on launch.
+
 - The vendored `assets/automation_controls.json` matches the UI kit's shared automation controls (ui-kit 0.8.0) byte for byte: it gains the Unarchive label and hint used by clients that offer Unarchive.
 
 ## [0.12.3] - 2026-10-03

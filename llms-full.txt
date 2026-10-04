@@ -1689,6 +1689,12 @@ Settings → Models → Workflow:
   the built-in orchestrator when the gateway sets none;
 - **a chosen workflow**: its latest published version.
 
+The built-in orchestrator first routes the request (a structured answer: `mode`, the confirmation
+sentence, the `media_prompt`, and for music and sound effects the clip length `seconds`, or null
+when you named none). "A 3 s laser gunshot" reaches the sound model as `seconds: 3`; without a
+length a sound effect lasts 5 seconds and music 30. The length is the router model's typed answer;
+the app does not read numbers out of your text.
+
 The app never substitutes another workflow on its own: when the gateway sets no default and the
 built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
 is blocked and the palette says why. A running turn always keeps the workflow it started with.
@@ -2472,6 +2478,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## Unreleased
 
 ## [0.13.0] - 2026-10-04
+
+- Asking for a sound effect or music with a length ("a SFX laser gunshot of 3s") gives a clip of that length: the built-in orchestrator's router answers a typed `seconds` argument (null when no length is named) that reaches the sound node's output spec (`duration_s`) and the music node's `duration_s`. Without a length a sound effect is 5 seconds and music 30. Workflow revision 4: the app republishes `abstractassistant-orchestrator` on launch.
 
 - The vendored `assets/automation_controls.json` matches the UI kit's shared automation controls (ui-kit 0.8.0) byte for byte: it gains the Unarchive label and hint used by clients that offer Unarchive.
 
