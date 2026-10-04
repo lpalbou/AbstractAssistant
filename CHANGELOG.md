@@ -3,7 +3,7 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
-## Unreleased
+## [0.13.0] - 2026-10-05
 
 - Settings → Tools: the tools that start processes show the gateway's command-sandbox state on their card (AbstractGateway round 12): the tool's `sandbox` text verbatim (**Sandboxed to this run's workspaces**, or the refused / unsandboxed state) as a state chip, with the gateway's `command_sandbox.sentence` as its tooltip. Nothing is shown for a tool the gateway does not mark.
 - Automations: the schedule window (**Schedule this conversation…** / **New automation**) and an automation's **Edit** box have a visible **Workspaces** section. It is the same chooser as Settings → Workspace (kit words), at the run level, in a compact layout for narrow windows (postures stacked, modes under each path). Each change is checked by the gateway (`POST /workspace/effective/me`); a refusal shows the gateway's sentence + "Not saved." and the choice stays. **Create automation** / **Save** stores it as `target.input_data.workspace` (absent = **Use my default**). The automation view shows **Workspaces: <summary>** under the workflow line. New: `GatewayClient.workspace_dry_run`, `controller.workspace_dry_run`, `ui/automation_workspaces.py`.
@@ -17,8 +17,6 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - Removed: the access-mode list, the local allowed-folders list, the local check of folders against the policy, launch-folder trust (the gateway decides), and the **Run workspace** row with its `workspace_root` preference — a run's private workspace is automatic (the app reuses the one the gateway gave the chat's first run) and an old saved value is ignored. Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`.
 - **Stream replies** is a plain switch, on by default (Settings → Models → Replies); the "Gateway default" choice is gone. Every run carries `_runtime.stream` explicitly — `true` when the switch is on and the gateway advertises live replies (read from the cached discovery answer, never fetched per turn), `false` otherwise — so the gateway's own default applies only to clients that do not say. An older saved `gateway_default` loads as on. `assistant run --stream on|off` overrides the switch for one turn.
 - No Settings page has a Save button any more (Workspace was the last one): every page applies on change, and a change that cannot be stored or that the gateway refuses says "Not saved." with the reason. The Connection page keeps **Connect**.
-
-## [0.13.0] - 2026-10-04
 
 - Asking for a sound effect or music with a length ("a SFX laser gunshot of 3s") gives a clip of that length: the built-in orchestrator's router answers a typed `seconds` argument (null when no length is named) that reaches the sound node's output spec (`duration_s`) and the music node's `duration_s`. Without a length a sound effect is 5 seconds and music 30. Workflow revision 4: the app republishes `abstractassistant-orchestrator` on launch.
 
