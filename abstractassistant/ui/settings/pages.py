@@ -832,12 +832,13 @@ class WorkspacePage(SettingsPage):
         self.effective_label.setWordWrap(True)
         self.effective_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.effective_label.setProperty("workspace", "effective")
-        self.folders_card.add_widget(self.effective_label)
         self.rows_host = QWidget()
         self.rows_layout = QVBoxLayout(self.rows_host)
         self.rows_layout.setContentsMargins(0, 0, 0, 0)
         self.rows_layout.setSpacing(6)
         self.folders_card.add_widget(self.rows_host)
+        # The gateway's line comes last, as in the kit chooser.
+        self.folders_card.add_widget(self.effective_label)
 
         # The run's own folder stays a device preference (blank = the
         # gateway's per-chat folder in the shared workspace).
@@ -961,14 +962,15 @@ class WorkspacePage(SettingsPage):
 
     def _segmented(self, key: str, label: str, current: str, offered: List[str], allowed: List[str], on_pick) -> QWidget:
         """Read & write / Read-only / Refused: lower, never raise the admin's mode."""
-        host = QWidget()
+        host = QFrame()
+        host.setObjectName("segmented")  # the shared segmented-control style
         box = QHBoxLayout(host)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(0)
         buttons = {}
         for value in offered:
-            b = QPushButton(workspace_mode_label(value))
-            b.setObjectName("segmentButton")
+            b = QPushButton(workspace_mode_label(value).replace("&", "&&"))  # "&" is a Qt mnemonic marker
+            b.setObjectName("segment")
             b.setCheckable(True)
             b.setChecked(current == value)
             b.setAutoDefault(False)
@@ -977,10 +979,10 @@ class WorkspacePage(SettingsPage):
             b.setProperty("unavailable", unavailable)
             if unavailable:
                 b.setToolTip(WT["accessCeiling"])
+                b.setStyleSheet("color: rgba(128, 128, 128, 0.55);")  # shown, not choosable
             b.clicked.connect(lambda _c=False, v=value, ok=not unavailable: (on_pick(v) if ok and v != current else self._render()))
             box.addWidget(b, 0)
             buttons[value] = b
-        box.addStretch(1)
         self.mode_buttons[key] = buttons
         return host
 
