@@ -208,8 +208,10 @@ def test_every_settings_page_puts_its_actions_in_the_footer() -> None:
     # Voice: switches and choices only, each applied as it changes (no Save).
     assert [b.text() for b in dlg.page_voice.actions()] == []
     assert [b.text() for b in dlg.page_workspace.actions()] == ["Save"]  # round 9: folders apply at once; Save = the run folder
-    assert [b.text() for b in dlg.page_tools.actions()] == ["Use gateway defaults", "Save"]
-    assert [b.text() for b in dlg.page_window.actions()] == ["Save"]
+    # R10.4: no Save per section — a tool's mode and the window/shortcut
+    # settings apply as they change.
+    assert [b.text() for b in dlg.page_tools.actions()] == ["Use gateway defaults"]
+    assert [b.text() for b in dlg.page_window.actions()] == []
     assert [b.text() for b in dlg.page_about.actions()] == ["Copy diagnostics"]
     # Exactly one primary per page footer.
     for page in dlg.pages.values():

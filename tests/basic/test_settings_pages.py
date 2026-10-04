@@ -260,7 +260,7 @@ def test_mtp_selector_preserves_off_and_rejects_stale_discovery(tmp_path) -> Non
     combo.setCurrentIndex(3)
     assert ctl.preferences.speculation == {"mode": "native_mtp", "num_draft_tokens": 3, "require_acceleration": True}
     editor._apply_speculation_payload(editor._speculation_epoch, {})
-    assert combo.currentText() == "Depth 3 (saved; unavailable)"
+    assert combo.currentText() == "Depth 3 (saved; not available)"
     combo.setCurrentIndex(0)
     assert ctl.preferences.speculation is None
     editor._apply_speculation_payload(editor._speculation_epoch, payload)

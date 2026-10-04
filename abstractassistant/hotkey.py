@@ -30,6 +30,52 @@ def _macos_input_trusted() -> bool:
     return bool(HIServices.AXIsProcessTrusted())
 
 
+# Privacy & Security → Accessibility in System Settings (macOS 13+ also honours
+# the legacy security pane id).
+ACCESSIBILITY_PANE_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+
+def accessibility_state() -> Optional[bool]:
+    """Has macOS allowed this process to read the keyboard (Accessibility)?
+
+    True / False on macOS, None where no such permission exists. Read-only:
+    never shows the system prompt (``request_accessibility`` does).
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        return _macos_input_trusted()
+    except Exception as exc:  # pyobjc missing in a broken install: say "not granted"
+        _LOG.warning("#FALLBACK: Accessibility state unreadable (%s)", exc)
+        return False
+
+
+def request_accessibility() -> Optional[bool]:
+    """Ask macOS for Accessibility access: the system prompt (when macOS still
+    offers it) via ``AXIsProcessTrustedWithOptions(prompt=True)``. Returns the
+    state at the time of the call."""
+    if sys.platform != "darwin":
+        return None
+    import HIServices  # type: ignore[import-not-found]
+
+    options = {HIServices.kAXTrustedCheckOptionPrompt: True}
+    return bool(HIServices.AXIsProcessTrustedWithOptions(options))
+
+
+def open_accessibility_settings() -> bool:
+    """Open System Settings → Privacy & Security → Accessibility."""
+    if sys.platform != "darwin":
+        return False
+    import subprocess
+
+    try:
+        subprocess.Popen(["open", ACCESSIBILITY_PANE_URL])
+        return True
+    except Exception as exc:
+        _LOG.warning("#FALLBACK: could not open the Accessibility pane (%s)", exc)
+        return False
+
+
 def _normalize_sequence(value: str) -> str:
     raw = str(value or "").strip().lower()
     if not raw:

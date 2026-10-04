@@ -762,6 +762,26 @@ class AssistantController:
             self._execution_capabilities_cache[key] = (time.monotonic(), result)
         return result
 
+    def voice_defaults(self) -> Dict[str, Any]:
+        """The gateway's default voice engines (``GET /voice/defaults``), as
+        Settings → Voice shows them read-only: ``{"tts": {...}, "stt": {...}}``
+        on success, ``{"error": str}`` when the gateway could not be asked.
+        Cached like the other Settings reads (a failure is not cached)."""
+        with self._cache_lock:
+            cached = getattr(self, "_voice_defaults_cache", None)
+            if cached is not None and cached[1] == self._cache_epoch and self._cache_fresh(cached[0]):
+                return json.loads(json.dumps(cached[2]))
+            epoch = self._cache_epoch
+        try:
+            payload = self.gateway.voice_defaults()
+        except Exception as exc:
+            return {"error": str(exc) or type(exc).__name__}
+        result = dict(payload) if isinstance(payload, dict) else {}
+        with self._cache_lock:
+            if epoch == self._cache_epoch:
+                self._voice_defaults_cache = (time.monotonic(), epoch, result)
+        return json.loads(json.dumps(result))
+
     def workspace_policy(self) -> Dict[str, Any]:
         """This account's workspace folders as the gateway answers them
         (round 9, ``GET /workspace/policy/me``): ``{"state": {policy,

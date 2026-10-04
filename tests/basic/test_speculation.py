@@ -32,7 +32,7 @@ def test_capability_options_never_infer_from_model_names():
     saved = normalize_speculation({"mode":"native_mtp", "num_draft_tokens":5})
     rows, note = speculation_options({"execution":{"speculation":{"supported":True,"ready":False,"supported_depths":[2,3],"reason":"head_not_loaded"}}}, saved)
     assert len(rows) == 5
-    assert "saved; unavailable" in rows[-1][1]
+    assert "saved; not available" in rows[-1][1]
     assert note == "head_not_loaded"
 
 

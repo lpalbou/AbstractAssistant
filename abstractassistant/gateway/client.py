@@ -960,6 +960,17 @@ class GatewayClient:
             label="voice_voices failed",
         )
 
+    def voice_defaults(self) -> Dict[str, Any]:
+        """``GET /voice/defaults`` (round 6): the gateway's effective voice
+        routes, ``{tts: {route, configured, provider, model, voice[, note]},
+        stt: {route, configured, provider, model[, note]}, source}`` — the
+        one answer every app shows as "Gateway default · provider / model"."""
+        return self._request_json(
+            method="GET",
+            url=self._url("/api/gateway/voice/defaults"),
+            label="voice_defaults failed",
+        )
+
     def audio_speech_models(
         self,
         *,

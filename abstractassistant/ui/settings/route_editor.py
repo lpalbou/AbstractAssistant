@@ -49,7 +49,7 @@ from PyQt5.QtWidgets import (
 
 from ...gateway_service import ROUTE_SPECS, CapabilityRouteRow
 from ...preferences import REASONING_EFFORT_LEVELS
-from ...speculation import speculation_options
+from ...speculation import speculation_configurable, speculation_options
 from ...theme import THEME
 from .common import LABEL_COLUMN_MIN, safe_attr, safe_call
 
@@ -888,11 +888,16 @@ class RouteOverrideEditor(QWidget):
                 selected = index
         self.speculation_combo.setCurrentIndex(selected)
         self.speculation_combo.blockSignals(False)
+        # Configurable when the selected model is MTP-capable (or discovery has
+        # not said otherwise); a model the gateway reports without MTP shows the
+        # list disabled with the gateway's sentence — never an invented depth.
+        self.speculation_combo.setEnabled(speculation_configurable(payload, current))
         self.speculation_note.setText(str(payload.get("error") or note) if isinstance(payload, dict) else note)
 
     def _on_speculation_changed(self, _index: int) -> None:
         value = self.speculation_combo.currentData()
         if _update_prefs(self._controller, speculation=value):
+            self._feedback("Saved on this device." if value is not None else "Following the gateway default.")
             self.changed.emit()
         else:
             self._feedback("Could not save the MTP override.", tone="error")

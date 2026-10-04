@@ -672,17 +672,32 @@ class VoicePage(SettingsPage):
         super().__init__(controller, parent)
         self._route_editor = route_editor
 
-        routes = self.add_card(Card("Engines", "Which engines speak and listen. Change them under Models."))
+        # READ-ONLY (R10.4): the engines are chosen in ONE place, Models →
+        # Voice output (TTS) / Voice input (STT). This card names what applies
+        # — the gateway's default from GET /voice/defaults, or this app's
+        # override — and links there; it never re-configures an engine.
+        engines = self.add_card(Card("Engines", "Which engines speak and listen."))
         self.tts_summary = QLabel("")
         self.tts_summary.setObjectName("rowValue")
         self.tts_summary.setWordWrap(True)
-        tts_button = button("Change…", "secondary", on_click=lambda: self.navigate.emit("models", "output.voice"))
-        routes.add_row("Text → speech", self.tts_summary, trailing=[tts_button])
+        self.tts_link = button(
+            "Change under Models",
+            "link",
+            tooltip="Open Models → Voice output (TTS)",
+            on_click=lambda: self.navigate.emit("models", "output.voice"),
+        )
+        engines.add_row("Text → speech", self.tts_summary, trailing=[self.tts_link])
         self.stt_summary = QLabel("")
         self.stt_summary.setObjectName("rowValue")
         self.stt_summary.setWordWrap(True)
-        stt_button = button("Change…", "secondary", on_click=lambda: self.navigate.emit("models", "input.voice"))
-        routes.add_row("Speech → text", self.stt_summary, trailing=[stt_button])
+        self.stt_link = button(
+            "Change under Models",
+            "link",
+            tooltip="Open Models → Voice input (STT)",
+            on_click=lambda: self.navigate.emit("models", "input.voice"),
+        )
+        engines.add_row("Speech → text", self.stt_summary, trailing=[self.stt_link])
+        routes = self.add_card(Card("Output"))
         # WHICH SPEAKER. Until 2026-09-18 this row only NAMED the system default and
         # offered a shortcut to macOS Sound settings — and playback did not reliably
         # follow that default either, so replies came out of the built-in speakers
@@ -789,17 +804,36 @@ class VoicePage(SettingsPage):
         self._reload_output_devices(announce=False)
         self._refresh_summaries()
 
+    @staticmethod
+    def engine_summary(defaults: Any, kind: str, override: Any) -> tuple:
+        """(text, tooltip) for one engine row, in the kit's words
+        (AfOverrideRow + voiceDefaultSummary): this app's override as
+        "provider / model — this app", else "Gateway default · provider /
+        model" from GET /voice/defaults — "not set" when the administrator set
+        none, "unknown" when the gateway could not be asked."""
+        if isinstance(override, dict) and str(override.get("provider") or "").strip():
+            value = " / ".join(p for p in (str(override.get("provider") or "").strip(), str(override.get("model") or "").strip()) if p)
+            options = override.get("options") if isinstance(override.get("options"), dict) else {}
+            voice = str(options.get("voice") or options.get("profile") or "").strip()
+            if voice and kind == "tts":
+                value += f" · voice {voice}"
+            return f"{value} — this app", "This app's choice, set under Models."
+        if not isinstance(defaults, dict) or defaults.get("error") or not isinstance(defaults.get(kind), dict):
+            reason = str((defaults or {}).get("error") or "") if isinstance(defaults, dict) else ""
+            return "Gateway default · unknown", (f"The gateway could not be asked: {reason}" if reason else "The gateway could not be asked.")
+        entry = defaults[kind]
+        route = " / ".join(p for p in (str(entry.get("provider") or "").strip(), str(entry.get("model") or "").strip()) if p)
+        if not entry.get("configured") or not route:
+            return "Gateway default · not set", str(entry.get("note") or "")
+        return f"Gateway default · {route}", ""
+
     def _refresh_summaries(self) -> None:
-        editor = self._route_editor
-        for key, label in (("output.voice", self.tts_summary), ("input.voice", self.stt_summary)):
-            summary = editor.route_summary(key) if editor is not None else {"value": "", "source": ""}
-            value = str(summary.get("value") or "")
-            source = str(summary.get("source") or "")
-            if not value:
-                label.setText("Gateway default (the engine chooses at call time)")
-            else:
-                suffix = " — this app" if source == "app" else " — gateway default"
-                label.setText(f"{value}{suffix}")
+        defaults = safe_call(self.controller, "voice_defaults", default=None)
+        for key, kind, label in (("output.voice", "tts", self.tts_summary), ("input.voice", "stt", self.stt_summary)):
+            override = safe_call(self.controller, "route_override", key, default=None)
+            text, tip = self.engine_summary(defaults, kind, override)
+            label.setText(text)
+            label.setToolTip(tip)
         voice = safe_attr(self.controller, "voice_manager", None)
         device = str(safe_call(voice, "output_device_label", default="") or "").strip()
         volume, muted = (None, None)
@@ -1342,6 +1376,101 @@ _TOOLSET_ICONS = {
 }
 
 
+class _ToolGroup(QFrame):
+    """One gateway toolset as a collapsible panel (R10.4).
+
+    Header: the toolset name (the toggle, with a chevron), the tool count,
+    then "All auto" / "All ask" — pressed-state controls that SHOW whether
+    every tool of the panel is on that mode and set it when pressed. The rows
+    live in ``body``; collapsing hides the body, the filter hides rows.
+    """
+
+    def __init__(self, toolset: str, count: int, *, bulk: bool, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("settingsCard")
+        self.setProperty("toolGroup", toolset)
+        self.toolset = toolset
+        self.count = count
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(14, 10, 14, 10)
+        outer.setSpacing(6)
+
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        self.toggle = QPushButton(toolset)
+        self.toggle.setObjectName("ghostButton")
+        self.toggle.setCheckable(True)
+        self.toggle.setAutoDefault(False)
+        self.toggle.setStyleSheet("font-weight: 700; text-align: left; padding-left: 2px;")
+        self.toggle.toggled.connect(self._apply_open)
+        head.addWidget(self.toggle, 0)
+        self.glyph = QLabel()
+        self.glyph.setPixmap(
+            symbol_icon(_TOOLSET_ICONS.get(toolset.split(".")[0], "spark"), color=THEME.text_muted, size=14).pixmap(14, 14)
+        )
+        head.addWidget(self.glyph, 0, Qt.AlignVCenter)
+        self.count_chip = Chip(str(count), "neutral")
+        self.count_chip.setProperty("toolGroup", "count")
+        head.addWidget(self.count_chip, 0, Qt.AlignVCenter)
+        head.addStretch(1)
+
+        self.bulk = QFrame()
+        self.bulk.setObjectName("segmented")
+        bulk_box = QHBoxLayout(self.bulk)
+        bulk_box.setContentsMargins(0, 0, 0, 0)
+        bulk_box.setSpacing(0)
+        self.all_auto = self._bulk_button("All auto", "first")
+        self.all_auto.setToolTip(
+            f"Every {toolset} tool pre-approved on this Mac (outreach and destructive tools stay on Ask)"
+        )
+        self.all_ask = self._bulk_button("All ask", "last")
+        self.all_ask.setToolTip(f"Ask before running any {toolset} tool")
+        bulk_box.addWidget(self.all_auto)
+        bulk_box.addWidget(self.all_ask)
+        head.addWidget(self.bulk, 0, Qt.AlignVCenter)
+        self.bulk.setVisible(bulk)
+        outer.addLayout(head)
+
+        self.body = Card()
+        self.body.setObjectName("toolGroupBody")
+        self.body._layout.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self.body)
+        self._apply_open(False)
+
+    def _bulk_button(self, text: str, position: str) -> QPushButton:
+        b = QPushButton(text)
+        b.setObjectName("segment")
+        b.setProperty("segment", position)
+        b.setCheckable(True)
+        b.setAutoDefault(False)
+        b.setFocusPolicy(Qt.StrongFocus)
+        b.setAccessibleName(f"{text} — {self.toolset}")
+        return b
+
+    def _apply_open(self, opened: bool) -> None:
+        self.body.setVisible(bool(opened))
+        self.toggle.setIcon(symbol_icon("chevron-down" if opened else "chevron-right", color=THEME.text_secondary, size=14))
+        verb = "Hide" if opened else "Show"
+        self.toggle.setToolTip(f"{verb} the {self.toolset} tools")
+        self.toggle.setAccessibleName(f"{self.toolset} tools, {self.count}")
+
+    def set_open(self, opened: bool) -> None:
+        self.toggle.blockSignals(True)
+        self.toggle.setChecked(bool(opened))
+        self.toggle.blockSignals(False)
+        self._apply_open(bool(opened))
+
+    def is_open(self) -> bool:
+        return self.body.isVisibleTo(self)
+
+    def set_bulk_state(self, auto: bool, ask: bool, enabled: bool) -> None:
+        for b, on in ((self.all_auto, auto), (self.all_ask, ask)):
+            b.blockSignals(True)
+            b.setChecked(bool(on))
+            b.blockSignals(False)
+            b.setEnabled(bool(enabled))
+
+
 class ToolsPage(SettingsPage):
     title = "Tools & permissions"
     nav_title = "Tools"
@@ -1356,6 +1485,9 @@ class ToolsPage(SettingsPage):
             self.title_label.setText("Tools")
             self.subtitle_label.setText("Choose the tools available to this automation. Its approval setting controls when they may run.")
         self._rows: Dict[str, Dict[str, Any]] = {}
+        self.groups: Dict[str, _ToolGroup] = {}
+        # Panels the user opened or closed by hand (kept across refreshes).
+        self._open_choice: Dict[str, bool] = {}
         self.mode_note = Note("", "info")
         self.body.addWidget(self.mode_note)
 
@@ -1368,16 +1500,18 @@ class ToolsPage(SettingsPage):
         self._groups_host = QWidget()
         self._groups = QVBoxLayout(self._groups_host)
         self._groups.setContentsMargins(0, 0, 0, 0)
-        self._groups.setSpacing(12)
+        self._groups.setSpacing(8)
         self.body.addWidget(self._groups_host)
 
+        # No Save button: a tool's mode applies the moment it is picked. The
+        # automation tool picker (selection_only) keeps its one dialog action.
         self.reset_button = button("Use gateway defaults", "secondary", tooltip="Set every tool back to the gateway's own approval default", on_click=self._reset_defaults)
-        self.save_button_tools = button("Save", "primary", on_click=self._save)
-        self.add_actions(self.reset_button, self.save_button_tools)
+        self.save_button_tools = button("Use selection", "primary", on_click=self._save)
         if selection_only:
-            self.reset_button.hide()
-            self.save_button_tools.setText("Use selection")
+            self.add_actions(self.save_button_tools)
             self.mode_note.hide()
+        else:
+            self.add_actions(self.reset_button)
 
     def _tool_mode_text(self, mode: str) -> str:
         mode_s = str(mode or "").strip().lower()
@@ -1406,6 +1540,9 @@ class ToolsPage(SettingsPage):
             if widget is not None:
                 widget.deleteLater()
         self._rows = {}
+        self.groups = {}
+        # The categories are the gateway's own `toolset` field on each tool
+        # (GET /discovery/tools): no hand-made list, nothing read from names.
         by_toolset: Dict[str, List[dict]] = {}
         for item in items or []:
             if isinstance(item, dict) and str(item.get("name") or "").strip():
@@ -1413,7 +1550,7 @@ class ToolsPage(SettingsPage):
         self.save_button_tools.setEnabled(bool(by_toolset))
         self.reset_button.setEnabled(bool(by_toolset))
         if not by_toolset:
-            empty = QLabel("No tools reported by the gateway — nothing to save until it answers.")
+            empty = QLabel("No tools reported by the gateway — nothing to set until it answers.")
             empty.setObjectName("cardHelp")
             self._groups.addWidget(empty)
             return
@@ -1423,22 +1560,28 @@ class ToolsPage(SettingsPage):
             return (all_disabled, toolset)
 
         for toolset in sorted(by_toolset, key=_group_key):
-            self._groups.addWidget(self._build_group(toolset, by_toolset[toolset]))
+            group = self._build_group(toolset, by_toolset[toolset])
+            self.groups[toolset] = group
+            self._groups.addWidget(group)
+            self._sync_group_state(toolset)
         self._apply_filter()
 
-    def _build_group(self, toolset: str, items: List[dict]) -> QWidget:
-        card = Card(f"{toolset} ({len(items)})")
-        glyph = QLabel()
-        glyph.setPixmap(symbol_icon(_TOOLSET_ICONS.get(toolset.split(".")[0], "spark"), color=THEME.text_muted, size=14).pixmap(14, 14))
-        card.add_header_widget(glyph)
-        all_auto = button("All auto", "ghost", tooltip="Pre-approve the observe/act tools in this group on this Mac (outreach and destructive tools stay on Ask)", on_click=lambda: self._set_group(toolset, "approve"))
-        all_ask = button("All ask", "ghost", tooltip="Ask before running any tool in this group", on_click=lambda: self._set_group(toolset, "ask"))
-        if self.selection_only:
-            all_auto.hide()
-            all_ask.hide()
-        else:
-            card.add_header_widget(all_auto)
-            card.add_header_widget(all_ask)
+    def _has_override(self, items: List[dict]) -> bool:
+        """A panel opens by default only when it carries a choice that differs
+        from the gateway's default (an override on this Mac)."""
+        for item in items:
+            default = str(item.get("policy_default") or "ask")
+            if str(item.get("selected_mode") or default) != default:
+                return True
+        return False
+
+    def _build_group(self, toolset: str, items: List[dict]) -> _ToolGroup:
+        group = _ToolGroup(toolset, len(items), bulk=not self.selection_only)
+        card = group.body
+        group.all_auto.clicked.connect(lambda _c=False, t=toolset: self._set_group(t, "approve"))
+        group.all_ask.clicked.connect(lambda _c=False, t=toolset: self._set_group(t, "ask"))
+        group.toggle.clicked.connect(lambda checked, t=toolset: self._open_choice.__setitem__(t, bool(checked)))
+        group.set_open(self._open_choice.get(toolset, self._has_override(items)))
         for item in sorted(items, key=lambda entry: str(entry.get("name") or "")):
             name = str(item.get("name") or "")
             risk = describe_tool_risk(item)
@@ -1469,6 +1612,8 @@ class ToolsPage(SettingsPage):
             if self.selection_only:
                 control.set_tooltips({"disabled": "Never offered to the model", "ask": "Available under this automation's approval setting"})
                 control.set_value("disabled" if item.get("selected_mode") == "disabled" else "ask")
+            else:
+                control.changed.connect(lambda value, n=name: self._on_tool_changed(n, value))
             control.setEnabled(available or (self.selection_only and item.get("selected_mode") != "disabled"))
             control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             head_row.addWidget(control, 0)
@@ -1483,67 +1628,122 @@ class ToolsPage(SettingsPage):
                 "row": row,
                 "control": control,
                 "default_mode": default,
+                "saved_mode": control.value(),
                 "toolset": toolset,
                 "available": available,
+                "match": True,
                 "rank": int(risk.get("rank") or 0),
                 "search": f"{name}\n{full_description}\n{toolset}".lower(),
             }
-        return card
+        return group
 
     # "All auto" never reaches outreach (3) / destroy (4): those are set to
     # Auto one tool at a time, by name.
     ALL_AUTO_MAX_RANK = 2
 
+    def _group_rows(self, toolset: str) -> List[Dict[str, Any]]:
+        return [info for info in self._rows.values() if info["toolset"] == toolset and info["available"]]
+
+    def _sync_group_state(self, toolset: str) -> None:
+        """Pressed state = the truth of the rows: "All auto" is pressed when
+        every tool "All auto" may reach is on Auto, "All ask" when every tool
+        of the panel is on Ask; neither when they are mixed."""
+        group = self.groups.get(toolset)
+        if group is None:
+            return
+        rows = self._group_rows(toolset)
+        eligible = [info for info in rows if int(info.get("rank") or 0) <= self.ALL_AUTO_MAX_RANK]
+        auto = bool(eligible) and all(info["control"].value() == "approve" for info in eligible)
+        ask = bool(rows) and all(info["control"].value() == "ask" for info in rows)
+        group.set_bulk_state(auto, ask, enabled=bool(rows))
+        group.all_auto.setEnabled(bool(eligible))
+
     def _set_group(self, toolset: str, mode: str) -> None:
         skipped: List[str] = []
         hidden = 0
+        changed: List[str] = []
         for name, info in self._rows.items():
             if info["toolset"] != toolset or not info["available"]:
                 continue
-            # Only what the user can actually see: with a filter applied this
-            # used to pre-approve mutating tools that were not on screen.
-            row = info.get("row")
-            if row is not None and not row.isVisibleTo(self):
+            # Only what the filter shows: with a filter applied this used to
+            # pre-approve mutating tools that were not on screen.
+            if not info.get("match", True):
                 hidden += 1
                 continue
             if mode == "approve" and int(info.get("rank") or 0) > self.ALL_AUTO_MAX_RANK:
                 skipped.append(name)
                 continue
-            info["control"].set_value(mode)
-        if skipped:
+            if info["control"].value() != mode:
+                info["control"].set_value(mode)
+                changed.append(name)
+        saved = self._persist(changed) if changed else True
+        self._sync_group_state(toolset)
+        if not saved:
+            return
+        if skipped and mode == "approve":
             self.say(
                 "Left on Ask (outreach or destructive): " + ", ".join(sorted(skipped)) + ". Set them to Auto individually if you mean it.",
                 tone="warning",
             )
         elif hidden:
             self.say(
-                f"Applied to the {len(self._rows) - hidden} tool(s) shown; "
+                f"Applied to the {len(self._group_rows(toolset)) - hidden} tool(s) shown; "
                 f"{hidden} hidden by the filter were left alone.",
                 tone="info",
             )
+        elif changed:
+            self.say("Saved on this device.")
+
+    def _on_tool_changed(self, name: str, value: str) -> None:
+        info = self._rows.get(name)
+        if info is None:
+            return
+        if self._persist([name]):
+            self.say("Saved on this device.")
+        self._sync_group_state(info["toolset"])
 
     def _apply_filter(self) -> None:
         query = str(self.search_edit.text() or "").strip().lower()
+        matches: Dict[str, int] = {}
         for info in self._rows.values():
-            info["row"].setVisible(not query or query in info["search"])
+            hit = not query or query in info["search"]
+            info["match"] = hit
+            info["row"].setVisible(hit)
+            matches[info["toolset"]] = matches.get(info["toolset"], 0) + (1 if hit else 0)
+        for toolset, group in self.groups.items():
+            found = matches.get(toolset, 0)
+            if query:
+                # The filter searches every panel: panels with a hit open to
+                # show it, the others step aside.
+                group.setVisible(found > 0)
+                group.set_open(found > 0)
+                group.count_chip.setText(f"{found} of {group.count}")
+            else:
+                group.setVisible(True)
+                default = self._has_override([{"policy_default": i["default_mode"], "selected_mode": i["control"].value()} for i in self._rows.values() if i["toolset"] == toolset])
+                group.set_open(self._open_choice.get(toolset, default))
+                group.count_chip.setText(str(group.count))
 
     def _reset_defaults(self) -> None:
-        for info in self._rows.values():
-            info["control"].set_value(info["default_mode"])
-        self.say("Restored the gateway's approval defaults in this window; press Save to keep them.", tone="info")
-
-    def _save(self) -> None:
-        if not self._rows:
-            self.say("Nothing to save: the gateway reported no tools.", tone="warning")
-            return
+        changed = []
+        for name, info in self._rows.items():
+            if info["control"].value() != info["default_mode"]:
+                info["control"].set_value(info["default_mode"])
+                changed.append(name)
         if self.selection_only:
-            self.selection_saved.emit([name for name, info in self._rows.items() if info["control"].value() != "disabled"])
             return
-        # Only rows that differ from the gateway's default are stored, so a
-        # tool left on its default keeps following the gateway if that changes.
-        # Start from what is already saved: the gateway's inventory varies with
-        # what is connected, and rebuilding the map from this refresh alone
-        # silently dropped saved modes for tools it did not list this time.
+        if changed and not self._persist(changed):
+            return
+        for toolset in self.groups:
+            self._sync_group_state(toolset)
+        self.say("Every tool follows the gateway's approval default again.", tone="info")
+
+    def _statuses(self) -> Dict[str, str]:
+        """Only rows that differ from the gateway's default are stored, so a
+        tool left on its default keeps following the gateway if that changes.
+        Start from what is already saved: the gateway's inventory varies with
+        what is connected, and rebuilding the map from this refresh alone
+        silently dropped saved modes for tools it did not list this time."""
         statuses = dict(safe_attr(_prefs(self.controller), "tool_preferences", {}) or {})
         for name, info in self._rows.items():
             chosen = str(info["control"].value() or "ask")
@@ -1551,15 +1751,39 @@ class ToolsPage(SettingsPage):
                 statuses[name] = chosen
             else:
                 statuses.pop(name, None)
+        return statuses
+
+    def _persist(self, names: List[str]) -> bool:
+        """Apply on change. A failed save puts the changed rows back and says
+        "Not saved." with the reason."""
         saver = getattr(self.controller, "save_tool_preferences", None)
-        if callable(saver):
-            try:
-                saver(statuses)
-            except Exception as exc:
-                self.say(f"Could not save: {exc}", tone="error")
-                return
-        self.say("Saved tool permissions on this device.")
+        try:
+            if not callable(saver):
+                raise RuntimeError("this build cannot store tool permissions")
+            saver(self._statuses())
+        except Exception as exc:
+            for name in names:
+                info = self._rows.get(name)
+                if info is not None:
+                    info["control"].set_value(info["saved_mode"])
+            self.say(f"Not saved. {exc}", tone="error")
+            return False
+        for name in names:
+            info = self._rows.get(name)
+            if info is not None:
+                info["saved_mode"] = info["control"].value()
         self.changed.emit()
+        return True
+
+    def _save(self) -> None:
+        if not self._rows:
+            self.say("Nothing to choose: the gateway reported no tools.", tone="warning")
+            return
+        if self.selection_only:
+            self.selection_saved.emit([name for name, info in self._rows.items() if info["control"].value() != "disabled"])
+            return
+        if self._persist(list(self._rows)):
+            self.say("Saved on this device.")
 
 
 # ================================================================= Window
@@ -1658,12 +1882,31 @@ class WindowPage(SettingsPage):
         self.hotkey_edit = QLineEdit()
         self.hotkey_edit.setPlaceholderText("cmd+shift+space")
         self.hotkey_edit.setMinimumWidth(160)
-        summon.add_row(
-            "Key combination",
-            self.hotkey_edit,
+        # Applies when the field is left or Return is pressed (no Save).
+        self.hotkey_edit.editingFinished.connect(self._apply_hotkey_sequence)
+        summon.add_row("Key combination", self.hotkey_edit, stretch_control=False)
+        # macOS Accessibility (R10.4): the state as a themed chip, a Configure
+        # button (system prompt + the Privacy & Security → Accessibility pane),
+        # re-checked whenever the app becomes active again or the page is shown.
+        self.accessibility_state = Chip("", "neutral")
+        self.accessibility_state.setProperty("hotkey", "accessibility-state")
+        self.accessibility_configure = button(
+            "Configure",
+            "secondary",
+            tooltip="Ask macOS for Accessibility access and open Privacy & Security → Accessibility",
+            on_click=self._configure_accessibility,
+        )
+        self._accessibility_row = summon.add_row(
+            "Accessibility",
+            self.accessibility_state,
+            trailing=[self.accessibility_configure],
             stretch_control=False,
             help_text="Works anywhere once macOS grants Accessibility access; otherwise use the menu bar icon.",
         )
+        self._accessibility: Optional[bool] = None
+        app = QApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._on_application_state)
 
         window = self.add_card(Card("Window size", "Limited by the screen. The chat takes whatever height remains after the header and composer."))
         self.width_spin = QSpinBox()
@@ -1672,7 +1915,7 @@ class WindowPage(SettingsPage):
         window.add_row("Width", self.width_spin, stretch_control=False, help_text="Up to 62% of the screen the window is on.")
         self.height_spin = QSpinBox()
         # Must reach the app's own default (286): a floor above it meant
-        # pressing Save on this page silently grew the window.
+        # applying this page silently grew the window.
         self.height_spin.setRange(240, 880)
         self.height_spin.setSuffix(" px")
         window.add_row("Expanded height", self.height_spin, stretch_control=False, help_text="Height of the window once the chat opens fully.")
@@ -1680,6 +1923,11 @@ class WindowPage(SettingsPage):
         self.bottom_offset_spin.setRange(*SCREEN_EDGE_GAP_RANGE)
         self.bottom_offset_spin.setSuffix(" px")
         window.add_row("Screen edge gap", self.bottom_offset_spin, stretch_control=False, help_text="Space kept between the window and the edge of the screen (at most a quarter of the screen).")
+        # Apply on change, no Save: typing applies on Return / leaving the
+        # field (no keyboard tracking), the arrows apply each step.
+        for spin in (self.width_spin, self.height_spin, self.bottom_offset_spin):
+            spin.setKeyboardTracking(False)
+            spin.valueChanged.connect(self._apply_window_size)
 
         shortcuts = self.add_card(Card("Keyboard shortcuts"))
         shortcuts.add_widget(self._shortcut_grid(_SHORTCUTS))
@@ -1688,9 +1936,6 @@ class WindowPage(SettingsPage):
         approval_title.setContentsMargins(0, 6, 0, 0)
         shortcuts.add_widget(approval_title)
         shortcuts.add_widget(self._shortcut_grid(_APPROVAL_SHORTCUTS))
-
-        self.save_button_window = button("Save", "primary", on_click=self._save_preferences)
-        self.add_actions(self.save_button_window)
 
     @staticmethod
     def _shortcut_grid(entries) -> QWidget:
@@ -1788,11 +2033,107 @@ class WindowPage(SettingsPage):
         self._load_typography(prefs)
         self.hotkey_enabled.setChecked(bool(safe_attr(prefs, "hotkey_enabled", True)))
         self.hotkey_edit.setText(str(safe_attr(prefs, "hotkey_sequence", "cmd+shift+space") or "cmd+shift+space"))
-        self.width_spin.setValue(int(safe_attr(prefs, "window_width", DEFAULT_WINDOW_WIDTH) or DEFAULT_WINDOW_WIDTH))
-        self.height_spin.setValue(int(safe_attr(prefs, "window_height", DEFAULT_WINDOW_HEIGHT) or DEFAULT_WINDOW_HEIGHT))
-        # 0 is a real choice (flush with the screen edge): never `or` it away.
-        gap = safe_attr(prefs, "bottom_offset", DEFAULT_SCREEN_EDGE_GAP)
-        self.bottom_offset_spin.setValue(DEFAULT_SCREEN_EDGE_GAP if gap is None else int(gap))
+        self._loading_window = True
+        try:
+            self.width_spin.setValue(int(safe_attr(prefs, "window_width", DEFAULT_WINDOW_WIDTH) or DEFAULT_WINDOW_WIDTH))
+            self.height_spin.setValue(int(safe_attr(prefs, "window_height", DEFAULT_WINDOW_HEIGHT) or DEFAULT_WINDOW_HEIGHT))
+            # 0 is a real choice (flush with the screen edge): never `or` it away.
+            gap = safe_attr(prefs, "bottom_offset", DEFAULT_SCREEN_EDGE_GAP)
+            self.bottom_offset_spin.setValue(DEFAULT_SCREEN_EDGE_GAP if gap is None else int(gap))
+        finally:
+            self._loading_window = False
+        self.refresh_accessibility()
+
+    # ---- macOS Accessibility (global shortcut)
+
+    def refresh_accessibility(self) -> Optional[bool]:
+        """Re-read the permission (never prompts) and show it. When it has
+        just been granted and the shortcut is on, arm the shortcut now."""
+        from ... import hotkey as hotkey_module
+
+        state = hotkey_module.accessibility_state()
+        previous = self._accessibility
+        self._accessibility = state
+        self._accessibility_row.setVisible(state is not None)
+        if state is True:
+            self.accessibility_state.setText("Granted")
+            self.accessibility_state.set_tone("ok")
+        else:
+            self.accessibility_state.setText("Not granted")
+            self.accessibility_state.set_tone("warning")
+        if state is True and previous is False and self.hotkey_enabled.isChecked():
+            failure = self._run_apply_hotkey()
+            self.say(
+                f"Accessibility granted, but the global shortcut did not start: {failure}" if failure
+                else "Accessibility granted — the global shortcut is on.",
+                tone="error" if failure else "ok",
+            )
+        return state
+
+    def _on_application_state(self, state) -> None:
+        # Coming back from System Settings: re-check.
+        if state == Qt.ApplicationActive and self.isVisible():
+            self.refresh_accessibility()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        self.refresh_accessibility()
+
+    def _configure_accessibility(self) -> None:
+        from ... import hotkey as hotkey_module
+
+        try:
+            hotkey_module.request_accessibility()
+        except Exception as exc:  # the pane below is still the way in
+            import logging
+
+            logging.getLogger(__name__).warning("#FALLBACK: Accessibility prompt failed (%s)", exc)
+        opened = hotkey_module.open_accessibility_settings()
+        state = self.refresh_accessibility()
+        if state is True:
+            self.say("macOS already allows this app to read the keyboard.")
+        elif opened:
+            self.say("Allow this app in the Accessibility list that opened; this page updates when you come back.", tone="info")
+        else:
+            self.say("Open System Settings → Privacy & Security → Accessibility and allow this app.", tone="warning")
+
+    def _run_apply_hotkey(self) -> Optional[str]:
+        try:
+            if callable(self._apply_hotkey):
+                result = self._apply_hotkey()
+                return result if isinstance(result, str) and result.strip() else None
+        except Exception as exc:
+            return str(exc) or "The shortcut could not be registered."
+        return None
+
+    def _apply_hotkey_sequence(self) -> None:
+        sequence = self.hotkey_edit.text().strip() or "cmd+shift+space"
+        if sequence == str(safe_attr(_prefs(self.controller), "hotkey_sequence", "") or ""):
+            return
+        if not _update_prefs(self.controller, hotkey_sequence=sequence):
+            self.say("Not saved. The key combination could not be stored.", tone="error")
+            return
+        failure = self._run_apply_hotkey() if self.hotkey_enabled.isChecked() else None
+        if failure:
+            self.say(f"Saved {sequence}, but the global shortcut did not start: {failure}", tone="error")
+        else:
+            self.say(f"Saved on this device: {sequence}.")
+        self.changed.emit()
+
+    def _apply_window_size(self, _value=None) -> None:
+        if getattr(self, "_loading_window", False):
+            return
+        ok = _update_prefs(
+            self.controller,
+            window_width=int(self.width_spin.value()),
+            window_height=int(self.height_spin.value()),
+            bottom_offset=int(self.bottom_offset_spin.value()),
+        )
+        if not ok:
+            self.say("Not saved. The window size could not be stored.", tone="error")
+            return
+        self.say("Saved on this device.")
+        self.changed.emit()
 
     def _apply_hotkey_switch(self, checked: bool) -> None:
         """The global shortcut switch applies at once (no Save)."""
