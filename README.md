@@ -32,7 +32,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
   Spoken replies stream from the gateway; dictation is a button away.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
-  effort, reply streaming), Voice, Workspace (root and allowed folders), Tools & permissions,
+  effort, reply streaming), Voice, Workspace (workspace folders and run folder), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
   override. About is also on the menu-bar icon (**About AbstractAssistant…**).
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,

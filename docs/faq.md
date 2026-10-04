@@ -34,10 +34,11 @@ sends nothing.
 
 ## Can I choose which folders the assistant may touch?
 
-Yes, in Settings → Workspace: a workspace root, an access mode and extra allowed folders. The
-gateway's own policy is shown read-only and always wins: a grant outside it makes the run start
-fail with the gateway's reason. Without a root, the gateway assigns a folder to the first run of a
-chat and later turns of the same chat reuse it.
+Yes, in Settings → Workspace → Workspace folders: the shared workspace is always on, each folder
+your gateway admin allows is a switch (off until you turn it on), and **My folders** appear when the
+admin allows any folder. These are your account's folders on the gateway, the same in every client.
+Without a run folder, the gateway gives each chat its own folder in the shared workspace and later
+turns of the same chat reuse it.
 
 ## Why do I keep seeing approval requests?
 

@@ -45,7 +45,6 @@ from .preferences import (
     PreferencesStore,
     REASONING_EFFORT_LEVELS,
     WORKFLOW_GATEWAY_DEFAULT,
-    WORKSPACE_ACCESS_MODES,
     WorkflowSelection,
     normalize_workflow_choice,
 )
@@ -664,14 +663,6 @@ class AssistantController:
             return None
         return block.get("deltas") is True
 
-    def workspace_access_modes(self) -> List[str]:
-        """Access modes the gateway accepts (its policy's ``allowed_access_modes``
-        when advertised; the contract's known list otherwise)."""
-        policy = self.workspace_policy().get("policy") or {}
-        modes = policy.get("allowed_access_modes") if isinstance(policy, dict) else None
-        cleaned = [str(m).strip().lower() for m in (modes or []) if str(m or "").strip()]
-        return cleaned or list(WORKSPACE_ACCESS_MODES)
-
     def model_capabilities(self, model_name: str) -> Dict[str, Any]:
         """Gateway-side capability card for a model (``thinking_support``,
         ``reasoning_levels``, ...). Cached briefly; {} when unavailable."""
@@ -712,38 +703,45 @@ class AssistantController:
         return result
 
     def workspace_policy(self) -> Dict[str, Any]:
-        """The gateway's workspace policy as this principal sees it:
-        ``{"policy": <server policy>, "self": <per-user policy>, "error": str}``.
-
-        Read-only and best-effort: the assistant never writes gateway policy; it
-        only shows what the gateway will do with the local workspace grant.
+        """This account's workspace folders as the gateway answers them
+        (round 9, ``GET /workspace/policy/me``): ``{"state": {policy,
+        effective} | None, "error": str}``. The gateway decides everything;
+        Settings → Workspace only shows it and sends one PUT per change.
         """
         with self._cache_lock:
             if self._workspace_policy_cache is not None and self._cache_fresh(self._workspace_policy_cache_at):
                 return json.loads(json.dumps(self._workspace_policy_cache))
             epoch = self._cache_epoch
-        out: Dict[str, Any] = {"policy": {}, "self": {}, "error": ""}
-        errors: List[str] = []
+        from .ui.settings.workspace_folders import WorkspaceAnswerError, parse_state
+
+        out: Dict[str, Any] = {"state": None, "error": ""}
         try:
-            payload = self.gateway.workspace_policy()
-            policy = payload.get("policy") if isinstance(payload, dict) else None
-            if isinstance(policy, dict):
-                out["policy"] = dict(policy)
+            out["state"] = parse_state(self.gateway.workspace_account_policy("me"))
+        except WorkspaceAnswerError as exc:
+            out["error"] = str(exc)
         except Exception as exc:
-            errors.append(self.gateway_service.describe_connection_issue(exc))
-        try:
-            payload = self.gateway.workspace_policy_self()
-            if isinstance(payload, dict):
-                out["self"] = {k: v for k, v in payload.items() if k != "ok"}
-        except Exception as exc:
-            errors.append(self.gateway_service.describe_connection_issue(exc))
-        out["error"] = "; ".join(e for e in errors if e)
-        if out["policy"] or out["self"]:
-            with self._cache_lock:
-                if epoch == self._cache_epoch:
-                    self._workspace_policy_cache = json.loads(json.dumps(out))
-                    self._workspace_policy_cache_at = time.monotonic()
+            out["error"] = self.gateway_service.describe_connection_issue(exc)
+        if out["state"]:
+            self._store_workspace_policy(out, epoch)
         return out
+
+    def _store_workspace_policy(self, out: Dict[str, Any], epoch: int) -> None:
+        with self._cache_lock:
+            if epoch == self._cache_epoch:
+                self._workspace_policy_cache = json.loads(json.dumps(out))
+                self._workspace_policy_cache_at = time.monotonic()
+
+    def put_workspace_folders(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """ONE ``PUT /workspace/policy/me`` (``{enabled_folders}`` or
+        ``{own_folders}``); returns the new ``{policy, effective}``. A refusal
+        raises with the gateway's sentence (shown with "Not saved.")."""
+        from .ui.settings.workspace_folders import parse_state
+
+        with self._cache_lock:
+            epoch = self._cache_epoch
+        state = parse_state(self.gateway.put_workspace_account_policy(dict(body or {}), "me"))
+        self._store_workspace_policy({"state": state, "error": ""}, epoch)
+        return state
 
     def effective_chat_route(self) -> Dict[str, str]:
         """Provider/model that will serve the next chat turn and where it comes
@@ -1222,8 +1220,6 @@ class AssistantController:
             speculation=scope.get("speculation"),
             stream=scope.get("stream"),
             workspace_root=str(scope.get("workspace_root") or ""),
-            workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
-            workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
             debug=self.debug,
         )
 

@@ -120,7 +120,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
   Spoken replies stream from the gateway; dictation is a button away.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
-  effort, reply streaming), Voice, Workspace (root and allowed folders), Tools & permissions,
+  effort, reply streaming), Voice, Workspace (workspace folders and run folder), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
   override. About is also on the menu-bar icon (**About AbstractAssistant…**).
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,
@@ -503,7 +503,7 @@ page says where a value comes from. Common first steps:
   effort, and choose whether replies stream (**Stream replies**).
 - **Appearance**: theme, text size and spacing, the summon shortcut, window size.
 - **Voice**: engines for speech, auto-speak, conversation options.
-- **Workspace**: the folder the assistant may work in and extra allowed folders.
+- **Workspace**: your workspace folders (shared workspace, the folders your gateway admin allows, your own when allowed) and the run folder.
 - **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
 
 The full reference is [settings.md](settings.md).
@@ -646,14 +646,12 @@ See [voice.md](voice.md) for how the conversation loop behaves.
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Gateway policy | Your effective posture, whether client scope grants are allowed, gateway-allowed and blocked paths, the access modes offered, mounts and launch-folder trust | gateway (`/workspace/policy`, `/workspace/policy/self`) |
-| Workspace root | The folder the run's file tools work in. Empty means the gateway picks a folder for the first run of a chat and the assistant reuses it for later turns of that chat. The `Choose…` picker appears only when the gateway runs on this Mac; for a remote gateway, type the path as it exists on the gateway's host | this app `workspace_root` |
-| Access mode | Server-managed (send nothing) or one of the modes the gateway offers: workspace only, workspace + allowed folders, any absolute path except ignored ones | this app `workspace_access_mode` |
-| Allowed folders | Extra folders the tools may reach in "workspace + allowed folders" mode. Absolute paths (or `~`) only; adding one switches the access mode when needed | this app `workspace_allowed_paths` |
+| Workspace folders | The same rows and words as the gateway console and AbstractCode: **Shared workspace** (always on; every conversation, automation and entity gets its own folder in it), **Allowed folders** (one switch per folder the gateway admin allows, off until turned on), **My folders** (rows with **Add**, only while the admin allows any folder; otherwise one sentence says why) and "Agents may use: …", the gateway's one-line summary. Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused folder shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
+| Run folder | Where the next run reads and writes files. Empty means the gateway gives the chat its own folder in the shared workspace and the assistant reuses it for later turns. It must be one of the folders above. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
 
-The gateway resolves these paths on its own host and clamps them to its policy. When the policy
-forbids client scope grants, Save refuses entries outside the gateway-allowed paths and names
-them. A grant the gateway still rejects makes the run start fail; the palette then shows
+The gateway decides which folders a run may use (your effective folders) and refuses anything
+outside them; this app has no access modes and no local folder list. A run folder outside your
+folders makes the run start fail; the palette then shows
 "Not sent" with the gateway's reason and puts your message back in the composer.
 
 ## Tools & permissions
@@ -1305,7 +1303,7 @@ default applies:
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
 | `_runtime.stream` | Stream replies: `false` for Off (always sent); `true` for On, sent only when `/discovery/capabilities` advertises `streaming.deltas: true`; omitted to follow the gateway's streaming default (`streaming.default`) |
-| `workspace_root`, `workspace_access_mode`, `workspace_allowed_paths` | workspace settings (or the chat's remembered root) |
+| `workspace_root` | the run folder (or the chat's remembered root); which other folders the run may use is the account's gateway policy (`/workspace/policy/me`), never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
@@ -1614,7 +1612,7 @@ sequenceDiagram
   participant G as Gateway
   U->>P: message (typed or spoken)
   P->>C: build_chat_worker(prompt, addenda)
-  C->>C: run_scope(): thinking, workspace root/mode/paths, model pins
+  C->>C: run_scope(): thinking, run folder, model pins
   C->>W: worker
   W->>G: POST /runs/start (input_data + pins)
   alt refused (policy, workflow)
@@ -1800,10 +1798,11 @@ sends nothing.
 
 ## Can I choose which folders the assistant may touch?
 
-Yes, in Settings → Workspace: a workspace root, an access mode and extra allowed folders. The
-gateway's own policy is shown read-only and always wins: a grant outside it makes the run start
-fail with the gateway's reason. Without a root, the gateway assigns a folder to the first run of a
-chat and later turns of the same chat reuse it.
+Yes, in Settings → Workspace → Workspace folders: the shared workspace is always on, each folder
+your gateway admin allows is a switch (off until you turn it on), and **My folders** appear when the
+admin allows any folder. These are your account's folders on the gateway, the same in every client.
+Without a run folder, the gateway gives each chat its own folder in the shared workspace and later
+turns of the same chat reuse it.
 
 ## Why do I keep seeing approval requests?
 
@@ -1999,9 +1998,9 @@ finished. See [settings.md](settings.md#live-replies).
 ## A message shows "Not sent — …"
 
 The gateway refused to start the run and the palette restored your message. The banner carries
-the gateway's reason. The common cause is a workspace grant outside the gateway's policy:
-open Settings → Workspace, compare your root and allowed folders with the policy card, and adjust
-or reset them. See [settings.md](settings.md#workspace).
+the gateway's reason. The common cause is a run folder outside your workspace folders:
+open Settings → Workspace, turn on the folder under **Allowed folders** (or add it under **My
+folders** when allowed), or clear the run folder. See [settings.md](settings.md#workspace).
 
 ## An approval sheet never appears but the run is waiting
 
@@ -2476,6 +2475,9 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## Unreleased
+
+- Settings → Workspace shows the gateway's round-9 folder model with the same rows and words as the console and AbstractCode: **Shared workspace** (always on), **Allowed folders** (one switch per folder the gateway admin allows, off until turned on), **My folders** (only while the admin allows any folder) and "Agents may use: …". Each change is one `PUT /api/gateway/workspace/policy/me`; a refused folder shows the gateway's sentence with "Not saved.". Requires the gateway's round-9 workspace model.
+- Removed: the access-mode list, the local allowed-folders list, the read-only "Gateway policy" card and the local check of folders against it (the gateway decides). Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`; the stored keys are dropped. The workspace root is now **Run folder** (Save in the footer); **Reset** is gone.
 
 ## [0.13.0] - 2026-10-04
 
@@ -3757,8 +3759,6 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
             explicit=getattr(args, "stream", None) is not None,
         ),
         workspace_root=str(scope.get("workspace_root") or ""),
-        workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
-        workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
     )
 
     if getattr(selected_workflow, "is_gateway_default", False):
@@ -4391,20 +4391,9 @@ def stream_replies_runtime_value(value: Any) -> Optional[bool]:
 # "" (empty) always means "gateway default: send nothing".
 REASONING_EFFORT_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
-# Workspace access modes accepted by the gateway
-# (`routes/gateway.py::_VALID_WORKSPACE_ACCESS_MODES`). "" means server-managed:
-# the run carries no mode and the gateway decides.
-WORKSPACE_ACCESS_MODES = ("workspace_only", "workspace_or_allowed", "all_except_ignored")
-
-
 def normalize_reasoning_effort(raw: Any) -> str:
     value = str(raw or "").strip().lower()
     return value if value in REASONING_EFFORT_LEVELS else ""
-
-
-def normalize_workspace_access_mode(raw: Any) -> str:
-    value = str(raw or "").strip().lower()
-    return value if value in WORKSPACE_ACCESS_MODES else ""
 
 
 VOICE_MODES = ("wait", "full")
@@ -4565,21 +4554,6 @@ def normalize_workspace_path(raw: Any, *, home: Optional[Path] = None) -> str:
     return trimmed or "/"
 
 
-def _normalize_workspace_paths(raw: Any) -> List[str]:
-    if isinstance(raw, str):
-        items: List[Any] = [line for line in raw.splitlines()]
-    elif isinstance(raw, (list, tuple, set)):
-        items = list(raw)
-    else:
-        return []
-    out: List[str] = []
-    for item in items:
-        path = normalize_workspace_path(item)
-        if path and path not in out:
-            out.append(path)
-    return out[:32]
-
-
 # Capability routes the thin client can locally override AND actually applies.
 # Chat text rides the run input (top-level provider/model + _runtime); voice is
 # applied per TTS/STT call in the voice manager; media routes ride dedicated
@@ -4660,12 +4634,12 @@ class AssistantPreferences:
     speculation: Optional[Any] = None  # None inherits; False pins MTP off.
     # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
     stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
-    # Local workspace scope for the run's tools, sent as the run-input pins
-    # `workspace_root` / `workspace_access_mode` / `workspace_allowed_paths`.
-    # The gateway sanitizes and may clamp them; blanks mean "server-managed".
+    # The run's folder, sent as the run-input pin `workspace_root` (blank =
+    # the gateway's per-chat folder in its shared workspace). Round 9: which
+    # OTHER folders the tools may use is the account's gateway policy
+    # (Settings → Workspace folders), never a local list; the gateway refuses
+    # a root outside the account's effective folders.
     workspace_root: str = ""
-    workspace_access_mode: str = ""
-    workspace_allowed_paths: List[str] = field(default_factory=list)
     # Hands-free voice conversation: send each utterance automatically (off =
     # transcribe into the composer and wait for Enter) and ask the model for
     # short spoken-style replies while the conversation is on.
@@ -4731,8 +4705,6 @@ class AssistantPreferences:
             speculation=_load_speculation(raw.get("speculation")),
             stream_replies=normalize_stream_replies(raw.get("stream_replies")),
             workspace_root=normalize_workspace_path(raw.get("workspace_root")),
-            workspace_access_mode=normalize_workspace_access_mode(raw.get("workspace_access_mode")),
-            workspace_allowed_paths=_normalize_workspace_paths(raw.get("workspace_allowed_paths")),
             voice_auto_send=bool(raw.get("voice_auto_send", True)),
             voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
             voice_mode=normalize_voice_mode(raw.get("voice_mode")),
@@ -4766,8 +4738,6 @@ class AssistantPreferences:
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "stream_replies": normalize_stream_replies(self.stream_replies),
             "workspace_root": normalize_workspace_path(self.workspace_root),
-            "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
-            "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
             "voice_auto_send": bool(self.voice_auto_send),
             "voice_spoken_replies": bool(self.voice_spoken_replies),
             "voice_mode": normalize_voice_mode(self.voice_mode),
@@ -4793,8 +4763,6 @@ class AssistantPreferences:
                 else {}
             ),
             "workspace_root": normalize_workspace_path(self.workspace_root),
-            "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
-            "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
         }
 
 
@@ -4980,7 +4948,6 @@ from .preferences import (
     PreferencesStore,
     REASONING_EFFORT_LEVELS,
     WORKFLOW_GATEWAY_DEFAULT,
-    WORKSPACE_ACCESS_MODES,
     WorkflowSelection,
     normalize_workflow_choice,
 )
@@ -5599,14 +5566,6 @@ class AssistantController:
             return None
         return block.get("deltas") is True
 
-    def workspace_access_modes(self) -> List[str]:
-        """Access modes the gateway accepts (its policy's ``allowed_access_modes``
-        when advertised; the contract's known list otherwise)."""
-        policy = self.workspace_policy().get("policy") or {}
-        modes = policy.get("allowed_access_modes") if isinstance(policy, dict) else None
-        cleaned = [str(m).strip().lower() for m in (modes or []) if str(m or "").strip()]
-        return cleaned or list(WORKSPACE_ACCESS_MODES)
-
     def model_capabilities(self, model_name: str) -> Dict[str, Any]:
         """Gateway-side capability card for a model (``thinking_support``,
         ``reasoning_levels``, ...). Cached briefly; {} when unavailable."""
@@ -5647,38 +5606,45 @@ class AssistantController:
         return result
 
     def workspace_policy(self) -> Dict[str, Any]:
-        """The gateway's workspace policy as this principal sees it:
-        ``{"policy": <server policy>, "self": <per-user policy>, "error": str}``.
-
-        Read-only and best-effort: the assistant never writes gateway policy; it
-        only shows what the gateway will do with the local workspace grant.
+        """This account's workspace folders as the gateway answers them
+        (round 9, ``GET /workspace/policy/me``): ``{"state": {policy,
+        effective} | None, "error": str}``. The gateway decides everything;
+        Settings → Workspace only shows it and sends one PUT per change.
         """
         with self._cache_lock:
             if self._workspace_policy_cache is not None and self._cache_fresh(self._workspace_policy_cache_at):
                 return json.loads(json.dumps(self._workspace_policy_cache))
             epoch = self._cache_epoch
-        out: Dict[str, Any] = {"policy": {}, "self": {}, "error": ""}
-        errors: List[str] = []
+        from .ui.settings.workspace_folders import WorkspaceAnswerError, parse_state
+
+        out: Dict[str, Any] = {"state": None, "error": ""}
         try:
-            payload = self.gateway.workspace_policy()
-            policy = payload.get("policy") if isinstance(payload, dict) else None
-            if isinstance(policy, dict):
-                out["policy"] = dict(policy)
+            out["state"] = parse_state(self.gateway.workspace_account_policy("me"))
+        except WorkspaceAnswerError as exc:
+            out["error"] = str(exc)
         except Exception as exc:
-            errors.append(self.gateway_service.describe_connection_issue(exc))
-        try:
-            payload = self.gateway.workspace_policy_self()
-            if isinstance(payload, dict):
-                out["self"] = {k: v for k, v in payload.items() if k != "ok"}
-        except Exception as exc:
-            errors.append(self.gateway_service.describe_connection_issue(exc))
-        out["error"] = "; ".join(e for e in errors if e)
-        if out["policy"] or out["self"]:
-            with self._cache_lock:
-                if epoch == self._cache_epoch:
-                    self._workspace_policy_cache = json.loads(json.dumps(out))
-                    self._workspace_policy_cache_at = time.monotonic()
+            out["error"] = self.gateway_service.describe_connection_issue(exc)
+        if out["state"]:
+            self._store_workspace_policy(out, epoch)
         return out
+
+    def _store_workspace_policy(self, out: Dict[str, Any], epoch: int) -> None:
+        with self._cache_lock:
+            if epoch == self._cache_epoch:
+                self._workspace_policy_cache = json.loads(json.dumps(out))
+                self._workspace_policy_cache_at = time.monotonic()
+
+    def put_workspace_folders(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """ONE ``PUT /workspace/policy/me`` (``{enabled_folders}`` or
+        ``{own_folders}``); returns the new ``{policy, effective}``. A refusal
+        raises with the gateway's sentence (shown with "Not saved.")."""
+        from .ui.settings.workspace_folders import parse_state
+
+        with self._cache_lock:
+            epoch = self._cache_epoch
+        state = parse_state(self.gateway.put_workspace_account_policy(dict(body or {}), "me"))
+        self._store_workspace_policy({"state": state, "error": ""}, epoch)
+        return state
 
     def effective_chat_route(self) -> Dict[str, str]:
         """Provider/model that will serve the next chat turn and where it comes
@@ -6157,8 +6123,6 @@ class AssistantController:
             speculation=scope.get("speculation"),
             stream=scope.get("stream"),
             workspace_root=str(scope.get("workspace_root") or ""),
-            workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
-            workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
             debug=self.debug,
         )
 
@@ -8125,12 +8089,28 @@ class GatewayClient:
             label="workspace_policy failed",
         )
 
-    def workspace_policy_self(self) -> Dict[str, Any]:
-        """The caller's own per-user workspace policy plus the effective posture."""
+    def workspace_account_policy(self, account: str = "me") -> Dict[str, Any]:
+        """``GET /workspace/policy/{account}`` (round 9; ``me`` = the caller):
+        ``{policy: {enabled_folders, own_folders}, gateway, effective}``."""
+        from urllib.parse import quote
+
         return self._request_json(
             method="GET",
-            url=self._url("/api/gateway/workspace/policy/self"),
-            label="workspace_policy_self failed",
+            url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
+            label="workspace folders failed",
+        )
+
+    def put_workspace_account_policy(self, body: Dict[str, Any], account: str = "me") -> Dict[str, Any]:
+        """``PUT /workspace/policy/{account}`` with ``{enabled_folders?, own_folders?}``;
+        the answer is the same shape as the GET. A refused folder raises
+        GatewayHttpError whose ``body_text`` is the gateway's sentence."""
+        from urllib.parse import quote
+
+        return self._request_json(
+            method="PUT",
+            url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
+            body=dict(body or {}),
+            label="workspace folders not saved",
         )
 
     def get_capability_defaults(self) -> Dict[str, Any]:
@@ -9356,8 +9336,6 @@ def build_run_input_data(
     speculation: Any = None,
     stream: Optional[bool] = None,
     workspace_root: str = "",
-    workspace_access_mode: str = "",
-    workspace_allowed_paths: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Build workflow input without desktop-owned routing or history authority.
 
@@ -9392,9 +9370,10 @@ def build_run_input_data(
     ``stream`` asks for live replies (``_runtime.stream``, contract S): True
     streams the model's text as it is written, False pins it off, None sends
     NOTHING so the gateway's own ``agents.streaming_default`` applies.
-    ``workspace_root`` / ``workspace_access_mode`` / ``workspace_allowed_paths``
-    scope the run's filesystem tools; the gateway sanitizes them against its own
-    policy and may clamp or refuse them. Blanks send nothing (server-managed).
+    ``workspace_root`` is the run folder (blank sends nothing: the gateway's
+    per-chat folder). Round 9: which other folders the run may use is the
+    account's gateway policy, never sent per run; the gateway refuses a root
+    outside the account's effective folders.
     """
     prompt_s = str(prompt or "")
     system_s = str(system or "")
@@ -9515,12 +9494,6 @@ def build_run_input_data(
     root_s = str(workspace_root or "").strip()
     if root_s:
         out["workspace_root"] = root_s
-    mode_s = str(workspace_access_mode or "").strip().lower()
-    if mode_s:
-        out["workspace_access_mode"] = mode_s
-    allowed = [str(p or "").strip() for p in (workspace_allowed_paths or []) if str(p or "").strip()]
-    if allowed:
-        out["workspace_allowed_paths"] = allowed
 
     return out
 
@@ -9942,8 +9915,6 @@ class GatewayWorker(QThread):
         speculation: Any = None,
         stream: Optional[bool] = None,
         workspace_root: str = "",
-        workspace_access_mode: str = "",
-        workspace_allowed_paths: Optional[List[str]] = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
@@ -9982,10 +9953,6 @@ class GatewayWorker(QThread):
             raise ValueError(f"stream must be None, True or False, not {stream!r}")
         self._stream = stream
         self._workspace_root = str(workspace_root or "").strip()
-        self._workspace_access_mode = str(workspace_access_mode or "").strip().lower()
-        self._workspace_allowed_paths = [
-            str(p or "").strip() for p in (workspace_allowed_paths or []) if str(p or "").strip()
-        ]
         self._debug = bool(debug)
         self._attach_run_id = str(attach_run_id or "").strip()
         self._primary_image_artifact = (
@@ -11066,8 +11033,6 @@ class GatewayWorker(QThread):
                     speculation=self._speculation,
                     stream=self._stream,
                     workspace_root=self._workspace_root,
-                    workspace_access_mode=self._workspace_access_mode,
-                    workspace_allowed_paths=self._workspace_allowed_paths,
                 )
 
                 try:

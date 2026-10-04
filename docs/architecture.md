@@ -221,7 +221,7 @@ sequenceDiagram
   participant G as Gateway
   U->>P: message (typed or spoken)
   P->>C: build_chat_worker(prompt, addenda)
-  C->>C: run_scope(): thinking, workspace root/mode/paths, model pins
+  C->>C: run_scope(): thinking, run folder, model pins
   C->>W: worker
   W->>G: POST /runs/start (input_data + pins)
   alt refused (policy, workflow)

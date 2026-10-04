@@ -5,6 +5,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+- Settings → Workspace shows the gateway's round-9 folder model with the same rows and words as the console and AbstractCode: **Shared workspace** (always on), **Allowed folders** (one switch per folder the gateway admin allows, off until turned on), **My folders** (only while the admin allows any folder) and "Agents may use: …". Each change is one `PUT /api/gateway/workspace/policy/me`; a refused folder shows the gateway's sentence with "Not saved.". Requires the gateway's round-9 workspace model.
+- Removed: the access-mode list, the local allowed-folders list, the read-only "Gateway policy" card and the local check of folders against it (the gateway decides). Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`; the stored keys are dropped. The workspace root is now **Run folder** (Save in the footer); **Reset** is gone.
+
 ## [0.13.0] - 2026-10-04
 
 - Asking for a sound effect or music with a length ("a SFX laser gunshot of 3s") gives a clip of that length: the built-in orchestrator's router answers a typed `seconds` argument (null when no length is named) that reaches the sound node's output spec (`duration_s`) and the music node's `duration_s`. Without a length a sound effect is 5 seconds and music 30. Workflow revision 4: the app republishes `abstractassistant-orchestrator` on launch.

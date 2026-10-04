@@ -71,8 +71,6 @@ class GatewayWorker(QThread):
         speculation: Any = None,
         stream: Optional[bool] = None,
         workspace_root: str = "",
-        workspace_access_mode: str = "",
-        workspace_allowed_paths: Optional[List[str]] = None,
         debug: bool = False,
     ) -> None:
         super().__init__()
@@ -111,10 +109,6 @@ class GatewayWorker(QThread):
             raise ValueError(f"stream must be None, True or False, not {stream!r}")
         self._stream = stream
         self._workspace_root = str(workspace_root or "").strip()
-        self._workspace_access_mode = str(workspace_access_mode or "").strip().lower()
-        self._workspace_allowed_paths = [
-            str(p or "").strip() for p in (workspace_allowed_paths or []) if str(p or "").strip()
-        ]
         self._debug = bool(debug)
         self._attach_run_id = str(attach_run_id or "").strip()
         self._primary_image_artifact = (
@@ -1195,8 +1189,6 @@ class GatewayWorker(QThread):
                     speculation=self._speculation,
                     stream=self._stream,
                     workspace_root=self._workspace_root,
-                    workspace_access_mode=self._workspace_access_mode,
-                    workspace_allowed_paths=self._workspace_allowed_paths,
                 )
 
                 try:

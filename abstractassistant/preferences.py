@@ -52,20 +52,9 @@ def stream_replies_runtime_value(value: Any) -> Optional[bool]:
 # "" (empty) always means "gateway default: send nothing".
 REASONING_EFFORT_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
-# Workspace access modes accepted by the gateway
-# (`routes/gateway.py::_VALID_WORKSPACE_ACCESS_MODES`). "" means server-managed:
-# the run carries no mode and the gateway decides.
-WORKSPACE_ACCESS_MODES = ("workspace_only", "workspace_or_allowed", "all_except_ignored")
-
-
 def normalize_reasoning_effort(raw: Any) -> str:
     value = str(raw or "").strip().lower()
     return value if value in REASONING_EFFORT_LEVELS else ""
-
-
-def normalize_workspace_access_mode(raw: Any) -> str:
-    value = str(raw or "").strip().lower()
-    return value if value in WORKSPACE_ACCESS_MODES else ""
 
 
 VOICE_MODES = ("wait", "full")
@@ -226,21 +215,6 @@ def normalize_workspace_path(raw: Any, *, home: Optional[Path] = None) -> str:
     return trimmed or "/"
 
 
-def _normalize_workspace_paths(raw: Any) -> List[str]:
-    if isinstance(raw, str):
-        items: List[Any] = [line for line in raw.splitlines()]
-    elif isinstance(raw, (list, tuple, set)):
-        items = list(raw)
-    else:
-        return []
-    out: List[str] = []
-    for item in items:
-        path = normalize_workspace_path(item)
-        if path and path not in out:
-            out.append(path)
-    return out[:32]
-
-
 # Capability routes the thin client can locally override AND actually applies.
 # Chat text rides the run input (top-level provider/model + _runtime); voice is
 # applied per TTS/STT call in the voice manager; media routes ride dedicated
@@ -321,12 +295,12 @@ class AssistantPreferences:
     speculation: Optional[Any] = None  # None inherits; False pins MTP off.
     # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
     stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
-    # Local workspace scope for the run's tools, sent as the run-input pins
-    # `workspace_root` / `workspace_access_mode` / `workspace_allowed_paths`.
-    # The gateway sanitizes and may clamp them; blanks mean "server-managed".
+    # The run's folder, sent as the run-input pin `workspace_root` (blank =
+    # the gateway's per-chat folder in its shared workspace). Round 9: which
+    # OTHER folders the tools may use is the account's gateway policy
+    # (Settings → Workspace folders), never a local list; the gateway refuses
+    # a root outside the account's effective folders.
     workspace_root: str = ""
-    workspace_access_mode: str = ""
-    workspace_allowed_paths: List[str] = field(default_factory=list)
     # Hands-free voice conversation: send each utterance automatically (off =
     # transcribe into the composer and wait for Enter) and ask the model for
     # short spoken-style replies while the conversation is on.
@@ -392,8 +366,6 @@ class AssistantPreferences:
             speculation=_load_speculation(raw.get("speculation")),
             stream_replies=normalize_stream_replies(raw.get("stream_replies")),
             workspace_root=normalize_workspace_path(raw.get("workspace_root")),
-            workspace_access_mode=normalize_workspace_access_mode(raw.get("workspace_access_mode")),
-            workspace_allowed_paths=_normalize_workspace_paths(raw.get("workspace_allowed_paths")),
             voice_auto_send=bool(raw.get("voice_auto_send", True)),
             voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
             voice_mode=normalize_voice_mode(raw.get("voice_mode")),
@@ -427,8 +399,6 @@ class AssistantPreferences:
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "stream_replies": normalize_stream_replies(self.stream_replies),
             "workspace_root": normalize_workspace_path(self.workspace_root),
-            "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
-            "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
             "voice_auto_send": bool(self.voice_auto_send),
             "voice_spoken_replies": bool(self.voice_spoken_replies),
             "voice_mode": normalize_voice_mode(self.voice_mode),
@@ -454,8 +424,6 @@ class AssistantPreferences:
                 else {}
             ),
             "workspace_root": normalize_workspace_path(self.workspace_root),
-            "workspace_access_mode": normalize_workspace_access_mode(self.workspace_access_mode),
-            "workspace_allowed_paths": _normalize_workspace_paths(self.workspace_allowed_paths),
         }
 
 

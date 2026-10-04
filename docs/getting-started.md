@@ -113,7 +113,7 @@ page says where a value comes from. Common first steps:
   effort, and choose whether replies stream (**Stream replies**).
 - **Appearance**: theme, text size and spacing, the summon shortcut, window size.
 - **Voice**: engines for speech, auto-speak, conversation options.
-- **Workspace**: the folder the assistant may work in and extra allowed folders.
+- **Workspace**: your workspace folders (shared workspace, the folders your gateway admin allows, your own when allowed) and the run folder.
 - **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
 
 The full reference is [settings.md](settings.md).

@@ -272,8 +272,6 @@ def _run_gateway_command(args: argparse.Namespace) -> int:
             explicit=getattr(args, "stream", None) is not None,
         ),
         workspace_root=str(scope.get("workspace_root") or ""),
-        workspace_access_mode=str(scope.get("workspace_access_mode") or ""),
-        workspace_allowed_paths=list(scope.get("workspace_allowed_paths") or []),
     )
 
     if getattr(selected_workflow, "is_gateway_default", False):

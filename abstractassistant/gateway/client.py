@@ -1095,12 +1095,28 @@ class GatewayClient:
             label="workspace_policy failed",
         )
 
-    def workspace_policy_self(self) -> Dict[str, Any]:
-        """The caller's own per-user workspace policy plus the effective posture."""
+    def workspace_account_policy(self, account: str = "me") -> Dict[str, Any]:
+        """``GET /workspace/policy/{account}`` (round 9; ``me`` = the caller):
+        ``{policy: {enabled_folders, own_folders}, gateway, effective}``."""
+        from urllib.parse import quote
+
         return self._request_json(
             method="GET",
-            url=self._url("/api/gateway/workspace/policy/self"),
-            label="workspace_policy_self failed",
+            url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
+            label="workspace folders failed",
+        )
+
+    def put_workspace_account_policy(self, body: Dict[str, Any], account: str = "me") -> Dict[str, Any]:
+        """``PUT /workspace/policy/{account}`` with ``{enabled_folders?, own_folders?}``;
+        the answer is the same shape as the GET. A refused folder raises
+        GatewayHttpError whose ``body_text`` is the gateway's sentence."""
+        from urllib.parse import quote
+
+        return self._request_json(
+            method="PUT",
+            url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
+            body=dict(body or {}),
+            label="workspace folders not saved",
         )
 
     def get_capability_defaults(self) -> Dict[str, Any]:

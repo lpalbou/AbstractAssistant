@@ -62,7 +62,6 @@ from ...preferences import (
     normalize_stream_replies,
     WINDOW_WIDTH_RANGE,
     WORKFLOW_GATEWAY_DEFAULT,
-    WORKSPACE_ACCESS_MODES,
     normalize_workspace_path,
 )
 from ...gateway_service import workflow_version_suffix
@@ -70,6 +69,13 @@ from ...theme import THEME
 from ..switch import AfSwitch
 from .common import Card, Chip, Note, SegmentedControl, SettingsPage, button, safe_attr, safe_call
 from .route_editor import OVERRIDE_ROUTE_LABELS, RouteOverrideEditor
+from .workspace_folders import WORKSPACE_CHOOSER_TEXT as WT
+from .workspace_folders import account_view as workspace_account_view
+from .workspace_folders import add_own_body as workspace_add_own_body
+from .workspace_folders import extra_body as workspace_extra_body
+from .workspace_folders import folder_name as workspace_folder_name
+from .workspace_folders import refusal as workspace_refusal
+from .workspace_folders import remove_own_body as workspace_remove_own_body
 
 
 def _prefs(controller: Any) -> Any:
@@ -768,147 +774,271 @@ class VoicePage(SettingsPage):
 # ============================================================== Workspace
 
 
-_MODE_LABELS = {
-    "": "Gateway decides (send nothing)",
-    "workspace_only": "Workspace only — tools stay under the workspace root",
-    "workspace_or_allowed": "Workspace + allowed folders",
-    "all_except_ignored": "Any absolute path except ignored ones",
-}
+class _FolderField(QLineEdit):
+    """The "My folders" field: Return adds (returnPressed), Escape clears."""
+
+    escaped = pyqtSignal()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if event.key() == Qt.Key_Escape:
+            self.clear()
+            self.escaped.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class WorkspacePage(SettingsPage):
+    """Settings → Workspace (round 9): the account's workspace folders, the
+    same model and words as the console and AbstractCode
+    (``workspace_folders.WORKSPACE_CHOOSER_TEXT`` = the ui-kit table): the
+    shared workspace always on, one switch per folder the gateway admin
+    allows, "My folders" only while the admin allows any folder, and the
+    gateway's one-line summary. Each change is ONE ``PUT
+    /workspace/policy/me``; a refusal shows the gateway's sentence with
+    "Not saved." under the row. No policy logic here: the gateway decides.
+    """
+
     title = "Workspace"
-    subtitle = "Which folders the assistant's file tools may use. Paths are resolved on the gateway's host and limited by its policy."
+    subtitle = "Which folders the assistant's agents may use. Your gateway decides; changes apply at once."
     icon = "folder"
 
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
+        self._state: Optional[Dict[str, Any]] = None
+        self._status: Dict[str, tuple] = {}
+        self._draft = ""
 
-        policy = self.add_card(Card("Gateway policy", "Read from the gateway. This app can only narrow what the policy allows."))
-        self.policy_note = Note("Reading the gateway policy…", "info")
-        policy.add_widget(self.policy_note)
-        self.policy_lines = QLabel("")
-        self.policy_lines.setObjectName("rowValue")
-        self.policy_lines.setWordWrap(True)
-        self.policy_lines.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        policy.add_widget(self.policy_lines)
+        self.folders_card = self.add_card(Card(WT["title"], WT["help"]))
+        self.load_note = Note("", "warning")
+        self.folders_card.add_widget(self.load_note)
+        self.effective_label = QLabel("")
+        self.effective_label.setObjectName("rowValue")
+        self.effective_label.setWordWrap(True)
+        self.effective_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.effective_label.setProperty("workspace", "effective")
+        self.folders_card.add_widget(self.effective_label)
+        self.rows_host = QWidget()
+        self.rows_layout = QVBoxLayout(self.rows_host)
+        self.rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.rows_layout.setSpacing(6)
+        self.folders_card.add_widget(self.rows_host)
 
-        self._effective_policy: Dict[str, Any] = {}
+        # The run's own folder stays a device preference (blank = the
+        # gateway's per-chat folder in the shared workspace).
         self._gateway_local = bool(safe_call(controller, "gateway_is_local", default=True))
-        local = self.add_card(Card("This app", "Stored on this device and sent with each run."))
+        local = self.add_card(Card("Run folder", "Where the next run reads and writes files. It must be one of the folders above; the gateway refuses any other."))
         self.workspace_root_edit = QLineEdit()
         self.workspace_root_edit.setPlaceholderText(
-            "Optional — the gateway assigns one per chat"
+            "Optional — the gateway gives each chat its own folder"
             if self._gateway_local
             else "Optional — a path on the gateway's host"
         )
         choose_root = button("Choose…", "secondary", on_click=self._choose_root)
         clear_root = button("Clear", "ghost", on_click=lambda: self.workspace_root_edit.clear())
-        # A folder picker browses THIS Mac; that only matches the gateway's
-        # view of the filesystem when the gateway runs here.
         choose_root.setVisible(self._gateway_local)
-        local.add_row(
-            "Workspace root",
-            self.workspace_root_edit,
-            trailing=[choose_root, clear_root],
-            help_text=(
-                "Where the assistant reads and writes files. Without one, the gateway assigns a folder on the chat's first run and reuses it afterwards."
-                if self._gateway_local
-                else "Where the assistant reads and writes files, as a path on the gateway's host (this app cannot browse it). Without one, the gateway assigns a folder per chat."
-            ),
-        )
-        self.workspace_mode_combo = QComboBox()
-        local.add_row("Access mode", self.workspace_mode_combo, help_text="Only the modes the gateway offers are listed.")
-        self.workspace_allowed_list = QListWidget()
-        self.workspace_allowed_list.setMinimumHeight(88)
-        self.workspace_allowed_list.setMaximumHeight(140)
-        add_folder = button("Add folder…", "secondary", on_click=self._add_folder)
-        add_folder.setVisible(self._gateway_local)
-        remove = button("Remove", "ghost", on_click=self._remove_selected)
-        buttons = QWidget()
-        col = QVBoxLayout(buttons)
-        col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(6)
-        col.addWidget(add_folder)
-        col.addWidget(remove)
-        col.addStretch(1)
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
-        row.addWidget(self.workspace_allowed_list, 1)
-        row.addWidget(buttons, 0)
-        host = QWidget()
-        host.setLayout(row)
-        local.add_row(
-            "Allowed folders",
-            host,
-            help_text="Extra folders the tools may reach in “Workspace + allowed folders” mode. Absolute paths (or ~) only; a path outside the gateway's policy stops the run from starting.",
-        )
-        self.path_entry = QLineEdit()
-        self.path_entry.setPlaceholderText("/absolute/path/on/the/gateway/host — press Return to add")
-        self.path_entry.returnPressed.connect(self._add_typed_path)
-        local.add_row("Add a path", self.path_entry)
-
+        local.add_row("Run folder", self.workspace_root_edit, trailing=[choose_root, clear_root])
         self.current_note = QLabel("")
         self.current_note.setObjectName("cardHelp")
         self.current_note.setWordWrap(True)
         local.add_widget(self.current_note)
-
-        self.reset_button_workspace = button("Reset", "secondary", tooltip="Send nothing: the gateway decides", on_click=self._reset)
         self.save_button_workspace = button("Save", "primary", on_click=self._save)
-        self.add_actions(self.reset_button_workspace, self.save_button_workspace)
+        self.add_actions(self.save_button_workspace)
+
+    # ------------------------------------------------------------ load
 
     def refresh(self) -> None:
         prefs = _prefs(self.controller)
         self.workspace_root_edit.setText(str(safe_attr(prefs, "workspace_root", "") or ""))
-        self.workspace_allowed_list.clear()
-        for path in list(safe_attr(prefs, "workspace_allowed_paths", []) or []):
-            self.workspace_allowed_list.addItem(QListWidgetItem(str(path)))
-        self._refresh_policy()
-        mode = str(safe_attr(prefs, "workspace_access_mode", "") or "")
-        idx = self.workspace_mode_combo.findData(mode)
-        self.workspace_mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        payload = safe_call(self.controller, "workspace_policy", default=None) or {}
+        state = payload.get("state") if isinstance(payload, dict) else None
+        error = str(payload.get("error") or "") if isinstance(payload, dict) else ""
+        self._state = state if isinstance(state, dict) else None
+        if self._state is None:
+            self.load_note.show_text(f"Could not read your workspace folders: {error or 'the gateway did not answer'}.", "warning")
+        else:
+            self.load_note.show_text("")
+        self._render()
         self._refresh_current_note()
 
-    def _refresh_policy(self) -> None:
-        payload = safe_call(self.controller, "workspace_policy", default=None) or {}
-        policy = payload.get("policy") if isinstance(payload, dict) else {}
-        me = payload.get("self") if isinstance(payload, dict) else {}
-        error = str(payload.get("error") or "") if isinstance(payload, dict) else ""
-        modes = safe_call(self.controller, "workspace_access_modes", default=None) or list(WORKSPACE_ACCESS_MODES)
-        self.workspace_mode_combo.blockSignals(True)
-        self.workspace_mode_combo.clear()
-        self.workspace_mode_combo.addItem(_MODE_LABELS[""], "")
-        for mode in modes:
-            self.workspace_mode_combo.addItem(_MODE_LABELS.get(mode, mode), mode)
-        self.workspace_mode_combo.blockSignals(False)
-        if not policy and not me:
-            self._effective_policy = {}
-            self.policy_note.show_text(
-                f"Could not read the gateway workspace policy: {error or 'not advertised by this gateway'}.",
-                "warning",
-            )
-            self.policy_lines.setText("")
+    # ------------------------------------------------------------ rows
+
+    def _clear_rows(self) -> None:
+        while self.rows_layout.count():
+            item = self.rows_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _status_label(self, key: str) -> Optional[QLabel]:
+        if key not in self._status:
+            return None
+        text, tone = self._status[key]
+        label = Note(text, "error" if tone == "error" else "ok")
+        label.setProperty("workspace", "refusal" if tone == "error" else "saved")
+        return label
+
+    def _heading(self, title: str, help_text: str = "") -> None:
+        head = QLabel(title.upper())
+        head.setObjectName("rowLabel")
+        self.rows_layout.addWidget(head)
+        if help_text:
+            hl = QLabel(help_text)
+            hl.setObjectName("rowHelp")
+            hl.setWordWrap(True)
+            self.rows_layout.addWidget(hl)
+
+    def _render(self) -> None:
+        self._clear_rows()
+        self.shared_label = None
+        self.extra_switches: Dict[str, AfSwitch] = {}
+        self.own_rows: Dict[str, QWidget] = {}
+        self.own_field = None
+        self.own_add_button = None
+        self.own_note = None
+        if self._state is None:
+            self.effective_label.setText("")
+            self.rows_host.setVisible(False)
             return
-        self.policy_note.hide()
-        lines: List[str] = []
-        effective = me.get("effective") if isinstance(me, dict) else {}
-        self._effective_policy = dict(effective) if isinstance(effective, dict) else {}
-        if isinstance(effective, dict) and effective:
-            lines.append(f"Your posture: {effective.get('mode', 'unknown')}" + (" · customized for you" if me.get("customized") else " · gateway default"))
-            lines.append(
-                "Client scope overrides: " + ("allowed — any absolute path you grant is honored" if effective.get("client_workspace_scope_overrides") else "not allowed — grants outside the gateway's own folders are refused")
-            )
-            allowed = list(effective.get("workspace_allowed_paths") or [])
-            blocked = list(effective.get("workspace_blocked_paths") or [])
-            lines.append(f"Gateway-allowed paths for you: {', '.join(allowed) if allowed else 'none'}")
-            if blocked:
-                lines.append(f"Blocked paths: {', '.join(blocked)}")
-        if isinstance(policy, dict) and policy:
-            mounts = policy.get("mounts") or []
-            lines.append(f"Access modes offered: {', '.join(modes)}")
-            lines.append(f"Gateway mounts: {len(mounts)} · launch-folder trust: {'on' if policy.get('trust_client_launch_folder') else 'off'}")
-        self.policy_lines.setText("\n".join(lines))
+        self.rows_host.setVisible(True)
+        view = workspace_account_view(self._state)
+        self.effective_label.setText(f"<b>{WT['effectivePrefix']}</b> {_html_escape(view.summary)}")
+
+        shared = QFrame()
+        grid = QGridLayout(shared)
+        grid.setContentsMargins(0, 0, 0, 4)
+        name = QLabel(WT["sharedLabel"])
+        name.setObjectName("rowLabel")
+        grid.addWidget(name, 0, 0)
+        chip = Chip(WT["sharedState"], "ok")
+        chip.setProperty("workspace", "shared-always")
+        grid.addWidget(chip, 0, 2, Qt.AlignRight)
+        grid.setColumnStretch(1, 1)
+        path = QLabel(view.shared_path)
+        path.setObjectName("rowHelp")
+        path.setWordWrap(True)
+        path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        grid.addWidget(path, 1, 0, 1, 3)
+        help_label = QLabel(WT["sharedHelp"])
+        help_label.setObjectName("rowHelp")
+        help_label.setWordWrap(True)
+        grid.addWidget(help_label, 2, 0, 1, 3)
+        self.shared_label = path
+        self.rows_layout.addWidget(shared)
+
+        self._heading(WT["allowedTitle"], WT["allowedHelp"])
+        if not view.extras:
+            empty = QLabel(WT["allowedEmpty"])
+            empty.setObjectName("rowHelp")
+            empty.setWordWrap(True)
+            self.rows_layout.addWidget(empty)
+        for row in view.extras:
+            switch = AfSwitch(row.name)
+            switch.setChecked(row.on)
+            switch.set_hint(row.path)
+            switch.setAccessibleName(row.path)
+            switch.clicked.connect(lambda checked, p=row.path, v=view: self._toggle(v, p, bool(checked)))
+            self.extra_switches[row.path] = switch
+            self.rows_layout.addWidget(switch)
+            sub = QLabel(row.path)
+            sub.setObjectName("rowHelp")
+            sub.setWordWrap(True)
+            self.rows_layout.addWidget(sub)
+            status = self._status_label(row.path)
+            if status is not None:
+                self.rows_layout.addWidget(status)
+
+        self._heading(WT["ownTitle"], WT["ownHelp"] if view.own_visible else "")
+        if not view.own_visible:
+            self.own_note = QLabel(view.own_note or "")
+            self.own_note.setObjectName("rowHelp")
+            self.own_note.setWordWrap(True)
+            self.own_note.setProperty("workspace", "own-hidden")
+            self.rows_layout.addWidget(self.own_note)
+            return
+        if not view.own_rows:
+            empty = QLabel(WT["ownEmpty"])
+            empty.setObjectName("rowHelp")
+            self.rows_layout.addWidget(empty)
+        for path in view.own_rows:
+            line = QWidget()
+            box = QHBoxLayout(line)
+            box.setContentsMargins(0, 0, 0, 0)
+            text = QLabel(f"<b>{_html_escape(workspace_folder_name(path))}</b><br>{_html_escape(path)}")
+            text.setWordWrap(True)
+            text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            box.addWidget(text, 1)
+            remove = button(WT["remove"], "ghost", tooltip=f"{WT['remove']} {path}", on_click=lambda p=path: self._remove_own(p))
+            remove.setAccessibleName(f"{WT['remove']} {path}")
+            box.addWidget(remove, 0)
+            self.own_rows[path] = line
+            self.rows_layout.addWidget(line)
+            status = self._status_label(f"own:{path}")
+            if status is not None:
+                self.rows_layout.addWidget(status)
+        add = QWidget()
+        box = QHBoxLayout(add)
+        box.setContentsMargins(0, 0, 0, 0)
+        self.own_field = _FolderField()
+        self.own_field.setPlaceholderText(WT["ownPlaceholder"])
+        self.own_field.setAccessibleName(WT["ownTitle"])
+        self.own_field.setText(self._draft)
+        self.own_field.textChanged.connect(self._set_draft)
+        self.own_field.returnPressed.connect(self._add_own)
+        self.own_field.escaped.connect(self._clear_add_status)
+        box.addWidget(self.own_field, 1)
+        self.own_add_button = button(WT["add"], "secondary", on_click=self._add_own)
+        box.addWidget(self.own_add_button, 0)
+        self.rows_layout.addWidget(add)
+        status = self._status_label("own:add")
+        if status is not None:
+            self.rows_layout.addWidget(status)
+
+    def _set_draft(self, text: str) -> None:
+        self._draft = str(text or "")
+
+    def _clear_add_status(self) -> None:
+        self._draft = ""
+        if self._status.pop("own:add", None) is not None:
+            self._render()
+
+    # ------------------------------------------------------------ writes
+
+    def _put(self, key: str, body: Dict[str, Any]) -> bool:
+        self._status = {}
+        try:
+            state = self.controller.put_workspace_folders(body)
+        except Exception as exc:  # the gateway's sentence, verbatim
+            self._status[key] = (workspace_refusal(exc), "error")
+            self._render()
+            return False
+        self._state = state
+        self._status[key] = (WT["saved"], "ok")
+        self.changed.emit()
+        return True
+
+    def _toggle(self, view: Any, path: str, on: bool) -> None:
+        self._put(path, workspace_extra_body(view, path, on))
+        self._render()
+
+    def _add_own(self) -> None:
+        if self._state is None:
+            return
+        path = (self.own_field.text() if self.own_field is not None else self._draft).strip()
+        if not path:
+            return
+        if self._put("own:add", workspace_add_own_body(self._state, path)):
+            self._draft = ""
+        self._render()
+
+    def _remove_own(self, path: str) -> None:
+        if self._state is None:
+            return
+        self._put(f"own:{path}", workspace_remove_own_body(self._state, path))
+        self._render()
+
+    # ------------------------------------------------------------ run folder
 
     def _refresh_current_note(self) -> None:
         status = safe_call(self.controller, "workspace_root_status", default=None) or {}
@@ -919,100 +1049,31 @@ class WorkspacePage(SettingsPage):
         elif source == "session" and root:
             self.current_note.setText(f"Next run reuses this chat's gateway folder: {root}")
         else:
-            self.current_note.setText("Next run: the gateway picks a fresh folder (remembered for the rest of the chat).")
+            self.current_note.setText("Next run: the gateway gives it its own folder in the shared workspace (remembered for the rest of the chat).")
 
     def _choose_root(self) -> None:
         start = self.workspace_root_edit.text().strip() or str(Path.home())
-        chosen = QFileDialog.getExistingDirectory(self, "Choose the workspace root", start)
+        chosen = QFileDialog.getExistingDirectory(self, "Choose the run folder", start)
         if chosen:
             self.workspace_root_edit.setText(normalize_workspace_path(chosen))
-
-    def _add_folder(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Add an allowed folder", str(Path.home()))
-        if chosen:
-            self._add_path(chosen)
-
-    def _add_typed_path(self) -> None:
-        text = self.path_entry.text()
-        if self._add_path(text):
-            self.path_entry.clear()
-
-    def _add_path(self, raw: str) -> bool:
-        path = normalize_workspace_path(raw)
-        if not path:
-            self.say("Only absolute paths (or ~) can be sent — the gateway resolves them on its own host.", tone="error")
-            return False
-        existing = [self.workspace_allowed_list.item(i).text() for i in range(self.workspace_allowed_list.count())]
-        if path in existing:
-            self.say(f"{path} is already in the list.", tone="warning")
-            return False
-        self.workspace_allowed_list.addItem(QListWidgetItem(path))
-        mode = str(self.workspace_mode_combo.currentData() or "")
-        if mode in {"", "workspace_only"}:
-            idx = self.workspace_mode_combo.findData("workspace_or_allowed")
-            if idx >= 0:
-                self.workspace_mode_combo.setCurrentIndex(idx)
-                self.say(f"Added {path} and switched the access mode to “Workspace + allowed folders” so it takes effect.")
-                return True
-        self.say(f"Added {path}.")
-        return True
-
-    def _remove_selected(self) -> None:
-        for item in self.workspace_allowed_list.selectedItems():
-            self.workspace_allowed_list.takeItem(self.workspace_allowed_list.row(item))
-
-    def _paths_outside_policy(self, roots: List[str], paths: List[str]) -> List[str]:
-        """Entries the gateway's effective policy would refuse: only judged
-        when the policy is known and forbids client scope overrides."""
-        effective = self._effective_policy or {}
-        if not effective or bool(effective.get("client_workspace_scope_overrides")):
-            return []
-        allowed = [str(p).rstrip("/") for p in (effective.get("workspace_allowed_paths") or []) if str(p).strip()]
-        if not allowed:
-            return []
-
-        def _inside(candidate: str) -> bool:
-            c = str(candidate).rstrip("/") or "/"
-            return any(c == a or c.startswith(a + "/") or a == "/" for a in allowed)
-
-        return [p for p in list(roots) + list(paths) if p and not _inside(p)]
-
-    def _reset(self) -> None:
-        self.workspace_root_edit.clear()
-        self.workspace_mode_combo.setCurrentIndex(0)
-        self.workspace_allowed_list.clear()
-        self._save()
 
     def _save(self) -> None:
         root_raw = self.workspace_root_edit.text().strip()
         root = normalize_workspace_path(root_raw)
         if root_raw and not root:
-            self.say("The workspace root must be an absolute path (or ~).", tone="error")
+            self.say("The run folder must be an absolute path (or ~).", tone="error")
             return
-        paths = [self.workspace_allowed_list.item(i).text() for i in range(self.workspace_allowed_list.count())]
-        refused = self._paths_outside_policy([root] if root else [], paths)
-        if refused:
-            # The gateway would refuse the run before it starts: say which
-            # entries, here, instead of a "Not sent" banner on every message.
-            self.say(
-                "Not saved — this gateway only accepts folders inside its own allowed paths, and these are outside: "
-                + ", ".join(refused)
-                + ". Remove them or ask the gateway operator to allow them.",
-                tone="error",
-            )
-            return
-        ok = _update_prefs(
-            self.controller,
-            workspace_root=root,
-            workspace_access_mode=str(self.workspace_mode_combo.currentData() or ""),
-            workspace_allowed_paths=paths,
-        )
+        ok = _update_prefs(self.controller, workspace_root=root)
         if ok:
             self.say("Saved on this device — applies from your next message.")
             self.changed.emit()
             self._refresh_current_note()
         else:
-            self.say("Could not save the workspace settings.", tone="error")
+            self.say("Could not save the run folder.", tone="error")
+
+
+def _html_escape(text: str) -> str:
+    return str(text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ================================================================== Tools

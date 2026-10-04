@@ -102,8 +102,6 @@ def build_run_input_data(
     speculation: Any = None,
     stream: Optional[bool] = None,
     workspace_root: str = "",
-    workspace_access_mode: str = "",
-    workspace_allowed_paths: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Build workflow input without desktop-owned routing or history authority.
 
@@ -138,9 +136,10 @@ def build_run_input_data(
     ``stream`` asks for live replies (``_runtime.stream``, contract S): True
     streams the model's text as it is written, False pins it off, None sends
     NOTHING so the gateway's own ``agents.streaming_default`` applies.
-    ``workspace_root`` / ``workspace_access_mode`` / ``workspace_allowed_paths``
-    scope the run's filesystem tools; the gateway sanitizes them against its own
-    policy and may clamp or refuse them. Blanks send nothing (server-managed).
+    ``workspace_root`` is the run folder (blank sends nothing: the gateway's
+    per-chat folder). Round 9: which other folders the run may use is the
+    account's gateway policy, never sent per run; the gateway refuses a root
+    outside the account's effective folders.
     """
     prompt_s = str(prompt or "")
     system_s = str(system or "")
@@ -261,11 +260,5 @@ def build_run_input_data(
     root_s = str(workspace_root or "").strip()
     if root_s:
         out["workspace_root"] = root_s
-    mode_s = str(workspace_access_mode or "").strip().lower()
-    if mode_s:
-        out["workspace_access_mode"] = mode_s
-    allowed = [str(p or "").strip() for p in (workspace_allowed_paths or []) if str(p or "").strip()]
-    if allowed:
-        out["workspace_allowed_paths"] = allowed
 
     return out

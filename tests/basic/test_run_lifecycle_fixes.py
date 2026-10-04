@@ -155,8 +155,6 @@ def _worker(gateway, **extra) -> GatewayWorker:
     worker._thinking = ""
     worker._speculation = None
     worker._workspace_root = extra.get("workspace_root", "")
-    worker._workspace_access_mode = ""
-    worker._workspace_allowed_paths = []
     worker._debug = False
     worker._attach_run_id = ""
     worker._primary_image_artifact = None

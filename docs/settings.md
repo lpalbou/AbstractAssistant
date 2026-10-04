@@ -104,14 +104,12 @@ See [voice.md](voice.md) for how the conversation loop behaves.
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Gateway policy | Your effective posture, whether client scope grants are allowed, gateway-allowed and blocked paths, the access modes offered, mounts and launch-folder trust | gateway (`/workspace/policy`, `/workspace/policy/self`) |
-| Workspace root | The folder the run's file tools work in. Empty means the gateway picks a folder for the first run of a chat and the assistant reuses it for later turns of that chat. The `Choose…` picker appears only when the gateway runs on this Mac; for a remote gateway, type the path as it exists on the gateway's host | this app `workspace_root` |
-| Access mode | Server-managed (send nothing) or one of the modes the gateway offers: workspace only, workspace + allowed folders, any absolute path except ignored ones | this app `workspace_access_mode` |
-| Allowed folders | Extra folders the tools may reach in "workspace + allowed folders" mode. Absolute paths (or `~`) only; adding one switches the access mode when needed | this app `workspace_allowed_paths` |
+| Workspace folders | The same rows and words as the gateway console and AbstractCode: **Shared workspace** (always on; every conversation, automation and entity gets its own folder in it), **Allowed folders** (one switch per folder the gateway admin allows, off until turned on), **My folders** (rows with **Add**, only while the admin allows any folder; otherwise one sentence says why) and "Agents may use: …", the gateway's one-line summary. Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused folder shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
+| Run folder | Where the next run reads and writes files. Empty means the gateway gives the chat its own folder in the shared workspace and the assistant reuses it for later turns. It must be one of the folders above. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
 
-The gateway resolves these paths on its own host and clamps them to its policy. When the policy
-forbids client scope grants, Save refuses entries outside the gateway-allowed paths and names
-them. A grant the gateway still rejects makes the run start fail; the palette then shows
+The gateway decides which folders a run may use (your effective folders) and refuses anything
+outside them; this app has no access modes and no local folder list. A run folder outside your
+folders makes the run start fail; the palette then shows
 "Not sent" with the gateway's reason and puts your message back in the composer.
 
 ## Tools & permissions

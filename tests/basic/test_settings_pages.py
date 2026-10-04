@@ -90,15 +90,43 @@ class _Controller:
     def model_capabilities(self, model):
         return {"thinking_support": True, "reasoning_levels": ["low", "medium", "xhigh"]}
 
-    def workspace_policy(self):
-        return {
-            "policy": {"allowed_access_modes": ["workspace_only", "workspace_or_allowed"], "mounts": [], "trust_client_launch_folder": True},
-            "self": {"customized": False, "effective": {"mode": "whitelist", "client_workspace_scope_overrides": True, "workspace_allowed_paths": [], "workspace_blocked_paths": []}},
-            "error": "",
-        }
+    workspace_state = {
+        "policy": {"enabled_folders": ["/data/projects"], "own_folders": []},
+        "effective": {
+            "account": "default:me",
+            "shared_workspace": "/srv/gw/workspaces",
+            "folders": [{"path": "/srv/gw/workspaces", "source": "shared"}, {"path": "/data/projects", "source": "allowed"}],
+            "available_folders": [{"path": "/data/projects", "enabled": True}, {"path": "/data/notes", "enabled": False}],
+            "own_folders_allowed": False,
+            "own_folders_inactive": False,
+            "never_allowed": ["/etc/secrets"],
+            "launch_folder_trust": True,
+            "summary": "Shared workspace + 1 folder. Never: 1 folder.",
+        },
+    }
+    workspace_puts: list = []
+    workspace_refuse: str = ""
 
-    def workspace_access_modes(self):
-        return ["workspace_only", "workspace_or_allowed"]
+    def workspace_policy(self):
+        return {"state": self.workspace_state, "error": ""}
+
+    def put_workspace_folders(self, body):
+        self.workspace_puts.append(dict(body))
+        if self.workspace_refuse:
+            from abstractassistant.gateway.client import GatewayHttpError
+
+            raise GatewayHttpError(f"workspace folders not saved: {self.workspace_refuse}", status=400, body_text=self.workspace_refuse)
+        import copy
+
+        state = copy.deepcopy(self.workspace_state)
+        if "enabled_folders" in body:
+            for row in state["effective"]["available_folders"]:
+                row["enabled"] = row["path"] in body["enabled_folders"]
+            state["policy"]["enabled_folders"] = list(body["enabled_folders"])
+        if "own_folders" in body:
+            state["policy"]["own_folders"] = list(body["own_folders"])
+        self.workspace_state = state
+        return state
 
     def workspace_root_status(self):
         return {"root": self.preferences.workspace_root, "source": "local" if self.preferences.workspace_root else "gateway"}
@@ -228,38 +256,18 @@ def test_mtp_selector_preserves_off_and_rejects_stale_discovery(tmp_path) -> Non
 
 
 @pytest.mark.basic
-def test_workspace_page_refuses_relative_paths_and_auto_switches_mode() -> None:
+def test_workspace_page_run_folder_is_a_device_preference() -> None:
     dlg, ctl = _dialog()
     page = dlg.page_workspace
     dlg.show_section("workspace")
-    assert [page.workspace_mode_combo.itemData(i) for i in range(page.workspace_mode_combo.count())] == ["", "workspace_only", "workspace_or_allowed"]
-
-    assert page._add_path("relative/dir") is False
+    page.workspace_root_edit.setText("relative/dir")
+    page._save()
     assert "absolute" in page.feedback.text().lower()
-    assert page._add_path("/srv/data/") is True
-    assert page.workspace_mode_combo.currentData() == "workspace_or_allowed"
-    assert page._add_path("/srv/data") is False  # duplicate
-
     page.workspace_root_edit.setText("~/site")
     page._save()
     assert ctl.preferences.workspace_root.endswith("/site") and ctl.preferences.workspace_root.startswith("/")
-    assert ctl.preferences.workspace_access_mode == "workspace_or_allowed"
-    assert ctl.preferences.workspace_allowed_paths == ["/srv/data"]
     assert "Next run works in your folder" in page.current_note.text()
-
-    page._reset()
-    assert ctl.preferences.workspace_root == ""
-    assert ctl.preferences.workspace_allowed_paths == []
-
-
-@pytest.mark.basic
-def test_workspace_page_shows_the_gateway_policy_read_only() -> None:
-    dlg, _ = _dialog()
-    dlg.show_section("workspace")
-    text = dlg.page_workspace.policy_lines.text()
-    assert "Your posture: whitelist" in text
-    assert "Client scope overrides: allowed" in text
-    assert "workspace_only, workspace_or_allowed" in text
+    assert not hasattr(page, "workspace_mode_combo") and not hasattr(page, "workspace_allowed_list")
 
 
 @pytest.mark.basic

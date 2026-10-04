@@ -166,7 +166,7 @@ default applies:
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
 | `_runtime.stream` | Stream replies: `false` for Off (always sent); `true` for On, sent only when `/discovery/capabilities` advertises `streaming.deltas: true`; omitted to follow the gateway's streaming default (`streaming.default`) |
-| `workspace_root`, `workspace_access_mode`, `workspace_allowed_paths` | workspace settings (or the chat's remembered root) |
+| `workspace_root` | the run folder (or the chat's remembered root); which other folders the run may use is the account's gateway policy (`/workspace/policy/me`), never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
