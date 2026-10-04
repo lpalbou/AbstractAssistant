@@ -113,10 +113,12 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings �
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort, reply streaming and workspace grant from `preferences.json`.
+reasoning effort and reply streaming from `preferences.json`; the workspaces come from the gateway
+(the chat's subset, else your account default, else the gateway policy).
 
-`--stream on|off` overrides the saved **Stream replies** choice for this turn. `off` is always
-sent; `on` is sent only to a gateway that advertises live replies, otherwise a bracketed line on
+`--stream on|off` overrides the app's **Stream replies** switch (on unless switched off in
+Settings) for this turn. The run always says `_runtime.stream` explicitly: `true` only to a gateway
+that advertises live replies, otherwise `false` and, for an explicit `on`, a bracketed line on
 stderr says it was not sent. While the reply
 streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
 line in brackets says when a step could not stream or its live text was discarded, and the final
@@ -165,8 +167,8 @@ default applies:
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
-| `_runtime.stream` | Stream replies: `false` for Off (always sent); `true` for On, sent only when `/discovery/capabilities` advertises `streaming.deltas: true`; omitted to follow the gateway's streaming default (`streaming.default`) |
-| `workspace_root` | the run workspace (or the chat's remembered one); which other workspaces the run may use is the account's gateway policy (`/workspace/policy/me`), never sent per run |
+| `_runtime.stream` | Stream replies, ALWAYS sent: `true` when the switch is on and the cached `/discovery/capabilities` answer advertises `streaming.deltas: true`, `false` otherwise (the gateway's `streaming.default` never decides for this app) |
+| `workspace_root` | the chat's private workspace, once the gateway gave it on the chat's first run (blank before); which other workspaces the run may use is resolved by the gateway at run start — the chat's subset (`/sessions/{id}/workspaces`) > the account default (`/workspace/policy/me`) > the gateway policy — never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |

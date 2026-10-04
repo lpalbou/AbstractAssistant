@@ -152,6 +152,9 @@ def test_posture_and_everything_else_and_new_rows_refused_under_allow_everything
     assert WT["emptyAllowed"] in _texts(acc.card)
     acc.posture_control._buttons[1].click()
     assert fake.puts[-1][2] == {"configured": True, "posture": "any_except_denied", "default_mode": "rw", "folders": []}
+    # The top line stays the gateway's ceiling, verbatim; the effective line moves.
+    assert acc.gateway_label.text() == "Gateway: Deny everything, allow listed workspaces · /data/project (rw) · /archive (ro)"
+    assert acc.effective_label.text() == "Allow everything, refuse listed workspaces (rw)"
     assert acc.default_mode_control is not None
     next(b for b in acc.default_mode_control._buttons if b.property("value") == "ro").click()
     assert fake.puts[-1][2]["default_mode"] == "ro"

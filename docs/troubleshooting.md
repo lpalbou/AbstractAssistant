@@ -57,8 +57,9 @@ Settings → Connection (the CLI reuses that sign-in), or pass `--gateway-token`
 
 ## Replies do not stream
 
-Check Settings → Models → **Stream replies**. **On — not supported by this gateway** means the
-gateway does not advertise live replies, so nothing is requested and the chat shows one note. A
+Check Settings → Models → **Stream replies** (on by default). When the line under it says this
+gateway does not offer live replies, the app asks for none (`stream: false`) and the chat shows one
+note. A
 step that cannot stream (structured output, a remote model server, a provider that cannot stream
 or report usage while streaming) is named in the status line and its answer appears when it is
 finished. See [settings.md](settings.md#live-replies).
@@ -66,10 +67,9 @@ finished. See [settings.md](settings.md#live-replies).
 ## A message shows "Not sent — …"
 
 The gateway refused to start the run and the palette restored your message. The banner carries
-the gateway's reason. The common cause is a run workspace the gateway's posture does not reach:
-open Settings → Workspace and check it is listed (under "Allow everything, refuse listed workspaces"
-it must not be refused; under "Deny everything, allow listed workspaces" only the gateway admin can
-add it), or clear the run workspace. See [settings.md](settings.md#workspace).
+the gateway's reason. A workspace the gateway no longer allows is one cause: open Settings →
+Workspace and check **This chat** and **My default workspaces** against the **Gateway:** line (or
+switch on **Use my default** / **Follow the gateway policy**). See [settings.md](settings.md#workspace).
 
 ## An approval sheet never appears but the run is waiting
 

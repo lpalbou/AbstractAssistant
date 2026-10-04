@@ -32,13 +32,14 @@ contract. The page shows which model it applies to and which levels that model r
 the model cannot honor is mapped to the nearest supported one by AbstractCore. "Gateway default"
 sends nothing.
 
-## Can I choose which folders the assistant may touch?
+## Can I choose which workspaces the assistant may use?
 
-Yes, in Settings → Workspace: the gateway's posture ("Deny everything, allow listed workspaces" or
-"Allow everything, refuse listed workspaces"), the shared workspace (always on, Read & write) and each
-listed workspace with Read & write / Read-only / Refused. You may lower what the admin allows, never
-raise it; these are your account's workspaces on the gateway, the same in every client. Without a run
-workspace, the gateway gives each chat a private workspace and later turns of the same chat reuse it.
+Yes, in Settings → Workspace, among the workspaces the gateway admin made eligible. **My default
+workspaces** is your account's list (or **Follow the gateway policy**); **This chat** is the open
+conversation's own list (or **Use my default**). Each has the posture ("Deny everything, allow listed
+workspaces" or "Allow everything, refuse listed workspaces") and each workspace Read & write /
+Read-only / Refused, never above what the gateway allows. Both are kept in the gateway, so every app
+sees the same choice. Each chat also has a private workspace of its own, always read & write.
 
 ## Why do I keep seeing approval requests?
 
@@ -152,8 +153,9 @@ hand-over rules.
 
 ## Do replies stream?
 
-When the gateway offers live replies, yes, according to Settings → Models → **Stream replies**:
-Gateway default follows the gateway's own default, On streams, Off waits for the finished answer.
+Yes, when the gateway offers live replies and Settings → Models → **Stream replies** is on (the
+default); switched off, replies appear when they are finished. The app always tells the gateway
+which, so the gateway's own default does not decide for it.
 See [settings.md](settings.md#live-replies).
 
 ## Can I use it outside macOS?

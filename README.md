@@ -24,7 +24,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   you. See [docs/automations.md](docs/automations.md).
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
-- Live replies: with **Stream replies** on (or left to a gateway that streams by default), the
+- Live replies: with **Stream replies** on (the default), the
   answer appears while the model writes it, with its reasoning folded away under **Thinking**;
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
@@ -32,7 +32,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
   Spoken replies stream from the gateway; dictation is a button away.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
-  effort, reply streaming), Voice, Workspace (gateway policy, workspaces, run workspace), Tools & permissions,
+  effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
   override. About is also on the menu-bar icon (**About AbstractAssistant…**).
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,

@@ -112,8 +112,8 @@ page says where a value comes from. Common first steps:
 - **Models & reasoning**: choose the workflow, pin a chat model for this app, set the reasoning
   effort, and choose whether replies stream (**Stream replies**).
 - **Appearance**: theme, text size and spacing, the summon shortcut, window size.
-- **Voice**: engines for speech, auto-speak, conversation options.
-- **Workspace**: the gateway policy, your workspaces (shared workspace, allowed and refused workspaces with Read & write / Read-only) and the run workspace.
+- **Voice**: output device, auto-speak, conversation options (the speech engines are under Models).
+- **Workspace**: **My default workspaces** (your account) and **This chat**, each a list of workspaces with Read & write / Read-only / Refused among those the gateway allows.
 - **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
 
 The full reference is [settings.md](settings.md).
@@ -125,10 +125,10 @@ a hands-free conversation. Details and failure handling are in [voice.md](voice.
 
 ## 8. Files and workspace
 
-Runs read and write files inside a workspace on the gateway host. Choose a run workspace in
-Settings → Workspace to work in your own files; otherwise the gateway gives the chat a private
-workspace of its own on its first run and later turns of that chat reuse it. The chat picker's
-tooltip shows the current workspace.
+Runs read and write files inside a workspace on the gateway host. The gateway gives each chat a
+private workspace of its own on its first run, and later turns of that chat reuse it. To work in your
+own files, add them in Settings → Workspace — under **My default workspaces** for every chat, or
+under **This chat** for the open one. The chat picker's tooltip shows the chat's private workspace.
 
 A picture a run saves in its workspace and names in its answer (`![Memory over time](memory_curve.png)`)
 appears inside the reply at the reply's width; click it to open the file full size. On the

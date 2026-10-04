@@ -66,7 +66,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
-- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow, Stream replies, MTP depth, read-only voice engines, collapsible tool categories, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first, stop after / stop at), tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
@@ -112,7 +112,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   you. See [docs/automations.md](docs/automations.md).
 - Live run activity in the transcript: the current step, elapsed time, recent tool calls with
   their arguments and durations, and pause / resume / stop controls.
-- Live replies: with **Stream replies** on (or left to a gateway that streams by default), the
+- Live replies: with **Stream replies** on (the default), the
   answer appears while the model writes it, with its reasoning folded away under **Thinking**;
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
@@ -120,7 +120,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
   Spoken replies stream from the gateway; dictation is a button away.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
-  effort, reply streaming), Voice, Workspace (gateway policy, workspaces, run workspace), Tools & permissions,
+  effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
   override. About is also on the menu-bar icon (**About AbstractAssistant…**).
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,
@@ -502,8 +502,8 @@ page says where a value comes from. Common first steps:
 - **Models & reasoning**: choose the workflow, pin a chat model for this app, set the reasoning
   effort, and choose whether replies stream (**Stream replies**).
 - **Appearance**: theme, text size and spacing, the summon shortcut, window size.
-- **Voice**: engines for speech, auto-speak, conversation options.
-- **Workspace**: the gateway policy, your workspaces (shared workspace, allowed and refused workspaces with Read & write / Read-only) and the run workspace.
+- **Voice**: output device, auto-speak, conversation options (the speech engines are under Models).
+- **Workspace**: **My default workspaces** (your account) and **This chat**, each a list of workspaces with Read & write / Read-only / Refused among those the gateway allows.
 - **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
 
 The full reference is [settings.md](settings.md).
@@ -515,10 +515,10 @@ a hands-free conversation. Details and failure handling are in [voice.md](voice.
 
 ## 8. Files and workspace
 
-Runs read and write files inside a workspace on the gateway host. Choose a run workspace in
-Settings → Workspace to work in your own files; otherwise the gateway gives the chat a private
-workspace of its own on its first run and later turns of that chat reuse it. The chat picker's
-tooltip shows the current workspace.
+Runs read and write files inside a workspace on the gateway host. The gateway gives each chat a
+private workspace of its own on its first run, and later turns of that chat reuse it. To work in your
+own files, add them in Settings → Workspace — under **My default workspaces** for every chat, or
+under **This chat** for the open one. The chat picker's tooltip shows the chat's private workspace.
 
 A picture a run saves in its workspace and names in its answer (`![Memory over time](memory_curve.png)`)
 appears inside the reply at the reply's width; click it to open the file full size. On the
@@ -559,9 +559,10 @@ On/off settings are switches labelled by the feature, the same control as the ot
 AbstractFramework apps: on shows an accent track with a check mark and a bold label, off is plain.
 A switch that is a saved setting applies the moment you flip it, and the line at the bottom of the
 page names the new state ("Replies are spoken automatically."); if the save fails, the switch
-flips back and the line says so. The **Voice**, **Tools** and **Appearance** pages have no Save
-button: their switches, lists and fields apply as they change (a field when you press Return or
-leave it).
+flips back and the line says so. No page has a Save button: switches, lists and fields apply as
+they change (a field when you press Return or leave it), and a change that cannot be stored or
+that the gateway refuses says "Not saved." with the reason. The Connection page keeps its labelled
+actions (**Connect**, **Sign out**, **Reload status**).
 
 ## Connection
 
@@ -584,7 +585,7 @@ session out).
 |---|---|---|
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | The shared route picker's MTP choice, with the same words as AbstractCode and the gateway console: **Gateway default** (with the gateway's own depth, e.g. **Gateway default (depth 2)**), **Off**, or **Depth N** for each depth the gateway advertises for the selected provider/model. Configurable when the gateway reports the model MTP-capable; for a model it reports without MTP the list is shown disabled with the gateway's sentence (a saved depth stays changeable, marked **(saved; not available)**). Sent as `_runtime.speculation` (`{mode: "native_mtp", num_draft_tokens, require_acceleration: true}`); Off sends `false`, and inheritance omits the key | this app `speculation` |
-| Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
+| Stream replies | A switch, on by default: on shows the answer while the model writes it; off shows it when it is finished. Streaming is this app's choice, so every run says so explicitly as `_runtime.stream` — `true` when the switch is on and the gateway offers live replies (`streaming.deltas` in its discovery, read from the cached answer, never fetched per turn), `false` otherwise. There is no "Gateway default": the gateway's own **Streamed replies** setting (Workflows → Settings in the console) applies only to clients that do not say. When the switch is on but the gateway says it has no live replies, the line under it says so and a chat shows one note | this app `stream_replies` (`on`, `off`; an older `gateway_default` loads as on) |
 | Applies-to line | The chat model that will serve the next turn (gateway default or this app's override) and the reasoning levels that model reports, when the gateway has a capability card for it | gateway |
 | Model routes | One row per route the assistant drives: chat model, voice output, voice input, image generation, image edit, image upscale, video generation, image → video, music, sound effects | this app `route_overrides` |
 
@@ -650,7 +651,6 @@ its choice per signed-in user in the browser).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Text → speech / Speech → text | Read-only: the engines that speak and listen, as **Gateway default · supertonic / supertonic-3** from the gateway's `GET /api/gateway/voice/defaults` (**not set** when the administrator set none, **unknown** when the gateway could not be asked), or **provider / model — this app** when this app overrides it. The engines are chosen in one place: **Change under Models** opens Models → Voice output (TTS) / Voice input (STT) | gateway / this app |
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
@@ -658,27 +658,51 @@ its choice per signed-in user in the browser).
 | Ask for short, spoken-style replies | Switch: adds a voice-style instruction to each request while a conversation runs; applies at once | this app `voice_spoken_replies` |
 | Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
 
-See [voice.md](voice.md) for how the conversation loop behaves.
+The speech engines are not on this page: they are chosen in one place, Models → Voice output
+(TTS) / Voice input (STT). See [voice.md](voice.md) for how the conversation loop behaves.
 
 ## Workspace
 
-| Control | Meaning | Stored |
-|---|---|---|
-| Gateway policy | A card, read from the gateway: the posture badge ("Deny everything, allow listed workspaces" or "Allow everything, refuse listed workspaces"), the shared workspace (Read & write), the allowed workspaces with their mode, the refused workspaces, and under the second posture the mode of everything else | gateway (read-only) |
-| Workspaces | The same rows and words as the gateway console and AbstractCode: the posture, the **Shared workspace** (always on, Read & write), **Allowed workspaces** and **Refused workspaces**, each with **Read & write** / **Read-only** / **Refused** — you may lower what the admin allows, never raise it. Under "Allow everything, refuse listed workspaces" also **Everything else** (the default mode, which you may lower to Read-only) and **Add a workspace path** (refuse a workspace or make it read-only). Under "Deny everything, allow listed workspaces" one sentence says only the gateway admin can add workspaces. The last line is the gateway's own summary, e.g. "Deny everything, allow listed workspaces · Shared workspace (rw) · /data/project (rw) · /archive (ro)". Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused change shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
-| Run workspace | Where the next run reads and writes files. Empty means the gateway gives the chat a private workspace of its own and the assistant reuses it for later turns. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
+Two sections with the same words and rows as the gateway console, AbstractCode, AbstractFlow and
+AbstractObserver (the ui-kit WorkspaceChooser). The gateway admin defines the **eligible**
+workspaces and the most each one allows; you choose among them. Each section shows, from the top:
 
-The gateway decides which workspaces a run may use and refuses anything its posture does not reach;
-this app has no access modes and no local list. A run workspace
-the posture does not reach makes the run start fail; the palette then shows
-"Not sent" with the gateway's reason and puts your message back in the composer.
+- **Gateway: …** — the admin's ceiling, verbatim (`gateway_summary`).
+- A state switch — **Follow the gateway policy** (account) or **Use my default** (this chat). On,
+  the section shows what applies, read-only; switching it off starts your own list from exactly
+  that, and switching it back on sends `{configured: false}`.
+- **Workspaces agents may use**: **Deny everything, allow listed workspaces** or **Allow
+  everything, refuse listed workspaces**.
+- One row per workspace: the path, **Read & write** / **Read-only** / **Refused**, and a remove
+  icon (tooltip **Remove**). A mode above the gateway's cap for that workspace is disabled with the
+  tooltip **The gateway allows this workspace read-only** (or **The gateway refuses this
+  workspace**). Under the second posture, **Everything else** sets the mode of the workspaces not
+  listed.
+- **Add a workspace path** with **Choose…** (a directory picker, shown when the gateway runs on this
+  Mac) and **Add**. A new row starts Read-only under "Deny everything, allow listed workspaces" and
+  Refused under "Allow everything, refuse listed workspaces".
+- The effective line, verbatim from the gateway, e.g. "Deny everything, allow listed workspaces ·
+  /Users/me/Pictures (rw) · /Users/me/Documents (ro)".
+
+| Section | Meaning | Stored |
+|---|---|---|
+| My default workspaces | Your account's subset, used by every chat that does not choose its own. Each change is one `PUT /api/gateway/workspace/policy/me` with the whole list | gateway (your account) |
+| This chat | The open conversation's own subset, starting from your default. Each change is one `PUT /api/gateway/sessions/{id}/workspaces`; the gateway keeps it on the session, so every app that opens this conversation sees the same choice, and applies it when a run starts | gateway (the session) |
+
+A change applies at once; a refused one shows the gateway's sentence followed by "Not saved." under
+the section, and the rows stay as the gateway holds them. The gateway decides everything: this app
+checks no path, computes no cap and keeps no workspace list of its own. There is no shared
+workspace and no "Run workspace": each run's private workspace (in the gateway's data folder) is
+automatic and always read & write — the section **This chat** says so — and the app only reuses the
+one the gateway gave this chat's first run. An old `workspace_root` saved in `preferences.json` by
+earlier versions is ignored.
 
 ## Tools & permissions
 
 | Control | Meaning | Stored |
 |---|---|---|
 | Tool mode note | The gateway's tool execution mode (approval, local, passthrough, delegated) | gateway |
-| Categories | One collapsible panel per category the gateway reports for its tools (the `toolset` of each tool in `GET /api/gateway/discovery/tools`: camera, comms, files, web, …): the name, the number of tools, then **All auto** / **All ask**. Panels are collapsed except those holding a choice that differs from the gateway default; a panel you open or close stays that way | gateway |
+| Categories | One collapsible panel per category the gateway reports for its tools (the `toolset` of each tool in `GET /api/gateway/discovery/tools`: camera, comms, files, web, …), sorted by name: the name, the number of tools, then **All auto** / **All ask**. Every panel starts collapsed, including those holding a choice that differs from the gateway default; a panel you open or close stays that way | gateway |
 | Per-tool Off / Auto / Ask | Off never offers the tool to the model; Auto pre-approves it on this Mac, even where the gateway would ask; Ask prompts every time. The gateway's own default is marked in the tooltip. A choice applies at once; only the tools that differ from the gateway default are stored, and a failed save puts the row back with "Not saved." | this app `tool_preferences` |
 | Risk chip and sentence | The gateway's risk tier (reads only, makes changes, reaches outside, destructive) and capability facts (writes, can delete, sends messages, reaches remote services, captures the environment) | gateway |
 | Disabled on gateway | Tools the gateway has turned off; they are never offered to a run | gateway |
@@ -738,9 +762,10 @@ Also reachable from the menu-bar icon's **About AbstractAssistant…** item.
 ## Preferences file
 
 `~/.abstractassistant/preferences.json` holds every "this app" value above. Missing keys keep
-their defaults: gateway defaults for models, reasoning and reply streaming, no workspace grant, auto-send and
-spoken-style replies on, microphone paused while the assistant speaks. Each session's cached
-`session.json` may also carry the `workspace_root` the gateway granted to that session.
+their defaults: gateway defaults for models and reasoning, Stream replies on, auto-send and
+spoken-style replies on, microphone paused while the assistant speaks. Workspaces are not in this
+file (they live in the gateway). Each session's cached `session.json` may also carry the
+`workspace_root` (the private workspace) the gateway gave that session.
 
 --- docs/voice.md ---
 # Voice
@@ -752,11 +777,9 @@ the matching voice routes.
 
 Speech uses the gateway's default engines (its **Text To Speech** and **Speech To Text** routes,
 `output.voice` and `input.voice`) unless you choose another provider and model for this app under
-Settings → Models & reasoning (Voice output (TTS) / Voice input (STT)). The Voice page only shows
-them, read-only — **Gateway default · supertonic / supertonic-3** from the gateway's
-`GET /api/gateway/voice/defaults`, or **provider / model — this app** — with a **Change under
-Models** link to the route. Leaving an override empty always follows the gateway's current
-default.
+Settings → Models & reasoning (Voice output (TTS) / Voice input (STT)) — the one place the
+engines are chosen; the Voice page has no engine card. Leaving an override empty always follows
+the gateway's current default.
 
 See [settings.md](settings.md) for the Voice page and [troubleshooting.md](troubleshooting.md)
 for failures.
@@ -1281,10 +1304,12 @@ The gateway's `resolved_workflow` for the last run start is shown in Settings �
 
 Executes one turn in the terminal through the same workflow choice as the tray. Tool approvals are asked
 interactively. The turn honors the same local overrides as the tray: chat model pin, media pins,
-reasoning effort, reply streaming and workspace grant from `preferences.json`.
+reasoning effort and reply streaming from `preferences.json`; the workspaces come from the gateway
+(the chat's subset, else your account default, else the gateway policy).
 
-`--stream on|off` overrides the saved **Stream replies** choice for this turn. `off` is always
-sent; `on` is sent only to a gateway that advertises live replies, otherwise a bracketed line on
+`--stream on|off` overrides the app's **Stream replies** switch (on unless switched off in
+Settings) for this turn. The run always says `_runtime.stream` explicitly: `true` only to a gateway
+that advertises live replies, otherwise `false` and, for an explicit `on`, a bracketed line on
 stderr says it was not sent. While the reply
 streams, its text is written to **stderr** as it arrives (the model's reasoning is not printed), a
 line in brackets says when a step could not stream or its live text was discarded, and the final
@@ -1333,8 +1358,8 @@ default applies:
 | `provider`, `model`, `base_url` and `_runtime.provider/model/base_url` | chat model override |
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
-| `_runtime.stream` | Stream replies: `false` for Off (always sent); `true` for On, sent only when `/discovery/capabilities` advertises `streaming.deltas: true`; omitted to follow the gateway's streaming default (`streaming.default`) |
-| `workspace_root` | the run workspace (or the chat's remembered one); which other workspaces the run may use is the account's gateway policy (`/workspace/policy/me`), never sent per run |
+| `_runtime.stream` | Stream replies, ALWAYS sent: `true` when the switch is on and the cached `/discovery/capabilities` answer advertises `streaming.deltas: true`, `false` otherwise (the gateway's `streaming.default` never decides for this app) |
+| `workspace_root` | the chat's private workspace, once the gateway gave it on the chat's first run (blank before); which other workspaces the run may use is resolved by the gateway at run start — the chat's subset (`/sessions/{id}/workspaces`) > the account default (`/workspace/policy/me`) > the gateway policy — never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
@@ -1649,7 +1674,7 @@ sequenceDiagram
   participant G as Gateway
   U->>P: message (typed or spoken)
   P->>C: build_chat_worker(prompt, addenda)
-  C->>C: run_scope(): thinking, run workspace, model pins
+  C->>C: run_scope(): thinking, stream, private workspace, model pins
   C->>W: worker
   W->>G: POST /runs/start (input_data + pins)
   alt refused (policy, workflow)
@@ -1833,13 +1858,14 @@ contract. The page shows which model it applies to and which levels that model r
 the model cannot honor is mapped to the nearest supported one by AbstractCore. "Gateway default"
 sends nothing.
 
-## Can I choose which folders the assistant may touch?
+## Can I choose which workspaces the assistant may use?
 
-Yes, in Settings → Workspace: the gateway's posture ("Deny everything, allow listed workspaces" or
-"Allow everything, refuse listed workspaces"), the shared workspace (always on, Read & write) and each
-listed workspace with Read & write / Read-only / Refused. You may lower what the admin allows, never
-raise it; these are your account's workspaces on the gateway, the same in every client. Without a run
-workspace, the gateway gives each chat a private workspace and later turns of the same chat reuse it.
+Yes, in Settings → Workspace, among the workspaces the gateway admin made eligible. **My default
+workspaces** is your account's list (or **Follow the gateway policy**); **This chat** is the open
+conversation's own list (or **Use my default**). Each has the posture ("Deny everything, allow listed
+workspaces" or "Allow everything, refuse listed workspaces") and each workspace Read & write /
+Read-only / Refused, never above what the gateway allows. Both are kept in the gateway, so every app
+sees the same choice. Each chat also has a private workspace of its own, always read & write.
 
 ## Why do I keep seeing approval requests?
 
@@ -1953,8 +1979,9 @@ hand-over rules.
 
 ## Do replies stream?
 
-When the gateway offers live replies, yes, according to Settings → Models → **Stream replies**:
-Gateway default follows the gateway's own default, On streams, Off waits for the finished answer.
+Yes, when the gateway offers live replies and Settings → Models → **Stream replies** is on (the
+default); switched off, replies appear when they are finished. The app always tells the gateway
+which, so the gateway's own default does not decide for it.
 See [settings.md](settings.md#live-replies).
 
 ## Can I use it outside macOS?
@@ -2026,8 +2053,9 @@ Settings → Connection (the CLI reuses that sign-in), or pass `--gateway-token`
 
 ## Replies do not stream
 
-Check Settings → Models → **Stream replies**. **On — not supported by this gateway** means the
-gateway does not advertise live replies, so nothing is requested and the chat shows one note. A
+Check Settings → Models → **Stream replies** (on by default). When the line under it says this
+gateway does not offer live replies, the app asks for none (`stream: false`) and the chat shows one
+note. A
 step that cannot stream (structured output, a remote model server, a provider that cannot stream
 or report usage while streaming) is named in the status line and its answer appears when it is
 finished. See [settings.md](settings.md#live-replies).
@@ -2035,10 +2063,9 @@ finished. See [settings.md](settings.md#live-replies).
 ## A message shows "Not sent — …"
 
 The gateway refused to start the run and the palette restored your message. The banner carries
-the gateway's reason. The common cause is a run workspace the gateway's posture does not reach:
-open Settings → Workspace and check it is listed (under "Allow everything, refuse listed workspaces"
-it must not be refused; under "Deny everything, allow listed workspaces" only the gateway admin can
-add it), or clear the run workspace. See [settings.md](settings.md#workspace).
+the gateway's reason. A workspace the gateway no longer allows is one cause: open Settings →
+Workspace and check **This chat** and **My default workspaces** against the **Gateway:** line (or
+switch on **Use my default** / **Follow the gateway policy**). See [settings.md](settings.md#workspace).
 
 ## An approval sheet never appears but the run is waiting
 
@@ -2517,13 +2544,15 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ## Unreleased
 
 - Settings → Models → Chat model: **MTP depth** uses the shared route picker's words (AbstractCode, gateway console): **Gateway default (depth N)**, **Off**, **Depth N** per advertised depth, a saved depth the model no longer offers marked **(saved; not available)**, and the same readiness sentences. For a model the gateway reports without MTP the list is shown disabled with the gateway's sentence. The chat route's optional **Provider base URL** is a plain row (the "Advanced (provider base URL)" disclosure is gone).
-- Settings → Voice: the engines are read-only — **Gateway default · provider / model** from the gateway's `GET /api/gateway/voice/defaults` (or **provider / model — this app** for an override) with a **Change under Models** link that opens Models → Voice output / Voice input. Output device + Test, Playing on, Read aloud, Voice latency and the conversation options stay.
-- Settings → Tools: each category the gateway reports (`toolset`: camera, comms, files, web, …) is a collapsible panel — name, tool count, and **All auto** / **All ask** as pressed-state controls showing whether every tool of the panel is on that mode. Panels start collapsed except those holding an override; the filter searches every category and opens the panels with a match. A tool's mode applies at once: the page's Save button is gone (a failed save puts the row back with "Not saved.").
+- Settings → Voice: the **Engines** card is gone — the speech engines are chosen in one place, Models → Voice output (TTS) / Voice input (STT). Output device + Test, Playing on, Read aloud, Voice latency and the conversation options stay.
+- Settings → Tools: each category the gateway reports (`toolset`: camera, comms, files, web, …) is a collapsible panel — name, tool count, and **All auto** / **All ask** as pressed-state controls showing whether every tool of the panel is on that mode. Categories are sorted by name and all start collapsed (those holding an override too); a panel you open stays open, and the filter searches every category and opens the panels with a match. A tool's mode applies at once: the page's Save button is gone (a failed save puts the row back with "Not saved.").
 - Settings → Appearance → Global shortcut: an **Accessibility** row shows **Granted** / **Not granted**; **Configure** asks macOS for Accessibility access and opens System Settings → Privacy & Security → Accessibility, the state is checked again when you come back, and the shortcut starts once it is granted. The key combination and the window size apply as they change: the page's Save button is gone.
 - **New automation** in the switcher's Automations tab opens the same content as the AbstractCode and AbstractObserver schedule dialog: the **Workflow** list has **Gateway default** first and selected (then the gateway's executable assistant workflows; a target the catalog no longer lists stays selectable), **Task** and **Title**, the schedule with **Stop after this many runs** and **Stop at (UTC)** for a repeating schedule, **Context**, **Tools** with **Run without asking** (and its consent line) or **Ask me before each tool call (the run waits for you)**, **Mailbox**, and **Create automation**. Without a gateway default for the assistant, it starts on the workflow a turn would run.
 - Settings → **Workflow** is its own page, right after Models (it was a card on the Models page): **Gateway default** first and selected until you pick another of the gateway's executable workflows; the choice applies at once, and a refused save says why with "Not saved.". An **Open in AbstractFlow** icon button appears when the gateway serves AbstractFlow at `/apps/flow/` and opens the selected workflow there, signed in (`POST /api/gateway/apps/flow/open` with AbstractFlow's `?bundle=&version=&flow=` link). The choice stays on this Mac: the gateway has no per-account setting for it.
-- Settings → Workspace follows the gateway's round-9 workspace model with the same rows and words as the console and AbstractCode: a friendly **Gateway policy** card (posture badge, shared workspace, allowed and refused workspaces as chips with their mode, everything else under the second posture) replaces the key: value block; then the posture ("Deny everything, allow listed workspaces" / "Allow everything, refuse listed workspaces"), the **Shared workspace** (always on, Read & write), **Allowed workspaces** / **Refused workspaces** each with **Read & write** / **Read-only** / **Refused** (lower, never raise), under the second posture **Everything else** and **Add a workspace path**, and the gateway's effective line verbatim. Each change is one `PUT /api/gateway/workspace/policy/me`; a refused change shows the gateway's sentence with "Not saved.". Requires the gateway's round-9 workspace model.
-- Removed: the access-mode list, the local allowed-folders list, the local check of folders against the policy, and launch-folder trust (the gateway decides). Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`; the stored keys are dropped. The workspace root is now **Run workspace** (Save in the footer); **Reset** is gone.
+- Settings → Workspace follows the gateway's round-11 workspace model with the ui-kit WorkspaceChooser's words (the console, AbstractCode, AbstractFlow, AbstractObserver): **My default workspaces** (your account: **Follow the gateway policy**, or your own subset — each change one `PUT /api/gateway/workspace/policy/me`) and **This chat** (the open conversation: **Use my default**, or its own subset — each change one `PUT /api/gateway/sessions/{id}/workspaces`, kept by the gateway on the session so every app opening the conversation sees it). Each shows the **Gateway:** line verbatim, the posture, rows with **Read & write** / **Read-only** / **Refused** (modes above the gateway's cap disabled with **The gateway allows this workspace read-only**), a remove icon, **Add a workspace path** with **Choose…**, and the effective line verbatim; a refused change shows the gateway's sentence with "Not saved.". No shared workspace. Requires the gateway's round-11 workspace API.
+- Removed: the access-mode list, the local allowed-folders list, the local check of folders against the policy, launch-folder trust (the gateway decides), and the **Run workspace** row with its `workspace_root` preference — a run's private workspace is automatic (the app reuses the one the gateway gave the chat's first run) and an old saved value is ignored. Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`.
+- **Stream replies** is a plain switch, on by default (Settings → Models → Replies); the "Gateway default" choice is gone. Every run carries `_runtime.stream` explicitly — `true` when the switch is on and the gateway advertises live replies (read from the cached discovery answer, never fetched per turn), `false` otherwise — so the gateway's own default applies only to clients that do not say. An older saved `gateway_default` loads as on. `assistant run --stream on|off` overrides the switch for one turn.
+- No Settings page has a Save button any more (Workspace was the last one): every page applies on change, and a change that cannot be stored or that the gateway refuses says "Not saved." with the reason. The Connection page keeps **Connect**.
 
 ## [0.13.0] - 2026-10-04
 
@@ -3589,7 +3618,7 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Stream the reply while the model writes it (on) or not (off). Default: the "
-            "'Stream replies' setting saved in the app (gateway default unless changed). "
+            "app's 'Stream replies' switch (on unless switched off in Settings). "
             "Live text goes to stderr; the final answer is printed once on stdout."
         ),
     )
@@ -3642,8 +3671,8 @@ def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
     return ans in {"y", "yes"}
 
 
-def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]:
-    """`--stream on|off` wins; else the saved preference (absent = gateway default)."""
+def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> bool:
+    """`--stream on|off` wins; else the app's "Stream replies" switch (on by default)."""
     if flag == "on":
         return True
     if flag == "off":
@@ -3651,21 +3680,21 @@ def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]
     if flag is not None:
         raise ValueError(f"--stream must be on or off, not {flag!r}")
     value = scope.get("stream")
-    return value if isinstance(value, bool) else None
+    return value is not False
 
 
-def _gated_stream(choice: Optional[bool], *, advertised: Optional[bool], explicit: bool) -> Optional[bool]:
-    """`_runtime.stream: false` is always sent; `true` only to a gateway that
+def _gated_stream(choice: bool, *, advertised: Optional[bool], explicit: bool) -> bool:
+    """`_runtime.stream` is always sent (R11.4): `true` only to a gateway that
     advertises live replies (an older runtime would stream internally with no
-    live events and can lose usage accounting). A withheld "on" says so on
-    stderr, whether it came from `--stream on` or the saved setting.
+    live events and can lose usage accounting), `false` otherwise. A withheld
+    "on" says so on stderr, whether it came from `--stream on` or the switch.
     """
     if choice is not True or advertised is True:
-        return choice
+        return bool(choice)
     why = "does not offer live replies" if advertised is False else "could not be asked whether it offers live replies"
-    source = "--stream on" if explicit else "Stream replies: On"
+    source = "--stream on" if explicit else "Stream replies"
     sys.stderr.write(f"[{source} not sent: this gateway {why}; the answer is printed when it is finished]\n")
-    return None
+    return False
 
 
 class LiveDeltaPrinter:
@@ -4408,27 +4437,26 @@ def _load_speculation(value: Any) -> Any:
         return None
 
 
-# "Stream replies" (contract S): show the reply while the model writes it.
-# "gateway_default" sends nothing (the gateway's `agents.streaming_default`
-# decides); "on"/"off" send `_runtime.stream: true|false` with every run.
-STREAM_REPLIES_GATEWAY_DEFAULT = "gateway_default"
-STREAM_REPLIES_CHOICES = (STREAM_REPLIES_GATEWAY_DEFAULT, "on", "off")
+# "Stream replies" (R11.4): a plain switch, on by default. Streaming is
+# app-specific, so every run says so explicitly — `_runtime.stream: true|false`
+# — and the gateway's own default ("Streamed replies", Workflows → Settings)
+# only applies to clients that do not say. Older files that saved
+# "gateway_default" (the removed third choice) load as on.
+STREAM_REPLIES_CHOICES = ("on", "off")
+STREAM_REPLIES_DEFAULT = "on"
 
 
 def normalize_stream_replies(value: Any) -> str:
-    """A saved value outside the three choices loads as the gateway default."""
+    """"off" stays off; anything else (incl. a legacy "gateway_default") is on."""
+    if value is False:
+        return "off"
     text = str(value or "").strip().lower()
-    return text if text in STREAM_REPLIES_CHOICES else STREAM_REPLIES_GATEWAY_DEFAULT
+    return "off" if text == "off" else STREAM_REPLIES_DEFAULT
 
 
-def stream_replies_runtime_value(value: Any) -> Optional[bool]:
-    """The `_runtime.stream` value for a choice: None = send nothing."""
-    choice = normalize_stream_replies(value)
-    if choice == "on":
-        return True
-    if choice == "off":
-        return False
-    return None
+def stream_replies_runtime_value(value: Any) -> bool:
+    """The `_runtime.stream` value for a choice: always a bool."""
+    return normalize_stream_replies(value) == "on"
 
 
 # Reasoning effort ladder — the gateway contract's `thinking_control.values`
@@ -4678,14 +4706,13 @@ class AssistantPreferences:
     # a stale choice degrades, never fails.
     reasoning_effort: str = ""
     speculation: Optional[Any] = None  # None inherits; False pins MTP off.
-    # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
-    stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
-    # The run's folder, sent as the run-input pin `workspace_root` (blank =
-    # the gateway's private per-chat folder in its data directory, not the shared workspace). Round 9: which
-    # OTHER folders the tools may use is the account's gateway policy
-    # (Settings → Workspace folders), never a local list; the gateway refuses
-    # a root outside the account's effective folders.
-    workspace_root: str = ""
+    # "Stream replies" switch: "on" (default) | "off", sent with every run.
+    stream_replies: str = STREAM_REPLIES_DEFAULT
+    # No run-workspace preference (R11): a run's private workspace is the
+    # gateway's (automatic, per chat), and which other workspaces it may use
+    # is chosen in the gateway — Settings → Workspace "My default workspaces"
+    # (account) and "This chat" (session). A `workspace_root` left in an older
+    # preferences.json is ignored, never sent.
     # Hands-free voice conversation: send each utterance automatically (off =
     # transcribe into the composer and wait for Enter) and ask the model for
     # short spoken-style replies while the conversation is on.
@@ -4750,7 +4777,6 @@ class AssistantPreferences:
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
             speculation=_load_speculation(raw.get("speculation")),
             stream_replies=normalize_stream_replies(raw.get("stream_replies")),
-            workspace_root=normalize_workspace_path(raw.get("workspace_root")),
             voice_auto_send=bool(raw.get("voice_auto_send", True)),
             voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
             voice_mode=normalize_voice_mode(raw.get("voice_mode")),
@@ -4783,7 +4809,6 @@ class AssistantPreferences:
             "reasoning_effort": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "stream_replies": normalize_stream_replies(self.stream_replies),
-            "workspace_root": normalize_workspace_path(self.workspace_root),
             "voice_auto_send": bool(self.voice_auto_send),
             "voice_spoken_replies": bool(self.voice_spoken_replies),
             "voice_mode": normalize_voice_mode(self.voice_mode),
@@ -4803,12 +4828,7 @@ class AssistantPreferences:
         return {
             "thinking": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
-            **(
-                {"stream": stream_replies_runtime_value(self.stream_replies)}
-                if stream_replies_runtime_value(self.stream_replies) is not None
-                else {}
-            ),
-            "workspace_root": normalize_workspace_path(self.workspace_root),
+            "stream": stream_replies_runtime_value(self.stream_replies),
         }
 
 
@@ -5555,43 +5575,41 @@ class AssistantController:
     # ------------------------------------------------------------------ run scope
 
     def run_scope(self) -> Dict[str, Any]:
-        """Per-run pins: reasoning effort, reply streaming and the workspace grant.
+        """Per-run pins: reasoning effort, reply streaming and the chat's workspace.
 
-        ``stream: False`` (Off) is always sent; ``stream: True`` (On) only
-        when the gateway advertises live replies (``capabilities.streaming.deltas``).
+        ``stream`` is ALWAYS sent (R11.4: streaming is app-specific, so the
+        gateway's own default never decides for this app): the "Stream
+        replies" switch, except that ``true`` goes only to a gateway that
+        advertises live replies (``capabilities.streaming.deltas``) — anything
+        else gets an explicit ``false`` (an older runtime would stream
+        internally with no live events and can lose usage accounting).
 
-        The workspace root is the user's chosen folder when one is saved; else
-        the folder the gateway gave this SESSION's first run (remembered by the
-        worker), so every turn of a conversation works in one place; else
-        nothing, and the gateway mints a folder for this run.
+        ``workspace_root`` is the private workspace the gateway gave this
+        SESSION's first run (remembered by the worker), so every turn of a
+        conversation works in one place; blank on a chat's first run (the
+        gateway mints it). Which OTHER workspaces a run may use is not a
+        client pin: the gateway resolves this chat's subset > the account
+        default > the gateway policy at run start (Settings → Workspace).
         """
         try:
             scope = dict(self.preferences.run_scope())
         except Exception:
-            scope = {}
-        if scope.get("stream") is True and self.live_replies_advertised() is not True:
-            # "On" goes only to a gateway that advertises live replies: an
-            # older runtime would stream internally with no live events and
-            # can lose usage accounting. "Off" (False) is always sent.
-            scope.pop("stream")
-        if not str(scope.get("workspace_root") or "").strip():
-            try:
-                session_root = str(self.llm_manager.session_workspace_root() or "").strip()
-            except Exception:
-                session_root = ""
-            if session_root:
-                scope["workspace_root"] = session_root
+            scope = {"stream": True}
+        if scope.get("stream") is not False and self.live_replies_advertised(cached_only=True) is not True:
+            scope["stream"] = False
+        elif scope.get("stream") is not False:
+            scope["stream"] = True
+        try:
+            session_root = str(self.llm_manager.session_workspace_root() or "").strip()
+        except Exception:
+            session_root = ""
+        scope["workspace_root"] = session_root
         return scope
 
     def workspace_root_status(self) -> Dict[str, str]:
-        """Where the next run's files go and why: {root, source} with source in
-        {"local", "session", "gateway"} ("gateway" = a fresh folder per run)."""
-        try:
-            local_root = str(self.preferences.run_scope().get("workspace_root") or "").strip()
-        except Exception:
-            local_root = ""
-        if local_root:
-            return {"root": local_root, "source": "local"}
+        """Where the next run's files go: {root, source} with source "session"
+        (this chat's private workspace, known after its first run) or
+        "gateway" (the gateway mints it on the first run)."""
         try:
             session_root = str(self.llm_manager.session_workspace_root() or "").strip()
         except Exception:
@@ -5642,12 +5660,18 @@ class AssistantController:
             pass
         return list(REASONING_EFFORT_LEVELS)
 
-    def gateway_streaming(self) -> Optional[Dict[str, Any]]:
+    def gateway_streaming(self, *, cached_only: bool = False) -> Optional[Dict[str, Any]]:
         """The gateway's live-reply block from discovery
         (``capabilities.streaming`` = ``{deltas: bool, default: bool}``,
-        contract S-2.6), or None when discovery is unavailable."""
+        contract S-2.6), or None when discovery is unavailable.
+
+        ``cached_only`` (every turn's ``stream`` pin): read the snapshot as it
+        is — no fetch and no refresh thread per message."""
         try:
-            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+            if cached_only:
+                caps = self.llm_manager.peek_gateway_capabilities()
+            else:
+                caps = self.llm_manager.gateway_capabilities(stale_ok=True)
         except Exception:
             return None
         if caps is None or getattr(caps, "error", ""):
@@ -5657,17 +5681,20 @@ class AssistantController:
         return dict(block) if isinstance(block, dict) else {}
 
     def stream_on_but_unsupported(self) -> bool:
-        """True when this app asks for live replies but the gateway does not
-        offer them (the "On" choice is then withheld from the run input)."""
-        prefs = getattr(self, "preferences", None)
-        if str(getattr(prefs, "stream_replies", "") or "") != "on":
-            return False
-        return self.live_replies_advertised() is not True
+        """True when "Stream replies" is on but the gateway says it does not
+        offer live replies (the run then carries ``stream: false``). Unknown
+        (discovery unavailable) is not reported as unsupported."""
+        from .preferences import normalize_stream_replies
 
-    def live_replies_advertised(self) -> Optional[bool]:
+        prefs = getattr(self, "preferences", None)
+        if normalize_stream_replies(getattr(prefs, "stream_replies", None)) != "on":
+            return False
+        return self.live_replies_advertised(cached_only=True) is False
+
+    def live_replies_advertised(self, *, cached_only: bool = False) -> Optional[bool]:
         """True when the gateway advertises live replies (``streaming.deltas``),
         False when it does not, None when discovery is unavailable."""
-        block = self.gateway_streaming()
+        block = self.gateway_streaming(cached_only=cached_only)
         if block is None:
             return None
         return block.get("deltas") is True
@@ -5732,25 +5759,42 @@ class AssistantController:
         return json.loads(json.dumps(result))
 
     def workspace_policy(self) -> Dict[str, Any]:
-        """This account's workspace folders as the gateway answers them
-        (round 9, ``GET /workspace/policy/me``): ``{"state": {policy,
-        effective} | None, "error": str}``. The gateway decides everything;
-        Settings → Workspace only shows it and sends one PUT per change.
+        """Settings → Workspace (round 11): both levels as the gateway answers
+        them — ``{"account": {"state", "error"}, "session": {"session_id",
+        "state", "error"}}``; ``state`` = ``{policy, effective,
+        account_default, can_edit}`` or None. The account level is
+        ``GET /workspace/policy/me``; the session level is the OPEN chat's
+        ``GET /sessions/{id}/workspaces``. The gateway decides everything;
+        the page shows it and sends one PUT per change.
         """
+        session_id = self.active_session_id
         with self._cache_lock:
-            if self._workspace_policy_cache is not None and self._cache_fresh(self._workspace_policy_cache_at):
-                return json.loads(json.dumps(self._workspace_policy_cache))
+            cached = self._workspace_policy_cache
+            if (
+                cached is not None
+                and self._cache_fresh(self._workspace_policy_cache_at)
+                and (cached.get("session") or {}).get("session_id") == session_id
+            ):
+                return json.loads(json.dumps(cached))
             epoch = self._cache_epoch
-        from .ui.settings.workspace_folders import WorkspaceAnswerError, parse_state
+        from .ui.settings.workspace_chooser import WorkspaceAnswerError, parse_answer
 
-        out: Dict[str, Any] = {"state": None, "error": ""}
-        try:
-            out["state"] = parse_state(self.gateway.workspace_account_policy("me"))
-        except WorkspaceAnswerError as exc:
-            out["error"] = str(exc)
-        except Exception as exc:
-            out["error"] = self.gateway_service.describe_connection_issue(exc)
-        if out["state"]:
+        def _level(fetch) -> Dict[str, Any]:
+            try:
+                return {"state": parse_answer(fetch()), "error": ""}
+            except WorkspaceAnswerError as exc:
+                return {"state": None, "error": str(exc)}
+            except Exception as exc:
+                return {"state": None, "error": self.gateway_service.describe_connection_issue(exc)}
+
+        out: Dict[str, Any] = {"account": _level(lambda: self.gateway.workspace_account_policy("me"))}
+        if session_id:
+            session = _level(lambda: self.gateway.session_workspaces(session_id))
+        else:
+            session = {"state": None, "error": "No chat is open."}
+        session["session_id"] = session_id
+        out["session"] = session
+        if out["account"]["state"] and session["state"]:
             self._store_workspace_policy(out, epoch)
         return out
 
@@ -5760,16 +5804,28 @@ class AssistantController:
                 self._workspace_policy_cache = json.loads(json.dumps(out))
                 self._workspace_policy_cache_at = time.monotonic()
 
-    def put_workspace_folders(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """ONE ``PUT /workspace/policy/me`` (``{enabled_folders}`` or
-        ``{own_folders}``); returns the new ``{policy, effective}``. A refusal
-        raises with the gateway's sentence (shown with "Not saved.")."""
-        from .ui.settings.workspace_folders import parse_state
+    def put_workspace_policy(self, level: str, body: Dict[str, Any], session_id: str = "") -> Dict[str, Any]:
+        """ONE PUT for one change: ``level="account"`` → ``PUT
+        /workspace/policy/me``; ``level="session"`` → ``PUT
+        /sessions/{id}/workspaces`` for that chat. Returns the new state; a
+        refusal raises with the gateway's sentence (shown with "Not saved.").
+        The cached answer is dropped (a change at the account level moves
+        what the chat's "Use my default" means)."""
+        from .ui.settings.workspace_chooser import parse_answer
 
+        if level == "account":
+            answer = self.gateway.put_workspace_account_policy(dict(body or {}), "me")
+        elif level == "session":
+            sid = str(session_id or "").strip()
+            if not sid:
+                raise ValueError("No chat is open.")
+            answer = self.gateway.put_session_workspaces(sid, dict(body or {}))
+        else:
+            raise ValueError(f"unknown workspace level {level!r}")
+        state = parse_answer(answer)
         with self._cache_lock:
-            epoch = self._cache_epoch
-        state = parse_state(self.gateway.put_workspace_account_policy(dict(body or {}), "me"))
-        self._store_workspace_policy({"state": state, "error": ""}, epoch)
+            self._workspace_policy_cache = None
+            self._workspace_policy_cache_at = 0.0
         return state
 
     def effective_chat_route(self) -> Dict[str, str]:
@@ -8246,27 +8302,65 @@ class GatewayClient:
         )
 
     def workspace_account_policy(self, account: str = "me") -> Dict[str, Any]:
-        """``GET /workspace/policy/{account}`` (round 9; ``me`` = the caller):
-        ``{policy: {enabled_folders, own_folders}, gateway, effective}``."""
+        """``GET /workspace/policy/{account}`` (round 11; ``me`` = the caller):
+        ``{account, configured, posture, default_mode, folders: [{path, mode}]}``."""
         from urllib.parse import quote
 
         return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
-            label="workspace folders failed",
+            label="workspaces failed",
         )
 
     def put_workspace_account_policy(self, body: Dict[str, Any], account: str = "me") -> Dict[str, Any]:
-        """``PUT /workspace/policy/{account}`` with ``{enabled_folders?, own_folders?}``;
-        the answer is the same shape as the GET. A refused folder raises
-        GatewayHttpError whose ``body_text`` is the gateway's sentence."""
+        """``PUT /workspace/policy/{account}`` with ``{configured, posture,
+        default_mode, folders}`` or ``{configured: false}``. A refused change
+        raises GatewayHttpError whose ``body_text`` is the gateway's sentence."""
         from urllib.parse import quote
 
         return self._request_json(
             method="PUT",
             url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
             body=dict(body or {}),
-            label="workspace folders not saved",
+            label="workspaces not saved",
+        )
+
+    def session_workspaces(self, session_id: str) -> Dict[str, Any]:
+        """``GET /sessions/{id}/workspaces`` (round 11): the conversation's own
+        subset, same shape as the account level (configured false = the
+        account default)."""
+        from urllib.parse import quote
+
+        return self._request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/sessions/{quote(str(session_id), safe='')}/workspaces"),
+            label="chat workspaces failed",
+        )
+
+    def put_session_workspaces(self, session_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """``PUT /sessions/{id}/workspaces``; stored by the gateway on the session."""
+        from urllib.parse import quote
+
+        return self._request_json(
+            method="PUT",
+            url=self._url(f"/api/gateway/sessions/{quote(str(session_id), safe='')}/workspaces"),
+            body=dict(body or {}),
+            label="chat workspaces not saved",
+        )
+
+    def workspace_effective(self, account: str = "me", session_id: str = "") -> Dict[str, Any]:
+        """``GET /workspace/effective/{account}[?session=<id>]``: what applies,
+        with each row's cap, ``summary`` and ``gateway_summary``."""
+        from urllib.parse import quote
+
+        sid = str(session_id or "").strip()
+        return self._request_json(
+            method="GET",
+            url=self._url(
+                f"/api/gateway/workspace/effective/{quote(str(account or 'me'), safe='')}",
+                {"session": sid} if sid else None,
+            ),
+            label="effective workspaces failed",
         )
 
     def get_capability_defaults(self) -> Dict[str, Any]:

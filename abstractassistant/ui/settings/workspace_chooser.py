@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-# VERBATIM copy of the kit's WORKSPACE_CHOOSER_TEXT (ui-kit 0.8.2, uic 2020714).
+# VERBATIM copy of the kit's WORKSPACE_CHOOSER_TEXT (ui-kit 0.8.3, uic 16175e1; unchanged since 0.8.2).
 WORKSPACE_CHOOSER_TEXT: Dict[str, str] = {
     "title": "Workspaces",
     "gatewayTitle": "Eligible workspaces",
