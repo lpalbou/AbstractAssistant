@@ -89,7 +89,7 @@ assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_
 ## `assistant`
 
 Starts the menu-bar app and palette. It loads local state from `~/.abstractassistant/`, connects
-to the gateway, resolves the workflow chosen in Settings → Models → Workflow and follows runs over
+to the gateway, resolves the workflow chosen in Settings → Workflow and follows runs over
 SSE.
 
 Workflow resolution:
@@ -191,6 +191,10 @@ the stream. Whether the gateway offers live replies is read from
 - Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
   `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
+- Apps: `GET /api/gateway/apps` (Settings → Workflow shows **Open in AbstractFlow** when the `flow`
+  row is installed and mounted at `/apps/flow/`) and `POST /api/gateway/apps/flow/open` (`path`
+  `/?bundle=<id>&version=<version>&flow=<flow>`, `origin` = the gateway URL; the answer's
+  `open_url` is opened in the browser)
 - Workflow: `GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1` (the Settings →
   Workflow list: only the assistant workflows the signed-in person may run, each with `owner` and
   `shipped`; a gateway that ignores the parameter is reported, not listed), `/api/gateway/visualflows`,
@@ -223,9 +227,10 @@ the stream. Whether the gateway offers live replies is read from
 - Automations ([automations.md](automations.md)), used only when the capabilities advertise
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and
-    `POST /api/gateway/automations` (create, with a `request_id`; the Schedule window sends
-    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` or `email.received@1`
-    trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
+    `POST /api/gateway/automations` (create, with a `request_id`; the automation window sends
+    `title`, `target` (`{"flow_id": "@default", "interface": "abstractassistant.agent.v1"}` for
+    Gateway default, else `bundle_ref` + `flow_id`) with the task as `input_data.prompt`, a
+    `schedule@1` (optional `count` and `until`) or `email.received@1` trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
     `notify: {"channels": ["console", "email"]}` and `policy.email_allowed_recipients`)
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
     changed fields among `title`, `trigger`, `context`, `notify` and
@@ -236,7 +241,7 @@ the stream. Whether the gateway offers live replies is read from
   - `GET …/{id}/occurrences` (runs, newest first), `GET …/{id}/attention` (unseen items),
     `POST …/{id}/seen` (the last displayed item's cursor), `POST …/{id}/discuss`
     (`occurrence_index`, `prompt`)
-  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1; it
+  - `GET /api/gateway/trigger-sources` (the automation window requires `schedule` version 1; it
     offers **When an email arrives** only when `email.received` version 1 is listed)
   - `GET /api/gateway/me/email` (whether your email account is usable; AbstractGateway 0.8.0+)
 

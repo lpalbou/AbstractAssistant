@@ -76,31 +76,38 @@ Two ways in, one window:
 - the clock button in the palette header (shown once the gateway has confirmed it offers
   automations) opens **Schedule this conversation…**, prefilled with the conversation's last
   question;
-- **+ New automation** in the switcher's Automations tab opens the same window empty (default
-  schedule, the workflow Settings selects); after creation the tab lists the new automation,
-  selected.
+- **+ New automation** in the switcher's Automations tab opens the same window empty, titled
+  **New automation**, with the workflow set to **Gateway default** (or, when the gateway reports
+  no default for the assistant, the workflow a turn would run); after creation the tab lists the
+  new automation, selected.
 
 The window, beside the palette:
 
-- **What**: a **Workflow** picker initially set to the conversation workflow, and a task
-  prefilled with the conversation’s last question. Both choices belong to the automation.
-  The title is optional and defaults to the task's first line (at most 120 characters).
+The window carries the same content as the AbstractCode and AbstractObserver schedule dialog:
+
+- **What**: a **Workflow** list with **Gateway default** first, then the assistant workflows the
+  gateway says you can run (the list in Settings → Workflow). It starts on the conversation's
+  workflow (**Gateway default** for **+ New automation**). Then the **Task** (prefilled with the
+  conversation’s last question) and an optional **Title** that defaults to the task's first line
+  (at most 120 characters). Both choices belong to the automation.
 - **When (UTC)**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days;
   **every N…** minutes, hours or days; **once at…** a date and time; or **When an email arrives**
   (see [Email automations](#email-automations)). For an interval, an optional first-run time
-  (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now. Intervals are fixed durations
-  in UTC: "every 24 hours", never "daily at 08:00 local time".
+  (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now. A repeating schedule can also
+  **Stop after this many runs** and **Stop at** a date and time (UTC); both are optional. Intervals
+  are fixed durations in UTC: "every 24 hours", never "daily at 08:00 local time".
 - **Context**: **Independent** (the default: each run starts fresh) or **Growing** (each run sees
   the previous runs).
-- **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Tools run without asking** (the default) or **Ask each time** separately. See
+- **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Run without asking** (the default; the line under it reads "Tools run without asking (you approve them now by creating this automation).") or **Ask me before each tool call (the run waits for you)**. See
   [Tool consent](#tool-consent).
-- **Email**: **Email result** and **Recipients: Only me (default) /
+- **Mailbox**: **Email result** and **Recipients: Only me (default) /
   Me and these addresses** (see [Email automations](#email-automations)).
 
-A line under the form previews the schedule ("every 8 hours (UTC), first run now") or says what is
-missing. **Schedule** is enabled once the form is complete and the gateway offers the `schedule`
-trigger; it creates the automation and opens it in the palette. If the gateway could not be
-reached, pressing **Schedule** again sends the same request, which the gateway recognises, so the
+A line under the form previews the schedule ("Runs every 8 hours (UTC), first run now.") or says
+what is missing. **Create automation** is enabled once the form is complete and the gateway offers
+the `schedule` trigger; it creates the automation and opens it in the palette (or, from
+**+ New automation**, selects it in the Automations tab). If the gateway could not be reached,
+pressing **Create automation** again sends the same request, which the gateway recognises, so the
 automation is never created twice; after a refusal, the next press is a new request.
 
 ## Email automations
@@ -139,9 +146,9 @@ Outside automations, the Assistant's local tool approval asks before `send_email
 
 Tool selection applies only to this automation and does not change chat preferences. The separate approval choice is sent as `policy.tool_approval`:
 
-- **Tools run without asking** (`auto`): creating the automation is your approval. Its runs use the
+- **Run without asking** (`auto`): creating the automation is your approval. Its runs use the
   workflow's tools without stopping to ask, since nobody is there to answer each run.
-- **Ask each time** (`ask`): every run that wants a tool waits for your approval, and you are
+- **Ask me before each tool call** (`ask`): every run that wants a tool waits for your approval, and you are
   notified. You approve or deny from the automation (see
   [Answering a run that waits for you](#answering-a-run-that-waits-for-you)).
 
@@ -217,7 +224,7 @@ never by reading the question's text:
 | The run waits for | You see | What is sent |
 |---|---|---|
 | **a question** (`ask_user`) | the question, its choices as buttons, and a free-text field with **Answer** | your text as `{"response": "…"}` |
-| **tool approval** (`tool_approval`, automations set to Ask each time) | the tool calls it would run, each with its arguments, and **Approve** / **Deny** | `{"approved": true}` or `{"approved": false}` |
+| **tool approval** (`tool_approval`, automations set to Ask me before each tool call) | the tool calls it would run, each with its arguments, and **Approve** / **Deny** | `{"approved": true}` or `{"approved": false}` |
 | **an event** (`event`) | a field for the event's payload as JSON (`{"key": "value"}`) and **Send event** | `{"payload": <your JSON>}`; text that is not valid JSON is refused in place |
 
 The answer is a `resume` command on the waiting run, the same command the palette sends when you
@@ -291,8 +298,8 @@ automations, and no automation route is called before that.
 - Schedules are fixed intervals in UTC, or one run at a given time. There is no calendar recurrence
   (weekdays, local time zones).
 - The Assistant creates scheduled and incoming-email automations; **Run now** starts an additional occurrence.
-- The Schedule window does not set a maximum number of runs or an end date; an automation created
-  elsewhere with one shows it in its cadence.
+- A maximum number of runs and an end date are set when the automation is created; **Edit** does
+  not change them.
 - **Edit** changes title, interval, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
 
 Changing workflows preserves the task, portable agent settings, selected tools and result-email

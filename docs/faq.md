@@ -57,7 +57,7 @@ The gateway has turned it off. The assistant shows it for transparency and never
 
 ## Which workflow does the assistant use?
 
-The one chosen in Settings → Models → Workflow, for the tray app and the CLI alike. The default
+The one chosen in Settings → Workflow, for the tray app and the CLI alike. The default
 choice, **Gateway default**, runs the workflow the gateway operator set for
 `abstractassistant.agent.v1`, or the app's built-in `abstractassistant-orchestrator` when the
 gateway sets none. You can instead pick any workflow in the catalog that declares the assistant
@@ -115,8 +115,8 @@ arrive while the Assistant is closed are waiting in the automation, marked new, 
 
 ## Why can't I approve a tool call when a scheduled run uses it?
 
-With **Tools run without asking** (the default), creating the automation is the approval, and its
-runs do not stop to ask. Choose **Ask each time** in the Schedule window to approve each run's tool
+With **Run without asking** (the default), creating the automation is the approval, and its
+runs do not stop to ask. Choose **Ask me before each tool call** in the automation window to approve each run's tool
 calls from the automation; see [automations.md](automations.md#tool-consent).
 
 ## Why don't the sessions of my automations appear among my chats?

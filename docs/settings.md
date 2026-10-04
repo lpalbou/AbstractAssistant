@@ -1,6 +1,7 @@
 # Settings Reference
 
-The Settings window (⌘, or the gear button) has seven pages. Each control below says where its
+The Settings window (⌘, or the gear button) has eight pages: Connection, Models, Workflow, Voice,
+Workspace, Tools, Appearance and About. Each control below says where its
 value comes from and where it is stored:
 
 - **gateway** — read from the gateway and shown as-is; the assistant never writes it
@@ -37,7 +38,6 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1`, with the line underneath naming where the gateway says the setting comes from; **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface, as **name @version — bundle**, the app's own as **Built-in orchestrator @version**; a chosen workflow always runs its latest version. The built-in orchestrator shows no number until the app has published a real version of it (the first is 0.0.1): its row reads **Built-in orchestrator**, and where it appears under another name, **name (built-in)** — the gateway's placeholder 0.0.0 is never shown. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
@@ -85,6 +85,22 @@ requests that exact depth with `require_acceleration=true`: the execution host m
 or report an error, not silently run without MTP. This control neither downloads a head nor
 changes the gateway's shared default. Leaving it on Gateway default follows the Core policy
 on the execution host (fresh configurations use depth 2 only for compatible models).
+
+## Workflow
+
+The page right after Models. It sets the workflow the Assistant runs for each new turn; a turn
+already running keeps its workflow. The choice applies the moment you pick it (there is no Save);
+if it cannot be stored, the line at the bottom of the page gives the reason followed by "Not saved.".
+
+| Control | Meaning | Stored |
+|---|---|---|
+| Runs | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1`, with the line underneath naming where the gateway says the setting comes from; **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface, as **name @version — bundle**, the app's own as **Built-in orchestrator @version**; a chosen workflow always runs its latest version. The built-in orchestrator shows no number until the app has published a real version of it (the first is 0.0.1): its row reads **Built-in orchestrator**, and where it appears under another name, **name (built-in)** — the gateway's placeholder 0.0.0 is never shown. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
+| Open in AbstractFlow | Icon button beside the list, shown only when the gateway serves AbstractFlow at `/apps/flow/` (the `flow` row of `GET /api/gateway/apps` is installed and mounted). It opens the selected workflow in AbstractFlow in your browser, already signed in, through `POST /api/gateway/apps/flow/open` with AbstractFlow's deep link `/?bundle=<id>&version=<version>&flow=<flow>`. **Gateway default** opens the workflow the gateway reports as its default (or the built-in orchestrator when it reports none); a chosen workflow opens at its latest version. When AbstractFlow is installed but not running, the tooltip says so and the gateway's refusal is shown | gateway |
+
+The list is the same one the automation window offers: the assistant workflows the gateway says
+you can run (`GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1`). The gateway has
+no per-account setting for this choice, so it is kept on this Mac (like AbstractCode, which keeps
+its choice per signed-in user in the browser).
 
 ## Voice
 

@@ -23,14 +23,14 @@ gateway is back.
 
 ## The palette says no workflow is available
 
-Sending is blocked when the workflow chosen in Settings → Models → Workflow cannot run:
+Sending is blocked when the workflow chosen in Settings → Workflow cannot run:
 
 - **Gateway default → unavailable**: the gateway sets no default for `abstractassistant.agent.v1`
   and the built-in `abstractassistant-orchestrator` is not in your tenant catalog. Verify the
   gateway is reachable and your sign-in is accepted, then reopen Settings → Connection and press
   Connect so the app can publish its orchestrator; or ask the gateway operator to set a default.
 - **The chosen workflow is not in the gateway catalog any more**: pick another one in
-  Settings → Models → Workflow, or go back to Gateway default.
+  Settings → Workflow, or go back to Gateway default.
 
 See [settings.md](settings.md#models--reasoning).
 
@@ -101,7 +101,7 @@ means they could not be read, so the Assistant cannot tell whether the gateway o
 ## Schedule stays disabled in "Schedule this conversation…"
 
 The line under the form says what is missing: a task, a valid interval or date (`YYYY-MM-DD HH:MM`,
-UTC), or a workflow for this conversation (Settings → Models → Workflow). "This gateway does not
+UTC), or a workflow for this conversation (Settings → Workflow). "This gateway does not
 offer the schedule@1 trigger source" means the gateway cannot schedule runs; ask its operator.
 
 ## An automation run is waiting but there are no answer buttons

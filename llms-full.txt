@@ -66,9 +66,9 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
-- [docs/settings.md](docs/settings.md): every setting (workflow choice, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow, Stream replies, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first, stop after / stop at), tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -181,7 +181,7 @@ so quit a running Assistant before you click **Open**.
 Each turn runs the gateway's default workflow for the assistant (`abstractassistant.agent.v1`).
 When the gateway sets none, the app runs its built-in orchestrator, the
 `abstractassistant-orchestrator` workflow it publishes to your tenant catalog. You can pick
-another assistant workflow in Settings → Models → Workflow; the list holds only the assistant
+another assistant workflow in Settings → Workflow; the list holds only the assistant
 workflows the gateway says you can run (what your admin made available, plus your own:
 `GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1`).
 
@@ -542,7 +542,8 @@ waits and generated artifacts.
 --- docs/settings.md ---
 # Settings Reference
 
-The Settings window (⌘, or the gear button) has seven pages. Each control below says where its
+The Settings window (⌘, or the gear button) has eight pages: Connection, Models, Workflow, Voice,
+Workspace, Tools, Appearance and About. Each control below says where its
 value comes from and where it is stored:
 
 - **gateway** — read from the gateway and shown as-is; the assistant never writes it
@@ -579,7 +580,6 @@ session out).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Workflow | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1`, with the line underneath naming where the gateway says the setting comes from; **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface, as **name @version — bundle**, the app's own as **Built-in orchestrator @version**; a chosen workflow always runs its latest version. The built-in orchestrator shows no number until the app has published a real version of it (the first is 0.0.1): its row reads **Built-in orchestrator**, and where it appears under another name, **name (built-in)** — the gateway's placeholder 0.0.0 is never shown. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
 | Reasoning effort | Gateway default, none, minimal, low, medium, high, extra high. The ladder comes from the gateway contract (`thinking_control.values`). Sent with every run as `_runtime.thinking`; Gateway default sends nothing. Levels the chat model's capability card does not list are greyed out | this app `reasoning_effort` |
 | MTP depth | Gateway default (inherit), Off, or a depth advertised for the selected provider/model. Sent as `_runtime.speculation`; Off sends `false`, and inheritance omits the key | this app `speculation` |
 | Stream replies | Gateway default, On or Off. On shows the answer while the model writes it; Off shows it when it is finished. Sent with every run as `_runtime.stream`: Off always sends `false`; On sends `true` only when the gateway offers live replies (`streaming.deltas` in its discovery) — otherwise On is listed as **On — not supported by this gateway**, nothing is sent, and a chat that runs with On saved shows one note saying so. Gateway default sends nothing, so the gateway's own streaming default decides — the list shows it, e.g. **Gateway default (Off)** | this app `stream_replies` (`gateway_default`, `on`, `off`) |
@@ -627,6 +627,22 @@ requests that exact depth with `require_acceleration=true`: the execution host m
 or report an error, not silently run without MTP. This control neither downloads a head nor
 changes the gateway's shared default. Leaving it on Gateway default follows the Core policy
 on the execution host (fresh configurations use depth 2 only for compatible models).
+
+## Workflow
+
+The page right after Models. It sets the workflow the Assistant runs for each new turn; a turn
+already running keeps its workflow. The choice applies the moment you pick it (there is no Save);
+if it cannot be stored, the line at the bottom of the page gives the reason followed by "Not saved.".
+
+| Control | Meaning | Stored |
+|---|---|---|
+| Runs | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1`, with the line underneath naming where the gateway says the setting comes from; **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface, as **name @version — bundle**, the app's own as **Built-in orchestrator @version**; a chosen workflow always runs its latest version. The built-in orchestrator shows no number until the app has published a real version of it (the first is 0.0.1): its row reads **Built-in orchestrator**, and where it appears under another name, **name (built-in)** — the gateway's placeholder 0.0.0 is never shown. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
+| Open in AbstractFlow | Icon button beside the list, shown only when the gateway serves AbstractFlow at `/apps/flow/` (the `flow` row of `GET /api/gateway/apps` is installed and mounted). It opens the selected workflow in AbstractFlow in your browser, already signed in, through `POST /api/gateway/apps/flow/open` with AbstractFlow's deep link `/?bundle=<id>&version=<version>&flow=<flow>`. **Gateway default** opens the workflow the gateway reports as its default (or the built-in orchestrator when it reports none); a chosen workflow opens at its latest version. When AbstractFlow is installed but not running, the tooltip says so and the gateway's refusal is shown | gateway |
+
+The list is the same one the automation window offers: the assistant workflows the gateway says
+you can run (`GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1`). The gateway has
+no per-account setting for this choice, so it is kept on this Mac (like AbstractCode, which keeps
+its choice per signed-in user in the browser).
 
 ## Voice
 
@@ -894,31 +910,38 @@ Two ways in, one window:
 - the clock button in the palette header (shown once the gateway has confirmed it offers
   automations) opens **Schedule this conversation…**, prefilled with the conversation's last
   question;
-- **+ New automation** in the switcher's Automations tab opens the same window empty (default
-  schedule, the workflow Settings selects); after creation the tab lists the new automation,
-  selected.
+- **+ New automation** in the switcher's Automations tab opens the same window empty, titled
+  **New automation**, with the workflow set to **Gateway default** (or, when the gateway reports
+  no default for the assistant, the workflow a turn would run); after creation the tab lists the
+  new automation, selected.
 
 The window, beside the palette:
 
-- **What**: a **Workflow** picker initially set to the conversation workflow, and a task
-  prefilled with the conversation’s last question. Both choices belong to the automation.
-  The title is optional and defaults to the task's first line (at most 120 characters).
+The window carries the same content as the AbstractCode and AbstractObserver schedule dialog:
+
+- **What**: a **Workflow** list with **Gateway default** first, then the assistant workflows the
+  gateway says you can run (the list in Settings → Workflow). It starts on the conversation's
+  workflow (**Gateway default** for **+ New automation**). Then the **Task** (prefilled with the
+  conversation’s last question) and an optional **Title** that defaults to the task's first line
+  (at most 120 characters). Both choices belong to the automation.
 - **When (UTC)**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days;
   **every N…** minutes, hours or days; **once at…** a date and time; or **When an email arrives**
   (see [Email automations](#email-automations)). For an interval, an optional first-run time
-  (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now. Intervals are fixed durations
-  in UTC: "every 24 hours", never "daily at 08:00 local time".
+  (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now. A repeating schedule can also
+  **Stop after this many runs** and **Stop at** a date and time (UTC); both are optional. Intervals
+  are fixed durations in UTC: "every 24 hours", never "daily at 08:00 local time".
 - **Context**: **Independent** (the default: each run starts fresh) or **Growing** (each run sees
   the previous runs).
-- **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Tools run without asking** (the default) or **Ask each time** separately. See
+- **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Run without asking** (the default; the line under it reads "Tools run without asking (you approve them now by creating this automation).") or **Ask me before each tool call (the run waits for you)**. See
   [Tool consent](#tool-consent).
-- **Email**: **Email result** and **Recipients: Only me (default) /
+- **Mailbox**: **Email result** and **Recipients: Only me (default) /
   Me and these addresses** (see [Email automations](#email-automations)).
 
-A line under the form previews the schedule ("every 8 hours (UTC), first run now") or says what is
-missing. **Schedule** is enabled once the form is complete and the gateway offers the `schedule`
-trigger; it creates the automation and opens it in the palette. If the gateway could not be
-reached, pressing **Schedule** again sends the same request, which the gateway recognises, so the
+A line under the form previews the schedule ("Runs every 8 hours (UTC), first run now.") or says
+what is missing. **Create automation** is enabled once the form is complete and the gateway offers
+the `schedule` trigger; it creates the automation and opens it in the palette (or, from
+**+ New automation**, selects it in the Automations tab). If the gateway could not be reached,
+pressing **Create automation** again sends the same request, which the gateway recognises, so the
 automation is never created twice; after a refusal, the next press is a new request.
 
 ## Email automations
@@ -957,9 +980,9 @@ Outside automations, the Assistant's local tool approval asks before `send_email
 
 Tool selection applies only to this automation and does not change chat preferences. The separate approval choice is sent as `policy.tool_approval`:
 
-- **Tools run without asking** (`auto`): creating the automation is your approval. Its runs use the
+- **Run without asking** (`auto`): creating the automation is your approval. Its runs use the
   workflow's tools without stopping to ask, since nobody is there to answer each run.
-- **Ask each time** (`ask`): every run that wants a tool waits for your approval, and you are
+- **Ask me before each tool call** (`ask`): every run that wants a tool waits for your approval, and you are
   notified. You approve or deny from the automation (see
   [Answering a run that waits for you](#answering-a-run-that-waits-for-you)).
 
@@ -1035,7 +1058,7 @@ never by reading the question's text:
 | The run waits for | You see | What is sent |
 |---|---|---|
 | **a question** (`ask_user`) | the question, its choices as buttons, and a free-text field with **Answer** | your text as `{"response": "…"}` |
-| **tool approval** (`tool_approval`, automations set to Ask each time) | the tool calls it would run, each with its arguments, and **Approve** / **Deny** | `{"approved": true}` or `{"approved": false}` |
+| **tool approval** (`tool_approval`, automations set to Ask me before each tool call) | the tool calls it would run, each with its arguments, and **Approve** / **Deny** | `{"approved": true}` or `{"approved": false}` |
 | **an event** (`event`) | a field for the event's payload as JSON (`{"key": "value"}`) and **Send event** | `{"payload": <your JSON>}`; text that is not valid JSON is refused in place |
 
 The answer is a `resume` command on the waiting run, the same command the palette sends when you
@@ -1109,8 +1132,8 @@ automations, and no automation route is called before that.
 - Schedules are fixed intervals in UTC, or one run at a given time. There is no calendar recurrence
   (weekdays, local time zones).
 - The Assistant creates scheduled and incoming-email automations; **Run now** starts an additional occurrence.
-- The Schedule window does not set a maximum number of runs or an end date; an automation created
-  elsewhere with one shows it in its cadence.
+- A maximum number of runs and an end date are set when the automation is created; **Edit** does
+  not change them.
 - **Edit** changes title, interval, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
 
 Changing workflows preserves the task, portable agent settings, selected tools and result-email
@@ -1227,7 +1250,7 @@ assistant --gateway-url http://127.0.0.1:9090 --gateway-token "$ABSTRACTGATEWAY_
 ## `assistant`
 
 Starts the menu-bar app and palette. It loads local state from `~/.abstractassistant/`, connects
-to the gateway, resolves the workflow chosen in Settings → Models → Workflow and follows runs over
+to the gateway, resolves the workflow chosen in Settings → Workflow and follows runs over
 SSE.
 
 Workflow resolution:
@@ -1329,6 +1352,10 @@ the stream. Whether the gateway offers live replies is read from
 - Sign-in and identity: `/api/gateway/apps/desktop-handover` (console hand-over, loopback),
   `/api/gateway/session/login`, `/api/gateway/session/logout`, `/api/gateway/about` (version rows
   for Settings → About; `/api/gateway/discovery/capabilities` is read when it is absent)
+- Apps: `GET /api/gateway/apps` (Settings → Workflow shows **Open in AbstractFlow** when the `flow`
+  row is installed and mounted at `/apps/flow/`) and `POST /api/gateway/apps/flow/open` (`path`
+  `/?bundle=<id>&version=<version>&flow=<flow>`, `origin` = the gateway URL; the answer's
+  `open_url` is opened in the browser)
 - Workflow: `GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1` (the Settings →
   Workflow list: only the assistant workflows the signed-in person may run, each with `owner` and
   `shipped`; a gateway that ignores the parameter is reported, not listed), `/api/gateway/visualflows`,
@@ -1361,9 +1388,10 @@ the stream. Whether the gateway offers live replies is read from
 - Automations ([automations.md](automations.md)), used only when the capabilities advertise
   `contracts.common.automations.available: true`:
   - `GET /api/gateway/automations` (every page, following `next_cursor`) and
-    `POST /api/gateway/automations` (create, with a `request_id`; the Schedule window sends
-    `title`, `target` with the task as `input_data.prompt`, a `schedule@1` or `email.received@1`
-    trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
+    `POST /api/gateway/automations` (create, with a `request_id`; the automation window sends
+    `title`, `target` (`{"flow_id": "@default", "interface": "abstractassistant.agent.v1"}` for
+    Gateway default, else `bundle_ref` + `flow_id`) with the task as `input_data.prompt`, a
+    `schedule@1` (optional `count` and `until`) or `email.received@1` trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
     `notify: {"channels": ["console", "email"]}` and `policy.email_allowed_recipients`)
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
     changed fields among `title`, `trigger`, `context`, `notify` and
@@ -1374,7 +1402,7 @@ the stream. Whether the gateway offers live replies is read from
   - `GET …/{id}/occurrences` (runs, newest first), `GET …/{id}/attention` (unseen items),
     `POST …/{id}/seen` (the last displayed item's cursor), `POST …/{id}/discuss`
     (`occurrence_index`, `prompt`)
-  - `GET /api/gateway/trigger-sources` (the Schedule window requires `schedule` version 1; it
+  - `GET /api/gateway/trigger-sources` (the automation window requires `schedule` version 1; it
     offers **When an email arrives** only when `email.received` version 1 is listed)
   - `GET /api/gateway/me/email` (whether your email account is usable; AbstractGateway 0.8.0+)
 
@@ -1681,7 +1709,7 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 Each turn runs one gateway workflow that declares the `abstractassistant.agent.v1` interface. The
 app publishes its built-in orchestrator, `abstractassistant-orchestrator`, to the tenant catalog
 so it always exists, without making it the catalog default. Which workflow runs is decided by
-Settings → Models → Workflow:
+Settings → Workflow:
 
 - **Gateway default**: the gateway operator's `agents.default_workflow` setting for
   `abstractassistant.agent.v1`, resolved by the gateway at every run start (`flow_id: "@default"`);
@@ -1822,7 +1850,7 @@ The gateway has turned it off. The assistant shows it for transparency and never
 
 ## Which workflow does the assistant use?
 
-The one chosen in Settings → Models → Workflow, for the tray app and the CLI alike. The default
+The one chosen in Settings → Workflow, for the tray app and the CLI alike. The default
 choice, **Gateway default**, runs the workflow the gateway operator set for
 `abstractassistant.agent.v1`, or the app's built-in `abstractassistant-orchestrator` when the
 gateway sets none. You can instead pick any workflow in the catalog that declares the assistant
@@ -1880,8 +1908,8 @@ arrive while the Assistant is closed are waiting in the automation, marked new, 
 
 ## Why can't I approve a tool call when a scheduled run uses it?
 
-With **Tools run without asking** (the default), creating the automation is the approval, and its
-runs do not stop to ask. Choose **Ask each time** in the Schedule window to approve each run's tool
+With **Run without asking** (the default), creating the automation is the approval, and its
+runs do not stop to ask. Choose **Ask me before each tool call** in the automation window to approve each run's tool
 calls from the automation; see [automations.md](automations.md#tool-consent).
 
 ## Why don't the sessions of my automations appear among my chats?
@@ -1956,14 +1984,14 @@ gateway is back.
 
 ## The palette says no workflow is available
 
-Sending is blocked when the workflow chosen in Settings → Models → Workflow cannot run:
+Sending is blocked when the workflow chosen in Settings → Workflow cannot run:
 
 - **Gateway default → unavailable**: the gateway sets no default for `abstractassistant.agent.v1`
   and the built-in `abstractassistant-orchestrator` is not in your tenant catalog. Verify the
   gateway is reachable and your sign-in is accepted, then reopen Settings → Connection and press
   Connect so the app can publish its orchestrator; or ask the gateway operator to set a default.
 - **The chosen workflow is not in the gateway catalog any more**: pick another one in
-  Settings → Models → Workflow, or go back to Gateway default.
+  Settings → Workflow, or go back to Gateway default.
 
 See [settings.md](settings.md#models--reasoning).
 
@@ -2034,7 +2062,7 @@ means they could not be read, so the Assistant cannot tell whether the gateway o
 ## Schedule stays disabled in "Schedule this conversation…"
 
 The line under the form says what is missing: a task, a valid interval or date (`YYYY-MM-DD HH:MM`,
-UTC), or a workflow for this conversation (Settings → Models → Workflow). "This gateway does not
+UTC), or a workflow for this conversation (Settings → Workflow). "This gateway does not
 offer the schedule@1 trigger source" means the gateway cannot schedule runs; ask its operator.
 
 ## An automation run is waiting but there are no answer buttons
@@ -2478,6 +2506,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
+- **New automation** in the switcher's Automations tab opens the same content as the AbstractCode and AbstractObserver schedule dialog: the **Workflow** list has **Gateway default** first and selected (then the gateway's executable assistant workflows; a target the catalog no longer lists stays selectable), **Task** and **Title**, the schedule with **Stop after this many runs** and **Stop at (UTC)** for a repeating schedule, **Context**, **Tools** with **Run without asking** (and its consent line) or **Ask me before each tool call (the run waits for you)**, **Mailbox**, and **Create automation**. Without a gateway default for the assistant, it starts on the workflow a turn would run.
+- Settings → **Workflow** is its own page, right after Models (it was a card on the Models page): **Gateway default** first and selected until you pick another of the gateway's executable workflows; the choice applies at once, and a refused save says why with "Not saved.". An **Open in AbstractFlow** icon button appears when the gateway serves AbstractFlow at `/apps/flow/` and opens the selected workflow there, signed in (`POST /api/gateway/apps/flow/open` with AbstractFlow's `?bundle=&version=&flow=` link). The choice stays on this Mac: the gateway has no per-account setting for it.
 - Settings → Workspace follows the gateway's round-9 workspace model with the same rows and words as the console and AbstractCode: a friendly **Gateway policy** card (posture badge, shared workspace, allowed and refused workspaces as chips with their mode, everything else under the second posture) replaces the key: value block; then the posture ("Deny everything, allow listed workspaces" / "Allow everything, refuse listed workspaces"), the **Shared workspace** (always on, Read & write), **Allowed workspaces** / **Refused workspaces** each with **Read & write** / **Read-only** / **Refused** (lower, never raise), under the second posture **Everything else** and **Add a workspace path**, and the gateway's effective line verbatim. Each change is one `PUT /api/gateway/workspace/policy/me`; a refused change shows the gateway's sentence with "Not saved.". Requires the gateway's round-9 workspace model.
 - Removed: the access-mode list, the local allowed-folders list, the local check of folders against the policy, and launch-folder trust (the gateway decides). Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`; the stored keys are dropped. The workspace root is now **Run workspace** (Save in the footer); **Reset** is gone.
 
@@ -5402,6 +5432,66 @@ class AssistantController:
             )
         return rows
 
+    # ------------------------------------------------- Settings → Workflow: Flow
+
+    def flow_app(self) -> Dict[str, Any]:
+        """Is AbstractFlow on this gateway, served through it at ``/apps/flow/``?
+
+        Read from ``GET /api/gateway/apps`` (the console's Apps page): the
+        ``flow`` row ``installed`` and ``mounted`` (``app_path``). Answer
+        ``{"available": bool, "running": bool, "app_path": str}``; raises when
+        the gateway cannot be asked (the page then shows no button)."""
+        payload = self.gateway.list_apps()
+        apps = payload.get("apps") if isinstance(payload, dict) else None
+        row = next((a for a in apps or [] if isinstance(a, dict) and a.get("id") == "flow"), None) or {}
+        app_path = str(row.get("app_path") or "")
+        available = row.get("installed") is True and row.get("mounted") is True and bool(app_path)
+        return {"available": available, "running": row.get("running") is True, "app_path": app_path}
+
+    def workflow_flow_ref(self, choice: Any) -> Optional[Dict[str, str]]:
+        """The ``{bundle_id, version, flow_id}`` a Settings → Workflow choice
+        opens in AbstractFlow: the gateway default resolves to the workflow
+        the gateway reports (else the built-in orchestrator, as a turn would);
+        a chosen workflow opens at its latest version (``version`` empty)."""
+        choice = normalize_workflow_choice(choice)
+        if choice == WORKFLOW_GATEWAY_DEFAULT:
+            default = self.gateway_default_workflow()
+            if default.available and default.bundle_id:
+                return {"bundle_id": default.bundle_id, "version": default.bundle_version, "flow_id": default.flow_id}
+            built_in = self.built_in_workflow()
+            if built_in is None:
+                return None
+            return {"bundle_id": built_in.bundle_id, "version": built_in.bundle_version, "flow_id": built_in.flow_id}
+        bundle_id = str(choice.get("bundle_id") or "")
+        if not bundle_id:
+            return None
+        return {"bundle_id": bundle_id, "version": "", "flow_id": str(choice.get("flow_id") or "")}
+
+    def open_workflow_in_flow_url(self, choice: Any) -> str:
+        """A signed-in AbstractFlow link that opens ``choice``: ``POST
+        /api/gateway/apps/flow/open`` with AbstractFlow's documented deep link
+        ``/?bundle=<id>&version=<v>&flow=<flow_id>`` (abstractflow
+        src/utils/bundleDeepLink.ts; the console's "Open in AbstractFlow"
+        sends the same path). Raises with the gateway's sentence on refusal."""
+        from urllib.parse import urlencode, urlsplit
+
+        ref = self.workflow_flow_ref(choice)
+        if ref is None:
+            raise RuntimeError("No workflow to open: the gateway reports no default and the built-in orchestrator is not published.")
+        query = {"bundle": ref["bundle_id"]}
+        if ref.get("version"):
+            query["version"] = ref["version"]
+        if ref.get("flow_id"):
+            query["flow"] = ref["flow_id"]
+        base = str(self.gateway.config.base_url or "").rstrip("/")
+        parts = urlsplit(base)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        answer = self.gateway.open_app("flow", path="/?" + urlencode(query), origin=origin)
+        open_url = str(answer.get("open_url") or "") if isinstance(answer, dict) else ""
+        if not open_url:
+            raise RuntimeError("The gateway did not return a link to AbstractFlow.")
+        return open_url if "://" in open_url else origin + "/" + open_url.lstrip("/")
+
     def _no_workflow_reason(self, default: GatewayDefaultWorkflow) -> str:
         why = str(getattr(self.gateway_service.workflow_status(), "error", "") or "").strip() or "it is not in the gateway catalog"
         gateway = f" The gateway reports no default for the assistant: {default.reason}." if default.reason else (
@@ -5409,7 +5499,7 @@ class AssistantController:
         )
         return (
             f"The built-in orchestrator is not published on this gateway ({why}).{gateway} "
-            "Pick a workflow in Settings \u2192 Models \u2192 Workflow, or ask the gateway admin to set a default."
+            "Pick a workflow in Settings \u2192 Workflow, or ask the gateway admin to set a default."
         )
 
     def last_resolved_workflow(self) -> Optional[Dict[str, Any]]:
@@ -7874,6 +7964,25 @@ class GatewayClient:
             url=self._url(f"/api/gateway/visualflows/{flow_id_s}/publish"),
             body=body,
             label="publish_visualflow failed",
+        )
+
+    def list_apps(self) -> Dict[str, Any]:
+        """``GET /api/gateway/apps``: the gateway's apps (``apps: [{id, installed,
+        running, mounted, app_path, …}]``), as the console's Apps page reads them."""
+        return self._request_json(method="GET", url=self._url("/api/gateway/apps"), label="list_apps failed")
+
+    def open_app(self, app_id: str, *, path: str, origin: str) -> Dict[str, Any]:
+        """``POST /api/gateway/apps/{id}/open`` → ``{open_url, …}``: a one-time
+        sign-in link (relative to this gateway) landing at ``path`` inside the
+        app — the door the console's "Open in AbstractFlow" uses."""
+        app = quote(str(app_id or "").strip(), safe="")
+        if not app:
+            raise ValueError("open_app needs an app id")
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/apps/{app}/open"),
+            body={"path": str(path or "/"), "origin": str(origin or "")},
+            label="open_app failed",
         )
 
     def discovery_capabilities(self) -> Dict[str, Any]:
@@ -15713,7 +15822,14 @@ def utc_from_input(value: str) -> Optional[str]:
     return ts if _parse_ts(ts) is not None else None
 
 
-def schedule_config(when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None) -> Tuple[Dict[str, Any], List[str]]:
+# The kit's consent line (panel_core.ts TOOL_APPROVAL_CONSENT), shown under "Run without asking".
+TOOL_APPROVAL_CONSENT = "Tools run without asking (you approve them now by creating this automation)"
+TOOL_APPROVAL_ASK_HINT = "Each tool call waits for your approval in the automation's timeline."
+
+
+def schedule_config(
+    when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None, until: str = ""
+) -> Tuple[Dict[str, Any], List[str]]:
     """``schedule@1`` config + the reasons it is invalid."""
     errors: List[str] = []
     config: Dict[str, Any] = {}
@@ -15735,10 +15851,16 @@ def schedule_config(when: ScheduleWhen, *, start_at: str = "", count: Optional[i
         else:
             config["start_at"] = s
     if count is not None:
-        if not isinstance(count, int) or count < 1:
-            errors.append("Maximum runs must be a whole number of at least 1.")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            errors.append("Stop after this many runs must be a whole number of at least 1.")
         else:
             config["count"] = count
+    if until:
+        u = utc_from_input(until)
+        if not u:
+            errors.append("Stop at must be a date and time (UTC).")
+        else:
+            config["until"] = u
     return config, errors
 
 
@@ -15794,6 +15916,7 @@ def build_create_request(
     title: str = "",
     start_at: str = "",
     count: Optional[int] = None,
+    until: str = "",
     tool_approval: str = "auto",
     trigger: str = "schedule",
     email: Optional[EmailTriggerForm] = None,
@@ -15829,7 +15952,7 @@ def build_create_request(
     if is_email:
         config, when_errors = email_trigger_config(email or EmailTriggerForm())
     else:
-        config, when_errors = schedule_config(when, start_at=start_at, count=count)
+        config, when_errors = schedule_config(when, start_at=start_at, count=count, until=until)
     errors.extend(when_errors)
     recipients: Optional[List[str]] = None
     if notify_email and email_recipients is not None and email_recipients[0] == "list":

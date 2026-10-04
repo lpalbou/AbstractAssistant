@@ -289,7 +289,7 @@ mid-run keeps the run busy with a reconnecting status until the follower is back
 Each turn runs one gateway workflow that declares the `abstractassistant.agent.v1` interface. The
 app publishes its built-in orchestrator, `abstractassistant-orchestrator`, to the tenant catalog
 so it always exists, without making it the catalog default. Which workflow runs is decided by
-Settings → Models → Workflow:
+Settings → Workflow:
 
 - **Gateway default**: the gateway operator's `agents.default_workflow` setting for
   `abstractassistant.agent.v1`, resolved by the gateway at every run start (`flow_id: "@default"`);
