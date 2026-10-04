@@ -430,6 +430,7 @@ def test_accessibility_rechecks_when_the_page_is_shown_again(monkeypatch) -> Non
     dlg.show_section("about")
     dlg.show_section("window")  # the page refreshes when it is shown
     assert page.accessibility_state.text() == "Granted"
+    assert page.feedback.text() == "Accessibility granted."
     assert not applied  # the shortcut is off: nothing to arm
 
 

@@ -2065,6 +2065,8 @@ class WindowPage(SettingsPage):
                 else "Accessibility granted — the global shortcut is on.",
                 tone="error" if failure else "ok",
             )
+        elif state is True and previous is False:
+            self.say("Accessibility granted.")
         return state
 
     def changeEvent(self, event) -> None:  # noqa: N802 - Qt API
