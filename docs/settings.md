@@ -104,12 +104,13 @@ See [voice.md](voice.md) for how the conversation loop behaves.
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Workspace folders | The same rows and words as the gateway console and AbstractCode: **Shared workspace** (always on; every conversation, automation and entity gets its own folder in it), **Allowed folders** (one switch per folder the gateway admin allows, off until turned on), **My folders** (rows with **Add**, only while the admin allows any folder; otherwise one sentence says why) and "Agents may use: …", the gateway's one-line summary. Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused folder shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
-| Run folder | Where the next run reads and writes files. Empty means the gateway gives the chat its own folder in the shared workspace and the assistant reuses it for later turns. It must be one of the folders above. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
+| Gateway policy | A card, read from the gateway: the posture badge ("Deny everything, allow listed workspaces" or "Allow everything, refuse listed workspaces"), the shared workspace (Read & write), the allowed workspaces with their mode, the refused workspaces, and under the second posture the mode of everything else | gateway (read-only) |
+| Workspaces | The same rows and words as the gateway console and AbstractCode: the posture, the **Shared workspace** (always on, Read & write), **Allowed workspaces** and **Refused workspaces**, each with **Read & write** / **Read-only** / **Refused** — you may lower what the admin allows, never raise it. Under "Allow everything, refuse listed workspaces" also **Everything else** (the default mode, which you may lower to Read-only) and **Add a workspace path** (refuse a workspace or make it read-only). Under "Deny everything, allow listed workspaces" one sentence says only the gateway admin can add workspaces. The last line is the gateway's own summary, e.g. "Deny everything, allow listed workspaces · Shared workspace (rw) · /data/project (rw) · /archive (ro)". Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused change shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
+| Run workspace | Where the next run reads and writes files. Empty means the gateway gives the chat a private workspace of its own and the assistant reuses it for later turns. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
 
-The gateway decides which folders a run may use (your effective folders) and refuses anything
-outside them; this app has no access modes and no local folder list. A run folder outside your
-folders makes the run start fail; the palette then shows
+The gateway decides which workspaces a run may use and refuses anything its posture does not reach
+(there is no launch-folder trust); this app has no access modes and no local list. A run workspace
+the posture does not reach makes the run start fail; the palette then shows
 "Not sent" with the gateway's reason and puts your message back in the composer.
 
 ## Tools & permissions

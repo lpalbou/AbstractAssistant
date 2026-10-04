@@ -120,7 +120,7 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
 - A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
   Spoken replies stream from the gateway; dictation is a button away.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
-  effort, reply streaming), Voice, Workspace (workspace folders and run folder), Tools & permissions,
+  effort, reply streaming), Voice, Workspace (gateway policy, workspaces, run workspace), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
   override. About is also on the menu-bar icon (**About AbstractAssistant…**).
 - Local, persistent overrides for every route the assistant drives (chat, voice, image, video,
@@ -503,7 +503,7 @@ page says where a value comes from. Common first steps:
   effort, and choose whether replies stream (**Stream replies**).
 - **Appearance**: theme, text size and spacing, the summon shortcut, window size.
 - **Voice**: engines for speech, auto-speak, conversation options.
-- **Workspace**: your workspace folders (shared workspace, the folders your gateway admin allows, your own when allowed) and the run folder.
+- **Workspace**: the gateway policy, your workspaces (shared workspace, allowed and refused workspaces with Read & write / Read-only) and the run workspace.
 - **Tools & permissions**: per-tool Off / Auto / Ask on top of the gateway's defaults.
 
 The full reference is [settings.md](settings.md).
@@ -646,12 +646,13 @@ See [voice.md](voice.md) for how the conversation loop behaves.
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Workspace folders | The same rows and words as the gateway console and AbstractCode: **Shared workspace** (always on; every conversation, automation and entity gets its own folder in it), **Allowed folders** (one switch per folder the gateway admin allows, off until turned on), **My folders** (rows with **Add**, only while the admin allows any folder; otherwise one sentence says why) and "Agents may use: …", the gateway's one-line summary. Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused folder shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
-| Run folder | Where the next run reads and writes files. Empty means the gateway gives the chat its own folder in the shared workspace and the assistant reuses it for later turns. It must be one of the folders above. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
+| Gateway policy | A card, read from the gateway: the posture badge ("Deny everything, allow listed workspaces" or "Allow everything, refuse listed workspaces"), the shared workspace (Read & write), the allowed workspaces with their mode, the refused workspaces, and under the second posture the mode of everything else | gateway (read-only) |
+| Workspaces | The same rows and words as the gateway console and AbstractCode: the posture, the **Shared workspace** (always on, Read & write), **Allowed workspaces** and **Refused workspaces**, each with **Read & write** / **Read-only** / **Refused** — you may lower what the admin allows, never raise it. Under "Allow everything, refuse listed workspaces" also **Everything else** (the default mode, which you may lower to Read-only) and **Add a workspace path** (refuse a workspace or make it read-only). Under "Deny everything, allow listed workspaces" one sentence says only the gateway admin can add workspaces. The last line is the gateway's own summary, e.g. "Deny everything, allow listed workspaces · Shared workspace (rw) · /data/project (rw) · /archive (ro)". Each change is one `PUT /api/gateway/workspace/policy/me` and applies at once; a refused change shows the gateway's sentence with "Not saved." | gateway (your account's policy, `GET/PUT /workspace/policy/me`) |
+| Run workspace | Where the next run reads and writes files. Empty means the gateway gives the chat a private workspace of its own and the assistant reuses it for later turns. The `Choose…` picker appears only when the gateway runs on this Mac | this app `workspace_root` |
 
-The gateway decides which folders a run may use (your effective folders) and refuses anything
-outside them; this app has no access modes and no local folder list. A run folder outside your
-folders makes the run start fail; the palette then shows
+The gateway decides which workspaces a run may use and refuses anything its posture does not reach
+(there is no launch-folder trust); this app has no access modes and no local list. A run workspace
+the posture does not reach makes the run start fail; the palette then shows
 "Not sent" with the gateway's reason and puts your message back in the composer.
 
 ## Tools & permissions
@@ -1303,7 +1304,7 @@ default applies:
 | `_runtime.thinking` | reasoning effort |
 | `_runtime.speculation` | MTP depth: `false` for Off, `{"mode": "native_mtp", "num_draft_tokens": N, "require_acceleration": true}` for a depth; omitted to follow the gateway default |
 | `_runtime.stream` | Stream replies: `false` for Off (always sent); `true` for On, sent only when `/discovery/capabilities` advertises `streaming.deltas: true`; omitted to follow the gateway's streaming default (`streaming.default`) |
-| `workspace_root` | the run folder (or the chat's remembered root); which other folders the run may use is the account's gateway policy (`/workspace/policy/me`), never sent per run |
+| `workspace_root` | the run workspace (or the chat's remembered one); which other workspaces the run may use is the account's gateway policy (`/workspace/policy/me`), never sent per run |
 | `image_provider/image_model`, `image_edit_*`, `image_upscale_*`, `video_*`, `image_to_video_*`, `music_*`, `sound_output` | media route overrides |
 | `_runtime.allowed_tools`, `_runtime.tool_policy` | per-tool modes (Off / Auto / Ask) |
 | `system` | the workflow's base prompt plus an addendum (voice conversation) when one applies |
@@ -1612,7 +1613,7 @@ sequenceDiagram
   participant G as Gateway
   U->>P: message (typed or spoken)
   P->>C: build_chat_worker(prompt, addenda)
-  C->>C: run_scope(): thinking, run folder, model pins
+  C->>C: run_scope(): thinking, run workspace, model pins
   C->>W: worker
   W->>G: POST /runs/start (input_data + pins)
   alt refused (policy, workflow)
@@ -1798,11 +1799,11 @@ sends nothing.
 
 ## Can I choose which folders the assistant may touch?
 
-Yes, in Settings → Workspace → Workspace folders: the shared workspace is always on, each folder
-your gateway admin allows is a switch (off until you turn it on), and **My folders** appear when the
-admin allows any folder. These are your account's folders on the gateway, the same in every client.
-Without a run folder, the gateway gives each chat its own folder in the shared workspace and later
-turns of the same chat reuse it.
+Yes, in Settings → Workspace: the gateway's posture ("Deny everything, allow listed workspaces" or
+"Allow everything, refuse listed workspaces"), the shared workspace (always on, Read & write) and each
+listed workspace with Read & write / Read-only / Refused. You may lower what the admin allows, never
+raise it; these are your account's workspaces on the gateway, the same in every client. Without a run
+workspace, the gateway gives each chat a private workspace and later turns of the same chat reuse it.
 
 ## Why do I keep seeing approval requests?
 
@@ -1998,9 +1999,10 @@ finished. See [settings.md](settings.md#live-replies).
 ## A message shows "Not sent — …"
 
 The gateway refused to start the run and the palette restored your message. The banner carries
-the gateway's reason. The common cause is a run folder outside your workspace folders:
-open Settings → Workspace, turn on the folder under **Allowed folders** (or add it under **My
-folders** when allowed), or clear the run folder. See [settings.md](settings.md#workspace).
+the gateway's reason. The common cause is a run workspace the gateway's posture does not reach:
+open Settings → Workspace and check it is listed (under "Allow everything, refuse listed workspaces"
+it must not be refused; under "Deny everything, allow listed workspaces" only the gateway admin can
+add it), or clear the run workspace. See [settings.md](settings.md#workspace).
 
 ## An approval sheet never appears but the run is waiting
 
@@ -2476,8 +2478,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## Unreleased
 
-- Settings → Workspace shows the gateway's round-9 folder model with the same rows and words as the console and AbstractCode: **Shared workspace** (always on), **Allowed folders** (one switch per folder the gateway admin allows, off until turned on), **My folders** (only while the admin allows any folder) and "Agents may use: …". Each change is one `PUT /api/gateway/workspace/policy/me`; a refused folder shows the gateway's sentence with "Not saved.". Requires the gateway's round-9 workspace model.
-- Removed: the access-mode list, the local allowed-folders list, the read-only "Gateway policy" card and the local check of folders against it (the gateway decides). Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`; the stored keys are dropped. The workspace root is now **Run folder** (Save in the footer); **Reset** is gone.
+- Settings → Workspace follows the gateway's round-9 workspace model with the same rows and words as the console and AbstractCode: a friendly **Gateway policy** card (posture badge, shared workspace, allowed and refused workspaces as chips with their mode, everything else under the second posture) replaces the key: value block; then the posture ("Deny everything, allow listed workspaces" / "Allow everything, refuse listed workspaces"), the **Shared workspace** (always on, Read & write), **Allowed workspaces** / **Refused workspaces** each with **Read & write** / **Read-only** / **Refused** (lower, never raise), under the second posture **Everything else** and **Add a workspace path**, and the gateway's effective line verbatim. Each change is one `PUT /api/gateway/workspace/policy/me`; a refused change shows the gateway's sentence with "Not saved.". Requires the gateway's round-9 workspace model.
+- Removed: the access-mode list, the local allowed-folders list, the local check of folders against the policy, and launch-folder trust (the gateway decides). Runs no longer send `workspace_access_mode` or `workspace_allowed_paths`; the stored keys are dropped. The workspace root is now **Run workspace** (Save in the footer); **Reset** is gone.
 
 ## [0.13.0] - 2026-10-04
 

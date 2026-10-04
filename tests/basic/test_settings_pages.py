@@ -91,17 +91,24 @@ class _Controller:
         return {"thinking_support": True, "reasoning_levels": ["low", "medium", "xhigh"]}
 
     workspace_state = {
-        "policy": {"enabled_folders": ["/data/projects"], "own_folders": []},
+        "policy": {"account": "default:me", "default_mode": None, "folders": []},
+        "gateway": {
+            "shared_workspace": "/srv/gw/workspaces",
+            "posture": "allowed_only",
+            "default_mode": "rw",
+            "folders": [{"path": "/data/project", "mode": "rw"}, {"path": "/archive", "mode": "ro"}],
+        },
         "effective": {
             "account": "default:me",
+            "posture": "allowed_only",
+            "default_mode": None,
             "shared_workspace": "/srv/gw/workspaces",
-            "folders": [{"path": "/srv/gw/workspaces", "source": "shared"}, {"path": "/data/projects", "source": "allowed"}],
-            "available_folders": [{"path": "/data/projects", "enabled": True}, {"path": "/data/notes", "enabled": False}],
-            "own_folders_allowed": False,
-            "own_folders_inactive": False,
-            "never_allowed": ["/etc/secrets"],
-            "launch_folder_trust": True,
-            "summary": "Shared workspace + 1 folder. Never: 1 folder.",
+            "folders": [
+                {"path": "/srv/gw/workspaces", "mode": "rw", "source": "shared"},
+                {"path": "/data/project", "mode": "rw", "source": "gateway"},
+                {"path": "/archive", "mode": "ro", "source": "gateway"},
+            ],
+            "summary": "Deny everything, allow listed workspaces · Shared workspace (rw) · /data/project (rw) · /archive (ro)",
         },
     }
     workspace_puts: list = []
@@ -119,12 +126,20 @@ class _Controller:
         import copy
 
         state = copy.deepcopy(self.workspace_state)
-        if "enabled_folders" in body:
-            for row in state["effective"]["available_folders"]:
-                row["enabled"] = row["path"] in body["enabled_folders"]
-            state["policy"]["enabled_folders"] = list(body["enabled_folders"])
-        if "own_folders" in body:
-            state["policy"]["own_folders"] = list(body["own_folders"])
+        if "folders" in body:
+            state["policy"]["folders"] = [dict(r) for r in body["folders"]]
+            rules = {r["path"]: r["mode"] for r in body["folders"]}
+            for f in state["effective"]["folders"]:
+                admin = next((g["mode"] for g in state["gateway"]["folders"] if g["path"] == f["path"]), f["mode"])
+                f["mode"] = rules.get(f["path"], admin) if f["source"] != "shared" else "rw"
+            known = {f["path"] for f in state["effective"]["folders"]}
+            for r in body["folders"]:
+                if r["path"] not in known:
+                    state["effective"]["folders"].append({"path": r["path"], "mode": r["mode"], "source": "account"})
+        if "default_mode" in body:
+            state["policy"]["default_mode"] = body["default_mode"]
+            if state["gateway"]["posture"] == "any_except_denied":
+                state["effective"]["default_mode"] = body["default_mode"] or state["gateway"]["default_mode"]
         self.workspace_state = state
         return state
 
@@ -266,7 +281,7 @@ def test_workspace_page_run_folder_is_a_device_preference() -> None:
     page.workspace_root_edit.setText("~/site")
     page._save()
     assert ctl.preferences.workspace_root.endswith("/site") and ctl.preferences.workspace_root.startswith("/")
-    assert "Next run works in your folder" in page.current_note.text()
+    assert "Next run works in your workspace" in page.current_note.text()
     assert not hasattr(page, "workspace_mode_combo") and not hasattr(page, "workspace_allowed_list")
 
 

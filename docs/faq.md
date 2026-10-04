@@ -34,11 +34,11 @@ sends nothing.
 
 ## Can I choose which folders the assistant may touch?
 
-Yes, in Settings → Workspace → Workspace folders: the shared workspace is always on, each folder
-your gateway admin allows is a switch (off until you turn it on), and **My folders** appear when the
-admin allows any folder. These are your account's folders on the gateway, the same in every client.
-Without a run folder, the gateway gives each chat its own folder in the shared workspace and later
-turns of the same chat reuse it.
+Yes, in Settings → Workspace: the gateway's posture ("Deny everything, allow listed workspaces" or
+"Allow everything, refuse listed workspaces"), the shared workspace (always on, Read & write) and each
+listed workspace with Read & write / Read-only / Refused. You may lower what the admin allows, never
+raise it; these are your account's workspaces on the gateway, the same in every client. Without a run
+workspace, the gateway gives each chat a private workspace and later turns of the same chat reuse it.
 
 ## Why do I keep seeing approval requests?
 

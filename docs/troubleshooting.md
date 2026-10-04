@@ -66,9 +66,10 @@ finished. See [settings.md](settings.md#live-replies).
 ## A message shows "Not sent — …"
 
 The gateway refused to start the run and the palette restored your message. The banner carries
-the gateway's reason. The common cause is a run folder outside your workspace folders:
-open Settings → Workspace, turn on the folder under **Allowed folders** (or add it under **My
-folders** when allowed), or clear the run folder. See [settings.md](settings.md#workspace).
+the gateway's reason. The common cause is a run workspace the gateway's posture does not reach:
+open Settings → Workspace and check it is listed (under "Allow everything, refuse listed workspaces"
+it must not be refused; under "Deny everything, allow listed workspaces" only the gateway admin can
+add it), or clear the run workspace. See [settings.md](settings.md#workspace).
 
 ## An approval sheet never appears but the run is waiting
 
