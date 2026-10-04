@@ -718,6 +718,15 @@ def palette(stub, tmp_path, monkeypatch):
             self.opened.append({"session_id": session_id, "run_id": run_id})
             self.active_session_id = session_id
 
+        def workspace_dry_run(self, workspace):
+            # R13.2: the automation forms' Workspaces section (the gateway's dry run, faked).
+            from r11_workspace_fake import FakeWorkspaceGateway
+            from abstractassistant.ui.settings.workspace_chooser import parse_effective
+
+            if not hasattr(self, "_workspace_fake"):
+                self._workspace_fake = FakeWorkspaceGateway()
+            return parse_effective(self._workspace_fake.dry_run(workspace))
+
     controller = Controller()
     window = app_module.AssistantPalette(controller=controller, debug=False)
     smoke._wait_for_bootstrap(window)

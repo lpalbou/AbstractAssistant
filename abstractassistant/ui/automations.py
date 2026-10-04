@@ -81,6 +81,7 @@ from ..gateway.automations import AutomationApiError, AutomationsClient
 from ..gateway.client import WAIT_KINDS
 from ..icons import symbol_icon
 from ..theme import THEME
+from .automation_workspaces import RunWorkspaces, automation_workspace, payload as workspace_payload, with_workspace, workspaces_line
 from .switch import AfSwitch
 from .styles import alpha, dialog_stylesheet, refresh_style
 
@@ -848,6 +849,11 @@ class AutomationView(QFrame):
         top.addWidget(self.meta_label)
         self.workflow_label = _text_label("", "autoViewMeta", parent=self)
         top.addWidget(self.workflow_label)
+        # "Workspaces: <summary>" (R13.2): the gateway's dry run for the stored payload, verbatim.
+        self.workspaces_label = _text_label("", "autoViewMeta", parent=self)
+        self.workspaces_label.setProperty("workspace", "automation-line")
+        self.workspaces_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        top.addWidget(self.workspaces_label)
 
         controls = QHBoxLayout()
         controls.setSpacing(5)
@@ -927,6 +933,10 @@ class AutomationView(QFrame):
         edit_rows.addWidget(self.edit_title)
         edit_rows.addLayout(el)
         edit_rows.addWidget(self.edit_tools)
+        # Workspaces (R13.2): the run-level chooser; part of this form, stored by Save.
+        self.edit_workspaces = RunWorkspaces(self.edit_box)
+        self.edit_workspace_base: Optional[Dict[str, Any]] = None
+        edit_rows.addWidget(self.edit_workspaces.card)
         self.edit_email = AfSwitch("Email result", self.edit_box)
         self.edit_email.setEnabled(False)
         edit_rows.addWidget(self.edit_email)
@@ -1273,6 +1283,11 @@ class AutomationView(QFrame):
             changes = changes or {}
             data = (changes.get("target") or self.edit_target).get("input_data") or {}
             changes["target"] = {**self.edit_workflow.currentData(), "input_data": _retarget_input(data)}
+        if self.edit_target is not None and self.edit_workspaces.value != self.edit_workspace_base:
+            # The Workspaces section's value rides the same revision (target.input_data.workspace).
+            changes = changes or {}
+            target = changes.get("target") or {key: self.edit_target[key] for key in ("bundle_ref", "flow_id", "input_data") if key in self.edit_target}
+            changes["target"] = {**target, "input_data": with_workspace(target.get("input_data") or {}, self.edit_workspaces.value)}
         self.edit_box.hide()
         if changes:
             self.revise_requested.emit(changes)
@@ -1281,6 +1296,8 @@ class AutomationView(QFrame):
         definition = detail.get("definition") or {}
         self.edit_definition = copy.deepcopy(definition)
         self.edit_target = copy.deepcopy(definition.get("target") or {})
+        self.edit_workspace_base = automation_workspace(definition)
+        self.edit_workspaces.value = workspace_payload(self.edit_workspace_base)
         self.set_workflow_detail(detail)
         self.edit_tools.configure(inventory if self.edit_target else {}, _target_tools(self.edit_target))
         self.edit_workflow.set_workflows([], self.edit_target)
@@ -1288,6 +1305,13 @@ class AutomationView(QFrame):
         self.edit_email.setEnabled(True)
         self.edit_email.setChecked("email" in (notify.get("channels") or []))
         self.edit_recipients.setText(", ".join(notify.get("recipients") or ["self"]))
+
+    def set_workspaces_summary(self, summary: str) -> None:
+        """The automation's one line, "Workspaces: <summary>" (empty = no text; the
+        label stays in the layout, as the workflow line, so a late answer never
+        re-flows the occurrence list)."""
+        text = workspaces_line(summary) if summary else ""
+        self.workspaces_label.setText(text)
 
     def set_workflow_detail(self, detail: Mapping[str, Any]) -> None:
         target = (detail.get("definition") or {}).get("target") or {}
@@ -1301,7 +1325,8 @@ class AutomationView(QFrame):
 class ScheduleSheet(QDialog):
     """"Schedule this conversation…": WHAT (workflow + task), WHEN (fixed UTC
     interval, once, or when an email arrives), CONTEXT (Independent /
-    Growing), TOOLS, EMAIL (Email result, allowed recipients).
+    Growing), TOOLS, WORKSPACES (the run-level chooser), EMAIL (Email result,
+    allowed recipients). Every section is visible (no disclosure).
 
     The email options are offered only once ``set_email_status`` received a
     usable ``GET /me/email``; until then (and when it is not usable) they are
@@ -1466,6 +1491,11 @@ class ScheduleSheet(QDialog):
         self.tools_auto.toggled.connect(self._sync_tool_consent)
         self.untrusted_label = _text_label(EMAIL_TEXT["untrusted_hint"], "autoViewMeta", parent=self)
         root.addWidget(self.untrusted_label)
+
+        # Workspaces (R13.2): visible, after Tools (as the kit dialog in Code /
+        # Observer); the value rides the create body (target.input_data.workspace).
+        self.workspaces = RunWorkspaces(self)
+        root.addWidget(self.workspaces.card)
 
         self._build_email_options(root)
 
@@ -1738,7 +1768,7 @@ class ScheduleSheet(QDialog):
             when=when,
             context="growing" if self.growing.isChecked() else "independent",
             growing_max_tokens=self.growing_max_tokens.value(),
-            target=_with_target_tools(target, self.tool_picker.selection) if target else None,
+            target=self._with_workspaces(_with_target_tools(target, self.tool_picker.selection)) if target else None,
             request_id=self.request_id,
             title=self.title_edit.text(),
             start_at="" if when.kind == "once" or self.preset_combo.currentData() == "email" else self.at_edit.text().strip(),
@@ -1756,6 +1786,10 @@ class ScheduleSheet(QDialog):
                 else {}
             ),
         )
+
+    def _with_workspaces(self, target: Dict[str, Any]) -> Dict[str, Any]:
+        """The target with the Workspaces section's value (absent = "Use my default")."""
+        return {**target, "input_data": with_workspace(target.get("input_data") or {}, self.workspaces.value)}
 
     def _repeats(self) -> bool:
         return self.preset_combo.currentData() not in ("once", "email")

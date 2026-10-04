@@ -859,6 +859,15 @@ class AssistantController:
             self._workspace_policy_cache_at = 0.0
         return state
 
+    def workspace_dry_run(self, workspace: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """An automation's workspaces (round 13, R13.2): the gateway's dry run
+        for an unsaved payload (``None`` = "Use my default") → the parsed
+        effective answer ``{posture, default_mode, folders, summary,
+        gateway_summary}``. A refusal raises with the gateway's sentence."""
+        from .ui.settings.workspace_chooser import parse_effective
+
+        return parse_effective(self.gateway.workspace_dry_run(workspace, "me"))
+
     def effective_chat_route(self) -> Dict[str, str]:
         """Provider/model that will serve the next chat turn and where it comes
         from: the local override when one is saved, else the gateway default."""

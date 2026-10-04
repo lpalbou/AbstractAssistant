@@ -6633,7 +6633,7 @@ class AssistantPalette(QMainWindow):
                 previous_revision = self.automation_view.summary.get("revision")
                 self.automation_view.set_summary(summary)
                 if previous_revision != summary.get("revision"):
-                    hub.detail(view_id, lambda ok, detail: self.automation_view.set_workflow_detail(detail) if ok and self._state("_automation_view_id") == view_id else None)
+                    hub.detail(view_id, lambda ok, detail: self._on_automation_detail(view_id, ok, detail))
 
     def _automation_turn_card(self, role: str, content: str, ts: str, bubble_width: int) -> QWidget:
         """An occurrence's task or answer, rendered by the conversation's own
@@ -6728,7 +6728,7 @@ class AssistantPalette(QMainWindow):
             self._automations.mark_seen(summary)
 
         self._automations.load_occurrences(aid, loaded)
-        self._automations.detail(aid, lambda ok, detail: view.set_workflow_detail(detail) if ok and self._state("_automation_view_id") == aid else None)
+        self._automations.detail(aid, lambda ok, detail: self._on_automation_detail(aid, ok, detail))
 
     def _close_automation_view(self) -> None:
         self._automation_view_id = ""
@@ -6820,6 +6820,42 @@ class AssistantPalette(QMainWindow):
         schema = self._controller.gateway.workflow_input_schema(bundle, flow, version)
         return {**target, "input_data": prepare_workflow_input(schema, target.get("input_data") or {})}
 
+    def _on_automation_detail(self, aid: str, ok: bool, detail: Any) -> None:
+        """The open automation's detail: its workflow line and its one line
+        "Workspaces: <summary>" (R13.2; the gateway's dry run for the stored
+        payload, read off the GUI thread)."""
+        if not ok or self._state("_automation_view_id") != aid or not isinstance(detail, dict):
+            return
+        view = self.automation_view
+        view.set_workflow_detail(detail)
+        from .ui.automation_workspaces import automation_workspace
+
+        value = automation_workspace(detail.get("definition"))
+        controller = self._controller
+        self._automations.run(
+            lambda: controller.workspace_dry_run(value),
+            lambda ok2, effective: view.set_workspaces_summary(str(effective.get("summary") or ""))
+            if ok2 and isinstance(effective, dict) and self._state("_automation_view_id") == aid
+            else None,
+        )
+
+    def _load_run_workspaces(self, host: Any, value: Any) -> None:
+        """A Workspaces section (schedule sheet / Edit box): the gateway's dry
+        run for its value, read off the GUI thread, then shown; each later
+        change is dry-run by the section itself."""
+        from .ui.settings.workspace_chooser import WORKSPACE_CHOOSER_TEXT, refusal
+
+        controller = self._controller
+        host.set_dry_run(controller.workspace_dry_run)
+
+        def shown(ok: bool, effective: Any) -> None:
+            if ok and isinstance(effective, dict):
+                host.show_value(value, effective)
+            else:  # the gateway's sentence (nothing was being saved)
+                host.show_value(value, None, refusal(effective).replace(f" {WORKSPACE_CHOOSER_TEXT['notSaved']}", ""))
+
+        self._automations.run(lambda: controller.workspace_dry_run(value), shown)
+
     def _load_automation_edit(self) -> None:
         aid = self._state("_automation_view_id", "")
         def loaded(ok: bool, detail: Any) -> None:
@@ -6831,6 +6867,7 @@ class AssistantPalette(QMainWindow):
             def inventory_loaded(ok2: bool, inventory: Any) -> None:
                 if self._state("_automation_view_id") == aid:
                     self.automation_view.set_edit_definition(detail, inventory if ok2 else {})
+                    self._load_run_workspaces(self.automation_view.edit_workspaces, self.automation_view.edit_workspace_base)
                     def workflows_loaded(ok3: bool, rows: Any) -> None:
                         if self._state("_automation_view_id") == aid:
                             self.automation_view.edit_workflow.set_workflows(rows if ok3 else [], self.automation_view.edit_target or {})
@@ -6966,6 +7003,7 @@ class AssistantPalette(QMainWindow):
                 lambda: controller.tool_inventory(),
                 lambda ok_tools, inventory: sheet.tool_picker.configure(inventory if ok_tools else {}, sheet.tool_picker.selection),
             )
+            self._load_run_workspaces(sheet.workspaces, None)
             sheet.standalone = bool(standalone)
             if standalone:
                 sheet.setWindowTitle("New automation")

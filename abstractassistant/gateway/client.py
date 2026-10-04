@@ -1187,6 +1187,21 @@ class GatewayClient:
             label="effective workspaces failed",
         )
 
+    def workspace_dry_run(self, workspace: Optional[Dict[str, Any]], account: str = "me") -> Dict[str, Any]:
+        """``POST /workspace/effective/{account} {workspace}`` (round 11 dry
+        run): what a run with this payload would get (``null`` = what a run
+        gets without one: session > account > gateway), nothing stored. A
+        refused payload raises GatewayHttpError whose ``body_text`` carries the
+        gateway's sentence (``detail.message``)."""
+        from urllib.parse import quote
+
+        return self._request_json(
+            method="POST",
+            url=self._url(f"/api/gateway/workspace/effective/{quote(str(account or 'me'), safe='')}"),
+            body={"workspace": dict(workspace) if isinstance(workspace, dict) else None},
+            label="workspaces refused",
+        )
+
     def get_capability_defaults(self) -> Dict[str, Any]:
         return self._request_json(
             method="GET",

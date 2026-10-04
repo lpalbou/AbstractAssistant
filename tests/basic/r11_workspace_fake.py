@@ -44,6 +44,7 @@ class FakeWorkspaceGateway:
         self.refuse: str = ""
         self.can_edit = True
         self.fetches = 0
+        self.dry_runs: List[Optional[Dict[str, Any]]] = []
 
     # ---------------------------------------------------------------- rules
     def cap(self, path: str) -> Optional[str]:
@@ -120,6 +121,15 @@ class FakeWorkspaceGateway:
             "account_default": self._effective(self._account_level()),
             "effective": self._effective(level),
         }
+
+    def dry_run(self, value: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """``POST /workspace/effective/me {workspace}`` (round 13 callers): a
+        payload is validated like a stored level (refusal = GatewayHttpError
+        with the gateway's sentence); None = what a run gets (account level)."""
+        self.dry_runs.append(copy.deepcopy(value))
+        if value is None:
+            return self._effective(self._account_level())
+        return self._effective(dict(self._validate(value), _source="run"))
 
     # ------------------------------------------------ controller surface
     def workspace_policy(self) -> Dict[str, Any]:
