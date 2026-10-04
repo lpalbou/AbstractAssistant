@@ -377,6 +377,7 @@ class RouteOverrideEditor(QWidget):
         # The list narrows with the dialog, so a name that fits at one width
         # wraps at another: re-measure instead of trusting the first pass.
         self._fit_list_height()
+        self._elide_reasoning_note()
 
     def rows(self) -> List[CapabilityRouteRow]:
         return list(self._route_rows)
@@ -766,9 +767,17 @@ class RouteOverrideEditor(QWidget):
     def _set_reasoning_note(self, text: str) -> None:
         """One elided line on screen, the whole sentence in the tooltip."""
         full = str(text or "")
+        self._reasoning_full = full
         self.reasoning_note.setToolTip(full)
+        self._elide_reasoning_note()
+
+    def _elide_reasoning_note(self) -> None:
+        """Elide against the label's REAL width, again on every resize: before
+        layout the label reports a placeholder width, so a one-shot elide
+        clipped the line with no "…" once it was laid out narrower."""
+        full = str(getattr(self, "_reasoning_full", "") or "")
         metrics = QFontMetrics(self.reasoning_note.font())
-        width = max(120, self.reasoning_note.width() or 320)
+        width = max(40, self.reasoning_note.contentsRect().width())
         self.reasoning_note.setText(metrics.elidedText(full, Qt.ElideRight, width))
 
     def _effective_chat_route(self) -> Dict[str, str]:
@@ -841,7 +850,7 @@ class RouteOverrideEditor(QWidget):
         else:
             self._feedback("Could not save the reasoning effort.", tone="error")
         prefs = _prefs(self._controller)
-        self.reasoning_note.setText(self._reasoning_caption(str(safe_attr(prefs, "reasoning_effort", value) or "")))
+        self._set_reasoning_note(self._reasoning_caption(str(safe_attr(prefs, "reasoning_effort", value) or "")))
 
     def _refresh_speculation(self) -> None:
         self._speculation_epoch += 1

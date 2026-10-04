@@ -210,7 +210,7 @@ def test_reasoning_belongs_to_the_chat_model_not_the_page() -> None:
     assert combo.currentData() == ""  # gateway default until chosen
     editor._on_reasoning_changed("high")
     assert ctl.preferences.reasoning_effort == "high"
-    note = editor.reasoning_note.text()
+    note = editor.reasoning_note.toolTip()  # the full sentence; the label shows it elided
     assert "qwen/qwen3.8-27b" in note and "low, medium, xhigh" in note
     assert "Currently sending: High" in note
 

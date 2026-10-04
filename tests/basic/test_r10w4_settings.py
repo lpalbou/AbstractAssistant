@@ -485,3 +485,28 @@ def test_shortcut_and_window_size_apply_on_change_without_save(monkeypatch) -> N
     page.refresh()
     assert ctl.preferences.to_dict() == before
     assert isinstance(page.hotkey_edit, QLineEdit)
+
+
+@pytest.mark.basic
+def test_reasoning_note_is_elided_with_an_ellipsis_at_its_laid_out_width() -> None:
+    """Pre-existing (e73ee81), found by the adversary: the note was elided
+    against the label's pre-layout width and clipped with no "…"."""
+    from PyQt5.QtGui import QFontMetrics
+
+    for width in (820, 1000):
+        dlg, ctl = _dialog()
+        dlg.show()
+        tsp._app().processEvents()
+        dlg.setMinimumSize(0, 0)
+        dlg.setMaximumSize(16777215, 16777215)
+        dlg.setFixedSize(width, 760)
+        dlg.show_section("models", "output.text")
+        tsp._app().processEvents()
+        note = dlg.route_editor.reasoning_note
+        full = note.toolTip()
+        assert full.startswith("Applies to ")
+        shown = note.text()
+        fits = QFontMetrics(note.font()).horizontalAdvance(shown) <= note.contentsRect().width()
+        assert fits, (width, shown)
+        assert shown == full or shown.endswith("…"), (width, shown)
+        dlg.close()
