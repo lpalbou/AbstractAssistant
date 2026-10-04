@@ -30,6 +30,7 @@ from PyQt5.QtCore import QEvent, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QApplication,
+    QBoxLayout,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -935,6 +936,10 @@ class _WorkspaceLevel:
         self.add_field: Optional[_PathField] = None
         self.choose_button: Optional[QPushButton] = None
         self.add_button: Optional[QPushButton] = None
+        # Narrow hosts (the automation forms, R13.2): the posture options
+        # stacked, each workspace's modes under its path, the add buttons
+        # under the field — the same controls and words, no clipping.
+        self.compact = False
 
     # ------------------------------------------------------------ data
 
@@ -1008,6 +1013,11 @@ class _WorkspaceLevel:
         posture.set_tooltips({p: workspace_posture_help(p) for p in WORKSPACE_POSTURES})
         posture.changed.connect(lambda value: value != policy["posture"] and self.put(workspace_posture_body(policy, value)))
         posture.setEnabled(editable)
+        if self.compact:
+            posture.layout().setDirection(QBoxLayout.TopToBottom)
+            posture.layout().setSpacing(4)
+            for option in posture._buttons:
+                option.setProperty("segment", "only")
         self.posture_control = posture
         self.editor_layout.addWidget(posture)
 
@@ -1020,7 +1030,7 @@ class _WorkspaceLevel:
         for row in rows:
             line = QWidget()
             line.setProperty("workspace", "row")
-            box = QHBoxLayout(line)
+            box = QHBoxLayout()
             box.setContentsMargins(0, 0, 0, 0)
             box.setSpacing(6)
             path = QLabel(row["path"])
@@ -1028,7 +1038,15 @@ class _WorkspaceLevel:
             path.setWordWrap(True)
             path.setTextInteractionFlags(Qt.TextSelectableByMouse)
             path.setMinimumWidth(40)
-            box.addWidget(path, 1)
+            if self.compact:
+                outer = QVBoxLayout(line)
+                outer.setContentsMargins(0, 0, 0, 0)
+                outer.setSpacing(4)
+                outer.addWidget(path)
+                outer.addLayout(box)
+            else:
+                line.setLayout(box)
+                box.addWidget(path, 1)
             cap = workspace_cap_for(effective, row["path"])
             allowed = workspace_allowed_modes(cap)
             control = SegmentedControl(_mode_options(WORKSPACE_MODES))
@@ -1052,6 +1070,8 @@ class _WorkspaceLevel:
                 remove.clicked.connect(lambda _c=False, p=row["path"]: self.put(workspace_remove_body(policy, p)))
                 box.addWidget(remove, 0)
                 self.remove_buttons[row["path"]] = remove
+            if self.compact:
+                box.addStretch(1)
             self.editor_layout.addWidget(line)
 
         if posture_now == "any_except_denied":
@@ -1087,7 +1107,12 @@ class _WorkspaceLevel:
         field.textChanged.connect(self._set_draft)
         field.returnPressed.connect(self._add_typed)
         field.escaped.connect(self._clear_draft)
-        box.addWidget(field, 1)
+        if self.compact:
+            # The field on its own line, the buttons under it.
+            self.editor_layout.addWidget(field)
+            box.addStretch(1)
+        else:
+            box.addWidget(field, 1)
         self.choose_button = button(WT["choose"], "secondary", on_click=self._choose)
         self.choose_button.setVisible(self.page._gateway_local)
         box.addWidget(self.choose_button, 0)

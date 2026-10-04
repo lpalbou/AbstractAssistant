@@ -100,8 +100,24 @@ The window carries the same content as the AbstractCode and AbstractObserver sch
   the previous runs).
 - **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Run without asking** (the default; the line under it reads "Tools run without asking (you approve them now by creating this automation).") or **Ask me before each tool call (the run waits for you)**. See
   [Tool consent](#tool-consent).
+- **Workspaces** (visible, after Tools): the same chooser as Settings → Workspace, the gateway
+  console, AbstractCode and AbstractObserver, at the run level. "Gateway: …" on top (the eligible
+  workspaces, verbatim), **Use my default** (on: your account's default workspaces apply), the
+  posture (**Deny everything, allow listed workspaces** / **Allow everything, refuse listed
+  workspaces**), each workspace with **Read & write** / **Read-only** / **Refused** (a mode above
+  the gateway's cap is disabled, with "The gateway allows this workspace read-only" as its
+  tooltip) and a remove icon, **Add a workspace path** with **Choose…** (when the gateway runs on
+  this Mac) and **Add**, and the effective line. Each change is checked by the gateway (`POST
+  /api/gateway/workspace/effective/me`, nothing stored); a refused one shows the gateway's sentence
+  with "Not saved." and the choice stays as it was. **Create automation** stores the choice in the
+  definition (`target.input_data.workspace`); the gateway clamps it to the eligible workspaces at
+  each run. With **Use my default** on, nothing is stored and each run uses your default at that
+  time. In this narrow window the two postures are stacked and each workspace's modes sit under
+  its path.
 - **Mailbox**: **Email result** and **Recipients: Only me (default) /
   Me and these addresses** (see [Email automations](#email-automations)).
+
+Every section is visible: the window has no "Advanced" part.
 
 A line under the form previews the schedule ("Runs every 8 hours (UTC), first run now.") or says
 what is missing. **Create automation** is enabled once the form is complete and the gateway offers
@@ -162,7 +178,9 @@ Click a row in the Automations tab. The palette shows the automation in place of
 conversation, and **← Chat** returns to it.
 
 The header gives the title and one line with the cadence, status, next run, context mode and run
-count. Below it, a highlighted block lists what is new ("New · #12 Price above threshold",
+count, then the workflow and the automation's workspaces in one line, **Workspaces: <summary>**
+(the gateway's summary for the stored choice, or for your default when it uses your default,
+verbatim). Below it, a highlighted block lists what is new ("New · #12 Price above threshold",
 "Failed · #9") and how many runs are waiting for you.
 
 Each run reads as a pair of chat turns, oldest at the top, newest in view:
@@ -190,7 +208,7 @@ stay counted until you answer them.
 | **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
 | **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
-| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`), context mode, workflow, tool selection and result-email recipients, inline. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
 | **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared

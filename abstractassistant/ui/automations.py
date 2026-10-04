@@ -992,6 +992,7 @@ class AutomationView(QFrame):
 
     def restyle(self) -> None:
         self.setStyleSheet(automation_row_qss())
+        self.edit_workspaces.restyle()
 
     # ------------------------------------------------------------ state
 
@@ -1684,6 +1685,7 @@ class ScheduleSheet(QDialog):
 
     def restyle(self) -> None:
         self.setStyleSheet(dialog_stylesheet() + automation_row_qss())
+        self.workspaces.restyle()
         self._render_email_notice()
 
     # The tallest the sheet may be: a 13" laptop's usable height, or less on a smaller screen.

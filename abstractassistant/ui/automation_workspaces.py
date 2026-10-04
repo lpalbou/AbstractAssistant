@@ -110,8 +110,10 @@ class RunWorkspaces(QObject):
         self._dry_run: Optional[DryRun] = None
         self.value: Optional[Dict[str, Any]] = None
         self.level = _WorkspaceLevel(self, "run", TITLE, WT["runHelp"], WT["useDefault"], WT["useDefaultHelp"])  # type: ignore[arg-type]
+        self.level.compact = True  # the automation forms are narrow (the sheet's minimum, the palette)
         self.card = self.level.card
         self.card.setProperty("workspaceLevel", "run")
+        self.restyle()
         self.level.load({"error": "Connect to your gateway to choose workspaces."})
         self.changed.connect(self._accepted)
 
@@ -119,6 +121,14 @@ class RunWorkspaces(QObject):
         # A draft, not stored: the level's "Saved" would be untrue here.
         self.level.status = None
         self.level.render()
+
+    def restyle(self) -> None:
+        """The Settings page's look for this card (segments, rows, notes): the
+        sheet and the palette around an automation do not carry it."""
+        from .settings.dialog import build_settings_qss
+        from .styles import dialog_stylesheet
+
+        self.card.setStyleSheet(dialog_stylesheet() + build_settings_qss())
 
     # The _WorkspaceLevel "page" interface -------------------------------------
 
