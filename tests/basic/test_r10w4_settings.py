@@ -404,13 +404,16 @@ def test_accessibility_state_is_shown_and_configure_asks_macos(monkeypatch) -> N
     assert page.accessibility_configure.toolTip()
     help_label = page._accessibility_row.help_label
     assert help_label.text() == "Works anywhere once macOS grants Accessibility access; otherwise use the menu bar icon."
+    dlg.show()
+    tsp._app().processEvents()
     page.accessibility_configure.click()
     assert oracle.requests == 1 and oracle.opens == 1
     assert "updates when you come back" in page.feedback.text()
-    # The user grants it in System Settings and comes back to the app.
+    # The user grants it in System Settings; nothing changes until the
+    # Settings window is activated again.
     oracle.granted = True
-    dlg.show()
     tsp._app().processEvents()
+    assert page.accessibility_state.text() == "Not granted"
     from PyQt5.QtCore import QEvent
     from PyQt5.QtWidgets import QApplication
 
