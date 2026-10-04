@@ -171,7 +171,7 @@ def test_a_failed_save_flips_the_switch_back_and_says_so() -> None:
     page = dlg.page_voice
     page.voice_spoken_replies.click()
     assert page.voice_spoken_replies.isChecked() is True  # back to the stored value (default on)
-    assert page.feedback.text() == "Could not save the voice settings." and page.feedback.property("tone") == "error"
+    assert page.feedback.text() == "Not saved. The voice settings could not be stored." and page.feedback.property("tone") == "error"
     dlg.deleteLater()
 
 

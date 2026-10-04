@@ -1126,27 +1126,65 @@ class GatewayClient:
         )
 
     def workspace_account_policy(self, account: str = "me") -> Dict[str, Any]:
-        """``GET /workspace/policy/{account}`` (round 9; ``me`` = the caller):
-        ``{policy: {enabled_folders, own_folders}, gateway, effective}``."""
+        """``GET /workspace/policy/{account}`` (round 11; ``me`` = the caller):
+        ``{account, configured, posture, default_mode, folders: [{path, mode}]}``."""
         from urllib.parse import quote
 
         return self._request_json(
             method="GET",
             url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
-            label="workspace folders failed",
+            label="workspaces failed",
         )
 
     def put_workspace_account_policy(self, body: Dict[str, Any], account: str = "me") -> Dict[str, Any]:
-        """``PUT /workspace/policy/{account}`` with ``{enabled_folders?, own_folders?}``;
-        the answer is the same shape as the GET. A refused folder raises
-        GatewayHttpError whose ``body_text`` is the gateway's sentence."""
+        """``PUT /workspace/policy/{account}`` with ``{configured, posture,
+        default_mode, folders}`` or ``{configured: false}``. A refused change
+        raises GatewayHttpError whose ``body_text`` is the gateway's sentence."""
         from urllib.parse import quote
 
         return self._request_json(
             method="PUT",
             url=self._url(f"/api/gateway/workspace/policy/{quote(str(account or 'me'), safe='')}"),
             body=dict(body or {}),
-            label="workspace folders not saved",
+            label="workspaces not saved",
+        )
+
+    def session_workspaces(self, session_id: str) -> Dict[str, Any]:
+        """``GET /sessions/{id}/workspaces`` (round 11): the conversation's own
+        subset, same shape as the account level (configured false = the
+        account default)."""
+        from urllib.parse import quote
+
+        return self._request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/sessions/{quote(str(session_id), safe='')}/workspaces"),
+            label="chat workspaces failed",
+        )
+
+    def put_session_workspaces(self, session_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        """``PUT /sessions/{id}/workspaces``; stored by the gateway on the session."""
+        from urllib.parse import quote
+
+        return self._request_json(
+            method="PUT",
+            url=self._url(f"/api/gateway/sessions/{quote(str(session_id), safe='')}/workspaces"),
+            body=dict(body or {}),
+            label="chat workspaces not saved",
+        )
+
+    def workspace_effective(self, account: str = "me", session_id: str = "") -> Dict[str, Any]:
+        """``GET /workspace/effective/{account}[?session=<id>]``: what applies,
+        with each row's cap, ``summary`` and ``gateway_summary``."""
+        from urllib.parse import quote
+
+        sid = str(session_id or "").strip()
+        return self._request_json(
+            method="GET",
+            url=self._url(
+                f"/api/gateway/workspace/effective/{quote(str(account or 'me'), safe='')}",
+                {"session": sid} if sid else None,
+            ),
+            label="effective workspaces failed",
         )
 
     def get_capability_defaults(self) -> Dict[str, Any]:

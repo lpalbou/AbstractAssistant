@@ -56,7 +56,7 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Stream the reply while the model writes it (on) or not (off). Default: the "
-            "'Stream replies' setting saved in the app (gateway default unless changed). "
+            "app's 'Stream replies' switch (on unless switched off in Settings). "
             "Live text goes to stderr; the final answer is printed once on stdout."
         ),
     )
@@ -109,8 +109,8 @@ def _approve_tool_batch(tool_calls: List[Dict[str, Any]]) -> bool:
     return ans in {"y", "yes"}
 
 
-def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]:
-    """`--stream on|off` wins; else the saved preference (absent = gateway default)."""
+def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> bool:
+    """`--stream on|off` wins; else the app's "Stream replies" switch (on by default)."""
     if flag == "on":
         return True
     if flag == "off":
@@ -118,21 +118,21 @@ def _stream_choice(flag: Optional[str], scope: Dict[str, Any]) -> Optional[bool]
     if flag is not None:
         raise ValueError(f"--stream must be on or off, not {flag!r}")
     value = scope.get("stream")
-    return value if isinstance(value, bool) else None
+    return value is not False
 
 
-def _gated_stream(choice: Optional[bool], *, advertised: Optional[bool], explicit: bool) -> Optional[bool]:
-    """`_runtime.stream: false` is always sent; `true` only to a gateway that
+def _gated_stream(choice: bool, *, advertised: Optional[bool], explicit: bool) -> bool:
+    """`_runtime.stream` is always sent (R11.4): `true` only to a gateway that
     advertises live replies (an older runtime would stream internally with no
-    live events and can lose usage accounting). A withheld "on" says so on
-    stderr, whether it came from `--stream on` or the saved setting.
+    live events and can lose usage accounting), `false` otherwise. A withheld
+    "on" says so on stderr, whether it came from `--stream on` or the switch.
     """
     if choice is not True or advertised is True:
-        return choice
+        return bool(choice)
     why = "does not offer live replies" if advertised is False else "could not be asked whether it offers live replies"
-    source = "--stream on" if explicit else "Stream replies: On"
+    source = "--stream on" if explicit else "Stream replies"
     sys.stderr.write(f"[{source} not sent: this gateway {why}; the answer is printed when it is finished]\n")
-    return None
+    return False
 
 
 class LiveDeltaPrinter:

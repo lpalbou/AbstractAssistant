@@ -10,7 +10,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLabel
 
 from abstractassistant.gateway_service import CapabilityRouteRow, ChoiceItem
 from abstractassistant.preferences import AssistantPreferences
@@ -90,61 +90,21 @@ class _Controller:
     def model_capabilities(self, model):
         return {"thinking_support": True, "reasoning_levels": ["low", "medium", "xhigh"]}
 
-    workspace_state = {
-        "policy": {"account": "default:me", "default_mode": None, "folders": []},
-        "gateway": {
-            "shared_workspace": "/srv/gw/workspaces",
-            "posture": "allowed_only",
-            "default_mode": "rw",
-            "folders": [{"path": "/data/project", "mode": "rw"}, {"path": "/archive", "mode": "ro"}],
-        },
-        "effective": {
-            "account": "default:me",
-            "posture": "allowed_only",
-            "default_mode": None,
-            "shared_workspace": "/srv/gw/workspaces",
-            "folders": [
-                {"path": "/srv/gw/workspaces", "mode": "rw", "source": "shared"},
-                {"path": "/data/project", "mode": "rw", "source": "gateway"},
-                {"path": "/archive", "mode": "ro", "source": "gateway"},
-            ],
-            "summary": "Deny everything, allow listed workspaces · Shared workspace (rw) · /data/project (rw) · /archive (ro)",
-        },
-    }
-    workspace_puts: list = []
-    workspace_refuse: str = ""
+    # Round 11: the account and chat workspace levels (a fake of the gateway).
+    _workspace_fake = None
+
+    def _workspaces(self):
+        if self._workspace_fake is None:
+            from r11_workspace_fake import FakeWorkspaceGateway
+
+            self._workspace_fake = FakeWorkspaceGateway()
+        return self._workspace_fake
 
     def workspace_policy(self):
-        return {"state": self.workspace_state, "error": ""}
+        return self._workspaces().workspace_policy()
 
-    def put_workspace_folders(self, body):
-        self.workspace_puts.append(dict(body))
-        if self.workspace_refuse:
-            from abstractassistant.gateway.client import GatewayHttpError
-
-            raise GatewayHttpError(f"workspace folders not saved: {self.workspace_refuse}", status=400, body_text=self.workspace_refuse)
-        import copy
-
-        state = copy.deepcopy(self.workspace_state)
-        if "folders" in body:
-            state["policy"]["folders"] = [dict(r) for r in body["folders"]]
-            rules = {r["path"]: r["mode"] for r in body["folders"]}
-            for f in state["effective"]["folders"]:
-                admin = next((g["mode"] for g in state["gateway"]["folders"] if g["path"] == f["path"]), f["mode"])
-                f["mode"] = rules.get(f["path"], admin) if f["source"] != "shared" else "rw"
-            known = {f["path"] for f in state["effective"]["folders"]}
-            for r in body["folders"]:
-                if r["path"] not in known:
-                    state["effective"]["folders"].append({"path": r["path"], "mode": r["mode"], "source": "account"})
-        if "default_mode" in body:
-            state["policy"]["default_mode"] = body["default_mode"]
-            if state["gateway"]["posture"] == "any_except_denied":
-                state["effective"]["default_mode"] = body["default_mode"] or state["gateway"]["default_mode"]
-        self.workspace_state = state
-        return state
-
-    def workspace_root_status(self):
-        return {"root": self.preferences.workspace_root, "source": "local" if self.preferences.workspace_root else "gateway"}
+    def put_workspace_policy(self, level, body, session_id=""):
+        return self._workspaces().put_workspace_policy(level, body, session_id=session_id)
 
     def tool_inventory(self):
         return {
@@ -271,18 +231,15 @@ def test_mtp_selector_preserves_off_and_rejects_stale_discovery(tmp_path) -> Non
 
 
 @pytest.mark.basic
-def test_workspace_page_run_folder_is_a_device_preference() -> None:
+def test_workspace_page_has_no_run_workspace_row() -> None:
+    """R11: the private workspace is automatic; no device run-workspace field."""
     dlg, ctl = _dialog()
     page = dlg.page_workspace
     dlg.show_section("workspace")
-    page.workspace_root_edit.setText("relative/dir")
-    page._save()
-    assert "absolute" in page.feedback.text().lower()
-    page.workspace_root_edit.setText("~/site")
-    page._save()
-    assert ctl.preferences.workspace_root.endswith("/site") and ctl.preferences.workspace_root.startswith("/")
-    assert "Next run works in your workspace" in page.current_note.text()
+    assert not hasattr(page, "workspace_root_edit") and not hasattr(page, "current_note")
     assert not hasattr(page, "workspace_mode_combo") and not hasattr(page, "workspace_allowed_list")
+    titles = [label.text() for label in page.findChildren(QLabel, "cardTitle")]
+    assert titles == ["My default workspaces", "This chat"]
 
 
 @pytest.mark.basic

@@ -149,66 +149,8 @@ def test_mtp_notes_are_the_kit_sentences() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 2. Voice tab: engines read-only, "Change under Models"
-
-
-@pytest.mark.basic
-def test_voice_tab_shows_the_gateway_engines_read_only_from_voice_defaults() -> None:
-    dlg, ctl = _dialog()
-    dlg.show_section("voice")
-    page = dlg.page_voice
-    assert page.tts_summary.text() == "Gateway default · supertonic / supertonic-3"
-    assert page.stt_summary.text() == "Gateway default · faster-whisper / large-v3"
-    assert "openai" not in page.tts_summary.text() + page.stt_summary.text()
-    # No engine controls on this page: the only lists are the output device,
-    # voice latency and barge-in; no provider / model / voice picker.
-    combos = page.findChildren(QComboBox)
-    assert set(combos) == {page.output_device_combo, page.voice_quality_combo, page.voice_mode_combo}
-    labels = {b.text() for b in page.findChildren(QPushButton)}
-    assert labels == {"Change under Models", "Test"}
-    assert page.tts_link.objectName() == "linkButton" and page.stt_link.objectName() == "linkButton"
-    assert page.tts_link.toolTip() and page.stt_link.toolTip()
-    # Kept: output device + Test, Playing on, Read aloud, Voice latency, dictation options.
-    assert page.device_summary.text().startswith("MacBook Pro Speakers")
-    assert page.auto_speak.text() == "Speak replies automatically"
-    assert page.voice_auto_send.text() == "Send what you say automatically"
-    assert page.voice_spoken_replies.text() == "Ask for short, spoken-style replies"
-    assert page.voice_mode_combo.itemText(0) == "Pause the mic while speaking"
-
-
-@pytest.mark.basic
-def test_change_under_models_lands_on_the_models_voice_route() -> None:
-    dlg, ctl = _dialog()
-    ctl_routes = dict(tsp._Controller.route_map(ctl))
-    from abstractassistant.gateway_service import CapabilityRouteRow
-
-    ctl_routes["output.voice"] = CapabilityRouteRow(key="output.voice", label="Voice output", kind="output", modality="voice", task="", provider="supertonic", model="supertonic-3", configured=True)
-    ctl.route_map = lambda **kw: ctl_routes  # type: ignore[method-assign]
-    dlg.refresh()
-    dlg.show_section("voice")
-    dlg.page_voice.tts_link.click()
-    assert dlg.current_section() == "models"
-    assert dlg.route_editor._active_row().key == "output.voice"
-    dlg.show_section("voice")
-    dlg.page_voice.stt_link.click()
-    assert dlg.current_section() == "models"
-    assert dlg.route_editor._active_row().key == "input.voice"
-
-
-@pytest.mark.basic
-def test_voice_engine_summary_states() -> None:
-    from abstractassistant.ui.settings.pages import VoicePage
-
-    s = VoicePage.engine_summary
-    assert s(LIVE_VOICE_DEFAULTS, "tts", None)[0] == "Gateway default · supertonic / supertonic-3"
-    override = {"provider": "kokoro", "model": "kokoro-82m", "options": {"voice": "af_heart"}}
-    assert s(LIVE_VOICE_DEFAULTS, "tts", override)[0] == "kokoro / kokoro-82m · voice af_heart — this app"
-    unset = {"stt": {"route": "input.voice", "configured": False, "provider": None, "model": None, "note": "No gateway default is set for speech to text."}}
-    text, tip = s(unset, "stt", None)
-    assert text == "Gateway default · not set" and tip.startswith("No gateway default")
-    text, tip = s({"error": "connection refused"}, "stt", None)
-    assert text == "Gateway default · unknown" and "connection refused" in tip
-    assert s(None, "tts", None)[0] == "Gateway default · unknown"
+# 2. Voice tab: the "Engines" card is gone (R11.5, test_r11w4_settings.py);
+#    the controller still reads GET /voice/defaults for Models.
 
 
 @pytest.mark.basic
@@ -257,17 +199,15 @@ def _tools():
 
 
 @pytest.mark.basic
-def test_tool_categories_are_the_gateway_toolsets_collapsed_except_overrides() -> None:
+def test_tool_categories_are_the_gateway_toolsets_all_collapsed() -> None:
     dlg, ctl, page = _tools()
     assert set(page.groups) == {"files", "web", "camera", "comms"}
     files = page.groups["files"]
     assert files.toggle.text() == "files"
     assert files.count_chip.text() == "4"
-    # Collapsed by default …
-    for name in ("files", "web", "comms"):
+    # ALL collapsed by default (R11.5) — the one carrying an override too.
+    for name in ("files", "web", "comms", "camera"):
         assert not page.groups[name].is_open(), name
-    # … except the one carrying an override on this Mac.
-    assert page.groups["camera"].is_open()
     # Opening by hand is kept across a refresh.
     files.toggle.click()
     assert files.is_open()
@@ -334,10 +274,10 @@ def test_the_filter_searches_every_category_and_opens_the_ones_with_hits() -> No
     page.search_edit.setText("read_file")
     page.groups["files"].all_auto.click()
     assert page._rows["write_file"]["control"].value() == "ask"
-    # Cleared: every panel back, collapsed except the overrides.
+    # Cleared: every panel back, all collapsed again (R11.5).
     page.search_edit.setText("")
     assert all(g.isVisibleTo(page) for g in page.groups.values())
-    assert not page.groups["comms"].is_open() and page.groups["camera"].is_open()
+    assert not any(g.is_open() for g in page.groups.values())
     assert page.groups["files"].count_chip.text() == "4"
 
 

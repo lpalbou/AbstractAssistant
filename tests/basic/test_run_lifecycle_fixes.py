@@ -81,18 +81,15 @@ def test_llm_manager_remove_message_drops_only_the_named_turn(tmp_path: Path) ->
 
 
 @pytest.mark.basic
-def test_controller_run_scope_prefers_local_root_then_session_root_then_nothing() -> None:
+def test_controller_run_scope_sends_the_session_root_then_nothing() -> None:
+    """R11: no device run-workspace — a saved `workspace_root` is ignored; the
+    chat's private workspace (remembered from its first run) or nothing."""
     controller = object.__new__(AssistantController)
-    controller.preferences = AssistantPreferences()
+    controller.preferences = AssistantPreferences.from_dict({"workspace_root": "/Users/me/site"})
     controller.llm_manager = SimpleNamespace(session_workspace_root=lambda: "/gw/workspaces/one")
     assert controller.run_scope()["workspace_root"] == "/gw/workspaces/one"
     assert controller.workspace_root_status() == {"root": "/gw/workspaces/one", "source": "session"}
 
-    controller.preferences = AssistantPreferences(workspace_root="/Users/me/site")
-    assert controller.run_scope()["workspace_root"] == "/Users/me/site"
-    assert controller.workspace_root_status()["source"] == "local"
-
-    controller.preferences = AssistantPreferences()
     controller.llm_manager = SimpleNamespace(session_workspace_root=lambda: "")
     assert controller.run_scope()["workspace_root"] == ""
     assert controller.workspace_root_status() == {"root": "", "source": "gateway"}

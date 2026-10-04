@@ -152,6 +152,9 @@ def test_run_command_uses_catalog_workflow_without_client_prompt_cache(monkeypat
                 # from the session's prior turns server-side.
                 "use_session_history": True,
                 "_runtime": {
+                    # R11.4: always explicit — this fake gateway advertises
+                    # no live replies, so the switch's "on" goes as false.
+                    "stream": False,
                     "allowed_tools": ["web_search"],
                     "tool_policy": {
                         "auto_approve_tools": ["web_search"],

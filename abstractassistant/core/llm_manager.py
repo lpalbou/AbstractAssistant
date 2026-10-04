@@ -140,6 +140,14 @@ class LLMManager:
             return None
         return get_cached_assistant_capabilities(gw, force=bool(force), stale_ok=bool(stale_ok))
 
+    def peek_gateway_capabilities(self):
+        """The cached capabilities snapshot, or None — never fetches (see
+        ``peek_cached_assistant_capabilities``)."""
+        from ..gateway.capabilities import peek_cached_assistant_capabilities
+
+        gw = self.gateway_client()
+        return peek_cached_assistant_capabilities(gw) if gw is not None else None
+
     def _prefetch_gateway_capabilities(self) -> None:
         """Warm Gateway discovery off the UI/speech critical path."""
 

@@ -236,6 +236,17 @@ def _spawn_capabilities_refresh(gateway: Any) -> None:
             pass
 
 
+def peek_cached_assistant_capabilities(gateway: Any) -> Optional["AssistantCapabilities"]:
+    """The cached snapshot as it is — no fetch, no background refresh.
+
+    For per-turn reads on the GUI thread (the run's ``stream`` pin): they must
+    neither block on HTTP nor start a refresh thread on every message; the
+    snapshot is filled at startup (prefetch) and refreshed by the other readers.
+    """
+    cached = getattr(gateway, "_assistant_capabilities_cache", None)
+    return cached if isinstance(cached, AssistantCapabilities) else None
+
+
 def get_cached_assistant_capabilities(
     gateway: Any,
     *,

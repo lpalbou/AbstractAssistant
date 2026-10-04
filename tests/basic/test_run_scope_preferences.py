@@ -1,8 +1,10 @@
-"""Run scope preferences: reasoning effort + workspace grant + voice options.
+"""Run scope preferences: reasoning effort + reply streaming + voice options.
 
 These are LOCAL, PERSISTENT overrides of gateway defaults (the gateway stays
 the source of truth for what is configurable): they live in preferences.json
-and ride each run as input pins. Blank means "gateway default: send nothing".
+and ride each run as input pins. Blank means "gateway default: send nothing" —
+except streaming, which is app-specific and always explicit (R11.4). No
+workspace preference: the gateway holds the account and chat workspaces (R11).
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ def test_preferences_round_trip_keeps_run_scope_and_voice_fields(tmp_path: Path)
     store = PreferencesStore(tmp_path / "preferences.json")
     prefs = AssistantPreferences(
         reasoning_effort="high",
-        workspace_root="/Users/me/projects/site",
+        stream_replies="off",
         voice_auto_send=False,
         voice_spoken_replies=False,
     )
@@ -39,7 +41,7 @@ def test_preferences_round_trip_keeps_run_scope_and_voice_fields(tmp_path: Path)
     assert loaded == prefs
     assert loaded.run_scope() == {
         "thinking": "high",
-        "workspace_root": "/Users/me/projects/site",
+        "stream": False,
     }
 
 
@@ -47,12 +49,12 @@ def test_preferences_round_trip_keeps_run_scope_and_voice_fields(tmp_path: Path)
 def test_preferences_defaults_mean_gateway_defaults() -> None:
     prefs = AssistantPreferences.from_dict({})
     assert prefs.reasoning_effort == ""
-    assert prefs.workspace_root == ""
+    assert not hasattr(prefs, "workspace_root")  # R11: no run-workspace preference
     assert prefs.voice_auto_send is True
     assert prefs.voice_spoken_replies is True
     assert prefs.run_scope() == {
         "thinking": "",
-        "workspace_root": "",
+        "stream": True,  # "Stream replies" is on by default and always sent
     }
 
 
@@ -77,8 +79,9 @@ def test_workspace_paths_are_canonical_absolute_and_deduplicated(tmp_path: Path)
     assert normalize_workspace_path("/", home=home) == "/"
     assert normalize_workspace_path("   ", home=home) == ""
 
-    prefs = AssistantPreferences.from_dict({"workspace_root": "relative"})  # refused -> blank
-    assert prefs.workspace_root == ""
+    # An older preferences.json that saved a run workspace: ignored, never sent.
+    prefs = AssistantPreferences.from_dict({"workspace_root": "/Users/me/site"})
+    assert "workspace_root" not in prefs.to_dict() and "workspace_root" not in prefs.run_scope()
 
 
 @pytest.mark.basic
@@ -132,15 +135,16 @@ def test_controller_build_chat_worker_passes_run_scope_from_preferences(monkeypa
     prefs = AssistantPreferences(
         reasoning_effort="xhigh",
         speculation=False,
-        workspace_root="/Users/me/site",
     )
     controller = _controller_with_prefs(monkeypatch, captured, prefs)
+    controller.llm_manager = SimpleNamespace(session_workspace_root=lambda: "/gw/workspaces/session-abc")
 
     controller.build_chat_worker(prompt="Hello")
 
     assert captured["thinking"] == "xhigh"
     assert captured["speculation"] is False
-    assert captured["workspace_root"] == "/Users/me/site"
+    # The chat's own private workspace (the gateway's), never a device path.
+    assert captured["workspace_root"] == "/gw/workspaces/session-abc"
     assert "workspace_access_mode" not in captured and "workspace_allowed_paths" not in captured
 
 
@@ -165,7 +169,7 @@ def test_controller_update_preferences_keeps_untouched_fields(tmp_path: Path) ->
     controller.preferences = AssistantPreferences(
         route_overrides={"output.text": {"provider": "lmstudio", "model": "qwen3"}},
         reasoning_effort="low",
-        workspace_root="/srv/data",
+        stream_replies="off",
         tool_preferences={"read_file": "approve"},
     )
     controller.voice_manager = SimpleNamespace(set_quality_preset=lambda preset: None)
@@ -175,7 +179,7 @@ def test_controller_update_preferences_keeps_untouched_fields(tmp_path: Path) ->
     assert updated.auto_speak is True
     assert updated.route_overrides == {"output.text": {"provider": "lmstudio", "model": "qwen3"}}
     assert updated.reasoning_effort == "low"
-    assert updated.workspace_root == "/srv/data"
+    assert updated.stream_replies == "off"
     assert updated.tool_preferences == {"read_file": "approve"}
     assert controller.preferences_store.load() == updated
 
@@ -204,13 +208,17 @@ def test_controller_workspace_policy_is_tolerant() -> None:
     import threading
 
     controller._cache_lock = threading.RLock()
+    controller.llm_manager = SimpleNamespace(active_session_id="session-1")
     controller.gateway = SimpleNamespace(
         workspace_account_policy=lambda account="me": (_ for _ in ()).throw(RuntimeError("403 forbidden")),
+        session_workspaces=lambda sid: {"ok": True, "policy": {"configured": False}},  # an older shape
     )
     controller.gateway_service = SimpleNamespace(describe_connection_issue=lambda exc: str(exc))
 
     out = controller.workspace_policy()
 
-    assert out["state"] is None
-    assert "403" in out["error"]
+    assert out["account"]["state"] is None
+    assert "403" in out["account"]["error"]
+    assert out["session"]["state"] is None and out["session"]["session_id"] == "session-1"
+    assert "round-11 workspace model" in out["session"]["error"]
     assert not hasattr(controller, "workspace_access_modes")

@@ -848,7 +848,7 @@ class RouteOverrideEditor(QWidget):
             self._feedback("Saved on this device." if value else "Following the gateway default.")
             self.changed.emit()
         else:
-            self._feedback("Could not save the reasoning effort.", tone="error")
+            self._feedback("Not saved. The reasoning effort could not be stored.", tone="error")
         prefs = _prefs(self._controller)
         self._set_reasoning_note(self._reasoning_caption(str(safe_attr(prefs, "reasoning_effort", value) or "")))
 
@@ -900,7 +900,7 @@ class RouteOverrideEditor(QWidget):
             self._feedback("Saved on this device." if value is not None else "Following the gateway default.")
             self.changed.emit()
         else:
-            self._feedback("Could not save the MTP override.", tone="error")
+            self._feedback("Not saved. The MTP override could not be stored.", tone="error")
 
     def _feedback(self, text: str, *, tone: str = "") -> None:
         self.route_feedback.setText(str(text or ""))
@@ -986,7 +986,7 @@ class RouteOverrideEditor(QWidget):
                 options=self._merged_options(),
             )
         except Exception as exc:
-            self._feedback(f"Could not save this choice: {exc}", tone="error")
+            self._feedback(f"Not saved. {exc}", tone="error")
             return
         self._after_change(f"This app now uses {provider} / {model}.")
 

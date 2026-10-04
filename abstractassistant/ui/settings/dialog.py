@@ -167,7 +167,6 @@ class SettingsDialog(QDialog):
             self.nav.addItem(item)
             self.stack.addWidget(page)
             page.changed.connect(self._on_page_changed)
-        self.page_voice.navigate.connect(self.show_section)
         self.page_connection._status_ready.connect(self.page_connection._apply_status)
         self.nav.currentRowChanged.connect(self._on_nav_changed)
 

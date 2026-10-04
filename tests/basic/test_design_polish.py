@@ -207,7 +207,8 @@ def test_every_settings_page_puts_its_actions_in_the_footer() -> None:
     assert [b.text() for b in dlg.page_connection.actions()] == ["Reload status", "Sign out", "Connect"]
     # Voice: switches and choices only, each applied as it changes (no Save).
     assert [b.text() for b in dlg.page_voice.actions()] == []
-    assert [b.text() for b in dlg.page_workspace.actions()] == ["Save"]  # round 9: folders apply at once; Save = the run folder
+    # R11.5: no Save on any page — workspaces apply at once (one PUT per change).
+    assert [b.text() for b in dlg.page_workspace.actions()] == []
     # R10.4: no Save per section — a tool's mode and the window/shortcut
     # settings apply as they change.
     assert [b.text() for b in dlg.page_tools.actions()] == ["Use gateway defaults"]

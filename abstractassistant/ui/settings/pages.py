@@ -57,28 +57,35 @@ from ...preferences import (
     DEFAULT_WINDOW_WIDTH,
     REASONING_EFFORT_LEVELS,
     SCREEN_EDGE_GAP_RANGE,
-    STREAM_REPLIES_CHOICES,
-    STREAM_REPLIES_GATEWAY_DEFAULT,
     normalize_stream_replies,
     WINDOW_WIDTH_RANGE,
     WORKFLOW_GATEWAY_DEFAULT,
-    normalize_workspace_path,
 )
 from ...gateway_service import workflow_version_suffix
 from ...theme import THEME
 from ..switch import AfSwitch
 from .common import Card, Chip, Note, SegmentedControl, SettingsPage, button, safe_attr, safe_call
 from .route_editor import OVERRIDE_ROUTE_LABELS, RouteOverrideEditor
-from .workspace_folders import WORKSPACE_CHOOSER_TEXT as WT
-from .workspace_folders import account_view as workspace_account_view
-from .workspace_folders import add_row_body as workspace_add_row_body
-from .workspace_folders import default_mode_body as workspace_default_mode_body
-from .workspace_folders import folder_name as workspace_folder_name
-from .workspace_folders import mode_body as workspace_mode_body
-from .workspace_folders import mode_label as workspace_mode_label
-from .workspace_folders import posture_label as workspace_posture_label
-from .workspace_folders import refusal as workspace_refusal
-from .workspace_folders import remove_row_body as workspace_remove_row_body
+from .workspace_chooser import ACCOUNT_TITLE as WORKSPACE_ACCOUNT_TITLE
+from .workspace_chooser import MODES as WORKSPACE_MODES
+from .workspace_chooser import POSTURES as WORKSPACE_POSTURES
+from .workspace_chooser import SESSION_TITLE as WORKSPACE_SESSION_TITLE
+from .workspace_chooser import WORKSPACE_CHOOSER_TEXT as WT
+from .workspace_chooser import add_body as workspace_add_body
+from .workspace_chooser import allowed_modes as workspace_allowed_modes
+from .workspace_chooser import cap_for as workspace_cap_for
+from .workspace_chooser import cap_tooltip as workspace_cap_tooltip
+from .workspace_chooser import default_mode_body as workspace_default_mode_body
+from .workspace_chooser import follow_body as workspace_follow_body
+from .workspace_chooser import gateway_line as workspace_gateway_line
+from .workspace_chooser import mode_body as workspace_mode_body
+from .workspace_chooser import mode_label as workspace_mode_label
+from .workspace_chooser import own_body as workspace_own_body
+from .workspace_chooser import posture_body as workspace_posture_body
+from .workspace_chooser import posture_help as workspace_posture_help
+from .workspace_chooser import posture_label as workspace_posture_label
+from .workspace_chooser import refusal as workspace_refusal
+from .workspace_chooser import remove_body as workspace_remove_body
 
 
 def _prefs(controller: Any) -> Any:
@@ -128,13 +135,6 @@ def short_description(text: str, limit: int = _DESCRIPTION_MAX_CHARS) -> str:
         #[WARNING:TRUNCATION] one-line settings row; the tooltip carries the full text
         first = first[: limit - 1].rstrip(" ,;:") + "…"
     return first
-
-
-STREAM_REPLIES_LABELS = (
-    (STREAM_REPLIES_GATEWAY_DEFAULT, "Gateway default"),
-    ("on", "On"),
-    ("off", "Off"),
-)
 
 
 # =============================================================== Connection
@@ -358,17 +358,16 @@ class ModelsPage(SettingsPage):
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
 
-        # LIVE REPLIES (contract S): show the reply while the model writes it.
-        # "Gateway default" sends nothing, so the gateway's own setting
-        # (agents.streaming_default) decides; On/Off ride every run.
+        # LIVE REPLIES (R11.4): streaming is app-specific — a plain switch,
+        # on by default, sent as `_runtime.stream` true/false with every run.
+        # No "Gateway default": the gateway's own switch (Workflows → Settings
+        # → Streamed replies) is for clients that do not say.
         replies = self.add_card(
             Card("Replies", "Show the answer while the model writes it. The finished answer replaces the live text.")
         )
-        self.stream_combo = QComboBox()
-        for value, label in STREAM_REPLIES_LABELS:
-            self.stream_combo.addItem(label, value)
-        self.stream_combo.activated.connect(self._on_stream_chosen)
-        replies.add_row("Stream replies", self.stream_combo, stretch_control=False)
+        self.stream_switch = AfSwitch("Stream replies")
+        self.stream_switch.clicked.connect(self._on_stream_toggled)
+        replies.add_row("Streaming", self.stream_switch)
         self.stream_detail = QLabel("")
         self.stream_detail.setObjectName("rowHelp")
         self.stream_detail.setWordWrap(True)
@@ -390,59 +389,34 @@ class ModelsPage(SettingsPage):
         self.route_editor.refresh()
 
     def _refresh_stream(self) -> None:
-        current = normalize_stream_replies(safe_attr(_prefs(self.controller), "stream_replies", STREAM_REPLIES_GATEWAY_DEFAULT))
-        self.stream_combo.blockSignals(True)
+        on = normalize_stream_replies(safe_attr(_prefs(self.controller), "stream_replies", None)) == "on"
+        self.stream_switch.blockSignals(True)
         try:
-            self.stream_combo.setCurrentIndex(max(0, self.stream_combo.findData(current)))
+            self.stream_switch.setChecked(on)
         finally:
-            self.stream_combo.blockSignals(False)
+            self.stream_switch.blockSignals(False)
         self._show_stream_detail()
 
     def _show_stream_detail(self) -> None:
         block = safe_call(self.controller, "gateway_streaming", default=None)
         advertised = None if block is None else block.get("deltas") is True
-        default = block.get("default") if isinstance(block, dict) else None
-        self.stream_combo.setItemText(
-            0,
-            "Gateway default" + (" (On)" if default is True else " (Off)" if default is False else ""),
-        )
-        # "On" is sent only to a gateway that advertises live replies; the
-        # item stays listed (disabled, with the reason) — never hidden. "Off"
-        # and "Gateway default" always apply.
-        on_index = self.stream_combo.findData("on")
-        item = self.stream_combo.model().item(on_index) if on_index >= 0 else None
-        if item is not None:
-            item.setEnabled(advertised is True)
-            item.setText("On" if advertised is True else "On — not supported by this gateway")
-        choice = self.stream_combo.currentData()
-        if advertised is None:
-            text = (
-                "Not connected — whether this gateway supports live replies is not known yet; "
-                "On is sent only once it says it does."
-            )
+        if not self.stream_switch.isChecked():
+            text = "Replies appear when they are finished."
         elif advertised is False:
-            text = (
-                "On is not supported by this gateway: it does not offer live replies, so answers appear "
-                "when they are finished. Off is still sent."
-            )
-        elif choice == STREAM_REPLIES_GATEWAY_DEFAULT:
-            text = "The gateway's own streaming default decides (set by its admin)."
-        elif choice == "on":
-            text = "Every turn from this app streams its reply."
+            text = "This gateway does not offer live replies, so answers appear when they are finished."
+        elif advertised is None:
+            text = "Not connected — replies stream once the gateway says it offers live replies."
         else:
-            text = "Replies appear only when they are finished."
+            text = "Every reply from this app streams while the model writes it."
         self.stream_detail.setText(text)
 
-    def _on_stream_chosen(self, index: int) -> None:
-        value = self.stream_combo.itemData(index)
-        if value not in STREAM_REPLIES_CHOICES:
-            return
-        if not _update_prefs(self.controller, stream_replies=value):
-            self.say("Could not save the streaming choice.", tone="error")
+    def _on_stream_toggled(self, checked: bool) -> None:
+        if not _update_prefs(self.controller, stream_replies="on" if checked else "off"):
             self._refresh_stream()
+            self.say("Not saved. This device could not store the setting.", tone="error")
             return
         self._show_stream_detail()
-        self.say("Saved on this device — applies from the next turn.")
+        self.say("Replies stream." if checked else "Replies appear when finished.")
         self.changed.emit()
 
     def _on_routes_changed(self) -> None:
@@ -666,37 +640,13 @@ class VoicePage(SettingsPage):
     title = "Voice"
     subtitle = "Speech runs on the gateway; audio is captured and played on this Mac."
     icon = "audio-lines"
-    navigate = pyqtSignal(str, str)
 
     def __init__(self, controller: Any, route_editor: Optional[RouteOverrideEditor], parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
         self._route_editor = route_editor
 
-        # READ-ONLY (R10.4): the engines are chosen in ONE place, Models →
-        # Voice output (TTS) / Voice input (STT). This card names what applies
-        # — the gateway's default from GET /voice/defaults, or this app's
-        # override — and links there; it never re-configures an engine.
-        engines = self.add_card(Card("Engines", "Which engines speak and listen."))
-        self.tts_summary = QLabel("")
-        self.tts_summary.setObjectName("rowValue")
-        self.tts_summary.setWordWrap(True)
-        self.tts_link = button(
-            "Change under Models",
-            "link",
-            tooltip="Open Models → Voice output (TTS)",
-            on_click=lambda: self.navigate.emit("models", "output.voice"),
-        )
-        engines.add_row("Text → speech", self.tts_summary, trailing=[self.tts_link])
-        self.stt_summary = QLabel("")
-        self.stt_summary.setObjectName("rowValue")
-        self.stt_summary.setWordWrap(True)
-        self.stt_link = button(
-            "Change under Models",
-            "link",
-            tooltip="Open Models → Voice input (STT)",
-            on_click=lambda: self.navigate.emit("models", "input.voice"),
-        )
-        engines.add_row("Speech → text", self.stt_summary, trailing=[self.stt_link])
+        # No "Engines" card (R11.5): the speech engines are chosen in ONE
+        # place, Models → Voice output (TTS) / Voice input (STT).
         routes = self.add_card(Card("Output"))
         # WHICH SPEAKER. Until 2026-09-18 this row only NAMED the system default and
         # offered a shortcut to macOS Sound settings — and playback did not reliably
@@ -787,7 +737,7 @@ class VoicePage(SettingsPage):
                 switch.blockSignals(True)
                 switch.setChecked(not checked)
                 switch.blockSignals(False)
-                self.say("Could not save the voice settings.", tone="error")
+                self.say("Not saved. The voice settings could not be stored.", tone="error")
 
         switch.clicked.connect(apply)
 
@@ -804,36 +754,7 @@ class VoicePage(SettingsPage):
         self._reload_output_devices(announce=False)
         self._refresh_summaries()
 
-    @staticmethod
-    def engine_summary(defaults: Any, kind: str, override: Any) -> tuple:
-        """(text, tooltip) for one engine row, in the kit's words
-        (AfOverrideRow + voiceDefaultSummary): this app's override as
-        "provider / model — this app", else "Gateway default · provider /
-        model" from GET /voice/defaults — "not set" when the administrator set
-        none, "unknown" when the gateway could not be asked."""
-        if isinstance(override, dict) and str(override.get("provider") or "").strip():
-            value = " / ".join(p for p in (str(override.get("provider") or "").strip(), str(override.get("model") or "").strip()) if p)
-            options = override.get("options") if isinstance(override.get("options"), dict) else {}
-            voice = str(options.get("voice") or options.get("profile") or "").strip()
-            if voice and kind == "tts":
-                value += f" · voice {voice}"
-            return f"{value} — this app", "This app's choice, set under Models."
-        if not isinstance(defaults, dict) or defaults.get("error") or not isinstance(defaults.get(kind), dict):
-            reason = str((defaults or {}).get("error") or "") if isinstance(defaults, dict) else ""
-            return "Gateway default · unknown", (f"The gateway could not be asked: {reason}" if reason else "The gateway could not be asked.")
-        entry = defaults[kind]
-        route = " / ".join(p for p in (str(entry.get("provider") or "").strip(), str(entry.get("model") or "").strip()) if p)
-        if not entry.get("configured") or not route:
-            return "Gateway default · not set", str(entry.get("note") or "")
-        return f"Gateway default · {route}", ""
-
     def _refresh_summaries(self) -> None:
-        defaults = safe_call(self.controller, "voice_defaults", default=None)
-        for key, kind, label in (("output.voice", "tts", self.tts_summary), ("input.voice", "stt", self.stt_summary)):
-            override = safe_call(self.controller, "route_override", key, default=None)
-            text, tip = self.engine_summary(defaults, kind, override)
-            label.setText(text)
-            label.setToolTip(tip)
         voice = safe_attr(self.controller, "voice_manager", None)
         device = str(safe_call(voice, "output_device_label", default="") or "").strip()
         volume, muted = (None, None)
@@ -933,14 +854,14 @@ class VoicePage(SettingsPage):
             self.say("Saved on this device.")
             self.changed.emit()
         else:
-            self.say("Could not save the voice settings.", tone="error")
+            self.say("Not saved. The voice settings could not be stored.", tone="error")
 
 
 # ============================================================== Workspace
 
 
-class _FolderField(QLineEdit):
-    """The "My folders" field: Return adds (returnPressed), Escape clears."""
+class _PathField(QLineEdit):
+    """The "Add a workspace path" field: Return adds (returnPressed), Escape clears."""
 
     escaped = pyqtSignal()
 
@@ -953,17 +874,283 @@ class _FolderField(QLineEdit):
         super().keyPressEvent(event)
 
 
+def _mode_options(values) -> List[tuple]:
+    # "&" is a Qt mnemonic marker: "Read & write" needs "&&" on a button.
+    return [(v, workspace_mode_label(v).replace("&", "&&")) for v in values]
+
+
+class _WorkspaceLevel:
+    """One level of the WorkspaceChooser (R11.1 FINAL) as a Settings card:
+    "Gateway: <gateway_summary>" on top (verbatim), the state switch ("Follow
+    the gateway policy" for the account, "Use my default" for this chat),
+    then — while this level has its own subset — the posture, one row per
+    workspace (Read-only | Read & write | Refused, modes above the gateway's
+    cap disabled with the gateway's tooltip, remove), "Everything else" under
+    "Allow everything, refuse listed workspaces", the "Add a workspace path"
+    row with Choose…, and the effective line (verbatim) under it all.
+
+    Every change is ONE PUT through ``put(body)``; a refusal shows the
+    gateway's sentence + "Not saved." and the page re-renders what the
+    gateway holds. No policy logic: the gateway decides.
+    """
+
+    def __init__(self, page: "WorkspacePage", level: str, title: str, help_text: str, switch_label: str, switch_help: str) -> None:
+        self.page = page
+        self.level = level
+        self.state: Optional[Dict[str, Any]] = None
+        self.error = ""
+        self.status: Optional[tuple] = None  # (text, tone)
+        self.draft = ""
+        self.card = Card(title, help_text)
+        self.card.setProperty("workspaceLevel", level)
+        self.gateway_label = QLabel("")
+        self.gateway_label.setObjectName("rowHelp")
+        self.gateway_label.setWordWrap(True)
+        self.gateway_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.gateway_label.setProperty("workspace", "gateway-line")
+        self.card.add_widget(self.gateway_label)
+        self.load_note = Note("", "warning")
+        self.card.add_widget(self.load_note)
+        self.follow_switch = AfSwitch(switch_label)
+        self.follow_switch.setProperty("workspace", "follow")
+        self.follow_switch.clicked.connect(self._on_follow)
+        self.follow_row = self.card.add_row("", self.follow_switch, help_text=switch_help)
+        self.editor = QWidget()
+        self.editor_layout = QVBoxLayout(self.editor)
+        self.editor_layout.setContentsMargins(0, 0, 0, 0)
+        self.editor_layout.setSpacing(6)
+        self.card.add_widget(self.editor)
+        self.status_note = Note("", "ok")
+        self.card.add_widget(self.status_note)
+        self.effective_label = QLabel("")
+        self.effective_label.setObjectName("rowValue")
+        self.effective_label.setWordWrap(True)
+        self.effective_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.effective_label.setProperty("workspace", "effective")
+        self.card.add_widget(self.effective_label)
+        self.posture_control: Optional[SegmentedControl] = None
+        self.default_mode_control: Optional[SegmentedControl] = None
+        self.mode_controls: Dict[str, SegmentedControl] = {}
+        self.remove_buttons: Dict[str, QPushButton] = {}
+        self.add_field: Optional[_PathField] = None
+        self.choose_button: Optional[QPushButton] = None
+        self.add_button: Optional[QPushButton] = None
+
+    # ------------------------------------------------------------ data
+
+    def load(self, payload: Any) -> None:
+        payload = payload if isinstance(payload, dict) else {}
+        state = payload.get("state")
+        self.state = state if isinstance(state, dict) else None
+        self.error = str(payload.get("error") or "")
+        self.render()
+
+    def put(self, body: Dict[str, Any]) -> bool:
+        try:
+            self.state = self.page._put(self.level, body)
+        except Exception as exc:  # the gateway's sentence, verbatim
+            self.status = (workspace_refusal(exc), "error")
+            self.render()
+            return False
+        self.status = (WT["saved"], "ok")
+        self.render()
+        self.page.changed.emit()
+        return True
+
+    # ------------------------------------------------------------ render
+
+    def render(self) -> None:
+        WorkspacePage._clear(self.editor_layout)
+        self.posture_control = None
+        self.default_mode_control = None
+        self.mode_controls = {}
+        self.remove_buttons = {}
+        self.add_field = None
+        self.choose_button = None
+        self.add_button = None
+        text, tone = self.status or ("", "ok")
+        self.status_note.show_text(text, "error" if tone == "error" else "ok")
+        self.status_note.setProperty("workspace", "refusal" if tone == "error" else "saved")
+        if self.state is None:
+            self.gateway_label.setText("")
+            self.gateway_label.setVisible(False)
+            self.follow_row.setVisible(False)
+            self.editor.setVisible(False)
+            self.effective_label.setText("")
+            self.load_note.show_text(self.error or "The gateway did not answer.", "warning")
+            return
+        policy, effective = self.state["policy"], self.state["effective"]
+        locked = not bool(self.state.get("can_edit", True))
+        following = not policy["configured"]
+        # Following: show what applies (the level above, as the gateway
+        # computed it), read-only — the kit's view, not a hidden editor.
+        rows = [{"path": r["path"], "mode": r["mode"]} for r in effective["folders"]] if following else policy["folders"]
+        posture_now = effective["posture"] if following else policy["posture"]
+        default_now = effective["default_mode"] if following else policy["default_mode"]
+        editable = not following and not locked
+        self.load_note.show_text(WT["locked"] if locked else "", "info")
+        self.gateway_label.setVisible(True)
+        self.gateway_label.setText(workspace_gateway_line(effective))
+        self.follow_row.setVisible(True)
+        self.follow_switch.blockSignals(True)
+        self.follow_switch.setChecked(following)
+        self.follow_switch.blockSignals(False)
+        self.follow_switch.setEnabled(not locked)
+        self.effective_label.setText(effective["summary"])
+        self.editor.setVisible(True)
+
+        caption = QLabel(WT["postureLabel"])
+        caption.setObjectName("rowLabel")
+        self.editor_layout.addWidget(caption)
+        posture = SegmentedControl([(p, workspace_posture_label(p)) for p in WORKSPACE_POSTURES])
+        posture.setProperty("workspace", "posture")
+        posture.set_value(posture_now)
+        posture.set_tooltips({p: workspace_posture_help(p) for p in WORKSPACE_POSTURES})
+        posture.changed.connect(lambda value: value != policy["posture"] and self.put(workspace_posture_body(policy, value)))
+        posture.setEnabled(editable)
+        self.posture_control = posture
+        self.editor_layout.addWidget(posture)
+
+        if not rows and posture_now == "allowed_only":
+            empty = QLabel(WT["emptyAllowed"])
+            empty.setObjectName("rowHelp")
+            empty.setWordWrap(True)
+            empty.setProperty("workspace", "empty")
+            self.editor_layout.addWidget(empty)
+        for row in rows:
+            line = QWidget()
+            line.setProperty("workspace", "row")
+            box = QHBoxLayout(line)
+            box.setContentsMargins(0, 0, 0, 0)
+            box.setSpacing(6)
+            path = QLabel(row["path"])
+            path.setObjectName("rowLabel")
+            path.setWordWrap(True)
+            path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            path.setMinimumWidth(40)
+            box.addWidget(path, 1)
+            cap = workspace_cap_for(effective, row["path"])
+            allowed = workspace_allowed_modes(cap)
+            control = SegmentedControl(_mode_options(WORKSPACE_MODES))
+            control.setProperty("workspace", "mode")
+            control.set_value(row["mode"])
+            for value in WORKSPACE_MODES:
+                if value not in allowed:
+                    control.set_option_enabled(value, False, workspace_cap_tooltip(cap))
+            control.changed.connect(lambda value, p=row["path"], m=row["mode"]: value != m and self.put(workspace_mode_body(policy, p, value)))
+            control.setEnabled(editable)
+            control.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            box.addWidget(control, 0)
+            self.mode_controls[row["path"]] = control
+            if editable:
+                remove = QPushButton()
+                remove.setObjectName("iconButton")
+                remove.setAutoDefault(False)
+                remove.setIcon(symbol_icon("trash", color=THEME.text_secondary, size=14))
+                remove.setToolTip(WT["remove"])
+                remove.setAccessibleName(f"{WT['remove']} {row['path']}")
+                remove.clicked.connect(lambda _c=False, p=row["path"]: self.put(workspace_remove_body(policy, p)))
+                box.addWidget(remove, 0)
+                self.remove_buttons[row["path"]] = remove
+            self.editor_layout.addWidget(line)
+
+        if posture_now == "any_except_denied":
+            line = QWidget()
+            line.setProperty("workspace", "everything-else")
+            box = QHBoxLayout(line)
+            box.setContentsMargins(0, 0, 0, 0)
+            box.setSpacing(6)
+            label = QLabel(WT["everythingElse"])
+            label.setObjectName("rowLabel")
+            box.addWidget(label, 1)
+            control = SegmentedControl(_mode_options(("rw", "ro")))
+            control.set_value(default_now)
+            if self.state.get("gateway_default_mode") == "ro":
+                control.set_option_enabled("rw", False, workspace_cap_tooltip("ro"))
+            control.changed.connect(lambda value: value != policy["default_mode"] and self.put(workspace_default_mode_body(policy, value)))
+            control.setEnabled(editable)
+            box.addWidget(control, 0)
+            self.default_mode_control = control
+            self.editor_layout.addWidget(line)
+
+        if not editable:
+            return
+        add = QWidget()
+        add.setProperty("workspace", "add")
+        box = QHBoxLayout(add)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        field = _PathField()
+        field.setPlaceholderText(WT["addPlaceholder"])
+        field.setAccessibleName(WT["addPlaceholder"])
+        field.setText(self.draft)
+        field.textChanged.connect(self._set_draft)
+        field.returnPressed.connect(self._add_typed)
+        field.escaped.connect(self._clear_draft)
+        box.addWidget(field, 1)
+        self.choose_button = button(WT["choose"], "secondary", on_click=self._choose)
+        self.choose_button.setVisible(self.page._gateway_local)
+        box.addWidget(self.choose_button, 0)
+        self.add_button = button(WT["add"], "secondary", on_click=self._add_typed)
+        box.addWidget(self.add_button, 0)
+        self.add_field = field
+        self.editor_layout.addWidget(add)
+
+    # ------------------------------------------------------------ actions
+
+    def _on_follow(self, checked: bool) -> None:
+        if self.state is None:
+            return
+        if checked:
+            self.put(workspace_follow_body())
+        else:
+            # Start from what applies now (the effective answer, verbatim) —
+            # for this chat that is the account default.
+            self.put(workspace_own_body(self.state["effective"]))
+
+    def _set_draft(self, text: str) -> None:
+        self.draft = str(text or "")
+
+    def _clear_draft(self) -> None:
+        self.draft = ""
+        if self.status is not None:
+            self.status = None
+            self.render()
+
+    def _add_typed(self) -> None:
+        path = (self.add_field.text() if self.add_field is not None else self.draft).strip()
+        if path:
+            self.add_path(path)
+
+    def add_path(self, path: str) -> bool:
+        if self.state is None:
+            return False
+        ok = self.put(workspace_add_body(self.state["policy"], path))
+        if ok:
+            self.draft = ""
+            self.render()
+        return ok
+
+    def _choose(self) -> None:
+        start = self.draft.strip() or str(Path.home())
+        chosen = self.page.choose_directory(start)
+        if chosen:
+            self.add_path(chosen)
+
+
 class WorkspacePage(SettingsPage):
-    """Settings → Workspace (round 9 FINAL wording): the account's workspaces,
-    the same model and words as the console and AbstractCode
-    (``workspace_folders.WORKSPACE_CHOOSER_TEXT`` = the ui-kit table): a
-    friendly Gateway policy card, then the posture, the shared workspace
-    (always on, Read & write), the Allowed / Refused workspaces each with
-    Read & write / Read-only / Refused (lower, never raise), under "Allow
-    everything, refuse listed workspaces" also Everything else and the add
-    row, and the gateway's effective line verbatim. Each change is ONE ``PUT
-    /workspace/policy/me``; a refusal shows the gateway's sentence with "Not
-    saved." under the row. No policy logic here: the gateway decides.
+    """Settings → Workspace (R11.1 FINAL): two levels of the one
+    WorkspaceChooser, same words as the console and the other apps
+    (``workspace_chooser.WORKSPACE_CHOOSER_TEXT`` = the ui-kit table).
+
+    - "My default workspaces" — the ACCOUNT level, ``PUT
+      /workspace/policy/me`` per change, "Follow the gateway policy".
+    - "This chat" — the SESSION level of the open conversation, ``PUT
+      /sessions/{id}/workspaces`` per change, "Use my default". The gateway
+      stores it on the session and applies it at run start.
+
+    No "Run workspace" row: a run's private workspace is automatic (the
+    gateway's, per chat), and every other workspace is chosen here.
     """
 
     title = "Workspace"
@@ -972,74 +1159,47 @@ class WorkspacePage(SettingsPage):
 
     def __init__(self, controller: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(controller, parent)
-        self._state: Optional[Dict[str, Any]] = None
-        self._status: Dict[str, tuple] = {}
-        self._draft = ""
-        self._add_mode = "deny"
-
-        # The gateway policy as a friendly card (posture badge, shared
-        # workspace, allowed / never-allowed chips, launch-folder trust chip).
-        self.policy_card = self.add_card(Card(WT["policyTitle"]))
-        self.policy_host = QWidget()
-        self.policy_layout = QVBoxLayout(self.policy_host)
-        self.policy_layout.setContentsMargins(0, 0, 0, 0)
-        self.policy_layout.setSpacing(6)
-        self.policy_card.add_widget(self.policy_host)
-
-        self.folders_card = self.add_card(Card(WT["title"], WT["help"]))
-        self.load_note = Note("", "warning")
-        self.folders_card.add_widget(self.load_note)
-        self.effective_label = QLabel("")
-        self.effective_label.setObjectName("rowValue")
-        self.effective_label.setWordWrap(True)
-        self.effective_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.effective_label.setProperty("workspace", "effective")
-        self.rows_host = QWidget()
-        self.rows_layout = QVBoxLayout(self.rows_host)
-        self.rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.rows_layout.setSpacing(6)
-        self.folders_card.add_widget(self.rows_host)
-        # The gateway's line comes last, as in the kit chooser.
-        self.folders_card.add_widget(self.effective_label)
-
-        # The run's own folder stays a device preference (blank = the
-        # gateway's private per-chat folder, not the shared workspace).
         self._gateway_local = bool(safe_call(controller, "gateway_is_local", default=True))
-        local = self.add_card(Card("Run workspace", "Where the next run reads and writes files. The gateway refuses a workspace its posture does not reach."))
-        self.workspace_root_edit = QLineEdit()
-        self.workspace_root_edit.setPlaceholderText(
-            "Optional — the gateway gives each chat its own workspace"
-            if self._gateway_local
-            else "Optional — a path on the gateway's host"
-        )
-        choose_root = button("Choose…", "secondary", on_click=self._choose_root)
-        clear_root = button("Clear", "ghost", on_click=lambda: self.workspace_root_edit.clear())
-        choose_root.setVisible(self._gateway_local)
-        local.add_row("Run workspace", self.workspace_root_edit, trailing=[choose_root, clear_root])
-        self.current_note = QLabel("")
-        self.current_note.setObjectName("cardHelp")
-        self.current_note.setWordWrap(True)
-        local.add_widget(self.current_note)
-        self.save_button_workspace = button("Save", "primary", on_click=self._save)
-        self.add_actions(self.save_button_workspace)
-
-    # ------------------------------------------------------------ load
+        self._session_id = ""
+        self.account = _WorkspaceLevel(self, "account", WORKSPACE_ACCOUNT_TITLE, WT["accountHelp"], WT["followGateway"], WT["followGatewayHelp"])
+        self.session = _WorkspaceLevel(self, "session", WORKSPACE_SESSION_TITLE, WT["sessionHelp"], WT["useDefault"], WT["useDefaultHelp"])
+        self.add_card(self.account.card)
+        self.add_card(self.session.card)
+        private = QLabel(WT["privateNote"])
+        private.setObjectName("cardHelp")
+        private.setWordWrap(True)
+        private.setProperty("workspace", "private-note")
+        self.private_note = private
+        self.session.card.add_widget(private)
 
     def refresh(self) -> None:
-        prefs = _prefs(self.controller)
-        self.workspace_root_edit.setText(str(safe_attr(prefs, "workspace_root", "") or ""))
-        payload = safe_call(self.controller, "workspace_policy", default=None) or {}
-        state = payload.get("state") if isinstance(payload, dict) else None
-        error = str(payload.get("error") or "") if isinstance(payload, dict) else ""
-        self._state = state if isinstance(state, dict) else None
-        if self._state is None:
-            self.load_note.show_text(f"Could not read your workspaces: {error or 'the gateway did not answer'}.", "warning")
-        else:
-            self.load_note.show_text("")
-        self._render()
-        self._refresh_current_note()
+        payload = safe_call(self.controller, "workspace_policy", default=None)
+        payload = payload if isinstance(payload, dict) else {}
+        session = payload.get("session") if isinstance(payload.get("session"), dict) else {}
+        self._session_id = str(session.get("session_id") or "")
+        self.account.status = None
+        self.session.status = None
+        self.account.load(payload.get("account") or {"error": "The gateway did not answer."})
+        self.session.load(session or {"error": "The gateway did not answer."})
 
-    # ------------------------------------------------------------ rows
+    def _put(self, level: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        state = self.controller.put_workspace_policy(level, body, session_id=self._session_id)
+        if level == "account":
+            # "Use my default" follows the account: re-read this chat's level.
+            self._reload_session()
+        return state
+
+    def _reload_session(self) -> None:
+        payload = safe_call(self.controller, "workspace_policy", default=None)
+        session = payload.get("session") if isinstance(payload, dict) else None
+        if isinstance(session, dict) and session.get("session_id") == self._session_id:
+            status = self.session.status
+            self.session.load(session)
+            self.session.status = status
+
+    def choose_directory(self, start: str) -> str:
+        """The folder picker ("Choose…"); a test replaces this."""
+        return QFileDialog.getExistingDirectory(self, WT["addPlaceholder"], start) or ""
 
     @staticmethod
     def _clear(layout) -> None:
@@ -1047,319 +1207,12 @@ class WorkspacePage(SettingsPage):
             item = layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
+                # Hidden + deleteLater, never reparented to None: this runs
+                # inside the clicked control's own signal (see common.py).
+                widget.hide()
                 widget.deleteLater()
             elif item.layout() is not None:
                 WorkspacePage._clear(item.layout())
-
-    def _clear_rows(self) -> None:
-        self._clear(self.rows_layout)
-
-    def _status_label(self, key: str) -> Optional[QLabel]:
-        if key not in self._status:
-            return None
-        text, tone = self._status[key]
-        label = Note(text, "error" if tone == "error" else "ok")
-        label.setProperty("workspace", "refusal" if tone == "error" else "saved")
-        return label
-
-    @staticmethod
-    def _help(text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("rowHelp")
-        label.setWordWrap(True)
-        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        return label
-
-    @staticmethod
-    def _chips(title: str, items: List[tuple], tone: str = "neutral") -> QWidget:
-        """A row of chips under a small title (wraps through the label's word wrap)."""
-        host = QWidget()
-        box = QHBoxLayout(host)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(6)
-        head = QLabel(title)
-        head.setObjectName("rowLabel")
-        box.addWidget(head, 0)
-        for text, tip in items:
-            chip = Chip(text, tone)
-            chip.setToolTip(tip)
-            box.addWidget(chip, 0)
-        box.addStretch(1)
-        return host
-
-    def _posture_badge(self, posture: str) -> QWidget:
-        host = QWidget()
-        box = QHBoxLayout(host)
-        box.setContentsMargins(0, 0, 0, 0)
-        badge = Chip(workspace_posture_label(posture), "info")
-        badge.setProperty("workspace", "posture")
-        box.addWidget(badge, 0)
-        box.addStretch(1)
-        self.posture_badge = badge
-        return host
-
-    def _render_policy(self) -> None:
-        """The gateway policy as a friendly card: posture badge, shared
-        workspace, allowed and refused workspaces as chips with their mode."""
-        self._clear(self.policy_layout)
-        if self._state is None:
-            self.policy_card.setVisible(False)
-            return
-        self.policy_card.setVisible(True)
-        gw = self._state["gateway"]
-        self.policy_layout.addWidget(self._posture_badge(str(gw.get("posture"))))
-        shared = QLabel(f"<b>{WT['sharedLabel']}</b> · {_html_escape(str(gw.get('shared_workspace') or ''))} · {WT['accessReadWrite']}")
-        shared.setWordWrap(True)
-        shared.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.policy_layout.addWidget(shared)
-        allowed = [(f"{workspace_folder_name(r['path'])} · {workspace_mode_label(r['mode'])}", r["path"]) for r in gw.get("folders") or [] if r["mode"] != "deny"]
-        refused = [(workspace_folder_name(r["path"]), r["path"]) for r in gw.get("folders") or [] if r["mode"] == "deny"]
-        if allowed:
-            self.policy_layout.addWidget(self._chips(WT["allowedTitle"], allowed))
-        if refused:
-            self.policy_layout.addWidget(self._chips(WT["deniedTitle"], refused, "danger"))
-        if gw.get("posture") == "any_except_denied":
-            self.policy_layout.addWidget(self._chips(WT["everythingElse"], [(workspace_mode_label(str(gw.get("default_mode"))), "")]))
-
-    def _segmented(self, key: str, label: str, current: str, offered: List[str], allowed: List[str], on_pick) -> QWidget:
-        """Read & write / Read-only / Refused: lower, never raise the admin's mode."""
-        host = QFrame()
-        host.setObjectName("segmented")  # the shared segmented-control style
-        box = QHBoxLayout(host)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(0)
-        buttons = {}
-        for value in offered:
-            b = QPushButton(workspace_mode_label(value).replace("&", "&&"))  # "&" is a Qt mnemonic marker
-            b.setObjectName("segment")
-            b.setCheckable(True)
-            b.setChecked(current == value)
-            b.setAutoDefault(False)
-            b.setAccessibleName(f"{WT['accessLabel']} {label}: {workspace_mode_label(value)}")
-            unavailable = value not in allowed
-            b.setProperty("unavailable", unavailable)
-            if unavailable:
-                b.setToolTip(WT["accessCeiling"])
-                b.setStyleSheet("color: rgba(128, 128, 128, 0.55);")  # shown, not choosable
-            b.clicked.connect(lambda _c=False, v=value, ok=not unavailable: (on_pick(v) if ok and v != current else self._render()))
-            box.addWidget(b, 0)
-            buttons[value] = b
-        self.mode_buttons[key] = buttons
-        return host
-
-    def _caption(self, text: str, attr: str) -> None:
-        cap = QLabel(text.upper())
-        cap.setObjectName("rowLabel")
-        cap.setProperty("workspace", attr)
-        self.rows_layout.addWidget(cap)
-
-    def _render(self) -> None:
-        self._render_policy()
-        self._clear_rows()
-        self.shared_label = None
-        self.posture_badge = None
-        self.mode_buttons: Dict[str, Dict[str, QPushButton]] = {}
-        self.row_widgets: Dict[str, QWidget] = {}
-        self.add_field = None
-        self.add_button = None
-        self.admin_only_note = None
-        if self._state is None:
-            self.effective_label.setText("")
-            self.rows_host.setVisible(False)
-            return
-        self.rows_host.setVisible(True)
-        view = workspace_account_view(self._state)
-        self._view = view
-        self.effective_label.setText(_html_escape(view.summary))
-        self.rows_layout.addWidget(self._posture_badge(view.posture))
-
-        shared = QFrame()
-        grid = QGridLayout(shared)
-        grid.setContentsMargins(0, 0, 0, 4)
-        name = QLabel(WT["sharedLabel"])
-        name.setObjectName("rowLabel")
-        grid.addWidget(name, 0, 0)
-        tags = QWidget()
-        tags_box = QHBoxLayout(tags)
-        tags_box.setContentsMargins(0, 0, 0, 0)
-        access = Chip(WT["accessReadWrite"], "neutral")
-        access.setProperty("workspace", "shared-access")
-        tags_box.addWidget(access)
-        chip = Chip(WT["sharedState"], "ok")
-        chip.setProperty("workspace", "shared-always")
-        tags_box.addWidget(chip)
-        grid.addWidget(tags, 0, 2, Qt.AlignRight)
-        grid.setColumnStretch(1, 1)
-        path = self._help(view.shared_path)
-        grid.addWidget(path, 1, 0, 1, 3)
-        self.shared_label = path
-        self.rows_layout.addWidget(shared)
-
-        ordered = [r for r in view.rows if r.mode != "deny"] + [r for r in view.rows if r.mode == "deny"]
-        for i, row in enumerate(ordered):
-            if i == 0 and row.mode != "deny":
-                self._caption(WT["allowedTitle"], "caption-allowed")
-            if row.mode == "deny" and (i == 0 or ordered[i - 1].mode != "deny"):
-                self._caption(WT["deniedTitle"], "caption-denied")
-            line = QWidget()
-            box = QHBoxLayout(line)
-            box.setContentsMargins(0, 0, 0, 0)
-            text = QLabel(f"<b>{_html_escape(row.name)}</b><br>{_html_escape(row.path)}")
-            text.setWordWrap(True)
-            text.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            box.addWidget(text, 1)
-            if row.choices:
-                offered = ["ro", "deny"] if row.origin == "account" else ["rw", "ro", "deny"]
-                box.addWidget(
-                    self._segmented(row.path, row.path, row.mode, offered, list(row.choices), lambda v, r=row: self._set_mode(r, v)),
-                    0,
-                )
-            else:
-                tag = Chip(workspace_mode_label(row.mode), "neutral")
-                tag.setProperty("workspace", "access")
-                box.addWidget(tag, 0)
-            if row.origin == "account":
-                remove = button(WT["remove"], "ghost", tooltip=f"{WT['remove']} {row.path}", on_click=lambda p=row.path: self._remove_row(p))
-                remove.setAccessibleName(f"{WT['remove']} {row.path}")
-                box.addWidget(remove, 0)
-            line.setProperty("workspace", "account-row" if row.origin == "account" else "folder")
-            self.row_widgets[row.path] = line
-            self.rows_layout.addWidget(line)
-            status = self._status_label(row.path)
-            if status is not None:
-                self.rows_layout.addWidget(status)
-
-        if view.everything_else is not None:
-            mode, choices = view.everything_else
-            line = QWidget()
-            box = QHBoxLayout(line)
-            box.setContentsMargins(0, 0, 0, 0)
-            label = QLabel(f"<b>{WT['everythingElse']}</b>")
-            box.addWidget(label, 1)
-            if len(choices) > 1:
-                box.addWidget(self._segmented("everything-else", WT["everythingElse"], mode, ["rw", "ro"], list(choices), self._set_default_mode), 0)
-            else:
-                box.addWidget(Chip(workspace_mode_label(mode), "neutral"), 0)
-            line.setProperty("workspace", "everything-else")
-            self.row_widgets["everything-else"] = line
-            self.rows_layout.addWidget(line)
-            status = self._status_label("everything-else")
-            if status is not None:
-                self.rows_layout.addWidget(status)
-
-        if view.can_add:
-            add = QWidget()
-            box = QHBoxLayout(add)
-            box.setContentsMargins(0, 0, 0, 0)
-            self.add_field = _FolderField()
-            self.add_field.setPlaceholderText(WT["addPlaceholder"])
-            self.add_field.setAccessibleName(WT["addPlaceholder"])
-            self.add_field.setText(self._draft)
-            self.add_field.textChanged.connect(self._set_draft)
-            self.add_field.returnPressed.connect(self._add_row)
-            self.add_field.escaped.connect(self._clear_add_status)
-            box.addWidget(self.add_field, 1)
-            box.addWidget(self._segmented("add", WT["addPlaceholder"], self._add_mode, ["ro", "deny"], ["ro", "deny"], self._set_add_mode), 0)
-            self.add_button = button(WT["add"], "secondary", on_click=self._add_row)
-            box.addWidget(self.add_button, 0)
-            self.rows_layout.addWidget(add)
-            status = self._status_label("add")
-            if status is not None:
-                self.rows_layout.addWidget(status)
-        else:
-            self.admin_only_note = self._help(WT["adminOnlyAdds"])
-            self.admin_only_note.setProperty("workspace", "admin-only-adds")
-            self.rows_layout.addWidget(self.admin_only_note)
-
-    def _set_mode(self, row: Any, value: str) -> None:
-        if self._state is None:
-            return
-        self._put(row.path, workspace_mode_body(self._state, row, value))
-        self._render()
-
-    def _set_default_mode(self, value: str) -> None:
-        self._put("everything-else", workspace_default_mode_body(value))
-        self._render()
-
-    def _set_add_mode(self, value: str) -> None:
-        self._add_mode = value
-        self._render()
-
-    def _set_draft(self, text: str) -> None:
-        self._draft = str(text or "")
-
-    def _clear_add_status(self) -> None:
-        self._draft = ""
-        if self._status.pop("add", None) is not None:
-            self._render()
-
-    # ------------------------------------------------------------ writes
-
-    def _put(self, key: str, body: Dict[str, Any]) -> bool:
-        self._status = {}
-        try:
-            state = self.controller.put_workspace_folders(body)
-        except Exception as exc:  # the gateway's sentence, verbatim
-            self._status[key] = (workspace_refusal(exc), "error")
-            return False
-        self._state = state
-        self._status[key] = (WT["saved"], "ok")
-        self.changed.emit()
-        return True
-
-    def _add_row(self) -> None:
-        if self._state is None:
-            return
-        path = (self.add_field.text() if self.add_field is not None else self._draft).strip()
-        if not path:
-            return
-        if self._put("add", workspace_add_row_body(self._state, path, self._add_mode)):
-            self._draft = ""
-        self._render()
-
-    def _remove_row(self, path: str) -> None:
-        if self._state is None:
-            return
-        self._put(path, workspace_remove_row_body(self._state, path))
-        self._render()
-
-    # ------------------------------------------------------------ run workspace
-
-    def _refresh_current_note(self) -> None:
-        status = safe_call(self.controller, "workspace_root_status", default=None) or {}
-        root = str(status.get("root") or "")
-        source = str(status.get("source") or "gateway")
-        if source == "local":
-            self.current_note.setText(f"Next run works in your workspace: {root}")
-        elif source == "session" and root:
-            self.current_note.setText(f"Next run reuses this chat's workspace: {root}")
-        else:
-            self.current_note.setText("Next run: the gateway gives it a private workspace of its own (remembered for the rest of the chat).")
-
-    def _choose_root(self) -> None:
-        start = self.workspace_root_edit.text().strip() or str(Path.home())
-        chosen = QFileDialog.getExistingDirectory(self, "Choose the run workspace", start)
-        if chosen:
-            self.workspace_root_edit.setText(normalize_workspace_path(chosen))
-
-    def _save(self) -> None:
-        root_raw = self.workspace_root_edit.text().strip()
-        root = normalize_workspace_path(root_raw)
-        if root_raw and not root:
-            self.say("The run workspace must be an absolute path (or ~).", tone="error")
-            return
-        ok = _update_prefs(self.controller, workspace_root=root)
-        if ok:
-            self.say("Saved on this device — applies from your next message.")
-            self.changed.emit()
-            self._refresh_current_note()
-        else:
-            self.say("Could not save the run workspace.", tone="error")
-
-
-def _html_escape(text: str) -> str:
-    return str(text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ================================================================== Tools
@@ -1554,26 +1407,14 @@ class ToolsPage(SettingsPage):
             empty.setObjectName("cardHelp")
             self._groups.addWidget(empty)
             return
-        def _group_key(toolset: str) -> tuple:
-            entries = by_toolset[toolset]
-            all_disabled = all(entry.get("available") is False for entry in entries)
-            return (all_disabled, toolset)
-
-        for toolset in sorted(by_toolset, key=_group_key):
+        # Sorted by name (R11.5): a plain string sort, nothing else decides
+        # the order (an all-disabled category no longer sinks to the end).
+        for toolset in sorted(by_toolset):
             group = self._build_group(toolset, by_toolset[toolset])
             self.groups[toolset] = group
             self._groups.addWidget(group)
             self._sync_group_state(toolset)
         self._apply_filter()
-
-    def _has_override(self, items: List[dict]) -> bool:
-        """A panel opens by default only when it carries a choice that differs
-        from the gateway's default (an override on this Mac)."""
-        for item in items:
-            default = str(item.get("policy_default") or "ask")
-            if str(item.get("selected_mode") or default) != default:
-                return True
-        return False
 
     def _build_group(self, toolset: str, items: List[dict]) -> _ToolGroup:
         group = _ToolGroup(toolset, len(items), bulk=not self.selection_only)
@@ -1581,7 +1422,9 @@ class ToolsPage(SettingsPage):
         group.all_auto.clicked.connect(lambda _c=False, t=toolset: self._set_group(t, "approve"))
         group.all_ask.clicked.connect(lambda _c=False, t=toolset: self._set_group(t, "ask"))
         group.toggle.clicked.connect(lambda checked, t=toolset: self._open_choice.__setitem__(t, bool(checked)))
-        group.set_open(self._open_choice.get(toolset, self._has_override(items)))
+        # ALL collapsed by default (R11.5), overrides included; a panel the
+        # user opened by hand stays open across refreshes.
+        group.set_open(self._open_choice.get(toolset, False))
         for item in sorted(items, key=lambda entry: str(entry.get("name") or "")):
             name = str(item.get("name") or "")
             risk = describe_tool_risk(item)
@@ -1720,8 +1563,7 @@ class ToolsPage(SettingsPage):
                 group.count_chip.setText(f"{found} of {group.count}")
             else:
                 group.setVisible(True)
-                default = self._has_override([{"policy_default": i["default_mode"], "selected_mode": i["control"].value()} for i in self._rows.values() if i["toolset"] == toolset])
-                group.set_open(self._open_choice.get(toolset, default))
+                group.set_open(self._open_choice.get(toolset, False))
                 group.count_chip.setText(str(group.count))
 
     def _reset_defaults(self) -> None:
@@ -2011,7 +1853,7 @@ class WindowPage(SettingsPage):
             paragraph_spacing=int(self.paragraph_spacing.value()),
             bullet_spacing=int(self.bullet_spacing.value()),
         )
-        self.say("Saved on this device." if ok else "Could not save the text settings.",
+        self.say("Saved on this device." if ok else "Not saved. The text settings could not be stored.",
                  tone="" if ok else "error")
 
     def _load_typography(self, prefs: Any) -> None:
@@ -2143,7 +1985,7 @@ class WindowPage(SettingsPage):
             self.hotkey_enabled.blockSignals(True)
             self.hotkey_enabled.setChecked(not checked)
             self.hotkey_enabled.blockSignals(False)
-            self.say("Could not save the global shortcut.", tone="error")
+            self.say("Not saved. The global shortcut could not be stored.", tone="error")
             return
         failure: Optional[str] = None
         try:
@@ -2169,7 +2011,7 @@ class WindowPage(SettingsPage):
             bottom_offset=int(self.bottom_offset_spin.value()),
         )
         if not ok:
-            self.say("Could not save the window settings.", tone="error")
+            self.say("Not saved. The window settings could not be stored.", tone="error")
             return
         try:
             if callable(self._apply_hotkey):

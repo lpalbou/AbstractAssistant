@@ -282,24 +282,25 @@ def test_worker_drops_deltas_for_a_call_whose_record_it_holds() -> None:
 
 
 @pytest.mark.basic
-@pytest.mark.parametrize("choice, expected", [("gateway_default", None), ("on", True), ("off", False)])
-def test_preference_persists_and_shapes_the_run_input(tmp_path, choice, expected) -> None:
+@pytest.mark.parametrize(
+    "choice, saved, expected",
+    # R11.4: a plain switch; the removed "gateway_default" loads as on.
+    [("gateway_default", "on", True), ("on", "on", True), ("off", "off", False)],
+)
+def test_preference_persists_and_shapes_the_run_input(tmp_path, choice, saved, expected) -> None:
     from abstractassistant.gateway.run_input import build_run_input_data
     from abstractassistant.preferences import AssistantPreferences, PreferencesStore
 
     store = PreferencesStore(tmp_path / "preferences.json")
     store.save(AssistantPreferences(stream_replies=choice))
     raw = json.loads((tmp_path / "preferences.json").read_text())
-    assert raw["stream_replies"] == choice
+    assert raw["stream_replies"] == saved
     prefs = store.load()
-    assert prefs.stream_replies == choice
+    assert prefs.stream_replies == saved
     scope = prefs.run_scope()
     data = build_run_input_data(prompt="hi", stream=scope.get("stream"))
-    if expected is None:
-        assert "stream" not in scope
-        assert "stream" not in data["_runtime"]
-    else:
-        assert data["_runtime"]["stream"] is expected
+    # Always explicit: never left to the gateway's default.
+    assert data["_runtime"]["stream"] is expected
 
 
 @pytest.mark.basic
@@ -307,8 +308,10 @@ def test_preference_defaults_and_rejects_nonsense(tmp_path) -> None:
     from abstractassistant.gateway.run_input import build_run_input_data
     from abstractassistant.preferences import AssistantPreferences
 
-    assert AssistantPreferences().stream_replies == "gateway_default"
-    assert AssistantPreferences.from_dict({"stream_replies": "sometimes"}).stream_replies == "gateway_default"
+    assert AssistantPreferences().stream_replies == "on"
+    assert AssistantPreferences.from_dict({}).stream_replies == "on"
+    assert AssistantPreferences.from_dict({"stream_replies": "sometimes"}).stream_replies == "on"
+    assert AssistantPreferences.from_dict({"stream_replies": "gateway_default"}).stream_replies == "on"
     with pytest.raises(ValueError):
         build_run_input_data(prompt="hi", stream="yes")  # type: ignore[arg-type]
 
@@ -329,8 +332,9 @@ def test_worker_sends_the_choice_through_build_chat_worker(tmp_path, monkeypatch
     )
     worker = controller.build_chat_worker(prompt="hi")
     assert worker._stream is False
-    controller.update_preferences(stream_replies="gateway_default")
-    assert controller.build_chat_worker(prompt="hi")._stream is None
+    monkeypatch.setattr(controller, "gateway_streaming", lambda **kw: {"deltas": True, "default": False})
+    controller.update_preferences(stream_replies="on")
+    assert controller.build_chat_worker(prompt="hi")._stream is True
 
 
 # ---------------------------------------------------------------------- CLI
@@ -376,7 +380,7 @@ def test_cli_stream_flag_wins_over_the_saved_choice() -> None:
     assert _stream_choice("on", {"stream": False}) is True
     assert _stream_choice("off", {}) is False
     assert _stream_choice(None, {"stream": True}) is True
-    assert _stream_choice(None, {}) is None
+    assert _stream_choice(None, {}) is True  # the switch is on by default
 
 
 @pytest.mark.basic
@@ -658,15 +662,20 @@ def test_flush_is_throttled_not_per_delta(palette, qapp, monkeypatch) -> None:
 
 
 @pytest.mark.basic
-def test_settings_row_saves_the_choice_and_shows_the_gateway_default(qapp, tmp_path, monkeypatch) -> None:
+def test_settings_stream_replies_is_a_plain_switch_on_by_default(qapp, tmp_path, monkeypatch) -> None:
+    """R11.4: "Stream replies" is a state switch (on by default) — no
+    "Gateway default" choice anywhere on the page."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    from PyQt5.QtWidgets import QComboBox
+
     from abstractassistant.preferences import AssistantPreferences
     from abstractassistant.ui.settings.pages import ModelsPage
+    from abstractassistant.ui.switch import AfSwitch
 
     class _Controller:
         def __init__(self):
             self.preferences = AssistantPreferences()
-            self.streaming = {"deltas": True, "default": True}
+            self.streaming = {"deltas": True, "default": False}
 
         def update_preferences(self, **updates):
             payload = self.preferences.to_dict()
@@ -683,30 +692,27 @@ def test_settings_row_saves_the_choice_and_shows_the_gateway_default(qapp, tmp_p
     controller = _Controller()
     page = ModelsPage(controller)
     page._refresh_stream()
-    assert page.stream_combo.itemText(0) == "Gateway default (On)"
-    assert page.stream_combo.currentData() == "gateway_default"
-    page.stream_combo.setCurrentIndex(page.stream_combo.findData("off"))
-    page._on_stream_chosen(page.stream_combo.currentIndex())
+    assert isinstance(page.stream_switch, AfSwitch)
+    assert page.stream_switch.text() == "Stream replies"
+    assert page.stream_switch.isChecked()  # on by default
+    assert not hasattr(page, "stream_combo")
+    replies = page.stream_switch.parentWidget()
+    while replies is not None and replies.objectName() != "settingsCard":
+        replies = replies.parentWidget()
+    assert replies is not None and not replies.findChildren(QComboBox)
+    page.stream_switch.click()
     assert controller.preferences.stream_replies == "off"
-    assert "only when they are finished" in page.stream_detail.text()
-    on_item = page.stream_combo.model().item(page.stream_combo.findData("on"))
-    assert on_item.isEnabled() and on_item.text() == "On"
-    controller.streaming = {"deltas": False, "default": False}
+    assert page.stream_detail.text() == "Replies appear when they are finished."
+    page.stream_switch.click()
+    assert controller.preferences.stream_replies == "on"
+    assert "streams while the model writes it" in page.stream_detail.text()
+    controller.streaming = {"deltas": False, "default": True}
     page._refresh_stream()
-    assert page.stream_combo.currentData() == "off"
-    # "On" stays listed, disabled with the reason; Off and the default still apply.
-    assert page.stream_combo.isEnabled()
-    assert not on_item.isEnabled() and on_item.text() == "On — not supported by this gateway"
-    assert page.stream_combo.findData("on") >= 0
-    assert "not supported by this gateway" in page.stream_detail.text()
+    assert page.stream_switch.isChecked()
+    assert "does not offer live replies" in page.stream_detail.text()
     controller.streaming = None
     page._refresh_stream()
-    assert page.stream_combo.itemText(0) == "Gateway default"
-    assert not on_item.isEnabled()
     assert "Not connected" in page.stream_detail.text()
-    controller.streaming = {"deltas": True, "default": False}
-    page._refresh_stream()
-    assert on_item.isEnabled() and on_item.text() == "On"
 
 
 # ------------------------------------------------------------------- gating
@@ -719,7 +725,7 @@ def _gating_controller(tmp_path, monkeypatch, *, choice: str, streaming):
 
     controller = AssistantController(config=Config(), data_dir=tmp_path / "data")
     controller.update_preferences(hotkey_enabled=False, stream_replies=choice)
-    monkeypatch.setattr(controller, "gateway_streaming", lambda: streaming)
+    monkeypatch.setattr(controller, "gateway_streaming", lambda **kw: streaming)
     return controller
 
 
@@ -728,26 +734,24 @@ def _gating_controller(tmp_path, monkeypatch, *, choice: str, streaming):
     "choice, streaming, expected",
     [
         ("on", {"deltas": True, "default": False}, True),
-        ("on", {"deltas": False, "default": False}, None),   # withheld: gateway has no deltas
-        ("on", {}, None),                                     # older gateway: no streaming block
-        ("on", None, None),                                   # discovery unavailable
+        ("on", {"deltas": False, "default": True}, False),   # gateway has no deltas: explicit false
+        ("on", {}, False),                                    # older gateway: no streaming block
+        ("on", None, False),                                  # discovery unavailable
         ("off", {"deltas": False}, False),                    # Off is ALWAYS sent
         ("off", None, False),
-        ("off", {"deltas": True}, False),
-        ("gateway_default", {"deltas": True, "default": True}, None),
+        ("off", {"deltas": True, "default": True}, False),    # the gateway default never decides
+        ("gateway_default", {"deltas": True, "default": False}, True),  # legacy value = on
     ],
 )
-def test_run_scope_sends_on_only_when_deltas_are_advertised(tmp_path, monkeypatch, choice, streaming, expected) -> None:
+def test_run_scope_always_carries_stream_explicitly(tmp_path, monkeypatch, choice, streaming, expected) -> None:
     from abstractassistant.gateway.run_input import build_run_input_data
 
     controller = _gating_controller(tmp_path, monkeypatch, choice=choice, streaming=streaming)
     scope = controller.run_scope()
     data = build_run_input_data(prompt="hi", stream=scope.get("stream"))
-    if expected is None:
-        assert "stream" not in data["_runtime"]
-    else:
-        assert data["_runtime"]["stream"] is expected
-    assert controller.stream_on_but_unsupported() is (choice == "on" and expected is None)
+    assert data["_runtime"]["stream"] is expected
+    on = choice != "off"
+    assert controller.stream_on_but_unsupported() is (on and streaming is not None and streaming.get("deltas") is not True)
 
 
 @pytest.mark.basic
@@ -757,12 +761,11 @@ def test_cli_withholds_on_for_a_gateway_without_deltas_and_says_so(capsys) -> No
     assert _gated_stream(True, advertised=True, explicit=True) is True
     assert _gated_stream(False, advertised=False, explicit=True) is False
     assert _gated_stream(False, advertised=None, explicit=False) is False
-    assert _gated_stream(None, advertised=False, explicit=False) is None
     assert capsys.readouterr().err == ""
-    assert _gated_stream(True, advertised=False, explicit=True) is None
+    assert _gated_stream(True, advertised=False, explicit=True) is False
     assert "--stream on not sent: this gateway does not offer live replies" in capsys.readouterr().err
-    assert _gated_stream(True, advertised=None, explicit=False) is None
-    assert "Stream replies: On not sent" in capsys.readouterr().err
+    assert _gated_stream(True, advertised=None, explicit=False) is False
+    assert "[Stream replies not sent: this gateway could not be asked" in capsys.readouterr().err
 
 
 @pytest.mark.basic

@@ -23,27 +23,26 @@ def _load_speculation(value: Any) -> Any:
         return None
 
 
-# "Stream replies" (contract S): show the reply while the model writes it.
-# "gateway_default" sends nothing (the gateway's `agents.streaming_default`
-# decides); "on"/"off" send `_runtime.stream: true|false` with every run.
-STREAM_REPLIES_GATEWAY_DEFAULT = "gateway_default"
-STREAM_REPLIES_CHOICES = (STREAM_REPLIES_GATEWAY_DEFAULT, "on", "off")
+# "Stream replies" (R11.4): a plain switch, on by default. Streaming is
+# app-specific, so every run says so explicitly — `_runtime.stream: true|false`
+# — and the gateway's own default ("Streamed replies", Workflows → Settings)
+# only applies to clients that do not say. Older files that saved
+# "gateway_default" (the removed third choice) load as on.
+STREAM_REPLIES_CHOICES = ("on", "off")
+STREAM_REPLIES_DEFAULT = "on"
 
 
 def normalize_stream_replies(value: Any) -> str:
-    """A saved value outside the three choices loads as the gateway default."""
+    """"off" stays off; anything else (incl. a legacy "gateway_default") is on."""
+    if value is False:
+        return "off"
     text = str(value or "").strip().lower()
-    return text if text in STREAM_REPLIES_CHOICES else STREAM_REPLIES_GATEWAY_DEFAULT
+    return "off" if text == "off" else STREAM_REPLIES_DEFAULT
 
 
-def stream_replies_runtime_value(value: Any) -> Optional[bool]:
-    """The `_runtime.stream` value for a choice: None = send nothing."""
-    choice = normalize_stream_replies(value)
-    if choice == "on":
-        return True
-    if choice == "off":
-        return False
-    return None
+def stream_replies_runtime_value(value: Any) -> bool:
+    """The `_runtime.stream` value for a choice: always a bool."""
+    return normalize_stream_replies(value) == "on"
 
 
 # Reasoning effort ladder — the gateway contract's `thinking_control.values`
@@ -293,14 +292,13 @@ class AssistantPreferences:
     # a stale choice degrades, never fails.
     reasoning_effort: str = ""
     speculation: Optional[Any] = None  # None inherits; False pins MTP off.
-    # Live replies: STREAM_REPLIES_CHOICES ("gateway_default" sends nothing).
-    stream_replies: str = STREAM_REPLIES_GATEWAY_DEFAULT
-    # The run's folder, sent as the run-input pin `workspace_root` (blank =
-    # the gateway's private per-chat folder in its data directory, not the shared workspace). Round 9: which
-    # OTHER folders the tools may use is the account's gateway policy
-    # (Settings → Workspace folders), never a local list; the gateway refuses
-    # a root outside the account's effective folders.
-    workspace_root: str = ""
+    # "Stream replies" switch: "on" (default) | "off", sent with every run.
+    stream_replies: str = STREAM_REPLIES_DEFAULT
+    # No run-workspace preference (R11): a run's private workspace is the
+    # gateway's (automatic, per chat), and which other workspaces it may use
+    # is chosen in the gateway — Settings → Workspace "My default workspaces"
+    # (account) and "This chat" (session). A `workspace_root` left in an older
+    # preferences.json is ignored, never sent.
     # Hands-free voice conversation: send each utterance automatically (off =
     # transcribe into the composer and wait for Enter) and ask the model for
     # short spoken-style replies while the conversation is on.
@@ -365,7 +363,6 @@ class AssistantPreferences:
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
             speculation=_load_speculation(raw.get("speculation")),
             stream_replies=normalize_stream_replies(raw.get("stream_replies")),
-            workspace_root=normalize_workspace_path(raw.get("workspace_root")),
             voice_auto_send=bool(raw.get("voice_auto_send", True)),
             voice_spoken_replies=bool(raw.get("voice_spoken_replies", True)),
             voice_mode=normalize_voice_mode(raw.get("voice_mode")),
@@ -398,7 +395,6 @@ class AssistantPreferences:
             "reasoning_effort": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
             "stream_replies": normalize_stream_replies(self.stream_replies),
-            "workspace_root": normalize_workspace_path(self.workspace_root),
             "voice_auto_send": bool(self.voice_auto_send),
             "voice_spoken_replies": bool(self.voice_spoken_replies),
             "voice_mode": normalize_voice_mode(self.voice_mode),
@@ -418,12 +414,7 @@ class AssistantPreferences:
         return {
             "thinking": normalize_reasoning_effort(self.reasoning_effort),
             **({"speculation": normalize_speculation(self.speculation)} if self.speculation is not None else {}),
-            **(
-                {"stream": stream_replies_runtime_value(self.stream_replies)}
-                if stream_replies_runtime_value(self.stream_replies) is not None
-                else {}
-            ),
-            "workspace_root": normalize_workspace_path(self.workspace_root),
+            "stream": stream_replies_runtime_value(self.stream_replies),
         }
 
 

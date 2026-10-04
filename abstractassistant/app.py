@@ -9288,7 +9288,7 @@ class AssistantPalette(QMainWindow):
     # ------------------------------------------------------------ live replies
 
     STREAM_UNSUPPORTED_NOTE = (
-        "Stream replies is On, but this gateway does not offer live replies: "
+        "Stream replies is on, but this gateway does not offer live replies: "
         "answers appear when they are finished."
     )
 
@@ -10345,11 +10345,9 @@ class AssistantPalette(QMainWindow):
         root = str(status.get("root") or "").strip()
         source = str(status.get("source") or "gateway")
         if not root:
-            hint = "Switch chat\nFiles: the gateway picks a fresh folder for each run (choose one in Settings → Workspace)."
-        elif source == "local":
-            hint = f"Switch chat\nFiles go to your folder: {root}"
+            hint = "Switch chat\nFiles: the gateway gives this chat a private workspace on its first run (other workspaces: Settings → Workspace)."
         else:
-            hint = f"Switch chat\nFiles for this chat live in the gateway folder: {root}"
+            hint = f"Switch chat\nFiles for this chat live in its private workspace: {root}"
         picker.setToolTip(hint)
 
     def _on_listen_stop(self) -> None:

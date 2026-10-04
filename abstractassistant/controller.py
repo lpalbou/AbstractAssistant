@@ -606,43 +606,41 @@ class AssistantController:
     # ------------------------------------------------------------------ run scope
 
     def run_scope(self) -> Dict[str, Any]:
-        """Per-run pins: reasoning effort, reply streaming and the workspace grant.
+        """Per-run pins: reasoning effort, reply streaming and the chat's workspace.
 
-        ``stream: False`` (Off) is always sent; ``stream: True`` (On) only
-        when the gateway advertises live replies (``capabilities.streaming.deltas``).
+        ``stream`` is ALWAYS sent (R11.4: streaming is app-specific, so the
+        gateway's own default never decides for this app): the "Stream
+        replies" switch, except that ``true`` goes only to a gateway that
+        advertises live replies (``capabilities.streaming.deltas``) — anything
+        else gets an explicit ``false`` (an older runtime would stream
+        internally with no live events and can lose usage accounting).
 
-        The workspace root is the user's chosen folder when one is saved; else
-        the folder the gateway gave this SESSION's first run (remembered by the
-        worker), so every turn of a conversation works in one place; else
-        nothing, and the gateway mints a folder for this run.
+        ``workspace_root`` is the private workspace the gateway gave this
+        SESSION's first run (remembered by the worker), so every turn of a
+        conversation works in one place; blank on a chat's first run (the
+        gateway mints it). Which OTHER workspaces a run may use is not a
+        client pin: the gateway resolves this chat's subset > the account
+        default > the gateway policy at run start (Settings → Workspace).
         """
         try:
             scope = dict(self.preferences.run_scope())
         except Exception:
-            scope = {}
-        if scope.get("stream") is True and self.live_replies_advertised() is not True:
-            # "On" goes only to a gateway that advertises live replies: an
-            # older runtime would stream internally with no live events and
-            # can lose usage accounting. "Off" (False) is always sent.
-            scope.pop("stream")
-        if not str(scope.get("workspace_root") or "").strip():
-            try:
-                session_root = str(self.llm_manager.session_workspace_root() or "").strip()
-            except Exception:
-                session_root = ""
-            if session_root:
-                scope["workspace_root"] = session_root
+            scope = {"stream": True}
+        if scope.get("stream") is not False and self.live_replies_advertised(cached_only=True) is not True:
+            scope["stream"] = False
+        elif scope.get("stream") is not False:
+            scope["stream"] = True
+        try:
+            session_root = str(self.llm_manager.session_workspace_root() or "").strip()
+        except Exception:
+            session_root = ""
+        scope["workspace_root"] = session_root
         return scope
 
     def workspace_root_status(self) -> Dict[str, str]:
-        """Where the next run's files go and why: {root, source} with source in
-        {"local", "session", "gateway"} ("gateway" = a fresh folder per run)."""
-        try:
-            local_root = str(self.preferences.run_scope().get("workspace_root") or "").strip()
-        except Exception:
-            local_root = ""
-        if local_root:
-            return {"root": local_root, "source": "local"}
+        """Where the next run's files go: {root, source} with source "session"
+        (this chat's private workspace, known after its first run) or
+        "gateway" (the gateway mints it on the first run)."""
         try:
             session_root = str(self.llm_manager.session_workspace_root() or "").strip()
         except Exception:
@@ -693,12 +691,18 @@ class AssistantController:
             pass
         return list(REASONING_EFFORT_LEVELS)
 
-    def gateway_streaming(self) -> Optional[Dict[str, Any]]:
+    def gateway_streaming(self, *, cached_only: bool = False) -> Optional[Dict[str, Any]]:
         """The gateway's live-reply block from discovery
         (``capabilities.streaming`` = ``{deltas: bool, default: bool}``,
-        contract S-2.6), or None when discovery is unavailable."""
+        contract S-2.6), or None when discovery is unavailable.
+
+        ``cached_only`` (every turn's ``stream`` pin): read the snapshot as it
+        is — no fetch and no refresh thread per message."""
         try:
-            caps = self.llm_manager.gateway_capabilities(stale_ok=True)
+            if cached_only:
+                caps = self.llm_manager.peek_gateway_capabilities()
+            else:
+                caps = self.llm_manager.gateway_capabilities(stale_ok=True)
         except Exception:
             return None
         if caps is None or getattr(caps, "error", ""):
@@ -708,17 +712,20 @@ class AssistantController:
         return dict(block) if isinstance(block, dict) else {}
 
     def stream_on_but_unsupported(self) -> bool:
-        """True when this app asks for live replies but the gateway does not
-        offer them (the "On" choice is then withheld from the run input)."""
-        prefs = getattr(self, "preferences", None)
-        if str(getattr(prefs, "stream_replies", "") or "") != "on":
-            return False
-        return self.live_replies_advertised() is not True
+        """True when "Stream replies" is on but the gateway says it does not
+        offer live replies (the run then carries ``stream: false``). Unknown
+        (discovery unavailable) is not reported as unsupported."""
+        from .preferences import normalize_stream_replies
 
-    def live_replies_advertised(self) -> Optional[bool]:
+        prefs = getattr(self, "preferences", None)
+        if normalize_stream_replies(getattr(prefs, "stream_replies", None)) != "on":
+            return False
+        return self.live_replies_advertised(cached_only=True) is False
+
+    def live_replies_advertised(self, *, cached_only: bool = False) -> Optional[bool]:
         """True when the gateway advertises live replies (``streaming.deltas``),
         False when it does not, None when discovery is unavailable."""
-        block = self.gateway_streaming()
+        block = self.gateway_streaming(cached_only=cached_only)
         if block is None:
             return None
         return block.get("deltas") is True
@@ -783,25 +790,42 @@ class AssistantController:
         return json.loads(json.dumps(result))
 
     def workspace_policy(self) -> Dict[str, Any]:
-        """This account's workspace folders as the gateway answers them
-        (round 9, ``GET /workspace/policy/me``): ``{"state": {policy,
-        effective} | None, "error": str}``. The gateway decides everything;
-        Settings → Workspace only shows it and sends one PUT per change.
+        """Settings → Workspace (round 11): both levels as the gateway answers
+        them — ``{"account": {"state", "error"}, "session": {"session_id",
+        "state", "error"}}``; ``state`` = ``{policy, effective,
+        account_default, can_edit}`` or None. The account level is
+        ``GET /workspace/policy/me``; the session level is the OPEN chat's
+        ``GET /sessions/{id}/workspaces``. The gateway decides everything;
+        the page shows it and sends one PUT per change.
         """
+        session_id = self.active_session_id
         with self._cache_lock:
-            if self._workspace_policy_cache is not None and self._cache_fresh(self._workspace_policy_cache_at):
-                return json.loads(json.dumps(self._workspace_policy_cache))
+            cached = self._workspace_policy_cache
+            if (
+                cached is not None
+                and self._cache_fresh(self._workspace_policy_cache_at)
+                and (cached.get("session") or {}).get("session_id") == session_id
+            ):
+                return json.loads(json.dumps(cached))
             epoch = self._cache_epoch
-        from .ui.settings.workspace_folders import WorkspaceAnswerError, parse_state
+        from .ui.settings.workspace_chooser import WorkspaceAnswerError, parse_answer
 
-        out: Dict[str, Any] = {"state": None, "error": ""}
-        try:
-            out["state"] = parse_state(self.gateway.workspace_account_policy("me"))
-        except WorkspaceAnswerError as exc:
-            out["error"] = str(exc)
-        except Exception as exc:
-            out["error"] = self.gateway_service.describe_connection_issue(exc)
-        if out["state"]:
+        def _level(fetch) -> Dict[str, Any]:
+            try:
+                return {"state": parse_answer(fetch()), "error": ""}
+            except WorkspaceAnswerError as exc:
+                return {"state": None, "error": str(exc)}
+            except Exception as exc:
+                return {"state": None, "error": self.gateway_service.describe_connection_issue(exc)}
+
+        out: Dict[str, Any] = {"account": _level(lambda: self.gateway.workspace_account_policy("me"))}
+        if session_id:
+            session = _level(lambda: self.gateway.session_workspaces(session_id))
+        else:
+            session = {"state": None, "error": "No chat is open."}
+        session["session_id"] = session_id
+        out["session"] = session
+        if out["account"]["state"] and session["state"]:
             self._store_workspace_policy(out, epoch)
         return out
 
@@ -811,16 +835,28 @@ class AssistantController:
                 self._workspace_policy_cache = json.loads(json.dumps(out))
                 self._workspace_policy_cache_at = time.monotonic()
 
-    def put_workspace_folders(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """ONE ``PUT /workspace/policy/me`` (``{enabled_folders}`` or
-        ``{own_folders}``); returns the new ``{policy, effective}``. A refusal
-        raises with the gateway's sentence (shown with "Not saved.")."""
-        from .ui.settings.workspace_folders import parse_state
+    def put_workspace_policy(self, level: str, body: Dict[str, Any], session_id: str = "") -> Dict[str, Any]:
+        """ONE PUT for one change: ``level="account"`` → ``PUT
+        /workspace/policy/me``; ``level="session"`` → ``PUT
+        /sessions/{id}/workspaces`` for that chat. Returns the new state; a
+        refusal raises with the gateway's sentence (shown with "Not saved.").
+        The cached answer is dropped (a change at the account level moves
+        what the chat's "Use my default" means)."""
+        from .ui.settings.workspace_chooser import parse_answer
 
+        if level == "account":
+            answer = self.gateway.put_workspace_account_policy(dict(body or {}), "me")
+        elif level == "session":
+            sid = str(session_id or "").strip()
+            if not sid:
+                raise ValueError("No chat is open.")
+            answer = self.gateway.put_session_workspaces(sid, dict(body or {}))
+        else:
+            raise ValueError(f"unknown workspace level {level!r}")
+        state = parse_answer(answer)
         with self._cache_lock:
-            epoch = self._cache_epoch
-        state = parse_state(self.gateway.put_workspace_account_policy(dict(body or {}), "me"))
-        self._store_workspace_policy({"state": state, "error": ""}, epoch)
+            self._workspace_policy_cache = None
+            self._workspace_policy_cache_at = 0.0
         return state
 
     def effective_chat_route(self) -> Dict[str, str]:
