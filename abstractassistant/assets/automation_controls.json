@@ -9,6 +9,7 @@
     "stop_current": "Stop current",
     "revise": "Edit",
     "archive": "Archive",
+    "unarchive": "Unarchive",
     "discuss": "Discuss"
   },
   "hints": {
@@ -19,6 +20,7 @@
     "stop_current": "Cancel the run in progress, or its pending retry.\nIt ends as cancelled, with no failure notice. The schedule continues.",
     "revise": "Change the task, schedule or settings.\nChanges apply from the next run; a run in progress keeps its inputs. A changed schedule restarts from now, so no past time runs.",
     "archive": "Stop it for good: it will not run again.\nA run in progress finishes; the history stays readable.",
+    "unarchive": "Bring it back from the archive, paused: nothing runs until you make it active.\nAn automation that had already finished or failed keeps that status; its history is unchanged.",
     "discuss": "Talk about the results in a separate conversation, seeded with the runs up to this one.\nIt has its own workspace (the automation's files are read-only) and never changes the automation."
   },
   "run_now_next_run_line": "Next scheduled run: {time}.",
