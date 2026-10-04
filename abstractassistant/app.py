@@ -183,6 +183,7 @@ from .gateway.live_deltas import (
 from .ui.session_switcher import SessionSwitcher
 from .core.automations import NotificationLedger, discussion_banner, target_from_workflow
 from .ui.automations import (
+    AUTOMATION_GATEWAY_DEFAULT_TARGET,
     AUTOMATIONS_POLL_HIDDEN_MS,
     AUTOMATIONS_POLL_VISIBLE_MS,
     AutomationsHub,
@@ -6800,7 +6801,7 @@ class AssistantPalette(QMainWindow):
                 return
             revised = {**changes, "target": target} if target is not None else changes
             self._automations.revise(summary, revised, self._automation_call_done("Saved; applies from the next run."))
-        if changes.get("target") and self.automation_view.edit_workflow.currentIndex() > 0:
+        if changes.get("target") and self.automation_view.edit_workflow.retargeted():
             self._automations.run(lambda: self._prepare_automation_target(changes["target"]), ready)
         else:
             ready(True, None)
@@ -6917,6 +6918,17 @@ class AssistantPalette(QMainWindow):
         self._on_reattach_candidate({"run_id": run_id, "status": "running", "waiting": None})
         self._refresh_sessions_from_gateway()
 
+    def _gateway_default_offered(self) -> bool:
+        """The gateway reports a default workflow for the assistant interface
+        (read with the catalog; no round trip). Without one, ``@default`` is
+        refused by the gateway, so "+ New automation" starts on the workflow
+        the conversation would run (the built-in orchestrator)."""
+        getter = getattr(self._controller, "gateway_default_workflow", None)
+        try:
+            return bool(getattr(getter(), "available", False)) if callable(getter) else False
+        except Exception:
+            return False
+
     def _open_new_automation_sheet(self) -> None:
         """"+ New automation" in the switcher: the same sheet, standalone —
         an empty task, the default schedule, the configured workflow."""
@@ -6940,7 +6952,12 @@ class AssistantPalette(QMainWindow):
             label = str(getattr(selection, "label", "") or getattr(selection, "bundle_id", "") or "")
             if getattr(selection, "is_gateway_default", False):
                 label = f"gateway default ({label})" if label else "gateway default"
-            sheet = ScheduleSheet(target=target_from_workflow(selection), target_label=label, prompt=prompt, parent=self)
+            target = target_from_workflow(selection)
+            if standalone and self._gateway_default_offered():
+                # "+ New automation" (DESIGN R10.4, as in Code/Observer): the
+                # gateway default is the workflow until the user picks another.
+                target = dict(AUTOMATION_GATEWAY_DEFAULT_TARGET)
+            sheet = ScheduleSheet(target=target, target_label=label, prompt=prompt, parent=self)
             self._automations.run(
                 lambda: controller.workflow_menu(),
                 lambda ok_workflows, rows: sheet.workflow_picker.set_workflows(rows if ok_workflows else [], sheet.target or {}),
@@ -7004,7 +7021,7 @@ class AssistantPalette(QMainWindow):
                     self._open_automation(str(summary["automation_id"]))
             self._poll_automations()
 
-        if sheet.workflow_picker.currentIndex() > 0:
+        if sheet.workflow_picker.retargeted():
             def prepared(ok: bool, value: Any) -> None:
                 if not ok:
                     sheet.submit_failed(str(value), reuse_id=False)

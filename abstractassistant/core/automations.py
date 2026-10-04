@@ -840,7 +840,14 @@ def utc_from_input(value: str) -> Optional[str]:
     return ts if _parse_ts(ts) is not None else None
 
 
-def schedule_config(when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None) -> Tuple[Dict[str, Any], List[str]]:
+# The kit's consent line (panel_core.ts TOOL_APPROVAL_CONSENT), shown under "Run without asking".
+TOOL_APPROVAL_CONSENT = "Tools run without asking (you approve them now by creating this automation)"
+TOOL_APPROVAL_ASK_HINT = "Each tool call waits for your approval in the automation's timeline."
+
+
+def schedule_config(
+    when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None, until: str = ""
+) -> Tuple[Dict[str, Any], List[str]]:
     """``schedule@1`` config + the reasons it is invalid."""
     errors: List[str] = []
     config: Dict[str, Any] = {}
@@ -862,10 +869,16 @@ def schedule_config(when: ScheduleWhen, *, start_at: str = "", count: Optional[i
         else:
             config["start_at"] = s
     if count is not None:
-        if not isinstance(count, int) or count < 1:
-            errors.append("Maximum runs must be a whole number of at least 1.")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            errors.append("Stop after this many runs must be a whole number of at least 1.")
         else:
             config["count"] = count
+    if until:
+        u = utc_from_input(until)
+        if not u:
+            errors.append("Stop at must be a date and time (UTC).")
+        else:
+            config["until"] = u
     return config, errors
 
 
@@ -921,6 +934,7 @@ def build_create_request(
     title: str = "",
     start_at: str = "",
     count: Optional[int] = None,
+    until: str = "",
     tool_approval: str = "auto",
     trigger: str = "schedule",
     email: Optional[EmailTriggerForm] = None,
@@ -956,7 +970,7 @@ def build_create_request(
     if is_email:
         config, when_errors = email_trigger_config(email or EmailTriggerForm())
     else:
-        config, when_errors = schedule_config(when, start_at=start_at, count=count)
+        config, when_errors = schedule_config(when, start_at=start_at, count=count, until=until)
     errors.extend(when_errors)
     recipients: Optional[List[str]] = None
     if notify_email and email_recipients is not None and email_recipients[0] == "list":

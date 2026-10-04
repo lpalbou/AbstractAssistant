@@ -977,7 +977,7 @@ def test_schedule_this_conversation_prefills_and_creates(palette, stub) -> None:
     assert sheet.prompt_edit.toPlainText() == "Summarise today's AI news in five bullets."
     assert sheet.schedule_available is True
     assert sheet.preset_combo.currentText() == "every 8 hours"
-    assert sheet.preview_label.text() == "every 8 hours (UTC), first run now"
+    assert sheet.preview_label.text() == "Runs every 8 hours (UTC), first run now."
     sheet.growing.setChecked(True)
     sheet.submit_button.click()
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
@@ -1209,8 +1209,12 @@ def test_schedule_sheet_states_the_tool_consent_and_can_ask_each_time(palette, s
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     assert sheet.tools_auto.isChecked()
-    assert sheet.tools_auto.text() == "Tools run without asking (you approve them now by creating this automation)"
+    # The kit's AfScheduleDialog wording: the radio + the consent line under it.
+    assert sheet.tools_auto.text() == "Run without asking"
+    assert sheet.tools_consent.text() == "Tools run without asking (you approve them now by creating this automation)."
     sheet.tools_ask.setChecked(True)
+    assert sheet.tools_ask.text() == "Ask me before each tool call (the run waits for you)"
+    assert sheet.tools_consent.text() == "Each tool call waits for your approval in the automation's timeline."
     sheet.submit_button.click()
     assert stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]["policy"] == {"tool_approval": "ask"}
 

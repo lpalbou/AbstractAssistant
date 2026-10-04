@@ -41,6 +41,8 @@ from PyQt5.QtWidgets import (
 )
 
 from ..core.automations import (
+    TOOL_APPROVAL_ASK_HINT,
+    TOOL_APPROVAL_CONSENT,
     AUTOMATION_CONTROLS,
     DEFAULT_GROWING_MAX_TOKENS,
     GROWING_CONTEXT_HELP,
@@ -171,24 +173,62 @@ class AutomationToolsButton(QPushButton):
         dialog.show()
 
 
+AUTOMATION_GATEWAY_DEFAULT_TARGET: Dict[str, str] = {"flow_id": "@default", "interface": "abstractassistant.agent.v1"}
+
+
 class AutomationWorkflowCombo(QComboBox):
-    """The Settings workflow menu, scoped to this form instead of device preferences."""
+    """The automation's workflow (DESIGN R10.4, the kit's AutomationWorkflowPicker):
+    "Gateway default" FIRST, then the gateway's executable workflows
+    (``GET /bundles?executable_for=abstractassistant.agent.v1`` as
+    ``controller.workflow_menu()`` lists them). The target the form opened with
+    is selected; a concrete target the catalog no longer lists stays as its own
+    row so opening the form never changes it. ``retargeted()`` = the user chose
+    another workflow (the host then resolves that workflow's inputs)."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._initial: Dict[str, Any] = {}
+
     def set_workflows(self, rows: Sequence[Mapping[str, Any]], target: Mapping[str, Any]) -> None:
         self.blockSignals(True)
         self.clear()
         current = {key: target[key] for key in ("bundle_ref", "flow_id", "interface") if key in target}
-        label = "Gateway default" if current.get("flow_id") == "@default" else f"{current.get('bundle_ref', '')}:{current.get('flow_id', '')}"
-        self.addItem(label, current)
+        self._initial = dict(current)
+        self.addItem("Gateway default", dict(AUTOMATION_GATEWAY_DEFAULT_TARGET))
         for row in rows:
             choice = row.get("choice")
-            value = ({"bundle_ref": choice["bundle_id"], "flow_id": choice["flow_id"]} if isinstance(choice, dict)
-                     else {"flow_id": "@default", "interface": "abstractassistant.agent.v1"})
-            if value != current:
-                self.addItem(str(row.get("label") or value["flow_id"]), value)
-        self.setCurrentIndex(0)
-        self.setEnabled(bool(rows))
+            if not isinstance(choice, dict):
+                continue  # the menu's own gateway-default row: already first
+            value = {"bundle_ref": choice["bundle_id"], "flow_id": choice["flow_id"]}
+            self.addItem(str(row.get("label") or value["flow_id"]), value)
+        selected = 0
+        if current and current.get("flow_id") != "@default":
+            selected = next((i for i in range(self.count()) if self._same(self.itemData(i), current)), -1)
+            if selected < 0:
+                self.addItem(f"{current.get('bundle_ref', '')}:{current.get('flow_id', '')}", current)
+                selected = self.count() - 1
+        self.setCurrentIndex(selected)
+        self.setEnabled(bool(rows) or self.count() > 1)
         self.setAccessibleName("Automation workflow")
         self.blockSignals(False)
+
+    @staticmethod
+    def _same(value: Any, current: Mapping[str, Any]) -> bool:
+        if not isinstance(value, Mapping):
+            return False
+        if value.get("flow_id") != current.get("flow_id"):
+            return False
+        ref, cur = str(value.get("bundle_ref") or ""), str(current.get("bundle_ref") or "")
+        # A catalog row names the bundle (latest version); a definition pins bundle@version.
+        return ref == cur or cur.rpartition("@")[0] == ref or ref.rpartition("@")[0] == cur
+
+    def retargeted(self) -> bool:
+        data = self.currentData()
+        if not isinstance(data, Mapping) or not self._initial or not self.isEnabled():
+            return False  # no target known yet, or nothing to choose from
+        if data.get("flow_id") == "@default":
+            return self._initial.get("flow_id") != "@default"
+        return not self._same(data, self._initial)
 
 
 def _retarget_input(data: Mapping[str, Any]) -> Dict[str, Any]:
@@ -201,6 +241,7 @@ def _retarget_input(data: Mapping[str, Any]) -> Dict[str, Any]:
     return out
 
 __all__ = [
+    "AUTOMATION_GATEWAY_DEFAULT_TARGET",
     "AUTOMATIONS_POLL_VISIBLE_MS",
     "AUTOMATIONS_POLL_HIDDEN_MS",
     "AutomationView",
@@ -1228,7 +1269,7 @@ class AutomationView(QFrame):
             target = _with_target_tools(self.edit_target, self.edit_tools.selection)
             changes = changes or {}
             changes["target"] = {key: target[key] for key in ("bundle_ref", "flow_id", "input_data") if key in target}
-        if self.edit_target is not None and self.edit_workflow.currentIndex() > 0:
+        if self.edit_target is not None and self.edit_workflow.retargeted():
             changes = changes or {}
             data = (changes.get("target") or self.edit_target).get("input_data") or {}
             changes["target"] = {**self.edit_workflow.currentData(), "input_data": _retarget_input(data)}
@@ -1314,16 +1355,22 @@ class ScheduleSheet(QDialog):
         self.workflow_picker.set_workflows([], self.target or {})
         self.workflow_picker.setToolTip("Choose the workflow for this automation")
         root.addWidget(self.workflow_picker)
-        self.title_edit = QLineEdit(self)
-        self.title_edit.setObjectName("autoInput")
-        self.title_edit.setPlaceholderText("Title (defaults to the task's first line)")
-        root.addWidget(self.title_edit)
+        # The kit's AfScheduleDialog wording (Code / Observer): Task, Title.
+        root.addWidget(_text_label("Task", "autoViewMeta", parent=self))
         self.prompt_edit = QPlainTextEdit(self)
         self.prompt_edit.setObjectName("autoInput")
         self.prompt_edit.setPlainText(str(prompt or ""))
-        self.prompt_edit.setPlaceholderText("The task each run performs")
+        self.prompt_edit.setPlaceholderText("e.g. Check the price of ACME shares and notify me if it moved more than 2%.")
+        self.prompt_edit.setAccessibleName("Task")
         self.prompt_edit.setMinimumHeight(70)
         root.addWidget(self.prompt_edit)
+        root.addWidget(_text_label("Title", "autoViewMeta", parent=self))
+        self.title_edit = QLineEdit(self)
+        self.title_edit.setObjectName("autoInput")
+        self.title_edit.setMaxLength(120)
+        self.title_edit.setPlaceholderText("Defaults to the task's first line")
+        self.title_edit.setAccessibleName("Title")
+        root.addWidget(self.title_edit)
 
         root.addWidget(_text_label("When (UTC)", "autoViewTitle", parent=self))
         self.preset_combo = QComboBox(self)
@@ -1356,6 +1403,27 @@ class ScheduleSheet(QDialog):
         self.at_edit.setObjectName("autoInput")
         self.at_edit.setPlaceholderText("First run / run once at YYYY-MM-DD HH:MM (UTC); empty = now")
         root.addWidget(self.at_edit)
+        # "Stop after this many runs" / "Stop at (UTC)" (kit wording; Repeat only).
+        self.stop_host = QWidget(self)
+        stop = QVBoxLayout(self.stop_host)
+        stop.setContentsMargins(0, 0, 0, 0)
+        stop.setSpacing(4)
+        count_row = QHBoxLayout()
+        count_row.addWidget(_text_label("Stop after this many runs", "autoViewMeta", parent=self.stop_host))
+        self.count_edit = QLineEdit(self.stop_host)
+        self.count_edit.setObjectName("autoInput")
+        self.count_edit.setPlaceholderText("never")
+        self.count_edit.setAccessibleName("Stop after this many runs")
+        self.count_edit.setMaximumWidth(120)
+        count_row.addWidget(self.count_edit)
+        count_row.addStretch(1)
+        stop.addLayout(count_row)
+        self.until_edit = QLineEdit(self.stop_host)
+        self.until_edit.setObjectName("autoInput")
+        self.until_edit.setPlaceholderText("Stop at YYYY-MM-DD HH:MM (UTC); empty = never")
+        self.until_edit.setAccessibleName("Stop at (UTC)")
+        stop.addWidget(self.until_edit)
+        root.addWidget(self.stop_host)
         self._build_email_trigger(root)
 
         root.addWidget(_text_label("Context", "autoViewTitle", parent=self))
@@ -1382,14 +1450,18 @@ class ScheduleSheet(QDialog):
         self.tool_picker = AutomationToolsButton(self)
         self.tool_picker.configure({}, _target_tools(self.target or {}))
         root.addWidget(self.tool_picker)
-        self.tools_auto = QRadioButton("Tools run without asking (you approve them now by creating this automation)", self)
-        self.tools_ask = QRadioButton("Ask each time (every run waits for your approval)", self)
+        self.tools_auto = QRadioButton("Run without asking", self)
+        self.tools_ask = QRadioButton("Ask me before each tool call (the run waits for you)", self)
         self.tools_auto.setChecked(True)
         tools_group = QButtonGroup(self)
         tools_group.addButton(self.tools_auto)
         tools_group.addButton(self.tools_ask)
         root.addWidget(self.tools_auto)
         root.addWidget(self.tools_ask)
+        # The consent line (auto) or the approval hint (ask), as in the kit.
+        self.tools_consent = _text_label(TOOL_APPROVAL_CONSENT + ".", "autoViewMeta", parent=self)
+        root.addWidget(self.tools_consent)
+        self.tools_auto.toggled.connect(self._sync_tool_consent)
         self.untrusted_label = _text_label(EMAIL_TEXT["untrusted_hint"], "autoViewMeta", parent=self)
         root.addWidget(self.untrusted_label)
 
@@ -1405,7 +1477,7 @@ class ScheduleSheet(QDialog):
         buttons.addStretch(1)
         self.cancel_button = _button("Cancel", "autoControl", parent=self)
         self.cancel_button.clicked.connect(self.close)
-        self.submit_button = _button("Schedule", "autoPrimary", parent=self)
+        self.submit_button = _button("Create automation", "autoPrimary", parent=self)
         self.submit_button.clicked.connect(self._submit)
         buttons.addWidget(self.cancel_button)
         buttons.addWidget(self.submit_button)
@@ -1416,6 +1488,7 @@ class ScheduleSheet(QDialog):
             self.email_from_in.textChanged, self.email_from_domain_in.textChanged, self.email_to_in.textChanged,
             self.email_subject.textChanged, self.email_has_attachment.currentIndexChanged,
             self.notify_email.toggled, self.recipients_list.toggled, self.recipients_edit.textChanged,
+            self.count_edit.textChanged, self.until_edit.textChanged,
         ):
             signal.connect(self._update_preview)
         self.email_status: Optional[Dict[str, Any]] = None
@@ -1647,6 +1720,7 @@ class ScheduleSheet(QDialog):
         self.email_box.setVisible(data == "email")
         self.untrusted_label.setVisible(data == "email")
         self.at_edit.setVisible(data != "email")
+        self.stop_host.setVisible(data not in ("once", "email"))
         self.at_edit.setPlaceholderText(
             "Run once at YYYY-MM-DD HH:MM (UTC)" if data == "once" else "First run at YYYY-MM-DD HH:MM (UTC); empty = now"
         )
@@ -1655,7 +1729,7 @@ class ScheduleSheet(QDialog):
     def build_body(self):
         when = self.when()
         target = self.target
-        if self.workflow_picker.currentIndex() > 0:
+        if self.workflow_picker.retargeted():
             target = {**self.workflow_picker.currentData(), "input_data": _retarget_input((self.target or {}).get("input_data") or {})}
         return build_create_request(
             prompt=self.prompt_edit.toPlainText(),
@@ -1666,6 +1740,7 @@ class ScheduleSheet(QDialog):
             request_id=self.request_id,
             title=self.title_edit.text(),
             start_at="" if when.kind == "once" or self.preset_combo.currentData() == "email" else self.at_edit.text().strip(),
+            **(self._stop_fields() if self._repeats() else {}),
             tool_approval="ask" if self.tools_ask.isChecked() else "auto",
             # Nothing email-shaped without a usable account.
             **(
@@ -1680,6 +1755,21 @@ class ScheduleSheet(QDialog):
             ),
         )
 
+    def _repeats(self) -> bool:
+        return self.preset_combo.currentData() not in ("once", "email")
+
+    def _stop_fields(self) -> Dict[str, Any]:
+        """``count`` / ``until`` for a repeating schedule (empty = not sent)."""
+        out: Dict[str, Any] = {"until": self.until_edit.text().strip()}
+        text = self.count_edit.text().strip()
+        if text:
+            out["count"] = int(text) if text.isdigit() else -1  # -1: refused with the field's sentence
+        return out
+
+    def _sync_tool_consent(self, *_args: Any) -> None:
+        auto = self.tools_auto.isChecked()
+        self.tools_consent.setText(TOOL_APPROVAL_CONSENT + "." if auto else TOOL_APPROVAL_ASK_HINT)
+
     def _update_preview(self) -> None:
         if not hasattr(self, "email_status"):
             return  # still building
@@ -1690,7 +1780,7 @@ class ScheduleSheet(QDialog):
         elif body is not None:
             config = body["trigger"]["config"]
             first = "" if "every" not in config else (f", first run at {format_utc(config['start_at'])}" if config.get("start_at") else ", first run now")
-            self.preview_label.setText(f"{schedule_label(config)}{first}")
+            self.preview_label.setText(f"Runs {schedule_label(config)}{first}.")
         else:
             self.preview_label.setText(" ".join(errors))
         self.submit_button.setEnabled(body is not None and self.schedule_available is not False)
