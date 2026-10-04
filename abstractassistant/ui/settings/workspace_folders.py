@@ -41,6 +41,7 @@ WORKSPACE_CHOOSER_TEXT: Dict[str, str] = {
     "saved": "Saved",
     "notSaved": "Not saved.",
     "automationHelp": "The folders this automation's runs may use, chosen among this account's folders.",
+    "runHelp": "The folders this run may use, chosen among this account's folders.",
     "automationFollows": "Follows this account's folders.",
     "automationUseAccount": "Use this account's folders",
     "automationOwnHidden": "Add folders of your own in the account's workspace settings.",
