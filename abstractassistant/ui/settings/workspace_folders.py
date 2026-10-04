@@ -24,7 +24,8 @@ WORKSPACE_CHOOSER_TEXT: Dict[str, str] = {
     "help": "The folders agents may use. The shared workspace is always on; other folders the gateway admin allows can be turned on.",
     "sharedLabel": "Shared workspace",
     "sharedState": "Always on",
-    "sharedHelp": "Every conversation, automation and entity gets its own folder in it.",
+    "sharedHelp": "Every agent can always use it. Each conversation also keeps a private folder of its own.",
+    "neverAllowed": "Never allowed on this gateway.",
     "allowedTitle": "Allowed folders",
     "allowedHelp": "Allowed by the gateway admin. Off until turned on.",
     "allowedEmpty": "The gateway admin has not allowed other folders.",
@@ -59,6 +60,7 @@ class FolderRow:
     path: str
     name: str
     on: bool
+    blocked: bool = False  # the gateway marks it never allowed: shown, not switchable
 
 
 @dataclass(frozen=True)
@@ -104,7 +106,12 @@ def account_view(state: Dict[str, Any]) -> WorkspaceView:
     return WorkspaceView(
         shared_path=str(eff.get("shared_workspace") or ""),
         extras=[
-            FolderRow(path=str(f.get("path") or ""), name=folder_name(str(f.get("path") or "")), on=f.get("enabled") is True)
+            FolderRow(
+                path=str(f.get("path") or ""),
+                name=folder_name(str(f.get("path") or "")),
+                on=f.get("enabled") is True,
+                blocked=f.get("never_allowed") is True,
+            )
             for f in (eff.get("available_folders") or [])
             if isinstance(f, dict)
         ],

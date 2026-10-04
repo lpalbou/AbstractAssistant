@@ -106,6 +106,17 @@ def test_my_folders_only_when_any_folder_is_allowed_add_return_escape_remove() -
 
 
 @pytest.mark.basic
+def test_a_listed_folder_the_gateway_marks_never_allowed_is_not_switchable() -> None:
+    ctl = _ctl(available_folders=[{"path": A, "enabled": False, "never_allowed": True}, {"path": B, "enabled": False}])
+    dlg, page = _page(ctl)
+    assert page.extra_switches[A].unavailable_reason == wf.WORKSPACE_CHOOSER_TEXT["neverAllowed"]
+    page.extra_switches[A].click()
+    assert ctl.workspace_puts == []
+    assert page.extra_switches[B].unavailable_reason == ""
+    dlg.close()
+
+
+@pytest.mark.basic
 def test_inactive_own_folders_sentence() -> None:
     ctl = _ctl(own_folders_allowed=False, own_folders_inactive=True)
     ctl.workspace_state["policy"]["own_folders"] = [OWN]

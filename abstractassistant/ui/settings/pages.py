@@ -938,6 +938,8 @@ class WorkspacePage(SettingsPage):
             switch.setChecked(row.on)
             switch.set_hint(row.path)
             switch.setAccessibleName(row.path)
+            if row.blocked:
+                switch.set_unavailable(WT["neverAllowed"])
             switch.clicked.connect(lambda checked, p=row.path, v=view: self._toggle(v, p, bool(checked)))
             self.extra_switches[row.path] = switch
             self.rows_layout.addWidget(switch)
@@ -1019,6 +1021,9 @@ class WorkspacePage(SettingsPage):
         return True
 
     def _toggle(self, view: Any, path: str, on: bool) -> None:
+        switch = self.extra_switches.get(path)
+        if switch is not None and not switch.is_actionable():
+            return  # unavailable (never allowed): the click changes nothing
         self._put(path, workspace_extra_body(view, path, on))
         self._render()
 
