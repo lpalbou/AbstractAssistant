@@ -207,6 +207,11 @@ def test_an_older_gateway_keeps_the_device_choice(tmp_path) -> None:
         assert ctl.preferences.workflow == WORKFLOW_GATEWAY_DEFAULT
         assert ctl.set_workflow_choice(DEVICE) == "device"
         assert _file(tmp_path)["workflow"] == DEVICE, "still in preferences.json"
+        # The 404 is remembered: every turn's workflow_choice() does not ask the old gateway again.
+        for _ in range(5):
+            ctl.workflow_choice()
+        gets = [c for c in stub.calls if c["method"] == "GET"]
+        assert len(gets) == 1, gets
     finally:
         stub.close()
 
