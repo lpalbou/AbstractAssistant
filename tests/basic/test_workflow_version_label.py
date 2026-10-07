@@ -54,7 +54,7 @@ def test_settings_workflow_rows_never_show_a_placeholder_version(tmp_path, monke
     controller = _controller(tmp_path, monkeypatch, options=[_managed(version)],
                              default=GatewayDefaultWorkflow(reported=True, available=False))
     labels = [row["label"] for row in controller.workflow_menu()]
-    assert labels == [f"Gateway default → Built-in orchestrator{shown}", f"Built-in orchestrator{shown}"]
+    assert labels == [f"Gateway default (Built-in orchestrator{shown})", f"Built-in orchestrator{shown}"]
     assert all("0.0.0" not in label for label in labels)
 
 
@@ -63,7 +63,7 @@ def test_a_gateway_default_naming_the_built_in_shows_built_in_not_zero(tmp_path,
     default = GatewayDefaultWorkflow(reported=True, available=True, bundle_id=MANAGED, bundle_version="0.0.0",
                                      flow_id="node-1", name="Assistant", source="stored")
     controller = _controller(tmp_path, monkeypatch, options=[_managed("0.0.0")], default=default)
-    assert controller.workflow_menu()[0]["label"] == "Gateway default → Assistant (built-in)"
+    assert controller.workflow_menu()[0]["label"] == "Gateway default (Assistant (built-in))"
 
 
 @pytest.mark.basic

@@ -154,7 +154,7 @@ def test_a_refused_save_says_not_saved_and_keeps_the_stored_choice(flow_stub) ->
     page.controller.set_workflow_choice = refuse
     page.workflow_combo.setCurrentIndex(2)
     page._on_workflow_chosen(2)
-    assert page.feedback.text() == "The preferences file is read-only. Not saved."
+    assert page.feedback.text() == "Not saved. The preferences file is read-only"
     assert page.workflow_combo.currentIndex() == 0
     assert real.preferences.workflow == WORKFLOW_GATEWAY_DEFAULT
     dlg.close()

@@ -152,7 +152,7 @@ def test_default_choice_without_a_gateway_default_runs_the_built_in(default) -> 
     assert selection.source == "built_in"
     menu = controller.workflow_menu()
     assert menu[0]["choice"] == WORKFLOW_GATEWAY_DEFAULT
-    assert menu[0]["label"].startswith("Gateway default → Built-in orchestrator @0.0.4")
+    assert menu[0]["label"].startswith("Gateway default (Built-in orchestrator @0.0.4)")
     assert controller.workflow_status().error == ""
 
 
@@ -177,7 +177,7 @@ def test_the_gateways_unavailable_reason_is_shown() -> None:
     assert (info.available, info.reason, info.source) == (False, "no host workflow declares it", "default")
     assert controller.current_workflow().source == "built_in"
     assert controller.workflow_menu()[0]["label"] == (
-        "Gateway default → Built-in orchestrator @0.0.4 (gateway reports: no host workflow declares it)"
+        "Gateway default (Built-in orchestrator @0.0.4) — gateway reports: no host workflow declares it"
     )
 
 
@@ -190,14 +190,14 @@ def test_no_gateway_default_and_no_built_in_blocks_instead_of_picking_one() -> N
     error = controller.workflow_status().error
     assert "built-in orchestrator is not published" in error
     assert "no host workflow declares it" in error
-    assert controller.workflow_menu()[0]["label"] == "Gateway default → unavailable"
+    assert controller.workflow_menu()[0]["label"] == "Gateway default (unavailable)"
 
 
 @pytest.mark.basic
 def test_menu_lists_the_gateway_default_first_then_every_workflow() -> None:
     menu = _controller(_Gateway(_REPORTED)).workflow_menu()
     assert [row["label"] for row in menu] == [
-        "Gateway default → Research agent @1.10.0",
+        "Gateway default (Research agent @1.10.0)",
         "Built-in orchestrator @0.0.4",
         "Research agent @1.10.0 — research-agent",
     ]
@@ -312,7 +312,7 @@ def test_settings_workflow_card_saves_the_sentinel_or_a_workflow() -> None:
     page = dlg.page_workflow
     page.refresh()
     assert page.workflow_combo.count() == 3
-    assert page.workflow_combo.itemText(0).startswith("Gateway default → Research agent")
+    assert page.workflow_combo.itemText(0).startswith("Gateway default (Research agent")
     assert page.workflow_combo.currentIndex() == 0
     page.workflow_combo.setCurrentIndex(2)
     page._on_workflow_chosen(2)

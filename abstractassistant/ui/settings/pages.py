@@ -436,9 +436,11 @@ class WorkflowPage(SettingsPage):
     (``GET /bundles?executable_for=abstractassistant.agent.v1``), the same list
     the automation sheet offers. The choice applies on change (no Save).
 
-    Stored in preferences.json (pref): the gateway has no per-account
-    preference route for it (AbstractCode keeps its choice per signed-in
-    identity in the browser the same way).
+    Stored on the GATEWAY for the signed-in account (round 14: GET/PUT
+    /api/gateway/accounts/me/preferences, shared with every device and with the
+    console's Accounts → Preferences); a choice made on this device before is
+    uploaded once and removed from preferences.json. A gateway without that
+    route (older than 0.13.1) keeps the choice in preferences.json, as before.
 
     "Open in AbstractFlow" (an icon button) appears only when the gateway
     serves AbstractFlow at /apps/flow/ (``GET /api/gateway/apps``); it opens the
@@ -526,13 +528,16 @@ class WorkflowPage(SettingsPage):
             return
         choice = self._workflow_rows[index].get("choice")
         try:
-            self.controller.set_workflow_choice(choice)
+            where = self.controller.set_workflow_choice(choice)
         except Exception as exc:
-            self.say(f"{str(exc).rstrip('.')}. Not saved.", tone="error")
+            self.say(f"Not saved. {_gateway_sentence(exc)}", tone="error")
             self._refresh_workflows()
             return
         self._show_workflow_detail()
-        self.say("Saved on this device — applies from the next turn.")
+        if where == "account":
+            self.say("Saved for your account — applies from the next turn, in every app.")
+        else:
+            self.say("Saved on this device — applies from the next turn.")
         self.changed.emit()
 
     # ------------------------------------------------- Open in AbstractFlow

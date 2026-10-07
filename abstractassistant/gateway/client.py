@@ -885,6 +885,24 @@ class GatewayClient:
         running, mounted, app_path, …}]``), as the console's Apps page reads them."""
         return self._request_json(method="GET", url=self._url("/api/gateway/apps"), label="list_apps failed")
 
+    def get_account_preferences(self) -> Dict[str, Any]:
+        """``GET /api/gateway/accounts/me/preferences`` (gateway 0.13.1+, round 14): the signed-in
+        account's client preferences — ``preferences.default_workflow`` {interface: value|null}
+        and ``apps`` [{interface, value, state, reason, gateway_default_label, choices, …}].
+        An older gateway answers 404 (GatewayHttpError.status == 404)."""
+        return self._request_json(method="GET", url=self._url("/api/gateway/accounts/me/preferences"), label="account preferences")
+
+    def put_account_preferences(self, changes: Dict[str, Any]) -> Dict[str, Any]:
+        """``PUT /api/gateway/accounts/me/preferences`` with e.g. ``{"default_workflow":
+        {"abstractassistant.agent.v1": "bundle:flow" | None}}`` → the new GET answer. A refusal
+        is a 400 whose ``detail.message`` is the gateway's sentence."""
+        return self._request_json(
+            method="PUT",
+            url=self._url("/api/gateway/accounts/me/preferences"),
+            body=dict(changes or {}),
+            label="account preferences",
+        )
+
     def open_app(self, app_id: str, *, path: str, origin: str) -> Dict[str, Any]:
         """``POST /api/gateway/apps/{id}/open`` → ``{open_url, …}``: a one-time
         sign-in link (relative to this gateway) landing at ``path`` inside the

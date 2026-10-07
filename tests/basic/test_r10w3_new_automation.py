@@ -20,7 +20,7 @@ from abstractassistant.ui.automations import AutomationWorkflowCombo, ScheduleSh
 
 
 MENU: List[Dict[str, Any]] = [
-    {"choice": "@default", "label": "Gateway default → AbstractAssistant Orchestrator @0.0.9", "detail": "Set on the gateway."},
+    {"choice": "@default", "label": "Gateway default (AbstractAssistant Orchestrator @0.0.9)", "detail": "Set on the gateway."},
     {"choice": {"bundle_id": "abstractassistant-orchestrator", "flow_id": "c53b1579", "registry_scope": "private"},
      "label": "Built-in orchestrator @0.0.9", "detail": "always its latest version."},
     {"choice": {"bundle_id": "research", "flow_id": "main", "registry_scope": "private"},

@@ -169,6 +169,35 @@ def normalize_workflow_choice(raw: Any) -> Any:
     return WORKFLOW_GATEWAY_DEFAULT
 
 
+def workflow_value_from_choice(choice: Any) -> Optional[str]:
+    """The gateway account preference value (round 14) of a choice: ``None`` for the gateway
+    default, ``"bundle:flow"`` for a workflow of the gateway's own registry, ``"catalog:bundle:flow"``
+    for one of the tenant catalog (always version-less: it follows new versions)."""
+    choice = normalize_workflow_choice(choice)
+    if choice == WORKFLOW_GATEWAY_DEFAULT:
+        return None
+    ref = f"{choice['bundle_id']}:{choice['flow_id']}"
+    return ref if choice.get("registry_scope") == "private" else f"catalog:{ref}"
+
+
+def workflow_choice_from_value(value: Any) -> Any:
+    """The choice a gateway account preference value stands for (the inverse of
+    ``workflow_value_from_choice``); null/blank/unreadable = the gateway default."""
+    text = str(value or "").strip()
+    if not text:
+        return WORKFLOW_GATEWAY_DEFAULT
+    scope = "private"
+    if text.startswith("catalog:"):
+        scope, text = "tenant_catalog", text[len("catalog:"):]
+    elif text.startswith("private:"):
+        text = text[len("private:"):]
+    bundle, sep, flow_id = text.partition(":")
+    bundle_id = bundle.partition("@")[0].strip()
+    if not sep or not bundle_id or not flow_id.strip():
+        return WORKFLOW_GATEWAY_DEFAULT
+    return {"bundle_id": bundle_id, "flow_id": flow_id.strip(), "registry_scope": scope}
+
+
 def normalize_ui_theme(raw: Any) -> str:
     """The saved colour theme id, or the app's own theme when unknown.
 
@@ -405,7 +434,10 @@ class AssistantPreferences:
             "line_spacing": _clamp_float(self.line_spacing, 1.20, 1.0, 2.2),
             "paragraph_spacing": _clamp_int(self.paragraph_spacing, 3, 0, 28),
             "bullet_spacing": _clamp_int(self.bullet_spacing, 3, 0, 16),
-            "workflow": normalize_workflow_choice(self.workflow),
+            # Round 14: written only while it holds a device choice (a gateway older than 0.13.1);
+            # the gateway default is the absence of the key, so the one-time migration to the
+            # account preference removes it from preferences.json.
+            **({"workflow": normalize_workflow_choice(self.workflow)} if normalize_workflow_choice(self.workflow) != WORKFLOW_GATEWAY_DEFAULT else {}),
             "layout_version": LAYOUT_VERSION,
         }
 

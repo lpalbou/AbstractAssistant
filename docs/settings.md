@@ -8,6 +8,8 @@ value comes from and where it is stored:
 - **this app** — stored in `~/.abstractassistant/preferences.json` on this Mac and sent with each
   request; the gateway's shared configuration is never changed
 - **connection** — stored in `~/.abstractassistant/gateway_connection.json`
+- **your account** — stored by the gateway for the signed-in account and shared with every device
+  and app of that account (`GET`/`PUT /api/gateway/accounts/me/preferences`)
 
 Gateway defaults apply whenever an override is empty. See [architecture.md](architecture.md) for
 the boundary and [faq.md](faq.md) for common questions.
@@ -92,17 +94,24 @@ on the execution host (fresh configurations use depth 2 only for compatible mode
 
 The page right after Models. It sets the workflow the Assistant runs for each new turn; a turn
 already running keeps its workflow. The choice applies the moment you pick it (there is no Save);
-if it cannot be stored, the line at the bottom of the page gives the reason followed by "Not saved.".
+if it cannot be stored, the line at the bottom of the page says "Not saved." followed by the reason
+(the gateway's sentence when the gateway refuses the workflow).
 
 | Control | Meaning | Stored |
 |---|---|---|
-| Runs | Which agent workflow each new turn runs. First row: **Gateway default → name @version**, the gateway's default for `abstractassistant.agent.v1`, with the line underneath naming where the gateway says the setting comes from; **Gateway default → Built-in orchestrator @version (gateway reports: reason)** when the gateway sets none; **Gateway default → unavailable**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface, as **name @version — bundle**, the app's own as **Built-in orchestrator @version**; a chosen workflow always runs its latest version. The built-in orchestrator shows no number until the app has published a real version of it (the first is 0.0.1): its row reads **Built-in orchestrator**, and where it appears under another name, **name (built-in)** — the gateway's placeholder 0.0.0 is never shown. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | this app `workflow` (`"@default"`, or the chosen bundle and flow without a version) |
+| Runs | Which agent workflow each new turn runs. First row: **Gateway default (name)**, the gateway's default for `abstractassistant.agent.v1` in the gateway's own words (the console and AbstractCode show the same), with the line underneath naming where the gateway says the setting comes from; **Gateway default (Built-in orchestrator @version) — gateway reports: reason** when the gateway sets none; **Gateway default (unavailable)**, with the reason, when neither exists. Then every workflow in the catalog that declares the assistant interface, as **name @version — bundle**, the app's own as **Built-in orchestrator @version**; a chosen workflow always runs its latest version. The built-in orchestrator shows no number until the app has published a real version of it (the first is 0.0.1): its row reads **Built-in orchestrator**, and where it appears under another name, **name (built-in)** — the gateway's placeholder 0.0.0 is never shown. The choice applies from the next turn; a running turn keeps its workflow. If a chosen workflow leaves the catalog, sending is blocked with a message naming it until you pick another one | your account `default_workflow` for `abstractassistant.agent.v1` (`null` = Gateway default, or `bundle:flow` without a version); this app `workflow` on a gateway older than 0.13.1 |
 | Open in AbstractFlow | Icon button beside the list, shown only when the gateway serves AbstractFlow at `/apps/flow/` (the `flow` row of `GET /api/gateway/apps` is installed and mounted). It opens the selected workflow in AbstractFlow in your browser, already signed in, through `POST /api/gateway/apps/flow/open` with AbstractFlow's deep link `/?bundle=<id>&version=<version>&flow=<flow>`. **Gateway default** opens the workflow the gateway reports as its default (or the built-in orchestrator when it reports none); a chosen workflow opens at its latest version. When AbstractFlow is installed but not running, the tooltip says so and the gateway's refusal is shown | gateway |
 
 The list is the same one the automation window offers: the assistant workflows the gateway says
-you can run (`GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1`). The gateway has
-no per-account setting for this choice, so it is kept on this Mac (like AbstractCode, which keeps
-its choice per signed-in user in the browser).
+you can run (`GET /api/gateway/bundles?executable_for=abstractassistant.agent.v1`).
+
+The choice belongs to your account on the gateway (0.13.1 and later): the console's Accounts →
+Preferences, AbstractCode and your other Macs see the same one, and a change says "Saved for your
+account — applies from the next turn, in every app." A workflow chosen on this Mac before is moved
+there once: the first time the Assistant reads your account's preferences, it uploads that choice
+if your account has none yet (a choice already made elsewhere wins), then removes `workflow` from
+`preferences.json`. A gateway older than 0.13.1 has no account preferences: the choice stays in
+`preferences.json` and a change says "Saved on this device — applies from the next turn."
 
 ## Voice
 

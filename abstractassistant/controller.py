@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import mimetypes
 from pathlib import Path
 import re
@@ -47,7 +48,22 @@ from .preferences import (
     WORKFLOW_GATEWAY_DEFAULT,
     WorkflowSelection,
     normalize_workflow_choice,
+    workflow_choice_from_value,
+    workflow_value_from_choice,
 )
+
+logger = logging.getLogger(__name__)
+# Guards the account-preferences cache (round 14); module-level so a controller built without
+# __init__ (tests) still works.
+_ACCOUNT_PREFS_LOCK = threading.RLock()
+
+
+def _is_account_preferences_answer(answer: Any) -> bool:
+    """The shape of GET/PUT /api/gateway/accounts/me/preferences (round 14)."""
+    if not isinstance(answer, dict) or not isinstance(answer.get("apps"), list):
+        return False
+    prefs = answer.get("preferences")
+    return isinstance(prefs, dict) and isinstance(prefs.get("default_workflow"), dict)
 
 
 class DesktopHandoverError(RuntimeError):
@@ -214,6 +230,12 @@ class AssistantController:
         self._execution_capabilities_cache: Dict[tuple[str, str], tuple[float, Dict[str, Any]]] = {}
         self._route_map_cache: Optional[Dict[str, CapabilityRouteRow]] = None
         self._route_map_cache_at = 0.0
+        # The account's default workflow lives on the GATEWAY (round 14, GET/PUT
+        # /api/gateway/accounts/me/preferences). None = not known yet; False = this gateway has no
+        # such route (older than 0.13.1: the choice stays in preferences.json); True = it has.
+        self._account_prefs: Optional[Dict[str, Any]] = None
+        self._account_prefs_at = 0.0
+        self._account_prefs_supported: Optional[bool] = None
         self._cache_lock = threading.RLock()
         # The gateway voice-default sync does a blocking capability-defaults
         # GET; it runs in prefetch() (off the GUI thread), not in __init__.
@@ -241,7 +263,7 @@ class AssistantController:
             self.gateway_about()
         except Exception:
             pass
-        for name in ("workspace_policy", "tool_inventory"):
+        for name in ("workspace_policy", "tool_inventory", "account_preferences"):
             try:
                 getattr(self, name)()
             except Exception:
@@ -338,6 +360,9 @@ class AssistantController:
             self._execution_capabilities_cache = {}
             self._route_map_cache = None
             self._route_map_cache_at = 0.0
+            self._account_prefs = None
+            self._account_prefs_at = 0.0
+            self._account_prefs_supported = None
 
     def prefetch(self) -> None:
         """Warm the workflow/tool/capabilities caches off the GUI thread.
@@ -393,13 +418,117 @@ class AssistantController:
 
     def workflow_choice(self) -> Any:
         """The saved choice: ``WORKFLOW_GATEWAY_DEFAULT`` or a
-        ``{bundle_id, flow_id, registry_scope}`` dict (see preferences)."""
+        ``{bundle_id, flow_id, registry_scope}`` dict.
+
+        Round 14: on a gateway with account preferences it is the ACCOUNT's choice for
+        ``abstractassistant.agent.v1`` (null = the gateway default), shared by every device and
+        app; preferences.json's ``workflow`` is ignored there (and removed by the one-time
+        migration). A gateway without the route (older than 0.13.1) keeps the device choice."""
+        answer = self.account_preferences()
+        if answer is not None:
+            return workflow_choice_from_value(self._account_workflow_row(answer).get("value"))
+        if getattr(self, "_account_prefs_supported", None):
+            return WORKFLOW_GATEWAY_DEFAULT  # the gateway holds it but cannot be read right now
         prefs = getattr(self, "preferences", None)
         return normalize_workflow_choice(getattr(prefs, "workflow", WORKFLOW_GATEWAY_DEFAULT))
 
-    def set_workflow_choice(self, choice: Any) -> None:
-        """Persist the Settings → Workflow choice; applies from the next turn."""
-        self.update_preferences(workflow=normalize_workflow_choice(choice))
+    def workflow_choice_storage(self) -> str:
+        """Where Settings → Workflow saves: ``"account"`` (the gateway) or ``"device"``."""
+        self.account_preferences()
+        return "account" if getattr(self, "_account_prefs_supported", None) else "device"
+
+    def set_workflow_choice(self, choice: Any) -> str:
+        """Persist the Settings → Workflow choice; applies from the next turn. Returns where it
+        was saved (``"account"`` | ``"device"``). A gateway refusal raises (its sentence)."""
+        choice = normalize_workflow_choice(choice)
+        self.account_preferences()
+        if getattr(self, "_account_prefs_supported", None):
+            value = workflow_value_from_choice(choice)
+            answer = self.gateway.put_account_preferences({"default_workflow": {ASSISTANT_INTERFACE: value}})
+            self._store_account_preferences(answer)
+            return "account"
+        self.update_preferences(workflow=choice)
+        return "device"
+
+    # ------------------------------------------ the account preference (round 14)
+
+    def account_preferences(self, *, fresh: bool = False) -> Optional[Dict[str, Any]]:
+        """The gateway's ``GET /api/gateway/accounts/me/preferences`` answer (cached like the
+        workflow list), or None when this gateway has no such route (404: older than 0.13.1) or
+        cannot be asked now. The first successful read runs the one-time migration of a
+        device-local choice."""
+        with _ACCOUNT_PREFS_LOCK:
+            cached = getattr(self, "_account_prefs", None)
+            if not fresh and cached is not None and self._cache_fresh(float(getattr(self, "_account_prefs_at", 0.0) or 0.0)):
+                return dict(cached)
+            if getattr(self, "_account_prefs_supported", None) is False and not fresh:
+                return None
+            stale = dict(cached) if cached is not None else None
+        getter = getattr(getattr(self, "gateway", None), "get_account_preferences", None)
+        if not callable(getter):
+            return None
+        from abstractassistant.gateway.client import GatewayHttpError
+
+        try:
+            answer = getter()
+        except GatewayHttpError as exc:
+            if int(getattr(exc, "status", 0) or 0) == 404:
+                with _ACCOUNT_PREFS_LOCK:
+                    self._account_prefs_supported = False
+                    self._account_prefs = None
+                return None
+            return stale
+        except Exception:
+            return stale  # not reachable now: the last answer, if any
+        if not _is_account_preferences_answer(answer):
+            return stale
+        self._store_account_preferences(answer)
+        self._migrate_device_workflow(answer)
+        with _ACCOUNT_PREFS_LOCK:
+            cached = getattr(self, "_account_prefs", None)
+            return dict(cached) if cached is not None else None
+
+    def _store_account_preferences(self, answer: Any) -> None:
+        if not _is_account_preferences_answer(answer):
+            return
+        with _ACCOUNT_PREFS_LOCK:
+            self._account_prefs = dict(answer)
+            self._account_prefs_at = time.monotonic()
+            self._account_prefs_supported = True
+
+    @staticmethod
+    def _account_workflow_row(answer: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        for row in (answer or {}).get("apps") or []:
+            if isinstance(row, dict) and row.get("interface") == ASSISTANT_INTERFACE:
+                return row
+        return {}
+
+    def _migrate_device_workflow(self, answer: Dict[str, Any]) -> None:
+        """ONE-TIME: a workflow chosen on this device before the gateway kept it (preferences.json
+        ``workflow``) is uploaded to the account when the account has none, then the device key is
+        removed and never read again on this gateway. An account that already has a choice (made
+        on another device) keeps it. A refusal (the workflow no longer runs) drops the device key
+        too; a network failure keeps it for the next read."""
+        prefs = getattr(self, "preferences", None)
+        device = normalize_workflow_choice(getattr(prefs, "workflow", WORKFLOW_GATEWAY_DEFAULT))
+        if device == WORKFLOW_GATEWAY_DEFAULT:
+            return
+        from abstractassistant.gateway.client import GatewayHttpError
+
+        if self._account_workflow_row(answer).get("value") is None:
+            try:
+                uploaded = self.gateway.put_account_preferences(
+                    {"default_workflow": {ASSISTANT_INTERFACE: workflow_value_from_choice(device)}}
+                )
+            except GatewayHttpError as exc:
+                if int(getattr(exc, "status", 0) or 0) != 400:
+                    return  # not a refusal: try again at the next read
+                logger.warning("The workflow chosen on this device was not uploaded to your account: %s", exc)
+            except Exception:
+                return
+            else:
+                self._store_account_preferences(uploaded)
+        self.update_preferences(workflow=WORKFLOW_GATEWAY_DEFAULT)
 
     def gateway_default_workflow(self) -> GatewayDefaultWorkflow:
         service = getattr(self, "gateway_service", None)
@@ -468,17 +597,25 @@ class AssistantController:
         options = self.workflow_options()
         default = self.gateway_default_workflow()
         built_in = self.built_in_workflow(options)
+        # Round 14: "Gateway default (<name>)", verbatim from the gateway's account preferences
+        # answer when it has one (the console, the TUI and AbstractCode show the same words).
+        account_row = self._account_workflow_row(self.account_preferences())
+        gateway_label = (
+            str(account_row.get("gateway_default_label") or "")
+            if (account_row.get("gateway_default") or {}).get("available") is True
+            else ""
+        )
         if default.available:
             version = workflow_version_suffix(default.bundle_id, default.bundle_version)
-            first_label = f"Gateway default \u2192 {default.name or default.bundle_id}{version}"
+            first_label = gateway_label or f"Gateway default ({default.name or default.bundle_id}{version})"
             detail = f"Set on the gateway (source: {default.source or 'unknown'}). A change there applies from the next turn."
         elif built_in is None:
-            first_label = "Gateway default \u2192 unavailable"
+            first_label = "Gateway default (unavailable)"
             detail = self._no_workflow_reason(default)
         else:
             version = workflow_version_suffix(built_in.bundle_id, built_in.bundle_version, named_built_in=True)
-            reason = f" (gateway reports: {default.reason})" if default.reason else ""
-            first_label = f"Gateway default \u2192 Built-in orchestrator{version}{reason}"
+            reason = f" \u2014 gateway reports: {default.reason}" if default.reason else ""
+            first_label = f"Gateway default (Built-in orchestrator{version}){reason}"
             if not default.reported:
                 detail = "This gateway does not report a default workflow (it predates that setting), so the built-in orchestrator runs."
             else:
