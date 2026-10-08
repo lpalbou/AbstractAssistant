@@ -534,6 +534,11 @@ class RouteOverrideEditor(QWidget):
                 "Gateway default: not configured — the gateway's engine picks "
                 "its own default at call time."
             )
+        hint = str(getattr(gw, "hint", "") or "").strip() if gw is not None and gw_value else ""
+        if hint:
+            # The gateway's served sentence, verbatim (round 16: speech input on Apple silicon).
+            # The gateway console's "Apply recommended" changes the gateway default.
+            gw_line = f"{gw_line}\n{hint}"
         override_value = self._route_value_summary(row)
         if override_value:
             app_line = f"This app: {override_value} (local override)."

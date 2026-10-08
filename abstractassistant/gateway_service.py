@@ -57,6 +57,10 @@ class CapabilityRouteRow:
     source: str = ""
     package_hint: str = ""
     description: str = ""
+    # The gateway's served one-line hint for this route (AbstractCore `route_hint.sentence`,
+    # e.g. speech input on Apple silicon: mlx-whisper runs the model on the GPU). Shown
+    # verbatim; never computed or applied here.
+    hint: str = ""
 
 
 @dataclass(frozen=True)
@@ -811,6 +815,9 @@ class AssistantGatewayService:
             source=str(raw.get("source") or "").strip(),
             package_hint=str(raw.get("package_hint") or "").strip(),
             description=spec.description if spec else "",
+            hint=str((raw.get("route_hint") or {}).get("sentence") or "").strip()
+            if isinstance(raw.get("route_hint"), dict)
+            else "",
         )
 
     def _provider_items_from_catalog(self, payload: Dict[str, Any], *, preferred_keys: Iterable[str]) -> List[ChoiceItem]:
