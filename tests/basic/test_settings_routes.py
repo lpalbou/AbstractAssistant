@@ -545,3 +545,46 @@ def test_a_saved_choice_the_catalog_no_longer_lists_stays_selected() -> None:
     assert dlg.model_combo.currentData() == "ornith-1.0-35b"
     assert "(saved)" in dlg.provider_combo.currentText()
     assert ctl.overrides["output.text"] == {"provider": "lmstudio", "model": "ornith-1.0-35b"}
+
+
+# =============================================================== round 16: served hint
+
+
+HINT = (
+    "Runs on the processor: faster-whisper has no Apple GPU backend. mlx-whisper runs large-v3 on "
+    "this Mac's GPU, about 15 times faster: about 1.4 s instead of about 20 s for a 17 s clip on an M5 Max."
+)
+
+
+@pytest.mark.basic
+def test_the_gateways_served_hint_is_shown_under_its_default_verbatim() -> None:
+    import dataclasses
+
+    ctl = _StubController()
+    rows = ctl.route_map()
+    voice = rows["input.voice"]
+    ctl.route_map = lambda: {**rows, "input.voice": dataclasses.replace(voice, hint=HINT)}
+    dlg = _dialog(ctl)
+    _select(dlg, "input.voice")
+    lines = dlg.route_state.text().split("\n")
+    assert lines[0].startswith("Gateway default: ")
+    assert lines[1] == HINT
+    assert lines[2].startswith("This app: ")
+
+
+@pytest.mark.basic
+def test_no_hint_no_extra_line() -> None:
+    dlg = _dialog(_StubController())
+    _select(dlg, "input.voice")
+    assert len(dlg.route_state.text().split("\n")) == 2
+
+
+@pytest.mark.basic
+def test_the_route_row_parser_reads_route_hint_sentence() -> None:
+    from abstractassistant.gateway_service import AssistantGatewayService
+
+    parse = AssistantGatewayService._parse_route_row
+    row = parse(None, {"key": "input.voice", "provider": "faster-whisper", "model": "large-v3",
+                       "route_hint": {"code": "apple_gpu_engine", "sentence": HINT, "route": None}})
+    assert row.hint == HINT
+    assert parse(None, {"key": "input.voice", "provider": "faster-whisper"}).hint == ""
