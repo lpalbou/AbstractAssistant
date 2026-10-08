@@ -1082,8 +1082,8 @@ def test_scenario_three_news_monitors(palette, stub) -> None:
     window._session_switcher = switcher
     window._apply_automations_to_switcher(switcher)
     listed = {r.automation_id: r.meta_text.split(" · ")[0] for r in switcher.automation_rows}
-    # schedule@2 rows: the served rule, verbatim (the stub gateway's words).
-    assert {listed[i] for i in ids} == {"Served every 8h", "Served every 24h", "Served every 1h"}
+    # schedule@2 Repeat rows read in the fixed-interval family, as v1 rows (the kit's rule).
+    assert {listed[i] for i in ids} == {"every 8 hours (UTC)", "every 24 hours (UTC)", "every hour (UTC)"}
     switcher.deleteLater()
 
 
@@ -1118,7 +1118,7 @@ def test_scenario_weekly_journal_growing(palette, stub) -> None:
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
     assert body["trigger"]["config"] == {"kind": "every", "every": "7d"} and body["context"] == {"mode": "growing"}
     summary = stub.summary(aid)
-    assert trigger_summary(summary["trigger"], summary) == "Served every 7d"
+    assert trigger_summary(summary["trigger"], summary) == "every 7 days (UTC)"
     assert "Growing" in window.automation_view.meta_label.text()
 
 

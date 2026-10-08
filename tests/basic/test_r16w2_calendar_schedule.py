@@ -141,6 +141,28 @@ def test_day_chips_show_their_state_with_a_check_mark(palette, stub) -> None:  #
 
 
 @pytest.mark.basic
+def test_the_calendar_fields_are_kept_across_kind_switches(palette, stub) -> None:  # noqa: F811
+    """As the kit's CalendarRuleState: Weekly → Monthly → Weekly keeps the picked
+    days (and the month day / time); an emptied day set stays empty."""
+    window, _ = palette
+    sheet = _sheet(window)
+    sheet.set_kind("weekly")
+    sheet.calendar.day_chips["thu"].setChecked(True)
+    sheet.set_kind("monthly")
+    sheet.calendar.month_day.setCurrentIndex(sheet.calendar.month_day.findData(15))
+    sheet.set_kind("weekly")
+    assert sheet.when() == ScheduleWhen("weekly", at="08:00", days=("mon", "thu"))
+    sheet.set_kind("monthly")
+    assert sheet.when() == ScheduleWhen("monthly", at="08:00", day=15)
+    sheet.set_kind("weekly")
+    for chip in sheet.calendar.day_chips.values():
+        chip.setChecked(False)
+    sheet.set_kind("daily")
+    sheet.set_kind("weekly")
+    assert sheet.when().days == (), "an emptied set stays empty"
+
+
+@pytest.mark.basic
 def test_a_refused_preview_shows_the_gateways_own_sentence(palette, stub) -> None:  # noqa: F811
     window, _ = palette
     sheet = _sheet(window)
@@ -218,6 +240,26 @@ def test_the_edit_form_edits_a_calendar_rule_and_keeps_its_time_zone(palette, st
     view.edit_save.click()
     patch = stub.calls("PATCH")[-1]["body"]["changes"]
     assert patch["trigger"] == {"source_id": "schedule", "source_version": 2, "config": {"kind": "weekly", "days": ["mon", "sat"], "at": "08:00", "time_zone": "Europe/Paris"}}
+
+
+@pytest.mark.basic
+def test_a_revised_rule_keeps_the_bindings_zone_and_limits_not_start_at() -> None:
+    summary = next(s for s in _fixture("list.json")["items"] if s["automation_id"] == MORNING)
+    summary["trigger"]["config"].update({"count": 10, "until": "2027-01-01T00:00:00+00:00"})
+    changes, errors = rules.revise_changes(summary, title=summary["title"], every=None, context=summary["context_mode"],
+                                           calendar=ScheduleWhen("weekly", at="08:00", days=("tue",)))
+    assert errors == [] and changes["trigger"]["config"] == {
+        "kind": "weekly", "days": ["tue"], "at": "08:00", "time_zone": "Europe/Paris", "count": 10, "until": "2027-01-01T00:00:00+00:00",
+    }
+
+
+@pytest.mark.basic
+def test_a_schedule_v2_repeat_row_reads_in_the_fixed_interval_family() -> None:
+    row = {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "8h", "time_zone": "Europe/Paris"}}
+    assert rules.trigger_summary(row, {"schedule_rule_text": "Every 8 hours (UTC)"}) == "every 8 hours (UTC)"
+    daily = {"source_id": "schedule", "source_version": 2, "config": {"kind": "daily", "at": "08:00"}}
+    assert rules.trigger_summary(daily, {"schedule_rule_text": "Every day at 08:00 (Europe/Paris)"}) == "Every day at 08:00 (Europe/Paris)"
+    assert rules.trigger_summary(daily, {}) == "schedule@2", "a missing served text never becomes a made-up sentence"
 
 
 @pytest.mark.basic

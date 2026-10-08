@@ -161,7 +161,10 @@ def trigger_summary(trigger: Mapping[str, Any], served: Optional[Mapping[str, An
     if source == "schedule" and version == 1:
         return schedule_label(t.get("config") or {})
     if is_schedule_v2(t):
-        return served_rule_text(served)
+        cfg = t.get("config") or {}
+        # A schedule@2 Repeat row reads in the fixed-interval family, as a v1 row (the kit's rule);
+        # only calendar / once rows read the served rule.
+        return schedule_label(cfg) if cfg.get("kind") == "every" else served_rule_text(served)
     if source == "manual" and version == 1:
         return "manual runs only"
     if is_email_trigger(t):
@@ -1226,10 +1229,9 @@ def revise_changes(
             rule, rule_errors = calendar_config(calendar)
             errors.extend(rule_errors)
             if not rule_errors:
-                # The automation keeps its own time zone (stored on the binding); the form never edits it.
-                zone = config.get("time_zone")
-                if isinstance(zone, str) and zone:
-                    rule["time_zone"] = zone
+                # The automation keeps its own time zone and its limits (count / until) from
+                # the binding; the form edits only the rule (as the kit; start_at not carried).
+                rule.update({k: config[k] for k in ("time_zone", "count", "until") if k in config})
                 changes["trigger"] = {"source_id": trigger.get("source_id"), "source_version": trigger.get("source_version"), "config": rule}
     before_limit = summary.get("growing_max_tokens", DEFAULT_GROWING_MAX_TOKENS)
     if definition is not None:

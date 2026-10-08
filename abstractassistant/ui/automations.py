@@ -25,6 +25,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QComboBox,
+    QGridLayout,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -291,7 +292,8 @@ def _next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None
     relative = next_run_text(summary, now=now)  # "next in 14 h" / "next: now"
     local = format_served_local(summary.get("next_run_local"), summary.get("time_zone"))
     when = relative[len("next in "):] if relative.startswith("next in ") else "now"
-    return f"next {local} (in {when})" if local and when != "now" else (f"next {local} (now)" if local else relative)
+    # The kit header's words: "<time> (in 14 h)" / "<time> (due now)".
+    return f"next {local} (in {when})" if local and when != "now" else (f"next {local} (due now)" if local else relative)
 
 
 # ----------------------------------------------------------------- styles
@@ -366,6 +368,31 @@ def automation_row_qss() -> str:
         min-height: 20px;
     }}
     QPushButton#autoControl:hover, QPushButton#autoSmall:hover {{ background: {THEME.overlay_hover}; }}
+    /* Round 16: the weekly day chips are state-showing toggles (tint + the check
+       mark in their text), the time-zone "Change in preferences" is a link. */
+    QPushButton#autoDayChip {{
+        color: {THEME.text_secondary};
+        background: {THEME.overlay_faint};
+        border: 1px solid {THEME.border_subtle};
+        border-radius: 10px;
+        padding: 2px 7px;
+        font-size: 11px;
+        font-weight: 600;
+        min-height: 20px;
+    }}
+    QPushButton#autoDayChip:checked {{
+        color: {THEME.accent_text};
+        background: {alpha(THEME.accent, 0.16)};
+        border: 1px solid {THEME.accent_border};
+    }}
+    QPushButton#autoLink {{
+        color: {THEME.accent_text};
+        background: transparent;
+        border: none;
+        padding: 0px;
+        font-size: 11px;
+        text-decoration: underline;
+    }}
     QPushButton#autoControl:disabled, QPushButton#autoSmall:disabled {{ color: {THEME.text_faint}; }}
     /* The Discuss action under an answer: compact, like the chat's action row. */
     QLabel#autoWrapButton {{
@@ -1308,9 +1335,8 @@ class AutomationView(QFrame):
         rule, errors = calendar_config(self.edit_calendar.when())
         if errors:
             return None
-        zone = (trigger.get("config") or {}).get("time_zone")
-        if isinstance(zone, str) and zone:
-            rule["time_zone"] = zone
+        rules_keep = {k: v for k, v in (trigger.get("config") or {}).items() if k in ("time_zone", "count", "until")}
+        rule.update(rules_keep)
         return {"source_id": trigger.get("source_id"), "source_version": trigger.get("source_version"), "config": rule}
 
     def _preview_edit_rule(self) -> None:
@@ -1409,10 +1435,14 @@ class CalendarRuleEditor(QWidget):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(4)
         self.days_host = QWidget(self)
-        days = QHBoxLayout(self.days_host)
+        days_col = QVBoxLayout(self.days_host)
+        days_col.setContentsMargins(0, 0, 0, 0)
+        days_col.setSpacing(2)
+        days_col.addWidget(_text_label(str(SCHEDULE_TEXT["days_legend"]), "autoViewMeta", parent=self.days_host))
+        days = QHBoxLayout()
         days.setContentsMargins(0, 0, 0, 0)
         days.setSpacing(4)
-        days.addWidget(_text_label(str(SCHEDULE_TEXT["days_legend"]), "autoViewMeta", parent=self.days_host))
+        days_col.addLayout(days)
         self.day_chips: Dict[str, QPushButton] = {}
         for d in CALENDAR_DAYS:
             chip = QPushButton(_day_chip_text(d, d == "mon"), self.days_host)
@@ -1458,24 +1488,27 @@ class CalendarRuleEditor(QWidget):
     def set_kind(self, kind: str) -> None:
         if kind not in CALENDAR_KINDS:
             raise ValueError(f"CalendarRuleEditor shows daily / weekly / monthly, not {kind!r}")
+        # The days, the month day and the time are ONE state kept across kind switches
+        # (as the kit's): Weekly → Monthly → Weekly keeps the picked days, an emptied
+        # set stays empty. A new editor starts on Monday.
         self.kind = kind
-        if kind == "weekly" and not any(c.isChecked() for c in self.day_chips.values()):
-            # As the kit's calendarWhenOf: a weekly rule starts on Monday until the person picks.
-            self.day_chips["mon"].setChecked(True)
         self.days_host.setVisible(kind == "weekly")
         self.day_label.setVisible(kind == "monthly")
         self.month_day.setVisible(kind == "monthly")
         self.changed.emit()
 
     def set_rule(self, when: ScheduleWhen) -> None:
-        """Prefill from a stored rule (``calendar_when_from``)."""
+        """Prefill from a stored rule (``calendar_when_from``); fields the rule does not
+        carry keep their defaults (Monday, day 1), as the kit's state."""
         self.blockSignals(True)
         try:
-            for d, chip in self.day_chips.items():
-                chip.setChecked(d in tuple(when.days or ()))
-            idx = self.month_day.findData(when.day)
-            if idx >= 0:
-                self.month_day.setCurrentIndex(idx)
+            if when.kind == "weekly":
+                for d, chip in self.day_chips.items():
+                    chip.setChecked(d in tuple(when.days or ()))
+            if when.kind == "monthly":
+                idx = self.month_day.findData(when.day)
+                if idx >= 0:
+                    self.month_day.setCurrentIndex(idx)
             t = QTime.fromString(str(when.at or ""), "HH:mm")
             if t.isValid():
                 self.time_edit.setTime(t)
@@ -1525,9 +1558,8 @@ class ServedScheduleLine(QWidget):
         self.tz_link.setCursor(Qt.PointingHandCursor)
         self.tz_link.setToolTip(str(SCHEDULE_TEXT["time_zone_change_hint"]))
         self.tz_link.clicked.connect(self.open_preferences_requested.emit)
-        tz_row.addWidget(self.tz_label, 0)
-        tz_row.addWidget(self.tz_link, 0)
-        tz_row.addStretch(1)
+        tz_row.addWidget(self.tz_label, 1)
+        tz_row.addWidget(self.tz_link, 0, Qt.AlignTop)
         self.tz_host = QWidget(self)
         self.tz_host.setLayout(tz_row)
         self.tz_host.hide()
@@ -1675,26 +1707,28 @@ class ScheduleSheet(QDialog):
         # its presets and the fixed-interval UTC sentence; the others are worded by
         # the gateway (schedule-preview) in the account's time zone.
         root.addWidget(_text_label(str(SCHEDULE_TEXT["legend"]), "autoViewTitle", parent=self))
-        kinds = QHBoxLayout()
+        # Two rows of three, so the six kinds fit a narrow sheet without clipping.
+        kinds = QGridLayout()
         kinds.setContentsMargins(0, 0, 0, 0)
-        kinds.setSpacing(10)
+        kinds.setHorizontalSpacing(10)
+        kinds.setVerticalSpacing(2)
         self.kind_group = QButtonGroup(self)
         self.kind_buttons: Dict[str, QRadioButton] = {}
-        for kind, text in (
+        for position, (kind, text) in enumerate((
             ("every", SCHEDULE_TEXT["kind_every"]),
             ("daily", SCHEDULE_TEXT["kind_daily"]),
             ("weekly", SCHEDULE_TEXT["kind_weekly"]),
             ("monthly", SCHEDULE_TEXT["kind_monthly"]),
             ("once", SCHEDULE_TEXT["kind_once"]),
             ("email", EMAIL_TEXT["trigger_label"]),
-        ):
+        )):
             button = QRadioButton(str(text), self)
             button.setObjectName(f"autoKind_{kind}")
             self.kind_group.addButton(button)
             button.toggled.connect(lambda on, _k=kind: on and self._sync_when())
-            kinds.addWidget(button)
+            kinds.addWidget(button, position // 3, position % 3)
             self.kind_buttons[kind] = button
-        kinds.addStretch(1)
+        kinds.setColumnStretch(3, 1)
         self.kinds_host = QWidget(self)
         self.kinds_host.setLayout(kinds)
         root.addWidget(self.kinds_host)
@@ -1730,6 +1764,11 @@ class ScheduleSheet(QDialog):
         self.at_edit.setObjectName("autoInput")
         self.at_edit.setPlaceholderText("First run / run once at YYYY-MM-DD HH:MM (UTC); empty = now")
         root.addWidget(self.at_edit)
+        # The gateway's line for Once / Daily / Weekly / Monthly (time zone + first run),
+        # last in "When" as the kit's preview line.
+        self.served_line = ServedScheduleLine(whose="account", parent=self)
+        self.served_line.open_preferences_requested.connect(self.open_preferences_requested.emit)
+        root.addWidget(self.served_line)
         # "Stop after this many runs" / "Stop at (UTC)" (kit wording; Repeat only).
         self.stop_host = QWidget(self)
         stop = QVBoxLayout(self.stop_host)
@@ -1754,10 +1793,6 @@ class ScheduleSheet(QDialog):
         stop.addWidget(self.until_edit)
         root.addWidget(self.stop_host)
         self._build_email_trigger(root)
-        # The gateway's line for Once / Daily / Weekly / Monthly (time zone + first run).
-        self.served_line = ServedScheduleLine(whose="account", parent=self)
-        self.served_line.open_preferences_requested.connect(self.open_preferences_requested.emit)
-        root.addWidget(self.served_line)
 
         root.addWidget(_text_label("Context", "autoViewTitle", parent=self))
         self.independent = QRadioButton("Independent — each run starts fresh", self)
@@ -2064,7 +2099,7 @@ class ScheduleSheet(QDialog):
         return data
 
     def _sync_when(self) -> None:
-        if not hasattr(self, "served_line"):
+        if not hasattr(self, "email_status"):
             return  # still building
         self.setMaximumHeight(self.height_cap())
         kind = self.kind()
