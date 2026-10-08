@@ -65,6 +65,8 @@ NEWS = "fddce731-4abf-54d3-81b9-15856efbfd7a"
 TRIAGE = "53443dd0-25c4-5fa8-bdad-e1ac3fdfff8e"
 JOURNAL = "69892c76-5362-5646-a528-b9f982c8d993"
 LEGACY = "6e02471f-51ab-499f-a882-2249078e30d0"
+# Round 16 (R16.1): the kit fixture's schedule@2 daily row ("Morning briefing", Europe/Paris).
+MORNING = "744bfd6c-3b4c-5f2b-af65-8c6b54f37ef5"
 
 
 def _summary_fixture(aid: str) -> Dict[str, Any]:
@@ -95,6 +97,27 @@ def test_vendored_fixtures_match_their_recorded_checksums() -> None:
 
 
 # ----------------------------------------------------------------- the stub
+
+
+def stub_served(trigger: Dict[str, Any]) -> Dict[str, Any]:
+    """What the stub GATEWAY serves for a trigger (R16.1): a rule sentence the
+    Assistant could never compose itself ("Served …"), so a test proves the text
+    on screen is the served one, plus a fixed next run in Europe/Paris."""
+    cfg = trigger.get("config") or {}
+    kind = cfg.get("kind") or ("every" if "every" in cfg else "once")
+    detail = cfg.get("every") or cfg.get("at") or ""
+    if kind == "weekly":
+        detail = f"{'+'.join(cfg.get('days') or [])} {cfg.get('at')}"
+    elif kind == "monthly":
+        detail = f"day {cfg.get('day')} {cfg.get('at')}"
+    rule = f"Served {kind} {detail}".strip()
+    return {
+        "time_zone": "Europe/Paris",
+        "schedule_rule_text": rule,
+        "schedule_text": f"{rule} · next Sun 27 Sep 14:00",
+        "next_run_at": "2026-09-27T12:00:00Z",
+        "next_run_local": "2026-09-27T14:00:00+02:00",
+    }
 
 
 class StubGateway:
@@ -128,6 +151,8 @@ class StubGateway:
         }
         self.requests: List[Dict[str, Any]] = []
         self.created: Dict[str, Dict[str, Any]] = {}
+        # `POST /automations/schedule-preview` (R16.1): None = serve; (status, body) = refuse.
+        self.preview_refusal: Optional[Any] = None
         self.run_rows: List[Dict[str, Any]] = [
             {"run_id": "chat-run-1", "session_id": "sess_chat", "status": "completed", "created_at": "2026-09-27T06:00:00Z", "updated_at": "2026-09-27T06:00:10Z", "session_kind": "chat"},
             # An id that LOOKS like an automation is still a chat: kind rules, never prefixes.
@@ -173,6 +198,21 @@ class StubGateway:
             return self._run_command(body)
         if path == "/api/gateway/runs" and method == "GET":
             return 200, {"items": list(self.run_rows), "has_more": False}
+        if path == f"{AUTOMATIONS_PATH}/schedule-preview" and method == "POST":
+            if self.preview_refusal is not None:
+                return self.preview_refusal
+            trigger = copy.deepcopy(body["trigger"])
+            trigger["config"].setdefault("time_zone", "Europe/Paris")
+            served = stub_served(trigger)
+            return 200, {
+                "trigger": trigger,
+                "time_zone": served["time_zone"],
+                "schedule_rule_text": served["schedule_rule_text"],
+                "schedule_text": served["schedule_text"],
+                "next_run_at": served["next_run_at"],
+                "next_run_local": served["next_run_local"],
+                "first_run_sentence": f"Runs {served['schedule_rule_text']}, first run Sun 27 Sep 14:00 (served).",
+            }
         if path == AUTOMATIONS_PATH:
             if "changed_since" in query:
                 return self._error("unsupported_feature")
@@ -235,6 +275,7 @@ class StubGateway:
             "trigger": {"binding_id": str(uuid.uuid4()), **body["trigger"]},
             "context_mode": body.get("context", {}).get("mode", "independent"),
             "next_fire_at": "2026-09-27T12:00:00Z",
+            **stub_served(body["trigger"]),
             "occurrence_count": 0,
             "attention": {"pending_waits": 0, "unread": False, "unseen_count": 0, "cursor": "att1:0", "items": [], "waits": []},
             "legacy": False,
@@ -259,6 +300,7 @@ class StubGateway:
             summary["context_mode"] = changes["context"]["mode"]
         if "trigger" in changes:
             summary["trigger"] = {"binding_id": str(uuid.uuid4()), **changes["trigger"]}
+            summary.update(stub_served(changes["trigger"]))
         summary["revision"] += 1
         return 200, self._receipt(body["command_id"], 41)
 
@@ -351,7 +393,7 @@ def test_client_sends_the_exact_paths_and_bodies_of_contract_f(stub) -> None:
     commands = {c["name"]: c for c in _fixture("commands.json")["items"]}
 
     page = client.list()
-    assert [s["automation_id"] for s in page["items"]] == [TRIAGE, NEWS, JOURNAL, LEGACY]
+    assert [s["automation_id"] for s in page["items"]] == [TRIAGE, NEWS, JOURNAL, MORNING, LEGACY]
     assert client.get(NEWS)["summary"]["title"] == "AI news monitor"
 
     revise = commands["revise"]["request"]
@@ -390,7 +432,7 @@ def test_client_sends_the_exact_paths_and_bodies_of_contract_f(stub) -> None:
     assert stub.calls("POST")[-1]["path"] == AUTOMATIONS_PATH and stub.calls("POST")[-1]["body"] == body
     assert created["summary"]["title"] == "Watch AI news"
 
-    assert [s["id"] for s in client.trigger_sources()["items"]] == ["schedule", "manual"]
+    assert [(s["id"], s["version"]) for s in client.trigger_sources()["items"]] == [("schedule", 1), ("schedule", 2), ("manual", 1)]
     assert stub.calls("GET")[-1]["path"] == "/api/gateway/trigger-sources"
 
     # Auth rides every call; v1 never sends changed_since.
@@ -454,12 +496,14 @@ def test_the_section_groups_by_automation_id_never_by_session() -> None:
     items = _fixture("list.json")["items"]
     # The same automation twice (a second page repeating it) is still ONE row.
     grouped = group_by_automation(items + [dict(items[0], title="Inbox triage (renamed)")])
-    assert [s["automation_id"] for s in grouped] == [TRIAGE, NEWS, JOURNAL, LEGACY]
+    assert [s["automation_id"] for s in grouped] == [TRIAGE, NEWS, JOURNAL, MORNING, LEGACY]
     assert grouped[0]["title"] == "Inbox triage (renamed)"
-    assert [trigger_summary(s["trigger"]) for s in items] == [
+    # schedule@1 rows keep the fixed-interval wording; the schedule@2 row reads the SERVED rule.
+    assert [trigger_summary(s["trigger"], s) for s in items] == [
         "every 30 minutes (UTC)",
         "every 8 hours (UTC)",
         "every 7 days (UTC) · 12 runs max",
+        "Every day at 08:00 (Europe/Paris)",
         "every hour (UTC)",
     ]
 
@@ -550,7 +594,8 @@ def test_schedule_this_builds_the_exact_create_body() -> None:
             "flow_id": "main",
             "input_data": {"prompt": "Search the news about AI agents and summarise what changed.\nKeep it short."},
         },
-        "trigger": {"source_id": "schedule", "source_version": 1, "config": {"every": "8h", "start_at": "2026-09-28T08:00:00Z"}},
+        # Round 16: clients write schedule@2; Repeat is `kind: "every"` (a fixed UTC interval).
+        "trigger": {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "8h", "start_at": "2026-09-28T08:00:00Z"}},
         "context": {"mode": "growing"},
         "policy": {"tool_approval": "auto"},
     }
@@ -558,7 +603,8 @@ def test_schedule_this_builds_the_exact_create_body() -> None:
         prompt="Remind me", when=ScheduleWhen("once", at="2026-09-28 09:30"), context="independent",
         target={"flow_id": "@default", "interface": "i"}, request_id="r",
     )
-    assert once["trigger"]["config"] == {"start_at": "2026-09-28T09:30:00Z"} and errors == []
+    # Once = a wall time in the account's zone, converted by the gateway.
+    assert once["trigger"]["config"] == {"kind": "once", "at": "2026-09-28T09:30"} and errors == []
     missing, errors = build_create_request(prompt="", when=ScheduleWhen("every", 0, "h"), context="independent", target=None, request_id="r")
     assert missing is None and len(errors) == 3
 
@@ -630,14 +676,16 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     switcher.show()
     _APP.processEvents()
     rows = switcher.automation_rows
-    assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, LEGACY]
+    assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, MORNING, LEGACY]
     assert rows[0].state_chip is not None and rows[1].state_chip is None
     assert rows[0].meta_text.startswith("every 30 minutes (UTC) · last ")
     assert rows[2].active_switch.state_control == "resume" and rows[2].meta_text.endswith("next —")
     # The fixture's current_occurrence (#7): the card says so and pulses.
     assert rows[0].result_label.toolTip() == "Run #7 running"
     assert "running" not in rows[1].result_label.toolTip()
-    assert switcher.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
+    # The schedule@2 row's cadence is the served rule, verbatim.
+    assert rows[3].meta_text.startswith("Every day at 08:00 (Europe/Paris) · last ")
+    assert switcher.tab_buttons["automations"].text() == f"Automations · 5 · {switcher.tab_buttons['automations'].text().split(' · ')[2]}"
     # Regular rows below; the discussion carries its badge.
     assert [r.session_id for r in switcher._rows] == ["disc-1", "sess_chat"]
     about = switcher._rows[0].about_button
@@ -825,9 +873,10 @@ def test_run_now_hint_states_the_runtime_facts_and_adds_the_dynamic_lines() -> N
     assert "the next scheduled run keeps its time, or starts right after this run if its time comes first" in hint
     assert "Does not count toward a run limit." in hint and "Works while paused; it stays paused." in hint
     assert "Not available while a run is in progress." in hint
-    growing = {"next_fire_at": "2026-09-27T07:00:00.412307+00:00", "context_mode": "growing"}
+    # Round 16: {time} = the served next_run_local, cut (no zone arithmetic) + the zone.
+    growing = {"next_run_local": "2026-09-27T09:00:00.412307+02:00", "time_zone": "Europe/Paris", "context_mode": "growing"}
     assert rules.control_hint("run_now", growing) == (
-        f"{hint}\nNext scheduled run: 2026-09-27 07:00 UTC.\nGrowing context: later runs see this run in their history."
+        f"{hint}\nNext scheduled run: 2026-09-27 09:00 Europe/Paris.\nGrowing context: later runs see this run in their history."
     )
     assert rules.control_hint("run_now", {"context_mode": "independent"}) == hint
     assert rules.control_hint("pause", growing) == rules.CONTROL_HINTS["pause"]
@@ -858,7 +907,7 @@ def test_run_now_carries_the_shared_icon_and_hint_in_the_palette(palette, stub) 
     summary = stub.summary(NEWS)
     expected = rules.control_hint("run_now", summary)
     assert button.toolTip() == expected and button.accessibleDescription() == expected
-    assert "Next scheduled run: 2026-09-27 08:00 UTC." in button.toolTip()
+    assert "Next scheduled run: 2026-09-27 10:00 Europe/Paris." in button.toolTip()
     from abstractassistant import icons
     from abstractassistant.theme import THEME
 
@@ -985,7 +1034,7 @@ def test_schedule_this_conversation_prefills_and_creates(palette, stub) -> None:
     sheet = window._schedule_sheet
     assert sheet.prompt_edit.toPlainText() == "Summarise today's AI news in five bullets."
     assert sheet.schedule_available is True
-    assert sheet.preset_combo.currentText() == "every 8 hours"
+    assert sheet.kind() == "every" and sheet.preset_combo.currentText() == "every 8 hours"
     assert sheet.preview_label.text() == "Runs every 8 hours (UTC), first run now."
     sheet.growing.setChecked(True)
     sheet.submit_button.click()
@@ -994,7 +1043,7 @@ def test_schedule_this_conversation_prefills_and_creates(palette, stub) -> None:
         "request_id": sheet.request_id,
         "title": "Summarise today's AI news in five bullets.",
         "target": {"bundle_ref": "abstractassistant.agent@0.0.3", "flow_id": "main", "input_data": {"prompt": "Summarise today's AI news in five bullets."}},
-        "trigger": {"source_id": "schedule", "source_version": 1, "config": {"every": "8h"}},
+        "trigger": {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "8h"}},
         "context": {"mode": "growing"},
         "policy": {"tool_approval": "auto"},
     }
@@ -1033,7 +1082,8 @@ def test_scenario_three_news_monitors(palette, stub) -> None:
     window._session_switcher = switcher
     window._apply_automations_to_switcher(switcher)
     listed = {r.automation_id: r.meta_text.split(" · ")[0] for r in switcher.automation_rows}
-    assert {listed[i] for i in ids} == {"every 8 hours (UTC)", "every 24 hours (UTC)", "every hour (UTC)"}
+    # schedule@2 rows: the served rule, verbatim (the stub gateway's words).
+    assert {listed[i] for i in ids} == {"Served every 8h", "Served every 24h", "Served every 1h"}
     switcher.deleteLater()
 
 
@@ -1066,9 +1116,9 @@ def test_scenario_weekly_journal_growing(palette, stub) -> None:
     window, _controller = palette
     aid = _schedule(window, prompt="Summarise this week's journal entries", preset="every 7 days", growing=True)
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
-    assert body["trigger"]["config"] == {"every": "7d"} and body["context"] == {"mode": "growing"}
+    assert body["trigger"]["config"] == {"kind": "every", "every": "7d"} and body["context"] == {"mode": "growing"}
     summary = stub.summary(aid)
-    assert trigger_summary(summary["trigger"]) == "every 7 days (UTC)"
+    assert trigger_summary(summary["trigger"], summary) == "Served every 7d"
     assert "Growing" in window.automation_view.meta_label.text()
 
 
@@ -1099,7 +1149,7 @@ def test_the_section_follows_the_capabilities_descriptor(palette, stub, descript
 
     switcher = SessionSwitcher()
     window._apply_automations_to_switcher(switcher)
-    assert (len(switcher.automation_rows) == 4) is shown
+    assert (len(switcher.automation_rows) == 5) is shown
     assert switcher.tab_bar.isVisibleTo(switcher) is shown
     import abstractassistant.app as app_module
 
@@ -1763,7 +1813,7 @@ def test_the_email_trigger_needs_the_gateway_to_list_it(palette, stub) -> None:
     window._poll_automations()
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
-    item = sheet.preset_combo.model().item(sheet.preset_combo.findData("email"))
+    item = sheet.kind_buttons["email"]
     assert sheet.notify_email.is_actionable() and not item.isEnabled()
     assert "email.received@1" in item.toolTip()
 
@@ -1871,9 +1921,8 @@ def test_schedule_sheet_without_email_shows_the_notice_and_sends_nothing_email(p
     assert "Connect a mailbox first" in sheet.email_notice.text()
     assert not sheet.notify_email.is_actionable() and not sheet.recipients_list.isEnabled()
     assert sheet.notify_email.unavailable_reason == "Connect a mailbox first."
-    assert sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"]) >= 0
-    email_index = sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"])
-    assert not sheet.preset_combo.model().item(email_index).isEnabled()
+    assert sheet.kind_buttons["email"].text() == EMAIL_TEXT["trigger_label"]
+    assert not sheet.kind_buttons["email"].isEnabled()
     sheet.submit_button.click()
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
     assert body["trigger"]["source_id"] == "schedule" and "notify" not in body and body["policy"] == {"tool_approval": "auto"}
@@ -1888,7 +1937,7 @@ def test_schedule_sheet_creates_an_email_automation(palette, stub) -> None:
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
     assert not sheet.email_notice.isVisibleTo(sheet)
-    sheet.preset_combo.setCurrentIndex(sheet.preset_combo.findText(EMAIL_TEXT["trigger_label"]))
+    sheet.set_kind("email")
     assert sheet.email_box.isVisibleTo(sheet) and not sheet.custom_host.isVisibleTo(sheet)
     assert sheet.email_every_amount.value() == 1 and sheet.email_every_unit.currentData() == "h"
     assert sheet.email_rule.text() == EMAIL_TEXT["interval_rule"]
@@ -1949,7 +1998,7 @@ def test_the_schedule_sheet_fits_a_laptop_screen_and_keeps_its_buttons(palette, 
     window._poll_automations()
     window._open_schedule_sheet()
     sheet = window._schedule_sheet
-    sheet.preset_combo.setCurrentIndex(sheet.preset_combo.findData("email"))
+    sheet.set_kind("email")
     sheet.notify_email.setChecked(True)
     sheet.recipients_list.setChecked(True)
     _APP.processEvents()

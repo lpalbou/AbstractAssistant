@@ -787,7 +787,8 @@ class AutomationTabRow(RowCard):
         metrics.setContentsMargins(0, 1, 0, 0)
         metrics.setSpacing(10)
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), dict) else {}
-        self._schedule = trigger_summary(trigger)
+        # schedule@2 (round 16): the gateway's served rule; schedule@1 keeps its UTC wording.
+        self._schedule = trigger_summary(trigger, summary)
         every = (trigger.get("config") or {}).get("every") if trigger.get("source_id") == "schedule" else None
         short = _compact_every(every) if isinstance(every, str) else self._schedule
         metrics.addWidget(_metric("clock", short, f"Schedule: {self._schedule}"), 0, Qt.AlignVCenter)

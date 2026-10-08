@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
-from PyQt5.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, QSize, Qt, QTime, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QButtonGroup,
@@ -36,6 +36,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -76,6 +77,17 @@ from ..core.automations import (
     revise_changes,
     schedule_label,
     trigger_summary,
+    CALENDAR_DAYS,
+    CALENDAR_KINDS,
+    SCHEDULE_TEXT,
+    calendar_config,
+    calendar_when_from,
+    format_served_local,
+    is_schedule_v2,
+    is_served_preview_kind,
+    next_run_text,
+    schedule_trigger,
+    time_zone_line,
 )
 from ..gateway.automations import AutomationApiError, AutomationsClient
 from ..gateway.client import WAIT_KINDS
@@ -265,27 +277,21 @@ def _clip(text: Any, limit: int = _EXCERPT_MAX) -> str:
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
 
 
-def _next_run_text(summary: Mapping[str, Any]) -> str:
+def _next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
+    """The header's next run, from the gateway's SERVED values only (round 16):
+    "next 2026-10-09 08:00 Europe/Paris (in 14 h)" — `next_run_local` cut (no
+    zone arithmetic) and the relative part from `next_run_at`."""
     status = summary.get("status")
     if status == "paused":
         return "paused"
     if status in {"archived", "completed", "failed"}:
         return STATUS_LABELS.get(str(status), str(status)).lower()
-    nxt = summary.get("next_fire_at")
-    if not nxt:
+    if not summary.get("next_run_at"):
         return "no next run"
-    try:
-        when = datetime.fromisoformat(str(nxt).replace("Z", "+00:00"))
-        delta = (when - datetime.now(timezone.utc)).total_seconds()
-    except ValueError:
-        return f"next {format_utc(nxt)}"
-    if delta <= 60:
-        return "next: now"
-    if delta < 3600:
-        return f"next in {int(delta // 60)} min"
-    if delta < 86400:
-        return f"next in {int(delta // 3600)} h"
-    return f"next {format_utc(nxt)}"
+    relative = next_run_text(summary, now=now)  # "next in 14 h" / "next: now"
+    local = format_served_local(summary.get("next_run_local"), summary.get("time_zone"))
+    when = relative[len("next in "):] if relative.startswith("next in ") else "now"
+    return f"next {local} (in {when})" if local and when != "now" else (f"next {local} (now)" if local else relative)
 
 
 # ----------------------------------------------------------------- styles
@@ -922,6 +928,27 @@ class AutomationView(QFrame):
         self.edit_cancel.clicked.connect(self.edit_box.hide)
         for w, stretch in ((self.edit_every, 0), (self.edit_context, 0), (self.edit_max_tokens, 1)):
             el.addWidget(w, stretch)
+        # A schedule@2 calendar rule (round 16): kind among Daily / Weekly / Monthly, the
+        # same fields as the Schedule sheet, and the gateway's line in THIS automation's
+        # time zone (kept on revise; never edited here).
+        self.edit_calendar_host = QWidget(self.edit_box)
+        cal = QVBoxLayout(self.edit_calendar_host)
+        cal.setContentsMargins(0, 0, 0, 0)
+        cal.setSpacing(4)
+        cal.addWidget(_text_label(str(SCHEDULE_TEXT["legend"]), "autoViewMeta", parent=self.edit_calendar_host))
+        self.edit_calendar_kind = QComboBox(self.edit_calendar_host)
+        self.edit_calendar_kind.setObjectName("autoInput")
+        for kind in CALENDAR_KINDS:
+            self.edit_calendar_kind.addItem(str(SCHEDULE_TEXT[f"kind_{kind}"]), kind)
+        self.edit_calendar_kind.setAccessibleName("Schedule kind")
+        cal.addWidget(self.edit_calendar_kind)
+        self.edit_calendar = CalendarRuleEditor(self.edit_calendar_host)
+        cal.addWidget(self.edit_calendar)
+        self.edit_served = ServedScheduleLine(whose="automation", parent=self.edit_calendar_host)
+        cal.addWidget(self.edit_served)
+        self.edit_calendar_kind.currentIndexChanged.connect(lambda *_: self.edit_calendar.set_kind(str(self.edit_calendar_kind.currentData())))
+        self.edit_calendar.changed.connect(self._preview_edit_rule)
+        self.edit_calendar_host.hide()
         # Keep the compact edit controls usable in a narrow palette.
         edit_rows = QVBoxLayout(self.edit_box)
         edit_rows.setContentsMargins(0, 0, 0, 0)
@@ -932,6 +959,7 @@ class AutomationView(QFrame):
         edit_rows.addWidget(_text_label("Title", "autoViewMeta", parent=self.edit_box))
         edit_rows.addWidget(self.edit_title)
         edit_rows.addLayout(el)
+        edit_rows.addWidget(self.edit_calendar_host)
         edit_rows.addWidget(self.edit_tools)
         # Workspaces (R13.2): the run-level chooser; part of this form, stored by Save.
         self.edit_workspaces = RunWorkspaces(self.edit_box)
@@ -1019,7 +1047,7 @@ class AutomationView(QFrame):
         mode = "Growing — each run sees the previous runs" if summary.get("context_mode") == "growing" else "Independent — each run starts fresh"
         current = current_run(summary)
         running = f"run #{current.get('index')} running" if current is not None else ""
-        parts = [trigger_summary(trigger), status, running, _next_run_text(summary), mode, f"{int(summary.get('occurrence_count') or 0)} runs"]
+        parts = [trigger_summary(trigger, summary), status, running, _next_run_text(summary), mode, f"{int(summary.get('occurrence_count') or 0)} runs"]
         self.meta_label.setText(" · ".join(p for p in parts if p))
         attention = summary.get("attention") if isinstance(summary.get("attention"), Mapping) else {}
         lines = []
@@ -1033,10 +1061,22 @@ class AutomationView(QFrame):
         self.attention_label.setVisible(bool(lines))
         if not self.edit_box.isVisibleTo(self):  # never under the user's typing
             self.edit_title.setText(str(summary.get("title") or ""))
-            has_interval = trigger.get("source_id") == "schedule" or is_email_trigger(trigger)
-            every = (trigger.get("config") or {}).get("every") if has_interval else None
+            config = trigger.get("config") if isinstance(trigger.get("config"), Mapping) else {}
+            rule = calendar_when_from(config) if is_schedule_v2(trigger) else None
+            has_interval = (trigger.get("source_id") == "schedule" or is_email_trigger(trigger)) and isinstance(config.get("every"), str)
+            every = config.get("every") if has_interval else None
             self.edit_every.setText(str(every or ""))
             self.edit_every.setEnabled(has_interval)
+            self.edit_every.setVisible(rule is None)
+            self.edit_rule_base = rule
+            self.edit_calendar_host.setVisible(rule is not None)
+            if rule is not None:
+                self.edit_calendar.blockSignals(True)
+                self.edit_calendar_kind.blockSignals(True)
+                self.edit_calendar_kind.setCurrentIndex(self.edit_calendar_kind.findData(rule.kind))
+                self.edit_calendar.set_rule(rule)
+                self.edit_calendar_kind.blockSignals(False)
+                self.edit_calendar.blockSignals(False)
             self.edit_context.setCurrentIndex(1 if summary.get("context_mode") == "growing" else 0)
             self.edit_max_tokens.setValue(int(summary.get("growing_max_tokens", DEFAULT_GROWING_MAX_TOKENS)))
         self._apply_controls()
@@ -1197,6 +1237,7 @@ class AutomationView(QFrame):
                 self.edit_workflow.setEnabled(False)
                 self.edit_tools.setEnabled(False)
                 self.edit_requested.emit()
+                self._preview_edit_rule()
             return
         if control == "archive":
             self.edit_box.hide()
@@ -1261,6 +1302,22 @@ class AutomationView(QFrame):
         if self.pending is not None and self.summary and command_confirmed(self.pending, self._pending_before, self.summary):
             self.end_pending()
 
+    def _edit_rule_trigger(self) -> Optional[Dict[str, Any]]:
+        """The edited calendar rule as the gateway will store it (the binding's time zone kept)."""
+        trigger = self.summary.get("trigger") if isinstance(self.summary.get("trigger"), Mapping) else {}
+        rule, errors = calendar_config(self.edit_calendar.when())
+        if errors:
+            return None
+        zone = (trigger.get("config") or {}).get("time_zone")
+        if isinstance(zone, str) and zone:
+            rule["time_zone"] = zone
+        return {"source_id": trigger.get("source_id"), "source_version": trigger.get("source_version"), "config": rule}
+
+    def _preview_edit_rule(self) -> None:
+        if getattr(self, "edit_rule_base", None) is None:
+            return
+        self.edit_served.request(self._edit_rule_trigger(), incomplete=" ".join(calendar_config(self.edit_calendar.when())[1]))
+
     def _save_edit(self) -> None:
         every = self.edit_every.text().strip() if self.edit_every.isEnabled() else None
         changes, errors = revise_changes(
@@ -1272,6 +1329,7 @@ class AutomationView(QFrame):
             definition=self.edit_definition,
             notify_email=self.edit_email.isChecked() if self.edit_definition is not None else None,
             email_recipients=("self", "") if self.edit_recipients.text().strip() == "self" else ("list", self.edit_recipients.text()),
+            calendar=self.edit_calendar.when() if getattr(self, "edit_rule_base", None) is not None else None,
         )
         if errors:
             self.set_error(" ".join(errors))
@@ -1307,6 +1365,10 @@ class AutomationView(QFrame):
         self.edit_email.setChecked("email" in (notify.get("channels") or []))
         self.edit_recipients.setText(", ".join(notify.get("recipients") or ["self"]))
 
+    def set_preview_provider(self, provider: Optional[PreviewProvider]) -> None:
+        """The gateway's schedule-preview (the Edit form's calendar line)."""
+        self.edit_served.provider = provider
+
     def set_workspaces_summary(self, summary: str) -> None:
         """The automation's one line, "Workspaces: <summary>" (empty = no text; the
         label stays in the layout, as the workflow line, so a late answer never
@@ -1318,6 +1380,210 @@ class AutomationView(QFrame):
         target = (detail.get("definition") or {}).get("target") or {}
         value = target.get("workflow_id") or f"{target.get('bundle_ref', '')}:{target.get('flow_id', '')}"
         self.workflow_label.setText(f"Workflow: {value}" if value != ":" else "")
+
+
+# ------------------------------------------- calendar "When" (round 16)
+
+# (trigger, done(ok, answer_or_exc)) — the gateway's schedule-preview, off the GUI thread.
+PreviewProvider = Callable[[Dict[str, Any], Callable[[bool, Any], None]], None]
+
+
+def _day_chip_text(day: str, checked: bool) -> str:
+    # A state-showing toggle: ON carries a check mark (the non-colour cue), as the kit's chip.
+    label = str(SCHEDULE_TEXT["days"][day])
+    return f"\u2713 {label}" if checked else label
+
+
+class CalendarRuleEditor(QWidget):
+    """The calendar part of "When" (the kit's ``AfCalendarRuleFields``): Weekly
+    day chips (checkable, state-showing), Monthly "on day" 1–31 / last, and the
+    time of day. The kind is set by the host (``set_kind``); ``changed`` fires on
+    every edit."""
+
+    changed = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.kind = "daily"
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(4)
+        self.days_host = QWidget(self)
+        days = QHBoxLayout(self.days_host)
+        days.setContentsMargins(0, 0, 0, 0)
+        days.setSpacing(4)
+        days.addWidget(_text_label(str(SCHEDULE_TEXT["days_legend"]), "autoViewMeta", parent=self.days_host))
+        self.day_chips: Dict[str, QPushButton] = {}
+        for d in CALENDAR_DAYS:
+            chip = QPushButton(_day_chip_text(d, d == "mon"), self.days_host)
+            chip.setObjectName("autoDayChip")
+            chip.setCheckable(True)
+            chip.setChecked(d == "mon")
+            chip.setAccessibleName(str(SCHEDULE_TEXT["days"][d]))
+            chip.toggled.connect(lambda on, day=d: self._chip_toggled(day, on))
+            days.addWidget(chip)
+            self.day_chips[d] = chip
+        days.addStretch(1)
+        col.addWidget(self.days_host)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self.day_label = _text_label(str(SCHEDULE_TEXT["day_label"]), "autoViewMeta", parent=self)
+        self.day_label.setWordWrap(False)
+        self.month_day = QComboBox(self)
+        self.month_day.setObjectName("autoInput")
+        for n in range(1, 32):
+            self.month_day.addItem(str(n), n)
+        self.month_day.addItem(str(SCHEDULE_TEXT["last_day"]), "last")
+        self.month_day.setAccessibleName(str(SCHEDULE_TEXT["day_label"]))
+        self.month_day.currentIndexChanged.connect(lambda *_: self.changed.emit())
+        at_label = _text_label(str(SCHEDULE_TEXT["at_label"]), "autoViewMeta", parent=self)
+        at_label.setWordWrap(False)
+        self.time_edit = QTimeEdit(QTime(8, 0), self)
+        self.time_edit.setObjectName("autoInput")
+        self.time_edit.setDisplayFormat("HH:mm")
+        self.time_edit.setAccessibleName(str(SCHEDULE_TEXT["time_label"]))
+        self.time_edit.timeChanged.connect(lambda *_: self.changed.emit())
+        for w in (self.day_label, self.month_day, at_label, self.time_edit):
+            row.addWidget(w)
+        row.addStretch(1)
+        col.addLayout(row)
+        self.set_kind("daily")
+
+    def _chip_toggled(self, day: str, on: bool) -> None:
+        chip = self.day_chips[day]
+        chip.setText(_day_chip_text(day, on))
+        self.changed.emit()
+
+    def set_kind(self, kind: str) -> None:
+        if kind not in CALENDAR_KINDS:
+            raise ValueError(f"CalendarRuleEditor shows daily / weekly / monthly, not {kind!r}")
+        self.kind = kind
+        self.days_host.setVisible(kind == "weekly")
+        self.day_label.setVisible(kind == "monthly")
+        self.month_day.setVisible(kind == "monthly")
+        self.changed.emit()
+
+    def set_rule(self, when: ScheduleWhen) -> None:
+        """Prefill from a stored rule (``calendar_when_from``)."""
+        self.blockSignals(True)
+        try:
+            for d, chip in self.day_chips.items():
+                chip.setChecked(d in tuple(when.days or ()))
+            idx = self.month_day.findData(when.day)
+            if idx >= 0:
+                self.month_day.setCurrentIndex(idx)
+            t = QTime.fromString(str(when.at or ""), "HH:mm")
+            if t.isValid():
+                self.time_edit.setTime(t)
+        finally:
+            self.blockSignals(False)
+        self.set_kind(when.kind)
+
+    def when(self) -> ScheduleWhen:
+        at = self.time_edit.time().toString("HH:mm")
+        if self.kind == "weekly":
+            return ScheduleWhen("weekly", at=at, days=tuple(d for d in CALENDAR_DAYS if self.day_chips[d].isChecked()))
+        if self.kind == "monthly":
+            return ScheduleWhen("monthly", at=at, day=self.month_day.currentData())
+        return ScheduleWhen("daily", at=at)
+
+
+class ServedScheduleLine(QWidget):
+    """The gateway's line under "When" (the kit's ``AfServedSchedule``): the
+    time-zone line with the kit tooltip (and, for a new automation, the
+    "Change in preferences" link), then the preview's ``first_run_sentence``
+    verbatim; "Checking the schedule…" while asking; the gateway's sentence on a
+    refusal. It asks through ``provider`` — debounced, the latest request wins."""
+
+    open_preferences_requested = pyqtSignal()
+
+    DEBOUNCE_MS = 250
+
+    def __init__(self, *, whose: str = "account", parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.whose = whose
+        self.provider: Optional[PreviewProvider] = None
+        self._seq = 0
+        self._pending: Optional[Dict[str, Any]] = None
+        self.answer: Optional[Dict[str, Any]] = None
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(2)
+        tz_row = QHBoxLayout()
+        tz_row.setContentsMargins(0, 0, 0, 0)
+        tz_row.setSpacing(6)
+        self.tz_label = _text_label("", "autoViewMeta", parent=self)
+        self.tz_label.setToolTip(str(SCHEDULE_TEXT["time_zone_hint"]))
+        self.tz_label.setFocusPolicy(Qt.TabFocus)
+        self.tz_link = QPushButton(str(SCHEDULE_TEXT["time_zone_change"]), self)
+        self.tz_link.setObjectName("autoLink")
+        self.tz_link.setFlat(True)
+        self.tz_link.setCursor(Qt.PointingHandCursor)
+        self.tz_link.setToolTip(str(SCHEDULE_TEXT["time_zone_change_hint"]))
+        self.tz_link.clicked.connect(self.open_preferences_requested.emit)
+        tz_row.addWidget(self.tz_label, 0)
+        tz_row.addWidget(self.tz_link, 0)
+        tz_row.addStretch(1)
+        self.tz_host = QWidget(self)
+        self.tz_host.setLayout(tz_row)
+        self.tz_host.hide()
+        col.addWidget(self.tz_host)
+        self.sentence = _text_label("", "autoViewMeta", parent=self)
+        col.addWidget(self.sentence)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(self.DEBOUNCE_MS)
+        self._timer.timeout.connect(self.flush)
+
+    def request(self, trigger: Optional[Dict[str, Any]], *, incomplete: str = "") -> None:
+        """Describe ``trigger`` (None = incomplete: show ``incomplete`` or the kit's line)."""
+        self._seq += 1
+        self.answer = None
+        self.tz_host.hide()
+        if trigger is None:
+            self._pending = None
+            self._timer.stop()
+            self.sentence.setObjectName("autoViewMeta")
+            self.sentence.setText(incomplete or str(SCHEDULE_TEXT["incomplete"]))
+            refresh_style(self.sentence)
+            return
+        self._pending = copy.deepcopy(trigger)
+        self.sentence.setObjectName("autoViewMeta")
+        self.sentence.setText(str(SCHEDULE_TEXT["describing"]))
+        refresh_style(self.sentence)
+        self._timer.start()
+
+    def flush(self) -> None:
+        """Send the pending request now (the debounce timer, or a test)."""
+        self._timer.stop()
+        trigger, self._pending = self._pending, None
+        if trigger is None:
+            return
+        if self.provider is None:
+            raise RuntimeError("ServedScheduleLine has no schedule-preview provider (R16.1 seam): the host must set one.")
+        mine = self._seq
+        self.provider(trigger, lambda ok, value: self._answered(mine, ok, value))
+
+    def _answered(self, seq: int, ok: bool, value: Any) -> None:
+        if seq != self._seq:
+            return  # a newer request superseded this one
+        if not ok:
+            self.sentence.setObjectName("autoViewError")
+            # The gateway's own sentence (the create's 422 message), verbatim.
+            message = value.message if isinstance(value, AutomationApiError) and value.message else AutomationsHub.error_text(value)
+            self.sentence.setText(message)
+            refresh_style(self.sentence)
+            return
+        answer = value if isinstance(value, Mapping) else {}
+        self.answer = dict(answer)
+        zone = str(answer.get("time_zone") or "")
+        self.tz_label.setText(time_zone_line(zone, self.whose))
+        self.tz_link.setVisible(self.whose == "account")
+        self.tz_host.setVisible(bool(zone))
+        self.sentence.setObjectName("autoViewMeta")
+        self.sentence.setText(str(answer.get("first_run_sentence") or ""))
+        refresh_style(self.sentence)
 
 
 # ------------------------------------------------------ schedule sheet
@@ -1336,6 +1602,9 @@ class ScheduleSheet(QDialog):
 
     submitted = pyqtSignal(object)  # the POST /automations body
     open_my_email_requested = pyqtSignal()
+    # "Change in preferences" (the time-zone line): the host opens the settings page
+    # where the account's default workflow and time zone live.
+    open_preferences_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -1398,17 +1667,46 @@ class ScheduleSheet(QDialog):
         self.title_edit.setAccessibleName("Title")
         root.addWidget(self.title_edit)
 
-        root.addWidget(_text_label("When (UTC)", "autoViewTitle", parent=self))
+        # When (round 16, the kit's AfScheduleDialog wording byte for byte): Repeat ·
+        # Daily · Weekly · Monthly · Once at… · When an email arrives. Repeat keeps
+        # its presets and the fixed-interval UTC sentence; the others are worded by
+        # the gateway (schedule-preview) in the account's time zone.
+        root.addWidget(_text_label(str(SCHEDULE_TEXT["legend"]), "autoViewTitle", parent=self))
+        kinds = QHBoxLayout()
+        kinds.setContentsMargins(0, 0, 0, 0)
+        kinds.setSpacing(10)
+        self.kind_group = QButtonGroup(self)
+        self.kind_buttons: Dict[str, QRadioButton] = {}
+        for kind, text in (
+            ("every", SCHEDULE_TEXT["kind_every"]),
+            ("daily", SCHEDULE_TEXT["kind_daily"]),
+            ("weekly", SCHEDULE_TEXT["kind_weekly"]),
+            ("monthly", SCHEDULE_TEXT["kind_monthly"]),
+            ("once", SCHEDULE_TEXT["kind_once"]),
+            ("email", EMAIL_TEXT["trigger_label"]),
+        ):
+            button = QRadioButton(str(text), self)
+            button.setObjectName(f"autoKind_{kind}")
+            self.kind_group.addButton(button)
+            button.toggled.connect(lambda on, _k=kind: on and self._sync_when())
+            kinds.addWidget(button)
+            self.kind_buttons[kind] = button
+        kinds.addStretch(1)
+        self.kinds_host = QWidget(self)
+        self.kinds_host.setLayout(kinds)
+        root.addWidget(self.kinds_host)
+        self.kind_buttons["every"].setChecked(True)
         self.preset_combo = QComboBox(self)
         self.preset_combo.setObjectName("autoInput")
         for label, when in SCHEDULE_PRESETS:
             self.preset_combo.addItem(label, when)
         self.preset_combo.addItem("every N…", "custom")
-        self.preset_combo.addItem("once at…", "once")
-        self.preset_combo.addItem(EMAIL_TEXT["trigger_label"], "email")
         self.preset_combo.setCurrentIndex(3)  # every 8 hours
         self.preset_combo.currentIndexChanged.connect(self._sync_when)
         root.addWidget(self.preset_combo)
+        self.calendar = CalendarRuleEditor(self)
+        self.calendar.changed.connect(self._update_preview)
+        root.addWidget(self.calendar)
         custom = QHBoxLayout()
         self.custom_amount = QSpinBox(self)
         self.custom_amount.setObjectName("autoInput")
@@ -1453,6 +1751,10 @@ class ScheduleSheet(QDialog):
         stop.addWidget(self.until_edit)
         root.addWidget(self.stop_host)
         self._build_email_trigger(root)
+        # The gateway's line for Once / Daily / Weekly / Monthly (time zone + first run).
+        self.served_line = ServedScheduleLine(whose="account", parent=self)
+        self.served_line.open_preferences_requested.connect(self.open_preferences_requested.emit)
+        root.addWidget(self.served_line)
 
         root.addWidget(_text_label("Context", "autoViewTitle", parent=self))
         self.independent = QRadioButton("Independent — each run starts fresh", self)
@@ -1655,11 +1957,11 @@ class ScheduleSheet(QDialog):
 
     def _apply_email_gate(self) -> None:
         offered = self.email_is_usable() and self.email_trigger_available is True
-        item = self.preset_combo.model().item(self.preset_combo.findData("email"))
+        item = self.kind_buttons["email"]
         item.setEnabled(offered)
         item.setToolTip("" if offered or not self.email_is_usable() else "This gateway does not offer the email.received@1 trigger source.")
-        if not offered and self.preset_combo.currentData() == "email":
-            self.preset_combo.setCurrentIndex(3)
+        if not offered and self.kind() == "email":
+            self.set_kind("every")
         self._sync_recipients()
         self._update_preview()
 
@@ -1717,9 +2019,10 @@ class ScheduleSheet(QDialog):
         super().showEvent(event)
 
     def set_trigger_sources(self, items: Sequence[Mapping[str, Any]]) -> None:
-        """``schedule@1`` must be offered by the gateway, else nothing can be scheduled."""
+        """``schedule@2`` (what this sheet writes, round 16) must be offered by the
+        gateway, else nothing can be scheduled."""
         available = any(
-            isinstance(i, Mapping) and i.get("id") == "schedule" and i.get("version") == 1 and i.get("available") is True
+            isinstance(i, Mapping) and i.get("id") == "schedule" and i.get("version") == 2 and i.get("available") is True
             for i in items
         )
         self.schedule_available = available
@@ -1729,7 +2032,7 @@ class ScheduleSheet(QDialog):
             for i in items
         )
         if not available:
-            self.set_error("This gateway does not offer the schedule@1 trigger source.")
+            self.set_error("This gateway does not offer the schedule@2 trigger source.")
         self._apply_email_gate()
 
     def set_error(self, text: str) -> None:
@@ -1737,26 +2040,44 @@ class ScheduleSheet(QDialog):
         self.error_label.setText(value)
         self.error_label.setVisible(bool(value))
 
+    def kind(self) -> str:
+        """The checked "When" kind: every | daily | weekly | monthly | once | email."""
+        return next((k for k, b in self.kind_buttons.items() if b.isChecked()), "every")
+
+    def set_kind(self, kind: str) -> None:
+        self.kind_buttons[kind].setChecked(True)
+
     def when(self) -> ScheduleWhen:
-        data = self.preset_combo.currentData()
-        if data == "email":
+        kind = self.kind()
+        if kind == "email":
             return SCHEDULE_PRESETS[3][1]  # unused: the email trigger ignores `when`
+        if kind == "once":
+            return ScheduleWhen("once", at=self.at_edit.text().strip())
+        if kind in CALENDAR_KINDS:
+            return self.calendar.when()
+        data = self.preset_combo.currentData()
         if data == "custom":
             return ScheduleWhen("every", int(self.custom_amount.value()), str(self.custom_unit.currentData()))
-        if data == "once":
-            return ScheduleWhen("once", at=self.at_edit.text().strip())
         return data
 
     def _sync_when(self) -> None:
+        if not hasattr(self, "served_line"):
+            return  # still building
         self.setMaximumHeight(self.height_cap())
+        kind = self.kind()
         data = self.preset_combo.currentData()
-        self.custom_host.setVisible(data == "custom")
-        self.email_box.setVisible(data == "email")
-        self.untrusted_label.setVisible(data == "email")
-        self.at_edit.setVisible(data != "email")
-        self.stop_host.setVisible(data not in ("once", "email"))
+        self.preset_combo.setVisible(kind == "every")
+        self.custom_host.setVisible(kind == "every" and data == "custom")
+        if kind in CALENDAR_KINDS:
+            self.calendar.set_kind(kind)
+        self.calendar.setVisible(kind in CALENDAR_KINDS)
+        self.email_box.setVisible(kind == "email")
+        self.untrusted_label.setVisible(kind == "email")
+        self.at_edit.setVisible(kind in ("every", "once"))
+        self.stop_host.setVisible(kind == "every" or kind in CALENDAR_KINDS)
+        self.served_line.setVisible(is_served_preview_kind(kind))
         self.at_edit.setPlaceholderText(
-            "Run once at YYYY-MM-DD HH:MM (UTC)" if data == "once" else "First run at YYYY-MM-DD HH:MM (UTC); empty = now"
+            f"{SCHEDULE_TEXT['once_label']} YYYY-MM-DD HH:MM" if kind == "once" else "First run at YYYY-MM-DD HH:MM (UTC); empty = now"
         )
         self._update_preview()
 
@@ -1773,13 +2094,13 @@ class ScheduleSheet(QDialog):
             target=self._with_workspaces(_with_target_tools(target, self.tool_picker.selection)) if target else None,
             request_id=self.request_id,
             title=self.title_edit.text(),
-            start_at="" if when.kind == "once" or self.preset_combo.currentData() == "email" else self.at_edit.text().strip(),
+            start_at=self.at_edit.text().strip() if self.kind() == "every" else "",
             **(self._stop_fields() if self._repeats() else {}),
             tool_approval="ask" if self.tools_ask.isChecked() else "auto",
             # Nothing email-shaped without a usable account.
             **(
                 {
-                    "trigger": "email" if self.preset_combo.currentData() == "email" and self.email_trigger_available is True else "schedule",
+                    "trigger": "email" if self.kind() == "email" and self.email_trigger_available is True else "schedule",
                     "email": self.email_form(),
                     "notify_email": self.notify_email.isChecked(),
                     "email_recipients": ("list" if self.recipients_list.isChecked() else "self", self.recipients_edit.text()),
@@ -1794,7 +2115,8 @@ class ScheduleSheet(QDialog):
         return {**target, "input_data": with_workspace(target.get("input_data") or {}, self.workspaces.value)}
 
     def _repeats(self) -> bool:
-        return self.preset_combo.currentData() not in ("once", "email")
+        """Repeat and the calendar rules carry max runs / stop at."""
+        return self.kind() not in ("once", "email")
 
     def _stop_fields(self) -> Dict[str, Any]:
         """``count`` / ``until`` for a repeating schedule (empty = not sent)."""
@@ -1803,6 +2125,13 @@ class ScheduleSheet(QDialog):
         if text:
             out["count"] = int(text) if text.isdigit() else -1  # -1: refused with the field's sentence
         return out
+
+    def _stop_fields_checked(self) -> Dict[str, Any]:
+        """The limits a calendar rule's preview carries (count / until), when set."""
+        if self.kind() not in CALENDAR_KINDS:
+            return {}
+        out = self._stop_fields()
+        return {k: v for k, v in out.items() if v not in ("", None)}
 
     def _sync_tool_consent(self, *_args: Any) -> None:
         auto = self.tools_auto.isChecked()
@@ -1813,7 +2142,14 @@ class ScheduleSheet(QDialog):
             return  # still building
         self._sync_recipients()
         body, errors = self.build_body()
-        if body is not None and body["trigger"]["source_id"] != "schedule":
+        kind = self.kind()
+        if is_served_preview_kind(kind):
+            # Once / Daily / Weekly / Monthly: the GATEWAY's sentence (schedule-preview);
+            # the footer line only carries what still blocks the form.
+            trigger, rule_errors = schedule_trigger(self.when(), **(self._stop_fields_checked()))
+            self.served_line.request(trigger, incomplete=" ".join(rule_errors))
+            self.preview_label.setText("" if body is not None else " ".join(e for e in errors if e not in rule_errors))
+        elif body is not None and body["trigger"]["source_id"] != "schedule":
             self.preview_label.setText(trigger_summary(body["trigger"]))
         elif body is not None:
             config = body["trigger"]["config"]
@@ -2081,6 +2417,12 @@ class AutomationsHub(QObject):
     def my_email(self, done: Callable[[bool, Any], None]) -> None:
         """``GET /me/email`` (the Schedule sheet's email options)."""
         self._submit(lambda: self._client_factory().my_email(), done)
+
+    def schedule_preview(self, trigger: Mapping[str, Any], done: Callable[[bool, Any], None]) -> None:
+        """``POST /automations/schedule-preview`` (round 16): the gateway's words,
+        time zone and next run for a trigger, nothing stored."""
+        payload = copy.deepcopy(dict(trigger))
+        self._submit(lambda: self._client_factory().schedule_preview(payload), done)
 
     def run(self, work: Callable[[], Any], done: Callable[[bool, Any], None]) -> None:
         """Any other blocking call (the wait answer), off the GUI thread."""

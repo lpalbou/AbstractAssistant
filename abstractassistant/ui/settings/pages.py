@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QApplication,
     QBoxLayout,
     QComboBox,
+    QCompleter,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -50,6 +51,7 @@ from PyQt5.QtWidgets import (
 )
 
 from ...config import default_gateway_url
+from ...core.automations import SCHEDULE_TEXT, time_zone_default_label
 from ...core.tool_risk import describe_tool_risk
 from ...icons import symbol_icon
 from ...preferences import (
@@ -475,13 +477,79 @@ class WorkflowPage(SettingsPage):
         self.workflow_detail.setWordWrap(True)
         card.add_widget(self.workflow_detail)
         self._workflow_rows: List[Dict[str, Any]] = []
+        # The account's time zone (round 16, R16.1 A2): where Daily / Weekly / Monthly /
+        # Once automations run. A searchable list of the gateway's IANA names; the first
+        # item follows the gateway default (null). Applies on change (no Save).
+        self.time_zone_card = self.add_card(Card())
+        self.time_zone_combo = QComboBox()
+        self.time_zone_combo.setMinimumWidth(320)
+        self.time_zone_combo.setEditable(True)
+        self.time_zone_combo.setInsertPolicy(QComboBox.NoInsert)
+        completer = self.time_zone_combo.completer()
+        if completer is not None:
+            completer.setFilterMode(Qt.MatchContains)
+            completer.setCompletionMode(QCompleter.PopupCompletion)
+            completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.time_zone_combo.lineEdit().setPlaceholderText(str(SCHEDULE_TEXT["time_zone_search"]))
+        self.time_zone_combo.activated.connect(self._on_time_zone_chosen)
+        self.time_zone_row = self.time_zone_card.add_row("Time zone", self.time_zone_combo, stretch_control=False)
+        self.time_zone_help = QLabel("")
+        self.time_zone_help.setObjectName("rowHelp")
+        self.time_zone_help.setWordWrap(True)
+        self.time_zone_card.add_widget(self.time_zone_help)
+        self.time_zone_block: Optional[Dict[str, Any]] = None
+        self.time_zone_card.setVisible(False)
         self.flow_state: Optional[Dict[str, Any]] = None
         self._flow_ready.connect(self._apply_flow_state)
         self._flow_opened.connect(self._apply_flow_opened)
 
     def refresh(self) -> None:
         self._refresh_workflows()
+        self._refresh_time_zone()
         self._probe_flow()
+
+    # ------------------------------------------------- the account time zone
+
+    def _refresh_time_zone(self, block: Optional[Dict[str, Any]] = None) -> None:
+        if block is None:
+            block = safe_call(self.controller, "account_time_zone", default=None)
+        self.time_zone_block = dict(block) if isinstance(block, dict) else None
+        self.time_zone_card.setVisible(self.time_zone_block is not None)
+        if self.time_zone_block is None:
+            return
+        b = self.time_zone_block
+        label = getattr(self.time_zone_row, "label_widget", None)
+        if label is not None and b.get("label"):
+            label.setText(str(b["label"]))
+        self.time_zone_combo.setAccessibleName(str(b.get("label") or "Time zone"))
+        self.time_zone_help.setText(str(b.get("help") or ""))
+        self.time_zone_combo.blockSignals(True)
+        try:
+            self.time_zone_combo.clear()
+            self.time_zone_combo.addItem(time_zone_default_label(str(b["gateway_default"])), None)
+            for zone in b.get("choices") or []:
+                self.time_zone_combo.addItem(str(zone), str(zone))
+            value = b.get("value")
+            index = self.time_zone_combo.findData(value) if value else 0
+            self.time_zone_combo.setCurrentIndex(max(0, index))
+        finally:
+            self.time_zone_combo.blockSignals(False)
+
+    def _on_time_zone_chosen(self, index: int) -> None:
+        if self.time_zone_block is None or index < 0:
+            return
+        value = self.time_zone_combo.itemData(index)
+        if value == self.time_zone_block.get("value"):
+            return
+        try:
+            block = self.controller.set_time_zone(value)
+        except Exception as exc:
+            self.say(f"Not saved. {_gateway_sentence(exc)}", tone="error")
+            self._refresh_time_zone(self.time_zone_block)
+            return
+        self._refresh_time_zone(block if block else None)
+        self.say("Saved.")
+        self.changed.emit()
 
     # ---------------------------------------------------------- the choice
 

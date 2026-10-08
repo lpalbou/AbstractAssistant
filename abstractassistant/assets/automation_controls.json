@@ -60,5 +60,42 @@
     "recipients_self": "Only me (default)",
     "recipients_list": "Me and these addresses",
     "recipients_hint": "Separate multiple addresses with commas."
+  },
+  "schedule": {
+    "legend": "When",
+    "kind_every": "Repeat",
+    "kind_daily": "Daily",
+    "kind_weekly": "Weekly",
+    "kind_monthly": "Monthly",
+    "kind_once": "Once at…",
+    "every_label": "Every",
+    "at_label": "at",
+    "time_label": "Time of day",
+    "days_legend": "On",
+    "days": {
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri",
+      "sat": "Sat",
+      "sun": "Sun"
+    },
+    "day_label": "on day",
+    "last_day": "last",
+    "once_label": "Run once at",
+    "time_zone_line": "in {time_zone} (your account's time zone)",
+    "time_zone_line_automation": "in {time_zone} (this automation's time zone)",
+    "time_zone_hint": "Daily, weekly, monthly and one-time runs keep this wall-clock time when daylight saving time changes. A day the month does not have (31 in April) runs on its last day. Repeat runs at a fixed interval in UTC.",
+    "time_zone_change": "Change in preferences",
+    "time_zone_change_hint": "Your account's time zone is set in your preferences; new automations use it.",
+    "time_zone_default": "Gateway default ({time_zone})",
+    "time_zone_search": "Search time zones",
+    "describing": "Checking the schedule…",
+    "incomplete": "Incomplete schedule.",
+    "error_at": "Pick the time of day (HH:MM).",
+    "error_days": "Pick at least one day.",
+    "error_day": "Pick a day of the month: 1 to 31, or last.",
+    "error_once": "Pick the date and time to run once."
   }
 }

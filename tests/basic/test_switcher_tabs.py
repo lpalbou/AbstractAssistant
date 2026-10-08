@@ -173,15 +173,16 @@ def test_last_and_next_are_relative_times_and_next_is_a_dash_when_not_scheduled(
 
     now = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
     iso = lambda d: (now + d).isoformat()  # noqa: E731
-    active = {"status": "active", "next_fire_at": iso(timedelta(minutes=2)),
+    # Round 16: the next run is the gateway's served `next_run_at` (= next_fire_at).
+    active = {"status": "active", "next_run_at": iso(timedelta(minutes=2)),
               "last_occurrence": {"fired_at": iso(-timedelta(minutes=10)), "finished_at": iso(-timedelta(minutes=3))}}
     assert (last_run_text(active, now=now), next_run_text(active, now=now)) == ("last 3 min ago", "next in 2 min")
-    long = dict(active, next_fire_at=iso(timedelta(hours=1, minutes=6, seconds=30)),
+    long = dict(active, next_run_at=iso(timedelta(hours=1, minutes=6, seconds=30)),
                 last_occurrence={"fired_at": iso(-timedelta(hours=1, minutes=6))})
     assert (last_run_text(long, now=now), next_run_text(long, now=now)) == ("last 1 h 06 min ago", "next in 1 h 06 min")
     assert next_run_text(dict(active, status="paused"), now=now) == "next —"
     assert next_run_text({"status": "active"}, now=now) == "next —"
-    assert next_run_text(dict(active, next_fire_at=iso(timedelta(seconds=20))), now=now) == "next: now"
+    assert next_run_text(dict(active, next_run_at=iso(timedelta(seconds=20))), now=now) == "next: now"
     assert last_run_text({"status": "active"}, now=now) == "last —"
 
 
@@ -252,9 +253,9 @@ def test_the_header_needs_no_ellipsis_and_the_tabs_carry_the_counts(width, tab) 
     for button in sw.tab_buttons.values():
         assert button.width() >= QFontMetrics(button.font()).horizontalAdvance(button.text())
     assert sw.tab_buttons["sessions"].text() == "Sessions · 146+"
-    assert sw.tab_buttons["automations"].text() == "Automations · 4 · 4 new"
+    assert sw.tab_buttons["automations"].text().startswith("Automations · 5 · ")
     assert sw.tab_buttons["sessions"].toolTip() == "146+ sessions (⌘1)"
-    assert sw.tab_buttons["automations"].toolTip() == "4 automations · 1 archived (hidden) · 4 new (⌘2)"
+    assert sw.tab_buttons["automations"].toolTip() == "5 automations · 1 archived (hidden) · 4 new (⌘2)"
     sw.deleteLater()
 
 
@@ -472,14 +473,16 @@ def test_next_comes_only_from_the_gateway() -> None:
 
     now = datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc)
     summary = _variant(NEWS, status="active", running=True)
-    summary["next_fire_at"] = "2026-09-27T16:00:00+00:00"
+    summary["next_run_at"] = "2026-09-27T16:00:00+00:00"
     assert next_run_text(summary, now=now) == "next in 7 h"
+    # The served value moves the display: a different next_run_at, a different line.
+    assert next_run_text(dict(summary, next_run_at="2026-09-27T18:00:00+00:00"), now=now) == "next in 9 h"
     for value in (None, "absent"):
         missing = dict(summary)
         if value == "absent":
-            missing.pop("next_fire_at")
+            missing.pop("next_run_at")
         else:
-            missing["next_fire_at"] = None
+            missing["next_run_at"] = None
         assert next_run_text(missing, now=now) == "next —"  # no schedule arithmetic in the client
 
 

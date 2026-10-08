@@ -6137,6 +6137,8 @@ class AssistantPalette(QMainWindow):
         self.automation_view.back_requested.connect(self._close_automation_view)
         self.automation_view.control_requested.connect(self._on_automation_control)
         self.automation_view.revise_requested.connect(self._on_automation_revise)
+        # The Edit form's calendar line: the gateway's schedule-preview (round 16).
+        self.automation_view.set_preview_provider(lambda trigger, done: self._automations.schedule_preview(trigger, done))
         self.automation_view.edit_requested.connect(self._load_automation_edit)
         self.automation_view.discuss_requested.connect(self._on_automation_discuss)
         self.automation_view.wait_answered.connect(self._on_automation_wait_answer)
@@ -7019,6 +7021,11 @@ class AssistantPalette(QMainWindow):
             # Email options only with a usable account (framework backlog 0992);
             # a failed read leaves them off under "Connect a mailbox first".
             sheet.open_my_email_requested.connect(self._open_my_email)
+            # Round 16: Once / Daily / Weekly / Monthly are worded by the gateway
+            # (schedule-preview); "Change in preferences" opens Settings → Workflow,
+            # where the account's default workflow and time zone live.
+            sheet.served_line.provider = self._automations.schedule_preview
+            sheet.open_preferences_requested.connect(lambda: self._open_settings(section="workflow"))
             self._automations.my_email(lambda ok3, status: sheet.set_email_status(status if ok3 and isinstance(status, dict) else None))
             sheet.show()
             sheet.raise_()

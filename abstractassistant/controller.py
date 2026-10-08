@@ -450,6 +450,26 @@ class AssistantController:
         self.update_preferences(workflow=choice)
         return "device"
 
+    # ------------------------------------------ the account time zone (round 16)
+
+    def account_time_zone(self) -> Optional[Dict[str, Any]]:
+        """The ``time_zone`` block of the account preferences (R16.1): ``{value|null,
+        gateway_default, effective, label, help, choices}`` — the IANA names are the
+        GATEWAY's, never a list guessed here. None on a gateway without it."""
+        answer = self.account_preferences()
+        block = answer.get("time_zone") if isinstance(answer, dict) else None
+        if isinstance(block, dict) and isinstance(block.get("choices"), list) and isinstance(block.get("gateway_default"), str):
+            return dict(block)
+        return None
+
+    def set_time_zone(self, value: Optional[str]) -> Dict[str, Any]:
+        """``PUT /accounts/me/preferences {"time_zone": <IANA>|null}`` (null = the gateway
+        default). A refusal raises with the gateway's sentence; nothing is kept locally."""
+        answer = self.gateway.put_account_preferences({"time_zone": value})
+        self._store_account_preferences(answer)
+        block = answer.get("time_zone") if isinstance(answer, dict) else None
+        return dict(block) if isinstance(block, dict) else {}
+
     # ------------------------------------------ the account preference (round 14)
 
     def account_preferences(self, *, fresh: bool = False) -> Optional[Dict[str, Any]]:

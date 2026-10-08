@@ -31,6 +31,7 @@ from .client import GatewayClient
 __all__ = [
     "AUTOMATIONS_PATH",
     "MY_EMAIL_PATH",
+    "SCHEDULE_PREVIEW_PATH",
     "TRIGGER_SOURCES_PATH",
     "AUTOMATION_COMMAND_TYPES",
     "AutomationApiError",
@@ -42,6 +43,9 @@ AUTOMATIONS_PATH = "/api/gateway/automations"
 TRIGGER_SOURCES_PATH = "/api/gateway/trigger-sources"
 # The signed-in user's own email account (framework backlog 0992; never a secret).
 MY_EMAIL_PATH = "/api/gateway/me/email"
+# Round 16 (R16.1): the gateway previews a trigger without storing anything (the
+# Schedule sheet's line under "When", the time zone, the next run).
+SCHEDULE_PREVIEW_PATH = "/api/gateway/automations/schedule-preview"
 
 # The `automation.*` command types of contract F (`command_types.py` on the
 # gateway). `automation.revise` is normally sent through PATCH (`revise`).
@@ -278,6 +282,12 @@ class AutomationsClient:
         ``effective_enabled``, ``address``, …; never a secret). Decides whether
         the Schedule sheet offers the email options."""
         return self._call("GET", MY_EMAIL_PATH)
+
+    def schedule_preview(self, trigger: Dict[str, Any]) -> Dict[str, Any]:
+        """``POST /automations/schedule-preview {trigger}`` → ``{trigger, time_zone,
+        schedule_rule_text, schedule_text, next_run_at, next_run_local,
+        first_run_sentence}`` (nothing stored; errors = the create's 422 envelope)."""
+        return self._call("POST", SCHEDULE_PREVIEW_PATH, body={"trigger": dict(trigger)})
 
     def console_url(self, tab: str = "users") -> str:
         """The gateway console's tab (My email lives in the Users tab)."""

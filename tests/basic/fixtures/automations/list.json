@@ -97,6 +97,11 @@
         "discuss"
       ],
       "session_kind": "automation",
+      "time_zone": "Europe/Paris",
+      "schedule_rule_text": "Every 30 minutes (UTC)",
+      "schedule_text": "Every 30 minutes (UTC) · next Sun 27 Sep 09:00",
+      "next_run_at": "2026-09-27T07:00:00.412307+00:00",
+      "next_run_local": "2026-09-27T09:00:00.412307+02:00",
       "last_occurrence": {
         "run_id": "ade23773-2d37-5460-973c-08d35f7af010",
         "index": 7,
@@ -147,6 +152,11 @@
         "discuss"
       ],
       "session_kind": "automation",
+      "time_zone": "Europe/Paris",
+      "schedule_rule_text": "Every 8 hours (UTC)",
+      "schedule_text": "Every 8 hours (UTC) · next Sun 27 Sep 10:00",
+      "next_run_at": "2026-09-27T08:00:00.108652+00:00",
+      "next_run_local": "2026-09-27T10:00:00.108652+02:00",
       "last_occurrence": {
         "run_id": "cadb53cd-8124-5aa8-84c8-49c521d5c25e",
         "index": 6,
@@ -198,6 +208,9 @@
         "discuss"
       ],
       "session_kind": "automation",
+      "time_zone": "Europe/Paris",
+      "schedule_rule_text": "Every 7 days (UTC) · 12 runs max",
+      "schedule_text": "Every 7 days (UTC) · 12 runs max",
       "last_occurrence": {
         "run_id": "056b4f2c-9d81-5404-a63f-433a044d5abc",
         "index": 3,
@@ -210,6 +223,64 @@
           "body": "Three new sparse-attention papers this week."
         },
         "finished_at": "2026-09-20T07:04:51.576308+00:00"
+      }
+    },
+    {
+      "automation_id": "744bfd6c-3b4c-5f2b-af65-8c6b54f37ef5",
+      "title": "Morning briefing",
+      "status": "active",
+      "trigger": {
+        "binding_id": "e46fada2-c63b-53b8-86cb-4271d7d25a0e",
+        "source_id": "schedule",
+        "source_version": 2,
+        "config": {
+          "kind": "daily",
+          "at": "08:00",
+          "time_zone": "Europe/Paris",
+          "start_at": "2026-09-20T05:12:44.208411+00:00",
+          "anchor": "2026-09-20T05:12:44.208411+00:00"
+        }
+      },
+      "context_mode": "independent",
+      "workspace_root": "/srv/abstractgateway/data/workspaces/session-automation-744bfd6c-3b4c-5f2b-af65-8c6b5-f4858148e635",
+      "next_fire_at": "2026-09-28T06:00:00+00:00",
+      "current_occurrence": null,
+      "occurrence_count": 7,
+      "attention": {
+        "pending_waits": 0,
+        "unread": false,
+        "unseen_count": 0,
+        "cursor": "att1:0",
+        "items": [],
+        "waits": []
+      },
+      "legacy": false,
+      "revision": 1,
+      "updated_at": "2026-09-27T06:01:12.390117+00:00",
+      "capabilities": [
+        "revise",
+        "pause",
+        "resume",
+        "run_now",
+        "stop_current",
+        "archive",
+        "discuss"
+      ],
+      "session_kind": "automation",
+      "time_zone": "Europe/Paris",
+      "schedule_rule_text": "Every day at 08:00 (Europe/Paris)",
+      "schedule_text": "Every day at 08:00 (Europe/Paris) · next Mon 28 Sep 08:00",
+      "next_run_at": "2026-09-28T06:00:00+00:00",
+      "next_run_local": "2026-09-28T08:00:00+02:00",
+      "last_occurrence": {
+        "run_id": "582fb4a4-e7e9-5f9e-a1b8-9b5b5ff5aaad",
+        "index": 7,
+        "status": "completed",
+        "attempts": 1,
+        "fired_at": "2026-09-27T06:00:00.004120+00:00",
+        "excerpt": "Three meetings today; the 10:00 review moved to 14:00.",
+        "notify": null,
+        "finished_at": "2026-09-27T06:01:12.381502+00:00"
       }
     },
     {
@@ -243,6 +314,11 @@
       "session_kind": "automation",
       "workspace_root": "/srv/abstractgateway/data/workspaces/a0fab4a28b097d25bf998201ae88e39d",
       "next_fire_at": "2026-09-27T11:15:12.340488+00:00",
+      "time_zone": "Europe/Paris",
+      "schedule_rule_text": "Every hour (UTC)",
+      "schedule_text": "Every hour (UTC) · next Sun 27 Sep 13:15",
+      "next_run_at": "2026-09-27T11:15:12.340488+00:00",
+      "next_run_local": "2026-09-27T13:15:12.340488+02:00",
       "last_occurrence": {
         "run_id": "7af5a440-b8cc-493f-8475-4e2fe13f0e3a",
         "index": 2,

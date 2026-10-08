@@ -81,8 +81,8 @@ def test_switcher_automations_tab_new_automation_creates_with_the_gateway_defaul
     assert body["title"] == "Check the price of ACME shares"
     assert body["trigger"] == {
         "source_id": "schedule",
-        "source_version": 1,
-        "config": {"every": "8h", "count": 3, "until": "2030-01-01T08:00:00Z"},
+        "source_version": 2,
+        "config": {"kind": "every", "every": "8h", "count": 3, "until": "2030-01-01T08:00:00Z"},
     }
     assert body["context"] == {"mode": "growing"}
     assert body["policy"] == {"tool_approval": "auto"}
@@ -123,11 +123,12 @@ def test_stop_fields_are_validated_and_only_for_a_repeating_schedule(palette, st
     sheet.until_edit.setText("tomorrow")
     body, errors = sheet.build_body()
     assert body is None and "Stop at must be a date and time (UTC)." in errors
-    sheet.preset_combo.setCurrentIndex(sheet.preset_combo.findData("once"))
+    sheet.set_kind("once")
     assert not sheet.stop_host.isVisibleTo(sheet)
     sheet.at_edit.setText("2030-01-01 08:00")
     body, errors = sheet.build_body()
-    assert not errors and body["trigger"]["config"] == {"start_at": "2030-01-01T08:00:00Z"}
+    # Round 16: Once is a wall time in the account's zone (schedule@2), converted by the gateway.
+    assert not errors and body["trigger"] == {"source_id": "schedule", "source_version": 2, "config": {"kind": "once", "at": "2030-01-01T08:00"}}
 
 
 def test_the_workflow_picker_lists_gateway_default_first_and_keeps_a_pinned_target() -> None:

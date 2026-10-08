@@ -47,6 +47,19 @@ __all__ = [
     "NotificationLedger",
     "OccurrenceView",
     "ScheduleWhen",
+    "SCHEDULE_TEXT",
+    "SCHEDULE_VERSION",
+    "CALENDAR_DAYS",
+    "CALENDAR_KINDS",
+    "calendar_config",
+    "calendar_when_from",
+    "format_served_local",
+    "is_schedule_v2",
+    "is_served_preview_kind",
+    "schedule_trigger",
+    "served_rule_text",
+    "time_zone_line",
+    "time_zone_default_label",
     "api_error_text",
     "attention_ack_cursor",
     "attention_total",
@@ -138,12 +151,17 @@ def schedule_label(config: Mapping[str, Any]) -> str:
     return " · ".join(parts)
 
 
-def trigger_summary(trigger: Mapping[str, Any]) -> str:
-    """The cadence label of a ``TriggerBinding``."""
+def trigger_summary(trigger: Mapping[str, Any], served: Optional[Mapping[str, Any]] = None) -> str:
+    """The cadence label of a ``TriggerBinding``. A ``schedule@1`` row keeps the
+    fixed-interval UTC wording; a ``schedule@2`` row (every kind) reads ONLY the
+    gateway's served ``schedule_rule_text`` (the summary's, or the preview's) —
+    the Assistant never composes a calendar sentence (round 16, R16.1)."""
     t = trigger if isinstance(trigger, Mapping) else {}
     source, version = t.get("source_id"), t.get("source_version")
     if source == "schedule" and version == 1:
         return schedule_label(t.get("config") or {})
+    if is_schedule_v2(t):
+        return served_rule_text(served)
     if source == "manual" and version == 1:
         return "manual runs only"
     if is_email_trigger(t):
@@ -199,12 +217,12 @@ def current_run(summary: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
 
 
 def next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
-    """ "next in 2 min" from the gateway's next fire time; "next —" when paused,
-    ended or not scheduled; "next: now" when due."""
+    """ "next in 2 min" from the gateway's served ``next_run_at``; "next —" when
+    paused, ended or not scheduled; "next: now" when due."""
     now = now or datetime.now(timezone.utc)
     if summary.get("status") != "active":
         return "next —"
-    when = _parse_ts(summary.get("next_fire_at"))  # the gateway's time only; no client arithmetic
+    when = _parse_ts(summary.get("next_run_at"))  # the gateway's time only; no client arithmetic
     if when is None:
         return "next —"
     delta = (when - now).total_seconds()
@@ -343,15 +361,113 @@ CONTROL_HINTS: Dict[str, str] = dict(AUTOMATION_CONTROLS["hints"])
 RUN_NOW_GLYPH: Dict[str, Any] = dict(AUTOMATION_CONTROLS["icons"]["run_now"])
 
 
+# ------------------------------------------------ schedule@2 (round 16, R16.1)
+#
+# The Qt mirror of the kit's calendar "When" (`panel_core.ts` SCHEDULE_TEXT,
+# `schedule_when.tsx`): the words are the vendored JSON's `schedule` block; the
+# gateway words every schedule@2 rule (`schedule_rule_text`, the preview's
+# `first_run_sentence`) and computes every next run (`next_run_at`,
+# `next_run_local`). Nothing here does clock or zone arithmetic.
+
+SCHEDULE_TEXT: Dict[str, Any] = dict(AUTOMATION_CONTROLS["schedule"])
+SCHEDULE_VERSION = 2
+CALENDAR_DAYS: Tuple[str, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+CALENDAR_KINDS: Tuple[str, ...] = ("daily", "weekly", "monthly")
+_WALL_TIME_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+_WALL_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T([01][0-9]|2[0-3]):[0-5][0-9]$")
+_SERVED_LOCAL_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})")
+
+
+def is_schedule_v2(trigger: Any) -> bool:
+    """A ``schedule@2`` trigger (any kind): the gateway words it."""
+    return isinstance(trigger, Mapping) and trigger.get("source_id") == "schedule" and trigger.get("source_version") == SCHEDULE_VERSION
+
+
+def is_served_preview_kind(kind: str) -> bool:
+    """Kinds whose line under "When" is the gateway's ``first_run_sentence`` (they depend on the time zone)."""
+    return kind == "once" or kind in CALENDAR_KINDS
+
+
+def served_rule_text(served: Optional[Mapping[str, Any]]) -> str:
+    """The served ``schedule_rule_text`` verbatim. A missing value is a broken
+    gateway seam: it reads as the literal "schedule@2", never as a sentence
+    the Assistant made up."""
+    text = served.get("schedule_rule_text") if isinstance(served, Mapping) else None
+    return text if isinstance(text, str) and text else "schedule@2"
+
+
+def format_served_local(next_run_local: Any, time_zone: Any) -> str:
+    """The served ``next_run_local`` ("2026-10-09T08:00:00+02:00", already in the
+    automation's zone) as "2026-10-09 08:00 Europe/Paris": the date and the
+    wall time are CUT from the gateway's string — no clock or zone arithmetic."""
+    if not isinstance(next_run_local, str) or not next_run_local:
+        return ""
+    m = _SERVED_LOCAL_RE.match(next_run_local)
+    if not m:
+        return next_run_local
+    zone = f" {time_zone}" if isinstance(time_zone, str) and time_zone else ""
+    return f"{m.group(1)} {m.group(2)}{zone}"
+
+
+def time_zone_line(time_zone: str, whose: str = "account") -> str:
+    """ "in Europe/Paris (your account's time zone)" / "… (this automation's time zone)"."""
+    key = "time_zone_line" if whose == "account" else "time_zone_line_automation"
+    return str(SCHEDULE_TEXT[key]).replace("{time_zone}", str(time_zone))
+
+
+def time_zone_default_label(gateway_default: str) -> str:
+    """ "Gateway default (Europe/Paris)" — the first item of the time-zone picker (= null)."""
+    return str(SCHEDULE_TEXT["time_zone_default"]).replace("{time_zone}", str(gateway_default))
+
+
+def calendar_config(when: "ScheduleWhen") -> Tuple[Dict[str, Any], List[str]]:
+    """The calendar rule of a daily / weekly / monthly choice (Monday-first days,
+    no repeats), or the reasons it is incomplete. No ``time_zone``."""
+    errors: List[str] = []
+    at = str(when.at or "").strip()
+    if not _WALL_TIME_RE.match(at):
+        errors.append(SCHEDULE_TEXT["error_at"])
+    if when.kind == "weekly":
+        days = [d for d in CALENDAR_DAYS if d in tuple(when.days or ())]
+        if not days:
+            errors.append(SCHEDULE_TEXT["error_days"])
+        return ({}, errors) if errors else ({"kind": "weekly", "days": days, "at": at}, [])
+    if when.kind == "monthly":
+        day = when.day
+        ok = day == "last" or (isinstance(day, int) and not isinstance(day, bool) and 1 <= day <= 31)
+        if not ok:
+            errors.append(SCHEDULE_TEXT["error_day"])
+        return ({}, errors) if errors else ({"kind": "monthly", "day": day, "at": at}, [])
+    if when.kind != "daily":
+        raise ValueError(f"calendar_config reads daily / weekly / monthly only, not {when.kind!r}")
+    return ({}, errors) if errors else ({"kind": "daily", "at": at}, [])
+
+
+def calendar_when_from(config: Any) -> Optional["ScheduleWhen"]:
+    """The calendar rule of a stored ``schedule@2`` config as a ``ScheduleWhen`` (None when it is not one)."""
+    c = config if isinstance(config, Mapping) else {}
+    kind, at = c.get("kind"), str(c.get("at") or "")
+    if kind == "daily":
+        return ScheduleWhen("daily", at=at)
+    if kind == "weekly":
+        days = c.get("days") if isinstance(c.get("days"), list) else []
+        return ScheduleWhen("weekly", at=at, days=tuple(d for d in CALENDAR_DAYS if d in days))
+    if kind == "monthly":
+        day = c.get("day")
+        return ScheduleWhen("monthly", at=at, day="last" if day == "last" else day)
+    return None
+
+
 def control_hint(control: str, summary: Optional[Mapping[str, Any]] = None) -> str:
     """A control's tooltip, as the kit's ``controlHint``: the canonical hint,
     plus, for Run now, the next scheduled time when the gateway reports one
     and the Growing line when the automation replays its history."""
     lines = [CONTROL_HINTS[control]]
     if control == "run_now" and summary:
-        nxt = summary.get("next_fire_at")
+        nxt = summary.get("next_run_local")
         if nxt:
-            lines.append(AUTOMATION_CONTROLS["run_now_next_run_line"].replace("{time}", format_utc(nxt)))
+            served = format_served_local(nxt, summary.get("time_zone"))
+            lines.append(AUTOMATION_CONTROLS["run_now_next_run_line"].replace("{time}", served))
         if summary.get("context_mode") == "growing":
             lines.append(AUTOMATION_CONTROLS["run_now_growing_line"])
     return "\n".join(lines)
@@ -811,12 +927,17 @@ def is_regular_session_kind(kind: Any) -> bool:
 
 @dataclass(frozen=True)
 class ScheduleWhen:
-    """``kind="every"`` with ``amount``/``unit`` (m|h|d), or ``kind="once"`` with ``at``."""
+    """The "When" choice: ``kind="every"`` with ``amount``/``unit`` (m|h|d);
+    ``kind="once"`` with ``at`` = ``YYYY-MM-DD HH:MM`` (a wall time in the
+    account's zone); ``kind="daily"`` / ``"weekly"`` (``days``) / ``"monthly"``
+    (``day`` 1..31 or ``"last"``) with ``at`` = ``HH:MM``."""
 
     kind: str
     amount: int = 0
     unit: str = "h"
     at: str = ""
+    days: Tuple[str, ...] = ()
+    day: Any = 1
 
 
 SCHEDULE_PRESETS: Tuple[Tuple[str, ScheduleWhen], ...] = (
@@ -848,16 +969,28 @@ TOOL_APPROVAL_ASK_HINT = "Each tool call waits for your approval in the automati
 def schedule_config(
     when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None, until: str = ""
 ) -> Tuple[Dict[str, Any], List[str]]:
-    """``schedule@1`` config + the reasons it is invalid."""
+    """The ``schedule@2`` config of a "When" choice + the reasons it is invalid
+    (the kit's ``scheduleConfigFrom``, "R16.1 API — FINAL"): Repeat →
+    ``{kind:"every", every, start_at?, count?, until?}`` (a fixed UTC interval);
+    Once → ``{kind:"once", at:"YYYY-MM-DDTHH:MM"}`` (a wall time the gateway
+    reads in the account's zone); Daily / Weekly / Monthly → the calendar rule
+    with the optional ``count`` / ``until``. No ``time_zone``: the gateway fills
+    the owner's."""
     errors: List[str] = []
     config: Dict[str, Any] = {}
     if when.kind == "once":
-        at = utc_from_input(when.at)
-        if not at:
-            errors.append("Pick the date and time (UTC) to run once.")
-        else:
-            config["start_at"] = at
-        return config, errors
+        m = _LOCAL_INPUT_RE.match(str(when.at or "").strip())
+        at = f"{m.group(1)}T{m.group(2)}" if m else ""
+        if not at or not _WALL_DATETIME_RE.match(at):
+            return {}, [SCHEDULE_TEXT["error_once"]]
+        return {"kind": "once", "at": at}, errors
+    if when.kind in CALENDAR_KINDS:
+        config, errors = calendar_config(when)
+        if errors:
+            return {}, errors
+        _limits(config, errors, count=count, until=until)
+        return (config, []) if not errors else ({}, errors)
+    config["kind"] = "every"
     if when.unit not in {"m", "h", "d"} or not isinstance(when.amount, int) or when.amount < 1:
         errors.append("The interval must be a whole number of minutes, hours or days (at least 1).")
     else:
@@ -880,6 +1013,31 @@ def schedule_config(
         else:
             config["until"] = u
     return config, errors
+
+
+def _limits(config: Dict[str, Any], errors: List[str], *, count: Optional[int], until: str) -> None:
+    """``count`` / ``until`` of a calendar rule (the Repeat wording and checks)."""
+    if count is not None:
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            errors.append("Stop after this many runs must be a whole number of at least 1.")
+        else:
+            config["count"] = count
+    if until:
+        u = utc_from_input(until)
+        if not u:
+            errors.append("Stop at must be a date and time (UTC).")
+        else:
+            config["until"] = u
+
+
+def schedule_trigger(
+    when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None, until: str = ""
+) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """The ``schedule@2`` trigger of a "When" choice, or the reasons it is incomplete."""
+    config, errors = schedule_config(when, start_at=start_at, count=count, until=until)
+    if errors:
+        return None, errors
+    return {"source_id": "schedule", "source_version": SCHEDULE_VERSION, "config": config}, []
 
 
 def default_title(prompt: str) -> str:
@@ -988,7 +1146,7 @@ def build_create_request(
         "trigger": (
             {"source_id": EMAIL_TRIGGER_SOURCE_ID, "source_version": EMAIL_TRIGGER_SOURCE_VERSION, "config": config}
             if is_email
-            else {"source_id": "schedule", "source_version": 1, "config": config}
+            else {"source_id": "schedule", "source_version": SCHEDULE_VERSION, "config": config}
         ),
         "context": _automation_context(context, growing_max_tokens if context == "growing" else DEFAULT_GROWING_MAX_TOKENS),
         "policy": policy,
@@ -1027,6 +1185,7 @@ def revise_changes(
     definition: Optional[Mapping[str, Any]] = None,
     notify_email: Optional[bool] = None,
     email_recipients: Optional[Tuple[str, str]] = None,
+    calendar: Optional[ScheduleWhen] = None,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """Only the fields that changed (``None`` when nothing did), or errors.
     A new interval keeps the rest of the trigger config (the server mints a
@@ -1061,6 +1220,17 @@ def revise_changes(
                 "source_version": trigger.get("source_version"),
                 "config": new_config,
             }
+    if calendar is not None and is_schedule_v2(trigger):
+        before_rule = calendar_when_from(config)
+        if before_rule is not None and calendar != before_rule:
+            rule, rule_errors = calendar_config(calendar)
+            errors.extend(rule_errors)
+            if not rule_errors:
+                # The automation keeps its own time zone (stored on the binding); the form never edits it.
+                zone = config.get("time_zone")
+                if isinstance(zone, str) and zone:
+                    rule["time_zone"] = zone
+                changes["trigger"] = {"source_id": trigger.get("source_id"), "source_version": trigger.get("source_version"), "config": rule}
     before_limit = summary.get("growing_max_tokens", DEFAULT_GROWING_MAX_TOKENS)
     if definition is not None:
         before_limit = (definition.get("context") or {}).get("growing", {}).get("max_tokens", before_limit)
