@@ -66,9 +66,9 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
-- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow and the account Time zone, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first, stop after / stop at), tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -656,6 +656,15 @@ if your account has none yet (a choice already made elsewhere wins), then remove
 `preferences.json`. A gateway older than 0.13.1 has no account preferences: the choice stays in
 `preferences.json` and a change says "Saved on this device — applies from the next turn."
 
+**Time zone** (gateways with account time zones): where your Daily, Weekly, Monthly and one-time
+automations run. A searchable list of the time zones the gateway offers (type to filter); the
+first row, **Gateway default (Europe/Paris)**, follows the gateway's own zone. The label and the
+line under it are the gateway's. A choice applies at once ("Saved.", or "Not saved." and the
+gateway's sentence) and belongs to your account (`PUT /api/gateway/accounts/me/preferences`
+`{"time_zone": "<zone>" | null}`), shared with the console's Accounts → Preferences and AbstractCode.
+New automations take this zone; an existing automation keeps the zone it was created with. The row
+is absent on a gateway that does not offer it.
+
 ## Voice
 
 | Control | Meaning | Stored |
@@ -912,7 +921,9 @@ archived** in the tab's header, and **+ New automation** creates one (below). Ea
 - the title, and on the right when it last ran (`40 min ago`, `1 h 06 min ago`) — with
   "✋ waiting for you" when a run waits for your answer, or a red "failed" when the last run failed;
 - the last result, on one line;
-- the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
+- the schedule (`every 5 min` for a repeating interval; a daily, weekly, monthly or one-time
+  schedule shows the gateway's own words, e.g. `Every day at 08:00 (Europe/Paris)`), the next run
+  (`next in 2 min`, `next —` when paused), the number of
   runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
   folder and it is on this Mac), and at the far right the card's one control, the **Active**
   switch: on (accent track, check mark, bold label) while the automation runs on its schedule,
@@ -964,12 +975,23 @@ The window carries the same content as the AbstractCode and AbstractObserver sch
   workflow (**Gateway default** for **+ New automation**). Then the **Task** (prefilled with the
   conversation’s last question) and an optional **Title** that defaults to the task's first line
   (at most 120 characters). Both choices belong to the automation.
-- **When (UTC)**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days;
-  **every N…** minutes, hours or days; **once at…** a date and time; or **When an email arrives**
-  (see [Email automations](#email-automations)). For an interval, an optional first-run time
-  (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now. A repeating schedule can also
-  **Stop after this many runs** and **Stop at** a date and time (UTC); both are optional. Intervals
-  are fixed durations in UTC: "every 24 hours", never "daily at 08:00 local time".
+- **When**: **Repeat** · **Daily** · **Weekly** · **Monthly** · **Once at…** · **When an email
+  arrives** (the same words as the AbstractCode and AbstractObserver dialog).
+  - **Repeat**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days, or
+    **every N…** minutes, hours or days. A Repeat interval is a fixed duration in UTC ("every 24
+    hours"), with an optional first-run time (`YYYY-MM-DD HH:MM`, UTC; empty means now).
+  - **Daily** at a time of day; **Weekly** on the days you pick (one chip per day, Monday first;
+    a picked day shows a check mark) at a time of day; **Monthly** on day 1 to 31, or **last**, at
+    a time of day. A day the month does not have (31 in April) runs on that month's last day.
+  - **Once at…** a date and time (`YYYY-MM-DD HH:MM`).
+  - Daily, Weekly, Monthly and Once run at that wall-clock time in your account's time zone, also
+    when daylight saving time changes. A line shows the zone, "in Europe/Paris (your account's
+    time zone)" (its tooltip explains the rule), with **Change in preferences**, which opens
+    Settings → Workflow, where the zone is set. The days, the day of the month and the time stay as
+    you set them when you switch between Daily, Weekly and Monthly.
+  - Repeat, Daily, Weekly and Monthly can **Stop after this many runs** and **Stop at** a date and
+    time (UTC); both are optional.
+  - **When an email arrives**: see [Email automations](#email-automations).
 - **Context**: **Independent** (the default: each run starts fresh) or **Growing** (each run sees
   the previous runs).
 - **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Run without asking** (the default; the line under it reads "Tools run without asking (you approve them now by creating this automation).") or **Ask me before each tool call (the run waits for you)**. See
@@ -993,8 +1015,12 @@ The window carries the same content as the AbstractCode and AbstractObserver sch
 
 Every section is visible: the window has no "Advanced" part.
 
-A line under the form previews the schedule ("Runs every 8 hours (UTC), first run now.") or says
-what is missing. **Create automation** is enabled once the form is complete and the gateway offers
+A line previews the schedule or says what is missing. For Repeat it reads "Runs every 8 hours
+(UTC), first run now."; for Daily, Weekly, Monthly and Once it is the gateway's own sentence
+("Runs every day at 08:00 (Europe/Paris), first run Fri 9 Oct 08:00."), asked from the gateway
+as you edit (`POST /api/gateway/automations/schedule-preview`, nothing is stored). The Assistant
+never words a calendar schedule or works out a next run itself: every automation shows the next
+run and the schedule the gateway reports. **Create automation** is enabled once the form is complete and the gateway offers
 the `schedule` trigger; it creates the automation and opens it in the palette (or, from
 **+ New automation**, selects it in the Automations tab). If the gateway could not be reached,
 pressing **Create automation** again sends the same request, which the gateway recognises, so the
@@ -1082,7 +1108,7 @@ stay counted until you answer them.
 | **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
 | **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
-| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule (the kind, the days, the day of the month and the time, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence; the automation keeps its own zone and its run limits), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
 | **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
@@ -1187,12 +1213,13 @@ automations, and no automation route is called before that.
 
 ## Limits
 
-- Schedules are fixed intervals in UTC, or one run at a given time. There is no calendar recurrence
-  (weekdays, local time zones).
+- A Repeat schedule is a fixed interval in UTC. Daily, Weekly, Monthly and Once run in the
+  automation's time zone, set from your account's when it is created; **Edit** does not change an
+  automation's zone.
 - The Assistant creates scheduled and incoming-email automations; **Run now** starts an additional occurrence.
 - A maximum number of runs and an end date are set when the automation is created; **Edit** does
   not change them.
-- **Edit** changes title, interval, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
+- **Edit** changes title, interval or calendar rule, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
 
 Changing workflows preserves the task, portable agent settings, selected tools and result-email
 recipients. The new workflow supplies its input defaults. If additional required inputs are
@@ -1452,8 +1479,15 @@ the stream. Whether the gateway offers live replies is read from
     `POST /api/gateway/automations` (create, with a `request_id`; the automation window sends
     `title`, `target` (`{"flow_id": "@default", "interface": "abstractassistant.agent.v1"}` for
     Gateway default, else `bundle_ref` + `flow_id`) with the task as `input_data.prompt`, a
-    `schedule@1` (optional `count` and `until`) or `email.received@1` trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
+    `schedule@2` trigger (`{"kind": "every", "every"}` with optional `start_at`; `{"kind": "once", "at": "YYYY-MM-DDTHH:MM"}`;
+    `{"kind": "daily"|"weekly"|"monthly", "at": "HH:MM", "days"?, "day"?}`; optional `count` and `until`; no `time_zone`,
+    which the gateway fills from your account) or an `email.received@1` trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
     `notify: {"channels": ["console", "email"]}` and `policy.email_allowed_recipients`)
+  - `POST /api/gateway/automations/schedule-preview` (`{trigger}`; nothing stored): the window's line
+    for Daily, Weekly, Monthly and Once (`first_run_sentence`) and the time zone (`time_zone`). The list
+    and the automation view show each summary's served `schedule_rule_text`, `next_run_at` and
+    `next_run_local` (cut to `YYYY-MM-DD HH:MM <time_zone>`); a `schedule@1` row and a `schedule@2`
+    Repeat row keep the fixed-interval words ("every 8 hours (UTC)")
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
     changed fields among `title`, `trigger`, `context`, `notify` and
     `policy.email_allowed_recipients`, with `expected_revision` and `command_id`; the Assistant
@@ -2568,6 +2602,14 @@ SOFTWARE.
 
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
+
+## [Unreleased]
+
+- Automations: calendar schedules (AbstractGateway R16.1, `schedule@2`). The schedule window's **When** has the AbstractCode / AbstractObserver dialog's words: **Repeat** (the fixed UTC intervals, unchanged) · **Daily** at a time · **Weekly** on the days you pick (day chips, Monday first; a picked day shows a check mark) at a time · **Monthly** on day 1–31 or **last** at a time · **Once at…** · **When an email arrives**. Daily, Weekly, Monthly and Once run at that wall-clock time in your account's time zone: a line shows "in <zone> (your account's time zone)" with an explanatory tooltip and **Change in preferences** (opens Settings → Workflow), and the preview line is the gateway's own sentence (`POST /api/gateway/automations/schedule-preview` → `first_run_sentence`; a refusal shows the gateway's sentence). The days, the month day and the time are kept when you switch kinds. Every create writes `schedule@2` (Repeat as `{"kind": "every", …}`); the window needs the gateway to offer `schedule@2`.
+- Automations: an automation's **Edit** box edits a Daily / Weekly / Monthly rule (kind, days, day of the month, time) with the gateway's preview in "this automation's time zone"; the automation keeps its zone and its run limits.
+- Automations: the list, the automation view and the **Run now** tooltip show the schedule and the next run the gateway serves (`schedule_rule_text`, `next_run_at`, `next_run_local` cut to `YYYY-MM-DD HH:MM <zone>`, e.g. "next 2026-10-09 08:00 Europe/Paris (in 14 h)"); the Assistant no longer reads `next_fire_at` and computes no next run. A repeating interval keeps its fixed-interval words ("every 8 hours (UTC)").
+- Settings → Workflow: a **Time zone** row (gateways with account time zones): a searchable list of the gateway's time zones, **Gateway default (<zone>)** first; the choice applies at once to your account (`PUT /api/gateway/accounts/me/preferences {"time_zone"}`), shared with the console and AbstractCode. New: `AutomationsClient.schedule_preview`, `AutomationsHub.schedule_preview`, `controller.account_time_zone` / `set_time_zone`.
+- The vendored `assets/automation_controls.json` matches the UI kit's (round 16) byte for byte: it gains the `schedule` block (the "When" words, the time-zone line and tooltip). The test fixtures are the kit's R16.1 fixtures (a `schedule@2` daily row; `schedule@2` in the trigger sources).
 
 ## [0.13.1] - 2026-10-08
 
@@ -5482,6 +5524,26 @@ class AssistantController:
             return "account"
         self.update_preferences(workflow=choice)
         return "device"
+
+    # ------------------------------------------ the account time zone (round 16)
+
+    def account_time_zone(self) -> Optional[Dict[str, Any]]:
+        """The ``time_zone`` block of the account preferences (R16.1): ``{value|null,
+        gateway_default, effective, label, help, choices}`` — the IANA names are the
+        GATEWAY's, never a list guessed here. None on a gateway without it."""
+        answer = self.account_preferences()
+        block = answer.get("time_zone") if isinstance(answer, dict) else None
+        if isinstance(block, dict) and isinstance(block.get("choices"), list) and isinstance(block.get("gateway_default"), str):
+            return dict(block)
+        return None
+
+    def set_time_zone(self, value: Optional[str]) -> Dict[str, Any]:
+        """``PUT /accounts/me/preferences {"time_zone": <IANA>|null}`` (null = the gateway
+        default). A refusal raises with the gateway's sentence; nothing is kept locally."""
+        answer = self.gateway.put_account_preferences({"time_zone": value})
+        self._store_account_preferences(answer)
+        block = answer.get("time_zone") if isinstance(answer, dict) else None
+        return dict(block) if isinstance(block, dict) else {}
 
     # ------------------------------------------ the account preference (round 14)
 
@@ -15107,6 +15169,7 @@ from .client import GatewayClient
 __all__ = [
     "AUTOMATIONS_PATH",
     "MY_EMAIL_PATH",
+    "SCHEDULE_PREVIEW_PATH",
     "TRIGGER_SOURCES_PATH",
     "AUTOMATION_COMMAND_TYPES",
     "AutomationApiError",
@@ -15118,6 +15181,9 @@ AUTOMATIONS_PATH = "/api/gateway/automations"
 TRIGGER_SOURCES_PATH = "/api/gateway/trigger-sources"
 # The signed-in user's own email account (framework backlog 0992; never a secret).
 MY_EMAIL_PATH = "/api/gateway/me/email"
+# Round 16 (R16.1): the gateway previews a trigger without storing anything (the
+# Schedule sheet's line under "When", the time zone, the next run).
+SCHEDULE_PREVIEW_PATH = "/api/gateway/automations/schedule-preview"
 
 # The `automation.*` command types of contract F (`command_types.py` on the
 # gateway). `automation.revise` is normally sent through PATCH (`revise`).
@@ -15355,6 +15421,12 @@ class AutomationsClient:
         the Schedule sheet offers the email options."""
         return self._call("GET", MY_EMAIL_PATH)
 
+    def schedule_preview(self, trigger: Dict[str, Any]) -> Dict[str, Any]:
+        """``POST /automations/schedule-preview {trigger}`` → ``{trigger, time_zone,
+        schedule_rule_text, schedule_text, next_run_at, next_run_local,
+        first_run_sentence}`` (nothing stored; errors = the create's 422 envelope)."""
+        return self._call("POST", SCHEDULE_PREVIEW_PATH, body={"trigger": dict(trigger)})
+
     def console_url(self, tab: str = "users") -> str:
         """The gateway console's tab (My email lives in the Users tab)."""
         return f"{self._gateway._url('/console')}#{tab}"
@@ -15418,6 +15490,19 @@ __all__ = [
     "NotificationLedger",
     "OccurrenceView",
     "ScheduleWhen",
+    "SCHEDULE_TEXT",
+    "SCHEDULE_VERSION",
+    "CALENDAR_DAYS",
+    "CALENDAR_KINDS",
+    "calendar_config",
+    "calendar_when_from",
+    "format_served_local",
+    "is_schedule_v2",
+    "is_served_preview_kind",
+    "schedule_trigger",
+    "served_rule_text",
+    "time_zone_line",
+    "time_zone_default_label",
     "api_error_text",
     "attention_ack_cursor",
     "attention_total",
@@ -15509,12 +15594,20 @@ def schedule_label(config: Mapping[str, Any]) -> str:
     return " · ".join(parts)
 
 
-def trigger_summary(trigger: Mapping[str, Any]) -> str:
-    """The cadence label of a ``TriggerBinding``."""
+def trigger_summary(trigger: Mapping[str, Any], served: Optional[Mapping[str, Any]] = None) -> str:
+    """The cadence label of a ``TriggerBinding``. A ``schedule@1`` row keeps the
+    fixed-interval UTC wording; a ``schedule@2`` row (every kind) reads ONLY the
+    gateway's served ``schedule_rule_text`` (the summary's, or the preview's) —
+    the Assistant never composes a calendar sentence (round 16, R16.1)."""
     t = trigger if isinstance(trigger, Mapping) else {}
     source, version = t.get("source_id"), t.get("source_version")
     if source == "schedule" and version == 1:
         return schedule_label(t.get("config") or {})
+    if is_schedule_v2(t):
+        cfg = t.get("config") or {}
+        # A schedule@2 Repeat row reads in the fixed-interval family, as a v1 row (the kit's rule);
+        # only calendar / once rows read the served rule.
+        return schedule_label(cfg) if cfg.get("kind") == "every" else served_rule_text(served)
     if source == "manual" and version == 1:
         return "manual runs only"
     if is_email_trigger(t):
@@ -15570,12 +15663,12 @@ def current_run(summary: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
 
 
 def next_run_text(summary: Mapping[str, Any], *, now: Optional[datetime] = None) -> str:
-    """ "next in 2 min" from the gateway's next fire time; "next —" when paused,
-    ended or not scheduled; "next: now" when due."""
+    """ "next in 2 min" from the gateway's served ``next_run_at``; "next —" when
+    paused, ended or not scheduled; "next: now" when due."""
     now = now or datetime.now(timezone.utc)
     if summary.get("status") != "active":
         return "next —"
-    when = _parse_ts(summary.get("next_fire_at"))  # the gateway's time only; no client arithmetic
+    when = _parse_ts(summary.get("next_run_at"))  # the gateway's time only; no client arithmetic
     if when is None:
         return "next —"
     delta = (when - now).total_seconds()
@@ -15714,15 +15807,113 @@ CONTROL_HINTS: Dict[str, str] = dict(AUTOMATION_CONTROLS["hints"])
 RUN_NOW_GLYPH: Dict[str, Any] = dict(AUTOMATION_CONTROLS["icons"]["run_now"])
 
 
+# ------------------------------------------------ schedule@2 (round 16, R16.1)
+#
+# The Qt mirror of the kit's calendar "When" (`panel_core.ts` SCHEDULE_TEXT,
+# `schedule_when.tsx`): the words are the vendored JSON's `schedule` block; the
+# gateway words every schedule@2 rule (`schedule_rule_text`, the preview's
+# `first_run_sentence`) and computes every next run (`next_run_at`,
+# `next_run_local`). Nothing here does clock or zone arithmetic.
+
+SCHEDULE_TEXT: Dict[str, Any] = dict(AUTOMATION_CONTROLS["schedule"])
+SCHEDULE_VERSION = 2
+CALENDAR_DAYS: Tuple[str, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+CALENDAR_KINDS: Tuple[str, ...] = ("daily", "weekly", "monthly")
+_WALL_TIME_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+_WALL_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T([01][0-9]|2[0-3]):[0-5][0-9]$")
+_SERVED_LOCAL_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})")
+
+
+def is_schedule_v2(trigger: Any) -> bool:
+    """A ``schedule@2`` trigger (any kind): the gateway words it."""
+    return isinstance(trigger, Mapping) and trigger.get("source_id") == "schedule" and trigger.get("source_version") == SCHEDULE_VERSION
+
+
+def is_served_preview_kind(kind: str) -> bool:
+    """Kinds whose line under "When" is the gateway's ``first_run_sentence`` (they depend on the time zone)."""
+    return kind == "once" or kind in CALENDAR_KINDS
+
+
+def served_rule_text(served: Optional[Mapping[str, Any]]) -> str:
+    """The served ``schedule_rule_text`` verbatim. A missing value is a broken
+    gateway seam: it reads as the literal "schedule@2", never as a sentence
+    the Assistant made up."""
+    text = served.get("schedule_rule_text") if isinstance(served, Mapping) else None
+    return text if isinstance(text, str) and text else "schedule@2"
+
+
+def format_served_local(next_run_local: Any, time_zone: Any) -> str:
+    """The served ``next_run_local`` ("2026-10-09T08:00:00+02:00", already in the
+    automation's zone) as "2026-10-09 08:00 Europe/Paris": the date and the
+    wall time are CUT from the gateway's string — no clock or zone arithmetic."""
+    if not isinstance(next_run_local, str) or not next_run_local:
+        return ""
+    m = _SERVED_LOCAL_RE.match(next_run_local)
+    if not m:
+        return next_run_local
+    zone = f" {time_zone}" if isinstance(time_zone, str) and time_zone else ""
+    return f"{m.group(1)} {m.group(2)}{zone}"
+
+
+def time_zone_line(time_zone: str, whose: str = "account") -> str:
+    """ "in Europe/Paris (your account's time zone)" / "… (this automation's time zone)"."""
+    key = "time_zone_line" if whose == "account" else "time_zone_line_automation"
+    return str(SCHEDULE_TEXT[key]).replace("{time_zone}", str(time_zone))
+
+
+def time_zone_default_label(gateway_default: str) -> str:
+    """ "Gateway default (Europe/Paris)" — the first item of the time-zone picker (= null)."""
+    return str(SCHEDULE_TEXT["time_zone_default"]).replace("{time_zone}", str(gateway_default))
+
+
+def calendar_config(when: "ScheduleWhen") -> Tuple[Dict[str, Any], List[str]]:
+    """The calendar rule of a daily / weekly / monthly choice (Monday-first days,
+    no repeats), or the reasons it is incomplete. No ``time_zone``."""
+    errors: List[str] = []
+    at = str(when.at or "").strip()
+    if not _WALL_TIME_RE.match(at):
+        errors.append(SCHEDULE_TEXT["error_at"])
+    if when.kind == "weekly":
+        days = [d for d in CALENDAR_DAYS if d in tuple(when.days or ())]
+        if not days:
+            errors.append(SCHEDULE_TEXT["error_days"])
+        return ({}, errors) if errors else ({"kind": "weekly", "days": days, "at": at}, [])
+    if when.kind == "monthly":
+        day = when.day
+        ok = day == "last" or (isinstance(day, int) and not isinstance(day, bool) and 1 <= day <= 31)
+        if not ok:
+            errors.append(SCHEDULE_TEXT["error_day"])
+        return ({}, errors) if errors else ({"kind": "monthly", "day": day, "at": at}, [])
+    if when.kind != "daily":
+        raise ValueError(f"calendar_config reads daily / weekly / monthly only, not {when.kind!r}")
+    return ({}, errors) if errors else ({"kind": "daily", "at": at}, [])
+
+
+def calendar_when_from(config: Any) -> Optional["ScheduleWhen"]:
+    """The calendar rule of a stored ``schedule@2`` config as a ``ScheduleWhen`` (None when it is not one)."""
+    c = config if isinstance(config, Mapping) else {}
+    kind, at = c.get("kind"), str(c.get("at") or "")
+    if kind == "daily":
+        return ScheduleWhen("daily", at=at)
+    if kind == "weekly":
+        days = c.get("days") if isinstance(c.get("days"), list) else []
+        return ScheduleWhen("weekly", at=at, days=tuple(d for d in CALENDAR_DAYS if d in days))
+    if kind == "monthly":
+        day = c.get("day")
+        return ScheduleWhen("monthly", at=at, day="last" if day == "last" else day)
+    return None
+
+
 def control_hint(control: str, summary: Optional[Mapping[str, Any]] = None) -> str:
     """A control's tooltip, as the kit's ``controlHint``: the canonical hint,
     plus, for Run now, the next scheduled time when the gateway reports one
     and the Growing line when the automation replays its history."""
     lines = [CONTROL_HINTS[control]]
     if control == "run_now" and summary:
-        nxt = summary.get("next_fire_at")
+        nxt = summary.get("next_run_local")
         if nxt:
-            lines.append(AUTOMATION_CONTROLS["run_now_next_run_line"].replace("{time}", format_utc(nxt)))
+            served = format_served_local(nxt, summary.get("time_zone"))
+            lines.append(AUTOMATION_CONTROLS["run_now_next_run_line"].replace("{time}", served))
         if summary.get("context_mode") == "growing":
             lines.append(AUTOMATION_CONTROLS["run_now_growing_line"])
     return "\n".join(lines)
@@ -16182,12 +16373,17 @@ def is_regular_session_kind(kind: Any) -> bool:
 
 @dataclass(frozen=True)
 class ScheduleWhen:
-    """``kind="every"`` with ``amount``/``unit`` (m|h|d), or ``kind="once"`` with ``at``."""
+    """The "When" choice: ``kind="every"`` with ``amount``/``unit`` (m|h|d);
+    ``kind="once"`` with ``at`` = ``YYYY-MM-DD HH:MM`` (a wall time in the
+    account's zone); ``kind="daily"`` / ``"weekly"`` (``days``) / ``"monthly"``
+    (``day`` 1..31 or ``"last"``) with ``at`` = ``HH:MM``."""
 
     kind: str
     amount: int = 0
     unit: str = "h"
     at: str = ""
+    days: Tuple[str, ...] = ()
+    day: Any = 1
 
 
 SCHEDULE_PRESETS: Tuple[Tuple[str, ScheduleWhen], ...] = (
@@ -16219,16 +16415,28 @@ TOOL_APPROVAL_ASK_HINT = "Each tool call waits for your approval in the automati
 def schedule_config(
     when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None, until: str = ""
 ) -> Tuple[Dict[str, Any], List[str]]:
-    """``schedule@1`` config + the reasons it is invalid."""
+    """The ``schedule@2`` config of a "When" choice + the reasons it is invalid
+    (the kit's ``scheduleConfigFrom``, "R16.1 API — FINAL"): Repeat →
+    ``{kind:"every", every, start_at?, count?, until?}`` (a fixed UTC interval);
+    Once → ``{kind:"once", at:"YYYY-MM-DDTHH:MM"}`` (a wall time the gateway
+    reads in the account's zone); Daily / Weekly / Monthly → the calendar rule
+    with the optional ``count`` / ``until``. No ``time_zone``: the gateway fills
+    the owner's."""
     errors: List[str] = []
     config: Dict[str, Any] = {}
     if when.kind == "once":
-        at = utc_from_input(when.at)
-        if not at:
-            errors.append("Pick the date and time (UTC) to run once.")
-        else:
-            config["start_at"] = at
-        return config, errors
+        m = _LOCAL_INPUT_RE.match(str(when.at or "").strip())
+        at = f"{m.group(1)}T{m.group(2)}" if m else ""
+        if not at or not _WALL_DATETIME_RE.match(at):
+            return {}, [SCHEDULE_TEXT["error_once"]]
+        return {"kind": "once", "at": at}, errors
+    if when.kind in CALENDAR_KINDS:
+        config, errors = calendar_config(when)
+        if errors:
+            return {}, errors
+        _limits(config, errors, count=count, until=until)
+        return (config, []) if not errors else ({}, errors)
+    config["kind"] = "every"
     if when.unit not in {"m", "h", "d"} or not isinstance(when.amount, int) or when.amount < 1:
         errors.append("The interval must be a whole number of minutes, hours or days (at least 1).")
     else:
@@ -16251,6 +16459,31 @@ def schedule_config(
         else:
             config["until"] = u
     return config, errors
+
+
+def _limits(config: Dict[str, Any], errors: List[str], *, count: Optional[int], until: str) -> None:
+    """``count`` / ``until`` of a calendar rule (the Repeat wording and checks)."""
+    if count is not None:
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            errors.append("Stop after this many runs must be a whole number of at least 1.")
+        else:
+            config["count"] = count
+    if until:
+        u = utc_from_input(until)
+        if not u:
+            errors.append("Stop at must be a date and time (UTC).")
+        else:
+            config["until"] = u
+
+
+def schedule_trigger(
+    when: ScheduleWhen, *, start_at: str = "", count: Optional[int] = None, until: str = ""
+) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """The ``schedule@2`` trigger of a "When" choice, or the reasons it is incomplete."""
+    config, errors = schedule_config(when, start_at=start_at, count=count, until=until)
+    if errors:
+        return None, errors
+    return {"source_id": "schedule", "source_version": SCHEDULE_VERSION, "config": config}, []
 
 
 def default_title(prompt: str) -> str:
@@ -16359,7 +16592,7 @@ def build_create_request(
         "trigger": (
             {"source_id": EMAIL_TRIGGER_SOURCE_ID, "source_version": EMAIL_TRIGGER_SOURCE_VERSION, "config": config}
             if is_email
-            else {"source_id": "schedule", "source_version": 1, "config": config}
+            else {"source_id": "schedule", "source_version": SCHEDULE_VERSION, "config": config}
         ),
         "context": _automation_context(context, growing_max_tokens if context == "growing" else DEFAULT_GROWING_MAX_TOKENS),
         "policy": policy,
@@ -16398,6 +16631,7 @@ def revise_changes(
     definition: Optional[Mapping[str, Any]] = None,
     notify_email: Optional[bool] = None,
     email_recipients: Optional[Tuple[str, str]] = None,
+    calendar: Optional[ScheduleWhen] = None,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """Only the fields that changed (``None`` when nothing did), or errors.
     A new interval keeps the rest of the trigger config (the server mints a
@@ -16432,6 +16666,16 @@ def revise_changes(
                 "source_version": trigger.get("source_version"),
                 "config": new_config,
             }
+    if calendar is not None and is_schedule_v2(trigger):
+        before_rule = calendar_when_from(config)
+        if before_rule is not None and calendar != before_rule:
+            rule, rule_errors = calendar_config(calendar)
+            errors.extend(rule_errors)
+            if not rule_errors:
+                # The automation keeps its own time zone and its limits (count / until) from
+                # the binding; the form edits only the rule (as the kit; start_at not carried).
+                rule.update({k: config[k] for k in ("time_zone", "count", "until") if k in config})
+                changes["trigger"] = {"source_id": trigger.get("source_id"), "source_version": trigger.get("source_version"), "config": rule}
     before_limit = summary.get("growing_max_tokens", DEFAULT_GROWING_MAX_TOKENS)
     if definition is not None:
         before_limit = (definition.get("context") or {}).get("growing", {}).get("max_tokens", before_limit)

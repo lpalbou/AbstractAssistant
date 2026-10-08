@@ -113,6 +113,15 @@ if your account has none yet (a choice already made elsewhere wins), then remove
 `preferences.json`. A gateway older than 0.13.1 has no account preferences: the choice stays in
 `preferences.json` and a change says "Saved on this device — applies from the next turn."
 
+**Time zone** (gateways with account time zones): where your Daily, Weekly, Monthly and one-time
+automations run. A searchable list of the time zones the gateway offers (type to filter); the
+first row, **Gateway default (Europe/Paris)**, follows the gateway's own zone. The label and the
+line under it are the gateway's. A choice applies at once ("Saved.", or "Not saved." and the
+gateway's sentence) and belongs to your account (`PUT /api/gateway/accounts/me/preferences`
+`{"time_zone": "<zone>" | null}`), shared with the console's Accounts → Preferences and AbstractCode.
+New automations take this zone; an existing automation keeps the zone it was created with. The row
+is absent on a gateway that does not offer it.
+
 ## Voice
 
 | Control | Meaning | Stored |

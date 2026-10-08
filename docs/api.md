@@ -233,8 +233,15 @@ the stream. Whether the gateway offers live replies is read from
     `POST /api/gateway/automations` (create, with a `request_id`; the automation window sends
     `title`, `target` (`{"flow_id": "@default", "interface": "abstractassistant.agent.v1"}` for
     Gateway default, else `bundle_ref` + `flow_id`) with the task as `input_data.prompt`, a
-    `schedule@1` (optional `count` and `until`) or `email.received@1` trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
+    `schedule@2` trigger (`{"kind": "every", "every"}` with optional `start_at`; `{"kind": "once", "at": "YYYY-MM-DDTHH:MM"}`;
+    `{"kind": "daily"|"weekly"|"monthly", "at": "HH:MM", "days"?, "day"?}`; optional `count` and `until`; no `time_zone`,
+    which the gateway fills from your account) or an `email.received@1` trigger, `context.mode`, `policy.tool_approval` = `auto` | `ask`, and, when chosen,
     `notify: {"channels": ["console", "email"]}` and `policy.email_allowed_recipients`)
+  - `POST /api/gateway/automations/schedule-preview` (`{trigger}`; nothing stored): the window's line
+    for Daily, Weekly, Monthly and Once (`first_run_sentence`) and the time zone (`time_zone`). The list
+    and the automation view show each summary's served `schedule_rule_text`, `next_run_at` and
+    `next_run_local` (cut to `YYYY-MM-DD HH:MM <time_zone>`); a `schedule@1` row and a `schedule@2`
+    Repeat row keep the fixed-interval words ("every 8 hours (UTC)")
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
     changed fields among `title`, `trigger`, `context`, `notify` and
     `policy.email_allowed_recipients`, with `expected_revision` and `command_id`; the Assistant

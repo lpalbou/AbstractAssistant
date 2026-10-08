@@ -38,7 +38,9 @@ archived** in the tab's header, and **+ New automation** creates one (below). Ea
 - the title, and on the right when it last ran (`40 min ago`, `1 h 06 min ago`) — with
   "✋ waiting for you" when a run waits for your answer, or a red "failed" when the last run failed;
 - the last result, on one line;
-- the schedule (`every 5 min`), the next run (`next in 2 min`, `next —` when paused), the number of
+- the schedule (`every 5 min` for a repeating interval; a daily, weekly, monthly or one-time
+  schedule shows the gateway's own words, e.g. `Every day at 08:00 (Europe/Paris)`), the next run
+  (`next in 2 min`, `next —` when paused), the number of
   runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
   folder and it is on this Mac), and at the far right the card's one control, the **Active**
   switch: on (accent track, check mark, bold label) while the automation runs on its schedule,
@@ -90,12 +92,23 @@ The window carries the same content as the AbstractCode and AbstractObserver sch
   workflow (**Gateway default** for **+ New automation**). Then the **Task** (prefilled with the
   conversation’s last question) and an optional **Title** that defaults to the task's first line
   (at most 120 characters). Both choices belong to the automation.
-- **When (UTC)**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days;
-  **every N…** minutes, hours or days; **once at…** a date and time; or **When an email arrives**
-  (see [Email automations](#email-automations)). For an interval, an optional first-run time
-  (`YYYY-MM-DD HH:MM`, UTC); empty means the first run is due now. A repeating schedule can also
-  **Stop after this many runs** and **Stop at** a date and time (UTC); both are optional. Intervals
-  are fixed durations in UTC: "every 24 hours", never "daily at 08:00 local time".
+- **When**: **Repeat** · **Daily** · **Weekly** · **Monthly** · **Once at…** · **When an email
+  arrives** (the same words as the AbstractCode and AbstractObserver dialog).
+  - **Repeat**: every 5 minutes, 30 minutes, hour, 8 hours (preselected), 24 hours or 7 days, or
+    **every N…** minutes, hours or days. A Repeat interval is a fixed duration in UTC ("every 24
+    hours"), with an optional first-run time (`YYYY-MM-DD HH:MM`, UTC; empty means now).
+  - **Daily** at a time of day; **Weekly** on the days you pick (one chip per day, Monday first;
+    a picked day shows a check mark) at a time of day; **Monthly** on day 1 to 31, or **last**, at
+    a time of day. A day the month does not have (31 in April) runs on that month's last day.
+  - **Once at…** a date and time (`YYYY-MM-DD HH:MM`).
+  - Daily, Weekly, Monthly and Once run at that wall-clock time in your account's time zone, also
+    when daylight saving time changes. A line shows the zone, "in Europe/Paris (your account's
+    time zone)" (its tooltip explains the rule), with **Change in preferences**, which opens
+    Settings → Workflow, where the zone is set. The days, the day of the month and the time stay as
+    you set them when you switch between Daily, Weekly and Monthly.
+  - Repeat, Daily, Weekly and Monthly can **Stop after this many runs** and **Stop at** a date and
+    time (UTC); both are optional.
+  - **When an email arrives**: see [Email automations](#email-automations).
 - **Context**: **Independent** (the default: each run starts fresh) or **Growing** (each run sees
   the previous runs).
 - **Tools**: open the searchable grouped selector to enable or disable tools for this automation, or restore workflow defaults. Saving an empty selection disables all tools. Choose **Run without asking** (the default; the line under it reads "Tools run without asking (you approve them now by creating this automation).") or **Ask me before each tool call (the run waits for you)**. See
@@ -119,8 +132,12 @@ The window carries the same content as the AbstractCode and AbstractObserver sch
 
 Every section is visible: the window has no "Advanced" part.
 
-A line under the form previews the schedule ("Runs every 8 hours (UTC), first run now.") or says
-what is missing. **Create automation** is enabled once the form is complete and the gateway offers
+A line previews the schedule or says what is missing. For Repeat it reads "Runs every 8 hours
+(UTC), first run now."; for Daily, Weekly, Monthly and Once it is the gateway's own sentence
+("Runs every day at 08:00 (Europe/Paris), first run Fri 9 Oct 08:00."), asked from the gateway
+as you edit (`POST /api/gateway/automations/schedule-preview`, nothing is stored). The Assistant
+never words a calendar schedule or works out a next run itself: every automation shows the next
+run and the schedule the gateway reports. **Create automation** is enabled once the form is complete and the gateway offers
 the `schedule` trigger; it creates the automation and opens it in the palette (or, from
 **+ New automation**, selects it in the Automations tab). If the gateway could not be reached,
 pressing **Create automation** again sends the same request, which the gateway recognises, so the
@@ -208,7 +225,7 @@ stay counted until you answer them.
 | **Active** (a switch, first in the bar) | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; a run in progress finishes. Switching it back on restarts the schedule at its next time after now (it does not fire at once; times missed while paused are skipped). Unavailable, with the reason, once the automation is archived, ended or legacy, or when the gateway does not permit the change. |
 | **Run now** (the play-in-a-circle icon, as in the web clients) | One run immediately, instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. It does not count toward a run limit. It also works while paused, and the automation stays paused. In a Growing automation, later runs see it in their history. Disabled while a run is in progress. |
 | **Stop current** | Stops the run in progress. |
-| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
+| **Edit** | Title, interval (`30m`, `8h`, `7d`; for an email trigger the check interval, at least `60s`) or, for a Daily, Weekly or Monthly schedule, its rule (the kind, the days, the day of the month and the time, with the gateway's line "in Europe/Paris (this automation's time zone)" and its preview sentence; the automation keeps its own zone and its run limits), context mode, workflow, tool selection, **Workspaces** (the same chooser as the schedule window, with the stored choice; each change checked by the gateway) and result-email recipients, inline. **Save** sends the changes as one revision; with **Use my default** the stored choice is removed. Applies from the next run; a new interval starts counting from the change, so no missed run fires. |
 | **Archive** | Asks for confirmation in the palette. Nothing runs any more; the history is kept. |
 
 Hovering a control shows what it does: the same text as the web clients (AbstractUIC's shared
@@ -313,12 +330,13 @@ automations, and no automation route is called before that.
 
 ## Limits
 
-- Schedules are fixed intervals in UTC, or one run at a given time. There is no calendar recurrence
-  (weekdays, local time zones).
+- A Repeat schedule is a fixed interval in UTC. Daily, Weekly, Monthly and Once run in the
+  automation's time zone, set from your account's when it is created; **Edit** does not change an
+  automation's zone.
 - The Assistant creates scheduled and incoming-email automations; **Run now** starts an additional occurrence.
 - A maximum number of runs and an end date are set when the automation is created; **Edit** does
   not change them.
-- **Edit** changes title, interval, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
+- **Edit** changes title, interval or calendar rule, context settings, workflow, available tools and result-email recipients. To change the task, revise it through the gateway API or create a new automation.
 
 Changing workflows preserves the task, portable agent settings, selected tools and result-email
 recipients. The new workflow supplies its input defaults. If additional required inputs are

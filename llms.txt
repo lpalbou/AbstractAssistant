@@ -15,9 +15,9 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptoms, causes and fixes
 
 ## Topic Deep Dives
-- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
+- [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow and the account Time zone, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
-- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first, stop after / stop at), tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+- [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
