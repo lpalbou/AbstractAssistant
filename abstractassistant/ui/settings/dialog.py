@@ -100,6 +100,9 @@ def build_settings_qss() -> str:
     QLabel#routeLabel {{ font-size: {METRICS.font_body}px; font-weight: 700; color: {THEME.text_strong}; }}
     QLabel#routeHelp {{ color: {THEME.text_muted}; font-size: {METRICS.font_caption}px; }}
     QListWidget#routeList {{ background: {alpha(THEME.text_strong, 0.025)}; }}
+    /* A state that must read loud (e.g. "This gateway did not serve a time zone …"):
+       the theme's error colour, light and dark, on the help line. */
+    QLabel#rowHelp[tone="error"] {{ color: {THEME.danger_text}; }}
     """
 
 

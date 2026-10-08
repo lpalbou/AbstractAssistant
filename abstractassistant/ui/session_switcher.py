@@ -335,8 +335,9 @@ def build_switcher_qss() -> str:
 SESSION_SWITCHER_QSS: str = build_switcher_qss()
 
 
-def _metric(icon: str, text: str, tooltip: str, tone: str = "") -> QWidget:
-    """One small icon+number chip on a row's metric line."""
+def _metric(icon: str, text: str, tooltip: str, tone: str = "", *, wrap: bool = False) -> QWidget:
+    """One small icon+number chip on a row's metric line. ``wrap`` = served text that
+    must be shown whole: the label wraps onto more lines instead of being cut."""
     host = QWidget()
     row = QHBoxLayout(host)
     row.setContentsMargins(0, 0, 0, 0)
@@ -346,12 +347,16 @@ def _metric(icon: str, text: str, tooltip: str, tone: str = "") -> QWidget:
         glyph = QLabel()
         glyph.setObjectName("rowMetricIcon")
         glyph.setPixmap(symbol_icon(icon, color=color, size=11).pixmap(11, 11))
-        row.addWidget(glyph, 0, Qt.AlignVCenter)
+        row.addWidget(glyph, 0, Qt.AlignTop if wrap else Qt.AlignVCenter)
     label = QLabel(text)
     label.setObjectName("rowMetric")
     if tone:
         label.setProperty("tone", tone)
-    row.addWidget(label, 0, Qt.AlignVCenter)
+    if wrap:
+        label.setWordWrap(True)
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        host.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+    row.addWidget(label, 1 if wrap else 0, Qt.AlignTop if wrap else Qt.AlignVCenter)
     host.setToolTip(tooltip)
     return host
 
@@ -774,17 +779,24 @@ class AutomationTabRow(RowCard):
         self.result_label.setToolTip(self._result_text_full)
         column.addWidget(self.result_label)
 
-        # -- line 3: metric chips … the Active switch ---------------------------
+        # -- line 3: the schedule, the gateway's served rule, WHOLE (it wraps) ---
+        # -- line 4: next run · runs · folder … the Active switch ---------------
         self.metrics_host = QWidget(self)
-        metrics = QHBoxLayout(self.metrics_host)
-        metrics.setContentsMargins(0, 1, 0, 0)
+        stack = QVBoxLayout(self.metrics_host)
+        stack.setContentsMargins(0, 1, 0, 0)
+        stack.setSpacing(2)
+        metrics = QHBoxLayout()
+        metrics.setContentsMargins(0, 0, 0, 0)
         metrics.setSpacing(10)
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), dict) else {}
         # schedule@2 (round 16): the gateway's served rule; schedule@1 keeps its UTC wording.
         self._schedule = trigger_summary(trigger, summary)
         # Every schedule row: the gateway's served rule, verbatim (the kit's compactCadence).
         short = self._schedule
-        metrics.addWidget(_metric("clock", short, f"Schedule: {self._schedule}"), 0, Qt.AlignVCenter)
+        # The served rule is shown whole: its own line, full card width, wrapping.
+        self.schedule_chip = _metric("clock", short, f"Schedule: {self._schedule}", wrap=True)
+        stack.addWidget(self.schedule_chip)
+        stack.addLayout(metrics)
         self._next_chip = _metric("chevron-right", "", "Next run")
         metrics.addWidget(self._next_chip, 0, Qt.AlignVCenter)
         count = int(summary.get("occurrence_count") or 0)

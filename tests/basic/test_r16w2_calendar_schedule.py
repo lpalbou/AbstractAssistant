@@ -402,3 +402,49 @@ def test_settings_says_loudly_when_the_gateway_serves_no_time_zone() -> None:
     assert page.time_zone_help.text() == TIME_ZONE_NOT_SERVED
     assert not page.time_zone_combo.isEnabled() and page.time_zone_combo.count() == 0
     dlg.close()
+
+
+@pytest.mark.basic
+def test_the_absence_sentence_reads_loud_in_the_error_colour() -> None:
+    """The Time zone card's absence sentence carries the error tone, and Settings'
+    stylesheet colours that tone with the theme's error colour (light and dark)."""
+    from test_settings_pages import _dialog
+    from abstractassistant import theme as theme_mod
+    from abstractassistant.ui.settings.dialog import build_settings_qss
+    from abstractassistant.ui_themes import build_theme
+
+    dlg, ctl = _dialog()
+    ctl.account_time_zone = lambda: None
+    page = dlg.page_workflow
+    page._refresh_time_zone()
+    assert page.time_zone_help.property("tone") == "error"
+    import copy
+
+    saved = copy.deepcopy(theme_mod.THEME)
+    for mode in ("light", "dark"):
+        theme_mod.activate(build_theme(mode))
+        qss = build_settings_qss()
+        rule = re.search(r'QLabel#rowHelp\[tone="error"\]\s*\{([^}]*)\}', qss)
+        assert rule and f"color: {theme_mod.THEME.danger_text}" in rule.group(1), mode
+    theme_mod.activate(saved)
+    dlg.close()
+
+
+@pytest.mark.basic
+def test_the_card_schedule_chip_shows_the_served_rule_whole() -> None:
+    """No truncation of served text: the schedule chip's label wraps (never elided)."""
+    _qt()
+    from PyQt5.QtWidgets import QLabel
+    from abstractassistant.ui import session_switcher as switcher_module
+
+    long_rule = "Every Mon, Tue, Wed, Thu and Fri at 07:30 (America/Los_Angeles) · 12 runs max · until 2027-01-01"
+    summary = dict(next(s for s in _fixture("list.json")["items"] if s["automation_id"] == MORNING), schedule_rule_text=long_rule)
+    row = switcher_module.AutomationTabRow(summary)
+    row.resize(380, 200)
+    row.show()
+    _qt().processEvents()
+    label = next(w for w in row.schedule_chip.findChildren(QLabel) if w.objectName() == "rowMetric")
+    assert label.text() == long_rule, "verbatim, never cut"
+    assert label.wordWrap(), "wraps onto a second line instead of eliding"
+    assert label.height() > label.fontMetrics().height() * 1.5, "it actually took a second line at a narrow width"
+    row.close()
