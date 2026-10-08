@@ -1459,6 +1459,9 @@ class CalendarRuleEditor(QWidget):
         if kind not in CALENDAR_KINDS:
             raise ValueError(f"CalendarRuleEditor shows daily / weekly / monthly, not {kind!r}")
         self.kind = kind
+        if kind == "weekly" and not any(c.isChecked() for c in self.day_chips.values()):
+            # As the kit's calendarWhenOf: a weekly rule starts on Monday until the person picks.
+            self.day_chips["mon"].setChecked(True)
         self.days_host.setVisible(kind == "weekly")
         self.day_label.setVisible(kind == "monthly")
         self.month_day.setVisible(kind == "monthly")
