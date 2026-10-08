@@ -119,8 +119,9 @@ first row, **Gateway default (Europe/Paris)**, follows the gateway's own zone. T
 line under it are the gateway's. A choice applies at once ("Saved.", or "Not saved." and the
 gateway's sentence) and belongs to your account (`PUT /api/gateway/accounts/me/preferences`
 `{"time_zone": "<zone>" | null}`), shared with the console's Accounts → Preferences and AbstractCode.
-New automations take this zone; an existing automation keeps the zone it was created with. The row
-is absent on a gateway that does not offer it.
+New automations take this zone; an existing automation keeps the zone it was created with. On a
+gateway that does not serve the time zone, the row stays with its list disabled and says "This
+gateway did not serve a time zone (needs gateway ≥ the round-16 build)."
 
 ## Voice
 

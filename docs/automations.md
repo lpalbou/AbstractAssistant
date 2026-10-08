@@ -38,8 +38,8 @@ archived** in the tab's header, and **+ New automation** creates one (below). Ea
 - the title, and on the right when it last ran (`40 min ago`, `1 h 06 min ago`) — with
   "✋ waiting for you" when a run waits for your answer, or a red "failed" when the last run failed;
 - the last result, on one line;
-- the schedule (`every 5 min` for a repeating interval; a daily, weekly, monthly or one-time
-  schedule shows the gateway's own words, e.g. `Every day at 08:00 (Europe/Paris)`), the next run
+- the schedule in the gateway's own words, for every kind (`Every 30 minutes (UTC)`,
+  `Every day at 08:00 (Europe/Paris)`), the next run
   (`next in 2 min`, `next —` when paused), the number of
   runs (`#32`), the workspace folder icon (it opens in the file manager when the gateway reports the
   folder and it is on this Mac), and at the far right the card's one control, the **Active**
@@ -132,12 +132,13 @@ The window carries the same content as the AbstractCode and AbstractObserver sch
 
 Every section is visible: the window has no "Advanced" part.
 
-A line previews the schedule or says what is missing. For Repeat it reads "Runs every 8 hours
-(UTC), first run now."; for Daily, Weekly, Monthly and Once it is the gateway's own sentence
-("Runs every day at 08:00 (Europe/Paris), first run Fri 9 Oct 08:00."), asked from the gateway
-as you edit (`POST /api/gateway/automations/schedule-preview`, nothing is stored). The Assistant
-never words a calendar schedule or works out a next run itself: every automation shows the next
-run and the schedule the gateway reports. **Create automation** is enabled once the form is complete and the gateway offers
+A line previews the schedule or says what is missing. For every schedule kind, Repeat included,
+it is the gateway's own sentence ("Runs every day at 08:00 (Europe/Paris), first run Fri 9 Oct
+08:00."), asked from the gateway as you edit (`POST /api/gateway/automations/schedule-preview`,
+nothing is stored); only **When an email arrives** has a line of the app's own. The time-zone
+line appears for Daily, Weekly, Monthly and Once, not for Repeat (a UTC interval). The Assistant
+never words a schedule or works out a next run itself: every automation shows the schedule and
+the next run the gateway reports. **Create automation** is enabled once the form is complete and the gateway offers
 the `schedule` trigger; it creates the automation and opens it in the palette (or, from
 **+ New automation**, selects it in the Automations tab). If the gateway could not be reached,
 pressing **Create automation** again sends the same request, which the gateway recognises, so the
