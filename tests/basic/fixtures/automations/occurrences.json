@@ -8,7 +8,7 @@
       "status": "waiting",
       "trigger": {
         "source_id": "schedule",
-        "summary": "schedule: every 30 minutes (UTC), tick 5"
+        "summary": "schedule: Every 30 minutes (UTC), tick 5"
       },
       "user_turn": "[Trigger schedule@1 · occurrence 7 · fired 2026-09-27T06:30:00.412307+00:00]\n## Inbox triage\nList the new emails that need a reply today, one line each. Set `notify` when something is urgent.",
       "answer": "",
@@ -55,7 +55,7 @@
       "status": "completed",
       "trigger": {
         "source_id": "schedule",
-        "summary": "schedule: every 30 minutes (UTC), tick 4"
+        "summary": "schedule: Every 30 minutes (UTC), tick 4"
       },
       "user_turn": "[Trigger schedule@1 · occurrence 6 · fired 2026-09-27T06:00:00.412307+00:00]\n## Inbox triage\nList the new emails that need a reply today, one line each. Set `notify` when something is urgent.",
       "answer": "1 new newsletter; nothing needs a reply.",
@@ -74,7 +74,7 @@
       "status": "failed",
       "trigger": {
         "source_id": "schedule",
-        "summary": "schedule: every 30 minutes (UTC), tick 3"
+        "summary": "schedule: Every 30 minutes (UTC), tick 3"
       },
       "user_turn": "[Trigger schedule@1 · occurrence 5 · fired 2026-09-27T05:30:00.412307+00:00]\n## Inbox triage\nList the new emails that need a reply today, one line each. Set `notify` when something is urgent.",
       "answer": "",
@@ -117,7 +117,7 @@
       "status": "completed",
       "trigger": {
         "source_id": "schedule",
-        "summary": "schedule: every 30 minutes (UTC), tick 2"
+        "summary": "schedule: Every 30 minutes (UTC), tick 2"
       },
       "user_turn": "[Trigger schedule@1 · occurrence 3 · fired 2026-09-27T05:00:00.412307+00:00]\n## Inbox triage\nList the new emails that need a reply today, one line each. Set `notify` when something is urgent.",
       "answer": "Nothing new since the last triage.",
@@ -136,7 +136,7 @@
       "status": "completed",
       "trigger": {
         "source_id": "schedule",
-        "summary": "schedule: every 30 minutes (UTC), tick 1"
+        "summary": "schedule: Every 30 minutes (UTC), tick 1"
       },
       "user_turn": "[Trigger schedule@1 · occurrence 2 · fired 2026-09-27T04:30:00.412307+00:00]\n## Inbox triage\nList the new emails that need a reply today, one line each. Set `notify` when something is urgent.",
       "answer": "## 2 emails need a reply today\n\n| From | Subject | Due |\n|---|---|---|\n| Clara (accountant) | Signed tax form | today 12:00 |\n| Building manager | Water shut-off: confirm access | tomorrow 09:00 |\n\n```json\n{\"urgent\": 2, \"newsletters\": 1}\n```",
@@ -165,7 +165,7 @@
       "status": "completed",
       "trigger": {
         "source_id": "schedule",
-        "summary": "schedule: every 30 minutes (UTC), tick 0"
+        "summary": "schedule: Every 30 minutes (UTC), tick 0"
       },
       "user_turn": "[Trigger schedule@1 · occurrence 1 · fired 2026-09-27T04:00:00.412307+00:00]\n## Inbox triage\nList the new emails that need a reply today, one line each. Set `notify` when something is urgent.",
       "answer": "No new email needs a reply today.",

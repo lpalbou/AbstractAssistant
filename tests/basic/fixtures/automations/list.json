@@ -99,7 +99,7 @@
       "session_kind": "automation",
       "time_zone": "Europe/Paris",
       "schedule_rule_text": "Every 30 minutes (UTC)",
-      "schedule_text": "Every 30 minutes (UTC) · next Sun 27 Sep 09:00",
+      "schedule_text": "Every 30 minutes (UTC) · next Sun 27 Sep 09:00 (Europe/Paris)",
       "next_run_at": "2026-09-27T07:00:00.412307+00:00",
       "next_run_local": "2026-09-27T09:00:00.412307+02:00",
       "last_occurrence": {
@@ -154,7 +154,7 @@
       "session_kind": "automation",
       "time_zone": "Europe/Paris",
       "schedule_rule_text": "Every 8 hours (UTC)",
-      "schedule_text": "Every 8 hours (UTC) · next Sun 27 Sep 10:00",
+      "schedule_text": "Every 8 hours (UTC) · next Sun 27 Sep 10:00 (Europe/Paris)",
       "next_run_at": "2026-09-27T08:00:00.108652+00:00",
       "next_run_local": "2026-09-27T10:00:00.108652+02:00",
       "last_occurrence": {
@@ -316,7 +316,7 @@
       "next_fire_at": "2026-09-27T11:15:12.340488+00:00",
       "time_zone": "Europe/Paris",
       "schedule_rule_text": "Every hour (UTC)",
-      "schedule_text": "Every hour (UTC) · next Sun 27 Sep 13:15",
+      "schedule_text": "Every hour (UTC) · next Sun 27 Sep 13:15 (Europe/Paris)",
       "next_run_at": "2026-09-27T11:15:12.340488+00:00",
       "next_run_local": "2026-09-27T13:15:12.340488+02:00",
       "last_occurrence": {

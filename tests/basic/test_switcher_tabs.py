@@ -397,7 +397,7 @@ def test_the_card_lines_last_time_result_and_metrics() -> None:
     assert row.time_label.text() == "40 min ago"
     assert row.result_label.toolTip() == "No major announcements since the last check."
     chips = [w.text() for w in row.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"]
-    assert chips == ["every 8 h", "next in 7 h 17 min", "#6"]
+    assert chips == [news["schedule_rule_text"], "next in 7 h 17 min", "#6"], "the served rule, verbatim"
     paused = switcher_module.AutomationTabRow(_by_id(JOURNAL))
     assert [w.text() for w in paused.metrics_host.findChildren(QLabel) if w.objectName() == "rowMetric"][1] == "next —"
     row.deleteLater()

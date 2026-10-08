@@ -72,14 +72,22 @@ def test_the_when_wording_is_the_vendored_kit_schedule_block(palette, stub) -> N
 
 
 @pytest.mark.basic
-def test_repeat_keeps_the_utc_sentence_and_never_asks_the_gateway(palette, stub) -> None:  # noqa: F811
+def test_repeat_reads_the_gateways_sentence_without_a_zone_line(palette, stub) -> None:  # noqa: F811
+    """Gate finding 2: the Repeat line is the gateway's first_run_sentence too (no
+    local sentence); a UTC interval shows no account time-zone line."""
     window, _ = palette
     sheet = _sheet(window)
     assert sheet.kind() == "every"
-    assert sheet.preview_label.text() == "Runs every 8 hours (UTC), first run now."
-    assert not sheet.served_line.isVisibleTo(sheet) and not sheet.calendar.isVisibleTo(sheet)
+    assert sheet.served_line.isVisibleTo(sheet) and not sheet.calendar.isVisibleTo(sheet)
+    sheet.at_edit.setText("2030-01-01 06:00")
     sheet.served_line.flush()
-    assert stub.calls("POST", PREVIEW_PATH) == []
+    sent = stub.calls("POST", PREVIEW_PATH)[-1]["body"]["trigger"]
+    assert sent == {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "8h", "start_at": "2030-01-01T06:00:00Z"}}
+    assert sheet.served_line.sentence.text() == sheet.served_line.answer["first_run_sentence"]
+    assert not sheet.served_line.tz_host.isVisibleTo(sheet), "a UTC interval: no account time-zone line"
+    assert sheet.preview_label.text() == ""
+    # Only the email trigger keeps a local line.
+    assert not rules.is_served_preview_kind("email") and not rules.shows_account_zone("every")
 
 
 @pytest.mark.basic
@@ -254,9 +262,14 @@ def test_a_revised_rule_keeps_the_bindings_zone_and_limits_not_start_at() -> Non
 
 
 @pytest.mark.basic
-def test_a_schedule_v2_repeat_row_reads_in_the_fixed_interval_family() -> None:
-    row = {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "8h", "time_zone": "Europe/Paris"}}
-    assert rules.trigger_summary(row, {"schedule_rule_text": "Every 8 hours (UTC)"}) == "every 8 hours (UTC)"
+def test_every_schedule_row_reads_the_served_rule_verbatim() -> None:
+    """Gate finding 2: schedule@1 and @2, Repeat with bounds included — the gateway's words only."""
+    row = {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "8h", "count": 3, "time_zone": "Europe/Paris"}}
+    assert rules.trigger_summary(row, {"schedule_rule_text": "Every 8 hours (UTC) · 3 runs max"}) == "Every 8 hours (UTC) · 3 runs max"
+    v1 = {"source_id": "schedule", "source_version": 1, "config": {"every": "24h"}}
+    assert rules.trigger_summary(v1, {"schedule_rule_text": "Every 24 hours (UTC)"}) == "Every 24 hours (UTC)"
+    assert rules.trigger_summary(v1, {}) == "schedule@1"
+    assert not hasattr(rules, "schedule_label"), "no local schedule sentence remains"
     daily = {"source_id": "schedule", "source_version": 2, "config": {"kind": "daily", "at": "08:00"}}
     assert rules.trigger_summary(daily, {"schedule_rule_text": "Every day at 08:00 (Europe/Paris)"}) == "Every day at 08:00 (Europe/Paris)"
     assert rules.trigger_summary(daily, {}) == "schedule@2", "a missing served text never becomes a made-up sentence"
@@ -373,12 +386,19 @@ def test_settings_workflow_page_sets_the_account_time_zone() -> None:
 
 
 @pytest.mark.basic
-def test_settings_hides_the_time_zone_row_on_a_gateway_without_it() -> None:
+def test_settings_says_loudly_when_the_gateway_serves_no_time_zone() -> None:
+    """Gate finding 1: the time_zone block is REQUIRED — never a hidden row; the
+    card stays with the state sentence and a disabled list."""
     from test_settings_pages import _dialog
+    from abstractassistant.ui.settings.pages import TIME_ZONE_NOT_SERVED
 
     dlg, ctl = _dialog()
     ctl.account_time_zone = lambda: None
     page = dlg.page_workflow
     page._refresh_time_zone()
-    assert page.time_zone_block is None and not page.time_zone_card.isVisibleTo(page)
+    assert TIME_ZONE_NOT_SERVED == "This gateway did not serve a time zone (needs gateway ≥ the round-16 build)."
+    assert page.time_zone_block is None
+    assert page.time_zone_card.isVisibleTo(page) and page.time_zone_help.isVisibleTo(page)
+    assert page.time_zone_help.text() == TIME_ZONE_NOT_SERVED
+    assert not page.time_zone_combo.isEnabled() and page.time_zone_combo.count() == 0
     dlg.close()

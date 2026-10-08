@@ -52,6 +52,7 @@ from PyQt5.QtWidgets import (
 
 from ...config import default_gateway_url
 from ...core.automations import SCHEDULE_TEXT, time_zone_default_label
+from ..styles import refresh_style
 from ...core.tool_risk import describe_tool_risk
 from ...icons import symbol_icon
 from ...preferences import (
@@ -430,6 +431,10 @@ class ModelsPage(SettingsPage):
 # R10.4 (R10-W3): its own page, right after Models. Other lanes: keep out of this class.
 
 
+#: The Time zone card's state when the preferences answer carries no ``time_zone`` block.
+TIME_ZONE_NOT_SERVED = "This gateway did not serve a time zone (needs gateway ≥ the round-16 build)."
+
+
 class WorkflowPage(SettingsPage):
     """WHICH WORKFLOW runs each turn (contract D). "Gateway default" is always
     the first row, selected until the user picks another, and saved as
@@ -498,7 +503,6 @@ class WorkflowPage(SettingsPage):
         self.time_zone_help.setWordWrap(True)
         self.time_zone_card.add_widget(self.time_zone_help)
         self.time_zone_block: Optional[Dict[str, Any]] = None
-        self.time_zone_card.setVisible(False)
         self.flow_state: Optional[Dict[str, Any]] = None
         self._flow_ready.connect(self._apply_flow_state)
         self._flow_opened.connect(self._apply_flow_opened)
@@ -514,9 +518,20 @@ class WorkflowPage(SettingsPage):
         if block is None:
             block = safe_call(self.controller, "account_time_zone", default=None)
         self.time_zone_block = dict(block) if isinstance(block, dict) else None
-        self.time_zone_card.setVisible(self.time_zone_block is not None)
         if self.time_zone_block is None:
+            # The time_zone block is REQUIRED (R16.1): its absence is a gateway seam, said
+            # loudly on the card — never a hidden row.
+            self.time_zone_combo.blockSignals(True)
+            self.time_zone_combo.clear()
+            self.time_zone_combo.blockSignals(False)
+            self.time_zone_combo.setEnabled(False)
+            self.time_zone_help.setProperty("tone", "error")
+            self.time_zone_help.setText(TIME_ZONE_NOT_SERVED)
+            refresh_style(self.time_zone_help)
             return
+        self.time_zone_combo.setEnabled(True)
+        self.time_zone_help.setProperty("tone", "")
+        refresh_style(self.time_zone_help)
         b = self.time_zone_block
         label = getattr(self.time_zone_row, "label_widget", None)
         if label is not None and b.get("label"):

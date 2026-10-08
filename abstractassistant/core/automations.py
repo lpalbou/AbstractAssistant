@@ -56,6 +56,7 @@ __all__ = [
     "format_served_local",
     "is_schedule_v2",
     "is_served_preview_kind",
+    "shows_account_zone",
     "schedule_trigger",
     "served_rule_text",
     "time_zone_line",
@@ -81,7 +82,6 @@ __all__ = [
     "parse_duration",
     "revise_changes",
     "schedule_config",
-    "schedule_label",
     "target_from_workflow",
     "trigger_summary",
 ]
@@ -134,37 +134,15 @@ def format_utc(ts: Any) -> str:
     return f"{base}{'' if parsed.second == 0 else parsed.strftime(':%S')} UTC"
 
 
-def schedule_label(config: Mapping[str, Any]) -> str:
-    """``schedule@1`` config → ``"every 8 hours (UTC)"`` / ``"once at … UTC"`` + bounds."""
-    cfg = config if isinstance(config, Mapping) else {}
-    every = cfg.get("every")
-    if not isinstance(every, str):
-        start = cfg.get("start_at")
-        return f"once at {format_utc(start)}" if start else "once, now"
-    parts = [f"{interval_label(every)} (UTC)"]
-    count = cfg.get("count")
-    if isinstance(count, int) and not isinstance(count, bool):
-        parts.append(f"{count} {'run' if count == 1 else 'runs'} max")
-    until = cfg.get("until")
-    if isinstance(until, str) and until:
-        parts.append(f"until {format_utc(until)}")
-    return " · ".join(parts)
-
-
 def trigger_summary(trigger: Mapping[str, Any], served: Optional[Mapping[str, Any]] = None) -> str:
-    """The cadence label of a ``TriggerBinding``. A ``schedule@1`` row keeps the
-    fixed-interval UTC wording; a ``schedule@2`` row (every kind) reads ONLY the
-    gateway's served ``schedule_rule_text`` (the summary's, or the preview's) —
-    the Assistant never composes a calendar sentence (round 16, R16.1)."""
+    """The cadence label of a ``TriggerBinding``. Every schedule row (``schedule@1`` or
+    ``@2``, every kind, its bounds included) reads ONLY the gateway's served
+    ``schedule_rule_text`` (the summary's, or the preview's) — the Assistant composes
+    no schedule sentence (round 16, R16.1; the kit's ``triggerSummary``)."""
     t = trigger if isinstance(trigger, Mapping) else {}
     source, version = t.get("source_id"), t.get("source_version")
-    if source == "schedule" and version == 1:
-        return schedule_label(t.get("config") or {})
-    if is_schedule_v2(t):
-        cfg = t.get("config") or {}
-        # A schedule@2 Repeat row reads in the fixed-interval family, as a v1 row (the kit's rule);
-        # only calendar / once rows read the served rule.
-        return schedule_label(cfg) if cfg.get("kind") == "every" else served_rule_text(served)
+    if source == "schedule":
+        return served_rule_text(served, version)
     if source == "manual" and version == 1:
         return "manual runs only"
     if is_email_trigger(t):
@@ -387,16 +365,22 @@ def is_schedule_v2(trigger: Any) -> bool:
 
 
 def is_served_preview_kind(kind: str) -> bool:
-    """Kinds whose line under "When" is the gateway's ``first_run_sentence`` (they depend on the time zone)."""
+    """Kinds whose line under "When" is the gateway's ``first_run_sentence``: every
+    schedule kind (Repeat included); only the email trigger keeps a local line."""
+    return kind in ("every", "once") or kind in CALENDAR_KINDS
+
+
+def shows_account_zone(kind: str) -> bool:
+    """Kinds that run in the account's time zone (the zone line is shown); Repeat is a UTC interval."""
     return kind == "once" or kind in CALENDAR_KINDS
 
 
-def served_rule_text(served: Optional[Mapping[str, Any]]) -> str:
+def served_rule_text(served: Optional[Mapping[str, Any]], version: Any = SCHEDULE_VERSION) -> str:
     """The served ``schedule_rule_text`` verbatim. A missing value is a broken
-    gateway seam: it reads as the literal "schedule@2", never as a sentence
-    the Assistant made up."""
+    gateway seam: it reads as the literal "schedule@<version>", never as a
+    sentence the Assistant made up."""
     text = served.get("schedule_rule_text") if isinstance(served, Mapping) else None
-    return text if isinstance(text, str) and text else "schedule@2"
+    return text if isinstance(text, str) and text else f"schedule@{version}"
 
 
 def format_served_local(next_run_local: Any, time_zone: Any) -> str:

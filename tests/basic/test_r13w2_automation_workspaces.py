@@ -44,7 +44,7 @@ def _dry(fake: FakeWorkspaceGateway):
 def _sheet(fake: FakeWorkspaceGateway):
     from abstractassistant.ui.automations import ScheduleSheet
 
-    sheet = ScheduleSheet(target=TARGET, target_label="Agent", prompt="Sort the photos")
+    sheet = ScheduleSheet(target=TARGET, target_label="Agent", prompt="Sort the photos", preview=lambda trigger, done: done(True, {"time_zone": "Europe/Paris", "first_run_sentence": "Runs (test preview)."}))
     sheet.set_trigger_sources([{"id": "schedule", "version": 1, "available": True}])
     sheet.workspaces.set_dry_run(_dry(fake))
     sheet.workspaces.load(None)

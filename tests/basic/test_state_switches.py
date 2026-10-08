@@ -117,7 +117,7 @@ def test_every_on_off_setting_in_settings_and_the_schedule_sheet_is_a_switch() -
     from abstractassistant.ui.automations import ScheduleSheet
 
     dlg, _ctl = _dialog()
-    sheet = ScheduleSheet(target=None, target_label="Assistant", prompt="p")
+    sheet = ScheduleSheet(target=None, target_label="Assistant", prompt="p", preview=lambda trigger, done: done(True, {"time_zone": "Europe/Paris", "first_run_sentence": "Runs (test preview)."}))
     allowed: set = set()
     plain = [b.text() for root in (dlg, sheet) for b in root.findChildren(QCheckBox) if not isinstance(b, AfSwitch) and id(b) not in allowed]
     assert plain == []
@@ -221,7 +221,7 @@ def test_dialog_labels_stay_on_the_type_scale() -> None:
     from abstractassistant.ui.automations import ScheduleSheet
 
     dlg, _ctl = _dialog()
-    sheet = ScheduleSheet(target=None, target_label="Assistant", prompt="p")
+    sheet = ScheduleSheet(target=None, target_label="Assistant", prompt="p", preview=lambda trigger, done: done(True, {"time_zone": "Europe/Paris", "first_run_sentence": "Runs (test preview)."}))
     dlg.show()
     sheet.show()
     _APP.processEvents()

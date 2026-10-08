@@ -76,7 +76,6 @@ from ..core.automations import (
     occurrence_views,
     parse_duration,
     revise_changes,
-    schedule_label,
     trigger_summary,
     CALENDAR_DAYS,
     CALENDAR_KINDS,
@@ -86,6 +85,7 @@ from ..core.automations import (
     format_served_local,
     is_schedule_v2,
     is_served_preview_kind,
+    shows_account_zone,
     next_run_text,
     schedule_trigger,
     time_zone_line,
@@ -1571,8 +1571,10 @@ class ServedScheduleLine(QWidget):
         self._timer.setInterval(self.DEBOUNCE_MS)
         self._timer.timeout.connect(self.flush)
 
-    def request(self, trigger: Optional[Dict[str, Any]], *, incomplete: str = "") -> None:
-        """Describe ``trigger`` (None = incomplete: show ``incomplete`` or the kit's line)."""
+    def request(self, trigger: Optional[Dict[str, Any]], *, incomplete: str = "", show_zone: bool = True) -> None:
+        """Describe ``trigger`` (None = incomplete: show ``incomplete`` or the kit's line).
+        ``show_zone`` False = no time-zone line (a Repeat interval is UTC)."""
+        self.show_zone = show_zone
         self._seq += 1
         self.answer = None
         self.tz_host.hide()
@@ -1615,7 +1617,7 @@ class ServedScheduleLine(QWidget):
         zone = str(answer.get("time_zone") or "")
         self.tz_label.setText(time_zone_line(zone, self.whose))
         self.tz_link.setVisible(self.whose == "account")
-        self.tz_host.setVisible(bool(zone))
+        self.tz_host.setVisible(bool(zone) and getattr(self, "show_zone", True))
         self.sentence.setObjectName("autoViewMeta")
         self.sentence.setText(str(answer.get("first_run_sentence") or ""))
         refresh_style(self.sentence)
@@ -1647,8 +1649,11 @@ class ScheduleSheet(QDialog):
         target: Optional[Mapping[str, Any]],
         target_label: str,
         prompt: str,
+        preview: PreviewProvider,
         parent: Optional[QWidget] = None,
     ) -> None:
+        """``preview`` = the gateway's schedule-preview (required: every schedule kind's
+        line under "When" is the gateway's sentence)."""
         super().__init__(parent)
         self.setObjectName("scheduleSheet")
         self.setWindowTitle("Schedule this conversation")
@@ -1767,6 +1772,7 @@ class ScheduleSheet(QDialog):
         # The gateway's line for Once / Daily / Weekly / Monthly (time zone + first run),
         # last in "When" as the kit's preview line.
         self.served_line = ServedScheduleLine(whose="account", parent=self)
+        self.served_line.provider = preview
         self.served_line.open_preferences_requested.connect(self.open_preferences_requested.emit)
         root.addWidget(self.served_line)
         # "Stop after this many runs" / "Stop at (UTC)" (kit wording; Repeat only).
@@ -2165,8 +2171,8 @@ class ScheduleSheet(QDialog):
         return out
 
     def _stop_fields_checked(self) -> Dict[str, Any]:
-        """The limits a calendar rule's preview carries (count / until), when set."""
-        if self.kind() not in CALENDAR_KINDS:
+        """The limits a Repeat or calendar rule's preview carries (count / until), when set."""
+        if self.kind() != "every" and self.kind() not in CALENDAR_KINDS:
             return {}
         out = self._stop_fields()
         return {k: v for k, v in out.items() if v not in ("", None)}
@@ -2182,17 +2188,17 @@ class ScheduleSheet(QDialog):
         body, errors = self.build_body()
         kind = self.kind()
         if is_served_preview_kind(kind):
-            # Once / Daily / Weekly / Monthly: the GATEWAY's sentence (schedule-preview);
-            # the footer line only carries what still blocks the form.
-            trigger, rule_errors = schedule_trigger(self.when(), **(self._stop_fields_checked()))
-            self.served_line.request(trigger, incomplete=" ".join(rule_errors))
+            # Every schedule kind: the GATEWAY's sentence (schedule-preview), Repeat included;
+            # the zone line only for the kinds that run in the account's zone. The footer
+            # line only carries what still blocks the form.
+            limits = self._stop_fields_checked()
+            if kind == "every":
+                limits["start_at"] = self.at_edit.text().strip()
+            trigger, rule_errors = schedule_trigger(self.when(), **limits)
+            self.served_line.request(trigger, incomplete=" ".join(rule_errors), show_zone=shows_account_zone(kind))
             self.preview_label.setText("" if body is not None else " ".join(e for e in errors if e not in rule_errors))
         elif body is not None and body["trigger"]["source_id"] != "schedule":
             self.preview_label.setText(trigger_summary(body["trigger"]))
-        elif body is not None:
-            config = body["trigger"]["config"]
-            first = "" if "every" not in config else (f", first run at {format_utc(config['start_at'])}" if config.get("start_at") else ", first run now")
-            self.preview_label.setText(f"Runs {schedule_label(config)}{first}.")
         else:
             self.preview_label.setText(" ".join(errors))
         self.submit_button.setEnabled(body is not None and self.schedule_available is not False)

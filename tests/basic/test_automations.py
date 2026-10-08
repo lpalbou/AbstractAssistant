@@ -498,14 +498,9 @@ def test_the_section_groups_by_automation_id_never_by_session() -> None:
     grouped = group_by_automation(items + [dict(items[0], title="Inbox triage (renamed)")])
     assert [s["automation_id"] for s in grouped] == [TRIAGE, NEWS, JOURNAL, MORNING, LEGACY]
     assert grouped[0]["title"] == "Inbox triage (renamed)"
-    # schedule@1 rows keep the fixed-interval wording; the schedule@2 row reads the SERVED rule.
-    assert [trigger_summary(s["trigger"], s) for s in items] == [
-        "every 30 minutes (UTC)",
-        "every 8 hours (UTC)",
-        "every 7 days (UTC) · 12 runs max",
-        "Every day at 08:00 (Europe/Paris)",
-        "every hour (UTC)",
-    ]
+    # Every schedule row (v1 and v2, bounds included) reads the SERVED rule, verbatim.
+    assert [trigger_summary(s["trigger"], s) for s in items] == [s["schedule_rule_text"] for s in items]
+    assert [s["schedule_rule_text"] for s in items][3] == "Every day at 08:00 (Europe/Paris)"
 
 
 @pytest.mark.basic
@@ -678,7 +673,7 @@ def test_headless_switcher_renders_the_automations_section_from_the_fixtures(tmp
     rows = switcher.automation_rows
     assert [r.automation_id for r in rows] == [TRIAGE, NEWS, JOURNAL, MORNING, LEGACY]
     assert rows[0].state_chip is not None and rows[1].state_chip is None
-    assert rows[0].meta_text.startswith("every 30 minutes (UTC) · last ")
+    assert rows[0].meta_text.startswith("Every 30 minutes (UTC) · last ")
     assert rows[2].active_switch.state_control == "resume" and rows[2].meta_text.endswith("next —")
     # The fixture's current_occurrence (#7): the card says so and pulses.
     assert rows[0].result_label.toolTip() == "Run #7 running"
@@ -1035,7 +1030,8 @@ def test_schedule_this_conversation_prefills_and_creates(palette, stub) -> None:
     assert sheet.prompt_edit.toPlainText() == "Summarise today's AI news in five bullets."
     assert sheet.schedule_available is True
     assert sheet.kind() == "every" and sheet.preset_combo.currentText() == "every 8 hours"
-    assert sheet.preview_label.text() == "Runs every 8 hours (UTC), first run now."
+    sheet.served_line.flush()
+    assert sheet.served_line.sentence.text() == sheet.served_line.answer["first_run_sentence"]
     sheet.growing.setChecked(True)
     sheet.submit_button.click()
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
@@ -1082,8 +1078,8 @@ def test_scenario_three_news_monitors(palette, stub) -> None:
     window._session_switcher = switcher
     window._apply_automations_to_switcher(switcher)
     listed = {r.automation_id: r.meta_text.split(" · ")[0] for r in switcher.automation_rows}
-    # schedule@2 Repeat rows read in the fixed-interval family, as v1 rows (the kit's rule).
-    assert {listed[i] for i in ids} == {"every 8 hours (UTC)", "every 24 hours (UTC)", "every hour (UTC)"}
+    # Every schedule row: the served rule, verbatim (the stub gateway's words).
+    assert {listed[i] for i in ids} == {"Served every 8h", "Served every 24h", "Served every 1h"}
     switcher.deleteLater()
 
 
@@ -1118,7 +1114,7 @@ def test_scenario_weekly_journal_growing(palette, stub) -> None:
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]
     assert body["trigger"]["config"] == {"kind": "every", "every": "7d"} and body["context"] == {"mode": "growing"}
     summary = stub.summary(aid)
-    assert trigger_summary(summary["trigger"], summary) == "every 7 days (UTC)"
+    assert trigger_summary(summary["trigger"], summary) == "Served every 7d"
     assert "Growing" in window.automation_view.meta_label.text()
 
 

@@ -6996,7 +6996,7 @@ class AssistantPalette(QMainWindow):
                 # "+ New automation" (DESIGN R10.4, as in Code/Observer): the
                 # gateway default is the workflow until the user picks another.
                 target = dict(AUTOMATION_GATEWAY_DEFAULT_TARGET)
-            sheet = ScheduleSheet(target=target, target_label=label, prompt=prompt, parent=self)
+            sheet = ScheduleSheet(target=target, target_label=label, prompt=prompt, preview=self._automations.schedule_preview, parent=self)
             self._automations.run(
                 lambda: controller.workflow_menu(),
                 lambda ok_workflows, rows: sheet.workflow_picker.set_workflows(rows if ok_workflows else [], sheet.target or {}),
@@ -7021,10 +7021,9 @@ class AssistantPalette(QMainWindow):
             # Email options only with a usable account (framework backlog 0992);
             # a failed read leaves them off under "Connect a mailbox first".
             sheet.open_my_email_requested.connect(self._open_my_email)
-            # Round 16: Once / Daily / Weekly / Monthly are worded by the gateway
-            # (schedule-preview); "Change in preferences" opens Settings → Workflow,
+            # Round 16: every schedule kind is worded by the gateway (schedule-preview,
+            # passed above); "Change in preferences" opens Settings → Workflow,
             # where the account's default workflow and time zone live.
-            sheet.served_line.provider = self._automations.schedule_preview
             sheet.open_preferences_requested.connect(lambda: self._open_settings(section="workflow"))
             self._automations.my_email(lambda ok3, status: sheet.set_email_status(status if ok3 and isinstance(status, dict) else None))
             sheet.show()

@@ -69,7 +69,11 @@ def test_switcher_automations_tab_new_automation_creates_with_the_gateway_defaul
     sheet.count_edit.setText("3")
     sheet.until_edit.setText("2030-01-01 08:00")
     sheet.growing.setChecked(True)
-    assert sheet.preview_label.text().startswith("Runs every 8 hours (UTC)")
+    # Round 16: the Repeat line is the gateway's (schedule-preview), with the limits in the trigger.
+    sheet.served_line.flush()
+    assert sheet.served_line.sentence.text() == sheet.served_line.answer["first_run_sentence"]
+    assert stub.calls("POST", AUTOMATIONS_PATH + "/schedule-preview")[-1]["body"]["trigger"]["config"] == {
+        "kind": "every", "every": "8h", "count": 3, "until": "2030-01-01T08:00:00Z"}
     sheet.submit_button.click()
 
     body = stub.calls("POST", AUTOMATIONS_PATH)[-1]["body"]

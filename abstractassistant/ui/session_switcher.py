@@ -721,13 +721,6 @@ def missing_folder_button(field: str, *, parent: QWidget) -> QPushButton:
 _PILL_SPINE = {"active": "fresh", "running": "active", "waiting": "warn", "failed": "warn", "paused": "idle", "ended": "idle"}
 
 
-def _compact_every(every: str) -> str:
-    """ "30m" -> "every 30 min", "8h" -> "every 8 h", "7d" -> "every 7 d" (UTC in the tooltip)."""
-    unit = {"s": "s", "m": "min", "h": "h", "d": "d"}.get(every[-1:], "")
-    amount = every[:-1]
-    return f"every {amount} {unit}" if unit and amount.isdigit() else f"every {every}"
-
-
 class AutomationTabRow(RowCard):
     """One automation: the SAME card as a session row, clean and simple.
 
@@ -789,8 +782,8 @@ class AutomationTabRow(RowCard):
         trigger = summary.get("trigger") if isinstance(summary.get("trigger"), dict) else {}
         # schedule@2 (round 16): the gateway's served rule; schedule@1 keeps its UTC wording.
         self._schedule = trigger_summary(trigger, summary)
-        every = (trigger.get("config") or {}).get("every") if trigger.get("source_id") == "schedule" else None
-        short = _compact_every(every) if isinstance(every, str) else self._schedule
+        # Every schedule row: the gateway's served rule, verbatim (the kit's compactCadence).
+        short = self._schedule
         metrics.addWidget(_metric("clock", short, f"Schedule: {self._schedule}"), 0, Qt.AlignVCenter)
         self._next_chip = _metric("chevron-right", "", "Next run")
         metrics.addWidget(self._next_chip, 0, Qt.AlignVCenter)
