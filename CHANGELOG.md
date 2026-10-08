@@ -3,7 +3,7 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
-## [0.13.1] - 2026-10-07
+## [0.13.1] - 2026-10-08
 
 - Settings → Workflow: the choice belongs to your **account on the gateway** (AbstractGateway 0.13.1+, `GET`/`PUT /api/gateway/accounts/me/preferences`), shared with the console's Accounts → Preferences, AbstractCode and your other Macs ("Saved for your account — applies from the next turn, in every app."; a refusal: "Not saved." + the gateway's sentence). A workflow chosen on this Mac before is uploaded once when your account has none, then removed from `preferences.json` (a choice already made elsewhere wins; a refused one is dropped; a network failure retries later). A gateway older than 0.13.1 keeps the choice in `preferences.json` with "Saved on this device — applies from the next turn." The first row reads **Gateway default (name)**, verbatim from the gateway when it reports it (was "Gateway default → name"). `preferences.json` no longer writes `workflow` when it is the gateway default. New: `GatewayClient.get_account_preferences` / `put_account_preferences`, `controller.account_preferences`, `controller.workflow_choice_storage`; `set_workflow_choice` returns `"account"` or `"device"`.
 
