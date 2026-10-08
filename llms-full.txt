@@ -2614,6 +2614,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - Settings → Workflow: a **Time zone** row: a searchable list of the gateway's time zones, **Gateway default (<zone>)** first; the choice applies at once to your account (`PUT /api/gateway/accounts/me/preferences {"time_zone"}`), shared with the console and AbstractCode. A gateway that serves no time zone leaves the row disabled with "This gateway did not serve a time zone (needs gateway ≥ the round-16 build)." in the theme's error colour. New: `AutomationsClient.schedule_preview`, `AutomationsHub.schedule_preview`, `controller.account_time_zone` / `set_time_zone`.
 - The vendored `assets/automation_controls.json` matches the UI kit's (round 16) byte for byte: it gains the `schedule` block (the "When" words, the time-zone line and tooltip). The test fixtures are the kit's R16.1 fixtures (a `schedule@2` daily row; `schedule@2` in the trigger sources).
 
+### Added
+
+- Settings → Voice shows the gateway's served hint under its speech-input default (for example, on Apple silicon: mlx-whisper runs the model on the GPU).
+
 ## [0.13.1] - 2026-10-08
 
 - Settings → Workflow: the choice belongs to your **account on the gateway** (AbstractGateway 0.13.1+, `GET`/`PUT /api/gateway/accounts/me/preferences`), shared with the console's Accounts → Preferences, AbstractCode and your other Macs ("Saved for your account — applies from the next turn, in every app."; a refusal: "Not saved." + the gateway's sentence). A workflow chosen on this Mac before is uploaded once when your account has none, then removed from `preferences.json` (a choice already made elsewhere wins; a refused one is dropped; a network failure retries later). A gateway older than 0.13.1 keeps the choice in `preferences.json` with "Saved on this device — applies from the next turn." The first row reads **Gateway default (name)**, verbatim from the gateway when it reports it (was "Gateway default → name"). `preferences.json` no longer writes `workflow` when it is the gateway default. New: `GatewayClient.get_account_preferences` / `put_account_preferences`, `controller.account_preferences`, `controller.workflow_choice_storage`; `set_workflow_choice` returns `"account"` or `"device"`.
@@ -16795,6 +16799,10 @@ class CapabilityRouteRow:
     source: str = ""
     package_hint: str = ""
     description: str = ""
+    # The gateway's served one-line hint for this route (AbstractCore `route_hint.sentence`,
+    # e.g. speech input on Apple silicon: mlx-whisper runs the model on the GPU). Shown
+    # verbatim; never computed or applied here.
+    hint: str = ""
 
 
 @dataclass(frozen=True)
@@ -17549,6 +17557,9 @@ class AssistantGatewayService:
             source=str(raw.get("source") or "").strip(),
             package_hint=str(raw.get("package_hint") or "").strip(),
             description=spec.description if spec else "",
+            hint=str((raw.get("route_hint") or {}).get("sentence") or "").strip()
+            if isinstance(raw.get("route_hint"), dict)
+            else "",
         )
 
     def _provider_items_from_catalog(self, payload: Dict[str, Any], *, preferred_keys: Iterable[str]) -> List[ChoiceItem]:
