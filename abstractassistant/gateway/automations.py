@@ -26,6 +26,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
+from ..core.automations import served_summary
 from .client import GatewayClient
 
 __all__ = [
@@ -178,8 +179,13 @@ class AutomationsClient:
     # --------------------------------------------------------------- calls
 
     def list(self, *, status: Optional[str] = None, cursor: Optional[str] = None, limit: Optional[int] = None) -> Dict[str, Any]:
-        """``GET /automations`` — one ``Page<AutomationSummary>``."""
-        return self._call("GET", AUTOMATIONS_PATH, query={"status": status, "cursor": cursor, "limit": limit})
+        """``GET /automations`` — one ``Page<AutomationSummary>`` (each row through
+        :func:`~abstractassistant.core.automations.served_summary`: the served
+        schedule fields are optional on read)."""
+        page = self._call("GET", AUTOMATIONS_PATH, query={"status": status, "cursor": cursor, "limit": limit})
+        if isinstance(page, dict) and isinstance(page.get("items"), list):
+            page = {**page, "items": [served_summary(item) for item in page["items"]]}
+        return page
 
     def list_all(self, *, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Every summary, following ``next_cursor`` (v1 clients poll full pages)."""
@@ -203,13 +209,13 @@ class AutomationsClient:
 
     def get(self, automation_id: str) -> Dict[str, Any]:
         """``GET /automations/{id}`` → ``{definition, active_revision, summary}``."""
-        return self._call("GET", self._one(automation_id))
+        return _with_served_summary(self._call("GET", self._one(automation_id)))
 
     def create(self, body: Dict[str, Any]) -> Dict[str, Any]:
         """``POST /automations`` → ``{automation_id, revision, summary}``."""
         if not isinstance(body, dict) or not str(body.get("request_id") or "").strip():
             raise ValueError("create: body.request_id is required")
-        return self._call("POST", AUTOMATIONS_PATH, body=body)
+        return _with_served_summary(self._call("POST", AUTOMATIONS_PATH, body=body))
 
     def revise(
         self,
@@ -292,6 +298,13 @@ class AutomationsClient:
     def console_url(self, tab: str = "users") -> str:
         """The gateway console's tab (My email lives in the Users tab)."""
         return f"{self._gateway._url('/console')}#{tab}"
+
+
+def _with_served_summary(answer: Any) -> Any:
+    """An answer carrying a ``summary`` (get, create) with that summary made total."""
+    if isinstance(answer, dict) and isinstance(answer.get("summary"), dict):
+        return {**answer, "summary": served_summary(answer["summary"])}
+    return answer
 
 
 def _loads(raw: bytes) -> Any:

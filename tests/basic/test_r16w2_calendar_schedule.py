@@ -322,11 +322,18 @@ def test_formatting_the_served_local_time_is_a_cut_not_a_conversion() -> None:
 @pytest.mark.basic
 def test_no_client_side_next_run_arithmetic_remains() -> None:
     """Grep-proof (A4): the next run is read from `next_run_at` / `next_run_local`
-    only; no client file reads `next_fire_at` or adds a timedelta to a schedule."""
+    only; no client file reads `next_fire_at` or adds a timedelta to a schedule —
+    except `served_summary`, the ONE fallback for a gateway before round 16 that
+    serves only `next_fire_at` (the served UTC string, copied, never computed)."""
     sources = [PACKAGE / "core" / "automations.py", PACKAGE / "ui" / "automations.py", PACKAGE / "ui" / "session_switcher.py"]
     for path in sources:
         text = path.read_text(encoding="utf-8")
         code = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+        if path.parent.name == "core":
+            head, rest = code.split("\ndef served_summary(", 1)
+            fallback, tail = rest.split("\ndef ", 1)
+            assert 'summary.get("next_fire_at")' in fallback
+            code = head + "\ndef " + tail
         assert '"next_fire_at"' not in code and "'next_fire_at'" not in code, path.name
         assert not re.search(r"timedelta\(", code), path.name
         assert "zoneinfo" not in code and "ZoneInfo" not in code, path.name

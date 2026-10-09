@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
+    "NOT_SERVED",
+    "served_summary",
     "CONTROL_COMMANDS",
     "EMAIL_TEXT",
     "EMAIL_TRIGGER_SOURCE_ID",
@@ -373,6 +375,44 @@ def is_served_preview_kind(kind: str) -> bool:
 def shows_account_zone(kind: str) -> bool:
     """Kinds that run in the account's time zone (the zone line is shown); Repeat is a UTC interval."""
     return kind == "once" or kind in CALENDAR_KINDS
+
+
+NOT_SERVED = "—"
+"""What a row shows for a served field the gateway did not send."""
+
+
+def _served_str(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) and value else None
+
+
+def served_summary(summary: Any) -> Any:
+    """One automation summary with its served schedule block made total.
+
+    Round 16 (R16.1) gateways serve ``next_run_at``, ``next_run_local``,
+    ``time_zone``, ``schedule_text`` and ``schedule_rule_text`` on every row; a
+    gateway before round 16 (0.13.x) serves none of them — only the runtime's
+    ``next_fire_at`` (UTC). A missing or non-string field never fails the list
+    (2026-10-09 operator report): the rule reads "—" (``NOT_SERVED``) and the
+    next run falls back to the served ``next_fire_at``, shown in UTC — the
+    zone of that one served string, CUT (no clock arithmetic). A served value
+    is never overridden. Returns a new dict (the input is not changed)."""
+    if not isinstance(summary, Mapping):
+        return summary
+    out = dict(summary)
+    next_run_at = _served_str(summary.get("next_run_at")) or _served_str(summary.get("next_fire_at"))
+    next_run_local = _served_str(summary.get("next_run_local"))
+    time_zone = _served_str(summary.get("time_zone")) or ""
+    if not next_run_local and not time_zone and next_run_at and (next_run_at.endswith("+00:00") or next_run_at.endswith("Z")):
+        next_run_local, time_zone = next_run_at, "UTC"
+    for key, value in (("next_run_at", next_run_at), ("next_run_local", next_run_local)):
+        if value:
+            out[key] = value
+        else:
+            out.pop(key, None)
+    out["time_zone"] = time_zone
+    out["schedule_rule_text"] = _served_str(summary.get("schedule_rule_text")) or NOT_SERVED
+    out["schedule_text"] = _served_str(summary.get("schedule_text")) or NOT_SERVED
+    return out
 
 
 def served_rule_text(served: Optional[Mapping[str, Any]], version: Any = SCHEDULE_VERSION) -> str:

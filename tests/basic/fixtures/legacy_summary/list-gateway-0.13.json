@@ -1,0 +1,58 @@
+{
+  "items": [
+    {
+      "automation_id": "d18e1757-58ae-5e22-a61e-7b84fdee19cf",
+      "title": "Daily price watch",
+      "status": "active",
+      "trigger": {
+        "binding_id": "ec8f10c9-69a9-5e2b-941f-8988aaeb4eee",
+        "source_id": "schedule",
+        "source_version": 1,
+        "config": {
+          "start_at": "2026-10-02T19:53:29.622724+00:00",
+          "anchor": "2026-10-02T19:53:29.622724+00:00",
+          "every": "24h"
+        }
+      },
+      "context_mode": "growing",
+      "growing_max_tokens": 50000,
+      "workspace_root": "/tmp/ws/session-automation-d18e1757",
+      "next_fire_at": "2026-10-09T19:53:29.622724+00:00",
+      "current_occurrence": null,
+      "occurrence_count": 8,
+      "attention": {
+        "pending_waits": 0,
+        "unread": false,
+        "unseen_count": 0,
+        "cursor": "att1:0",
+        "items": [],
+        "waits": []
+      },
+      "legacy": false,
+      "revision": 4,
+      "updated_at": "2026-10-09T06:42:00.949010+00:00",
+      "capabilities": [
+        "revise",
+        "pause",
+        "resume",
+        "run_now",
+        "stop_current",
+        "archive",
+        "discuss"
+      ],
+      "session_kind": "automation",
+      "last_occurrence": {
+        "run_id": "fec986f9-5f5c-5229-997f-6313fb0475ca",
+        "index": 8,
+        "status": "completed",
+        "attempts": 1,
+        "fired_at": "2026-10-08T19:53:29.622724+00:00",
+        "excerpt": "Here is today's update.",
+        "notify": null,
+        "finished_at": "2026-10-08T19:57:13.292439+00:00"
+      }
+    }
+  ],
+  "next_cursor": null,
+  "archived_automations": 6
+}

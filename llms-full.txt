@@ -1488,7 +1488,7 @@ the stream. Whether the gateway offers live replies is read from
   - `POST /api/gateway/automations/schedule-preview` (`{trigger}`; nothing stored): the window's line
     for every schedule kind, Repeat included (`first_run_sentence`), and the time zone (`time_zone`, shown
     for Daily, Weekly, Monthly and Once). The list and the automation view show every schedule row's
-    (`schedule@1` and `@2`) served `schedule_rule_text` verbatim (a missing one reads `schedule@<version>`),
+    (`schedule@1` and `@2`) served `schedule_rule_text` verbatim (a missing one reads `—`; `AutomationsClient` passes every summary through `served_summary`, so a gateway older than round 16, which serves only `next_fire_at`, still lists: next run = that `next_fire_at`, in UTC),
     `next_run_at` and `next_run_local` (cut to `YYYY-MM-DD HH:MM <time_zone>`)
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
     changed fields among `title`, `trigger`, `context`, `notify` and
@@ -2609,9 +2609,10 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 - Automations: calendar schedules (AbstractGateway R16.1, `schedule@2`). The schedule window's **When** has the AbstractCode / AbstractObserver dialog's words: **Repeat** (the fixed UTC intervals, unchanged) · **Daily** at a time · **Weekly** on the days you pick (day chips, Monday first; a picked day shows a check mark) at a time · **Monthly** on day 1–31 or **last** at a time · **Once at…** · **When an email arrives**. Daily, Weekly, Monthly and Once run at that wall-clock time in your account's time zone: a line shows "in <zone> (your account's time zone)" with an explanatory tooltip and **Change in preferences** (opens Settings → Workflow), and the preview line is the gateway's own sentence (`POST /api/gateway/automations/schedule-preview` → `first_run_sentence`; a refusal shows the gateway's sentence). The days, the month day and the time are kept when you switch kinds. Every create writes `schedule@2` (Repeat as `{"kind": "every", …}`); the window needs the gateway to offer `schedule@2`.
 - Automations: an automation's **Edit** box edits a Daily / Weekly / Monthly rule (kind, days, day of the month, time) with the gateway's preview in "this automation's time zone"; the automation keeps its zone and its run limits.
-- Automations: the list, the automation view and the **Run now** tooltip show the schedule and the next run the gateway serves (`schedule_rule_text`, `next_run_at`, `next_run_local` cut to `YYYY-MM-DD HH:MM <zone>`, e.g. "next 2026-10-09 08:00 Europe/Paris (in 14 h)"); the Assistant no longer reads `next_fire_at` and computes no next run. Every schedule row (`schedule@1` and `@2`, Repeat with its bounds included) shows the gateway's `schedule_rule_text` verbatim, also on the card, where the schedule has its own line and wraps rather than being cut (a missing one reads `schedule@<version>`); the app composes no schedule words.
+- Automations: the list, the automation view and the **Run now** tooltip show the schedule and the next run the gateway serves (`schedule_rule_text`, `next_run_at`, `next_run_local` cut to `YYYY-MM-DD HH:MM <zone>`, e.g. "next 2026-10-09 08:00 Europe/Paris (in 14 h)"); the Assistant no longer reads `next_fire_at` and computes no next run. Every schedule row (`schedule@1` and `@2`, Repeat with its bounds included) shows the gateway's `schedule_rule_text` verbatim, also on the card, where the schedule has its own line and wraps rather than being cut (a missing one reads "—"); the app composes no schedule words.
 - The schedule window's preview line is the gateway's `first_run_sentence` for Repeat too (the trigger carries `start_at` / `count` / `until`), without a time-zone line (a UTC interval); only **When an email arrives** keeps a line of the app's own. `ScheduleSheet` takes the preview as a required `preview=` argument.
 - Settings → Workflow: a **Time zone** row: a searchable list of the gateway's time zones, **Gateway default (<zone>)** first; the choice applies at once to your account (`PUT /api/gateway/accounts/me/preferences {"time_zone"}`), shared with the console and AbstractCode. A gateway that serves no time zone leaves the row disabled with "This gateway did not serve a time zone (needs gateway ≥ the round-16 build)." in the theme's error colour. New: `AutomationsClient.schedule_preview`, `AutomationsHub.schedule_preview`, `controller.account_time_zone` / `set_time_zone`.
+- Automations: the list works with a gateway that does not serve the round-16 schedule fields (AbstractGateway 0.13.x serves only `next_fire_at`). `AutomationsClient.list` / `get` / `create` pass every summary through `core.automations.served_summary`: `next_run_at`, `next_run_local`, `time_zone`, `schedule_text` and `schedule_rule_text` are optional on read — the schedule reads "—" and the next run is the gateway's `next_fire_at`, shown in UTC. A served value is always shown as served.
 - The vendored `assets/automation_controls.json` matches the UI kit's (round 16) byte for byte: it gains the `schedule` block (the "When" words, the time-zone line and tooltip). The test fixtures are the kit's R16.1 fixtures (a `schedule@2` daily row; `schedule@2` in the trigger sources).
 
 ### Added
@@ -15171,6 +15172,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
+from ..core.automations import served_summary
 from .client import GatewayClient
 
 __all__ = [
@@ -15323,8 +15325,13 @@ class AutomationsClient:
     # --------------------------------------------------------------- calls
 
     def list(self, *, status: Optional[str] = None, cursor: Optional[str] = None, limit: Optional[int] = None) -> Dict[str, Any]:
-        """``GET /automations`` — one ``Page<AutomationSummary>``."""
-        return self._call("GET", AUTOMATIONS_PATH, query={"status": status, "cursor": cursor, "limit": limit})
+        """``GET /automations`` — one ``Page<AutomationSummary>`` (each row through
+        :func:`~abstractassistant.core.automations.served_summary`: the served
+        schedule fields are optional on read)."""
+        page = self._call("GET", AUTOMATIONS_PATH, query={"status": status, "cursor": cursor, "limit": limit})
+        if isinstance(page, dict) and isinstance(page.get("items"), list):
+            page = {**page, "items": [served_summary(item) for item in page["items"]]}
+        return page
 
     def list_all(self, *, status: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Every summary, following ``next_cursor`` (v1 clients poll full pages)."""
@@ -15348,13 +15355,13 @@ class AutomationsClient:
 
     def get(self, automation_id: str) -> Dict[str, Any]:
         """``GET /automations/{id}`` → ``{definition, active_revision, summary}``."""
-        return self._call("GET", self._one(automation_id))
+        return _with_served_summary(self._call("GET", self._one(automation_id)))
 
     def create(self, body: Dict[str, Any]) -> Dict[str, Any]:
         """``POST /automations`` → ``{automation_id, revision, summary}``."""
         if not isinstance(body, dict) or not str(body.get("request_id") or "").strip():
             raise ValueError("create: body.request_id is required")
-        return self._call("POST", AUTOMATIONS_PATH, body=body)
+        return _with_served_summary(self._call("POST", AUTOMATIONS_PATH, body=body))
 
     def revise(
         self,
@@ -15439,6 +15446,13 @@ class AutomationsClient:
         return f"{self._gateway._url('/console')}#{tab}"
 
 
+def _with_served_summary(answer: Any) -> Any:
+    """An answer carrying a ``summary`` (get, create) with that summary made total."""
+    if isinstance(answer, dict) and isinstance(answer.get("summary"), dict):
+        return {**answer, "summary": served_summary(answer["summary"])}
+    return answer
+
+
 def _loads(raw: bytes) -> Any:
     if not raw:
         return None
@@ -15474,6 +15488,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
+    "NOT_SERVED",
+    "served_summary",
     "CONTROL_COMMANDS",
     "EMAIL_TEXT",
     "EMAIL_TRIGGER_SOURCE_ID",
@@ -15823,6 +15839,44 @@ def is_served_preview_kind(kind: str) -> bool:
 def shows_account_zone(kind: str) -> bool:
     """Kinds that run in the account's time zone (the zone line is shown); Repeat is a UTC interval."""
     return kind == "once" or kind in CALENDAR_KINDS
+
+
+NOT_SERVED = "—"
+"""What a row shows for a served field the gateway did not send."""
+
+
+def _served_str(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) and value else None
+
+
+def served_summary(summary: Any) -> Any:
+    """One automation summary with its served schedule block made total.
+
+    Round 16 (R16.1) gateways serve ``next_run_at``, ``next_run_local``,
+    ``time_zone``, ``schedule_text`` and ``schedule_rule_text`` on every row; a
+    gateway before round 16 (0.13.x) serves none of them — only the runtime's
+    ``next_fire_at`` (UTC). A missing or non-string field never fails the list
+    (2026-10-09 operator report): the rule reads "—" (``NOT_SERVED``) and the
+    next run falls back to the served ``next_fire_at``, shown in UTC — the
+    zone of that one served string, CUT (no clock arithmetic). A served value
+    is never overridden. Returns a new dict (the input is not changed)."""
+    if not isinstance(summary, Mapping):
+        return summary
+    out = dict(summary)
+    next_run_at = _served_str(summary.get("next_run_at")) or _served_str(summary.get("next_fire_at"))
+    next_run_local = _served_str(summary.get("next_run_local"))
+    time_zone = _served_str(summary.get("time_zone")) or ""
+    if not next_run_local and not time_zone and next_run_at and (next_run_at.endswith("+00:00") or next_run_at.endswith("Z")):
+        next_run_local, time_zone = next_run_at, "UTC"
+    for key, value in (("next_run_at", next_run_at), ("next_run_local", next_run_local)):
+        if value:
+            out[key] = value
+        else:
+            out.pop(key, None)
+    out["time_zone"] = time_zone
+    out["schedule_rule_text"] = _served_str(summary.get("schedule_rule_text")) or NOT_SERVED
+    out["schedule_text"] = _served_str(summary.get("schedule_text")) or NOT_SERVED
+    return out
 
 
 def served_rule_text(served: Optional[Mapping[str, Any]], version: Any = SCHEDULE_VERSION) -> str:

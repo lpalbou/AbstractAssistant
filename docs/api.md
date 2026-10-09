@@ -240,7 +240,7 @@ the stream. Whether the gateway offers live replies is read from
   - `POST /api/gateway/automations/schedule-preview` (`{trigger}`; nothing stored): the window's line
     for every schedule kind, Repeat included (`first_run_sentence`), and the time zone (`time_zone`, shown
     for Daily, Weekly, Monthly and Once). The list and the automation view show every schedule row's
-    (`schedule@1` and `@2`) served `schedule_rule_text` verbatim (a missing one reads `schedule@<version>`),
+    (`schedule@1` and `@2`) served `schedule_rule_text` verbatim (a missing one reads `—`; `AutomationsClient` passes every summary through `served_summary`, so a gateway older than round 16, which serves only `next_fire_at`, still lists: next run = that `next_fire_at`, in UTC),
     `next_run_at` and `next_run_local` (cut to `YYYY-MM-DD HH:MM <time_zone>`)
   - `GET /api/gateway/automations/{id}` and `PATCH /api/gateway/automations/{id}` (edit: the
     changed fields among `title`, `trigger`, `context`, `notify` and
