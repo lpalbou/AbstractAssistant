@@ -132,6 +132,10 @@ class _Controller:
     def supports_stt(self) -> bool:
         return True
 
+    def spoken_language_label(self) -> str:
+        # Round 18: the served label of the account's spoken language.
+        return "French"
+
     def workflow_options(self) -> list:
         return [SimpleNamespace(bundle_id="b", flow_id="f", bundle_version="1", registry_scope="tenant_catalog")]
 
@@ -240,6 +244,8 @@ def test_palette_voice_conversation_starts_listens_and_ends(palette) -> None:
     assert controller.voice_manager.listening is True
     assert not window.voice_strip.isHidden()
     assert window.voice_strip.state == "listening"
+    assert window.voice_strip.language.text() == "Spoken language: French"
+    assert not window.voice_strip.language.isHidden()
     assert window.conversation_button.isChecked()
     assert not window.mic_button.isEnabled()
     assert window.title_label.text() == "Listening"

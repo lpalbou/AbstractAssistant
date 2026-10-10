@@ -181,3 +181,132 @@ def test_the_label_helper_names_only_a_served_choice() -> None:
     assert spoken_language_label(_block("de")) == "German"
     assert spoken_language_label(None) == ""
     assert spoken_language_label({"value": "xx", "choices": CHOICES}) == ""
+
+
+# ------------------------------------------------------------ Settings → Voice
+
+
+class _LangController:
+    """The two controller methods the Voice page uses, over a served block."""
+
+    def __init__(self, value: str = "auto") -> None:
+        self.block = _block(value)
+        self.puts: List[str] = []
+        self.refuse = ""
+
+    def account_spoken_language(self):
+        return dict(self.block)
+
+    def set_spoken_language(self, value):
+        self.puts.append(value)
+        if self.refuse:
+            raise GatewayHttpError(
+                "refused", status=400,
+                body_text=json.dumps({"detail": {"reason": "preference_refused", "key": "spoken_language", "message": self.refuse}}),
+            )
+        self.block = _block(value)
+        return dict(self.block)
+
+
+def _voice_page(lang):
+    dlg, ctl = _dialog()
+    if lang is None:
+        ctl.account_spoken_language = lambda: None
+    else:
+        ctl.account_spoken_language = lang.account_spoken_language
+        ctl.set_spoken_language = lang.set_spoken_language
+    page = dlg.page_voice
+    page.refresh()
+    return dlg, page
+
+
+@pytest.mark.basic
+def test_the_voice_page_shows_the_served_row() -> None:
+    lang = _LangController("de")
+    dlg, page = _voice_page(lang)
+    combo = page.spoken_language_combo
+    assert page.spoken_language_row.label_widget.text() == "Spoken language"
+    assert [combo.itemText(i) for i in range(combo.count())] == [c["label"] for c in CHOICES]
+    assert [combo.itemData(i) for i in range(combo.count())] == [c["value"] for c in CHOICES]
+    assert combo.currentText() == "German" and combo.isEnabled()
+    assert page.spoken_language_help.text() == HELP
+    assert page.spoken_language_help.property("tone") == ""
+    dlg.close()
+
+
+@pytest.mark.basic
+def test_picking_french_puts_fr_once_and_says_saved() -> None:
+    lang = _LangController("auto")
+    dlg, page = _voice_page(lang)
+    combo = page.spoken_language_combo
+    index = combo.findText("French")
+    combo.setCurrentIndex(index)
+    combo.activated.emit(index)
+    assert lang.puts == ["fr"], "ONE PUT with the served value"
+    assert page.feedback.text() == "Saved."
+    assert combo.currentText() == "French"
+    # Re-picking the stored value sends nothing.
+    combo.activated.emit(index)
+    assert lang.puts == ["fr"]
+    dlg.close()
+
+
+@pytest.mark.basic
+def test_a_refusal_says_not_saved_and_keeps_the_shown_value() -> None:
+    lang = _LangController("en")
+    dlg, page = _voice_page(lang)
+    lang.refuse = REFUSAL
+    combo = page.spoken_language_combo
+    index = combo.findText("German")
+    combo.setCurrentIndex(index)
+    combo.activated.emit(index)
+    assert lang.puts == ["de"]
+    assert page.feedback.text() == f"Not saved. {REFUSAL}"
+    assert page.feedback.property("tone") == "error"
+    assert combo.currentText() == "English", "the stored value stays shown"
+    dlg.close()
+
+
+@pytest.mark.basic
+def test_no_block_disables_the_row_and_says_so_in_the_error_tone() -> None:
+    from abstractassistant.ui.settings.pages import SPOKEN_LANGUAGE_NOT_SERVED
+
+    dlg, page = _voice_page(None)
+    assert SPOKEN_LANGUAGE_NOT_SERVED == "The gateway's account preferences answer has no spoken_language block."
+    combo = page.spoken_language_combo
+    assert not combo.isEnabled() and combo.count() == 0
+    assert page.spoken_language_help.text() == SPOKEN_LANGUAGE_NOT_SERVED
+    assert page.spoken_language_help.property("tone") == "error"
+    assert page.spoken_language_row.isVisibleTo(page), "never a hidden row"
+    dlg.close()
+
+
+# ------------------------------------------------------------------ voice strip
+
+
+@pytest.mark.basic
+def test_the_voice_strip_names_the_served_label() -> None:
+    from abstractassistant.ui.voice_strip import VoiceStrip
+
+    strip = VoiceStrip()
+    assert strip.language.isHidden() and strip.language.text() == ""
+    strip.set_spoken_language("Auto (detected)")
+    assert strip.language.text() == "Spoken language: Auto (detected)"
+    assert strip.language.toolTip() == "Spoken language: Auto (detected)"
+    assert not strip.language.isHidden()
+    strip.set_spoken_language("")
+    assert strip.language.isHidden() and strip.language.text() == ""
+
+
+@pytest.mark.basic
+def test_the_strip_label_follows_a_settings_change(stub) -> None:
+    """Decision: the strip re-reads the controller when a voice input opens; a PUT from
+    Settings is the controller's cached answer, so the next open shows the new label."""
+    ctl = _real(stub)
+    assert ctl.spoken_language_label() == "Auto (detected)"
+    ctl.set_spoken_language("fr")
+    from abstractassistant.ui.voice_strip import VoiceStrip
+
+    strip = VoiceStrip()
+    strip.set_spoken_language(ctl.spoken_language_label())
+    assert strip.language.text() == "Spoken language: French"

@@ -725,6 +725,10 @@ class _OutputDeviceCombo(QComboBox):
         super().showPopup()
 
 
+#: The Listening card's state when the preferences answer carries no ``spoken_language`` block.
+SPOKEN_LANGUAGE_NOT_SERVED = "The gateway's account preferences answer has no spoken_language block."
+
+
 class VoicePage(SettingsPage):
     title = "Voice"
     subtitle = "Speech runs on the gateway; audio is captured and played on this Mac."
@@ -779,6 +783,23 @@ class VoicePage(SettingsPage):
             stretch_control=False,
             help_text="Trades voice quality for a faster first word. Applied only when the gateway offers this control.",
         )
+
+        # WHICH LANGUAGE you speak (round 18): the ACCOUNT's preference, served by the gateway
+        # (row label, help, choices) and shared with AbstractCode and the console. Its own card
+        # because it applies to dictation AND the voice conversation. Nothing is kept here.
+        listening = self.add_card(Card("Listening"))
+        self.spoken_language_combo = QComboBox()
+        self.spoken_language_combo.setMinimumWidth(240)
+        self.spoken_language_combo.activated.connect(self._on_spoken_language_chosen)
+        self.spoken_language_row = listening.add_row(
+            "Spoken language",
+            self.spoken_language_combo,
+            stretch_control=False,
+            help_text=SPOKEN_LANGUAGE_NOT_SERVED,
+        )
+        self.spoken_language_help: QLabel = self.spoken_language_row.help_label  # type: ignore[attr-defined]
+        self.spoken_language_block: Optional[Dict[str, Any]] = None
+        self._show_spoken_language(None)
 
         conversation = self.add_card(
             Card(
@@ -842,6 +863,63 @@ class VoicePage(SettingsPage):
         self.voice_mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         self._reload_output_devices(announce=False)
         self._refresh_summaries()
+        self._refresh_spoken_language()
+
+    # ------------------------------------------------ the account spoken language
+
+    def _refresh_spoken_language(self) -> None:
+        self._show_spoken_language(safe_call(self.controller, "account_spoken_language", default=None))
+
+    def _show_spoken_language(self, block: Optional[Dict[str, Any]]) -> None:
+        self.spoken_language_block = dict(block) if isinstance(block, dict) else None
+        combo = self.spoken_language_combo
+        help_label = self.spoken_language_help
+        if self.spoken_language_block is None:
+            # Absent = a gateway seam, said loudly on the row — never a hidden row or a
+            # list of our own.
+            combo.blockSignals(True)
+            combo.clear()
+            combo.blockSignals(False)
+            combo.setEnabled(False)
+            help_label.setProperty("tone", "error")
+            help_label.setText(SPOKEN_LANGUAGE_NOT_SERVED)
+            refresh_style(help_label)
+            return
+        b = self.spoken_language_block
+        label = getattr(self.spoken_language_row, "label_widget", None)
+        if label is not None and b.get("label"):
+            label.setText(str(b["label"]))
+        combo.setAccessibleName(str(b.get("label") or "Spoken language"))
+        help_label.setProperty("tone", "")
+        help_label.setText(str(b.get("help") or ""))
+        refresh_style(help_label)
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for choice in b.get("choices") or []:
+                if isinstance(choice, dict) and isinstance(choice.get("value"), str):
+                    combo.addItem(str(choice.get("label") or choice["value"]), choice["value"])
+            index = combo.findData(b.get("value"))
+            combo.setCurrentIndex(max(0, index))
+        finally:
+            combo.blockSignals(False)
+        combo.setEnabled(combo.count() > 0)
+
+    def _on_spoken_language_chosen(self, index: int) -> None:
+        if self.spoken_language_block is None or index < 0:
+            return
+        value = self.spoken_language_combo.itemData(index)
+        if not isinstance(value, str) or value == self.spoken_language_block.get("value"):
+            return
+        try:
+            block = self.controller.set_spoken_language(value)
+        except Exception as exc:
+            self.say(f"Not saved. {_gateway_sentence(exc)}", tone="error")
+            self._show_spoken_language(self.spoken_language_block)  # the stored value stays shown
+            return
+        self._show_spoken_language(block if block else None)
+        self.say("Saved.")
+        self.changed.emit()
 
     def _refresh_summaries(self) -> None:
         voice = safe_attr(self.controller, "voice_manager", None)

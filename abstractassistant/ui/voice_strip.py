@@ -75,6 +75,12 @@ def _build_strip_qss() -> str:
         QLabel#voiceStripStatus[state="error"] {{ color: {t.danger_text}; }}
         QLabel#voiceStripStatus[state="paused"], QLabel#voiceStripStatus[state="starting"] {{ color: {t.text_secondary}; }}
         QLabel#voiceStripGlyph {{ background: transparent; border: none; }}
+        QLabel#voiceStripLanguage {{
+            color: {t.text_secondary};
+            font-size: {m.font_caption}px;
+            background: transparent;
+            border: none;
+        }}
         QPushButton#voiceStripButton {{
             min-height: 22px; max-height: 22px; min-width: 22px; max-width: 22px;
             padding: 0px;
@@ -173,6 +179,14 @@ class VoiceStrip(QFrame):
         self.status.setTextFormat(Qt.PlainText)
         row.addWidget(self.status, 1, Qt.AlignVCenter)
 
+        # "Spoken language: <label>" (round 18) — the served label of the ACCOUNT's
+        # preference, set by the host when the strip opens; hidden when unknown.
+        self.language = QLabel("")
+        self.language.setObjectName("voiceStripLanguage")
+        self.language.setTextFormat(Qt.PlainText)
+        self.language.hide()
+        row.addWidget(self.language, 0, Qt.AlignVCenter)
+
         def _button(name: str, icon: str, tooltip: str) -> QPushButton:
             button = QPushButton()
             button.setObjectName("voiceStripButton")
@@ -232,5 +246,20 @@ class VoiceStrip(QFrame):
     def set_level(self, level: float) -> None:
         self.meter.set_level(level)
 
+    def set_spoken_language(self, label: str) -> None:
+        """Name the spoken language next to the microphone: ``Spoken language: <label>``
+        with the gateway's label; an empty label (the block is unknown) shows nothing."""
+        label = str(label or "").strip()
+        text = spoken_language_text(label)
+        self.language.setText(text)
+        self.language.setToolTip(text)
+        self.language.setVisible(bool(text))
 
-__all__ = ["LevelMeter", "VoiceStrip", "VOICE_STRIP_HEIGHT", "VOICE_STRIP_QSS"]
+
+def spoken_language_text(label: str) -> str:
+    """The contract's wording next to a voice-input affordance ("" when unknown)."""
+    label = str(label or "").strip()
+    return f"Spoken language: {label}" if label else ""
+
+
+__all__ = ["LevelMeter", "VoiceStrip", "VOICE_STRIP_HEIGHT", "VOICE_STRIP_QSS", "spoken_language_text"]

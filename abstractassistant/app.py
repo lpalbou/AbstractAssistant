@@ -201,7 +201,7 @@ from .ui.approval import (
 from .ui.dialogs import AskUserDialog
 from .ui.settings import SettingsDialog, ToolSettingsDialog
 from .ui.styles import chat_stylesheet, dialog_stylesheet, scope_stylesheet
-from .ui.voice_strip import VOICE_STRIP_HEIGHT, VoiceStrip
+from .ui.voice_strip import VOICE_STRIP_HEIGHT, VoiceStrip, spoken_language_text
 
 _HTML_ACTION_FENCE_RE = re.compile(
     r"```(?:html|x-html|xml)[^\n]*\n(.*?)```", flags=re.I | re.S
@@ -10151,8 +10151,16 @@ class AssistantPalette(QMainWindow):
             return
         self._listening = True
         self.mic_button.setChecked(True)
-        self.mic_button.setToolTip("Stop listening")
+        language = spoken_language_text(self._spoken_language_label())
+        self.mic_button.setToolTip(f"Stop listening\n{language}" if language else "Stop listening")
         self._set_status("Listening...", tone="busy")
+
+    def _spoken_language_label(self) -> str:
+        """The served label of the account's spoken language, re-read each time a voice
+        input opens (round 18: Settings → Voice changes it on the gateway; nothing is kept
+        here). "" when the gateway serves no block or cannot be asked (the controller's
+        cached preferences read already absorbs an unreachable gateway)."""
+        return str(self._controller.spoken_language_label() or "")
 
     def _on_transcription(self, text: str) -> None:
         conversation = self._state("_voice_conversation")
@@ -10215,6 +10223,7 @@ class AssistantPalette(QMainWindow):
         self.conversation_button.setToolTip("End the voice conversation (⌘⇧V)")
         self.mic_button.setEnabled(False)
         self.mic_button.setToolTip("Dictation is off during a voice conversation")
+        self.voice_strip.set_spoken_language(self._spoken_language_label())
         self.voice_strip.show()
         self._sync_composer_height()
         started = conversation.start(
