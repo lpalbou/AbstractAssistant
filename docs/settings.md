@@ -130,12 +130,14 @@ gateway did not serve a time zone (needs gateway ≥ the round-16 build)."
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
+| Spoken language | Listening card. The language you speak to the microphone: **Auto (detected)** or one of the gateway's languages. The list and the explanation under it are the gateway's; a pick applies at once ("Saved."; a refusal: "Not saved." + the gateway's sentence, and the stored choice stays shown). A gateway that serves no spoken language leaves the list disabled with "The gateway's account preferences answer has no spoken_language block." in the theme's error colour | your **account** on the gateway (`PUT /api/gateway/accounts/me/preferences` `{"spoken_language": "auto" \| "<code>"}`), shared with AbstractCode and the console |
 | Send what you say automatically | Switch, conversation mode: send what you say as a turn; off, words land in the message box; applies at once | this app `voice_auto_send` |
 | Ask for short, spoken-style replies | Switch: adds a voice-style instruction to each request while a conversation runs; applies at once | this app `voice_spoken_replies` |
 | Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
 
 The speech engines are not on this page: they are chosen in one place, Models → Voice output
-(TTS) / Voice input (STT). See [voice.md](voice.md) for how the conversation loop behaves.
+(TTS) / Voice input (STT). See [voice.md](voice.md) for how the conversation loop behaves and
+how the spoken language is applied.
 
 ## Workspace
 

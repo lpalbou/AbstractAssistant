@@ -30,6 +30,24 @@ reply with nothing left to read says so instead of playing nothing.
 The microphone button in the composer dictates into the message box. Each utterance is appended
 to the text; press Return to send. Saying "stop" closes the microphone.
 
+## Spoken language
+
+The language you speak to the microphone is a preference of your **account on the gateway**
+(Settings → Voice → Listening → **Spoken language**), shared with AbstractCode and the console's
+Accounts → Preferences. Dictation and the voice conversation send no language of their own: the
+gateway applies your preference to every transcription. The row, its explanation and its list
+of languages are the gateway's (`GET /api/gateway/accounts/me/preferences` → `spoken_language`),
+so every app offers the same choices.
+
+- **Auto (detected)** (the default) lets the speech engine detect the language of each utterance.
+- Naming a language skips detection, so short phrases and mixed-language speech transcribe
+  reliably and a little faster.
+
+While listening, the voice strip names the choice ("Spoken language: French"), and the
+microphone button's tooltip does too while you dictate. Both read your account's preference each
+time the microphone opens, so a change made in Settings or in another app applies to the next
+utterance you start.
+
 ## Voice conversation (hands-free)
 
 Start with ⌘⇧V, the waveform button next to the send button, or the tray menu. The loop:
