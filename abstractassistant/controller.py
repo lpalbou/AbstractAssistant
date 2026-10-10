@@ -58,6 +58,17 @@ logger = logging.getLogger(__name__)
 _ACCOUNT_PREFS_LOCK = threading.RLock()
 
 
+def spoken_language_label(block: Optional[Dict[str, Any]]) -> str:
+    """The served label of a ``spoken_language`` block's current value ("" when unknown)."""
+    if not isinstance(block, dict):
+        return ""
+    value = block.get("value")
+    for choice in block.get("choices") or []:
+        if isinstance(choice, dict) and choice.get("value") == value:
+            return str(choice.get("label") or "")
+    return ""
+
+
 def _is_account_preferences_answer(answer: Any) -> bool:
     """The shape of GET/PUT /api/gateway/accounts/me/preferences (round 14)."""
     if not isinstance(answer, dict) or not isinstance(answer.get("apps"), list):
@@ -468,6 +479,33 @@ class AssistantController:
         answer = self.gateway.put_account_preferences({"time_zone": value})
         self._store_account_preferences(answer)
         block = answer.get("time_zone") if isinstance(answer, dict) else None
+        return dict(block) if isinstance(block, dict) else {}
+
+    # ------------------------------------------ the account spoken language (round 18)
+
+    def account_spoken_language(self) -> Optional[Dict[str, Any]]:
+        """The ``spoken_language`` block of the account preferences (round 18): ``{value,
+        label, help, choices: [{value, label}]}`` — ``value`` is "auto" or a code, and the
+        choices are the GATEWAY's (AbstractVoice's list), never a list kept here. None on a
+        gateway that serves no such block. This app keeps no copy: dictation sends no
+        ``language`` and the gateway applies this preference to every transcription."""
+        answer = self.account_preferences()
+        block = answer.get("spoken_language") if isinstance(answer, dict) else None
+        if isinstance(block, dict) and isinstance(block.get("choices"), list) and isinstance(block.get("value"), str):
+            return dict(block)
+        return None
+
+    def spoken_language_label(self) -> str:
+        """The served label of the current spoken language (e.g. "Auto (detected)"), or ""
+        when the gateway serves no block — what the voice strip names."""
+        return spoken_language_label(self.account_spoken_language())
+
+    def set_spoken_language(self, value: str) -> Dict[str, Any]:
+        """``PUT /accounts/me/preferences {"spoken_language": "auto"|<code>}``. A refusal
+        raises with the gateway's sentence; nothing is kept locally."""
+        answer = self.gateway.put_account_preferences({"spoken_language": value})
+        self._store_account_preferences(answer)
+        block = answer.get("spoken_language") if isinstance(answer, dict) else None
         return dict(block) if isinstance(block, dict) else {}
 
     # ------------------------------------------ the account preference (round 14)
