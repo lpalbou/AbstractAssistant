@@ -95,18 +95,6 @@ class GatewayVoiceManager:
         self._quality_preset = ""
         self._quality_preset_warned = False
 
-    def _default_stt_language(self) -> Optional[str]:
-        """Best-effort language hint for STT (improves accuracy vs autodetect)."""
-        try:
-            from abstractcore.config.manager import get_config_manager  # type: ignore
-
-            lang = getattr(getattr(get_config_manager().config, "audio", None), "stt_language", None)
-            if isinstance(lang, str) and lang.strip():
-                return lang.strip()
-        except Exception:
-            return None
-        return None
-
     def is_available(self) -> bool:
         """Return True if any gateway voice capability is available."""
         return bool(self.supports_tts() or self.supports_stt())
@@ -386,12 +374,6 @@ class GatewayVoiceManager:
             stt_model_fn=self._selected_stt_model,
             stt_provider_fn=self._selected_stt_provider,
         )
-        lang = None
-        try:
-            lang = self._default_stt_language()
-        except Exception:
-            lang = None
-
         def _on_transcription(text: str) -> None:
             try:
                 if on_transcription:
@@ -422,7 +404,10 @@ class GatewayVoiceManager:
             stop_callback=_on_stop,
             debug_mode=self.debug_mode,
             stt_adapter=adapter,
-            language=lang,
+            # No language hint (round 18): the spoken language is the ACCOUNT's preference,
+            # resolved by the gateway on every transcription (request hint -> account ->
+            # auto). This app keeps no copy, so dictation never overrides it.
+            language=None,
             audio_level_callback=_on_audio_level,
         )
         try:
