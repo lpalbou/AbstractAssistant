@@ -673,12 +673,14 @@ gateway did not serve a time zone (needs gateway ≥ the round-16 build)."
 | Output device | Which speaker replies play on. A list of the devices this Mac can play to, rebuilt each time it is opened, with `System default` first; `Test` plays a tone on the selected one. AirPlay targets are not offered to apps by macOS — pick them in the Sound menu and leave this on `System default` | this app `audio_output_device` (a CoreAudio UID) |
 | Speak replies automatically | Switch: auto-speak final answers (also the speaker toggle in the header); applies at once | this app `auto_speak` |
 | Voice latency | Balanced / Faster / Higher quality, applied only when the gateway advertises the TTS quality control | this app `voice_quality` |
+| Spoken language | Listening card. The language you speak to the microphone: **Auto (detected)** or one of the gateway's languages. The list and the explanation under it are the gateway's; a pick applies at once ("Saved."; a refusal: "Not saved." + the gateway's sentence, and the stored choice stays shown). A gateway that serves no spoken language leaves the list disabled with "The gateway's account preferences answer has no spoken_language block." in the theme's error colour | your **account** on the gateway (`PUT /api/gateway/accounts/me/preferences` `{"spoken_language": "auto" \| "<code>"}`), shared with AbstractCode and the console |
 | Send what you say automatically | Switch, conversation mode: send what you say as a turn; off, words land in the message box; applies at once | this app `voice_auto_send` |
 | Ask for short, spoken-style replies | Switch: adds a voice-style instruction to each request while a conversation runs; applies at once | this app `voice_spoken_replies` |
 | Barge-in | A list: pause the mic while the assistant speaks (speakers) or keep it open so "stop" interrupts (headphones) | this app `voice_mode` (`wait` / `full`) |
 
 The speech engines are not on this page: they are chosen in one place, Models → Voice output
-(TTS) / Voice input (STT). See [voice.md](voice.md) for how the conversation loop behaves.
+(TTS) / Voice input (STT). See [voice.md](voice.md) for how the conversation loop behaves and
+how the spoken language is applied.
 
 ## Workspace
 
@@ -819,6 +821,24 @@ reply with nothing left to read says so instead of playing nothing.
 
 The microphone button in the composer dictates into the message box. Each utterance is appended
 to the text; press Return to send. Saying "stop" closes the microphone.
+
+## Spoken language
+
+The language you speak to the microphone is a preference of your **account on the gateway**
+(Settings → Voice → Listening → **Spoken language**), shared with AbstractCode and the console's
+Accounts → Preferences. Dictation and the voice conversation send no language of their own: the
+gateway applies your preference to every transcription. The row, its explanation and its list
+of languages are the gateway's (`GET /api/gateway/accounts/me/preferences` → `spoken_language`),
+so every app offers the same choices.
+
+- **Auto (detected)** (the default) lets the speech engine detect the language of each utterance.
+- Naming a language skips detection, so short phrases and mixed-language speech transcribe
+  reliably and a little faster.
+
+While listening, the voice strip names the choice ("Spoken language: French"), and the
+microphone button's tooltip does too while you dictate. Both read your account's preference each
+time the microphone opens, so a change made in Settings or in another app applies to the next
+utterance you start.
 
 ## Voice conversation (hands-free)
 
@@ -2614,6 +2634,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 - Settings → Workflow: a **Time zone** row: a searchable list of the gateway's time zones, **Gateway default (<zone>)** first; the choice applies at once to your account (`PUT /api/gateway/accounts/me/preferences {"time_zone"}`), shared with the console and AbstractCode. A gateway that serves no time zone leaves the row disabled with "This gateway did not serve a time zone (needs gateway ≥ the round-16 build)." in the theme's error colour. New: `AutomationsClient.schedule_preview`, `AutomationsHub.schedule_preview`, `controller.account_time_zone` / `set_time_zone`.
 - Automations: the list works with a gateway that does not serve the round-16 schedule fields (AbstractGateway 0.13.x serves only `next_fire_at`). `AutomationsClient.list` / `get` / `create` pass every summary through `core.automations.served_summary`: `next_run_at`, `next_run_local`, `time_zone`, `schedule_text` and `schedule_rule_text` are optional on read — the schedule reads "—" and the next run is the gateway's `next_fire_at`, shown in UTC. A served value is always shown as served.
 - The vendored `assets/automation_controls.json` matches the UI kit's (round 16) byte for byte: it gains the `schedule` block (the "When" words, the time-zone line and tooltip). The test fixtures are the kit's R16.1 fixtures (a `schedule@2` daily row; `schedule@2` in the trigger sources).
+- Settings → Voice: a **Listening** card with **Spoken language** — **Auto (detected)** or a language, from the gateway's list (AbstractGateway round 18, the `spoken_language` block of `GET /api/gateway/accounts/me/preferences`: label, explanation and choices are served). The choice belongs to your account (`PUT /api/gateway/accounts/me/preferences {"spoken_language"}`), shared with AbstractCode and the console; "Saved." / "Not saved." + the gateway's sentence. A gateway that serves no such block leaves the list disabled with "The gateway's account preferences answer has no spoken_language block." The voice strip shows "Spoken language: <name>" and the dictation tooltip names it too. New: `controller.account_spoken_language` / `spoken_language_label` / `set_spoken_language`.
+- Dictation and the voice conversation send no `language` with a transcription: the Assistant no longer reads AbstractCore's local `audio.stt_language`, and the gateway applies your account's spoken language (Auto = the engine detects it).
 
 ### Added
 
@@ -5141,6 +5163,17 @@ logger = logging.getLogger(__name__)
 _ACCOUNT_PREFS_LOCK = threading.RLock()
 
 
+def spoken_language_label(block: Optional[Dict[str, Any]]) -> str:
+    """The served label of a ``spoken_language`` block's current value ("" when unknown)."""
+    if not isinstance(block, dict):
+        return ""
+    value = block.get("value")
+    for choice in block.get("choices") or []:
+        if isinstance(choice, dict) and choice.get("value") == value:
+            return str(choice.get("label") or "")
+    return ""
+
+
 def _is_account_preferences_answer(answer: Any) -> bool:
     """The shape of GET/PUT /api/gateway/accounts/me/preferences (round 14)."""
     if not isinstance(answer, dict) or not isinstance(answer.get("apps"), list):
@@ -5551,6 +5584,33 @@ class AssistantController:
         answer = self.gateway.put_account_preferences({"time_zone": value})
         self._store_account_preferences(answer)
         block = answer.get("time_zone") if isinstance(answer, dict) else None
+        return dict(block) if isinstance(block, dict) else {}
+
+    # ------------------------------------------ the account spoken language (round 18)
+
+    def account_spoken_language(self) -> Optional[Dict[str, Any]]:
+        """The ``spoken_language`` block of the account preferences (round 18): ``{value,
+        label, help, choices: [{value, label}]}`` — ``value`` is "auto" or a code, and the
+        choices are the GATEWAY's (AbstractVoice's list), never a list kept here. None on a
+        gateway that serves no such block. This app keeps no copy: dictation sends no
+        ``language`` and the gateway applies this preference to every transcription."""
+        answer = self.account_preferences()
+        block = answer.get("spoken_language") if isinstance(answer, dict) else None
+        if isinstance(block, dict) and isinstance(block.get("choices"), list) and isinstance(block.get("value"), str):
+            return dict(block)
+        return None
+
+    def spoken_language_label(self) -> str:
+        """The served label of the current spoken language (e.g. "Auto (detected)"), or ""
+        when the gateway serves no block — what the voice strip names."""
+        return spoken_language_label(self.account_spoken_language())
+
+    def set_spoken_language(self, value: str) -> Dict[str, Any]:
+        """``PUT /accounts/me/preferences {"spoken_language": "auto"|<code>}``. A refusal
+        raises with the gateway's sentence; nothing is kept locally."""
+        answer = self.gateway.put_account_preferences({"spoken_language": value})
+        self._store_account_preferences(answer)
+        block = answer.get("spoken_language") if isinstance(answer, dict) else None
         return dict(block) if isinstance(block, dict) else {}
 
     # ------------------------------------------ the account preference (round 14)
@@ -12202,18 +12262,6 @@ class GatewayVoiceManager:
         self._quality_preset = ""
         self._quality_preset_warned = False
 
-    def _default_stt_language(self) -> Optional[str]:
-        """Best-effort language hint for STT (improves accuracy vs autodetect)."""
-        try:
-            from abstractcore.config.manager import get_config_manager  # type: ignore
-
-            lang = getattr(getattr(get_config_manager().config, "audio", None), "stt_language", None)
-            if isinstance(lang, str) and lang.strip():
-                return lang.strip()
-        except Exception:
-            return None
-        return None
-
     def is_available(self) -> bool:
         """Return True if any gateway voice capability is available."""
         return bool(self.supports_tts() or self.supports_stt())
@@ -12493,12 +12541,6 @@ class GatewayVoiceManager:
             stt_model_fn=self._selected_stt_model,
             stt_provider_fn=self._selected_stt_provider,
         )
-        lang = None
-        try:
-            lang = self._default_stt_language()
-        except Exception:
-            lang = None
-
         def _on_transcription(text: str) -> None:
             try:
                 if on_transcription:
@@ -12529,7 +12571,10 @@ class GatewayVoiceManager:
             stop_callback=_on_stop,
             debug_mode=self.debug_mode,
             stt_adapter=adapter,
-            language=lang,
+            # No language hint (round 18): the spoken language is the ACCOUNT's preference,
+            # resolved by the gateway on every transcription (request hint -> account ->
+            # auto). This app keeps no copy, so dictation never overrides it.
+            language=None,
             audio_level_callback=_on_audio_level,
         )
         try:
