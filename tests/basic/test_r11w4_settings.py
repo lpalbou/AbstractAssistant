@@ -326,12 +326,13 @@ def test_voice_tab_has_no_engines_card_and_keeps_the_device_and_reply_options() 
     page = dlg.page_voice
     titles = [t.text() for t in page.findChildren(QLabel, "cardTitle")]
     assert "Engines" not in titles
-    assert titles == ["Output", "Replies", "Voice conversation"]
+    # Round 18: "Listening" holds the account's Spoken language (served by the gateway).
+    assert titles == ["Output", "Replies", "Listening", "Voice conversation"]
     assert {b.text() for b in page.findChildren(QPushButton)} == {"Test"}
     for gone in ("tts_summary", "stt_summary", "tts_link", "stt_link", "navigate", "engine_summary"):
         assert not hasattr(page, gone), gone
     rows = [label.text() for label in page.findChildren(QLabel, "rowLabel")]
-    assert rows == ["Output device", "Playing on", "Read aloud", "Voice latency", "Sending", "Reply style", "Barge-in"]
+    assert rows == ["Output device", "Playing on", "Read aloud", "Voice latency", "Spoken language", "Sending", "Reply style", "Barge-in"]
 
 
 # --------------------------------------------------------------------------- #
