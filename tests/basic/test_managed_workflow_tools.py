@@ -1,7 +1,8 @@
-"""Automation inputs without chat selections must still expose the agent's tools."""
+"""Automation inputs without chat selections must still expose the agent's tools, within the caller's ceiling."""
 
 import pytest
 
+from agent_fixture import agent_subflow  # tests/basic is on sys.path
 from abstractassistant.assistant_workflow import managed_assistant_visualflow
 
 rt = pytest.importorskip("abstractruntime")
@@ -9,17 +10,21 @@ compile_visualflow = pytest.importorskip("abstractruntime.visualflow_compiler").
 
 
 @pytest.mark.parametrize(
-    "inputs, expected",
+    "inputs, tools, ceiling",
     [
-        ({}, None),
-        ({"tools": []}, []),
-        ({"tools": ["web_search"]}, ["web_search"]),
-        ({"_runtime": {"allowed_tools": []}}, []),
-        ({"_runtime": {"allowed_tools": ["web_search"]}}, ["web_search"]),
+        ({}, None, None),
+        ({"tools": []}, [], None),
+        ({"tools": ["web_search"]}, ["web_search"], None),
+        ({"_runtime": {"allowed_tools": []}}, None, []),
+        ({"_runtime": {"allowed_tools": ["web_search"]}}, None, ["web_search"]),
     ],
 )
-def test_compiled_default_tools_respect_explicit_inputs_and_parent_ceiling(inputs, expected):
-    flow = managed_assistant_visualflow()
+def test_the_agent_subflow_gets_the_tools_and_the_callers_ceiling(inputs, tools, ceiling):
+    """Chat runs basic-agent as a subflow: the orchestrator hands it the caller's
+    tools (or this workflow's baseline when the caller sends none), and the
+    caller's explicit runtime ceiling reaches the child run, where basic-agent's
+    agent node intersects the two."""
+    flow = managed_assistant_visualflow(agent_subflow())
     flow["id"] = "assistant_tools_probe"
     spec = compile_visualflow(flow)
     parent = rt.RunState.new(
@@ -31,9 +36,8 @@ def test_compiled_default_tools_respect_explicit_inputs_and_parent_ceiling(input
     router = spec.get_node("route_call")(parent, None)
     assert router.effect.payload["tools"] == []
     agent = spec.get_node("assistant_agent")(parent, None)
+    assert agent.effect.payload["workflow_id"] == agent_subflow().flow_id
 
-    # Execute the actual child-start boundary: it intersects the workflow's
-    # selected tools with the caller's explicit runtime ceiling.
     child = rt.WorkflowSpec(
         workflow_id=agent.effect.payload["workflow_id"], entry_node="done",
         nodes={"done": lambda run, ctx: rt.StepPlan(node_id="done", complete_output={})},
@@ -47,9 +51,12 @@ def test_compiled_default_tools_respect_explicit_inputs_and_parent_ceiling(input
     assert outcome.status != "failed", outcome.error
     children = store.list_children(parent_run_id=parent.run_id)
     assert len(children) == 1
-    tools = children[0].vars["_runtime"]["allowed_tools"]
-    if expected is None:
-        assert {"web_search", "fetch_url", "read_file"} <= set(tools)
-        assert "send_email" not in tools  # Host-owned optional capability.
+    if tools is None:
+        assert {"web_search", "fetch_url", "read_file"} <= set(children[0].vars["tools"])
+        assert "send_email" not in children[0].vars["tools"]  # Host-owned optional capability.
     else:
-        assert tools == expected
+        assert children[0].vars["tools"] == tools
+    if ceiling is None:
+        assert "allowed_tools" not in (children[0].vars.get("_runtime") or {})
+    else:
+        assert children[0].vars["_runtime"]["allowed_tools"] == ceiling

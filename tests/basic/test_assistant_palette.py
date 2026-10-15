@@ -48,7 +48,9 @@ from abstractassistant.app import (
 )
 from abstractassistant.controller import AssistantController
 from abstractassistant.gateway_service import AssistantGatewayService
+from agent_fixture import AgentBundleMixin, managed_flow, stored_agent_copy, with_agent_copy  # noqa: E402 (tests/basic is on sys.path)
 from abstractassistant.assistant_workflow import (
+    MANAGED_ASSISTANT_WORKFLOW_NAME,
     MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
     normalized_managed_visualflow,
 )
@@ -89,15 +91,13 @@ def _executable(payload: dict) -> dict:
     return {**payload, "executable_for": "abstractassistant.agent.v1", "items": items}
 
 
-class _GatewayCatalogStub:
+class _GatewayCatalogStub(AgentBundleMixin):
     def __init__(self) -> None:
         self.voice_model_calls: list[dict] = []
         # The stored managed flow matches this build's definition, so the
         # ensure-path drift reconcile finds nothing to republish and these
         # tests stay about catalog READS (no publish machinery needed).
-        self.visualflows: list[dict] = [
-            {"id": "vf-managed", **normalized_managed_visualflow()}
-        ]
+        self.visualflows: list[dict] = with_agent_copy([{"id": "vf-managed", **managed_flow()}])
 
     def list_visualflows(self) -> list[dict]:
         return list(self.visualflows)
@@ -297,13 +297,13 @@ def test_assistant_palette_gateway_service_runs_the_newest_version_without_a_cat
     assert status.error == ""
 
 
-class _ManagedWorkflowGatewayStub:
+class _ManagedWorkflowGatewayStub(AgentBundleMixin):
     def __init__(self) -> None:
         self.created: list[dict] = []
         self.updated: list[dict] = []
         self.published: list[dict] = []
         self.promoted: list[dict] = []
-        self._flows: list[dict] = []
+        self._flows: list[dict] = [stored_agent_copy()]
         self._bundles: list[dict] = []
         self._catalog_items: list[dict] = []
 
@@ -322,7 +322,7 @@ class _ManagedWorkflowGatewayStub:
             "edges": kwargs.get("edges"),
             "entryNode": kwargs.get("entry_node"),
         }
-        self._flows = [flow]
+        self._flows = [f for f in self._flows if f["id"] != flow["id"]] + [flow]
         self.created.append(dict(kwargs))
         return flow
 
@@ -337,7 +337,7 @@ class _ManagedWorkflowGatewayStub:
             "edges": kwargs.get("edges"),
             "entryNode": kwargs.get("entry_node"),
         }
-        self._flows = [flow]
+        self._flows = [f for f in self._flows if f["id"] != flow["id"]] + [flow]
         return flow
 
     def publish_visualflow(self, **kwargs) -> dict:
@@ -418,7 +418,7 @@ def test_assistant_palette_gateway_service_reconciles_and_promotes_catalog_workf
 
 @pytest.mark.basic
 def test_assistant_palette_managed_workflow_accepts_prompt_alias_for_media_routes() -> None:
-    flow = normalized_managed_visualflow()
+    flow = managed_flow()
     nodes = {str(node.get("id")): node for node in flow["nodes"]}
     edges = {str(edge.get("id")): edge for edge in flow["edges"]}
 
@@ -464,7 +464,7 @@ def test_assistant_palette_managed_workflow_declares_media_override_pins() -> No
     """Per-run media overrides ride start-node pins into each media node
     (maintainer ruling 2026-07-28: every modality overridable in-app, gateway
     defaults never written). Absent pins = bare spec = gateway default."""
-    flow = normalized_managed_visualflow()
+    flow = managed_flow()
     nodes = {str(node.get("id")): node for node in flow["nodes"]}
     edges = {str(edge.get("id")): edge for edge in flow["edges"]}
 
@@ -555,9 +555,9 @@ def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> 
     # catalog default (2026-09-25: the default is the gateway operator's
     # setting; the app runs the newest version of its own bundle instead). The
     # new version must be a bump PAST every known version (registry + catalog).
-    stored = dict(gateway._flows[0])
+    stored = dict(next(f for f in gateway._flows if f["name"] == MANAGED_ASSISTANT_WORKFLOW_NAME))
     stored["edges"] = [e for e in stored["edges"] if e.get("id") != "start-sound-output"]
-    gateway._flows = [stored]
+    gateway._flows = [stored_agent_copy(), stored]
     service3 = AssistantGatewayService(gateway)
     workflows = service3.ensure_catalog_workflow()
     assert len(gateway.published) == 2
@@ -568,7 +568,7 @@ def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> 
 
     # Reconciliation is once per process/service: a second ensure on the same
     # instance must not re-fetch/re-publish even if the store still drifts.
-    gateway._flows = [stored]
+    gateway._flows = [stored_agent_copy(), stored]
     service3.ensure_catalog_workflow()
     assert len(gateway.published) == 2
 
@@ -576,7 +576,7 @@ def test_assistant_palette_gateway_service_republishes_on_definition_drift() -> 
     # — the live 2026-07-17 principal-split case where the catalog bundle
     # survived but its source flow did not. Self-stabilizing: the recreate
     # stores the current definition, so the next process publishes nothing.
-    gateway._flows = []
+    gateway._flows = [stored_agent_copy()]
     service4 = AssistantGatewayService(gateway)
     service4.ensure_catalog_workflow()
     assert len(gateway.published) == 3

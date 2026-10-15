@@ -188,9 +188,10 @@ TRUNCATED_NOTE = (
 
 
 def subagent_caption(node_id: str) -> str:
-    """Label of a live card streamed by a child run."""
-    node = str(node_id or "").strip()
-    return f"sub-agent · {node}" if node else "sub-agent"
+    """Label of a live card streamed by a child run. The child's node id ("reason") is a runtime
+    name that means nothing to the reader, so the label is just "sub-agent" (operator 2026-10-15)."""
+    del node_id
+    return "sub-agent"
 
 
 def end_reason_text(reason: str, detail: str = "") -> str:

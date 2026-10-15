@@ -22,6 +22,7 @@ import pytest
 
 from abstractassistant import assistant_workflow as wf
 from abstractassistant.gateway_service import AssistantGatewayService
+from agent_fixture import managed_flow, stored_agent_copy  # tests/basic is on sys.path
 from test_assistant_palette import _ManagedWorkflowGatewayStub  # sibling test module (rootdir-prepended)
 
 
@@ -32,12 +33,16 @@ def _service_with_published_workflow():
     return gateway
 
 
+def _orchestrator(gateway) -> dict:
+    return next(f for f in gateway._flows if f["name"] == wf.MANAGED_ASSISTANT_WORKFLOW_NAME)
+
+
 def _relaunch(gateway) -> None:
     AssistantGatewayService(gateway).ensure_catalog_workflow()  # a new process reconciles again
 
 
 def test_the_workflow_declares_its_revision() -> None:
-    flow = wf.normalized_managed_visualflow()
+    flow = managed_flow()
     assert wf.managed_workflow_revision_of(flow) == wf.MANAGED_ASSISTANT_WORKFLOW_REVISION >= 2
     assert wf.MANAGED_ASSISTANT_WORKFLOW_MARKER in flow["description"]
     # A workflow published before revisions existed declares none: that is revision 1.
@@ -54,27 +59,27 @@ def test_an_unchanged_workflow_is_never_republished() -> None:
 
 def test_a_build_never_downgrades_a_newer_stored_workflow() -> None:
     gateway = _service_with_published_workflow()
-    newer = copy.deepcopy(gateway._flows[0])
+    newer = copy.deepcopy(_orchestrator(gateway))
     newer["description"] = newer["description"].replace(
         f"workflow-revision={wf.MANAGED_ASSISTANT_WORKFLOW_REVISION}",
         f"workflow-revision={wf.MANAGED_ASSISTANT_WORKFLOW_REVISION + 1}",
     )
     newer["nodes"] = list(newer["nodes"])[:-1]  # and it genuinely differs from this build's
-    gateway._flows = [newer]
+    gateway._flows = [stored_agent_copy(), newer]
 
     with pytest.warns(UserWarning, match="newer AbstractAssistant workflow"):
         workflows = AssistantGatewayService(gateway).ensure_catalog_workflow()
 
     assert workflows, "the newer workflow is USED, not refused"
     assert len(gateway.published) == 1 and gateway.updated == [] and len(gateway.promoted) == 1
-    assert gateway._flows == [newer]
+    assert gateway._flows == [stored_agent_copy(), newer]
 
 
 def test_an_older_stored_workflow_is_upgraded_once() -> None:
     gateway = _service_with_published_workflow()
-    older = copy.deepcopy(gateway._flows[0])
+    older = copy.deepcopy(_orchestrator(gateway))
     older["description"] = older["description"].split(";workflow-revision=")[0]  # pre-revision build
-    gateway._flows = [older]
+    gateway._flows = [stored_agent_copy(), older]
 
     _relaunch(gateway)
     assert len(gateway.updated) == 1 and len(gateway.published) == 2
@@ -84,16 +89,16 @@ def test_an_older_stored_workflow_is_upgraded_once() -> None:
 
 def test_toolless_revision_two_is_upgraded_once() -> None:
     gateway = _service_with_published_workflow()
-    older = copy.deepcopy(gateway._flows[0])
+    older = copy.deepcopy(_orchestrator(gateway))
     older["description"] = older["description"].replace(
         f"workflow-revision={wf.MANAGED_ASSISTANT_WORKFLOW_REVISION}", "workflow-revision=2"
     )
     start = next(node for node in older["nodes"] if node["id"] == "start")
     start["data"]["pinDefaults"].pop("tools")
-    gateway._flows = [older]
+    gateway._flows = [stored_agent_copy(), older]
 
     _relaunch(gateway)
-    upgraded = next(node for node in gateway._flows[0]["nodes"] if node["id"] == "start")
+    upgraded = next(node for node in _orchestrator(gateway)["nodes"] if node["id"] == "start")
     assert "web_search" in upgraded["data"]["pinDefaults"]["tools"]
     assert len(gateway.updated) == 1 and len(gateway.published) == 2
     _relaunch(gateway)

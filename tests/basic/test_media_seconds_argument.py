@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from agent_fixture import agent_subflow  # tests/basic is on sys.path
 from abstractassistant.assistant_workflow import _ROUTER_SCHEMA, managed_assistant_visualflow
 
 rt = pytest.importorskip("abstractruntime")
@@ -36,7 +37,7 @@ def _run(route: Dict[str, Any]) -> List[Dict[str, Any]]:
         media_calls.append(copy.deepcopy(payload))
         return EffectOutcome.completed({"content": None, "outputs": {}})
 
-    flow = managed_assistant_visualflow()
+    flow = managed_assistant_visualflow(agent_subflow())
     flow["id"] = "assistant_seconds_probe"
     spec = compile_visualflow(flow)
     registry = rt.WorkflowRegistry()

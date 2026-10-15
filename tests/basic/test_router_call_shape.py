@@ -19,6 +19,7 @@ import copy
 
 import pytest
 
+from agent_fixture import agent_subflow  # tests/basic is on sys.path
 from abstractassistant.assistant_workflow import managed_assistant_visualflow
 
 compile_visualflow = pytest.importorskip("abstractruntime.visualflow_compiler").compile_visualflow
@@ -49,7 +50,7 @@ def _route_call_payload(flow: dict) -> dict:
 
 
 def test_router_runs_without_tools_and_at_its_own_temperature() -> None:
-    payload = _route_call_payload(managed_assistant_visualflow())
+    payload = _route_call_payload(managed_assistant_visualflow(agent_subflow()))
     assert payload.get("tools") == []
     assert payload["params"]["temperature"] == 0.0
     assert payload["response_schema"], "the router is a structured call"
@@ -59,7 +60,7 @@ def test_router_runs_without_tools_and_at_its_own_temperature() -> None:
 def test_the_pins_are_what_shuts_the_inheritance() -> None:
     """Remove the declared pins and the agent's tools come straight back — i.e. this
     file fails if someone 'tidies' the two unused-looking inputs off the node."""
-    flow = managed_assistant_visualflow()
+    flow = managed_assistant_visualflow(agent_subflow())
     for node in flow["nodes"]:
         if node.get("id") != "route_call":
             continue

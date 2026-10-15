@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 
 MANAGED_ASSISTANT_WORKFLOW_NAME = "AbstractAssistant Orchestrator"
@@ -25,7 +26,9 @@ MANAGED_ASSISTANT_WORKFLOW_MARKER = "managed-by=abstractassistant;scope=tenant-c
 #   2 = route_call pins `tools: []` / `temperature: 0.0` (2026-09-17)
 #   3 = explicit agent tool defaults for callers without chat tool selections
 #   4 = the router's typed `seconds` argument reaches the sound/music nodes (R10.1, 2026-10-04)
-MANAGED_ASSISTANT_WORKFLOW_REVISION = 4
+#   5 = chat runs basic-agent as a subflow; media provider/model pins typed; every end
+#       carries meta (2026-10-11)
+MANAGED_ASSISTANT_WORKFLOW_REVISION = 5
 _REVISION_MARKER_PREFIX = "workflow-revision="
 
 
@@ -200,7 +203,59 @@ def _edge(edge_id: str, source: str, source_handle: str, target: str, target_han
     }
 
 
-def managed_assistant_visualflow() -> Dict[str, Any]:
+# The chat branch runs basic-agent, the framework's agent workflow, as a subflow
+# (operator 2026-10-11: one agent, not a second copy inlined here). A subflow is
+# packed into the published bundle, so the app keeps a copy of basic-agent's flows
+# in the gateway's flow store (gateway_service._ensure_agent_copies) and passes the
+# copy's id and pins here; a new basic-agent version changes `bundle_ref`, hence the
+# description, hence a republish.
+AGENT_BUNDLE_ID = "basic-agent"
+
+# The orchestrator start pins wired into the agent subflow: basic-agent must take
+# each of them (checked when the workflow is built, never silently dropped).
+_AGENT_WIRED_INPUTS = (
+    "use_context", "context", "provider", "model", "system", "prompt", "tools",
+    "max_iterations", "max_in_tokens", "temperature", "seed", "resp_schema",
+)
+_AGENT_WIRED_OUTPUTS = ("response", "success", "meta", "scratchpad")
+
+
+@dataclass(frozen=True)
+class AgentSubflow:
+    """The copy of basic-agent the chat branch calls: its stored flow id, the bundle
+    it was copied from (``basic-agent@0.0.5``), and its boundary pins."""
+
+    flow_id: str
+    bundle_ref: str
+    inputs: Tuple[Dict[str, Any], ...]
+    outputs: Tuple[Dict[str, Any], ...]
+
+
+def agent_subflow_from_flow(*, flow_id: str, bundle_ref: str, flow: Dict[str, Any]) -> AgentSubflow:
+    """The subflow pins of an agent flow: its On Flow Start outputs and On Flow End inputs."""
+    nodes = [n for n in (flow.get("nodes") or []) if isinstance(n, dict)]
+
+    def _boundary(node_type: str, side: str) -> List[Dict[str, Any]]:
+        found = [n for n in nodes if (n.get("data") or {}).get("nodeType") == node_type]
+        if not found:
+            raise ValueError(f"{bundle_ref} has no {node_type} node")
+        pins: List[Dict[str, Any]] = []
+        for node in found:
+            for pin in (node.get("data") or {}).get(side) or []:
+                if isinstance(pin, dict) and pin.get("type") != "execution" and pin.get("id") not in {p["id"] for p in pins}:
+                    pins.append(_pin(str(pin["id"]), str(pin.get("label") or pin["id"]), str(pin.get("type") or "any")))
+        return pins
+
+    inputs = _boundary("on_flow_start", "outputs")
+    outputs = _boundary("on_flow_end", "inputs")
+    missing = [p for p in _AGENT_WIRED_INPUTS if p not in {pin["id"] for pin in inputs}]
+    missing += [p for p in _AGENT_WIRED_OUTPUTS if p not in {pin["id"] for pin in outputs}]
+    if missing:
+        raise ValueError(f"{bundle_ref} lacks the pins the Assistant orchestrator wires: {', '.join(missing)}")
+    return AgentSubflow(flow_id=flow_id, bundle_ref=bundle_ref, inputs=tuple(inputs), outputs=tuple(outputs))
+
+
+def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
     start = _node(
         "start",
         "on_flow_start",
@@ -226,18 +281,18 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("primary_image_artifact", "primary_image_artifact", "artifact_image"),
             _pin("has_primary_image_context", "has_primary_image_context", "boolean"),
             # Per-run media model overrides (all optional; absent = gateway default).
-            _pin("image_provider", "image_provider", "string"),
-            _pin("image_model", "image_model", "string"),
-            _pin("image_edit_provider", "image_edit_provider", "string"),
-            _pin("image_edit_model", "image_edit_model", "string"),
-            _pin("image_upscale_provider", "image_upscale_provider", "string"),
-            _pin("image_upscale_model", "image_upscale_model", "string"),
-            _pin("video_provider", "video_provider", "string"),
-            _pin("video_model", "video_model", "string"),
-            _pin("image_to_video_provider", "image_to_video_provider", "string"),
-            _pin("image_to_video_model", "image_to_video_model", "string"),
-            _pin("music_provider", "music_provider", "string"),
-            _pin("music_model", "music_model", "string"),
+            _pin("image_provider", "image_provider", "provider_image"),
+            _pin("image_model", "image_model", "model"),
+            _pin("image_edit_provider", "image_edit_provider", "provider_image"),
+            _pin("image_edit_model", "image_edit_model", "model"),
+            _pin("image_upscale_provider", "image_upscale_provider", "provider_image"),
+            _pin("image_upscale_model", "image_upscale_model", "model"),
+            _pin("video_provider", "video_provider", "provider_video"),
+            _pin("video_model", "video_model", "model"),
+            _pin("image_to_video_provider", "image_to_video_provider", "provider_video"),
+            _pin("image_to_video_model", "image_to_video_model", "model"),
+            _pin("music_provider", "music_provider", "provider_music"),
+            _pin("music_model", "music_model", "model"),
             _pin("sound_output", "sound_output", "object"),
         ],
         pin_defaults={
@@ -410,34 +465,18 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
 
     agent = _node(
         "assistant_agent",
-        "agent",
+        "subflow",
         x=820.0,
         y=-360.0,
-        label="Assistant Agent",
-        icon="&#x1F916;",
-        color="#4488FF",
+        label="Basic agent",
+        icon="&#x1F4E6;",
+        color="#00CCCC",
         inputs=[
             _pin("exec-in", "", "execution"),
-            _pin("use_context", "use_context", "boolean"),
-            _pin("context", "context", "object"),
-            _pin("provider", "provider", "provider"),
-            _pin("model", "model", "model"),
-            _pin("system", "system", "string"),
-            _pin("prompt", "prompt", "string"),
-            _pin("tools", "tools", "tools"),
-            _pin("max_iterations", "max_iterations", "number"),
-            _pin("max_in_tokens", "max_in_tokens", "number"),
-            _pin("temperature", "temperature", "number"),
-            _pin("seed", "seed", "number"),
-            _pin("resp_schema", "resp_schema", "object"),
+            _pin("inherit_context", "inherit_context", "boolean"),
+            *agent_flow.inputs,
         ],
-        outputs=[
-            _pin("exec-out", "", "execution"),
-            _pin("response", "response", "string"),
-            _pin("success", "success", "boolean"),
-            _pin("meta", "meta", "object"),
-            _pin("scratchpad", "scratchpad", "object"),
-        ],
+        outputs=[_pin("exec-out", "", "execution"), *agent_flow.outputs],
         pin_defaults={
             "use_context": True,
             "system": _BASE_SYSTEM_PROMPT,
@@ -446,7 +485,7 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             "seed": -1,
         },
     )
-
+    agent["data"]["subflowId"] = agent_flow.flow_id
     image = _node(
         "generate_image",
         "generate_image",
@@ -458,8 +497,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
-            _pin("image_provider", "image_provider", "string"),
-            _pin("image_model", "image_model", "string"),
+            _pin("image_provider", "image_provider", "provider_image"),
+            _pin("image_model", "image_model", "model"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -485,8 +524,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
             _pin("image_artifact", "image_artifact", "artifact_image"),
-            _pin("image_provider", "image_provider", "string"),
-            _pin("image_model", "image_model", "string"),
+            _pin("image_provider", "image_provider", "provider_image"),
+            _pin("image_model", "image_model", "model"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -511,8 +550,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("image_artifact", "image_artifact", "artifact_image"),
-            _pin("image_provider", "image_provider", "string"),
-            _pin("image_model", "image_model", "string"),
+            _pin("image_provider", "image_provider", "provider_image"),
+            _pin("image_model", "image_model", "model"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -537,8 +576,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
-            _pin("video_provider", "video_provider", "string"),
-            _pin("video_model", "video_model", "string"),
+            _pin("video_provider", "video_provider", "provider_video"),
+            _pin("video_model", "video_model", "model"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -564,8 +603,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
             _pin("source_image", "source_image", "artifact_image"),
-            _pin("video_provider", "video_provider", "string"),
-            _pin("video_model", "video_model", "string"),
+            _pin("video_provider", "video_provider", "provider_video"),
+            _pin("video_model", "video_model", "model"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -590,8 +629,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         inputs=[
             _pin("exec-in", "", "execution"),
             _pin("prompt", "prompt", "string"),
-            _pin("music_provider", "music_provider", "string"),
-            _pin("music_model", "music_model", "string"),
+            _pin("music_provider", "music_provider", "provider_music"),
+            _pin("music_model", "music_model", "model"),
             _pin("duration_s", "duration_s", "number"),
         ],
         outputs=[
@@ -736,8 +775,10 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
             _pin("exec-in", "", "execution"),
             _pin("response", "response", "string"),
             _pin("success", "success", "boolean"),
+            _pin("meta", "meta", "object"),
         ],
-        pin_defaults={"success": True},
+        # Every end carries the Assistant contract's response/success/meta.
+        pin_defaults={"success": True, "meta": {}},
     )
 
     nodes = [
@@ -904,7 +945,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
         "description": (
             "Canonical catalog workflow for the compact AbstractAssistant tray surface. "
             f"{MANAGED_ASSISTANT_WORKFLOW_MARKER};"
-            f"{_REVISION_MARKER_PREFIX}{MANAGED_ASSISTANT_WORKFLOW_REVISION}"
+            f"{_REVISION_MARKER_PREFIX}{MANAGED_ASSISTANT_WORKFLOW_REVISION};"
+            f"agent={agent_flow.bundle_ref}"
         ),
         "interfaces": [ASSISTANT_INTERFACE],
         "nodes": nodes,
@@ -913,8 +955,8 @@ def managed_assistant_visualflow() -> Dict[str, Any]:
     }
 
 
-def normalized_managed_visualflow() -> Dict[str, Any]:
-    payload = managed_assistant_visualflow()
+def normalized_managed_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
+    payload = managed_assistant_visualflow(agent_flow)
     return {
         "name": payload["name"],
         "description": payload["description"],

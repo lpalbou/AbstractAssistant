@@ -605,8 +605,23 @@ def test_reconnect_drops_cards_that_are_not_resent(palette, qapp) -> None:
 def test_child_run_deltas_are_labelled(palette, qapp) -> None:
     _push(palette, qapp, _d("c1", 1, "searching", run_id="child", node_id="researcher", subagent=True))
     card = _live_cards(palette)[0]
-    assert card.caption == "sub-agent · researcher"
-    assert card.live_label.text().startswith("sub-agent · researcher")
+    # The child's node id is a runtime name ("reason", "researcher"); the reader gets "sub-agent".
+    assert card.caption == "sub-agent"
+    assert card.live_label.text().startswith("sub-agent")
+
+
+@pytest.mark.basic
+def test_reasoning_alone_draws_no_card_and_the_first_word_brings_it_with_the_thinking(palette, qapp) -> None:
+    # Operator 2026-10-15: an assistant bubble with nothing in it but "sub-agent · reason —
+    # Finishing…" took a third of the window while the model was still thinking.
+    _push(palette, qapp, _d("c1", 1, "pondering the fox", channel="reasoning", subagent=True))
+    assert _live_cards(palette) == []
+    _push(palette, qapp, {"type": "assistant_delta_end", "call_id": "c1", "seq": 2, "reason": "completed"})
+    assert _live_cards(palette) == []
+    _push(palette, qapp, _d("c2", 1, "still thinking", channel="reasoning"), _d("c2", 2, "The answer"))
+    card = _live_cards(palette)[0]
+    assert card.content_text == "The answer" and card.reasoning_text == "still thinking"
+    assert card.thinking_toggle.isVisible() and card.thinking_toggle.height() <= 22
 
 
 @pytest.mark.basic

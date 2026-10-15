@@ -296,6 +296,12 @@ Settings → Workflow:
   the built-in orchestrator when the gateway sets none;
 - **a chosen workflow**: its latest published version.
 
+The built-in orchestrator's chat branch runs `basic-agent`, the framework's agent workflow, as a
+subflow. A subflow is packed into the bundle it is published with, so the app keeps a copy of
+`basic-agent`'s flows in the gateway's flow store (they declare no interface: a subflow, not a
+second agent), follows the gateway's latest `basic-agent`, and republishes the orchestrator when
+it changes. Without `basic-agent` on the gateway the orchestrator is not published.
+
 The built-in orchestrator first routes the request (a structured answer: `mode`, the confirmation
 sentence, the `media_prompt`, and for music and sound effects the clip length `seconds`, or null
 when you named none). "A 3 s laser gunshot" reaches the sound model as `seconds: 3`; without a

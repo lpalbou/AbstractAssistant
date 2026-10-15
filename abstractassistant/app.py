@@ -3763,6 +3763,7 @@ class LiveMessageCard(MessageCard):
         self.thinking_toggle.setObjectName("liveThinkingToggle")
         self.thinking_toggle.setCursor(QCursor(Qt.PointingHandCursor))
         self.thinking_toggle.setFlat(True)
+        self.thinking_toggle.setFixedHeight(22)  # a row of text, not a 34px button that pads the card
         self.thinking_toggle.clicked.connect(self._toggle_thinking)
         self.thinking_toggle.hide()
         top.addWidget(self.thinking_toggle, 0, Qt.AlignVCenter)
@@ -9498,7 +9499,11 @@ class AssistantPalette(QMainWindow):
         changed = False
         for call_id in list(dirty):
             reply = replies.get(call_id)
-            if reply is None or not (reply.content or reply.reasoning):
+            # A card appears with the first words of the REPLY. Reasoning alone draws nothing:
+            # the thinking strip already says the model is working, and an empty bubble that
+            # says "Finishing…" is just space (operator 2026-10-15). The reasoning streamed
+            # before the first word is kept and shown under "Thinking" once the card exists.
+            if reply is None or not reply.content:
                 continue
             card = cards.get(call_id)
             try:
@@ -11368,6 +11373,8 @@ class AssistantPalette(QMainWindow):
                 color: #9bb0c6;
                 font-size: 11px;
                 padding: 0px 4px;
+                min-height: 0px;
+                max-height: 22px;
             }
             QTextBrowser#liveReasoningText {
                 background: transparent;

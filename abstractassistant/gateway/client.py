@@ -732,6 +732,33 @@ class GatewayClient:
             label="executable_bundles failed",
         )
 
+    def get_bundle(self, bundle_id: str) -> Dict[str, Any]:
+        """``GET /bundles/{bundle_id}``: the latest version's manifest summary
+        (``bundle_version``, ``default_entrypoint``, ``flows``)."""
+        bid = str(bundle_id or "").strip()
+        if not bid:
+            raise ValueError("get_bundle: bundle_id is required")
+        return self._request_json(
+            method="GET",
+            url=self._url(f"/api/gateway/bundles/{quote(bid, safe='')}"),
+            label="get_bundle failed",
+        )
+
+    def get_bundle_flow(self, bundle_id: str, flow_id: str, *, bundle_version: str) -> Dict[str, Any]:
+        """``GET /bundles/{bundle_id}/flows/{flow_id}``: one VisualFlow of that
+        bundle version, as packed (``{"flow": {...}}``)."""
+        bid, fid, ver = str(bundle_id or "").strip(), str(flow_id or "").strip(), str(bundle_version or "").strip()
+        if not (bid and fid and ver):
+            raise ValueError("get_bundle_flow: bundle_id, flow_id and bundle_version are required")
+        return self._request_json(
+            method="GET",
+            url=self._url(
+                f"/api/gateway/bundles/{quote(bid, safe='')}/flows/{quote(fid, safe='')}",
+                query={"bundle_version": ver},
+            ),
+            label="get_bundle_flow failed",
+        )
+
     def workflow_catalog(self, *, scope: str = "tenant_catalog") -> Dict[str, Any]:
         return self._request_json(
             method="GET",

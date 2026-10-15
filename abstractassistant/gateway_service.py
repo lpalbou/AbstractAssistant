@@ -9,14 +9,20 @@ from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
 from .assistant_workflow import (
+    AGENT_BUNDLE_ID,
     ASSISTANT_INTERFACE,
+    AgentSubflow,
     MANAGED_ASSISTANT_WORKFLOW_BUNDLE_ID,
     MANAGED_ASSISTANT_WORKFLOW_MARKER,
     MANAGED_ASSISTANT_WORKFLOW_NAME,
     MANAGED_ASSISTANT_WORKFLOW_REVISION,
+    agent_subflow_from_flow,
     managed_workflow_revision_of,
     normalized_managed_visualflow,
 )
+
+#: Marks the app's stored copies of basic-agent's flows: ``...;copy-of=basic-agent:<flow id>``.
+AGENT_COPY_MARKER = "managed-by=abstractassistant;copy-of="
 
 
 ROUTE_ORDER = [
@@ -381,7 +387,7 @@ class AssistantGatewayService:
             # one recreate the store compares clean, so this cannot loop.
             self._managed_flow_reconciled = True
             try:
-                payload = normalized_managed_visualflow()
+                payload = normalized_managed_visualflow(self._ensure_agent_copies())
                 flows = self._gateway.list_visualflows()
                 target = self._find_managed_visualflow(flows)
                 if target is not None and self._stored_workflow_is_newer(target):
@@ -413,7 +419,7 @@ class AssistantGatewayService:
                 return managed_options
             # Definition drifted or the stored flow is missing: fall through
             # to the create/update + publish + promote path below.
-        payload = normalized_managed_visualflow()
+        payload = normalized_managed_visualflow(self._ensure_agent_copies())
         flows = self._gateway.list_visualflows()
         target = self._find_managed_visualflow(flows)
         self._managed_flow_reconciled = True
@@ -739,6 +745,94 @@ class AssistantGatewayService:
         if not versions:
             return ""
         return sorted(versions, key=_version_sort_key, reverse=True)[0]
+
+    def _ensure_agent_copies(self) -> AgentSubflow:
+        """Keep a copy of basic-agent's flows in the gateway flow store and return
+        the entry copy the orchestrator's chat branch calls.
+
+        A subflow is packed into the bundle it is published with, from the flow
+        store, so the orchestrator can only call a STORED flow: these copies.
+        They follow the gateway's latest basic-agent (updated in place, subflow
+        references pointing at each other) and declare no interface (a subflow,
+        not a second agent). Raises when the gateway has no usable basic-agent:
+        the orchestrator is never built without its agent."""
+        bundle = self._gateway.get_bundle(AGENT_BUNDLE_ID)
+        version = str(bundle.get("bundle_version") or "").strip()
+        entry = str(bundle.get("default_entrypoint") or "").strip()
+        flow_ids = [str(f).strip() for f in (bundle.get("flows") or []) if str(f).strip()]
+        if not version or not entry or entry not in flow_ids:
+            raise RuntimeError(
+                f"The gateway's {AGENT_BUNDLE_ID} bundle has no usable entrypoint "
+                f"(version {version or '?'}, entrypoint {entry or '?'}): the Assistant orchestrator runs it for chat."
+            )
+        sources: Dict[str, Dict[str, Any]] = {}
+        for fid in flow_ids:
+            flow = self._gateway.get_bundle_flow(AGENT_BUNDLE_ID, fid, bundle_version=version).get("flow")
+            if not isinstance(flow, dict):
+                raise RuntimeError(f"The gateway returned no flow for {AGENT_BUNDLE_ID}@{version}:{fid}.")
+            sources[fid] = flow
+
+        stored: Dict[str, Dict[str, Any]] = {}
+        for item in self._gateway.list_visualflows():
+            source = self._agent_copy_source(item)
+            if source:
+                stored[source] = dict(item)
+        # Pass 1: every source flow has a stored copy (its id is what the other
+        # copies' subflow references must point at).
+        for fid in flow_ids:
+            if fid not in stored:
+                created = self._gateway.create_visualflow(name=str(sources[fid].get("name") or fid), description="")
+                if not isinstance(created, dict) or not str(created.get("id") or "").strip():
+                    raise RuntimeError(f"Creating the copy of {AGENT_BUNDLE_ID}:{fid} returned no flow id.")
+                stored[fid] = dict(created)
+        copy_ids = {fid: str(stored[fid]["id"]) for fid in flow_ids}
+        # Pass 2: each copy's content is its source's, with references remapped.
+        for fid in flow_ids:
+            payload = self._agent_copy_payload(sources[fid], fid=fid, version=version, copy_ids=copy_ids)
+            if self._visualflow_needs_update(stored[fid], payload):
+                self._gateway.update_visualflow(
+                    flow_id=copy_ids[fid],
+                    name=payload["name"],
+                    description=payload["description"],
+                    interfaces=payload["interfaces"],
+                    nodes=payload["nodes"],
+                    edges=payload["edges"],
+                    entry_node=payload["entryNode"],
+                )
+        return agent_subflow_from_flow(
+            flow_id=copy_ids[entry], bundle_ref=f"{AGENT_BUNDLE_ID}@{version}", flow=sources[entry]
+        )
+
+    @staticmethod
+    def _agent_copy_source(item: Any) -> str:
+        """The basic-agent flow id a stored flow is a copy of ("" when it is not one)."""
+        description = str((item or {}).get("description") or "") if isinstance(item, dict) else ""
+        prefix = f"{AGENT_COPY_MARKER}{AGENT_BUNDLE_ID}:"
+        at = description.find(prefix)
+        return description[at + len(prefix):].split(";")[0].strip() if at >= 0 else ""
+
+    @staticmethod
+    def _agent_copy_payload(source: Dict[str, Any], *, fid: str, version: str, copy_ids: Dict[str, str]) -> Dict[str, Any]:
+        nodes = json.loads(json.dumps(source.get("nodes") or []))
+        for node in nodes:
+            data = node.get("data") if isinstance(node, dict) else None
+            if not isinstance(data, dict):
+                continue
+            for key in ("subflowId", "flowId"):
+                ref = str(data.get(key) or "").strip()
+                if ref in copy_ids:
+                    data[key] = copy_ids[ref]
+        return {
+            "name": str(source.get("name") or fid),
+            "description": (
+                f"Copy of {AGENT_BUNDLE_ID} {version} ({fid}), run by the AbstractAssistant Orchestrator for chat; "
+                f"the app keeps it in step with the gateway's {AGENT_BUNDLE_ID}. {AGENT_COPY_MARKER}{AGENT_BUNDLE_ID}:{fid}"
+            ),
+            "interfaces": [],
+            "nodes": nodes,
+            "edges": json.loads(json.dumps(source.get("edges") or [])),
+            "entryNode": str(source.get("entryNode") or "") or None,
+        }
 
     def _find_managed_visualflow(self, flows: Any) -> Optional[Dict[str, Any]]:
         if not isinstance(flows, list):

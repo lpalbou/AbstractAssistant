@@ -3,7 +3,7 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
-## [0.13.2] - 2026-10-09
+## [0.13.2] - 2026-10-15
 
 - Automations: calendar schedules (AbstractGateway R16.1, `schedule@2`). The schedule window's **When** has the AbstractCode / AbstractObserver dialog's words: **Repeat** (the fixed UTC intervals, unchanged) · **Daily** at a time · **Weekly** on the days you pick (day chips, Monday first; a picked day shows a check mark) at a time · **Monthly** on day 1–31 or **last** at a time · **Once at…** · **When an email arrives**. Daily, Weekly, Monthly and Once run at that wall-clock time in your account's time zone: a line shows "in <zone> (your account's time zone)" with an explanatory tooltip and **Change in preferences** (opens Settings → Workflow), and the preview line is the gateway's own sentence (`POST /api/gateway/automations/schedule-preview` → `first_run_sentence`; a refusal shows the gateway's sentence). The days, the month day and the time are kept when you switch kinds. Every create writes `schedule@2` (Repeat as `{"kind": "every", …}`); the window needs the gateway to offer `schedule@2`.
 - Automations: an automation's **Edit** box edits a Daily / Weekly / Monthly rule (kind, days, day of the month, time) with the gateway's preview in "this automation's time zone"; the automation keeps its zone and its run limits.
@@ -16,6 +16,13 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 ### Added
 
 - Settings → Voice shows the gateway's served hint under its speech-input default (for example, on Apple silicon: mlx-whisper runs the model on the GPU).
+
+### Changed
+
+- **No empty reply bubble while the model thinks.** The live reply card appears with the first words of the reply; reasoning alone draws nothing (the thinking strip already says the model is working), so the near-empty "Assistant · sub-agent · reason — Finishing…" bubble that took a third of the window is gone. A reply streamed by a sub-agent is labelled "sub-agent", without the runtime's node name; the "Thinking" toggle is one text line, not a padded button.
+- **The orchestrator runs basic-agent for chat.** The built-in orchestrator's chat branch was a second agent inlined in it; it is now a subflow running `basic-agent`, the framework's agent workflow. A subflow is packed into the bundle it is published with, so the app keeps a copy of `basic-agent`'s flows in the gateway's flow store (they declare no interface: a subflow, not a second agent), follows the gateway's latest `basic-agent`, and republishes the orchestrator when it changes (workflow revision 5). Without `basic-agent` on the gateway the orchestrator is not published and Settings → Workflow says why; no inlined stand-in.
+- **Editor-clean connections**: the orchestrator's image, video and music provider/model pins are typed (`provider_image`, `provider_video`, `provider_music`, `model`) like the nodes they feed, so AbstractFlow draws all of them (12 were "kept (type not accepted by the editor)").
+- The orchestrator's "need a source image" answer now carries `meta` like every other end, as the Assistant interface requires.
 
 ## [0.13.1] - 2026-10-08
 
