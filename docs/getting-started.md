@@ -88,8 +88,9 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and
   the latest steps; it can pause, resume or stop the run and open the full run log.
-- **Composer**: attach files (button or drag and drop), dictate with the microphone, start a voice
-  conversation (⌘⇧V), type, and send with Return (Shift+Return adds a line). During a run the
+- **Composer**: attach files (button or drag and drop), hold the microphone to talk (release
+  sends), start a voice conversation (⌘⇧V or the microphone's right-click menu), type, and send
+  with Return (Shift+Return adds a line). During a run the
   send button becomes Stop (⌘.) and typed text steers the run.
 
 ## 5. Approvals and questions

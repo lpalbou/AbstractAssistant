@@ -25,14 +25,17 @@ synthesizing the whole message first.
 Spoken text is prose: markdown, code, images and link targets are removed before synthesis. A
 reply with nothing left to read says so instead of playing nothing.
 
-## Dictate into the message
+## Hold to talk
 
-The microphone button in the composer dictates into the message box. Each utterance is appended
-to the text; press Return to send. Saying "stop" closes the microphone.
+The composer has one microphone button. Hold it while you speak and release it: the recording
+stops, the gateway transcribes it, and the words are sent as your next message — exactly what
+Return would do with them. Text already in the composer goes out with the spoken words. A short
+tap records nothing and reminds you to hold. The status line follows the gesture ("Listening —
+release to send", "Transcribing…"); a failed transcription is reported there and nothing is sent.
 
 ## Voice conversation (hands-free)
 
-Start with ⌘⇧V, the waveform button next to the send button, or the tray menu. The loop:
+Start with ⌘⇧V, the microphone button's right-click menu, or the tray menu. The loop:
 
 ```mermaid
 stateDiagram-v2

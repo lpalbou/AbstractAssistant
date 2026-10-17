@@ -3,6 +3,12 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## [0.14.0] - 2026-10-17
+
+### Changed
+
+- **One microphone button, hold to talk.** Hold the composer's microphone while you speak; releasing it stops the recording, transcribes it through the gateway's speech-to-text route and sends the words as your next message (text already in the composer goes with them). A short tap records nothing. The status line says "Listening — release to send", then "Transcribing…"; a failed transcription is reported there and nothing is sent. The former click-to-dictate mode (a hands-free recognizer that kept listening until you said "stop", leaving the words in the composer) is gone, and the waveform button left the composer: the voice conversation starts from ⌘⇧V, the microphone's right-click menu or the tray menu.
+
 ## [0.13.2] - 2026-10-15
 
 - Automations: calendar schedules (AbstractGateway R16.1, `schedule@2`). The schedule window's **When** has the AbstractCode / AbstractObserver dialog's words: **Repeat** (the fixed UTC intervals, unchanged) · **Daily** at a time · **Weekly** on the days you pick (day chips, Monday first; a picked day shows a check mark) at a time · **Monthly** on day 1–31 or **last** at a time · **Once at…** · **When an email arrives**. Daily, Weekly, Monthly and Once run at that wall-clock time in your account's time zone: a line shows "in <zone> (your account's time zone)" with an explanatory tooltip and **Change in preferences** (opens Settings → Workflow), and the preview line is the gateway's own sentence (`POST /api/gateway/automations/schedule-preview` → `first_run_sentence`; a refusal shows the gateway's sentence). The days, the month day and the time are kept when you switch kinds. Every create writes `schedule@2` (Repeat as `{"kind": "every", …}`); the window needs the gateway to offer `schedule@2`.

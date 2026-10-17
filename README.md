@@ -29,8 +29,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
-- A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
-  Spoken replies stream from the gateway; dictation is a button away.
+- Hold the microphone button to talk: release sends the words. A voice conversation mode (⌘⇧V,
+  or the microphone's right-click menu): listen, send, speak, listen again — with a live status
+  strip. Spoken replies stream from the gateway.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
   effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's

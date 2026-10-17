@@ -49,6 +49,10 @@ class GatewayVoiceManager:
 
         self._listening = False
         self._recognizer = None
+        self._hold_stream = None
+        self._hold_chunks: list = []
+        self._hold_lock = threading.Lock()
+        self._hold_started: float | None = None
 
         self._speaking = False
         self._paused = False
@@ -375,17 +379,8 @@ class GatewayVoiceManager:
             return True
 
         from abstractvoice.recognition import VoiceRecognizer
-        from .gateway_stt_adapter import GatewaySTTAdapter
 
-        adapter = GatewaySTTAdapter(
-            gateway_client_fn=self._gateway_client,
-            session_id_fn=self._session_id,
-            run_id_fn=self._session_run_id,
-            content_type_fn=self._stt_upload_content_type,
-            max_upload_bytes_fn=self._stt_max_upload_bytes,
-            stt_model_fn=self._selected_stt_model,
-            stt_provider_fn=self._selected_stt_provider,
-        )
+        adapter = self._make_stt_adapter()
         lang = None
         try:
             lang = self._default_stt_language()
@@ -443,6 +438,146 @@ class GatewayVoiceManager:
             self._listening = False
             self._recognizer = None
             raise RuntimeError("VoiceRecognizer failed to start")
+        return True
+
+    def _make_stt_adapter(self):
+        """The gateway speech-to-text adapter (upload + /audio/transcribe), one per capture."""
+        from .gateway_stt_adapter import GatewaySTTAdapter
+
+        return GatewaySTTAdapter(
+            gateway_client_fn=self._gateway_client,
+            session_id_fn=self._session_id,
+            run_id_fn=self._session_run_id,
+            content_type_fn=self._stt_upload_content_type,
+            max_upload_bytes_fn=self._stt_max_upload_bytes,
+            stt_model_fn=self._selected_stt_model,
+            stt_provider_fn=self._selected_stt_provider,
+        )
+
+    # ------------------------------------------------------------ hold to talk
+
+    HOLD_SAMPLE_RATE = 16000
+    HOLD_MIN_SECONDS = 0.35
+
+    def begin_hold(self, on_audio_level: Callable[[float], None] | None = None) -> bool:
+        """Start recording from the microphone for as long as the user holds.
+
+        The Code TUI's principle (operator 2026-10-10 and 2026-10-17: "we press,
+        it records, we unpress, it sends"): no voice-activity detection, no stop
+        phrase — the press and the release ARE the utterance's boundaries. The
+        continuous recognizer (`listen`) and a hold never run together.
+        """
+        if not self.supports_stt():
+            raise RuntimeError("Gateway STT unavailable (microphone not available)")
+        if self._hold_stream is not None:
+            return True
+        if self._listening:
+            self.stop_listening()
+        try:
+            import numpy as np
+            import sounddevice as sd
+        except ImportError as e:
+            raise RuntimeError("Microphone capture needs sounddevice (pip install \"abstractassistant[voice]\")") from e
+
+        chunks: list = []
+        lock = threading.Lock()
+
+        def _callback(indata, frames, time_info, status) -> None:  # noqa: ARG001
+            try:
+                block = np.asarray(indata, dtype=np.int16).reshape(-1).copy()
+            except Exception:
+                return
+            with lock:
+                chunks.append(block)
+            if on_audio_level is not None:
+                try:
+                    level = float(np.sqrt(np.mean(block.astype(np.float32) ** 2)) / 32768.0) if block.size else 0.0
+                    on_audio_level(min(1.0, level * 4.0))
+                except Exception:
+                    pass
+
+        try:
+            stream = sd.InputStream(
+                samplerate=self.HOLD_SAMPLE_RATE,
+                channels=1,
+                dtype="int16",
+                blocksize=int(self.HOLD_SAMPLE_RATE * 0.03),
+                callback=_callback,
+            )
+            stream.start()
+        except Exception as e:
+            raise RuntimeError(f"Microphone unavailable: {e}") from e
+        self._hold_stream = stream
+        self._hold_chunks = chunks
+        self._hold_lock = lock
+        self._hold_started = time.monotonic()
+        return True
+
+    def is_holding(self) -> bool:
+        return self._hold_stream is not None
+
+    def cancel_hold(self) -> None:
+        """Drop a hold without transcribing (window closed, conversation started…)."""
+        self._close_hold_stream()
+        self._hold_chunks = []
+
+    def _close_hold_stream(self) -> None:
+        stream = self._hold_stream
+        self._hold_stream = None
+        if stream is None:
+            return
+        for name in ("stop", "close"):
+            try:
+                getattr(stream, name)()
+            except Exception:
+                pass
+
+    def end_hold(
+        self,
+        on_transcription: Callable[[str], None],
+        on_error: Callable[[str], None] | None = None,
+    ) -> bool:
+        """Stop the hold; transcribe what was heard on a background thread.
+
+        Returns False when the hold was too short to be speech (a tap): nothing
+        is transcribed and no callback fires — the TUI drops those too.
+        """
+        if self._hold_stream is None:
+            return False
+        self._close_hold_stream()
+        with self._hold_lock:
+            chunks = list(self._hold_chunks)
+        self._hold_chunks = []
+        held = time.monotonic() - float(self._hold_started or time.monotonic())
+        total = sum(int(c.size) for c in chunks)
+        if held < self.HOLD_MIN_SECONDS or total < int(self.HOLD_SAMPLE_RATE * self.HOLD_MIN_SECONDS):
+            return False
+        import numpy as np
+
+        audio = (np.concatenate(chunks).astype(np.float32) / 32768.0) if chunks else np.zeros(0, dtype=np.float32)
+        adapter = self._make_stt_adapter()
+        lang = None
+        try:
+            lang = self._default_stt_language()
+        except Exception:
+            lang = None
+
+        def _work() -> None:
+            try:
+                text = adapter.transcribe_from_array(audio, self.HOLD_SAMPLE_RATE, language=lang)
+            except Exception as e:
+                if on_error is not None:
+                    try:
+                        on_error(str(e) or e.__class__.__name__)
+                    except Exception:
+                        pass
+                return
+            try:
+                on_transcription(str(text or "").strip())
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: transcription callback error: {e}")
+
+        threading.Thread(target=_work, name="assistant-hold-to-talk-stt", daemon=True).start()
         return True
 
     def stop_listening(self) -> None:

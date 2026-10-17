@@ -2460,6 +2460,9 @@ class AttachmentDropFrame(QFrame):
         event.ignore()
 
 
+HOLD_TO_TALK_TOOLTIP = "Hold to talk — release to send (right-click: voice conversation, ⌘⇧V)"
+
+
 class AttachmentTextEdit(QTextEdit):
     files_dropped = pyqtSignal(object)
     drop_active_changed = pyqtSignal(bool)
@@ -5741,6 +5744,8 @@ class AssistantPalette(QMainWindow):
     # these signals marshal them onto the Qt main thread before touching widgets.
     transcription_received = pyqtSignal(str)
     listening_stopped = pyqtSignal()
+    hold_transcription_received = pyqtSignal(str)
+    hold_transcription_failed = pyqtSignal(str)
     # Hands-free conversation: microphone/playback level (recognizer thread)
     # and the spoken reply's completion (playback thread) hop to the GUI thread.
     voice_level_received = pyqtSignal(float)
@@ -5888,6 +5893,8 @@ class AssistantPalette(QMainWindow):
         self.reattach_candidate.connect(self._on_reattach_candidate)
         self.transcription_received.connect(self._on_transcription)
         self.listening_stopped.connect(self._on_listen_stop)
+        self.hold_transcription_received.connect(self._on_hold_transcription)
+        self.hold_transcription_failed.connect(self._on_hold_transcription_failed)
         self.voice_level_received.connect(self._on_voice_level)
         self.voice_speech_finished.connect(self._on_voice_speech_finished)
         self.session_attachments_restored.connect(self._on_session_attachments_restored)
@@ -6199,24 +6206,33 @@ class AssistantPalette(QMainWindow):
         self.attach_button.clicked.connect(self._pick_attachments)
         composer.addWidget(self.attach_button)
 
+        # ONE microphone button (operator 2026-10-17: "keep press to record;
+        # only one mic icon"): hold it to record, release to transcribe and
+        # SEND — the Code TUI's hold-Space principle. Right-click (or ⌘⇧V)
+        # starts the hands-free voice conversation.
         self.mic_button = QPushButton()
         self.mic_button.setObjectName("composerIconButton")
+        self.mic_button.setCheckable(True)
         self.mic_button.setIcon(_symbol_icon("mic", size=18))
         self.mic_button.setIconSize(QSize(18, 18))
         self.mic_button.setFixedSize(36, 36)
-        self.mic_button.setToolTip("Dictate into the message")
-        self.mic_button.clicked.connect(self._toggle_listening)
+        self.mic_button.setToolTip(HOLD_TO_TALK_TOOLTIP)
+        self.mic_button.pressed.connect(self._begin_hold_to_talk)
+        self.mic_button.released.connect(self._end_hold_to_talk)
+        self.mic_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.mic_button.customContextMenuRequested.connect(self._show_mic_menu)
         composer.addWidget(self.mic_button)
 
+        # The voice-conversation toggle keeps its widget (state and tooltips are
+        # mirrored on it by the conversation code) but no longer sits in the
+        # composer row: ⌘⇧V and the mic's right-click menu start and end it.
         self.conversation_button = QPushButton()
         self.conversation_button.setObjectName("composerIconButton")
         self.conversation_button.setCheckable(True)
         self.conversation_button.setIcon(_symbol_icon("audio-lines", size=18))
-        self.conversation_button.setIconSize(QSize(18, 18))
-        self.conversation_button.setFixedSize(36, 36)
         self.conversation_button.setToolTip("Start a voice conversation (⌘⇧V)")
         self.conversation_button.clicked.connect(self._toggle_voice_conversation)
-        composer.addWidget(self.conversation_button)
+        self.conversation_button.hide()
 
         self.prompt_edit = AttachmentTextEdit()
         self.prompt_edit.setObjectName("promptEdit")
@@ -10136,12 +10152,74 @@ class AssistantPalette(QMainWindow):
             text += " — if you can't hear it, check the Mac's sound output."
         self._set_banner(text, tone=tone, key="speech")
 
+    # ------------------------------------------------------------ hold to talk
+
+    def _begin_hold_to_talk(self) -> None:
+        """Mouse down on the mic: record until it goes up."""
+        if bool(self._state("_voice_conversation_active", False)):
+            return
+        if self._listening:
+            self._toggle_listening()
+        try:
+            self._controller.voice_manager.begin_hold(
+                on_audio_level=lambda level: self.voice_level_received.emit(float(level or 0.0))
+            )
+        except Exception as exc:
+            self.mic_button.setChecked(False)
+            self._set_status(f"Microphone unavailable: {exc}", tone="error")
+            return
+        self.mic_button.setChecked(True)
+        self.mic_button.setToolTip("Release to send")
+        self._set_status("Listening — release to send", tone="busy")
+
+    def _end_hold_to_talk(self) -> None:
+        """Mouse up on the mic: stop, transcribe, send what was said."""
+        self.mic_button.setChecked(False)
+        self.mic_button.setToolTip(HOLD_TO_TALK_TOOLTIP)
+        manager = self._controller.voice_manager
+        if not manager.is_holding():
+            return
+        started = manager.end_hold(
+            on_transcription=lambda text: self.hold_transcription_received.emit(str(text or "")),
+            on_error=lambda message: self.hold_transcription_failed.emit(str(message or "")),
+        )
+        if not started:
+            # A tap, not a hold: nothing to transcribe.
+            self._set_status("Hold the microphone button while you speak", tone="info")
+            return
+        self._set_status("Transcribing…", tone="busy")
+
+    def _on_hold_transcription(self, text: str) -> None:
+        """What the hold heard: append it to the draft and send, like Return."""
+        words = str(text or "").strip()
+        if not words:
+            self._set_status("Nothing was heard", tone="info")
+            return
+        self._append_prompt_text(words)
+        self._set_status("Ready")
+        self._submit()
+
+    def _on_hold_transcription_failed(self, message: str) -> None:
+        self._set_status(f"Transcription failed: {message}", tone="error")
+
+    def _show_mic_menu(self, pos) -> None:
+        """Right-click on the mic: the hands-free voice conversation."""
+        menu = QMenu(self)
+        in_conversation = bool(self._state("_voice_conversation_active", False))
+        action = menu.addAction("End the voice conversation (⌘⇧V)" if in_conversation else "Start a voice conversation (⌘⇧V)")
+        reason = "" if in_conversation else self._voice_conversation_unavailable_reason()
+        if reason:
+            action.setEnabled(False)
+            action.setToolTip(reason)
+        action.triggered.connect(self._toggle_voice_conversation)
+        menu.exec(self.mic_button.mapToGlobal(pos))
+
     def _toggle_listening(self) -> None:
         if self._listening:
             self._controller.voice_manager.stop_listening()
             self._listening = False
             self.mic_button.setChecked(False)
-            self.mic_button.setToolTip("Speak your question")
+            self.mic_button.setToolTip(HOLD_TO_TALK_TOOLTIP)
             self._set_status("Ready")
             return
         try:
@@ -10203,6 +10281,10 @@ class AssistantPalette(QMainWindow):
         if self._listening:
             # Push-to-dictate and the conversation share the microphone.
             self._toggle_listening()
+        try:
+            self._controller.voice_manager.cancel_hold()
+        except Exception:
+            pass
         prefs = self._controller.preferences
         conversation = VoiceConversation(
             voice_manager=self._controller.voice_manager,
@@ -10418,7 +10500,7 @@ class AssistantPalette(QMainWindow):
             pass
         self._listening = False
         self.mic_button.setChecked(False)
-        self.mic_button.setToolTip("Dictate into the message")
+        self.mic_button.setToolTip(HOLD_TO_TALK_TOOLTIP)
         self._set_status("Ready")
 
     def _refresh_workflows(self) -> None:
@@ -10939,9 +11021,9 @@ class AssistantPalette(QMainWindow):
         )
         self.mic_button.setEnabled(stt_available and not in_conversation)
         self.mic_button.setToolTip(
-            "Dictation is off during a voice conversation"
+            "The microphone is in the voice conversation (⌘⇧V ends it)"
             if in_conversation
-            else ("Dictate into the message" if stt_available else "Gateway speech input is not configured.")
+            else (HOLD_TO_TALK_TOOLTIP if stt_available else "Gateway speech input is not configured.")
         )
         conversation_button = getattr(self, "__dict__", {}).get("conversation_button")
         if conversation_button is not None:
