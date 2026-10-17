@@ -56,4 +56,4 @@ Item 0012.
 
 ## Progress (2026-10-17)
 - App Store packaging built: an empty iOS container target (`application.watchapp2-container`, bundle `ai.abstractframework.assistant`) carries the watch app; Release archive and App Store Connect export succeed (`watch/apple/scripts/testflight.sh`); privacy manifest, export compliance and version keys in place.
-- Upload blocked only on the App Store Connect app record (created once by the account holder). CI remains open.
+- CI builds and tests every change; the release runs only after a maintainer approves it.

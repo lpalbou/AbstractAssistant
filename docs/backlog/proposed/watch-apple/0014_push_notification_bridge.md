@@ -46,7 +46,7 @@ Android (Wear OS) push in this item.
 
 ## Dependencies
 - Item 0013 (per-device tokens) so a push token is bound to a device.
-- Paid Apple developer account for APNs (enrolment pending for contact@abstractframework.ai).
+- A paid Apple developer account for APNs.
 
 ## Expected outcomes
 - An approval appears on the wrist within 5 s of the wait being created, with Allow once / Deny actions that resume the run.

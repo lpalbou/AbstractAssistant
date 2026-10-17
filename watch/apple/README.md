@@ -110,6 +110,5 @@ check without a tap. See `BUILD.md` and `docs/architecture.md`.
 
 ## Apple developer account
 
-Simulator builds and the Swift package tests need no account. The device build signs with the
-team in `project.yml` (automatic signing, `-allowProvisioningUpdates`). Push notifications and
-TestFlight need the paid account (contact@abstractframework.ai, enrolment pending).
+Simulator builds and the Swift package tests need no account. A device build signs with an Apple
+developer team (`DEVELOPMENT_TEAM` in `project.yml`, automatic signing).

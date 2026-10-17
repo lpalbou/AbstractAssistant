@@ -1,9 +1,6 @@
 #!/bin/zsh
 # testflight.sh [--no-upload] — archive the App Store carrier (the empty iOS container holding the
-# watch app) and upload it to App Store Connect for INTERNAL TestFlight testing.
-# Needs: the app record for ai.abstractframework.assistant in App Store Connect (create it once:
-# Xcode Organizer → Distribute App, or appstoreconnect.apple.com → Apps → +), and Xcode signed in
-# to team K3R4D6HP2A. Bump CURRENT_PROJECT_VERSION in project.yml before every new upload.
+# watch app) and, without --no-upload, upload it for internal TestFlight testing (maintainers).
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

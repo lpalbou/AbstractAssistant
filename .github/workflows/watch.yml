@@ -1,32 +1,7 @@
 name: Watch app
 
-# CI for the Apple Watch client (watch/apple), and a release that waits for your approval.
-#
-# - Every push to main and every pull request that touches watch/apple builds and tests it:
-#   package tests, a simulator build, an unsigned Release build for the device, and a check of
-#   the watch-only Info.plist. Nothing is signed or uploaded by this part.
-# - After a green build on main, the job "Release to App Store Connect" WAITS for you. It runs
-#   only when you approve it: Actions -> the run -> "Review deployments" -> app-store -> Approve.
-#   Leave it waiting (or reject it) and nothing ships. A newer build on main queues behind it,
-#   and only the newest of the queued ones is kept.
-# - Approved: the job archives the app, signs it for distribution with the App Store Connect API
-#   key, uploads it (the build appears in TestFlight after Apple's processing), then tags the
-#   commit watch-v<version>-<build> and creates the matching GitHub release.
-#
-# Setup (once): the "app-store" environment with you as required reviewer, and three secrets on
-# that environment: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (the .p8 file's text; App Store Connect
-# → Users and Access → Integrations → Team Keys, role ADMIN: signing for the App Store uses Apple's
-# cloud-managed distribution certificate, which only an Admin key may use; an App Manager key
-# archives fine and then fails the upload with "Cloud signing permission error", 2026-10-17). The app record for
-# ai.abstractframework.assistant exists (created 2026-10-17, Apple ID 6823853466).
-#
-# Packaging: a watch-only app reaches the App Store inside an empty iOS container. The archive is
-# the AbstractAssistant scheme (generic iOS), which embeds AbstractAssistantWatch; archiving the
-# watch target alone yields no App Store distribution method.
-#
-# Version: MARKETING_VERSION in watch/apple/project.yml. Build number: this workflow's run number
-# + 100 (builds below 100 are uploads made by hand; Apple refuses a build number it has already
-# seen, so a re-run of the same run cannot upload).
+# Builds and tests watch/apple on every change; the App Store Connect release runs only after
+# a maintainer approves it. Maintainer notes live outside the repository.
 
 on:
   push:
@@ -216,7 +191,6 @@ jobs:
           </dict>
           </plist>
           EOF
-          set +e
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/AbstractAssistant.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
@@ -224,13 +198,7 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/export.log"
-          status=${PIPESTATUS[0]}
-          set -e
-          if grep -q "Cloud signing permission error" "$RUNNER_TEMP/export.log"; then
-            echo "::error::The App Store Connect key (ASC_KEY_ID) is not allowed to use the cloud-managed distribution certificate. Create a Team Key with the Admin role (App Store Connect -> Users and Access -> Integrations), put its ID and .p8 text in ASC_KEY_ID and ASC_KEY_P8, then re-run this job."
-          fi
-          exit "$status"
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       - name: Tag the commit and create the GitHub release
         env:

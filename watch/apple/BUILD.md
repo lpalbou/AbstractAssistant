@@ -105,7 +105,7 @@ Live run (simulator): `scripts/run-live.sh [screen]` reads `GW_URL` and `GW_WATC
 - Public gateway, 2026-10-17: an Ask from the watch to the Assistant completes (`--test-ask "<prompt>"` sends one prompt from the Ask screen at launch, for a device check without typing). The entity Pollux still answers with its provider's refusal (`HTTP 401 … Missing or invalid AIRelays bearer token`): Pollux follows the gateway default (`endpoint:airelays`), but the entity chat host resolves that profile through AbstractCore's process-wide config, loaded when the gateway started, while runs read the profile fresh. A gateway restart reloads it.
 - A watch lying on a desk sleeps its screen within seconds and watchOS suspends the app: an Ask keeps polling once the wrist is raised, and the answer appears then.
 
-## TestFlight (internal)
+## App Store packaging
 
 A watch-only app reaches the App Store inside an empty iOS container: target `AbstractAssistant`
 (`application.watchapp2-container`, bundle `ai.abstractframework.assistant`) embeds
@@ -117,15 +117,9 @@ UserDefaults (CA92.1), no tracking, no developer-collected data.
 
 ```sh
 scripts/testflight.sh --no-upload   # archive only (Release, generic iOS), prints version (build)
-scripts/testflight.sh               # archive + upload (internal testing only)
 ```
 
-The first upload needs the App Store Connect app record (Apps → + → New App, platform iOS, bundle
-`ai.abstractframework.assistant`), or Xcode Organizer → Distribute App → TestFlight Internal Only,
-which offers to create it. Testers install from TestFlight on the iPhone (the watch app installs on
-the paired watch) or TestFlight on the watch. Before EXTERNAL testing: the `self-care` background
-mode needs a justification or removal (Beta App Review), a demo account, a privacy policy URL and
-App Privacy answers matching the manifest.
+Releases (TestFlight, App Store) are made by the maintainers through the approved CI release.
 
 ## Layout
 
