@@ -16,6 +16,8 @@ public final class AssistantStore {
     public private(set) var runs: [RunSummary] = []
     public private(set) var waits: [Wait] = []
     public private(set) var automations: [AutomationSummary] = []
+    public private(set) var entitiesError: String?
+    public private(set) var loadingEntities = false
     public private(set) var entities: [EntitySummary] = []
     public private(set) var sessionID = "iphone-" + UUID().uuidString.lowercased()
     public private(set) var activeRunID: String?
@@ -33,7 +35,7 @@ public final class AssistantStore {
     public var sessions: [SessionSummary] { SessionSummary.group(runs) }
     public var canSend: Bool { client != nil && phase == .ready && !isOpening && restorationID == nil }
     public var isRestoring: Bool { restorationID != nil }
-    public var conversationTitle: String { selectedEntity?.capitalized ?? "Assistant" }
+    public var conversationTitle: String { selectedEntity.map { name in entities.first { $0.name == name }?.displayName ?? name.capitalized } ?? "Assistant" }
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var conversationGeneration = 0
     @ObservationIgnored private var foreground = false
@@ -61,7 +63,7 @@ public final class AssistantStore {
         client = nil; connection = nil; principal = nil; messages = []; runs = []; waits = []; automations = []; entities = []
         titles = [:]; entityChatIDs = [:]; activeRunID = nil; selectedEntity = nil; restorationID = nil
         completedReply = nil
-        phase = .ready; error = nil; automationsError = nil; lastRefresh = nil; isRefreshing = false; isOpening = false
+        phase = .ready; error = nil; automationsError = nil; entitiesError = nil; loadingEntities = false; lastRefresh = nil; isRefreshing = false; isOpening = false
         deciding = []; automationBusy = []; sessionID = "iphone-" + UUID().uuidString.lowercased()
     }
     public func setForeground(_ value: Bool) {
@@ -107,8 +109,7 @@ public final class AssistantStore {
                 guard epoch == generation else { return }; automations = rows; automationsError = nil
             } catch { guard epoch == generation else { return }; automationsError = say(error); handle(error) }
             guard epoch == generation else { return }
-            do { let rows = try await client.entities(); if epoch == generation { entities = rows } }
-            catch { if epoch == generation { handle(error) } }
+            await loadEntities()
             // Titles are a small, rebuildable cache, never a new source of conversation history.
             for session in sessions.prefix(8) where titles[session.id] == nil {
                 guard epoch == generation, !Task.isCancelled else { return }
@@ -118,6 +119,14 @@ public final class AssistantStore {
             }
         } catch { if epoch == generation, !(error is CancellationError) { self.error = say(error); handle(error) } }
     }
+    public func loadEntities() async {
+        guard let client, !loadingEntities else { return }
+        let epoch = generation; loadingEntities = true
+        defer { if epoch == generation { loadingEntities = false } }
+        do { let rows = try await client.entities(); guard epoch == generation else { return }; entities = rows; entitiesError = nil }
+        catch { if epoch == generation { entitiesError = say(error); handle(error) } }
+    }
+    public func rememberEntity(_ row: EntitySummary) { entities.removeAll { $0.name == row.name }; entities.append(row) }
     public func dismissError() { error = nil }
     public func authenticationExpired() { handle(GatewayError.unauthorized) }
     public func newConversation(entity: String? = nil) {

@@ -19,13 +19,13 @@ import AbstractGatewayClient
 @Test @MainActor func readingAndVoiceChoicesStayScopedToTheAccount() {
     let defaults = UserDefaults(suiteName: "phone-features-\(UUID())")!
     let a = PhonePreferences(scope: "alice", defaults: defaults)
-    a.readAloud = true
+    a.readAloud = true; a.speed = 1.3
     a.voice = VoiceChoice(provider: "tts", model: "voice-model", voice: "speaker", label: "Speaker")
     a.transcription = TranscriptionChoice(provider: "stt", model: "small")
     let loaded = PhonePreferences(scope: "alice", defaults: defaults)
-    #expect(loaded.readAloud && loaded.voice == a.voice && loaded.transcription == a.transcription)
+    #expect(loaded.readAloud && loaded.voice == a.voice && loaded.transcription == a.transcription && loaded.speed == 1.3)
     let b = PhonePreferences(scope: "bob", defaults: defaults)
-    #expect(!b.readAloud && b.voice == nil && b.transcription == nil)
+    #expect(!b.readAloud && b.voice == nil && b.transcription == nil && b.speed == 1)
 }
 
 @Test @MainActor func restoredHistoryDoesNotEmitANewSpokenReply() async {
@@ -47,4 +47,40 @@ import AbstractGatewayClient
     let list = try await client.automations()
     #expect(list.filter { $0.id == first.id }.count == 1)
     #expect(request.body["policy"]?["tool_approval"] == .string("ask"))
+}
+
+@Test @MainActor func invalidSpeakingSpeedIsRestoredSafely() {
+    let defaults = UserDefaults(suiteName: "speed-\(UUID())")!
+    for value in [Double.nan, .infinity, -1, 0, 12] {
+        defaults.set(value, forKey: "phone.preferences.test.speed")
+        let prefs = PhonePreferences(scope: "test", defaults: defaults)
+        #expect(prefs.speed == 1)
+        prefs.speed = value
+        #expect(prefs.speed == 1)
+    }
+}
+
+@Test func entityDraftRejectsPathInjectionAndCreationPreservesWarnings() throws {
+    #expect(EntityDraft(name: " Atlas One ").slug == "atlas-one")
+    for bad in ["../secret", "name/path", "?bad", "_leading", String(repeating: "a", count: 65)] { #expect(!EntityDraft(name: bad).valid) }
+    let created = try CreatedEntity(.object(["created": .bool(true), "manifest": .object(["slug": .string("atlas-one"), "name": .string("Atlas One")]), "warnings": .array([.string("Partial setup")]), "skills_warning": .string("Skills unavailable"), "capability_map_warning": .string("Map unavailable")]))
+    #expect(created.entity.name == "atlas-one" && created.entity.displayName == "Atlas One")
+    #expect(created.warnings == ["Partial setup", "Skills unavailable", "Map unavailable"])
+}
+
+@Test func entityCreationRetryKeepsTheSameEntity() async throws {
+    let client = MockGatewayClient(), draft = EntityDraft(name: "Atlas One")
+    let validation = try await client.validateEntity(draft)
+    #expect(validation.ok && !validation.exists)
+    let first = try await client.createEntity(draft), retry = try await client.createEntity(draft)
+    #expect(first.created && !retry.created && first.entity.name == retry.entity.name)
+    #expect(try await client.entities().filter { $0.name == draft.slug }.count == 1)
+}
+
+@Test func liveEntityManifestUsesSlugForRoutingAndKeepsDisplayName() throws {
+    let rows = try JSONDecoder().decode(EntitiesPage.self, from: Data(#"{"entities":[{"name":"Atlas One","slug":"atlas-one","state":{"state":"asleep"}},{"slug":"broken-home","error":"Unreadable identity"}]}"#.utf8)).entities
+    #expect(rows[0].name == "atlas-one" && rows[0].displayName == "Atlas One")
+    let restored = try JSONDecoder().decode([EntitySummary].self, from: JSONEncoder().encode(rows))
+    #expect(restored[0].name == "atlas-one" && restored[0].displayName == "Atlas One")
+    #expect(rows[1].name == "broken-home" && rows[1].extra["error"]?.stringValue == "Unreadable identity")
 }

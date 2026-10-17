@@ -11,18 +11,24 @@ struct AutomationsScreen: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("A rhythm\nof your own.").font(.system(.largeTitle, design: .rounded, weight: .semibold)).tracking(-0.8).padding(.vertical, 12)
-                    Text("The little things, taken care of.\nYour gateway keeps them running.").foregroundStyle(PhoneTheme.secondary).lineSpacing(4)
                     if let error = store.automationsError ?? store.error { ErrorBanner(message: error) }
                     if store.lastRefresh == nil { ProgressView("Checking your gateway…").padding(.vertical, 18) }
                     if store.automations.isEmpty && store.lastRefresh != nil && store.automationsError == nil {
-                        ContentUnavailableView("Make room for a routine", systemImage: "clock.arrow.circlepath", description: Text("Create your first routine here. Your gateway runs it even while the app is closed."))
-                        Button("Create automation") { creating = true }.buttonStyle(.borderedProminent)
+                        VStack(spacing: 12) {
+                            Image(systemName: "clock.arrow.circlepath").font(.system(size: 32, weight: .light)).foregroundStyle(PhoneTheme.lavender).padding(.bottom, 4)
+                            Text("No automations yet").font(.title3.weight(.semibold))
+                            Text("Schedule a task. It runs even while the app is closed.").font(.subheadline).foregroundStyle(PhoneTheme.secondary).multilineTextAlignment(.center)
+                            Button { creating = true } label: {
+                                Label("New automation", systemImage: "plus").font(.subheadline.weight(.semibold))
+                                    .frame(maxWidth: .infinity).frame(minHeight: 52)
+                                    .foregroundStyle(PhoneTheme.ground).background(PhoneTheme.lavender, in: Capsule())
+                            }.buttonStyle(.plain).padding(.top, 12).accessibilityIdentifier("automations.create")
+                        }.frame(maxWidth: .infinity).padding(.horizontal, 8).padding(.vertical, 32)
                     }
                     ForEach(store.automations) { automation in NavigationLink { AutomationDetailScreen(automationID: automation.id) } label: { automationCard(automation) }.buttonStyle(.plain) }
                 }.padding(22)
             }.background(PhoneTheme.ground).navigationTitle("Automations").navigationBarTitleDisplayMode(.inline).refreshable { await store.refresh() }
-                .toolbar { ToolbarItem(placement: .principal) { NavigationCaption(title: "Automations", demo: store.isDemo) }; ToolbarItem(placement: .topBarTrailing) { Button("New automation", systemImage: "plus") { creating = true } } }
+                .toolbar { ToolbarItem(placement: .principal) { NavigationCaption(title: "Automations", demo: store.isDemo) }; ToolbarItem(placement: .topBarTrailing) { if !store.automations.isEmpty { Button("New automation", systemImage: "plus") { creating = true } } } }
                 .sheet(isPresented: $creating, onDismiss: { if let id = pendingCreatedID { pendingCreatedID = nil; createdID = id } }) { NewAutomationScreen { pendingCreatedID = $0.id } }
                 .navigationDestination(item: $createdID) { id in AutomationDetailScreen(automationID: id) }
         }

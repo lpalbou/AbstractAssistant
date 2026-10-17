@@ -62,6 +62,8 @@ public protocol GatewayClient: Sendable {
     /// `PATCH /automations/{id}`: only what changed, with the revision it was read at.
     func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws
     /// `GET /api/gateway/entities`: the entities this account may visit.
+    func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation
+    func createEntity(_ draft: EntityDraft) async throws -> CreatedEntity
     func entities() async throws -> [EntitySummary]
     /// `POST /api/gateway/entities/{name}/chat/open` → chat id (one live session per home).
     func openEntityChat(name: String) async throws -> String
@@ -252,6 +254,17 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {
         _ = try await request("PATCH", "api/gateway/automations/\(id)", body: Revise(expected_revision: expectedRevision, changes: changes))
+    }
+
+    public func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation {
+        guard draft.valid else { throw GatewayError.http(status: 400, body: "{\"detail\":\"Use a name of up to 64 letters, numbers, spaces, hyphens or underscores.\"}") }
+        let data = try await request("POST", "api/gateway/entities/\(draft.slug)/validate", body: draft.body)
+        return try JSONDecoder().decode(EntityValidation.self, from: data)
+    }
+    public func createEntity(_ draft: EntityDraft) async throws -> CreatedEntity {
+        guard draft.valid else { throw GatewayError.invalidResponse }
+        let data = try await request("POST", "api/gateway/entities", body: draft.body, timeout: 120)
+        return try CreatedEntity(JSONDecoder().decode(JSONValue.self, from: data))
     }
 
     public func entities() async throws -> [EntitySummary] {

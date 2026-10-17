@@ -145,6 +145,17 @@ final class VoiceInteractionTests: XCTestCase {
         let text = await voice.finish(client: client, sessionID: "test")
         XCTAssertNil(text); XCTAssertEqual(VoiceWire.log.count, 0)
     }
+    @MainActor func testSpeakingSpeedAppliesToActualPlaybackAndNewPreviewReplacesOld() async throws {
+        let voice = VoiceController(); defer { voice.stop() }
+        voice.read("First sample", client: MockGatewayClient(), scope: .run("test"), speed: 1.15)
+        for _ in 0..<100 { if !voice.preparing { break }; try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(voice.playbackRate, 1.15, accuracy: 0.001)
+        voice.read("Second sample", client: MockGatewayClient(), scope: .entity("castor"), speed: 1.5)
+        for _ in 0..<100 { if !voice.preparing { break }; try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(voice.playbackRate, 1.5, accuracy: 0.001)
+        XCTAssertTrue(voice.speaking); XCTAssertNil(voice.error)
+        voice.stop(); XCTAssertFalse(voice.preparing); XCTAssertFalse(voice.speaking)
+    }
     @MainActor func testActualWAVPlaybackDrivesTheMeterAndStopsCleanly() async throws {
         let voice = VoiceController()
         defer { voice.stop() }

@@ -4,44 +4,143 @@ import AbstractGatewayClient
 
 struct VoiceSettingsScreen: View {
     @Environment(AssistantStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     @State private var catalog: VoiceCatalog?
     @State private var error: String?
-    @State private var voice = VoiceController()
+    @State private var sample = VoiceController()
     var body: some View {
         @Bindable var prefs = store.preferences
         List {
-            Section {
-                Toggle("Read replies aloud", isOn: $prefs.readAloud).accessibilityIdentifier("voice.readAloud")
-            } footer: { Text("Automatically read new completed replies. Your conversation history stays quiet.") }
-            Section("Speaking voice") {
-                Picker("Voice", selection: $prefs.voice) {
-                    Text("Gateway default" + (catalog?.defaultVoice.map { " · " + $0 } ?? "")).tag(VoiceChoice?.none)
-                    ForEach(catalog?.voices ?? []) { v in Text(v.label).tag(Optional(v)) }
-                }.pickerStyle(.navigationLink)
-                if let selected = prefs.voice, !(catalog?.voices.contains(selected) ?? true) { Text("Saved voice is currently unavailable. Choose another voice or Gateway default.").font(.footnote).foregroundStyle(PhoneTheme.amber) }
-                Button(voice.speaking ? "Stop preview" : "Preview voice") {
-                    guard let client = store.client else { return }
-                    if voice.speaking { voice.stop() }
-                    else { voice.read("Hello, I’m AbstractAssistant. What’s on your mind?", client: client, scope: .run(PhoneSession.owner(store.sessionID)), choice: prefs.voice) }
+            Section { Toggle("Read replies aloud", isOn: $prefs.readAloud).accessibilityIdentifier("voice.readAloud") }
+                footer: { Text("Read new replies automatically.") }.listRowBackground(PhoneTheme.surface)
+            if let catalog {
+                Section {
+                    NavigationLink { VoiceChoicesScreen(catalog: catalog) } label: {
+                        LabeledContent("Voice", value: prefs.voice?.label ?? "Gateway default")
+                    }.accessibilityIdentifier("voice.choices")
+                    if let selected = prefs.voice, !catalog.voices.contains(selected) {
+                        Text("This voice is unavailable. Choose another.").font(.footnote).foregroundStyle(PhoneTheme.amber)
+                    }
                 }
-                if let message = voice.error { Text(message).foregroundStyle(PhoneTheme.amber) }
-            }
-            Section {
-                Picker("Transcription model", selection: $prefs.transcription) {
-                    Text("Gateway default" + (catalog?.defaultTranscription.map { " · " + $0 } ?? "")).tag(TranscriptionChoice?.none)
-                    ForEach(catalog?.transcription ?? []) { t in Text(t.provider + " · " + t.model).tag(Optional(t)) }
-                }.pickerStyle(.navigationLink)
-                if let selected = prefs.transcription, !(catalog?.transcription.contains(selected) ?? true) { Text("Saved transcription model is currently unavailable. Choose another model or Gateway default.").font(.footnote).foregroundStyle(PhoneTheme.amber) }
-            } header: { Text("Listening") } footer: { Text("Tap the orb to listen. After you speak, three seconds of silence sends automatically. Speaking again restarts the countdown; tapping the orb cancels before upload. Larger models can take longer.") }
-            Section { Text("These choices apply to this account on this iPhone. They do not change gateway defaults. Entities keep their own speaking voice.").font(.footnote).foregroundStyle(PhoneTheme.secondary) }
-            if let error { Section { ErrorBanner(message: error); Button("Try again") { Task { await load() } } } }
-            if catalog == nil && error == nil { ProgressView("Loading voices…") }
-        }.navigationTitle("Voice & reading").scrollContentBackground(.hidden).background(PhoneTheme.ground)
-            .task { voice.onUnauthorized = { store.authenticationExpired() }; await load() }.onDisappear { voice.stop() }
+                .listRowBackground(PhoneTheme.surface)
+                Section("Speed") {
+                    Picker("Speaking speed", selection: $prefs.speed) {
+                        ForEach(PhonePreferences.speeds, id: \.self) { speed in Text(speed == 1 ? "1×" : speed.formatted() + "×").tag(speed) }
+                    }.pickerStyle(.segmented).accessibilityIdentifier("voice.speed")
+                    if sample.speaking || sample.error != nil { VoiceSampleStatus(voice: sample) }
+                }.listRowBackground(PhoneTheme.surface)
+                Section {
+                    NavigationLink { TranscriptionChoicesScreen(catalog: catalog) } label: {
+                        LabeledContent("Speech recognition", value: prefs.transcription?.model ?? "Gateway default")
+                    }.accessibilityIdentifier("voice.transcription")
+                    if let selected = prefs.transcription, !catalog.transcription.contains(selected) {
+                        Text("This model is unavailable. Choose another.").font(.footnote).foregroundStyle(PhoneTheme.amber)
+                    }
+                } footer: { Text("Saved for this account on this iPhone. Entities keep their own voice.") }.listRowBackground(PhoneTheme.surface)
+            } else if let error {
+                Section { ErrorBanner(message: error); Button("Try again") { Task { await load() } } }
+            } else { Section { ProgressView("Loading voices…") } }
+        }
+        .listRowSpacing(4).listStyle(.insetGrouped)
+        .navigationTitle("Voice").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden).background(PhoneTheme.ground)
+        .task(id: store.contextID) { sample.onUnauthorized = { store.authenticationExpired() }; await load() }
+        .onChange(of: prefs.speed) { _, _ in preview() }
+        .onChange(of: store.contextID) { _, _ in sample.stop() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { sample.stop() } }
+        .onDisappear { sample.stop() }
+    }
+    private func preview() {
+        guard let client = store.client, scenePhase == .active else { return }
+        sample.read("Hello, I’m AbstractAssistant.", client: client, scope: .run(PhoneSession.owner(store.sessionID)), choice: store.preferences.voice, speed: store.preferences.speed)
     }
     private func load() async {
-        guard let client = store.client else { return }; let context = store.contextID; error = nil
-        do { let result = try await client.voiceCatalog(); guard context == store.contextID else { return }; catalog = result } catch { guard context == store.contextID else { return }; self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { store.authenticationExpired() } }
+        guard let client = store.client else { return }; let context = store.contextID; error = nil; catalog = nil; sample.stop()
+        do { let result = try await client.voiceCatalog(); guard context == store.contextID, !Task.isCancelled else { return }; catalog = result }
+        catch { guard context == store.contextID, !Task.isCancelled else { return }; self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { store.authenticationExpired() } }
+    }
+}
+
+private struct VoiceChoicesScreen: View {
+    let catalog: VoiceCatalog
+    @Environment(AssistantStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var sample = VoiceController()
+    @State private var chosen: String?
+    var body: some View {
+        List {
+            Section {
+                choice(nil, title: "Gateway default", detail: catalog.defaultVoice)
+                ForEach(catalog.voices) { v in
+                    choice(v, title: v.label, detail: catalog.voices.filter { $0.label == v.label }.count > 1 ? v.provider + " · " + v.model : v.gender)
+                }
+            } footer: { Text("Tap a voice to hear it.") }
+            if sample.speaking || sample.error != nil { Section { VoiceSampleStatus(voice: sample) }.listRowBackground(PhoneTheme.surface) }
+        }
+        .navigationTitle("Speaking voice").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden).background(PhoneTheme.ground)
+        .onAppear { sample.onUnauthorized = { store.authenticationExpired() } }
+        .onChange(of: store.contextID) { _, _ in sample.stop() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { sample.stop() } }
+        .onDisappear { sample.stop() }
+    }
+    private func choice(_ value: VoiceChoice?, title: String, detail: String?) -> some View {
+        let selected = store.preferences.voice == value
+        return Button {
+            store.preferences.voice = value; chosen = value?.id ?? "default"
+            guard let client = store.client, scenePhase == .active else { return }
+            sample.read("Hello, I’m AbstractAssistant.", client: client, scope: .run(PhoneSession.owner(store.sessionID)), choice: value, speed: store.preferences.speed)
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).foregroundStyle(PhoneTheme.ink)
+                    if let detail, !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(PhoneTheme.secondary) }
+                }
+                Spacer(minLength: 8)
+                if sample.preparing && chosen == (value?.id ?? "default") { ProgressView().accessibilityLabel("Loading sample") }
+                else if selected { Image(systemName: "checkmark").foregroundStyle(PhoneTheme.mint) }
+            }.frame(minHeight: 36)
+        }.accessibilityAddTraits(selected ? .isSelected : []).listRowBackground(PhoneTheme.surface)
+    }
+}
+
+private struct VoiceSampleStatus: View {
+    let voice: VoiceController
+    var body: some View {
+        if let error = voice.error { Text(error).font(.footnote).foregroundStyle(PhoneTheme.amber) }
+        if voice.speaking {
+            HStack {
+                if voice.preparing { ProgressView() } else { Image(systemName: "waveform").foregroundStyle(PhoneTheme.mint) }
+                Text(voice.preparing ? "Loading sample…" : "Playing sample").font(.footnote).foregroundStyle(PhoneTheme.secondary)
+                Spacer()
+                Button { voice.stop() } label: { Image(systemName: "stop.circle").font(.title3).frame(width: 44, height: 44) }.accessibilityLabel("Stop sample")
+            }.accessibilityIdentifier("voice.sample")
+        }
+    }
+}
+
+private struct TranscriptionChoicesScreen: View {
+    let catalog: VoiceCatalog
+    @Environment(AssistantStore.self) private var store
+    var body: some View {
+        List {
+            choice(nil, title: "Gateway default", detail: catalog.defaultTranscription)
+            ForEach(catalog.transcription) { model in choice(model, title: model.model, detail: model.provider + Self.hint(model.model)) }
+        }
+        .navigationTitle("Speech recognition").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden).background(PhoneTheme.ground)
+    }
+    private func choice(_ value: TranscriptionChoice?, title: String, detail: String?) -> some View {
+        let selected = store.preferences.transcription == value
+        return Button { store.preferences.transcription = value } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) { Text(title).foregroundStyle(PhoneTheme.ink); if let detail { Text(detail).font(.caption).foregroundStyle(PhoneTheme.secondary) } }
+                Spacer(); if selected { Image(systemName: "checkmark").foregroundStyle(PhoneTheme.mint) }
+            }.frame(minHeight: 36)
+        }.accessibilityAddTraits(selected ? .isSelected : []).listRowBackground(PhoneTheme.surface)
+    }
+    private static func hint(_ model: String) -> String {
+        switch model { case "tiny": " · Fastest"; case "base": " · Fast"; case "small": " · Balanced"; case "medium": " · Accurate"; case "large", "large-v3": " · Most accurate"; case "turbo", "large-v3-turbo": " · Accurate, faster"; default: "" }
     }
 }
 

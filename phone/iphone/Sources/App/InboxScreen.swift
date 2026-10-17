@@ -10,7 +10,6 @@ struct InboxScreen: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("A little attention.\nA lot of progress.").font(.system(.largeTitle, design: .rounded, weight: .semibold)).tracking(-0.8).padding(.vertical, 12)
                     if let error = store.error { ErrorBanner(message: error, dismiss: store.dismissError) }
                     if store.lastRefresh == nil { ProgressView("Checking your gateway…").padding(.vertical, 18) }
                     QuietLabel(text: store.waits.isEmpty ? (store.lastRefresh == nil ? "Needs you" : "Nothing needs you") : "Needs you · \(store.waits.count)", color: PhoneTheme.amber)

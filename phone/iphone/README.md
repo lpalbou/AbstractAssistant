@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.4.1 · iOS 26+**
+**Developer preview · 0.5.0 · iOS 26+**
 
 ## Three small spaces
 
@@ -15,14 +15,14 @@ AbstractGateway, with the conversation at the center and the controls you need c
   preserving your draft. While listening, only a small Listening label appears above the orb.
   The orb reacts to microphone and read-aloud playback levels.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
-  your phone, desktop, Watch or browser. Choose an entity with the person icon to talk to it.
+  your phone, desktop, Watch or browser. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
   Voice sends separately from your typed draft. The **+** button serves text and voice.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
   action and its complete arguments. Allow once or deny; decisions already made on another
   device cannot resume a later action. There is no blanket tool trust switch.
 - **Automations.** See your routines, their latest answers and five earlier runs. Run an
-  active or paused routine now, pause it, or resume it. Tap **+** to create a routine: describe the task, choose a workflow and
+  active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: describe the task, choose a workflow and
   interval or daily time, and decide whether it builds on earlier runs and asks before tools.
   Daily times use your account’s time zone, which the creation screen displays. Editing
   an existing routine’s definition remains in the gateway console.
@@ -38,7 +38,9 @@ to another agent interface or runs models locally.
 **Settings → Voice & reading** offers automatic reading of new replies, the gateway’s
 speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
 to your account and gateway. **Gateway default** sends no override; entities retain their
-own speaking voice. Restored history is never read automatically.
+own speaking voice. Tap a voice to select and hear it automatically. Speed choices
+**1×, 1.15×, 1.3× and 1.5×** also play a sample and apply to all read-aloud playback.
+Restored history is never read automatically.
 
 **Tap → speak → three seconds of silence → send.** Capture stays on the iPhone until the
 silence countdown ends. Speaking again restarts that countdown. Tap the orb
@@ -54,8 +56,8 @@ Reduce Motion retains signal-driven light while freezing geometry and rotation. 
 detection uses local microphone power; room noise and very quiet speech can affect it.
 
 Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
-a short video. Uploaded file chips remain until you send or remove them. The **folder**
-in the toolbar opens **Conversation files**, including files the assistant generates.
+a short video. Uploaded file chips remain until you send or remove them.
+**More options (…) → Conversation files** opens your files, including files the assistant generates.
 Tap a file to download it privately and preview, play or share it with the native viewer.
 Attachments retain their gateway artifact and owning-run references. Credentials never
 travel in a share link or to an AI-provided URL.
@@ -64,6 +66,19 @@ Files are limited to **25 MB each** on the phone; the gateway may impose a small
 Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts
 text only, so file messages are available in Assistant conversations. The files list shows
 the latest 100 session artifacts; older files remain on the gateway.
+
+## Entities
+
+Tap the current name at the top of chat to open **Who answers**. Search the entities your
+account can access, select one, or choose **New entity**. Switching starts a new chat view
+and keeps your draft; an entity retains its ongoing memory. Send or remove staged files
+before switching. Entity loading has its own retry, independently of run history.
+
+Creation uses the gateway's default identity and models, after a name check. Entities are
+permanent and cannot be deleted; the form explains this before **Create entity**. Successful
+creation opens the entity. If the gateway reports incomplete setup, the entity remains
+created and its warnings are shown before continuing. Existing names are not replaced.
+Advanced entity configuration remains in the gateway console.
 
 ## Connect
 

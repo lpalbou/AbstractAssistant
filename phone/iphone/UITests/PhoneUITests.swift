@@ -5,7 +5,7 @@ final class PhoneUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "--ui-test"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["What’s on\nyour mind?"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["What’s on your mind?"].waitForExistence(timeout: 10))
         capture(app, "Assistant")
         app.buttons["Find a little focus"].firstMatch.tap()
         app.buttons["Send message"].tap()
@@ -14,14 +14,14 @@ final class PhoneUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [finished], timeout: 30), .completed)
         XCTAssertTrue(app.buttons["voice.orb"].exists)
         XCTAssertTrue(app.buttons["View conversation files (1)"].exists)
-        XCTAssertTrue(app.buttons["Settings"].isHittable)
+        XCTAssertTrue(app.buttons["More options"].isHittable)
         XCTAssertTrue(app.buttons["voice.orb"].isHittable)
         capture(app, "Conversation")
         app.tabBars.buttons["Inbox"].tap()
-        XCTAssertTrue(app.staticTexts["A little attention.\nA lot of progress."].exists)
+        XCTAssertTrue(app.staticTexts["RECENT ACTIVITY"].exists)
         capture(app, "Inbox")
         app.tabBars.buttons["Automations"].tap()
-        XCTAssertTrue(app.staticTexts["A rhythm\nof your own."].exists)
+        XCTAssertTrue(app.staticTexts["Morning digest"].exists)
         capture(app, "Automations")
     }
     @MainActor func testApprovalShowsActionAndReturnsToInbox() throws {
@@ -33,19 +33,34 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Allow once"].waitForExistence(timeout: 10))
         capture(app, "Approval")
         app.buttons["Deny"].tap()
-        XCTAssertTrue(app.staticTexts["A little attention.\nA lot of progress."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["RECENT ACTIVITY"].waitForExistence(timeout: 10))
     }
     @MainActor func testVoiceSettingsAndWorkflowAreAvailable() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
-        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 10)); app.buttons["Settings"].tap()
+        openSettings(app)
         app.buttons["Voice & reading"].tap()
         XCTAssertTrue(app.switches["voice.readAloud"].waitForExistence(timeout: 10))
         // iOS exposes the whole labelled row as a switch; tap the actual trailing control.
         app.switches["voice.readAloud"].coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: app.switches["voice.readAloud"])
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed)
-        XCTAssertTrue(app.buttons["Preview voice"].exists)
+        XCTAssertTrue(app.buttons["voice.choices"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Preview voice"].exists)
         capture(app, "Voice settings")
+        app.buttons["voice.choices"].tap()
+        let choice = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Supertonic · M1'")).firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 5)); choice.tap()
+        XCTAssertTrue(app.buttons["Stop sample"].waitForExistence(timeout: 5))
+        capture(app, "Voice choices")
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["1.5×"].tap()
+        XCTAssertTrue(app.buttons["Stop sample"].waitForExistence(timeout: 5))
+        capture(app, "Speaking speed")
+        app.buttons["Stop sample"].tap()
+        app.buttons["voice.transcription"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'large-v3-turbo'")).firstMatch.waitForExistence(timeout: 5))
+        capture(app, "Speech recognition")
+        app.navigationBars.buttons.firstMatch.tap()
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["Workflow"].tap()
         XCTAssertTrue(app.buttons["Save workflow"].waitForExistence(timeout: 10))
@@ -66,7 +81,7 @@ final class PhoneUITests: XCTestCase {
     }
     @MainActor func testConversationFilesAreVisible() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
-        XCTAssertTrue(app.buttons["Conversation files"].waitForExistence(timeout: 10)); app.buttons["Conversation files"].tap()
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 10)); app.buttons["More options"].tap(); app.buttons["Conversation files"].tap()
         XCTAssertTrue(app.staticTexts["A little focus.txt"].waitForExistence(timeout: 10))
         capture(app, "Conversation files")
     }
@@ -95,7 +110,7 @@ final class PhoneUITests: XCTestCase {
         capture(app, "Keyboard composer")
         input.tap() // Caret and input taps keep editing active.
         XCTAssertTrue(app.keyboards.firstMatch.exists)
-        app.staticTexts["What’s on\nyour mind?"].tap()
+        app.staticTexts["What’s on your mind?"].tap()
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
         XCTAssertTrue(orb.isHittable)
@@ -148,7 +163,7 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(orb.waitForExistence(timeout: 10))
         let input = app.textFields["composer.input"]
         app.buttons["composer.keyboard"].tap(); input.typeText("Keep my keyboard draft")
-        app.staticTexts["What’s on\nyour mind?"].tap()
+        app.staticTexts["What’s on your mind?"].tap()
         orb.tap()
         let countdown = app.buttons.matching(NSPredicate(format: "identifier == 'voice.orb' AND label BEGINSWITH 'Sending in '")).firstMatch
         XCTAssertTrue(countdown.waitForExistence(timeout: 6))
@@ -172,6 +187,44 @@ final class PhoneUITests: XCTestCase {
         keyboard.tap()
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         XCTAssertEqual(input.value as? String, "Keep my keyboard draft")
+    }
+    @MainActor func testEmptyAutomationHasOnePaddedCreateAction() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--empty-automations", "--screen", "automations"]; app.launch()
+        XCTAssertTrue(app.staticTexts["No automations yet"].waitForExistence(timeout: 10))
+        let create = app.buttons["automations.create"]
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == 'New automation'")).count, 1)
+        XCTAssertGreaterThanOrEqual(create.frame.height, 50)
+        XCTAssertGreaterThan(create.frame.minX, 20)
+        XCTAssertLessThan(create.frame.maxX, app.frame.width - 20)
+        capture(app, "Empty automations")
+        create.tap(); XCTAssertTrue(app.textFields["automation.task"].waitForExistence(timeout: 5))
+    }
+    @MainActor func testEntitiesCanBeListedSelectedAndCreated() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        let chooser = app.buttons["Choose who answers"]
+        XCTAssertTrue(chooser.waitForExistence(timeout: 10)); chooser.tap()
+        XCTAssertTrue(app.buttons["Talk with Castor"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Talk with Assistant"].exists)
+        capture(app, "Entities")
+        app.buttons["Talk with Castor"].tap()
+        XCTAssertEqual(chooser.value as? String, "Castor")
+        capture(app, "Entity conversation")
+        chooser.tap(); app.buttons["entities.new"].tap()
+        let name = app.textFields["entity.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5)); name.tap(); name.typeText("Atlas One")
+        let create = app.buttons["entity.create"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: create)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        capture(app, "New entity")
+        create.tap()
+        let opened = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'Atlas One'"), object: chooser)
+        XCTAssertEqual(XCTWaiter.wait(for: [opened], timeout: 15), .completed)
+        chooser.tap(); XCTAssertTrue(app.buttons["Talk with Atlas One"].waitForExistence(timeout: 5))
+        capture(app, "Created entity")
+    }
+    @MainActor private func openSettings(_ app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 10)); app.buttons["More options"].tap()
+        app.buttons["Settings"].tap()
     }
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
         Thread.sleep(forTimeInterval: 0.7) // Capture settled native navigation, not an intermediate animation frame.

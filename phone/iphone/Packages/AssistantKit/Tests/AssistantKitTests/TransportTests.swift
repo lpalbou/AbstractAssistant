@@ -84,4 +84,24 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
         #expect(WireStub.requests.isEmpty)
     }
 
+    @Test func entityCreationUsesAuthenticatedValidatedRoutesAndKeepsPartialSuccess() async throws {
+        let client = client(), draft = EntityDraft(name: "Atlas One")
+        WireStub.response = { request in request.url!.path.hasSuffix("validate") ? (200, #"{"ok":true,"errors":[],"warnings":[],"exists":false,"slug":"atlas-one"}"#) : (201, #"{"created":true,"manifest":{"name":"Atlas One","slug":"atlas-one"},"warnings":["Setup note"],"skills_warning":"Skills unavailable"}"#) }
+        #expect(try await client.validateEntity(draft).ok)
+        let created = try await client.createEntity(draft)
+        #expect(created.entity.name == "atlas-one" && created.warnings.count == 2)
+        #expect(WireStub.requests.map { $0.url!.path } == ["/api/gateway/entities/atlas-one/validate", "/api/gateway/entities"])
+        #expect(WireStub.requests.allSatisfy { $0.httpMethod == "POST" && $0.value(forHTTPHeaderField: "Authorization") == "Bearer test-token" })
+        let bodies = try WireStub.bodies.map { try JSONDecoder().decode(JSONValue.self, from: $0) }
+        #expect(bodies == [draft.body, draft.body])
+    }
+    @Test func invalidEntityNameNeverMakesARequestAndQuotaErrorStaysReadable() async throws {
+        let client = client()
+        do { _ = try await client.validateEntity(EntityDraft(name: "../bad")); Issue.record("Expected rejection") } catch { }
+        #expect(WireStub.requests.isEmpty)
+        WireStub.response = { _ in (429, #"{"detail":"Entity limit reached. Contact your administrator."}"#) }
+        do { _ = try await client.createEntity(EntityDraft(name: "Atlas")); Issue.record("Expected quota rejection") }
+        catch { #expect(error.localizedDescription == "Entity limit reached. Contact your administrator.") }
+    }
+
 }

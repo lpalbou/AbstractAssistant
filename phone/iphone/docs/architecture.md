@@ -22,7 +22,7 @@ policy, entities, model/voice defaults and automations. The app reads account pr
 before starting a turn, chooses the explicit catalog workflow when set, otherwise uses
 `@default` with `abstractassistant.agent.v1`. A missing/broken choice fails visibly without
 switching interfaces. The workflow picker writes only the account’s Assistant interface preference. Operator
-defaults and other app preferences are never changed. Voice overrides and read-aloud
+defaults and other app preferences are never changed. Voice overrides, playback speed and read-aloud
 preferences are stored locally, scoped by gateway/tenant/account.
 
 The HTTP client uses an ephemeral URLSession, explicit bearer or session/CSRF headers,
@@ -98,6 +98,30 @@ opening the attachment menu with one tap while editing. Leaving the screen detac
 reading listens for this event while active, rather than message-list refreshes, so restored
 history and repeat polls remain silent. Entity speech retains its entity scope and voice.
 Per-request provider/model/voice overrides follow the newer Watch client contracts.
+
+## Voice settings and responder selection
+
+The Watch's pick-and-preview flow is preserved: selecting a voice immediately requests a
+short sample, and selecting a speed previews the current voice. Separate view-owned
+controllers stop old previews when navigating, backgrounding or changing account; recorder/
+player generations suppress obsolete completions. Speed is one of 1, 1.15, 1.3 or 1.5,
+stored per gateway/account and applied locally through AVAudioPlayer.enableRate/rate before
+playback. It applies to Assistant and entity speech while entity voice overrides remain
+entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
+
+The chat title is a labelled responder chooser. Files/settings move into one More menu,
+avoiding an adaptive toolbar that hides actions. Who answers lists Assistant and searchable
+entities with explicit loading/error/retry. Entity discovery can load independently of the
+store's run polling chain. Switching is blocked with a reason during an active run/import
+or staged files; drafts are preserved.
+
+Entity creation uses the existing principal-scoped gateway endpoints. A cancelable name
+check calls POST /entities/{slug}/validate before enabling the explicit Create action; the
+same trimmed name and default-framework body then goes to POST /entities. The form discloses
+permanence before mutation. No local model, spark or administrator permissions are invented.
+Creation decodes manifest.slug/name, created and all warnings, including skills/capability
+setup warnings. Partial/existing outcomes remain visible with an Open conversation action,
+rather than inviting another creation. Account generations reject obsolete completions.
 
 ## Files and automations
 

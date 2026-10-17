@@ -11,6 +11,7 @@ struct ChatScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     @State private var history = false
+    @State private var choosingEntity = false
     @State private var showWait: Wait?
     @State private var voice = VoiceController.forApp()
     @State private var voiceOrigin: (UUID, String)?
@@ -56,19 +57,28 @@ struct ChatScreen: View {
             .background(OutsideInputDismissal(focused: typing, dismiss: { typing = false; composing = false }))
             .navigationTitle(store.conversationTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) { NavigationCaption(title: store.conversationTitle, demo: store.isDemo) }
+                ToolbarItem(placement: .principal) {
+                    Button { typing = false; composing = false; cancelVoice(); choosingEntity = true } label: {
+                        HStack(spacing: 6) { NavigationCaption(title: store.conversationTitle, demo: store.isDemo); Image(systemName: "chevron.down").font(.caption2.weight(.semibold)) }
+                    }.accessibilityLabel("Choose who answers").accessibilityValue(store.conversationTitle)
+                }
                 ToolbarItem(placement: .topBarLeading) { Button { typing = false; composing = false; cancelVoice(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { typing = false; composing = false; cancelVoice(); showFiles = true } label: { Image(systemName: "folder") }.accessibilityLabel("Conversation files")
+                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Assistant", systemImage: "sparkle") { cancelVoice(); store.newConversation() }
-                        ForEach(store.entities) { entity in Button("Talk with " + entity.name.capitalized) { cancelVoice(); store.newConversation(entity: entity.name) } }
-                    } label: { Image(systemName: "person.crop.circle.badge.plus") }
-                    .disabled(!store.canSend || attachments.busy || mediaLoading || !attachments.pending.isEmpty).accessibilityLabel("Choose who answers")
-                    Button { typing = false; composing = false; cancelVoice(); openSettings() } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("Settings").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
+                        Button("Conversation files", systemImage: "folder") { typing = false; composing = false; cancelVoice(); showFiles = true }
+                        Button("New conversation", systemImage: "square.and.pencil") { typing = false; composing = false; cancelVoice(); store.newConversation(entity: store.selectedEntity) }.disabled(!store.canSend || attachments.busy || mediaLoading || !attachments.pending.isEmpty)
+                        Button("Settings", systemImage: "slider.horizontal.3") { typing = false; composing = false; cancelVoice(); openSettings() }.disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
+                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More options")
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .sheet(isPresented: $choosingEntity) {
+                EntityPickerScreen(canSwitch: store.canSend && !attachments.busy && !mediaLoading && attachments.pending.isEmpty,
+                    blockedReason: !attachments.pending.isEmpty ? "Send or remove your attachments before switching." : !store.canSend ? "Finish or stop the current reply before switching." : nil) { entity in
+                    guard store.canSend, !attachments.busy, !mediaLoading, attachments.pending.isEmpty else { return }
+                    cancelVoice(); cancelMedia(); store.newConversation(entity: entity); choosingEntity = false
+                }
+            }
             .sheet(isPresented: $history) { ConversationsSheet { history = false } }
             .sheet(item: $showWait) { wait in WaitDetailScreen(wait: wait) }
             .sheet(isPresented: $showFiles) { filesSheet }
@@ -117,11 +127,7 @@ struct ChatScreen: View {
     }
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 24) {
-            HStack { QuietLabel(text: "A moment of clarity", color: PhoneTheme.mint); Spacer(); Image(systemName: "sparkle").foregroundStyle(PhoneTheme.mint.opacity(0.6)) }
-            VStack(alignment: .leading, spacing: 10) {
-                Text("What’s on\nyour mind?").font(.system(.largeTitle, design: .rounded, weight: .semibold)).tracking(-0.8)
-                Text("Think it through. Make a plan.\nOr just start a conversation.").foregroundStyle(PhoneTheme.secondary).lineSpacing(5)
-            }
+            Text("What’s on your mind?").font(.system(.title2, design: .rounded, weight: .semibold)).padding(.top, 12)
             VStack(spacing: 10) {
                 suggestion("Find a little focus", detail: "Make room for what matters", symbol: "sun.max", prompt: "Help me make room for focused work this week.")
                 suggestion("Untangle an idea", detail: "A fresh pair of eyes", symbol: "point.3.connected.trianglepath.dotted", prompt: "I have an idea I'd like to think through. Ask me a few questions to help me clarify it.")
@@ -150,7 +156,7 @@ struct ChatScreen: View {
                     ShareLink(item: message.text) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share answer")
                     Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer")
                     if let client = store.client, let scope = store.selectedEntity.map({ SpeechScope.entity($0) }) ?? message.runID.map({ SpeechScope.run($0) }) {
-                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
+                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
                     if voice.speaking { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
                 }.font(.subheadline).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain).frame(minHeight: 44)
@@ -276,7 +282,7 @@ struct ChatScreen: View {
     private func read(_ reply: ConversationMessage) {
         guard let client = store.client, !voice.recording, !reply.text.isEmpty else { return }
         let scope = store.selectedEntity.map(SpeechScope.entity) ?? reply.runID.map(SpeechScope.run)
-        if let scope { voice.read(reply.text, client: client, scope: scope, choice: store.preferences.voice, messageID: reply.id) }
+        if let scope { voice.read(reply.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: reply.id) }
     }
     private func cancelMedia() { mediaGeneration = UUID(); mediaTask?.cancel(); mediaTask = nil; mediaLoading = false }
     private func stage(_ url: URL, owned: Bool = false, origin: (UUID, String)?) {

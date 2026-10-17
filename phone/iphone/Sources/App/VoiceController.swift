@@ -53,6 +53,8 @@ private final class AudioSessionEvents: @unchecked Sendable {
     private(set) var inputPhase: VoiceTurn.Phase = .idle
     private(set) var secondsRemaining = 3
     private(set) var readingID: String?
+    private(set) var preparing = false
+    var playbackRate: Float { player?.rate ?? 1 }
     private(set) var speaking = false
     private(set) var paused = false
     var recording: Bool { inputPhase == .recording || inputPhase == .countdown }
@@ -170,11 +172,11 @@ private final class AudioSessionEvents: @unchecked Sendable {
         }
     }
 
-    func read(_ text: String, client: any GatewayClient, scope: SpeechScope, choice: VoiceChoice? = nil, messageID: String? = nil) {
+    func read(_ text: String, client: any GatewayClient, scope: SpeechScope, choice: VoiceChoice? = nil, speed: Double = 1, messageID: String? = nil) {
         stop(); error = nil
         let text = SpeechText.plain(text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        speaking = true; readingID = messageID; startSampling()
+        speaking = true; preparing = true; readingID = messageID; startSampling()
         let epoch = generation
         playback = Task {
             do {
@@ -185,11 +187,12 @@ private final class AudioSessionEvents: @unchecked Sendable {
                 for try await chunk in client.speech(text: text, scope: scope, voice: { if case .run = scope { choice } else { nil } }()) {
                     try Task.checkCancellation(); guard epoch == generation else { return }
                     let player = try AVAudioPlayer(data: chunk); player.isMeteringEnabled = true; self.player = player
+                    player.enableRate = true; player.rate = Float(PhonePreferences.validSpeed(speed)); preparing = false
                     player.prepareToPlay(); if !paused, !player.play() { throw CocoaError(.fileReadCorruptFile) }
                     while player.isPlaying || paused { try await Task.sleep(for: .milliseconds(30)) }
                 }
             } catch { if epoch == generation, !(error is CancellationError) { self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { onUnauthorized?() } } }
-            if epoch == generation { speaking = false; paused = false; readingID = nil; stopSampling(); player = nil; deactivateAudio() }
+            if epoch == generation { speaking = false; preparing = false; paused = false; readingID = nil; stopSampling(); player = nil; deactivateAudio() }
         }
     }
 
@@ -210,7 +213,7 @@ private final class AudioSessionEvents: @unchecked Sendable {
         generation += 1; stopSampling(); turn.cancel(); activity = SpeechActivity(); publishTurn(); readingID = nil
         captureTask?.cancel(); captureTask = nil; playback?.cancel(); playback = nil
         recorder?.stop(); recorder = nil; player?.stop(); player = nil
-        speaking = false; paused = false
+        speaking = false; preparing = false; paused = false
         try? FileManager.default.removeItem(at: file); deactivateAudio()
     }
 }

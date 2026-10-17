@@ -768,10 +768,11 @@ public struct EntitySummary: Codable, Hashable, Sendable, Identifiable {
     public init(name: String, extra: [String: JSONValue] = [:]) { self.name = name; self.extra = extra }
     public init(from decoder: Decoder) throws {
         let all = try decoder.singleValueContainer().decode([String: JSONValue].self)
-        guard let n = all["name"]?.stringValue ?? all["id"]?.stringValue ?? all["entity"]?.stringValue else {
+        guard let n = all["slug"]?.stringValue ?? all["name"]?.stringValue ?? all["id"]?.stringValue ?? all["entity"]?.stringValue else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "entity row without a name"))
         }
         name = n; extra = all.filter { $0.key != "name" }
+        if let display = all["display_name"]?.stringValue ?? all["name"]?.stringValue, all["slug"] != nil { extra["display_name"] = .string(display) }
     }
     public func encode(to encoder: Encoder) throws {
         var all = extra; all["name"] = .string(name)

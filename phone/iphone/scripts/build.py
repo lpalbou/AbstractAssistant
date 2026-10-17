@@ -18,7 +18,10 @@ def other_builds(own=None, idle_watch_test=None):
         parts = row.split(maxsplit=3)
         if len(parts) < 4:
             continue
-        pid, cpu, executable, arguments = int(parts[0]), float(parts[1]), Path(parts[2]).name, parts[3]
+        pid, cpu, arguments = int(parts[0]), float(parts[1]), parts[3]
+        # Darwin truncates the comm column when args is also requested. argv[0] keeps
+        # the full executable path (the Xcode command paths here contain no spaces).
+        executable = Path(arguments.split(maxsplit=1)[0]).name
         allowed_idle_test = (pid == idle_watch_test and executable == "xcodebuild" and cpu < 1.0
                              and "AbstractAssistantWatchUITests" in arguments and "platform=watchOS Simulator" in arguments and " test " in (" " + arguments + " "))
         if allowed_idle_test:

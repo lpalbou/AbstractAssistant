@@ -89,6 +89,8 @@ public actor MockGatewayClient: GatewayClient {
     """
     public static let cannedAnswer = "Let’s make a little room.\n\n**Start with one protected hour.** Choose a morning this week, silence notifications, and give that time to the idea you keep postponing.\n\n1. Pick one outcome that would make the week feel worthwhile.\n2. Move one meeting or small task out of the way.\n3. Leave ten minutes afterward to capture what changed.\n\nWhat would you most like that hour to be for?"
 
+    private var createdEntities: [EntitySummary] = []
+    private let emptyAutomations: Bool
     private var createdAutomations: [AutomationSummary] = []
     private var chosenWorkflow: String?
     private var uploaded: [String: [(PhoneArtifact, Data)]] = [:]
@@ -97,8 +99,8 @@ public actor MockGatewayClient: GatewayClient {
     private var started: [String: (Date, String)] = [:]
     private let wordInterval: TimeInterval
 
-    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12) {
-        self.pending = waits; self.wordInterval = wordInterval
+    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false) {
+        self.pending = waits; self.wordInterval = wordInterval; self.emptyAutomations = emptyAutomations
     }
 
     public func health() async throws -> Bool { true }
@@ -107,7 +109,7 @@ public actor MockGatewayClient: GatewayClient {
     public func recentRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns }
     public func automations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
-        for a in Self.sampleAutomations + createdAutomations { out.append(try await automation(id: a.id)) }
+        for a in (emptyAutomations ? [] : Self.sampleAutomations) + createdAutomations { out.append(try await automation(id: a.id)) }
         return out
     }
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
@@ -184,7 +186,16 @@ public actor MockGatewayClient: GatewayClient {
         for rows in uploaded.values { if let row = rows.first(where: { $0.0.id == artifact.id }) { return row.1 } }
         throw GatewayError.invalidResponse
     }
-    public func entities() async throws -> [EntitySummary] { Self.sampleEntities }
+    public func entities() async throws -> [EntitySummary] { Self.sampleEntities + createdEntities }
+    public func validateEntity(_ draft: EntityDraft) async throws -> EntityValidation {
+        EntityValidation(ok: draft.valid, exists: (Self.sampleEntities + createdEntities).contains { $0.name == draft.slug }, slug: draft.slug)
+    }
+    public func createEntity(_ draft: EntityDraft) async throws -> CreatedEntity {
+        guard draft.valid else { throw GatewayError.invalidResponse }
+        let exists = (Self.sampleEntities + createdEntities).contains { $0.name == draft.slug }
+        if !exists { createdEntities.append(EntitySummary(name: draft.slug, extra: ["display_name": .string(draft.name)])) }
+        return try CreatedEntity(.object(["created": .bool(!exists), "manifest": .object(["slug": .string(draft.slug), "name": .string(draft.name)]), "warnings": .array([])]))
+    }
     public func openEntityChat(name: String) async throws -> String { "chat-" + name }
     public func entityChatTurn(name: String, chatId: String, text: String) async throws -> String {
         try await Task.sleep(for: .seconds(1.6))
