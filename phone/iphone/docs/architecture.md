@@ -70,8 +70,10 @@ rerender on every sample. The dot-free orb's silhouette, rings and light respond
 A small isolated TimelineView maintains continuous ring motion. Reduce Motion freezes
 rotation/scale while retaining signal-driven light. Timers/tasks and audio stop on exit.
 
-The independent attachment control sits beside the text panel and orb (roughly 70/30 of
-remaining portrait width). Keyboard focus expands the text panel and removes the orb with
+The independent attachment control sits beside the text panel and orb. The empty,
+unfocused text panel takes half its normal width; the controls align to the actual orb
+center, with its caption below. Idle instructions are not repeated beneath the row.
+Keyboard focus expands the text panel and removes the orb with
 a spring transition; focus cancels pending voice before hiding its cancel control. A native
 UIControl surface supplies reliable down/up/drag-cancel events and a VoiceOver toggle path.
 The Debug-only `--demo --ui-test --voice-fixture` capture is isolated from live gateways;

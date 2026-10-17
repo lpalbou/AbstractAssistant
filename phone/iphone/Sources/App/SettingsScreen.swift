@@ -32,7 +32,7 @@ struct SettingsScreen: View {
                     Link("AbstractFramework", destination: URL(string: "https://abstractframework.ai")!)
                     Link("Source & community", destination: URL(string: "https://github.com/lpalbou/AbstractAssistant")!)
                     Link("Get in touch", destination: URL(string: "mailto:contact@abstractframework.ai")!)
-                    Text("Version 0.3.0 · iOS 26 or later").font(.caption).foregroundStyle(PhoneTheme.secondary)
+                    Text("Version 0.3.1 · iOS 26 or later").font(.caption).foregroundStyle(PhoneTheme.secondary)
                 }
                 Section { Button(store.isDemo ? "Leave demo" : "Disconnect this iPhone", role: .destructive) { confirm = true } }
             }.scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("Your space").navigationBarTitleDisplayMode(.inline)

@@ -186,7 +186,7 @@ struct ChatScreen: View {
             HStack(alignment: .center, spacing: 10) {
                 attachmentMenu
                 HStack(alignment: .bottom, spacing: 8) {
-                    TextField("Type a message…", text: $draft, axis: .vertical)
+                    TextField(compactEmptyInput ? "Message…" : "Type a message…", text: $draft, axis: .vertical)
                         .font(.subheadline).lineLimit(1...4).focused($typing).padding(.vertical, 16)
                         .accessibilityIdentifier("composer.input")
                         .disabled(!store.canSend || voice.recording || voice.inputPhase == .authorizing || voice.inputPhase == .atLimit || voice.transcribing)
@@ -200,14 +200,20 @@ struct ChatScreen: View {
                 .padding(.horizontal, 14).frame(maxWidth: .infinity)
                 .background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 25))
                 .overlay(RoundedRectangle(cornerRadius: 25).stroke(typing ? PhoneTheme.lavender.opacity(0.5) : PhoneTheme.stroke))
+                .containerRelativeFrame(.horizontal) { width, _ in
+                    let available = max(88, width - 32 - 40 - (typing ? 10 : 98 + 20))
+                    return compactEmptyInput ? available / 2 : available
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if !typing {
                     VoicePresence(voice: voice, working: store.phase != .ready, enabled: store.canSend && !attachments.busy && !mediaLoading, onPress: beginVoice, onRelease: { voice.release() }, onCancel: cancelVoice, onAccessibleActivate: accessibleVoice)
+                        .alignmentGuide(VerticalAlignment.center) { _ in 46 } // Align the orb itself with the input and +; its caption sits below.
                         .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.75, anchor: .trailing)), removal: .opacity.combined(with: .scale(scale: 0.75, anchor: .trailing))))
                 }
             }
             .animation(composerAnimation, value: typing)
             .animation(composerAnimation, value: draft.isEmpty)
-            if !typing {
+            if !typing && voice.inputPending {
                 HStack(spacing: 8) {
                     Text(voiceInstruction).font(.caption2).foregroundStyle(voice.localPending ? PhoneTheme.mint : PhoneTheme.secondary).contentTransition(.numericText(countsDown: true))
                     if voice.inputPending { Spacer(minLength: 0); Button("Cancel", action: cancelVoice).font(.caption.weight(.medium)).accessibilityLabel("Cancel voice message") }
@@ -217,6 +223,7 @@ struct ChatScreen: View {
     }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var composerAnimation: Animation? { reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.12) }
+    private var compactEmptyInput: Bool { !typing && draft.isEmpty && attachments.pending.isEmpty }
     private var voiceInstruction: String {
         switch voice.inputPhase {
         case .authorizing: return "Allow the microphone, then hold again."
@@ -224,7 +231,7 @@ struct ChatScreen: View {
         case .atLimit: return "One minute recorded · release to send"
         case .countdown, .ready: return "Sending in \(voice.secondsRemaining)s · touch the orb to cancel"
         case .transcribing: return "Transcribing your voice…"
-        case .idle: return draft.isEmpty ? "Hold, speak, release · three seconds to cancel" : "Voice sends separately. Your typed draft stays here."
+        case .idle: return ""
         }
     }
     private var attachmentMenu: some View {

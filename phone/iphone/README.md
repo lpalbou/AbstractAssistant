@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.3.0 · iOS 26+**
+**Developer preview · 0.3.1 · iOS 26+**
 
 ## Three small spaces
 
@@ -14,7 +14,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
   your phone, desktop, Watch or browser. Choose an entity with the person icon to talk to it.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
   The orb stays beside the text field and responds to microphone and playback energy.
-  Tap the text field to expand it and hide the orb; **Done** brings the orb back. Attachments
+  The empty text field takes half its usual width. Tap it to expand it and hide the orb;
+  **Done** brings the orb back. Attachments
   have their own **+** button, shared by text and voice. Any typed draft stays intact when
   you send a separate voice message.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every

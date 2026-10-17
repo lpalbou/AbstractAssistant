@@ -1,6 +1,32 @@
 # Developer preview validation
 
-Checked on 17 October 2026 for iPhone preview **0.3.0 (3)**.
+Checked on 17 October 2026. Current layout follow-up: **0.3.1 (4)**.
+
+## 0.3.1 compact composer follow-up
+
+The empty, unfocused text panel now uses half its previous width. The +, field and orb
+align to the actual orb center, with its caption below. The repeated idle instruction
+line is removed; active capture/countdown cancellation controls remain available.
+Keyboard focus still expands the field, and staged attachments or a nonempty draft keep
+the regular composer width.
+
+Three focused native UI tests passed in
+`build/UITests-1792265056209102000.xcresult`, with no runtime warnings: conversation/navigation,
+keyboard expansion/restoration and hold/release/cancel/automatic voice send. The tightened
+keyboard test checks the empty field's compact width, all three control centers within
+3 points, absence of the idle footer, and the expanded keyboard layout. Updated Assistant,
+Conversation, Keyboard, Compact and Countdown screenshots below come from this run.
+The same independent adversarial reviewer inspected these screenshots and the result:
+**Approved** for this small layout follow-up, with no new blocker. The existing physical
+audio/accessibility limitations remain as recorded below.
+
+The final 0.3.1 (4) device build was signature-verified, installed and launched on the
+connected iPhone over the previous app, preserving its sign-in and data.
+
+## 0.3.0 voice/composer baseline
+
+The baseline results below cover preview **0.3.0 (3)**; the 0.3.1 follow-up changes layout,
+copy and version metadata, leaving the voice/network policy and package code intact.
 
 This iteration changes only the phone subtree. Watch and desktop sources are outside its
 scope. Checks use deterministic HTTP fixtures and demo data, without production automation,
@@ -93,8 +119,8 @@ Settled native XCTest screenshots are checked in:
   [Automations](../design/screenshots/automations.png),
   [Approval](../design/screenshots/approval.png)
 
-These images precede the final disabled-Send opacity and animation-phase adjustments;
-the functional layout and tested interactions are unchanged by that polish.
+The current composer captures come from the 0.3.1 focused run. Other feature captures
+remain from the 0.3.0 baseline; their functional layouts are unchanged.
 
 ## Independent review
 

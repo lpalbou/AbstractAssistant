@@ -75,6 +75,10 @@ final class PhoneUITests: XCTestCase {
         let input = app.textFields["composer.input"].exists ? app.textFields["composer.input"] : app.textViews["composer.input"]
         XCTAssertTrue(app.buttons["voice.orb"].waitForExistence(timeout: 10))
         let compactWidth = input.frame.width
+        XCTAssertLessThan(compactWidth, app.frame.width * 0.3)
+        XCTAssertLessThan(abs(input.frame.midY - app.buttons["Add attachment"].frame.midY), 3)
+        XCTAssertLessThan(abs(input.frame.midY - app.buttons["voice.orb"].frame.midY), 3)
+        XCTAssertFalse(app.staticTexts["Hold, speak, release · three seconds to cancel"].exists)
         input.tap(); input.typeText("Keep this typed draft")
         XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["voice.orb"].exists)
