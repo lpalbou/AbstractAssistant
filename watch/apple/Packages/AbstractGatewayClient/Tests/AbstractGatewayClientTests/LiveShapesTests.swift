@@ -73,3 +73,19 @@ import Testing
     let tools = try JSONDecoder().decode(ToolsPage.self, from: Data(#"{"items":[{"name":"send_email","risk_tier":"outreach","risk_rank":3},{"name":"x","risk":{"tier":"act","rank":2}}]}"#.utf8))
     #expect(tools.items[0].riskTier == "outreach" && tools.items[0].riskRank == 3 && tools.items[1].riskRank == 2)
 }
+
+/// A watch Ask offers the agent the gateway's tools (as the desktop assistant: `tools` and
+/// `_runtime.allowed_tools`), keeps its persona as an addition, and a tool switched off is not offered.
+@Test func askOffersTheGatewayToolsLikeTheDesktop() throws {
+    let req = StartRunRequest(prompt: "news?", sessionId: "s", toolPolicy: nil, tools: ["skim_websearch", "send_email"])
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(req)) as! [String: Any]
+    let input = obj["input_data"] as! [String: Any]
+    #expect(input["tools"] as? [String] == ["skim_websearch", "send_email"])
+    #expect((input["_runtime"] as? [String: Any])?["allowed_tools"] as? [String] == ["skim_websearch", "send_email"])
+    #expect((input["system"] as? String)?.contains("never say you cannot browse") == true)
+    let none = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StartRunRequest(prompt: "hi", sessionId: "s"))) as! [String: Any]
+    #expect((none["input_data"] as! [String: Any])["tools"] == nil, "no catalog yet: the workflow's own tools")
+    let off = try JSONDecoder().decode(ToolInfo.self, from: Data(#"{"name":"x","enabled":false,"available":true}"#.utf8))
+    let on = try JSONDecoder().decode(ToolInfo.self, from: Data(#"{"name":"y","risk_tier":"observe"}"#.utf8))
+    #expect(!off.offered && on.offered)
+}

@@ -35,6 +35,7 @@ struct LinkView: View {
             .padding(.horizontal, 4)
         }
         .screen("")
+        .besideBack { ShareIcon(item: url, subject: page?.title) }   // send the link on (the watch has no clipboard)
         .userActivity("NSUserActivityTypeBrowsingWeb") { activity in
             activity.webpageURL = url
             activity.isEligibleForHandoff = true

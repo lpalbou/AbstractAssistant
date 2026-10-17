@@ -4,12 +4,21 @@ import WatchKit
 
 enum Route: Hashable {
     case approval(Wait), askUser(Wait), draft(Wait), waits
-    case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), settings
+    case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), newAutomation, message(title: String, Exchange), voiceSettings, settings
     case occurrence(title: String, LastOccurrence)
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
+/// One exchange of a conversation: the question, the answer, and whose voice reads it (the run that
+/// answered, or the entity).
+struct Exchange: Identifiable, Hashable {
+    let id: String
+    var prompt: String
+    var answer: String
+    var scope: SpeechScope?
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var waits: [Wait] = []
@@ -17,12 +26,15 @@ final class AppModel: ObservableObject {
     /// Conversations (turns grouped by session), newest activity first.
     var sessions: [SessionSummary] { SessionSummary.group(runs) }
     /// Session titles from each session's first prompt (immutable, so cached per watch).
-    @Published private(set) var sessionTitles: [String: String] = (UserDefaults.standard.dictionary(forKey: "session.titles") as? [String: String]) ?? [:]
+    @Published private(set) var sessionTitles: [String: String] = (UserDefaults.standard.dictionary(forKey: "session.titles.v2") as? [String: String]) ?? [:]
+    /// Each session's latest question, by its newest run id (the row's second line).
+    @Published private(set) var latestPrompts: [String: String] = [:]
     /// How many turns the session list reads (Show older adds 100).
     private(set) var runsLimit = 80
     func showOlder() async { runsLimit += 100; await refresh() }
     /// Set by "Continue" on a session: Ask opens on its last exchange, in that session.
-    var resuming: (title: String, prompt: String, answer: String, runId: String)?
+    struct Resuming { let sessionId, title, prompt, answer, runId, status: String }
+    var resuming: Resuming?
     @Published var automations: [AutomationSummary] = []
     @Published var principal: Principal?
     @Published var lastError: String?
@@ -269,10 +281,40 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Reads the gateway's tool catalog when it is not known yet (an Ask right after launch must not
+    /// fall back to the workflow's 9 default tools).
+    func ensureTools() async {
+        guard tools.isEmpty, let list = try? await client.tools() else { return }
+        tools = Dictionary(list.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// The tools a run offers its agent, as the desktop assistant does: every tool the gateway has on
+    /// (nil until the catalog is read: the workflow's own default set then applies).
+    var offeredTools: [String]? {
+        guard !tools.isEmpty else { return nil }
+        return tools.values.filter(\.offered).map(\.name).sorted()
+    }
+
     func title(of s: SessionSummary) -> String { sessionTitles[s.id] ?? "Conversation" }
 
-    /// Titles the sessions that have none yet from their oldest listed prompt (8 at a time).
+    /// Titles the sessions that have none yet from their oldest listed prompt, and reads each
+    /// session's latest question (the row shows both: a long session drifts from its first topic).
     func loadTitles() async {
+        let latestMissing = sessions.filter { $0.turns > 1 && latestPrompts[$0.latest.runId] == nil }.prefix(30)
+        if !latestMissing.isEmpty {
+            let latest: [(String, String)] = await withTaskGroup(of: (String, String)?.self) { group in
+                for s in latestMissing {
+                    group.addTask { [client] in
+                        guard let p = try? await client.prompt(ofRun: s.latest.runId), !p.isEmpty else { return nil }
+                        return (s.latest.runId, SessionSummary.title(fromPrompt: p))
+                    }
+                }
+                var out: [(String, String)] = []
+                for await x in group { if let x { out.append(x) } }
+                return out
+            }
+            for (k, v) in latest { latestPrompts[k] = v }
+        }
         let missing = sessions.filter { sessionTitles[$0.id] == nil }.prefix(30)
         guard !missing.isEmpty else { return }
         let found: [(String, String)] = await withTaskGroup(of: (String, String)?.self) { group in
@@ -287,27 +329,58 @@ final class AppModel: ObservableObject {
             return out
         }
         for (k, v) in found { sessionTitles[k] = v }
-        UserDefaults.standard.set(sessionTitles, forKey: "session.titles")
+        UserDefaults.standard.set(sessionTitles, forKey: "session.titles.v2")
     }
 
-    /// Tap on a session: read its last exchange (two requests together), then open the orb in it.
-    func continueSession(_ s: SessionSummary) async {
+    /// A conversation's exchanges, oldest first: its newest `limit` turns, read in parallel (a
+    /// listing row carries neither the prompt nor the output), by creation time.
+    func sessionExchanges(_ id: String, limit: Int = 10) async -> [Exchange] {
+        guard let rows = try? await client.turns(ofSession: id, limit: limit) else { return [] }
+        let newest = rows.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }.prefix(limit)
+        let client = self.client
+        let loaded: [(String, Exchange)] = await withTaskGroup(of: (String, Exchange).self) { group in
+            for r in newest {
+                group.addTask {
+                    async let full = try? client.run(id: r.runId)
+                    async let p = try? client.prompt(ofRun: r.runId)
+                    let (run, prompt) = await (full, p)
+                    return (r.createdAt ?? "", Exchange(id: r.runId, prompt: (prompt ?? nil) ?? "", answer: run?.outputText ?? "", scope: .run(r.runId)))
+                }
+            }
+            var out: [(String, Exchange)] = []
+            for await x in group { out.append(x) }
+            return out
+        }
+        return loaded.sorted { $0.0 < $1.0 }.map(\.1).filter { !$0.prompt.isEmpty || !$0.answer.isEmpty }
+    }
+
+    /// A session's last exchange: its newest turn's question, answer and state (two requests together).
+    func lastExchange(of s: SessionSummary) async -> (prompt: String, answer: String, runId: String, status: String) {
         async let runCall = try? client.run(id: s.latest.runId)
         async let promptCall = try? client.prompt(ofRun: s.latest.runId)
         let (run, prompt) = await (runCall, promptCall)
-        resume(s, lastPrompt: (prompt ?? nil) ?? "", lastAnswer: run?.outputText ?? "")
+        return ((prompt ?? nil) ?? "", run?.outputText ?? "", s.latest.runId, run?.status ?? s.latest.status)
     }
 
-    /// "Continue": Ask talks in this session from now on, opening on its last exchange.
-    func resume(_ s: SessionSummary, lastPrompt: String, lastAnswer: String) {
+    /// Tap on a session: read its last exchange, then open the orb in it.
+    func continueSession(_ s: SessionSummary) async {
+        let last = await lastExchange(of: s)
+        resume(s, lastPrompt: last.prompt, lastAnswer: last.answer, runId: last.runId, status: last.status)
+    }
+
+    /// "Continue": Ask talks in this session from now on, opening on its last exchange (`runId`:
+    /// the exchange shown, when the caller read a fresher one than the listing's).
+    func resume(_ s: SessionSummary, lastPrompt: String, lastAnswer: String, runId: String? = nil, status: String? = nil) {
+        resuming = Resuming(sessionId: s.id, title: title(of: s), prompt: lastPrompt, answer: lastAnswer,
+                            runId: runId ?? s.latest.runId, status: status ?? s.latest.status)
         askSessionId = s.id
         UserDefaults.standard.set(askSessionId, forKey: "ask.session")
         setResponder(.assistant)
-        resuming = (title(of: s), lastPrompt, lastAnswer, s.latest.runId)
         path = [.ask(.idle)]
     }
 
     func newAskSession() {
+        resuming = nil                                   // a pending Continue never lands in a new conversation
         askSessionId = Self.newSessionId()
         UserDefaults.standard.set(askSessionId, forKey: "ask.session")
     }
@@ -460,6 +533,7 @@ struct LaunchOptions {
         case "askuser": return [.askUser(ask)]
         case "waits": return [.waits]
         case "automation": return [.automations, .automation(MockGatewayClient.sampleAutomations[0])]
+        case "automation-new": return [.automations, .newAutomation]
         case "automation-edit": return [.automations, .automation(MockGatewayClient.sampleAutomations[0]), .automationEdit(MockGatewayClient.sampleAutomations[0])]
         case "occurrence":
             let a = MockGatewayClient.sampleAutomations[0]
@@ -470,6 +544,9 @@ struct LaunchOptions {
         case "thinking": return [.ask(.thinking)]
         case "answer": return [.ask(.answer)]
         case "runs", "sessions": return [.sessions]
+        case "session-long":
+            let s = SessionSummary.group(MockGatewayClient.sampleRuns).first { $0.id == "s-qc" }!
+            return [.sessions, .session(s)]
         case "session":
             let s = SessionSummary.group(MockGatewayClient.sampleRuns)[1]
             return [.sessions, .session(s)]
@@ -477,6 +554,8 @@ struct LaunchOptions {
         case "settings": return [.settings]
         case "orblab", "orbstyle": return [.settings, .orbStyle]
         case "about": return [.settings, .about]
+        case "voice": return [.settings, .voiceSettings]
+        case "link": return [.link(URL(string: "https://abstractframework.ai")!)]
         case "read": return [.read(ReadItem(title: "Answer", text: MockGatewayClient.cannedAnswer, scope: .run("7c1e02aa")))]
         default: return []
         }

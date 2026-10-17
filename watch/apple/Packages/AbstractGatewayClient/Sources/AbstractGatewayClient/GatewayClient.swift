@@ -34,11 +34,11 @@ public protocol GatewayClient: Sendable {
     /// `GET /api/gateway/runs/{id}/input_data`: what the person asked in that turn.
     func prompt(ofRun id: String) async throws -> String?
     /// `GET /api/gateway/runs?session_id=…&root_only=true&include_metrics=true`: one session's turns, newest first.
-    func turns(ofSession id: String) async throws -> [RunSummary]
+    func turns(ofSession id: String, limit: Int) async throws -> [RunSummary]
     /// `GET /api/gateway/runs/{id}`
     func run(id: String) async throws -> RunSummary
     /// `POST /api/gateway/runs/start`; returns the run id.
-    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String
+    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?) async throws -> String
     /// `GET /api/gateway/discovery/tools`: the tools with their risk tiers.
     func tools() async throws -> [ToolInfo]
     /// `POST /api/gateway/commands` with `type: "resume"`.
@@ -51,6 +51,12 @@ public protocol GatewayClient: Sendable {
     func automationCommand(id: String, type: String) async throws
     /// `GET /automations/{id}` → `summary`: one automation's row, fresh (e.g. its run in progress).
     func automation(id: String) async throws -> AutomationSummary
+    /// `GET /bundles?executable_for=<interface>`: the workflows this account may schedule.
+    func workflows(forInterface interface: String) async throws -> [WorkflowChoice]
+    /// `GET /bundles/{b}/flows/{f}/input_schema?bundle_version=`: a workflow's inputs.
+    func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs
+    /// `POST /automations`: creates it; returns its row.
+    func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary
     /// `GET /automations/{id}`: the committed definition (its task and target).
     func automationDefinition(id: String) async throws -> AutomationDefinition
     /// `PATCH /automations/{id}`: only what changed, with the revision it was read at.
@@ -72,10 +78,12 @@ public protocol GatewayClient: Sendable {
     /// Speech for `text`, as complete WAV files in reading order: `POST /api/gateway/runs/{id}/voice/tts/stream`
     /// for a run's text, `POST /api/gateway/entities/{name}/voice/tts/stream` for an entity's (its own voice).
     /// The gateway's configured voice answers; the first chunk arrives after the first sentence is synthesized.
-    nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error>
+    nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error>
     /// What the person said: uploads the WAV as a session attachment (`POST /api/gateway/attachments/upload`)
     /// and transcribes it with the gateway's STT (`POST /api/gateway/runs/{session owner}/audio/transcribe`).
-    func transcribe(wav: Data, sessionId: String) async throws -> String
+    func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String
+    /// `GET /voice/voices` + `GET /audio/transcriptions/models`: what this watch may choose.
+    func voiceCatalog() async throws -> VoiceCatalog
 }
 
 /// Live client over URLSession: `Authorization: Bearer <token>`, or a gateway session from an
@@ -147,9 +155,9 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/runs/\(id)/input_data", as: RunInputData.self).inputData?.prompt
     }
 
-    public func turns(ofSession id: String) async throws -> [RunSummary] {
+    public func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] {
         try await get("api/gateway/runs", query: [.init(name: "session_id", value: id), .init(name: "root_only", value: "true"),
-                                                   .init(name: "limit", value: "30"), .init(name: "include_metrics", value: "true")],
+                                                   .init(name: "limit", value: String(limit)), .init(name: "include_metrics", value: "true")],
                       as: RunsPage.self).items
     }
 
@@ -166,8 +174,8 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/discovery/tools", as: ToolsPage.self).items
     }
 
-    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {
-        let data = try await request("POST", "api/gateway/runs/start", body: StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy))
+    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?) async throws -> String {
+        let data = try await request("POST", "api/gateway/runs/start", body: StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools))
         return try JSONDecoder().decode(StartRunResponse.self, from: data).runId
     }
 
@@ -211,6 +219,22 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/automations/\(id)", as: AutomationSummaryResponse.self).summary
     }
 
+    public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
+        WorkflowChoice.choices(from: try await get("api/gateway/bundles", query: [.init(name: "executable_for", value: interface)], as: JSONValue.self))
+    }
+
+    public func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs {
+        let v = try await get("api/gateway/bundles/\(w.bundleId)/flows/\(w.flowId)/input_schema",
+                              query: [.init(name: "bundle_version", value: w.bundleVersion)], as: JSONValue.self)
+        guard let inputs = WorkflowInputs.parse(v) else { throw GatewayError.invalidResponse }
+        return inputs
+    }
+
+    public func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary {
+        let data = try await request("POST", "api/gateway/automations", body: a.body, timeout: 60)
+        return try JSONDecoder().decode(CreatedAutomation.self, from: data).summary
+    }
+
     public func automationDefinition(id: String) async throws -> AutomationDefinition {
         try await get("api/gateway/automations/\(id)", as: AutomationDefinitionResponse.self).definition
     }
@@ -249,7 +273,13 @@ public actor LiveGatewayClient: GatewayClient {
         _ = try await request("POST", "api/gateway/automations/\(automationId)/seen", body: SeenRequest(attentionCursor: cursor))
     }
 
-    public func transcribe(wav: Data, sessionId: String) async throws -> String {
+    public func voiceCatalog() async throws -> VoiceCatalog {
+        async let v = get("api/gateway/voice/voices", as: JSONValue.self)
+        async let t = get("api/gateway/audio/transcriptions/models", as: JSONValue.self)
+        return VoiceCatalog.parse(voices: try await v, transcription: try await t)
+    }
+
+    public func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String {
         if lockedOut { throw GatewayError.unauthorized }
         let boundary = "watch-" + UUID().uuidString
         var body = Data()
@@ -272,11 +302,11 @@ public actor LiveGatewayClient: GatewayClient {
         guard let ref = upload.artifact ?? upload.attachment, let id = ref.artifact else { throw GatewayError.invalidResponse }
         let owner = upload.runId ?? ref.runId ?? "session_memory_\(sessionId)"
         let out = try await request("POST", "api/gateway/runs/\(owner)/audio/transcribe",
-                                    body: TranscribeRequest(audioArtifact: ["$artifact": id]), timeout: 120)
+                                    body: TranscribeRequest(audioArtifact: ["$artifact": id], provider: model?.provider, model: model?.model), timeout: 120)
         return try JSONDecoder().decode(TranscribeResponse.self, from: out).text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> {
+    public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
         let path: String
         switch scope {
         case .run(let id): path = "api/gateway/runs/\(id)/voice/tts/stream"
@@ -287,7 +317,7 @@ public actor LiveGatewayClient: GatewayClient {
         req.timeoutInterval = 90
         credential.apply(to: &req, write: true)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONEncoder().encode(SpeechRequest(text: text))
+        req.httpBody = try? JSONEncoder().encode(SpeechRequest(text: text, provider: voice?.provider, model: voice?.model, voice: voice?.voice))
         let session = self.session
         let request = req
         return AsyncThrowingStream { continuation in

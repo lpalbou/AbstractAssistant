@@ -313,7 +313,8 @@ enum OrbPoints {
     }
 
     /// About one point per 5 pt² of the orb's square: ≈ 2,600 full screen, ≈ 300 on a 40 pt tile.
-    static func count(half: Double) -> Int { max(220, min(2600, Int(4 * half * half / 5))) }
+    /// 30% fewer than the first design (it lagged at times on a Series 11; older watches are slower).
+    static func count(half: Double) -> Int { max(154, min(1820, Int(0.7 * 4 * half * half / 5))) }
 
     @MainActor private static var cache: [Int: [P]] = [:]
 

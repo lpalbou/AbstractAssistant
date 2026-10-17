@@ -36,7 +36,9 @@ wrist with a haptic:
 number of exchanges and tools. Tap one to continue it on the orb; open its details to read its
 recent exchanges.
 
-**Follow your automations.** Each automation shows how often it runs and when it runs next
+**Follow your automations.** New automation (top of the list) creates one: the task, the
+workflow that runs it, when it runs (every few minutes to every week, or daily at a time), whether
+each run builds on the earlier ones, and whether it asks before using tools. Each automation shows how often it runs and when it runs next
 ("🕐 12h ➜ 6h"). Its page has:
 
 - Run now, on the schedule line; while it runs, you see what the agent is doing ("Searching the
@@ -54,7 +56,8 @@ approval can be allowed or denied from the notification itself.
 resume; the rewind icon beside Back goes back 10 seconds.
 
 **Make it yours.** Settings → Orb style offers six orbs (Halo, Vortex, Nebula, Rings, Liquid,
-Galaxy), asked once at first launch. Settings → About shows the version and build of the app.
+Galaxy), asked once at first launch. Settings → Read aloud turns the spoken answers on or off; Settings → About shows the version
+and build of the app.
 
 ## Sign in
 

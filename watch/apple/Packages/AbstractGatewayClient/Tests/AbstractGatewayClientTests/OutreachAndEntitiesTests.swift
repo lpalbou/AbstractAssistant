@@ -114,3 +114,54 @@ import Testing
     #expect(AutomationDefinition.title(afterTask: "b" + long, oldTitle: String(long.prefix(120)), oldTask: long) == String(("b" + long).prefix(120)))
     #expect(AutomationDefinition.title(afterTask: "new task", oldTitle: "Morning digest", oldTask: "old task") == nil)
 }
+
+/// A new automation's request is the one the tray app sends for the same choices
+/// (`abstractassistant.core.automations.build_create_request`, output pasted here).
+@Test func newAutomationBodyMatchesTheTrayApp() throws {
+    var a = NewAutomation(task: "Summarise the AI news", target: .gatewayDefault(interface: "abstractcode.agent.v1"),
+                          when: .every("24h"), buildsOnEarlierRuns: false, askBeforeTools: false)
+    a.requestId = "r1"
+    let tray1 = ##"{"request_id": "r1", "title": "Summarise the AI news", "target": {"flow_id": "@default", "interface": "abstractcode.agent.v1", "input_data": {"prompt": "Summarise the AI news"}}, "trigger": {"source_id": "schedule", "source_version": 2, "config": {"kind": "every", "every": "24h"}}, "context": {"mode": "independent"}, "policy": {"tool_approval": "auto"}}"##
+    #expect(a.body == (try JSONDecoder().decode(JSONValue.self, from: Data(tray1.utf8))))
+
+    let basic = WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent")
+    let input = try WorkflowInputs(defaults: ["use_context": .bool(false)], required: []).inputData(task: "Check my inbox").get()
+    var b = NewAutomation(task: "Check my inbox", target: .workflow(basic, inputData: input), when: .daily(at: "08:00"),
+                          buildsOnEarlierRuns: true, askBeforeTools: true)
+    b.requestId = "r2"
+    let tray2 = ##"{"request_id": "r2", "title": "Check my inbox", "target": {"bundle_ref": "basic-agent@0.0.5", "flow_id": "81795ea9", "input_data": {"use_context": false, "prompt": "Check my inbox"}}, "trigger": {"source_id": "schedule", "source_version": 2, "config": {"kind": "daily", "at": "08:00"}}, "context": {"mode": "growing"}, "policy": {"tool_approval": "ask"}}"##
+    #expect(b.body == (try JSONDecoder().decode(JSONValue.self, from: Data(tray2.utf8))))
+}
+
+/// The workflows a client may offer, from `GET /bundles?executable_for=` (gateway 0.15 shape), and
+/// a workflow's inputs from its v1 descriptor: defaults kept, a required input with no default named.
+@Test func workflowListAndInputs() throws {
+    let page = ##"{"items":[{"bundle_id":"basic-agent","bundle_version":"0.0.5","owner":{"kind":"gateway"},"entrypoints":[{"flow_id":"81795ea9","name":"Basic agent"}]},{"bundle_id":"deep-research","bundle_version":"0.1.8","entrypoints":[{"flow_id":"deep-research","name":"Deep research"}]}],"executable_for":"abstractcode.agent.v1"}"##
+    let choices = WorkflowChoice.choices(from: try JSONDecoder().decode(JSONValue.self, from: Data(page.utf8)))
+    #expect(choices.map(\.name) == ["Basic agent", "Deep research"])
+    #expect(choices.first?.id == "basic-agent@0.0.5:81795ea9")
+
+    let schema = ##"{"bundle_id":"memact-agent","inputs":[{"id":"prompt","required":true},{"id":"provider","required":false,"default":null},{"id":"use_context","required":false,"default":false},{"id":"workspace","required":true}]}"##
+    let inputs = try #require(WorkflowInputs.parse(try JSONDecoder().decode(JSONValue.self, from: Data(schema.utf8))))
+    #expect(inputs.defaults == ["use_context": .bool(false)])
+    #expect(inputs.required == ["prompt", "workspace"])
+    #expect(inputs.inputData(task: "t") == .failure(WorkflowInputsMissing(names: ["workspace"])))
+    #expect(WorkflowInputs.parse(.object(["nothing": .null])) == nil)
+}
+
+/// Voice choices from the gateway 0.15 listings: voices from `items[].params`, transcription models
+/// from `models_by_provider` (not the mislabelled `items`), the defaults as words; a chosen voice
+/// rides the speech request as provider + model + voice, none when the gateway's default is kept.
+@Test func voiceCatalogAndSpeechRequest() throws {
+    let v = ##"{"items":[{"profile_id":"F2","label":"Supertonic F2","params":{"provider":"supertonic","model":"supertonic-3","voice":"F2","language":"en"},"tags":{"gender":"female"}}],"gateway_defaults":{"tts":{"provider":"supertonic","model":"supertonic-3","voice":null},"stt":{"provider":"faster-whisper","model":"base"}}}"##
+    let t = ##"{"models":["tiny","gpt-4o-transcribe"],"models_by_provider":{"faster-whisper":["tiny","base"]},"items":[{"id":"gpt-4o-transcribe","provider":"faster-whisper"}]}"##
+    let c = VoiceCatalog.parse(voices: try JSONDecoder().decode(JSONValue.self, from: Data(v.utf8)),
+                               transcription: try JSONDecoder().decode(JSONValue.self, from: Data(t.utf8)))
+    #expect(c.voices == [VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "F2", label: "Supertonic F2", gender: "female")])
+    #expect(c.transcription.map(\.model) == ["tiny", "base"])
+    #expect(c.defaultVoice == "supertonic-3" && c.defaultTranscription == "faster-whisper base")
+    let chosen = try JSONSerialization.jsonObject(with: JSONEncoder().encode(SpeechRequest(text: "hi", provider: "supertonic", model: "supertonic-3", voice: "F2"))) as! [String: Any]
+    #expect(chosen["provider"] as? String == "supertonic" && chosen["model"] as? String == "supertonic-3" && chosen["voice"] as? String == "F2")
+    let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(SpeechRequest(text: "hi"))) as! [String: Any]
+    #expect(plain["provider"] == nil && plain["model"] == nil && plain["voice"] == nil)
+}

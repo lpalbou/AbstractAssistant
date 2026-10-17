@@ -39,6 +39,10 @@ public actor MockGatewayClient: GatewayClient {
             r("r1a9e0b2", "analytics-assistant", "completed", session: "s-adtte", minutesAgo: 9, tools: 4, llm: 3, output: MockGatewayClient.cannedAnswer),
             r("3e9a10c4", "deep-research", "completed", session: "s-qc", minutesAgo: 12, tools: 9, llm: 6, subtitle: "done · 12 min ago",
               output: "The nightly assay QC passed: all 96 wells within range, CV 3.1 %."),
+        ] + (1...7).map { n in
+            r("qc-older-\(n)", "deep-research", "completed", session: "s-qc", minutesAgo: 12 + Double(n) * 1440, tools: 2, llm: 1,
+              output: "Night \(n): the assay QC passed, CV \(2 + n % 3).\(n) %.")
+        } + [
             r("d0c5a971", "docs-qa", "failed", session: "s-docs", minutesAgo: 95, tools: 1, llm: 1, error: "model timeout", subtitle: "failed · model timeout"),
         ]
     }()
@@ -129,6 +133,21 @@ public actor MockGatewayClient: GatewayClient {
     }
     public func automationCommand(id: String, type: String) async throws {}
     public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {}
+    public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
+        [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent"),
+         WorkflowChoice(bundleId: "deep-research", bundleVersion: "0.1.8", flowId: "deep-research", name: "Deep research"),
+         WorkflowChoice(bundleId: "memact-agent", bundleVersion: "0.1.0", flowId: "memact", name: "MemAct agent")]
+    }
+    public func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs {
+        WorkflowInputs(defaults: ["use_context": .bool(false)], required: w.bundleId == "memact-agent" ? ["prompt"] : [])
+    }
+    public func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary {
+        try await Task.sleep(for: .milliseconds(600))
+        return AutomationSummary(id: "auto-" + a.requestId.prefix(6), name: a.title, status: "active", scheduleText: nil, lastOccurrence: nil,
+                                 triggerSource: "schedule", triggerConfig: { switch a.when {
+                                     case .every(let e): ["kind": .string("every"), "every": .string(e)]
+                                     case .daily(let at): ["kind": .string("daily"), "at": .string(at)] } }(), revision: 1)
+    }
     public func automationDefinition(id: String) async throws -> AutomationDefinition {
         AutomationDefinition(revision: 2, title: Self.sampleAutomations.first { $0.id == id }?.name, target: [
             "bundle_ref": .string("basic-agent@0.0.5"), "flow_id": .string("81795ea9"),
@@ -174,12 +193,20 @@ public actor MockGatewayClient: GatewayClient {
 
     /// Two short synthetic "sentences" (a voiced tone with a syllable envelope), so the read screen and
     /// the orb can be exercised without a gateway.
-    public func transcribe(wav: Data, sessionId: String) async throws -> String {
+    public func voiceCatalog() async throws -> VoiceCatalog {
+        try await Task.sleep(for: .seconds(4))   // like a slow gateway over a watch's radio
+        return VoiceCatalog(voices: ["M1", "M2", "F1", "F2"].map { VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: $0, label: "Supertonic \($0)",
+                                                                        gender: $0.hasPrefix("F") ? "female" : "male") },
+                     transcription: ["tiny", "base", "small", "large-v3"].map { TranscriptionChoice(provider: "faster-whisper", model: $0) },
+                     defaultVoice: "supertonic-3", defaultTranscription: "faster-whisper base")
+    }
+
+    public func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String {
         try await Task.sleep(for: .milliseconds(900))
         return "Compare overall survival by treatment arm in the ADTTE I sent you"
     }
 
-    public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> {
+    public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 try? await Task.sleep(for: .milliseconds(600))
@@ -195,12 +222,13 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func prompt(ofRun id: String) async throws -> String? {
-        ["94a436e1": "Clean the build folder and rebuild the app", "7c1e02aa": "Now split it by age group",
+        if id.hasPrefix("qc-older-") { return "Did the assay QC pass, \(id.dropFirst(9)) nights ago?" }
+        return ["94a436e1": "Clean the build folder and rebuild the app", "7c1e02aa": "Now split it by age group",
          "r1a9e0b2": "Compare overall survival by treatment arm in the ADTTE I sent you",
          "3e9a10c4": "Did the nightly assay QC pass?", "d0c5a971": "Summarise the open issues in the docs"][id]
     }
 
-    public func turns(ofSession id: String) async throws -> [RunSummary] {
+    public func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] {
         Self.sampleRuns.filter { ($0.sessionId ?? $0.runId) == id }
     }
 
@@ -209,7 +237,7 @@ public actor MockGatewayClient: GatewayClient {
          ToolInfo(name: "send_email", riskTier: "outreach", riskRank: 3), ToolInfo(name: "execute_command", riskTier: "destroy", riskRank: 4)]
     }
 
-    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {
+    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?) async throws -> String {
         let id = "mock-" + UUID().uuidString.prefix(6).lowercased()
         started[id] = (Date(), Self.cannedAnswer)
         return id

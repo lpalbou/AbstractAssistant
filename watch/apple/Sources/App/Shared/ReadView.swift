@@ -10,7 +10,8 @@ struct ReadItem: Hashable {
 }
 
 /// Read aloud: the orb speaks with the voice and fills the screen; the text is below on scroll.
-/// Tap the orb to pause or resume (or read again once done); beside Back, go back 10 seconds.
+/// Tap the orb, or the voice button beside Back, to pause or resume (or read again once done);
+/// hold the voice button to rewind.
 struct ReadView: View {
     let item: ReadItem
     @EnvironmentObject private var model: AppModel
@@ -23,25 +24,31 @@ struct ReadView: View {
                 VStack(spacing: 6) {
                     // Like Ask: the orb fills the screen and is the control (tap: pause, resume, read
                     // again); the text is below, on scroll.
-                    ZStack(alignment: .bottom) {
-                        Orb(mode: orbMode, size: min(geo.size.width, geo.size.height + geo.safeAreaInsets.bottom), level: { speaker.level() }, look: lookOfVoice)
-                            .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.bottom)   // the text below starts off screen
-                            .contentShape(Rectangle())
+                    ScreenCentered(width: geo.size.width) { side in
+                        Orb(mode: orbMode, size: side, level: { speaker.level() }, look: lookOfVoice)
+                            .contentShape(BelowTopRow())
                             .onTapGesture(perform: orbTapped)
                             .accessibilityAddTraits(.isButton)
                             .accessibilityLabel(speaker.isActive ? "Pause" : speaker.isPaused ? "Resume" : "Read aloud")
+                    } bottom: {
                         Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
                             .lineLimit(1).shadow(color: .black, radius: 3)
-                            .padding(.bottom, geo.safeAreaInsets.bottom * 0.25)   // low, clear of the orb and the round corners
+                            .padding(.bottom, 8)
                     }
                     MarkdownText(item.text, font: .rounded(.body)).padding(.horizontal, 10)
                 }
             }
         }
         .screen("")            // like Ask: the orb is the screen
-        .overlay(alignment: .topLeading) {
-            rewindButton.padding(.leading, 56).padding(.top, 18).ignoresSafeArea()
+        #if DEBUG
+        .overlay(alignment: .bottomLeading) {   // UI tests read the voice's position here
+            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                Text(String(format: "%.1f", speaker.position())).font(.system(size: 1)).opacity(0.01)
+                    .accessibilityIdentifier("debug.position")
+            }
         }
+        #endif
+        .besideBack { VoiceButton(speaker: speaker) { start() } }   // play / pause, hold to rewind
         // Starts once: watchOS repeats onAppear (dimming, polling) and reading must go on with the
         // wrist down. Leaving the screen (Back) is what stops it.
         .onAppear { if !started { started = true; start() } }
@@ -76,25 +83,6 @@ struct ReadView: View {
 
     /// Back 10 s, in the top bar beside Back (drawn over the page: a toolbar item there would
     /// replace the Back button).
-    /// Once something has been spoken (the player clamps a rewind past the start to the start).
-    private var rewindable: Bool {
-        switch speaker.state {
-        case .idle, .failed: false
-        case .preparing: speaker.playedSeconds > 0
-        default: true
-        }
-    }
-
-    private var rewindButton: some View {
-        Button { speaker.rewind(10); WKInterfaceDevice.current().play(.click) } label: {
-            GlassIcon(symbol: "gobackward.10")
-        }
-        .buttonStyle(.plain)
-        .disabled(!rewindable)
-        .opacity(rewindable ? 1 : 0.4)
-        .accessibilityLabel("Back 10 seconds")
-    }
-
     /// The orb of the voice that reads: the entity's own for an entity's text, else the Assistant's.
     private var lookOfVoice: OrbLook {
         if case .entity(let name) = item.scope { return model.look(for: .entity(name)) }
@@ -131,7 +119,7 @@ struct ReadAloudLink: View {
     let item: ReadItem
     var body: some View {
         NavigationLink(value: Route.read(item)) { GlassIcon(symbol: "speaker.wave.2.fill") }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassPress())
             .accessibilityLabel("Read aloud")
     }
 }

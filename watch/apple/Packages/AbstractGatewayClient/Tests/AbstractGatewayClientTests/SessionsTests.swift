@@ -14,7 +14,20 @@ import Testing
 @Test func sessionTitlesAreTheFirstLineCutAtAWord() {
     #expect(SessionSummary.title(fromPrompt: "Did the QC pass?\nmore") == "Did the QC pass?")
     let t = SessionSummary.title(fromPrompt: "Compare overall survival by treatment arm in the ADTTE dataset I sent you this morning")
-    #expect(t.hasSuffix("…") && t.count <= 45 && !t.contains("this morning"))
+    #expect(t.hasSuffix("…") && t.count <= 61 && !t.contains("this morning"))
+    // Long enough to tell sessions apart that start alike (32 characters merged them).
+    #expect(SessionSummary.title(fromPrompt: "In one sentence: what is your name and who built you?") == "In one sentence: what is your name and who built you?")
+}
+
+/// The listing is ordered by last update: a turn answered late must not become the session's
+/// newest, nor title it. Grouping goes by creation time.
+@Test func sessionsGoByCreationTimeNotLastUpdate() {
+    func r(_ id: String, created: String) -> RunSummary {
+        var x = RunSummary(runId: id, workflowId: "w", status: "completed", sessionId: "s"); x.createdAt = created; return x
+    }
+    // Listed newest-updated first: "old" (created first, updated last) comes first.
+    let s = SessionSummary.group([r("old", created: "2026-10-17T01:00:00Z"), r("new", created: "2026-10-17T03:00:00Z"), r("mid", created: "2026-10-17T02:00:00Z")])
+    #expect(s[0].latest.runId == "new" && s[0].firstRunId == "old")
 }
 
 @Test func askRunsCarryTheAssistantPersonaAndMetricsDecode() throws {

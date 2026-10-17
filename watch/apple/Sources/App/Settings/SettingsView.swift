@@ -22,9 +22,20 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 Card {
-                    Toggle("Speak answers", isOn: $speakAnswers)
+                    Toggle("Read aloud", isOn: $speakAnswers)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
                 }
+                NavigationLink(value: Route.voiceSettings) {
+                    Card {
+                        HStack {
+                            Text("Voice").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
+                            Spacer(minLength: 4)
+                            Text(VoicePrefs.voice?.voice ?? "Default").font(.rounded(.footnote)).foregroundStyle(Theme.muted).lineLimit(1)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
                 NavigationLink(value: Route.about) {
                     Card {
                         HStack {

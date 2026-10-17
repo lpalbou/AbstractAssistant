@@ -25,7 +25,7 @@ struct AboutView: View {
                         link("Documentation", id.app.docs)
                         link("Report an issue", id.app.issues)
                         link("Give feedback", id.app.feedback)
-                        row("Contact", id.framework.contactEmail)
+                        mail("Contact", id.framework.contactEmail)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -42,6 +42,22 @@ struct AboutView: View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
             Text(value).font(.rounded(.footnote)).foregroundStyle(Theme.text)
+        }
+    }
+
+    /// An email address opens a new message in the watch's Mail.
+    @ViewBuilder private func mail(_ label: String, _ address: String) -> some View {
+        if let url = URL(string: "mailto:" + address) {
+            Link(destination: url) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                    Text(address).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Writes an email")
+        } else {
+            row(label, address)
         }
     }
 

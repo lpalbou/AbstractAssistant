@@ -7,6 +7,11 @@ struct AutomationsView: View {
 
     var body: some View {
         List {
+            // A new automation (as Sessions starts a new conversation).
+            Button { model.path.append(.newAutomation) } label: {
+                Label("New automation", systemImage: "plus")
+                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
+            }
             if model.automations.isEmpty {
                 if model.lastRefresh == nil && model.automationsError == nil {
                     ProgressView().frame(maxWidth: .infinity)

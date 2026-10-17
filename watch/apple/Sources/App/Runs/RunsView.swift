@@ -29,8 +29,10 @@ struct SessionsView: View {
                 Section(label) {
                     ForEach(items) { s in
                         Button { open(s) } label: {
-                            SessionRow(session: s, title: model.title(of: s), opening: opening == s.id)
+                            SessionRow(session: s, title: model.title(of: s), latest: model.latestPrompts[s.latest.runId],
+                                       opening: opening == s.id)
                         }
+                        .disabled(opening != nil && opening != s.id)   // one session opens at a time
                         .swipeActions {
                             Button { model.path.append(.session(s)) } label: { Label("Details", systemImage: "list.bullet") }
                                 .tint(Theme.indigoButton)
@@ -53,6 +55,7 @@ struct SessionsView: View {
     }
 
     private func open(_ s: SessionSummary) {
+        guard opening == nil else { return }
         opening = s.id
         Task { await model.continueSession(s); opening = nil }
     }
@@ -71,17 +74,22 @@ struct SessionsView: View {
 struct SessionRow: View {
     let session: SessionSummary
     let title: String
+    /// The session's latest question, shown when it is not the first one (a long session drifts).
+    var latest: String? = nil
     var opening = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
                 if session.needsPerson { StatusDot(color: Theme.amber) }
-                else if session.status == "running" { StatusDot(color: Theme.cyan) }
+                else if session.isLive { StatusDot(color: Theme.cyan) }
                 else if session.status == "failed" { StatusDot(color: Theme.red) }
                 Text(title).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2)
                 Spacer(minLength: 2)
                 if opening { ProgressView().frame(width: 14) }
+            }
+            if let latest, latest != title, session.turns > 1 {
+                Text("Last: " + latest).font(.rounded(.caption2)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             HStack(spacing: 8) {
                 SessionStat(symbol: "bubble.left.and.bubble.right", value: "\(session.turns)")
@@ -114,25 +122,43 @@ struct SessionStat: View {
     }
 }
 
-/// One conversation: its last exchanges (question, then the answer in markdown), Continue.
+/// One conversation: its title with Read aloud for the latest answer, its last 5 exchanges in
+/// order (question, then the answer in markdown; a finished answer opens whole), Show older when
+/// there are more, and Continue floating at the bottom.
 struct SessionDetailView: View {
     let session: SessionSummary
     @EnvironmentObject private var model: AppModel
-    @State private var turns: [RunSummary] = []
+    /// Every turn the listing gives (newest first, by creation); only the shown ones are read in full.
+    @State private var rows: [RunSummary] = []
+    @State private var full: [String: RunSummary] = [:]
     @State private var prompts: [String: String] = [:]
+    @State private var shown = 5
     @State private var loading = true
+    @State private var loadingOlder = false
     @State private var failed = false
+
+    /// The shown turns, newest first, each in full once read.
+    private var turns: [RunSummary] { rows.prefix(shown).map { full[$0.runId] ?? $0 } }
+    private var latest: RunSummary? { turns.first }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                // The title is the first question: shown only when that question is not below.
-                if max(session.turns, turns.count) > 6 {
+                HStack(alignment: .top) {
                     Text(model.title(of: session)).font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(2)
+                    Spacer(minLength: 4)
+                    // Read the latest answer aloud, as on an automation's page.
+                    if let last = latest, let out = last.outputText, !out.isEmpty, last.isTerminal {
+                        ReadAloudLink(item: ReadItem(title: model.title(of: session), text: out, scope: .run(last.runId)))
+                    }
                 }
-                if loading && turns.isEmpty { ProgressView().frame(maxWidth: .infinity) }
+                if loading && rows.isEmpty { ProgressView().frame(maxWidth: .infinity) }
                 if failed { Text("Couldn't load this conversation").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
-                ForEach(turns.prefix(6).reversed()) { run in
+                if rows.count > shown {
+                    Button(loadingOlder ? "Loading…" : "Show older") { Task { await showOlder() } }
+                        .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.cyan).disabled(loadingOlder)
+                }
+                ForEach(turns.reversed()) { run in
                     // A finished answer opens whole (it is cut at 6 lines here) and can be read aloud.
                     if let out = run.outputText, !out.isEmpty, run.isTerminal {
                         NavigationLink(value: Route.read(ReadItem(title: model.title(of: session), text: out, scope: .run(run.runId)))) { turn(run) }
@@ -155,20 +181,20 @@ struct SessionDetailView: View {
         .task { await load() }
     }
 
-    private func turn(_ run: RunSummary) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if let p = prompts[run.runId] {
-                Text(p).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).lineLimit(3)
-            }
+    /// One exchange: a finished answer as the shared message card (the question as its caption);
+    /// a turn still working, or with no answer, says so (a running one can be stopped).
+    @ViewBuilder private func turn(_ run: RunSummary) -> some View {
+        if let out = run.outputText, !out.isEmpty, run.isTerminal {
+            MessageCard(text: out, failed: run.status == "failed") { QuestionCaption(text: prompts[run.runId] ?? "") }
+        } else {
             Card {
-                if let out = run.outputText, !out.isEmpty, run.isTerminal {
-                    MarkdownText(out).lineLimit(6)
-                } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    QuestionCaption(text: prompts[run.runId] ?? "")
                     HStack {
                         Text(Self.state(run)).font(.rounded(.caption2)).foregroundStyle(Theme.statusColor(run.status))
                         if run.status == "running" {
                             Spacer()
-                            Button { Task { try? await model.client.cancel(runId: run.runId); await load() } } label: {
+                            Button { Task { try? await model.client.cancel(runId: run.runId); full[run.runId] = nil; await load() } } label: {
                                 Image(systemName: "stop.fill").foregroundStyle(Theme.red)
                             }
                             .buttonStyle(.plain).accessibilityLabel("Stop")
@@ -191,29 +217,44 @@ struct SessionDetailView: View {
 
     private func load() async {
         defer { loading = false }
-        guard let rows = try? await model.client.turns(ofSession: session.id) else { failed = turns.isEmpty; return }
+        guard let listed = try? await model.client.turns(ofSession: session.id, limit: 100) else { failed = rows.isEmpty; return }
         failed = false
-        // Listing rows carry no output: read the shown turns and their prompts, all at once.
-        let shown = Array(rows.prefix(6))
+        rows = listed.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
+        await readInFull(rows.prefix(shown))
+    }
+
+    private func showOlder() async {
+        loadingOlder = true
+        defer { loadingOlder = false }
+        let more = rows.dropFirst(shown).prefix(5)
+        await readInFull(more)
+        shown += more.count
+    }
+
+    /// Listing rows carry neither the output nor the prompt: read them for these turns, all at once.
+    private func readInFull(_ some: ArraySlice<RunSummary>) async {
         let client = model.client
-        let loaded: [(Int, RunSummary, String?)] = await withTaskGroup(of: (Int, RunSummary, String?).self) { group in
-            for (i, r) in shown.enumerated() {
+        let loaded: [(RunSummary, String?)] = await withTaskGroup(of: (RunSummary, String?).self) { group in
+            for r in some where full[r.runId] == nil {
                 group.addTask {
-                    async let full = try? client.run(id: r.runId)
+                    async let f = try? client.run(id: r.runId)
                     async let p = try? client.prompt(ofRun: r.runId)
-                    return (i, (await full) ?? r, (await p) ?? nil)
+                    return ((await f) ?? r, (await p) ?? nil)
                 }
             }
-            var out: [(Int, RunSummary, String?)] = []
+            var out: [(RunSummary, String?)] = []
             for await x in group { out.append(x) }
             return out
         }
-        turns = loaded.sorted { $0.0 < $1.0 }.map(\.1)
-        for (_, r, p) in loaded { if let p { prompts[r.runId] = p } }
+        for (r, p) in loaded {
+            full[r.runId] = r
+            if let p { prompts[r.runId] = p }
+        }
     }
 
     private func continueHere() {
-        guard let last = turns.first else { Task { await model.continueSession(session) }; return }
-        model.resume(session, lastPrompt: prompts[last.runId] ?? "", lastAnswer: last.outputText ?? "")
+        guard let last = latest else { Task { await model.continueSession(session) }; return }
+        model.resume(session, lastPrompt: prompts[last.runId] ?? "", lastAnswer: last.outputText ?? "",
+                     runId: last.runId, status: last.status)
     }
 }

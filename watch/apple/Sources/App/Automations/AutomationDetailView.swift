@@ -29,19 +29,14 @@ struct AutomationDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 Text(title).font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(3)
-                // When it runs, and Run now at the far right of the same line (while it runs: stop).
+                // When it runs, then Edit and Run now on the same line (while it runs: stop).
                 HStack(spacing: 6) {
                     ScheduleLine(automation: current)
                     Spacer(minLength: 4)
-                    Button { running ? stopRun() : runNow() } label: { GlassIcon(symbol: running ? "stop.fill" : "play.fill") }
-                        .buttonStyle(.plain).accessibilityLabel(running ? "Stop this run" : "Run now")
-                }
-                HStack(spacing: 10) {
-                    if let last, let text = last.answer ?? last.excerpt, let run = last.runId {
-                        ReadAloudLink(item: ReadItem(title: title, text: text, scope: .run(run)))
-                    }
                     NavigationLink(value: Route.automationEdit(current)) { GlassIcon(symbol: "pencil") }
-                        .buttonStyle(.plain).accessibilityLabel("Edit")
+                        .buttonStyle(GlassPress()).accessibilityLabel("Edit")
+                    Button { running ? stopRun() : runNow() } label: { GlassIcon(symbol: running ? "stop.fill" : "play.fill") }
+                        .buttonStyle(GlassPress()).accessibilityLabel(running ? "Stop this run" : "Run now")
                 }
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red) }
                 if running { RunningCard(progress: progress) }
@@ -93,10 +88,14 @@ struct AutomationDetailView: View {
 
     /// The latest result in full: when, failed or not, the markdown answer.
     private func result(_ o: LastOccurrence) -> some View {
-        Card(stroke: o.status == "failed" ? Theme.red.opacity(0.6) : nil) {
-            VStack(alignment: .leading, spacing: 4) {
+        // The date line carries Read aloud (the latest result, with the orb).
+        MessageCard(text: o.answer ?? o.excerpt ?? "", failed: o.status == "failed") {
+            HStack {
                 OccurrenceHeader(occurrence: o)
-                MarkdownText(o.answer ?? o.excerpt ?? "No answer")
+                Spacer(minLength: 4)
+                if let text = o.answer ?? o.excerpt, !text.isEmpty, let run = o.runId {
+                    ReadAloudLink(item: ReadItem(title: title, text: text, scope: .run(run)))
+                }
             }
         }
     }
@@ -204,18 +203,7 @@ struct OccurrenceHeader: View {
 struct OccurrenceRow: View {
     let occurrence: LastOccurrence
     var body: some View {
-        Card {
-            HStack(spacing: 6) {
-                VStack(alignment: .leading, spacing: 2) {
-                    OccurrenceHeader(occurrence: occurrence)
-                    if let a = occurrence.answer ?? occurrence.excerpt {
-                        Text(SpeechText.plain(a)).font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(2)
-                    }
-                }
-                Spacer(minLength: 2)
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
-            }
-        }
+        MessageRowCard(text: occurrence.answer ?? occurrence.excerpt ?? "") { OccurrenceHeader(occurrence: occurrence) }
     }
 }
 
@@ -225,19 +213,9 @@ struct OccurrenceView: View {
     let occurrence: LastOccurrence
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    OccurrenceHeader(occurrence: occurrence)
-                    Spacer(minLength: 4)
-                    if let text = occurrence.answer ?? occurrence.excerpt, let run = occurrence.runId {
-                        ReadAloudLink(item: ReadItem(title: title, text: text, scope: .run(run)))
-                    }
-                }
-                MarkdownText(occurrence.answer ?? occurrence.excerpt ?? "No answer")
-            }
-            .padding(.horizontal, 4)
+        let text = occurrence.answer ?? occurrence.excerpt ?? ""
+        MessagePage(text: text, read: occurrence.runId.flatMap { run in text.isEmpty ? nil : ReadItem(title: title, text: text, scope: .run(run)) }) {
+            OccurrenceHeader(occurrence: occurrence)
         }
-        .screen("")
     }
 }

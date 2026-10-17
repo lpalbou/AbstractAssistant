@@ -101,7 +101,7 @@ final class Speaker: NSObject, ObservableObject {
             do {
                 // One request per piece, in order: piece n+1 is synthesized while piece n plays.
                 for piece in pieces {
-                    for try await wav in client.speech(text: piece, scope: scope) {
+                    for try await wav in client.speech(text: piece, scope: scope, voice: VoicePrefs.voice(for: scope)) {
                         guard let self, !Task.isCancelled else { return }
                         self.enqueue(wav)
                     }
@@ -166,6 +166,13 @@ final class Speaker: NSObject, ObservableObject {
         }
         trace("rewound \(seconds) s, starting \(String(format: "%.1f", offset)) s into an earlier chunk")
         advanceIfIdle()
+    }
+
+    /// The rewind button: back `seconds` and play from there (paused, a rewind alone would be silent
+    /// and look like nothing happened).
+    func rewindAndPlay(_ seconds: Double = 10) {
+        rewind(seconds)
+        if state == .paused { resume() }
     }
 
     /// Seconds spoken so far, inside the current sentence too.

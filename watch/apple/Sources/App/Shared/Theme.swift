@@ -1,4 +1,5 @@
 import SwiftUI
+import WatchKit
 
 extension Color {
     init(hex: UInt32) {
@@ -59,6 +60,109 @@ struct FitScroll<Content: View>: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
+    }
+}
+
+/// The orb's tap area: its screen-sized box minus the top row (Back and the controls beside it,
+/// "Assistant ⌄"), so a tap there never pauses or starts the orb.
+struct BelowTopRow: Shape {
+    func path(in r: CGRect) -> Path { Path(CGRect(x: r.minX, y: r.minY + 60, width: r.width, height: max(0, r.height - 60))) }
+}
+
+/// The orb's stage: as tall as what is left of the screen below the stage's top, with its content
+/// (drawn in a screen-sized box) centred on the screen itself, whatever the bars above take on this
+/// watch. The stage's top is measured where it really is, in the first moments on screen (before
+/// any scroll), then kept.
+struct ScreenCentered<Content: View, Bottom: View>: View {
+    let width: CGFloat
+    @ViewBuilder let content: (CGFloat) -> Content
+    @ViewBuilder let bottom: () -> Bottom
+    @State private var top: CGFloat?
+    @State private var since = Date()
+
+    var body: some View {
+        let screen = WKInterfaceDevice.current().screenBounds.size
+        let t = top ?? 0
+        ZStack(alignment: .bottom) {
+            content(min(width, screen.height))
+                .frame(width: width, height: screen.height)
+                .position(x: width / 2, y: screen.height / 2 - t)
+            bottom()
+        }
+        .frame(width: width, height: max(0, screen.height - t))
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
+            if Date().timeIntervalSince(since) < 0.8 { top = max(0, y) }
+        }
+        .onAppear { since = Date() }
+    }
+}
+
+/// Shares a text or a link from the watch through the system share sheet (Messages, Mail, …), as a
+/// round icon like Back. watchOS has no clipboard (`UIPasteboard` is unavailable there), so sending
+/// it on is how a text leaves the watch. Any `Transferable` item: a `URL`, a `String`.
+struct ShareIcon<Item: Transferable>: View {
+    let item: Item
+    var subject: String?
+    var body: some View {
+        ShareLink(item: item, subject: subject.map { Text($0) }, preview: SharePreview(subject ?? "AbstractAssistant")) {
+            GlassIcon(symbol: "square.and.arrow.up")
+        }
+            .buttonStyle(GlassPress())
+            .accessibilityLabel("Share")
+    }
+}
+
+extension View {
+    /// A control on the top line, right beside Back. The system bar is hidden on such a screen
+    /// and Back is drawn here with the control, where the bar's Back was: a control drawn over the
+    /// bar is not tappable on a real watch (the bar takes the touch), and the bar's leading side
+    /// holds a single item. The edge swipe still goes back; the time stays.
+    func besideBack<V: View>(@ViewBuilder _ control: () -> V) -> some View {
+        modifier(BesideBack(control: control()))
+    }
+}
+
+private struct BesideBack<V: View>: ViewModifier {
+    let control: V
+    @Environment(\.dismiss) private var dismiss
+    func body(content: Content) -> some View {
+        // Without the bar, watchOS still keeps a top margin larger than the row needs (and not the
+        // same on every watch): the page is moved up to start just below the row, measured here.
+        GeometryReader { g in
+            content
+                .padding(.top, min(0, 58 - g.safeAreaInsets.top))
+                .frame(width: g.size.width, height: g.size.height, alignment: .top)
+        }
+            .toolbar(.hidden, for: .navigationBar)
+            // A fade under the row, so text scrolled beneath it never shows between the icons (as the
+            // system bar does).
+            .overlay(alignment: .top) {
+                LinearGradient(stops: [.init(color: Theme.ground, location: 0), .init(color: Theme.ground, location: 0.7),
+                                       .init(color: Theme.ground.opacity(0), location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 66)
+                    .allowsHitTesting(false)
+                    .ignoresSafeArea()
+            }
+            .overlay(alignment: .topLeading) {
+                HStack(spacing: 6) {
+                    Button { dismiss() } label: { GlassIcon(symbol: "chevron.left") }
+                        .buttonStyle(GlassPress()).accessibilityLabel("Back")
+                    control
+                }
+                .padding(.leading, 15).padding(.top, 18)
+                .ignoresSafeArea()
+            }
+    }
+}
+
+/// The press of a round icon: it dips and dims while held, so a tap visibly lands.
+struct GlassPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

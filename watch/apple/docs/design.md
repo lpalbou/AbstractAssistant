@@ -30,7 +30,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Sign in | First launch, after Sign out, or when the gateway ends the session: the AbstractFramework mark, one field "Sign in with user or email" with the send arrow inside it, the server below (tap to change). A user name then asks for its token; an email gets an 8-digit code. | send · change · resend the code |
 | Choose your orb | First launch: the six orb styles, one per page, "Use this" at the bottom. | swipe · Use this |
 | Home | The orb (one tap to talk), what needs you (only when something does), Sessions and Automations with round count badges; the gear opens Settings. | talk · open |
-| Ask | The orb fills the screen: "Assistant ⌄" top left (who answers), the keyboard icon top right (✕ while it listens, works or speaks). Tap to talk; tap or 3 s of silence sends; the answer appears below, spoken by the orb; tap to pause or resume; hold to reply. | tap · hold · keyboard · ✕ · choose who answers |
+| Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers) and the keyboard icon top right; while it listens, works or speaks, neither shows. Beside Back: share the conversation, and back 10 s while it speaks. Tap to talk; tap or 3 s of silence sends; the answer appears below, spoken by the orb; tap to pause or resume; hold to reply. | tap · hold · keyboard · share · back 10 s · choose who answers |
 | Who answers | The Assistant (one-shot agent), then your entities (long-term discussions), each with its orb. | choose |
 | Approval | What the assistant wants to do in plain words, then exactly what: the command and its folder, the page, or the recipient, subject and "Read the email". Three icons at the bottom. | deny · allow once · allow all in this session (from a conversation, never for sends) |
 | Email | The full email the assistant wants to send. | back |
@@ -40,10 +40,11 @@ Orb styles: `../design/anim/orb-designs/`.
 | Session | Its last exchanges (question, then the answer); a finished answer opens in full; a running one can be stopped. Continue floats at the bottom. | open · stop · Continue |
 | Read aloud | The orb speaks a text, the text below; the rewind icon beside Back goes back 10 s. | tap: pause/resume · rewind |
 | Link | A tapped web link: the page's title and readable text, read aloud. | read aloud |
-| Automations | Each automation: name, "🕐 12h ➜ 6h", a spinner while it runs, a count of new results. | open |
+| Automations | New automation first, then each automation: name, "🕐 12h ➜ 6h", a spinner while it runs, a count of new results. | open |
 | Automation | Name; schedule line with Run now at its right (stop while it runs); Read aloud and Edit; while running, what the agent is doing now; the latest result; earlier runs (five, then more). | run now · stop · read aloud · edit · open a run |
+| New automation | The task (the field opens the watch's text input), the workflow (Gateway default, then the gateway's workflows for this account), when (the shared presets, or daily at a time), Builds on earlier runs, Ask before using tools, Create at the bottom. | create |
 | Edit automation | The task (the field opens with the current text), how often, Active, Builds on earlier runs, Save at the bottom. | edit · Save |
-| Settings | Orb style, Speak answers, About, then who is signed in and where, and Sign out at the bottom. | |
+| Settings | Orb style, Read aloud (answers are spoken by the orb), About, then who is signed in and where, and Sign out at the bottom. | |
 | About | The app's version and build; the framework's author, copyright, website, source, documentation, issues, feedback and contact. | open a link |
 
 ## Flows

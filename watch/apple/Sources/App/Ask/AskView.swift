@@ -21,6 +21,15 @@ struct AskView: View {
     @State private var phase: Phase
     @State private var prompt = ""
     @State private var answer = ""
+    /// This conversation's exchanges, oldest first (the earlier ones of a resumed session are read
+    /// in the background): shown below the orb (the last 5, then older), shared by Share.
+    @State private var exchanges: [Exchange] = []
+    /// The exchange the voice is reading (the voice button reads the last one).
+    @State private var readingId: String?
+    @State private var shownCount = 5
+    /// The server may hold older turns than those read (a resumed conversation).
+    @State private var moreOnServer = false
+    @State private var loadingOlder = false
     @State private var runId: String?
     @State private var answerEntity: String?
     @State private var error: String?
@@ -56,25 +65,30 @@ struct AskView: View {
                 ScrollView {
                     VStack(spacing: 6) {
                         // The orb fills the screen, centred in what is visible; everything else is below.
-                        ZStack(alignment: .bottom) {
-                            Orb(mode: orbMode, size: min(geo.size.width, geo.size.height + geo.safeAreaInsets.bottom), level: orbLevel, countdown: orbCountdown,
-                                since: listenSince, look: orbLook)
-                                .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.bottom)   // the text below starts off screen
-                                .contentShape(Rectangle())
+                        ScreenCentered(width: geo.size.width) { side in
+                            Orb(mode: orbMode, size: side, level: orbLevel, countdown: orbCountdown, since: listenSince, look: orbLook)
+                                .contentShape(BelowTopRow())
                                 .onTapGesture(perform: orbTapped)
                                 // Hold: talk now, even while it speaks or is paused (cut in).
                                 .onLongPressGesture(minimumDuration: 0.5) { if phase == .answer { startListening() } }
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel(orbHint)
-                            Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
-                                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
-                                .shadow(color: .black, radius: 3)
-                                .padding(.bottom, geo.safeAreaInsets.bottom * 0.25)   // low, clear of the orb and the round corners
+                        } bottom: {
+                            VStack(spacing: 4) {
+                                // Who answers, below the orb: only while the orb is at rest.
+                                if controlsShown { responderSwitch }
+                                Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
+                                    .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
+                                    .shadow(color: .black, radius: 3)
+                            }
+                            .padding(.bottom, 8)   // low, clear of the orb and the round corners
                         }
-                        // One row, centred on one line: who answers left, the input icon right.
-                        .overlay(alignment: .top) {
-                            HStack(alignment: .center) { responderSwitch; Spacer(minLength: 4); inputButton }
-                                .offset(y: -12)        // snug under the Back button and the time
+                        // The keyboard, top right under the time: only while the orb is at rest (the
+                        // same moments as who answers).
+                        .overlay(alignment: .topTrailing) {
+                            if controlsShown {
+                                keyboardLink.buttonStyle(GlassPress()).padding(.trailing, 6).padding(.top, 2)
+                            }
                         }
                         .id("orb")
                         below
@@ -86,30 +100,106 @@ struct AskView: View {
             }
         }
         .background(Theme.ground)
+        // Beside Back: share this conversation (markdown), and go back 10 s while the orb speaks.
+        #if DEBUG
+        // UI tests read the voice's position here (a rewind must move it back).
+        .overlay(alignment: .bottomLeading) {
+            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                Text(String(format: "%.1f", speaker.position())).font(.system(size: 1)).opacity(0.01)
+                    .accessibilityIdentifier("debug.position")
+            }
+        }
+        #endif
+        // Beside Back: share the conversation, and the voice button (play / pause the selected
+        // message, hold to rewind), hidden while the orb listens or works, or with nothing to read.
+        .besideBack {
+            if !exchanges.isEmpty {
+                ShareIcon(item: transcript, subject: model.responder.title)
+            }
+            if phase != .listening, phase != .thinking, let e = selected, !e.answer.isEmpty, e.scope != nil {
+                VoiceButton(speaker: speaker, isCurrent: readingId == e.id) { read(e) }
+            }
+        }
         .task { await onOpen() }
         .onChange(of: model.path) { _, path in pathChanged(path) }
         // "New conversation" (in the Assistant ⌄ choice): this screen starts empty.
-        .onChange(of: model.askSessionId) { _, _ in if model.resuming == nil { clearConversation() } }
+        // A new conversation, or another session: this screen starts over, unless it is the
+        // session being resumed (its exchange is about to show).
+        .onChange(of: model.askSessionId) { _, id in
+            if model.resuming?.sessionId != id { model.resuming = nil; clearConversation() }
+        }
         // The run on screen (followed or answered) is never also posted as a notification while active.
         .onChange(of: runId) { _, id in AnswerNotifier.shared.setShowing(id) }
     }
 
     /// Below the orb (scroll): what you said, the answer, the controls, who answers.
+    /// The conversation as markdown: who asked what, and each answer as written.
+    private var transcript: String {
+        var out = "# \(model.responder.title)\n"
+        for e in exchanges {
+            if !e.prompt.isEmpty { out += "\n**You:** \(e.prompt)\n" }
+            if !e.answer.isEmpty { out += "\n**\(model.responder.title):**\n\n\(e.answer)\n" }
+        }
+        return out
+    }
+
     private var hasBelow: Bool {
-        (!prompt.isEmpty && phase != .idle && phase != .listening) || (phase == .answer && !answer.isEmpty) || model.sessionTrusted
+        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking) || model.sessionTrusted
+    }
+
+    /// The message shown in full (the conversation's last), the one the voice button reads.
+    private var selected: Exchange? { exchanges.last }
+
+    /// Reads one exchange's answer with the orb (the button, or a newly arrived answer).
+    private func read(_ e: Exchange) {
+        guard !e.answer.isEmpty, let scope = e.scope else { return }
+        readingId = e.id
+        if phase == .idle { phase = .answer }
+        speaker.read(e.answer, scope: scope, client: model.client)
+    }
+
+    /// The earlier messages, newest first (as an automation's earlier runs).
+    private var earlier: [Exchange] { Array(exchanges.dropLast().reversed()) }
+
+    private func showOlder() async {
+        shownCount += 5
+        guard earlier.count < shownCount, moreOnServer, model.responder == .assistant else { return }
+        loadingOlder = true
+        defer { loadingOlder = false }
+        let session = model.askSessionId
+        let limit = shownCount + 1 + 5
+        let more = await model.sessionExchanges(session, limit: limit)
+        guard model.askSessionId == session, more.count >= exchanges.count else { return }
+        exchanges = more
+        moreOnServer = more.count >= limit
     }
 
     private var below: some View {
         VStack(alignment: .leading, spacing: 6) { belowContent }.padding(.horizontal, 10)
     }
 
+    /// Below the orb, as an automation's page: the last message in full (its question, then the
+    /// answer), then the earlier messages as small cards (5, Show older for the rest); a card opens
+    /// that message.
     @ViewBuilder private var belowContent: some View {
-        if !prompt.isEmpty, phase != .idle, phase != .listening {
-            Text(prompt).font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+        if let last = exchanges.last {
+            MessageCard(text: last.answer) { QuestionCaption(text: last.prompt) }
+        }
+        // The question being worked on (its answer joins the exchanges when it arrives).
+        if phase == .thinking, !prompt.isEmpty, exchanges.last?.prompt != prompt || exchanges.last?.answer.isEmpty == false {
+            Text(prompt).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2)
                 .frame(maxWidth: .infinity, alignment: .leading).lineLimit(3)
         }
-        if phase == .answer, !answer.isEmpty {
-            MarkdownText(answer, font: .rounded(.body))
+        if !earlier.isEmpty || moreOnServer {
+            Text("Earlier messages").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).padding(.top, 6)
+            ForEach(earlier.prefix(shownCount)) { e in
+                NavigationLink(value: Route.message(title: model.responder.title, e)) { MessageRow(exchange: e) }
+                    .buttonStyle(.plain)
+            }
+            if earlier.count > shownCount || moreOnServer {
+                Button(loadingOlder ? "Loading…" : "Show older") { Task { await showOlder() } }
+                    .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.cyan).disabled(loadingOlder)
+            }
         }
         if model.sessionTrusted {
             Label("Tools allowed", systemImage: "checkmark.seal.fill")
@@ -120,31 +210,16 @@ struct AskView: View {
 
     // MARK: - Pieces
 
-    /// The other input, top left: a tiny glass keyboard (dictation, Scribble, keyboard); while the orb
-    /// listens, works or speaks the same button is ✕ (stop or cancel). The orb itself is the voice.
-    @ViewBuilder private var inputButton: some View {
-        Group {
-            if busy {
-                Button(action: cancel) { GlassIcon(symbol: "xmark") }
-                    .accessibilityLabel(phase == .listening ? "Stop listening" : phase == .thinking ? "Cancel" : "Stop the voice")
-            } else {
-                keyboardLink
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, 6)
-    }
-
-    /// Who answers, top right under the clock: "Assistant ⌄", one tap opens the choice.
+    /// Who answers, below the orb: "Assistant ⌄", one tap opens the choice.
     private var responderSwitch: some View {
         NavigationLink(value: Route.picker) {
             HStack(spacing: 3) {
                 Text(model.responder.title).font(.rounded(.headline, weight: .semibold))
                     .lineLimit(1).minimumScaleFactor(0.7)
+                    .shadow(color: .black, radius: 3)
                 Image(systemName: "chevron.down").font(.rounded(.caption2, weight: .bold))
             }
-            .foregroundStyle(phase == .thinking || phase == .listening ? Theme.muted : Theme.text)
-            .padding(.leading, 8)
+            .foregroundStyle(Theme.text)
         }
         .buttonStyle(.plain)
         .disabled(phase == .thinking || phase == .listening)
@@ -166,7 +241,9 @@ struct AskView: View {
     /// responder now selected), else the selected responder.
     private var orbLook: OrbLook { answerEntity.map { model.look(for: .entity($0)) } ?? model.responderLook }
 
-    private var busy: Bool { phase == .listening || (phase == .thinking && pendingWait == nil) || speaker.isActive }
+    /// The keyboard and who answers show together, only while the orb is at rest: not listening,
+    /// not working, not speaking (a paused or finished answer is at rest).
+    private var controlsShown: Bool { phase == .idle || (phase == .answer && !speaker.isActive) }
 
     private var orbMode: Orb.Mode {
         switch phase {
@@ -288,7 +365,7 @@ struct AskView: View {
         WKInterfaceDevice.current().play(.stop)          // heard: the microphone is closed, sending
         Task {
             do {
-                let text = try await model.client.transcribe(wav: wav, sessionId: model.askSessionId)
+                let text = try await model.client.transcribe(wav: wav, sessionId: model.askSessionId, model: VoicePrefs.transcription)
                 guard mine == turn else { return }
                 transcribing = false
                 if text.isEmpty { phase = back; note = "I didn't catch that"; RuntimeKeeper.shared.release("ask"); return }
@@ -312,7 +389,9 @@ struct AskView: View {
             do {
                 switch model.responder {
                 case .assistant:
-                    let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: model.runToolPolicy)
+                    await model.ensureTools()
+                    let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: model.runToolPolicy,
+                                                                  tools: model.offeredTools)
                     guard mine == turn else {
                         // Cancelled (or left) while the run was starting: stop it on the gateway too.
                         try? await model.client.cancel(runId: id); return
@@ -406,6 +485,10 @@ struct AskView: View {
     /// The answer arrives: shown below the orb, spoken by it.
     private func show(_ text: String) {
         answer = text; phase = .answer
+        // A followed turn already listed (a resumed conversation) gets its answer; else it is new.
+        let e = Exchange(id: runId ?? UUID().uuidString, prompt: prompt, answer: text,
+                         scope: answerEntity.map { SpeechScope.entity($0) } ?? runId.map { SpeechScope.run($0) })
+        if let i = exchanges.firstIndex(where: { $0.id == e.id }) { exchanges[i] = e } else { exchanges.append(e) }
         WKInterfaceDevice.current().play(.notification)
         speak()                                     // the speaker holds the app awake while it reads
         RuntimeKeeper.shared.release("ask")
@@ -415,9 +498,8 @@ struct AskView: View {
     }
 
     private func speak() {
-        guard speakAnswers, !answer.isEmpty else { return }
-        if let name = answerEntity { speaker.read(answer, scope: .entity(name), client: model.client) }
-        else if let id = runId { speaker.read(answer, scope: .run(id), client: model.client) }
+        guard speakAnswers, let e = exchanges.last, !e.answer.isEmpty else { return }
+        read(e)
     }
 
     private func cancel() {
@@ -440,6 +522,7 @@ struct AskView: View {
     private func clearConversation() {
         speaker.stop(); listener.cancel(); turn += 1
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
+        exchanges = []; readingId = nil; shownCount = 5; moreOnServer = false
         phase = .idle
     }
 
@@ -450,7 +533,17 @@ struct AskView: View {
             // Continue a session: open on its last exchange, quiet; the next tap talks in it.
             model.resuming = nil
             prompt = r.prompt; answer = r.answer; runId = r.runId
-            if !answer.isEmpty { phase = .answer }
+            note = r.title                                   // which conversation this is
+            if !answer.isEmpty || !prompt.isEmpty { phase = .answer }
+            exchanges = [Exchange(id: r.runId, prompt: r.prompt, answer: r.answer, scope: .run(r.runId))]
+            // Its last turn is still working (or waits on an approval): follow it, as when asked here
+            // (the status line then says what it does, not the title).
+            if r.status == "running" || r.status == "waiting" { note = nil; resumeFollowing(r.runId) }
+            let session = model.askSessionId
+            let earlier = await model.sessionExchanges(session)
+            if !earlier.isEmpty, model.askSessionId == session, exchanges.count <= 1 {
+                exchanges = earlier; moreOnServer = earlier.count >= 10
+            }
             return
         }
         if let ref = opening, answer.isEmpty {
@@ -467,5 +560,27 @@ struct AskView: View {
         if let t = model.testAsk { model.testAsk = nil; send(t); return }
         if model.testListen { model.testListen = false; startListening() }
         #endif
+        await showCurrentConversation()
+    }
+
+    /// From Home, the orb talks in the current conversation: when it already has turns, it opens on
+    /// its last exchange and its title (never a blank orb that files the next question under an old
+    /// topic). New conversation (Sessions) starts an empty one.
+    private func showCurrentConversation() async {
+        guard model.responder == .assistant, exchanges.isEmpty, prompt.isEmpty,
+              let s = model.sessions.first(where: { $0.id == model.askSessionId }) else { return }
+        let last = await model.lastExchange(of: s)
+        // Meanwhile the person may have started talking, or switched conversation.
+        guard model.askSessionId == s.id, phase == .idle, prompt.isEmpty, !(last.prompt.isEmpty && last.answer.isEmpty) else { return }
+        prompt = last.prompt; answer = last.answer; runId = last.runId
+        note = model.title(of: s)
+        phase = .answer
+        exchanges = [Exchange(id: last.runId, prompt: last.prompt, answer: last.answer, scope: .run(last.runId))]
+        if last.status == "running" || last.status == "waiting" { note = nil; resumeFollowing(last.runId); return }
+        let session = s.id
+        let earlier = await model.sessionExchanges(session)
+        if !earlier.isEmpty, model.askSessionId == session, exchanges.count <= 1 {
+            exchanges = earlier; moreOnServer = earlier.count >= 10
+        }
     }
 }

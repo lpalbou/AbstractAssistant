@@ -49,14 +49,17 @@ TEST_RUNNER_SHOTS_DIR=/tmp/shots xcodebuild test -project AbstractAssistantWatch
   -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO
 ```
 
-The app's own scheme, CI and the release archive do not build the UI tests.
+The same tests run on a paired watch (`-destination 'platform=watchOS,id=<watch UDID>'
+-allowProvisioningUpdates`), which matters for taps near the top bar. With `TEST_RUNNER_GW_URL`
+and `TEST_RUNNER_GW_TOKEN`, a test reads the workflow list from a real gateway (it creates
+nothing). The app's own scheme, CI and the release archive do not build the UI tests.
 
 ## Launch arguments
 
 | Argument | Effect |
 |---|---|
 | `--mock` | sample data instead of a gateway (screenshots, previews) |
-| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-edit` `occurrence` `settings` `orbstyle` `about` `read` |
+| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-new` `automation-edit` `occurrence` `settings` `orbstyle` `about` `read` `link` |
 | `--gateway <url> --token <token> [--user <id>]` | signs in with that gateway and token and keeps the sign-in, so one launch provisions a simulator or a watch |
 | `--forget-gateway` | forgets the saved sign-in (the sign-in screen shows) |
 | `--orb-design <A–F>` | chooses the orb style; `--ask-orb` asks the first-launch question again |
