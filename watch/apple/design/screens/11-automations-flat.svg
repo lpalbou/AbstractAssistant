@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="992" viewBox="0 0 416 496">
+<rect x="0" y="0" width="416" height="496" rx="90" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Automations</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<rect x="16" y="60" width="384" height="64" rx="16" fill="#15151f" opacity="1.0"/>
+<circle cx="38" cy="92.0" r="11.0" fill="#34d399" opacity="0.18"/>
+<circle cx="38" cy="92.0" r="5" fill="#34d399" opacity="1.0"/>
+<text x="56" y="88" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="600" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Morning digest</text>
+<text x="56" y="108" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">every day · last 07:04 · ok</text>
+<rect x="340.0" y="80" width="57" height="22" rx="11.0" fill="#101018" stroke="#34d399" stroke-width="1" opacity="1.0"/>
+<text x="368.5" y="94.96" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="700" fill="#34d399" text-anchor="middle" opacity="1.0" letter-spacing="0">daily</text>
+<rect x="16" y="134" width="384" height="64" rx="16" fill="#15151f" opacity="1.0"/>
+<circle cx="38" cy="166.0" r="11.0" fill="#22d3ee" opacity="0.18"/>
+<circle cx="38" cy="166.0" r="5" fill="#22d3ee" opacity="1.0"/>
+<text x="56" y="162" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="600" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Literature watch</text>
+<text x="56" y="182" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">every 7 days · 3 new papers</text>
+<rect x="332.8" y="154" width="63" height="22" rx="11.0" fill="#101018" stroke="#22d3ee" stroke-width="1" opacity="1.0"/>
+<text x="364.3" y="168.96" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="700" fill="#22d3ee" text-anchor="middle" opacity="1.0" letter-spacing="0">weekly</text>
+<rect x="16" y="208" width="384" height="64" rx="16" fill="#15151f" opacity="1.0"/>
+<circle cx="38" cy="240.0" r="11.0" fill="#34d399" opacity="0.18"/>
+<circle cx="38" cy="240.0" r="5" fill="#34d399" opacity="1.0"/>
+<text x="56" y="236" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="600" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Assay QC check</text>
+<text x="56" y="256" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">when a file lands · ok</text>
+<rect x="318.4" y="228" width="76" height="22" rx="11.0" fill="#101018" stroke="#34d399" stroke-width="1" opacity="1.0"/>
+<text x="356.4" y="242.96" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="700" fill="#34d399" text-anchor="middle" opacity="1.0" letter-spacing="0">on event</text>
+<rect x="16" y="292" width="384" height="92" rx="20" fill="#121a2b" stroke="#1d2d4d" stroke-width="1" opacity="1.0"/>
+<text x="34" y="322" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Run now</text>
+<text x="34" y="344" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">Morning digest · ~2 min on your Mac</text>
+<rect x="304" y="312" width="84" height="44" rx="22.0" fill="#4f46e5" opacity="1.0"/>
+<text x="346.0" y="339.4" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Run</text>
+<text x="208.0" y="430" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">notified only on a question, an approval or a failure</text>
+</svg>

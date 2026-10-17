@@ -14,11 +14,17 @@ name: Watch app
 #   commit watch-v<version>-<build> and creates the matching GitHub release.
 #
 # Setup (once): the "app-store" environment with you as required reviewer, and three secrets on
-# that environment: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (the .p8 file's text). The app record
-# for ai.abstractframework.assistant.watch must exist in App Store Connect.
+# that environment: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (the .p8 file's text; App Store Connect
+# → Users and Access → Integrations → Team Keys, role App Manager). The app record for
+# ai.abstractframework.assistant exists (created 2026-10-17, Apple ID 6823853466).
+#
+# Packaging: a watch-only app reaches the App Store inside an empty iOS container. The archive is
+# the AbstractAssistant scheme (generic iOS), which embeds AbstractAssistantWatch; archiving the
+# watch target alone yields no App Store distribution method.
 #
 # Version: MARKETING_VERSION in watch/apple/project.yml. Build number: this workflow's run number
-# (Apple refuses a build number it has already seen, so a re-run of the same run cannot upload).
+# + 100 (builds below 100 are uploads made by hand; Apple refuses a build number it has already
+# seen, so a re-run of the same run cannot upload).
 
 on:
   push:
@@ -34,7 +40,8 @@ permissions:
   contents: read
 
 env:
-  XCODE_VERSION: "27.1"
+  # The newest installed Xcode of this major version (the xcode-27 runner image).
+  XCODE_MAJOR: "27"
   PROJECT_DIR: watch/apple
   SCHEME: AbstractAssistantWatch
   TEAM_ID: K3R4D6HP2A
@@ -42,16 +49,16 @@ env:
 jobs:
   build:
     name: Build and test
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode ${{ env.XCODE_VERSION }}
+      - name: Select Xcode ${{ env.XCODE_MAJOR }}
         run: |
-          app="/Applications/Xcode_${XCODE_VERSION}.app"
-          if [ ! -d "$app" ]; then
-            echo "::error::Xcode ${XCODE_VERSION} is not installed on this runner image. Installed:"
+          app=$(ls -d /Applications/Xcode_${XCODE_MAJOR}.*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$app" ]; then
+            echo "::error::No Xcode ${XCODE_MAJOR}.x on this runner image. Installed:"
             ls -d /Applications/Xcode*.app
             exit 1
           fi
@@ -95,7 +102,7 @@ jobs:
     name: Release to App Store Connect
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 60
     environment:
       name: app-store
@@ -123,15 +130,16 @@ jobs:
             exit 1
           fi
 
-      - name: Select Xcode ${{ env.XCODE_VERSION }}
+      - name: Select Xcode ${{ env.XCODE_MAJOR }}
         run: |
-          app="/Applications/Xcode_${XCODE_VERSION}.app"
-          if [ ! -d "$app" ]; then
-            echo "::error::Xcode ${XCODE_VERSION} is not installed on this runner image. Installed:"
+          app=$(ls -d /Applications/Xcode_${XCODE_MAJOR}.*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$app" ]; then
+            echo "::error::No Xcode ${XCODE_MAJOR}.x on this runner image. Installed:"
             ls -d /Applications/Xcode*.app
             exit 1
           fi
           sudo xcode-select -s "$app/Contents/Developer"
+          xcodebuild -version
 
       - name: Install XcodeGen and generate the project
         working-directory: ${{ env.PROJECT_DIR }}
@@ -149,15 +157,9 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-          echo "Watch $version (build ${{ github.run_number }})"
-
-      - name: Stamp the version into the generated Info.plist
-        # XcodeGen writes literal "1.0" / "1" there, so build settings alone never reach the app.
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Resources/Info.plist
-          plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build }}" Resources/Info.plist
+          build=$(( ${{ github.run_number }} + 100 ))
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "Watch $version (build $build)"
 
       - name: Write the API key
         env:
@@ -174,9 +176,11 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          xcodebuild archive -project AbstractAssistantWatch.xcodeproj -scheme "$SCHEME" \
-            -destination "generic/platform=watchOS" -configuration Release \
-            -archivePath "$RUNNER_TEMP/AbstractAssistantWatch.xcarchive" \
+          # The Info.plists read $(MARKETING_VERSION) / $(CURRENT_PROJECT_VERSION) (project.yml).
+          xcodebuild archive -project AbstractAssistantWatch.xcodeproj -scheme AbstractAssistant \
+            -destination "generic/platform=iOS" -configuration Release \
+            -archivePath "$RUNNER_TEMP/AbstractAssistant.xcarchive" \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
             DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
             -allowProvisioningUpdates \
@@ -186,7 +190,7 @@ jobs:
 
       - name: The archive carries this version and build number
         run: |
-          plist="$RUNNER_TEMP/AbstractAssistantWatch.xcarchive/Products/Applications/AbstractAssistantWatch.app/Info.plist"
+          plist="$RUNNER_TEMP/AbstractAssistant.xcarchive/Products/Applications/AbstractAssistant.app/Watch/AbstractAssistantWatch.app/Info.plist"
           test "$(plutil -extract CFBundleShortVersionString raw "$plist")" = "${{ steps.version.outputs.version }}"
           test "$(plutil -extract CFBundleVersion raw "$plist")" = "${{ steps.version.outputs.build }}"
           test "$(plutil -extract WKWatchOnly raw "$plist")" = "true"
@@ -211,7 +215,7 @@ jobs:
           </plist>
           EOF
           xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/AbstractAssistantWatch.xcarchive" \
+            -archivePath "$RUNNER_TEMP/AbstractAssistant.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export" \
             -allowProvisioningUpdates \

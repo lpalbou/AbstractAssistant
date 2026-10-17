@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="992" viewBox="0 0 416 496">
+<rect x="0" y="0" width="416" height="496" rx="90" fill="#0a0a12"/>
+<rect x="16" y="50" width="384" height="150" rx="22" fill="#1e1708" stroke="#b45309" stroke-width="1" opacity="1.0"/>
+<text x="36" y="82" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="700" fill="#fbbf24" text-anchor="start" opacity="1.0" letter-spacing="0">AbstractAssistant</text>
+<text x="36" y="110" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">execute_command needs</text>
+<text x="36" y="134" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">your approval</text>
+<text x="36" y="160" font-family="'Roboto Mono', Menlo, monospace" font-size="12" font-weight="500" fill="#c4c6d4" text-anchor="start" opacity="1.0" letter-spacing="0">Destructive · can delete · coding-agent</text>
+<text x="36" y="182" font-family="'Roboto Mono', Menlo, monospace" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">$ rm -rf build/ &amp;&amp; make</text>
+<rect x="20" y="220" width="376" height="50" rx="25.0" fill="#059669" opacity="1.0"/>
+<text x="42" y="251.12" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">✓</text>
+<text x="208.0" y="251.12" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Allow once</text>
+<rect x="20" y="282" width="376" height="50" rx="25.0" fill="#b91c1c" opacity="1.0"/>
+<text x="208.0" y="313.12" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Deny</text>
+<rect x="20" y="344" width="376" height="50" rx="25.0" fill="#1b1b28" opacity="1.0"/>
+<text x="208.0" y="374.76" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#c4c6d4" text-anchor="middle" opacity="1.0" letter-spacing="0">Open</text>
+<text x="208.0" y="430" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">answered here, recorded in the ledger</text>
+</svg>

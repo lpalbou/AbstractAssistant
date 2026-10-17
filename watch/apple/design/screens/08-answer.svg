@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="976" height="1136" viewBox="0 0 488 568">
+<defs><clipPath id="scr"><rect x="0" y="0" width="416" height="496" rx="90"/></clipPath><linearGradient id="bez" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b2b33"/><stop offset="1" stop-color="#0d0d12"/></linearGradient></defs>
+<rect x="4" y="4" width="480" height="560" rx="120" fill="url(#bez)" stroke="#3a3a44" stroke-width="2"/>
+<rect x="474" y="170.4" width="12" height="52" rx="6" fill="#2a2a33"/>
+<rect x="476" y="261.28000000000003" width="10" height="70" rx="5" fill="#23232b"/>
+<g transform="translate(36,36)" clip-path="url(#scr)">
+<rect x="0" y="0" width="416" height="496" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Answer</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<rect x="16" y="60" width="384" height="236" rx="20" fill="#15151f" opacity="1.0"/>
+<text x="32" y="90" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Overall survival favoured arm B:</text>
+<text x="32" y="110" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">HR 0.78 (95% CI 0.61–0.99), n =</text>
+<text x="32" y="130" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">412, 287 events. Proportional</text>
+<text x="32" y="150" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">hazards held (Schoenfeld p =</text>
+<text x="32" y="170" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">0.41).</text>
+<text x="32" y="198" font-family="'Roboto Mono', Menlo, monospace" font-size="12" font-weight="500" fill="#34d399" text-anchor="start" opacity="1.0" letter-spacing="0">reviewer: approved after 1 revision</text>
+<text x="32" y="218" font-family="'Roboto Mono', Menlo, monospace" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">rules: 6 / 6 · km_by_arm.png · report.pdf</text>
+<rect x="20" y="312" width="182.0" height="48" rx="24.0" fill="#0f3344" opacity="1.0"/>
+<text x="42" y="341.4" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#22d3ee" text-anchor="start" opacity="1.0" letter-spacing="0">▶</text>
+<text x="111.0" y="341.4" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#22d3ee" text-anchor="middle" opacity="1.0" letter-spacing="0">Speak</text>
+<rect x="214.0" y="312" width="182.0" height="48" rx="24.0" fill="#1b1b28" opacity="1.0"/>
+<text x="305.0" y="341.4" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#c4c6d4" text-anchor="middle" opacity="1.0" letter-spacing="0">Follow-up</text>
+<rect x="20" y="372" width="376" height="48" rx="24.0" fill="#4f46e5" opacity="1.0"/>
+<text x="208.0" y="401.4" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Continue on Mac</text>
+<text x="208.0" y="452" font-family="'Roboto Mono', Menlo, monospace" font-size="11.5" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">same session · run 7c1e02 · 3 min 40 s</text>
+</g>
+</svg>

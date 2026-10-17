@@ -1,0 +1,12 @@
+# Generated: `xcodegen generate --spec project.yml` (scripts/build.sh and CI do it).
+*.xcodeproj/
+xcuserdata/
+# Build outputs, archives and exported packages.
+build/
+*.xcarchive
+*.ipa
+# Live screenshots can show a real gateway's data.
+screenshots/live/
+# SwiftPM build cache.
+.build/
+.swiftpm/

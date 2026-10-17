@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="992" viewBox="0 0 416 496">
+<rect x="0" y="0" width="416" height="496" rx="90" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Settings</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<rect x="16" y="60" width="384" height="56" rx="14" fill="#15151f" opacity="1.0"/>
+<text x="32" y="84" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Gateway</text>
+<text x="32" y="104" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">mbp.local · signed in as albou</text>
+<path d="M380 81 l7 7 l-7 7" fill="none" stroke="#8f91a6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="16" y="122" width="384" height="56" rx="14" fill="#15151f" opacity="1.0"/>
+<text x="32" y="146" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Network</text>
+<text x="32" y="166" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">Tailscale Funnel · https</text>
+<path d="M380 143 l7 7 l-7 7" fill="none" stroke="#8f91a6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="16" y="184" width="384" height="56" rx="14" fill="#15151f" opacity="1.0"/>
+<text x="32" y="208" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Voice</text>
+<text x="32" y="228" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">dictation · Whisper on Mac</text>
+<path d="M380 205 l7 7 l-7 7" fill="none" stroke="#8f91a6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="16" y="246" width="384" height="56" rx="14" fill="#15151f" opacity="1.0"/>
+<text x="32" y="270" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Haptics</text>
+<text x="32" y="290" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">approvals · failures</text>
+<path d="M380 267 l7 7 l-7 7" fill="none" stroke="#8f91a6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="16" y="308" width="384" height="56" rx="14" fill="#15151f" opacity="1.0"/>
+<text x="32" y="332" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Double Tap</text>
+<text x="32" y="352" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">Allow once (reads only)</text>
+<path d="M380 329 l7 7 l-7 7" fill="none" stroke="#8f91a6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="16" y="370" width="384" height="56" rx="14" fill="#15151f" opacity="1.0"/>
+<text x="32" y="404" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#f87171" text-anchor="start" opacity="1.0" letter-spacing="0">Sign out</text>
+<text x="208.0" y="466" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">AbstractAssistant for Apple Watch · 0.1.0</text>
+</svg>

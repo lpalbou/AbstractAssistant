@@ -8,11 +8,11 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 ## Current Counts
 
 - Planned: 7
-- Proposed: 5
+- Proposed: 17 (5 + the 12 items of the [watch-apple](proposed/watch-apple/README.md) track)
 - Completed: 3
 
-Counts recomputed from disk on 2026-09-27 while completing 0852 (the block said 9 / 1 before). Flagged, not fixed in
-"planned" and it is listed under Planned Items below; 0009 is on disk but not in the table.
+Counts recomputed from disk on 2026-10-16 while adding the watch-apple track (planned 7, proposed 17, completed 3).
+0009 is on disk under planned/ and still has no row in the Planned table.
 - Deprecated: 0
 - Recurrent: 0
 
@@ -34,6 +34,9 @@ Counts recomputed from disk on 2026-09-27 while completing 0852 (the block said 
 5. Continue the broader v2 rollout and remove remaining legacy assistant code that still suggests
    alternate runtime models.
 6. Harden the desktop auth UX around expiry, session renewal, and secure local storage.
+7. Apple Watch client: promote 0012 (MVP) once `watch/apple/scripts/build.sh` is green in CI (0018); file 0013 and
+   0014 with the gateway seat, since they are the two items that turn the watch from a polling client into a
+   notified one.
 
 ## Planned Items
 
@@ -54,6 +57,9 @@ Counts recomputed from disk on 2026-09-27 while completing 0852 (the block said 
 | [0001](proposed/0001_gateway_capability_profile_alignment.md) | Gateway capability profile alignment | Proposed | Keep as background design memory while v2 rollout lands. |
 | [0003](proposed/0003_tauri_shell_spike.md) | Tauri shell spike | Proposed | Promote only if cross-platform host evidence outweighs Qt-first delivery. |
 | [0007](proposed/0007_frozen_macos_bundle_parity_and_packaging_trim.md) | Frozen macOS bundle parity and packaging trim | Proposed | Promote if bundle breadth, warnings, or frozen-app-only regressions keep recurring. |
+| [0010](proposed/0010_interrupted_turns_invisible_to_the_model.md) | Interrupted turns are invisible to the model (runtime history replay) | Proposed | Owning package abstractruntime; promote when the history-replay contract is decided. |
+| [0011](proposed/0011_token_usage_lost_upstream.md) | Token usage zeroed upstream; router calls never counted | Proposed | Owning packages abstractcore and abstractruntime; promote when either seat takes the patch. |
+| [watch-apple](proposed/watch-apple/README.md) | Track: Apple Watch client (0012–0023) | Proposed | Design, mockups and prototype in `watch/apple/`. 0012 (MVP) needs nothing new from the gateway; 0013 (pairing) and 0014 (push) make it a notified client; 0015–0019 follow. Promote 0012 when the scaffold builds in CI (0018). |
 
 ## Completed Items
 

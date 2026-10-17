@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="992" viewBox="0 0 416 496">
+<rect x="0" y="0" width="416" height="496" rx="90" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Digest</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<text x="20" y="84" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="800" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Morning digest</text>
+<text x="20" y="106" font-family="'Roboto Mono', Menlo, monospace" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">07:04 · 2 min 10 s · 3 sources</text>
+<rect x="16" y="120" width="384" height="220" rx="20" fill="#15151f" opacity="1.0"/>
+<text x="32" y="150" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Three things today: the assay QC</text>
+<text x="32" y="170" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">run passed; two new papers on your</text>
+<text x="32" y="190" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">target (one with a phase II</text>
+<text x="32" y="210" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">readout); the dependency check</text>
+<text x="32" y="230" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">found one update to pin.</text>
+<rect x="20" y="356" width="376" height="48" rx="24.0" fill="#4f46e5" opacity="1.0"/>
+<text x="208.0" y="385.4" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Discuss on Mac</text>
+<rect x="20" y="414" width="376" height="44" rx="22.0" fill="#1b1b28" opacity="1.0"/>
+<text x="208.0" y="441.04" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" fill="#c4c6d4" text-anchor="middle" opacity="1.0" letter-spacing="0">Mark read</text>
+</svg>

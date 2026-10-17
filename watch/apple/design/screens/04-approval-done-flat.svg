@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="992" viewBox="0 0 416 496">
+<rect x="0" y="0" width="416" height="496" rx="90" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Approval</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<circle cx="208.0" cy="180" r="44" fill="#34d399" opacity="0.15"/>
+<circle cx="208.0" cy="180" r="34" fill="#34d399" opacity="1.0"/>
+<path d="M194.0 181 l9 9 l19 -20" fill="none" stroke="#0a0a12" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="208.0" y="258" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="800" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Allowed once</text>
+<text x="208.0" y="286" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13.5" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">recorded in the run ledger</text>
+<rect x="20" y="316" width="376" height="70" rx="18" fill="#15151f" stroke="#2a2a3a" stroke-width="1" opacity="1.0"/>
+<circle cx="42" cy="351" r="11.0" fill="#34d399" opacity="0.18"/>
+<circle cx="42" cy="351" r="5" fill="#34d399" opacity="1.0"/>
+<text x="58" y="345" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="600" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">coding-agent continues</text>
+<text x="58" y="366" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">on your Mac · step 14 of the run</text>
+<text x="208.0" y="430" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" fill="#fbbf24" text-anchor="middle" opacity="1.0" letter-spacing="0">1 still waiting for you</text>
+</svg>

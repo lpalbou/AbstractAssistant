@@ -22,6 +22,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
 - [backlog/overview.md](backlog/overview.md) — planned and proposed work
+- [../watch/apple/README.md](../watch/apple/README.md) — Apple Watch client: design proposal, mockups, animated prototype and buildable scaffold (not released; backlog track `proposed/watch-apple/`)
 
 ## Project
 

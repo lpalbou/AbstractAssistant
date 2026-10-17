@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="992" viewBox="0 0 416 496">
+<rect x="0" y="0" width="416" height="496" rx="90" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Approval</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<text x="20" y="84" font-family="'Roboto Mono', Menlo, monospace" font-size="20" font-weight="800" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">send_email</text>
+<text x="20" y="108" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">wants to send this</text>
+<rect x="20" y="120" width="168" height="24" rx="12.0" fill="#101018" stroke="#fbbf24" stroke-width="1" opacity="1.0"/>
+<text x="104.0" y="136.14" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="700" fill="#fbbf24" text-anchor="middle" opacity="1.0" letter-spacing="0">sends to someone else</text>
+<rect x="20" y="160" width="376" height="86" rx="16" fill="#08080e" stroke="#2a2a3a" stroke-width="1" opacity="1.0"/>
+<text x="36" y="186" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="700" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">To</text>
+<text x="60" y="186" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">qc-team@example.org</text>
+<text x="36" y="212" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Nightly assay QC: 2 plates to review</text>
+<text x="20" y="272" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" fill="#22d3ee" text-anchor="start" opacity="1.0" letter-spacing="0">⎘ View draft</text>
+<text x="20" y="292" font-family="'Roboto Mono', Menlo, monospace" font-size="11.5" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">run c17d20 · Morning digest · asked 25 s ago</text>
+<rect x="20" y="312" width="376" height="50" rx="25.0" fill="#059669" opacity="1.0"/>
+<text x="42" y="343.48" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">✓</text>
+<text x="208.0" y="343.48" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Send it</text>
+<rect x="20" y="372" width="182.0" height="50" rx="25.0" fill="#b91c1c" opacity="1.0"/>
+<text x="111.0" y="403.12" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Deny</text>
+<rect x="214.0" y="372" width="182.0" height="50" rx="25.0" fill="#1b1b28" opacity="1.0"/>
+<text x="305.0" y="403.12" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#c4c6d4" text-anchor="middle" opacity="1.0" letter-spacing="0">Later</text>
+<text x="208.0" y="452" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">Double Tap is off for sends</text>
+</svg>

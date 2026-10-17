@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="976" height="1136" viewBox="0 0 488 568">
+<defs><clipPath id="scr"><rect x="0" y="0" width="416" height="496" rx="90"/></clipPath><linearGradient id="bez" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b2b33"/><stop offset="1" stop-color="#0d0d12"/></linearGradient></defs>
+<rect x="4" y="4" width="480" height="560" rx="120" fill="url(#bez)" stroke="#3a3a44" stroke-width="2"/>
+<rect x="474" y="170.4" width="12" height="52" rx="6" fill="#2a2a33"/>
+<rect x="476" y="261.28000000000003" width="10" height="70" rx="5" fill="#23232b"/>
+<g transform="translate(36,36)" clip-path="url(#scr)">
+<rect x="0" y="0" width="416" height="496" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Who answers</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<rect x="16" y="62" width="384" height="66" rx="18" fill="#15151f" stroke="#22d3ee" stroke-width="1" opacity="1.0"/>
+<circle cx="44" cy="95" r="16.900000000000002" fill="#22d3ee" opacity="0.1"/>
+<defs><radialGradient id="orb4495" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e0fbff"/><stop offset="0.3" stop-color="#22d3ee"/><stop offset="0.72" stop-color="#4f46e5"/><stop offset="1" stop-color="#1e1b4b"/></radialGradient></defs>
+<circle cx="44" cy="95" r="13" fill="url(#orb4495)"/>
+<ellipse cx="40.75" cy="90.84" rx="5.46" ry="3.12" fill="#ffffff" opacity="0.16"/>
+<text x="70" y="90" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Assistant</text>
+<text x="70" y="110" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">the gateway's default agent workflow</text>
+<text x="380" y="102" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="800" fill="#22d3ee" text-anchor="middle" opacity="1.0" letter-spacing="0">✓</text>
+<rect x="16" y="136" width="384" height="66" rx="18" fill="#15151f" stroke="#2a2a3a" stroke-width="1" opacity="1.0"/>
+<circle cx="44" cy="169" r="16.900000000000002" fill="#22d3ee" opacity="0.1"/>
+<defs><radialGradient id="orb44169" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e0fbff"/><stop offset="0.3" stop-color="#22d3ee"/><stop offset="0.72" stop-color="#4f46e5"/><stop offset="1" stop-color="#1e1b4b"/></radialGradient></defs>
+<circle cx="44" cy="169" r="13" fill="url(#orb44169)"/>
+<ellipse cx="40.75" cy="164.84" rx="5.46" ry="3.12" fill="#ffffff" opacity="0.16"/>
+<text x="70" y="164" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Castor</text>
+<text x="70" y="184" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">phase work · long-lived</text>
+<rect x="16" y="210" width="384" height="66" rx="18" fill="#15151f" stroke="#2a2a3a" stroke-width="1" opacity="1.0"/>
+<circle cx="44" cy="243" r="16.900000000000002" fill="#22d3ee" opacity="0.1"/>
+<defs><radialGradient id="orb44243" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e0fbff"/><stop offset="0.3" stop-color="#22d3ee"/><stop offset="0.72" stop-color="#4f46e5"/><stop offset="1" stop-color="#1e1b4b"/></radialGradient></defs>
+<circle cx="44" cy="243" r="13" fill="url(#orb44243)"/>
+<ellipse cx="40.75" cy="238.84" rx="5.46" ry="3.12" fill="#ffffff" opacity="0.16"/>
+<text x="70" y="238" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Mira</text>
+<text x="70" y="258" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">phase personal</text>
+<rect x="16" y="284" width="384" height="66" rx="18" fill="#15151f" stroke="#2a2a3a" stroke-width="1" opacity="1.0"/>
+<circle cx="44" cy="317" r="16.900000000000002" fill="#22d3ee" opacity="0.1"/>
+<defs><radialGradient id="orb44317" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e0fbff"/><stop offset="0.3" stop-color="#22d3ee"/><stop offset="0.72" stop-color="#4f46e5"/><stop offset="1" stop-color="#1e1b4b"/></radialGradient></defs>
+<circle cx="44" cy="317" r="13" fill="url(#orb44317)"/>
+<ellipse cx="40.75" cy="312.84" rx="5.46" ry="3.12" fill="#ffffff" opacity="0.16"/>
+<text x="70" y="312" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Nerin</text>
+<text x="70" y="332" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">phase sleep</text>
+<text x="208.0" y="378" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">the choice is kept for this watch</text>
+</g>
+</svg>

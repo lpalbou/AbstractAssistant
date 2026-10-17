@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%"><stop offset="0" stop-color="#16162a"/><stop offset="1" stop-color="#07070d"/></radialGradient>
+    <radialGradient id="core" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e0fbff"/><stop offset="0.28" stop-color="#67e8f9"/><stop offset="0.62" stop-color="#4f46e5"/><stop offset="1" stop-color="#1e1b4b"/></radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0.55" stop-color="#22d3ee" stop-opacity="0.35"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="0.5" stop-color="#818cf8"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="420" fill="url(#glow)"/>
+  <circle cx="512" cy="512" r="300" fill="none" stroke="url(#ring)" stroke-width="14" opacity="0.9"/>
+  <circle cx="512" cy="512" r="348" fill="none" stroke="url(#ring)" stroke-width="5" opacity="0.35"/>
+  <circle cx="512" cy="512" r="232" fill="url(#core)"/>
+  <ellipse cx="440" cy="420" rx="110" ry="70" fill="#ffffff" opacity="0.18"/>
+</svg>

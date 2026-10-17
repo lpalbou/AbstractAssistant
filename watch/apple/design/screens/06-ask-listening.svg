@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="976" height="1136" viewBox="0 0 488 568">
+<defs><clipPath id="scr"><rect x="0" y="0" width="416" height="496" rx="90"/></clipPath><linearGradient id="bez" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b2b33"/><stop offset="1" stop-color="#0d0d12"/></linearGradient></defs>
+<rect x="4" y="4" width="480" height="560" rx="120" fill="url(#bez)" stroke="#3a3a44" stroke-width="2"/>
+<rect x="474" y="170.4" width="12" height="52" rx="6" fill="#2a2a33"/>
+<rect x="476" y="261.28000000000003" width="10" height="70" rx="5" fill="#23232b"/>
+<g transform="translate(36,36)" clip-path="url(#scr)">
+<rect x="0" y="0" width="416" height="496" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Ask</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<text x="20" y="72" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="700" fill="#22d3ee" text-anchor="start" opacity="1.0" letter-spacing="1">ASSISTANT ⌄</text>
+<circle cx="208.0" cy="165" r="54.6" fill="#22d3ee" opacity="0.1"/>
+<circle cx="208.0" cy="165" r="48.3" fill="none" stroke="#22d3ee" stroke-width="2.2" opacity="0.55"/>
+<circle cx="208.0" cy="165" r="60.9" fill="none" stroke="#22d3ee" stroke-width="2.2" opacity="0.25"/>
+<defs><radialGradient id="orb208165" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e0fbff"/><stop offset="0.3" stop-color="#22d3ee"/><stop offset="0.72" stop-color="#4f46e5"/><stop offset="1" stop-color="#1e1b4b"/></radialGradient></defs>
+<circle cx="208.0" cy="165" r="42" fill="url(#orb208165)"/>
+<ellipse cx="197.5" cy="151.56" rx="17.64" ry="10.08" fill="#ffffff" opacity="0.16"/>
+<rect x="60.0" y="263.0" width="7.400000000000001" height="10.0" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="73.45454545454545" y="250.57963453831255" width="7.400000000000001" height="34.84073092337489" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="86.9090909090909" y="247.35890778768308" width="7.400000000000001" height="41.28218442463386" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="100.36363636363637" y="255.7087422637956" width="7.400000000000001" height="24.582515472408772" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="113.81818181818181" y="256.57856449486616" width="7.400000000000001" height="22.84287101026765" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="127.27272727272728" y="247.66575194628845" width="7.400000000000001" height="40.668496107423096" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="140.72727272727275" y="250.12297465343985" width="7.400000000000001" height="35.75405069312029" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="154.1818181818182" y="261.6352050421514" width="7.400000000000001" height="12.729589915697126" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="167.63636363636363" y="251.37862090374531" width="7.400000000000001" height="33.24275819250936" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="181.0909090909091" y="247.50797428550754" width="7.400000000000001" height="40.98405142898494" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="194.54545454545456" y="255.10379847933166" width="7.400000000000001" height="25.792403041336698" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="208.0" y="256.55259337030935" width="7.400000000000001" height="22.89481325938129" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="221.45454545454547" y="248.3746976028864" width="7.400000000000001" height="39.25060479422715" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="234.9090909090909" y="250.09872831706113" width="7.400000000000001" height="35.802543365877725" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="248.36363636363637" y="260.44439201458425" width="7.400000000000001" height="15.11121597083153" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="261.8181818181818" y="252.37834002051414" width="7.400000000000001" height="31.24331995897169" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="275.27272727272725" y="248.09812536420742" width="7.400000000000001" height="39.80374927158514" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="288.72727272727275" y="254.88557165293014" width="7.400000000000001" height="26.228856694139704" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="302.1818181818182" y="255.26674664356932" width="7.400000000000001" height="25.466506712861342" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="315.6363636363636" y="249.37146711527996" width="7.400000000000001" height="37.25706576944007" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="329.0909090909091" y="250.53180074902178" width="7.400000000000001" height="34.93639850195644" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<rect x="342.54545454545456" y="259.57515316332234" width="7.400000000000001" height="16.849693673355326" rx="3.6327272727272732" fill="#22d3ee" opacity="1.0"/>
+<text x="208.0" y="320" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="700" fill="#22d3ee" text-anchor="middle" opacity="1.0" letter-spacing="0">Listening…</text>
+<text x="30" y="362" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">“Compare overall survival by</text>
+<text x="30" y="380" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">treatment arm in the ADTTE I sent</text>
+<text x="30" y="398" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="500" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">you”</text>
+<rect x="20" y="428" width="376" height="46" rx="23.0" fill="#4f46e5" opacity="1.0"/>
+<text x="208.0" y="456.76" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Send</text>
+</g>
+</svg>

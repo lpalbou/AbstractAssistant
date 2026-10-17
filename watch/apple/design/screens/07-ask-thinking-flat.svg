@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="992" viewBox="0 0 416 496">
+<rect x="0" y="0" width="416" height="496" rx="90" fill="#0a0a12"/>
+<text x="20" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="start" opacity="1.0" letter-spacing="0">Ask</text>
+<text x="396" y="40" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#eceef5" text-anchor="end" opacity="1.0" letter-spacing="0">9:41</text>
+<text x="20" y="86" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="500" fill="#c4c6d4" text-anchor="start" opacity="1.0" letter-spacing="0">Compare overall survival by</text>
+<text x="20" y="104" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="500" fill="#c4c6d4" text-anchor="start" opacity="1.0" letter-spacing="0">treatment arm in the ADTTE I sent</text>
+<text x="20" y="122" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="500" fill="#c4c6d4" text-anchor="start" opacity="1.0" letter-spacing="0">you</text>
+<rect x="16" y="150" width="384" height="150" rx="20" fill="#15151f" stroke="#2a2a3a" stroke-width="1" opacity="1.0"/>
+<circle cx="208.0" cy="200" r="33.800000000000004" fill="#22d3ee" opacity="0.1"/>
+<circle cx="234.82340748456454" cy="210.27649301578964" r="3.6400000000000006" fill="#818cf8" opacity="1.0"/>
+<circle cx="178.69596766220488" cy="207.87041477881414" r="3.6400000000000006" fill="#22d3ee" opacity="1.0"/>
+<circle cx="210.48062485323055" cy="181.85309220539622" r="3.6400000000000006" fill="#34d399" opacity="1.0"/>
+<defs><radialGradient id="orb208200" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e0fbff"/><stop offset="0.3" stop-color="#22d3ee"/><stop offset="0.72" stop-color="#4f46e5"/><stop offset="1" stop-color="#1e1b4b"/></radialGradient></defs>
+<circle cx="208.0" cy="200" r="26" fill="url(#orb208200)"/>
+<ellipse cx="201.5" cy="191.68" rx="10.92" ry="6.24" fill="#ffffff" opacity="0.16"/>
+<text x="208.0" y="252" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#eceef5" text-anchor="middle" opacity="1.0" letter-spacing="0">Assistant is working</text>
+<text x="208.0" y="272" font-family="'Roboto Mono', Menlo, monospace" font-size="12.5" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">step 4 · running the analysis</text>
+<text x="208.0" y="290" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="500" fill="#8f91a6" text-anchor="middle" opacity="1.0" letter-spacing="0">on your Mac · local model</text>
+<text x="20" y="340" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8f91a6" text-anchor="start" opacity="1.0" letter-spacing="0">you can lower your wrist; we’ll tap you</text>
+<rect x="20" y="380" width="376" height="46" rx="23.0" fill="#1b1b28" opacity="1.0"/>
+<text x="208.0" y="408.4" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#c4c6d4" text-anchor="middle" opacity="1.0" letter-spacing="0">Continue on Mac</text>
+</svg>
