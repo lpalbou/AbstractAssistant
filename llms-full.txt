@@ -117,8 +117,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   the finished answer replaces the live text.
 - Tool approvals in a modeless sheet that shows the gateway's risk tier for each call and never
   blocks the palette; "always allow on this Mac" and per-chat trust for low-risk tools.
-- A voice conversation mode (⌘⇧V): listen, send, speak, listen again — with a live status strip.
-  Spoken replies stream from the gateway; dictation is a button away.
+- Hold the microphone button to talk: release sends the words. A voice conversation mode (⌘⇧V,
+  or the microphone's right-click menu): listen, send, speak, listen again — with a live status
+  strip. Spoken replies stream from the gateway.
 - A Settings window with seven sections: Connection, Models & reasoning (workflow, reasoning
   effort, reply streaming), Voice, Workspace (my default workspaces, this chat), Tools & permissions,
   Appearance & window, About. Every value says whether it is the gateway default or this app's
@@ -478,8 +479,9 @@ Summon it from the menu-bar icon or with the global shortcut (default `cmd+shift
   line (tokens, tools, files, duration, model); the tools and files segments open detail views.
   While a run works, an activity card at the bottom shows the current step, the elapsed time and
   the latest steps; it can pause, resume or stop the run and open the full run log.
-- **Composer**: attach files (button or drag and drop), dictate with the microphone, start a voice
-  conversation (⌘⇧V), type, and send with Return (Shift+Return adds a line). During a run the
+- **Composer**: attach files (button or drag and drop), hold the microphone to talk (release
+  sends), start a voice conversation (⌘⇧V or the microphone's right-click menu), type, and send
+  with Return (Shift+Return adds a line). During a run the
   send button becomes Stop (⌘.) and typed text steers the run.
 
 ## 5. Approvals and questions
@@ -815,14 +817,17 @@ synthesizing the whole message first.
 Spoken text is prose: markdown, code, images and link targets are removed before synthesis. A
 reply with nothing left to read says so instead of playing nothing.
 
-## Dictate into the message
+## Hold to talk
 
-The microphone button in the composer dictates into the message box. Each utterance is appended
-to the text; press Return to send. Saying "stop" closes the microphone.
+The composer has one microphone button. Hold it while you speak and release it: the recording
+stops, the gateway transcribes it, and the words are sent as your next message — exactly what
+Return would do with them. Text already in the composer goes out with the spoken words. A short
+tap records nothing and reminds you to hold. The status line follows the gesture ("Listening —
+release to send", "Transcribing…"); a failed transcription is reported there and nothing is sent.
 
 ## Voice conversation (hands-free)
 
-Start with ⌘⇧V, the waveform button next to the send button, or the tray menu. The loop:
+Start with ⌘⇧V, the microphone button's right-click menu, or the tray menu. The loop:
 
 ```mermaid
 stateDiagram-v2
@@ -2611,6 +2616,12 @@ SOFTWARE.
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## [0.14.0] - 2026-10-17
+
+### Changed
+
+- **One microphone button, hold to talk.** Hold the composer's microphone while you speak; releasing it stops the recording, transcribes it through the gateway's speech-to-text route and sends the words as your next message (text already in the composer goes with them). A short tap records nothing. The status line says "Listening — release to send", then "Transcribing…"; a failed transcription is reported there and nothing is sent. The former click-to-dictate mode (a hands-free recognizer that kept listening until you said "stop", leaving the words in the composer) is gone, and the waveform button left the composer: the voice conversation starts from ⌘⇧V, the microphone's right-click menu or the tray menu.
+
 ## [0.13.2] - 2026-10-15
 
 - Automations: calendar schedules (AbstractGateway R16.1, `schedule@2`). The schedule window's **When** has the AbstractCode / AbstractObserver dialog's words: **Repeat** (the fixed UTC intervals, unchanged) · **Daily** at a time · **Weekly** on the days you pick (day chips, Monday first; a picked day shows a check mark) at a time · **Monthly** on day 1–31 or **last** at a time · **Once at…** · **When an email arrives**. Daily, Weekly, Monthly and Once run at that wall-clock time in your account's time zone: a line shows "in <zone> (your account's time zone)" with an explanatory tooltip and **Change in preferences** (opens Settings → Workflow), and the preview line is the gateway's own sentence (`POST /api/gateway/automations/schedule-preview` → `first_run_sentence`; a refusal shows the gateway's sentence). The days, the month day and the time are kept when you switch kinds. Every create writes `schedule@2` (Repeat as `{"kind": "every", …}`); the window needs the gateway to offer `schedule@2`.
@@ -3532,7 +3543,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.13.2"
+version = "0.14.0"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12196,6 +12207,10 @@ class GatewayVoiceManager:
 
         self._listening = False
         self._recognizer = None
+        self._hold_stream = None
+        self._hold_chunks: list = []
+        self._hold_lock = threading.Lock()
+        self._hold_started: float | None = None
 
         self._speaking = False
         self._paused = False
@@ -12522,17 +12537,8 @@ class GatewayVoiceManager:
             return True
 
         from abstractvoice.recognition import VoiceRecognizer
-        from .gateway_stt_adapter import GatewaySTTAdapter
 
-        adapter = GatewaySTTAdapter(
-            gateway_client_fn=self._gateway_client,
-            session_id_fn=self._session_id,
-            run_id_fn=self._session_run_id,
-            content_type_fn=self._stt_upload_content_type,
-            max_upload_bytes_fn=self._stt_max_upload_bytes,
-            stt_model_fn=self._selected_stt_model,
-            stt_provider_fn=self._selected_stt_provider,
-        )
+        adapter = self._make_stt_adapter()
         lang = None
         try:
             lang = self._default_stt_language()
@@ -12590,6 +12596,146 @@ class GatewayVoiceManager:
             self._listening = False
             self._recognizer = None
             raise RuntimeError("VoiceRecognizer failed to start")
+        return True
+
+    def _make_stt_adapter(self):
+        """The gateway speech-to-text adapter (upload + /audio/transcribe), one per capture."""
+        from .gateway_stt_adapter import GatewaySTTAdapter
+
+        return GatewaySTTAdapter(
+            gateway_client_fn=self._gateway_client,
+            session_id_fn=self._session_id,
+            run_id_fn=self._session_run_id,
+            content_type_fn=self._stt_upload_content_type,
+            max_upload_bytes_fn=self._stt_max_upload_bytes,
+            stt_model_fn=self._selected_stt_model,
+            stt_provider_fn=self._selected_stt_provider,
+        )
+
+    # ------------------------------------------------------------ hold to talk
+
+    HOLD_SAMPLE_RATE = 16000
+    HOLD_MIN_SECONDS = 0.35
+
+    def begin_hold(self, on_audio_level: Callable[[float], None] | None = None) -> bool:
+        """Start recording from the microphone for as long as the user holds.
+
+        The Code TUI's principle (operator 2026-10-10 and 2026-10-17: "we press,
+        it records, we unpress, it sends"): no voice-activity detection, no stop
+        phrase — the press and the release ARE the utterance's boundaries. The
+        continuous recognizer (`listen`) and a hold never run together.
+        """
+        if not self.supports_stt():
+            raise RuntimeError("Gateway STT unavailable (microphone not available)")
+        if self._hold_stream is not None:
+            return True
+        if self._listening:
+            self.stop_listening()
+        try:
+            import numpy as np
+            import sounddevice as sd
+        except ImportError as e:
+            raise RuntimeError("Microphone capture needs sounddevice (pip install \"abstractassistant[voice]\")") from e
+
+        chunks: list = []
+        lock = threading.Lock()
+
+        def _callback(indata, frames, time_info, status) -> None:  # noqa: ARG001
+            try:
+                block = np.asarray(indata, dtype=np.int16).reshape(-1).copy()
+            except Exception:
+                return
+            with lock:
+                chunks.append(block)
+            if on_audio_level is not None:
+                try:
+                    level = float(np.sqrt(np.mean(block.astype(np.float32) ** 2)) / 32768.0) if block.size else 0.0
+                    on_audio_level(min(1.0, level * 4.0))
+                except Exception:
+                    pass
+
+        try:
+            stream = sd.InputStream(
+                samplerate=self.HOLD_SAMPLE_RATE,
+                channels=1,
+                dtype="int16",
+                blocksize=int(self.HOLD_SAMPLE_RATE * 0.03),
+                callback=_callback,
+            )
+            stream.start()
+        except Exception as e:
+            raise RuntimeError(f"Microphone unavailable: {e}") from e
+        self._hold_stream = stream
+        self._hold_chunks = chunks
+        self._hold_lock = lock
+        self._hold_started = time.monotonic()
+        return True
+
+    def is_holding(self) -> bool:
+        return self._hold_stream is not None
+
+    def cancel_hold(self) -> None:
+        """Drop a hold without transcribing (window closed, conversation started…)."""
+        self._close_hold_stream()
+        self._hold_chunks = []
+
+    def _close_hold_stream(self) -> None:
+        stream = self._hold_stream
+        self._hold_stream = None
+        if stream is None:
+            return
+        for name in ("stop", "close"):
+            try:
+                getattr(stream, name)()
+            except Exception:
+                pass
+
+    def end_hold(
+        self,
+        on_transcription: Callable[[str], None],
+        on_error: Callable[[str], None] | None = None,
+    ) -> bool:
+        """Stop the hold; transcribe what was heard on a background thread.
+
+        Returns False when the hold was too short to be speech (a tap): nothing
+        is transcribed and no callback fires — the TUI drops those too.
+        """
+        if self._hold_stream is None:
+            return False
+        self._close_hold_stream()
+        with self._hold_lock:
+            chunks = list(self._hold_chunks)
+        self._hold_chunks = []
+        held = time.monotonic() - float(self._hold_started or time.monotonic())
+        total = sum(int(c.size) for c in chunks)
+        if held < self.HOLD_MIN_SECONDS or total < int(self.HOLD_SAMPLE_RATE * self.HOLD_MIN_SECONDS):
+            return False
+        import numpy as np
+
+        audio = (np.concatenate(chunks).astype(np.float32) / 32768.0) if chunks else np.zeros(0, dtype=np.float32)
+        adapter = self._make_stt_adapter()
+        lang = None
+        try:
+            lang = self._default_stt_language()
+        except Exception:
+            lang = None
+
+        def _work() -> None:
+            try:
+                text = adapter.transcribe_from_array(audio, self.HOLD_SAMPLE_RATE, language=lang)
+            except Exception as e:
+                if on_error is not None:
+                    try:
+                        on_error(str(e) or e.__class__.__name__)
+                    except Exception:
+                        pass
+                return
+            try:
+                on_transcription(str(text or "").strip())
+            except Exception as e:
+                warnings.warn(f"#FALLBACK: transcription callback error: {e}")
+
+        threading.Thread(target=_work, name="assistant-hold-to-talk-stt", daemon=True).start()
         return True
 
     def stop_listening(self) -> None:
