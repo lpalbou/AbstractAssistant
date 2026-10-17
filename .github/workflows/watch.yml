@@ -1,0 +1,233 @@
+name: Watch app
+
+# CI for the Apple Watch client (watch/apple), and a release that waits for your approval.
+#
+# - Every push to main and every pull request that touches watch/apple builds and tests it:
+#   package tests, a simulator build, an unsigned Release build for the device, and a check of
+#   the watch-only Info.plist. Nothing is signed or uploaded by this part.
+# - After a green build on main, the job "Release to App Store Connect" WAITS for you. It runs
+#   only when you approve it: Actions -> the run -> "Review deployments" -> app-store -> Approve.
+#   Leave it waiting (or reject it) and nothing ships. A newer build on main queues behind it,
+#   and only the newest of the queued ones is kept.
+# - Approved: the job archives the app, signs it for distribution with the App Store Connect API
+#   key, uploads it (the build appears in TestFlight after Apple's processing), then tags the
+#   commit watch-v<version>-<build> and creates the matching GitHub release.
+#
+# Setup (once): the "app-store" environment with you as required reviewer, and three secrets on
+# that environment: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (the .p8 file's text). The app record
+# for ai.abstractframework.assistant.watch must exist in App Store Connect.
+#
+# Version: MARKETING_VERSION in watch/apple/project.yml. Build number: this workflow's run number
+# (Apple refuses a build number it has already seen, so a re-run of the same run cannot upload).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "watch/apple/**"
+  pull_request:
+    paths:
+      - "watch/apple/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  XCODE_VERSION: "27.1"
+  PROJECT_DIR: watch/apple
+  SCHEME: AbstractAssistantWatch
+  TEAM_ID: K3R4D6HP2A
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          app="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ ! -d "$app" ]; then
+            echo "::error::Xcode ${XCODE_VERSION} is not installed on this runner image. Installed:"
+            ls -d /Applications/Xcode*.app
+            exit 1
+          fi
+          sudo xcode-select -s "$app/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: xcodegen generate --spec project.yml
+
+      - name: Package tests (AbstractGatewayClient)
+        working-directory: ${{ env.PROJECT_DIR }}/Packages/AbstractGatewayClient
+        run: swift test
+
+      - name: Simulator build
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme "$SCHEME" \
+            -destination "generic/platform=watchOS Simulator" -configuration Debug \
+            -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO -quiet
+
+      - name: Device build (Release, unsigned)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme "$SCHEME" \
+            -destination "generic/platform=watchOS" -configuration Release \
+            -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO -quiet
+
+      - name: The app is watch-only (a missing WKWatchOnly builds fine and fails at install)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          plist=build/DerivedData/Build/Products/Release-watchos/AbstractAssistantWatch.app/Info.plist
+          test "$(plutil -extract WKWatchOnly raw "$plist")" = "true"
+          test "$(plutil -extract WKApplication raw "$plist")" = "true"
+          echo "version $(plutil -extract CFBundleShortVersionString raw "$plist")"
+
+  release:
+    name: Release to App Store Connect
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment:
+      name: app-store
+      url: https://appstoreconnect.apple.com/apps
+    concurrency:
+      group: watch-app-store-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The App Store Connect key is configured
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          missing=""
+          [ -n "$ASC_KEY_ID" ] || missing="$missing ASC_KEY_ID"
+          [ -n "$ASC_ISSUER_ID" ] || missing="$missing ASC_ISSUER_ID"
+          [ -n "$ASC_KEY_P8" ] || missing="$missing ASC_KEY_P8"
+          if [ -n "$missing" ]; then
+            echo "::error::The app-store environment lacks:$missing"
+            exit 1
+          fi
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          app="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ ! -d "$app" ]; then
+            echo "::error::Xcode ${XCODE_VERSION} is not installed on this runner image. Installed:"
+            ls -d /Applications/Xcode*.app
+            exit 1
+          fi
+          sudo xcode-select -s "$app/Contents/Developer"
+
+      - name: Install XcodeGen and generate the project
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+
+      - name: Version and build number
+        id: version
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          version=$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([0-9][0-9.]*)"?.*/\1/p' project.yml | head -1)
+          if [ -z "$version" ]; then
+            echo "::error::No MARKETING_VERSION in project.yml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Watch $version (build ${{ github.run_number }})"
+
+      - name: Stamp the version into the generated Info.plist
+        # XcodeGen writes literal "1.0" / "1" there, so build settings alone never reach the app.
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Resources/Info.plist
+          plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build }}" Resources/Info.plist
+
+      - name: Write the API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Archive, signed for distribution
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild archive -project AbstractAssistantWatch.xcodeproj -scheme "$SCHEME" \
+            -destination "generic/platform=watchOS" -configuration Release \
+            -archivePath "$RUNNER_TEMP/AbstractAssistantWatch.xcarchive" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: The archive carries this version and build number
+        run: |
+          plist="$RUNNER_TEMP/AbstractAssistantWatch.xcarchive/Products/Applications/AbstractAssistantWatch.app/Info.plist"
+          test "$(plutil -extract CFBundleShortVersionString raw "$plist")" = "${{ steps.version.outputs.version }}"
+          test "$(plutil -extract CFBundleVersion raw "$plist")" = "${{ steps.version.outputs.build }}"
+          test "$(plutil -extract WKWatchOnly raw "$plist")" = "true"
+
+      - name: Upload to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/AbstractAssistantWatch.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Tag the commit and create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="watch-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}"
+          gh release create "$tag" --target "$GITHUB_SHA" \
+            --title "Apple Watch ${{ steps.version.outputs.version }} (build ${{ steps.version.outputs.build }})" \
+            --notes "Uploaded to App Store Connect after approval in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. The build appears in TestFlight once Apple has processed it."
+
+      - name: Remove the API key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"

@@ -26,3 +26,5 @@ global-exclude *.so
 global-exclude .DS_Store
 global-exclude *.swp
 global-exclude *~
+# The Apple Watch app (Swift) ships through the App Store, never in the Python package.
+prune watch
