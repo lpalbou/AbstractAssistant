@@ -24,7 +24,7 @@ private final class VoiceWire: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 @MainActor private final class TestRecording: VoiceRecording {
-    var powerDB: Float = -40
+    var powerDB: Float = -28
     var stopped = false
     init(url: URL) throws { try SyntheticSpeech.wav(seconds: 0.5, seed: 1).write(to: url) }
     func start() throws {}
@@ -32,6 +32,7 @@ private final class VoiceWire: URLProtocol, @unchecked Sendable {
     func power() -> (average: Float, peak: Float) { (powerDB, powerDB + 6) }
 }
 
+@MainActor private final class VoiceClock { var time: TimeInterval = 0 }
 final class VoiceInteractionTests: XCTestCase {
     private func client() -> LiveGatewayClient {
         VoiceWire.log.clear()
@@ -42,62 +43,107 @@ final class VoiceInteractionTests: XCTestCase {
         for _ in 0..<100 { if voice.recording { return }; try await Task.sleep(for: .milliseconds(5)) }
         XCTFail("Recorder did not start")
     }
-    @MainActor func testGraceMakesZeroGatewayCallsAndTouchDownCancelsAcrossDeadline() async throws {
-        var clock: TimeInterval = 0; var recorder: TestRecording?
-        let voice = VoiceController(now: { clock }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); recorder = r; return r }, configureAudio: false)
-        defer { voice.stop() }
-        let client = client()
-        voice.press(); try await waitUntilRecording(voice)
-        voice.sample(); let quiet = voice.meter.level
-        recorder?.powerDB = -15; voice.sample()
+    @MainActor private func advance(_ voice: VoiceController, clock: VoiceClock, to target: Double) {
+        while clock.time + 0.03 < target { clock.time += 0.03; voice.sample() }
+        clock.time = target; voice.sample()
+    }
+    @MainActor func testSilenceMakesZeroGatewayCallsAndTouchDownCancelsAcrossDeadline() async throws {
+        let clock = VoiceClock(); var recorder: TestRecording?
+        let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); recorder = r; return r }, configureAudio: false)
+        defer { voice.stop() }; let client = client()
+        voice.activate(); try await waitUntilRecording(voice)
+        recorder?.powerDB = -42; advance(voice, clock: clock, to: 0.3); let quiet = voice.meter.level
+        recorder?.powerDB = -15; advance(voice, clock: clock, to: 0.6)
         XCTAssertGreaterThan(voice.meter.level, quiet * 2)
-        clock = 1; voice.release(); XCTAssertTrue(recorder!.stopped)
-        XCTAssertEqual(voice.inputPhase, .countdown)
+        recorder?.powerDB = -90; advance(voice, clock: clock, to: 1.3)
+        XCTAssertEqual(voice.inputPhase, .countdown); XCTAssertFalse(recorder!.stopped)
         let premature = await voice.finish(client: client, sessionID: "test")
         XCTAssertNil(premature); XCTAssertEqual(VoiceWire.log.count, 0)
-        clock = 3.99; voice.sample(); voice.press() // DOWN before deadline, UP much later.
-        clock = 8; voice.sample(); voice.release()
-        XCTAssertEqual(voice.inputPhase, .idle); XCTAssertEqual(VoiceWire.log.count, 0)
-        XCTAssertEqual(voice.meter.level, 0)
+        advance(voice, clock: clock, to: 3.59); voice.stop() // Touch down just before 3s silence ends.
+        advance(voice, clock: clock, to: 8)
+        XCTAssertEqual(voice.inputPhase, .idle); XCTAssertTrue(recorder!.stopped)
+        XCTAssertEqual(VoiceWire.log.count, 0); XCTAssertEqual(voice.meter.level, 0)
     }
-    @MainActor func testUncancelledGraceUploadsAndTranscribesExactlyOnce() async throws {
-        var clock: TimeInterval = 0
-        let voice = VoiceController(now: { clock }, permission: { true }, recordingFactory: { try TestRecording(url: $0) }, configureAudio: false)
-        defer { voice.stop() }
-        let client = client()
-        voice.press(); try await waitUntilRecording(voice); clock = 1; voice.release()
-        clock = 3.99; voice.sample(); XCTAssertEqual(VoiceWire.log.count, 0)
-        clock = 4; voice.sample(); voice.sample(); XCTAssertEqual(voice.inputPhase, .ready)
+    @MainActor func testThreeQuietSecondsUploadAndTranscribeExactlyOnce() async throws {
+        let clock = VoiceClock(); var recorder: TestRecording?
+        let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); recorder = r; return r }, configureAudio: false)
+        defer { voice.stop() }; let client = client()
+        voice.activate(); try await waitUntilRecording(voice); advance(voice, clock: clock, to: 0.3)
+        recorder?.powerDB = -90; advance(voice, clock: clock, to: 3.299)
+        XCTAssertEqual(VoiceWire.log.count, 0); XCTAssertEqual(voice.inputPhase, .countdown)
+        advance(voice, clock: clock, to: 3.3); XCTAssertEqual(voice.inputPhase, .ready); XCTAssertTrue(recorder!.stopped)
         let text = await voice.finish(client: client, sessionID: "test")
         XCTAssertEqual(text, "A voice turn"); XCTAssertEqual(VoiceWire.log.count, 2)
         let duplicate = await voice.finish(client: client, sessionID: "test")
         XCTAssertNil(duplicate); XCTAssertEqual(VoiceWire.log.count, 2)
     }
-    @MainActor func testPermissionGrantAfterReleaseCannotStartTheMicrophone() async throws {
+    @MainActor func testSpeechResumingBeforeSilenceExpiresKeepsEverythingLocal() async throws {
+        let clock = VoiceClock(); var recorder: TestRecording?
+        let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); recorder = r; return r }, configureAudio: false)
+        defer { voice.stop() }; let client = client()
+        voice.activate(); try await waitUntilRecording(voice); advance(voice, clock: clock, to: 0.3)
+        recorder?.powerDB = -90; advance(voice, clock: clock, to: 3.28)
+        recorder?.powerDB = -25; advance(voice, clock: clock, to: 3.29)
+        XCTAssertEqual(voice.inputPhase, .recording)
+        recorder?.powerDB = -90; advance(voice, clock: clock, to: 6.28)
+        let premature = await voice.finish(client: client, sessionID: "test")
+        XCTAssertNil(premature); XCTAssertEqual(VoiceWire.log.count, 0)
+        advance(voice, clock: clock, to: 6.29)
+        let text = await voice.finish(client: client, sessionID: "test")
+        XCTAssertEqual(text, "A voice turn"); XCTAssertEqual(VoiceWire.log.count, 2)
+    }
+    @MainActor func testNoSpeechAndSustainedNoiseTimeoutWithoutSending() async throws {
+        for db: Float in [-90, -20] {
+            let clock = VoiceClock()
+            let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); r.powerDB = db; return r }, configureAudio: false)
+            let client = client(); voice.activate(); try await waitUntilRecording(voice)
+            advance(voice, clock: clock, to: db == -90 ? 8 : 61)
+            XCTAssertEqual(voice.inputPhase, .idle); XCTAssertNotNil(voice.error)
+            let text = await voice.finish(client: client, sessionID: "test")
+            XCTAssertNil(text); XCTAssertEqual(VoiceWire.log.count, 0); voice.stop()
+        }
+    }
+    @MainActor func testPermissionGrantAfterCancelCannotStartTheMicrophone() async throws {
         var reply: CheckedContinuation<Bool, Never>?; var captures = 0
         let voice = VoiceController(permission: { await withCheckedContinuation { reply = $0 } }, recordingFactory: { url in captures += 1; return try TestRecording(url: url) }, configureAudio: false)
-        defer { voice.stop() }
-        voice.press()
+        defer { voice.stop() }; voice.activate()
         for _ in 0..<100 { if reply != nil { break }; await Task.yield() }
-        XCTAssertNotNil(reply); voice.release(); reply?.resume(returning: true)
+        XCTAssertNotNil(reply); voice.stop(); reply?.resume(returning: true)
         for _ in 0..<10 { await Task.yield() }
         XCTAssertEqual(voice.inputPhase, .idle); XCTAssertEqual(captures, 0)
     }
-    @MainActor func testRecordingLimitAndAudioInterruptionNeverSendAHeldMessage() async throws {
-        var clock: TimeInterval = 0
-        let voice = VoiceController(now: { clock }, permission: { true }, recordingFactory: { try TestRecording(url: $0) }, configureAudio: false)
-        defer { voice.stop() }
-        let client = client()
-        voice.press(); try await waitUntilRecording(voice); clock = 65; voice.sample()
-        XCTAssertEqual(voice.inputPhase, .atLimit); clock = 70; voice.sample()
-        XCTAssertEqual(voice.inputPhase, .atLimit)
-        let held = await voice.finish(client: client, sessionID: "test"); XCTAssertNil(held)
-        XCTAssertEqual(VoiceWire.log.count, 0)
-        voice.release(); XCTAssertEqual(voice.inputPhase, .countdown)
+    @MainActor func testAudioInterruptionCancelsLocalSilenceCountdown() async throws {
+        let clock = VoiceClock(); var recorder: TestRecording?
+        let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); recorder = r; return r }, configureAudio: false)
+        defer { voice.stop() }; let client = client()
+        voice.activate(); try await waitUntilRecording(voice); advance(voice, clock: clock, to: 0.3)
+        recorder?.powerDB = -90; advance(voice, clock: clock, to: 1.3)
+        XCTAssertEqual(voice.inputPhase, .countdown)
         NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
         for _ in 0..<10 { await Task.yield() }
-        clock = 80; voice.sample()
+        advance(voice, clock: clock, to: 8)
+        let cancelled = await voice.finish(client: client, sessionID: "test")
+        XCTAssertNil(cancelled)
         XCTAssertEqual(voice.inputPhase, .idle); XCTAssertEqual(VoiceWire.log.count, 0)
+    }
+    @MainActor func testPermissionWhileInactiveCannotStartTheMicrophone() async throws {
+        var captures = 0
+        let voice = VoiceController(permission: { true }, recordingFactory: { url in captures += 1; return try TestRecording(url: url) }, configureAudio: false, isActive: { false })
+        defer { voice.stop() }; voice.activate()
+        for _ in 0..<150 { if voice.inputPhase == .idle { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(voice.inputPhase, .idle); XCTAssertEqual(captures, 0)
+    }
+    @MainActor func testRecordingLimitWinsOverAFinalSilenceSample() async throws {
+        let clock = VoiceClock(); var recorder: TestRecording?
+        let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in let r = try TestRecording(url: url); recorder = r; return r }, configureAudio: false)
+        defer { voice.stop() }; let client = client()
+        voice.activate(); try await waitUntilRecording(voice); advance(voice, clock: clock, to: 57)
+        recorder?.powerDB = -90; advance(voice, clock: clock, to: 59.99)
+        XCTAssertEqual(voice.inputPhase, .countdown)
+        advance(voice, clock: clock, to: 60)
+        XCTAssertEqual(voice.inputPhase, .idle)
+        let text = await voice.finish(client: client, sessionID: "test")
+        XCTAssertNil(text); XCTAssertEqual(VoiceWire.log.count, 0)
     }
     @MainActor func testActualWAVPlaybackDrivesTheMeterAndStopsCleanly() async throws {
         let voice = VoiceController()

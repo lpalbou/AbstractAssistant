@@ -21,7 +21,8 @@ extension VoiceController {
     func start() throws { startTime = ProcessInfo.processInfo.systemUptime }
     func stop() {}
     func power() -> (average: Float, peak: Float) {
-        let db = Float(-38 + sin((ProcessInfo.processInfo.systemUptime - startTime) * 9) * 20)
+        let elapsed = ProcessInfo.processInfo.systemUptime - startTime
+        let db: Float = elapsed < 1.1 ? Float(-28 + sin(elapsed * 9) * 9) : -90
         return (db, db + 6)
     }
 }

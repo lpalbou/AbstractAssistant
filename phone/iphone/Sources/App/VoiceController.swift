@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Observation
+import UIKit
 import AssistantKit
 import AbstractGatewayClient
 
@@ -21,7 +22,7 @@ import AbstractGatewayClient
             AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
         recorder.isMeteringEnabled = true
     }
-    func start() throws { guard recorder.record() else { throw CocoaError(.fileWriteUnknown) } }
+    func start() throws { guard recorder.record(forDuration: 60) else { throw CocoaError(.fileWriteUnknown) } }
     func stop() { recorder.stop() }
     func power() -> (average: Float, peak: Float) {
         recorder.updateMeters(); return (recorder.averagePower(forChannel: 0), recorder.peakPower(forChannel: 0))
@@ -54,14 +55,15 @@ private final class AudioSessionEvents: @unchecked Sendable {
     private(set) var readingID: String?
     private(set) var speaking = false
     private(set) var paused = false
-    var recording: Bool { inputPhase == .recording }
+    var recording: Bool { inputPhase == .recording || inputPhase == .countdown }
     var transcribing: Bool { inputPhase == .transcribing }
-    var localPending: Bool { inputPhase == .authorizing || inputPhase == .recording || inputPhase == .atLimit || inputPhase == .countdown || inputPhase == .ready }
+    var localPending: Bool { inputPhase == .authorizing || inputPhase == .recording || inputPhase == .countdown || inputPhase == .ready }
     var inputPending: Bool { inputPhase != .idle }
     var error: String?
     @ObservationIgnored var onUnauthorized: (() -> Void)?
     @ObservationIgnored private var turn = VoiceTurn()
     @ObservationIgnored private var envelope = AudioEnvelope()
+    @ObservationIgnored private var activity = SpeechActivity()
     @ObservationIgnored private var sampler: Task<Void, Never>?
     @ObservationIgnored private var captureTask: Task<Void, Never>?
     @ObservationIgnored private var recorder: (any VoiceRecording)?
@@ -74,21 +76,24 @@ private final class AudioSessionEvents: @unchecked Sendable {
     @ObservationIgnored private let permission: () async -> Bool
     @ObservationIgnored private let recordingFactory: (URL) throws -> any VoiceRecording
     @ObservationIgnored private let configureAudio: Bool
+    @ObservationIgnored private let isActive: () -> Bool
     @ObservationIgnored private let file = FileManager.default.temporaryDirectory.appending(path: "iphone-voice-\(UUID().uuidString).wav")
 
     init(now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          permission: @escaping () async -> Bool = { await AVAudioApplication.requestRecordPermission() },
          recordingFactory: @escaping (URL) throws -> any VoiceRecording = { try MicrophoneRecording(url: $0) },
-         configureAudio: Bool = true) {
+         configureAudio: Bool = true,
+         isActive: @escaping () -> Bool = { UIApplication.shared.applicationState == .active }) {
         self.now = now; self.permission = permission; self.recordingFactory = recordingFactory; self.configureAudio = configureAudio
+        self.isActive = isActive
         events = AudioSessionEvents { [weak self] in
             guard let self, self.inputPending || self.speaking else { return }
-            self.stop(); self.error = "Audio was interrupted. Hold the orb to try again."
+            self.stop(); self.error = "Audio was interrupted. Tap the orb to try again."
         }
     }
 
-    /// Called at touch DOWN. A touch during grace cancels immediately and cannot begin a new turn.
-    func press() {
+    /// A deliberate tap activates capture; subsequent touches cancel synchronously.
+    func activate() {
         if inputPending { stop(); return }
         stop(); error = nil
         guard turn.begin() else { return }; publishTurn()
@@ -97,6 +102,13 @@ private final class AudioSessionEvents: @unchecked Sendable {
             let allowed = await permission()
             guard !Task.isCancelled, epoch == generation, turn.phase == .authorizing else { return }
             guard allowed else { stop(); error = "Microphone access is off. You can enable it in iPhone Settings."; return }
+            // Permission dismissal can briefly precede activation. Never start under an inactive app.
+            for _ in 0..<20 {
+                if isActive() { break }
+                do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+                guard epoch == generation, turn.phase == .authorizing else { return }
+            }
+            guard isActive() else { stop(); error = "Tap the orb again when you’re back in the app."; return }
             do {
                 if configureAudio {
                     let audio = AVAudioSession.sharedInstance()
@@ -110,42 +122,35 @@ private final class AudioSessionEvents: @unchecked Sendable {
         }
     }
 
-    /// Audio is sealed locally. No upload or STT call is allowed in the three-second grace.
-    func release() {
-        guard turn.phase == .recording || turn.phase == .atLimit else {
-            if turn.phase == .authorizing { stop() }
-            return
-        }
-        recorder?.stop(); recorder = nil; envelope.reset(); meter.level = 0
-        turn.release(at: now())
-        if turn.phase == .countdown { meter.graceProgress = 1 }
-        publishTurn()
-        if turn.phase == .idle { stop(); return }
-        deactivateAudio()
-    }
-
     private func publishTurn() {
-        inputPhase = turn.phase
-        secondsRemaining = turn.secondsRemaining(at: now())
+        if inputPhase != turn.phase { inputPhase = turn.phase }
+        let remaining = turn.secondsRemaining(at: now())
+        if secondsRemaining != remaining { secondsRemaining = remaining }
     }
 
     /// Called by the sampler and deterministic lifecycle tests with the same monotonic clock.
     func sample() {
         if let recorder, recording {
+            if now() - recordingStarted >= 60 {
+                stop(); error = "One-minute recording limit reached. Please try a shorter message."; return
+            }
             let power = recorder.power()
             meter.level = envelope.sample(averageDB: power.average, peakDB: power.peak)
-            if now() - recordingStarted >= 60 {
-                recorder.stop(); self.recorder = nil; turn.reachedLimit(); publishTurn(); deactivateAudio()
+            turn.sample(at: now(), speech: power.average.isFinite ? activity.sample(averageDB: power.average) : nil)
+            if turn.phase == .idle {
+                stop(); error = "Nothing heard. Tap the orb to try again."; return
             }
+            if turn.phase == .ready {
+                recorder.stop(); self.recorder = nil; stopSampling(); publishTurn(); deactivateAudio(); return
+            }
+            if turn.phase == .countdown {
+                meter.graceProgress = min(1, max(0, ((turn.deadline ?? now()) - now()) / VoiceTurn.grace))
+            } else { meter.graceProgress = 0 }
+            publishTurn()
         } else if let player, player.isPlaying, !paused {
             player.updateMeters()
             meter.level = envelope.sample(averageDB: player.averagePower(forChannel: 0), peakDB: player.peakPower(forChannel: 0))
         } else { meter.level = envelope.sample(averageDB: -160, peakDB: -160) }
-        if turn.phase == .countdown {
-            meter.graceProgress = min(1, max(0, ((turn.deadline ?? now()) - now()) / VoiceTurn.grace))
-            turn.advance(to: now()); publishTurn()
-            if turn.phase == .ready { stopSampling() }
-        }
     }
 
     func finish(client: any GatewayClient, sessionID: String, model: TranscriptionChoice? = nil) async -> String? {
@@ -157,7 +162,7 @@ private final class AudioSessionEvents: @unchecked Sendable {
             try Task.checkCancellation(); guard epoch == generation else { return nil }
             let text = try await client.transcribe(wav: data, sessionId: sessionID, model: model).trimmingCharacters(in: .whitespacesAndNewlines)
             try Task.checkCancellation(); guard epoch == generation else { return nil }
-            guard !text.isEmpty else { error = "Nothing heard. Hold the orb to try again."; return nil }
+            guard !text.isEmpty else { error = "Nothing heard. Tap the orb to try again."; return nil }
             return text
         } catch {
             if epoch == generation, !(error is CancellationError) { self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { onUnauthorized?() } }
@@ -202,7 +207,7 @@ private final class AudioSessionEvents: @unchecked Sendable {
     private func deactivateAudio() { if configureAudio { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) } }
     func togglePause() { if paused { player?.play(); paused = false } else { player?.pause(); paused = true } }
     func stop() {
-        generation += 1; stopSampling(); turn.cancel(); publishTurn(); readingID = nil
+        generation += 1; stopSampling(); turn.cancel(); activity = SpeechActivity(); publishTurn(); readingID = nil
         captureTask?.cancel(); captureTask = nil; playback?.cancel(); playback = nil
         recorder?.stop(); recorder = nil; player?.stop(); player = nil
         speaking = false; paused = false

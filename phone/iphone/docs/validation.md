@@ -1,37 +1,12 @@
 # Developer preview validation
 
-Checked on 17 October 2026. Current layout follow-up: **0.3.1 (4)**.
+Checked on 17 October 2026 for iPhone preview **0.4.0 (5)**.
 
-## 0.3.1 compact composer follow-up
-
-The empty, unfocused text panel now uses half its previous width. The +, field and orb
-align to the actual orb center, with its caption below. The repeated idle instruction
-line is removed; active capture/countdown cancellation controls remain available.
-Keyboard focus still expands the field, and staged attachments or a nonempty draft keep
-the regular composer width.
-
-Three focused native UI tests passed in
-`build/UITests-1792265056209102000.xcresult`, with no runtime warnings: conversation/navigation,
-keyboard expansion/restoration and hold/release/cancel/automatic voice send. The tightened
-keyboard test checks the empty field's compact width, all three control centers within
-3 points, absence of the idle footer, and the expanded keyboard layout. Updated Assistant,
-Conversation, Keyboard, Compact and Countdown screenshots below come from this run.
-The same independent adversarial reviewer inspected these screenshots and the result:
-**Approved** for this small layout follow-up, with no new blocker. The existing physical
-audio/accessibility limitations remain as recorded below.
-
-The final 0.3.1 (4) device build was signature-verified, installed and launched on the
-connected iPhone over the previous app, preserving its sign-in and data.
-
-## 0.3.0 voice/composer baseline
-
-The baseline results below cover preview **0.3.0 (3)**; the 0.3.1 follow-up changes layout,
-copy and version metadata, leaving the voice/network policy and package code intact.
-
-This iteration changes only the phone subtree. Watch and desktop sources are outside its
-scope. Checks use deterministic HTTP fixtures and demo data, without production automation,
-outgoing messages or personal gateway credentials. The user previously confirmed that
-chat works against their gateway after the Gateway provider fix.
+This iteration replaces hold/release with tap-to-listen and measured silence, keeps the orb
+visible while typing, removes chat's Done button, adds outside-tap minimization and groups
+the controls into a centered dock. Changes stay inside `phone/`; Watch and desktop sources
+are outside this change. Checks use demo data and deterministic HTTP fixtures without
+production automations, outgoing messages or personal gateway credentials.
 
 ## Automated evidence
 
@@ -42,116 +17,101 @@ swift test --package-path Packages/AssistantKit --scratch-path build/SwiftTests 
 python3 scripts/build.py --ui-test <your-own-iphone-simulator-id>
 ```
 
-**51 package tests passed:** 28 inherited gateway wire/authentication/reading/model tests
-and 23 phone state/transport/feature tests. New tests cover the local capture policy:
-holding never sends, release starts a fresh three-second grace, touching during grace
-cancels, a late permission grant cannot revive capture, one handoff is claimed at most
-once, and reaching the recording limit still requires an actual release. Envelope tests
-check quiet/loud energy, decay and finite bounds. Existing tests cover workflow/voice
-preferences, attachment provenance, safe paths/sizes, stale account responses, history,
-authentication lockout and stable automation request IDs.
+**55 package tests passed:** 28 gateway wire/authentication/reading/model tests and 27 phone
+state/transport/feature tests. Silence-policy tests verify confirmed activity followed by
+three quiet seconds, speech resuming at expiry, cancellation, initial quiet/brief impulses,
+late permission grants, raw-power hysteresis, non-finite values, missed samples and isolated
+speech samples across gaps. Existing tests cover workflow/voice preferences, attachment
+provenance, safe paths/sizes, stale account responses, history, auth lockout and automation
+request IDs.
 
-**15 native tests passed** on the dedicated iPhone 17 Pro simulator, iOS 26.5:
+**20 native tests passed** on the dedicated iPhone 17 Pro simulator, iOS 26.5:
 
-- Eight hosted tests: Keychain, attachment lifecycle/local previews and five voice tests.
-  Voice tests inject a recorder and monotonic clock but use the real LiveGatewayClient
-  with an intercepted URLSession. They verify **zero gateway requests** before grace and
-  after cancellation, exactly one upload plus one STT request after an uncanceled grace,
-  no microphone startup after permission was released, and no send during an interruption
-  or a held recording limit.
-- Seven UI tests: conversation/navigation, approvals, voice/workflow settings, automation
-  creation, returned files, keyboard expansion/restoration and hold/release/cancel/autosend.
-  The voice interaction uses an explicitly enabled Debug demo fixture. Its second touch
-  begins during grace and lifts after the old deadline, proving cancellation happens on
-  touch-down. A separate voice turn sends automatically while its typed draft survives.
-  Keyboard assertions verify the orb hides, input expands, attachments remain available,
-  and Done/Send are both tappable with nonoverlapping frames.
+- Twelve hosted tests: Keychain, attachment lifecycle/local previews and nine voice tests.
+  Voice tests inject continuous raw microphone dB sequences and a monotonic clock while
+  using the real LiveGatewayClient with an intercepted URLSession. They verify zero
+  requests before the quiet window ends or after cancellation, exactly one upload plus one
+  STT request on commit, resumed speech resetting silence, no-speech/noisy-limit discard,
+  canceled/inactive permission completion, interruption and a duration-limit boundary.
+- Eight UI tests: conversation/navigation and typed Send, approvals, voice/workflow settings,
+  automations, returned files, keyboard/caret/outside-tap behavior, one-tap attachment-menu
+  access while editing and tap/silence/cancel/automatic voice send. The orb stays present
+  and tappable during typing. A tap on the text retains editing; an outside tap dismisses
+  the keyboard and minimizes the preserved draft. Done is absent. A pending voice turn is
+  canceled on touch-down even when the finger lifts after its previous deadline. The next
+  turn automatically sends after fixture speech followed by silence, retaining the draft.
 
-The actual **AVAudioPlayer WAV playback** test then passed a stricter focused rerun. It
-checks variation inside playback rather than comparing startup silence with a constant
-playing indicator. The recorded interior envelope ranged from **0.5185 to 0.9997** (span
-0.4812). The [110-sample trace](../design/validation/wav-playback-energy.csv) contains
-measured levels in sample order, sampled nominally every 30 ms. Pause and Stop also drive
-the meter back to zero. This is actual playback metering; microphone-controller tests use
-injected dB values and do not substitute for physical microphone validation.
+Native result bundle: `build/UITests-1792266261626476000.xcresult` (**20 passed**).
+The Debug UI voice fixture is explicitly enabled and supplies local synthetic speech then
+silence. It cannot be enabled against a live gateway or in a Release build.
 
-Evidence bundles in ignored `build/`:
+The native AVAudioPlayer test reads actual WAV power and checks variation inside playback,
+then Pause/Stop decay. Its measured interior envelope ranges from **0.5192 to 0.9999**, span
+0.4807. The [110-sample trace](../design/validation/wav-playback-energy.csv) records measured
+levels in sample order at nominal 30-ms intervals. Microphone tests use injected raw power,
+so they do not establish physical microphone sensitivity. SpeechActivity is an audio-energy
+gate; room noise and very quiet speech can affect detection.
 
-- `UITests-1792264429532309000.xcresult`: full suite, **15 passed**.
-- `UITests-1792264573330615000.xcresult`: strengthened WAV meter test, **1 passed**, with
-  its raw energy attachment and no runtime warnings.
-- `UITests-1792264356643500000.xcresult`: focused voice/settings tests, **7 passed**.
+An additional focused interruption test checks that calling finish after interruption
+returns nil and makes zero requests. It also removes an unused test-local warning without
+changing application behavior: `build/UITests-1792266463273317000.xcresult` (**1 passed**).
+Final native code uses Swift 6 strict concurrency, one
+low-priority build job and separate DerivedData.
 
-The native tests caught and fixed an integration regression: storing a SwiftUI view method
-at onAppear retained an outdated scenePhase and canceled otherwise valid voice handoffs.
-The current implementation observes the ready phase from the current body. Visual review
-also caught a floating keyboard Done button overlapping Send; Done now has a separate
-composer row. The final full suite verifies both fixes. Final animation polish preserves
-angular phase across voice-state changes, reduces idle rendering, respects Reduce Motion,
-initializes the countdown ring immediately and dims disabled text Send. The physical-device
-build compiles this final source with Swift 6 strict concurrency.
-
-The final development-signed **0.3.0 (3)** app was signature-verified and installed over
-the existing application on the connected iPhone 17 Pro Max running iOS 27.0.1. The app
-was not uninstalled and its Keychain sign-in was retained. Installation confirms device
-deployment, rather than physical audio, microphone or camera validation.
-
-One existing SwiftUI warning remains during automation creation: “Invalid frame dimension
-(negative or non-finite).” The creation/navigation test passes and its screen fills the
-container. The warning's source remains unidentified. Conversation and keyboard warning
-instances seen before relocating Done no longer occur in the final full suite.
+One preexisting SwiftUI warning remains during automation creation: “Invalid frame dimension
+(negative or non-finite).” Its source is unidentified; the creation/navigation test passes
+and its screen fills its container. It is outside the voice/composer changes.
 
 ## Visual evidence
 
-Settled native XCTest screenshots are checked in:
+Settled native XCTest screenshots from this iteration:
 
-- [Compact composer](../design/screenshots/compact-composer.png)
-- [Expanded keyboard composer with separate Done and Send](../design/screenshots/keyboard-composer.png)
-- [Voice countdown and preserved typed draft](../design/screenshots/voice-countdown.png)
-- [Assistant](../design/screenshots/assistant.png),
-  [Conversation](../design/screenshots/conversation.png),
-  [Voice settings](../design/screenshots/voice-settings.png),
-  [Workflow](../design/screenshots/workflow-settings.png)
-- [New automation](../design/screenshots/new-automation.png),
-  [Created automation](../design/screenshots/created-automation.png),
-  [Conversation files](../design/screenshots/conversation-files.png),
-  [Inbox](../design/screenshots/inbox.png),
-  [Automations](../design/screenshots/automations.png),
-  [Approval](../design/screenshots/approval.png)
-
-The current composer captures come from the 0.3.1 focused run. Other feature captures
-remain from the 0.3.0 baseline; their functional layouts are unchanged.
+- [Centered compact dock](../design/screenshots/compact-composer.png)
+- [Keyboard with persistent orb and no Done](../design/screenshots/keyboard-composer.png)
+- [Preserved minimized draft](../design/screenshots/minimized-draft.png)
+- [Silence countdown](../design/screenshots/voice-countdown.png)
+- [Assistant](../design/screenshots/assistant.png), [Conversation](../design/screenshots/conversation.png)
+- [Voice settings](../design/screenshots/voice-settings.png), [Workflow](../design/screenshots/workflow-settings.png)
+- [New automation](../design/screenshots/new-automation.png), [Created automation](../design/screenshots/created-automation.png)
+- [Files](../design/screenshots/conversation-files.png), [Inbox](../design/screenshots/inbox.png),
+  [Automations](../design/screenshots/automations.png), [Approval](../design/screenshots/approval.png)
 
 ## Independent review
 
 - **Execution Mode:** implementation plus one independent adversarial reviewer, as requested.
 - **Planned / Actual Reviewer Set:** one reviewer covering correctness, architecture fit,
   security/privacy, operations and user experience.
-- **Subagents Used:** `iphone_adversary`, read-only; no competing builds or Watch changes.
-- **Fallback Reason / Contract Degradation:** none; one reviewer was explicitly requested.
-- **Observed Evidence:** source, local state-policy tests, real transport spy tests, native
-  audio playback tests, native UI interaction results, waveform trace and screenshots.
-- **Findings addressed:** holding owns capture; a real release starts grace; touch-down
-  cancels synchronously; stale permission/scene callbacks cannot send; draft/attachments
-  survive canceled voice; interruption/navigation/keyboard cancel pending capture; clear
-  automatic-send wording; stronger signal response; Done/Send overlap and phase jumps.
-- **Reviewer Verdicts:** conditional approval for the developer preview, no unresolved
-  blocker in the reviewed voice/composer changes. Final screenshots and 15/15 plus the
-  stricter WAV results were independently inspected.
-- **Inference Or Unverified Claims / Missing Evidence:** physical microphone sensitivity,
-  actual hardware speaker/headphone/Bluetooth routes and calls, VoiceOver, large Dynamic
-  Type, camera/cloud imports and live gateway provider variability.
-- **Residual Risk:** physical audio/permission routes need hands-on device exercise. The
-  preexisting automation warning remains a follow-up. No push or background polling.
-- **Final Verdict:** suitable for a developer preview with these validation limits.
+- **Subagents Used:** `iphone_adversary`, read-only; no competing builds or Watch edits.
+- **Fallback Reason / Contract Degradation:** none; one reviewer was requested.
+- **Observed Evidence:** source, 55 package tests, 20 native tests, intercepted transport,
+  real WAV metering, power trace and compact/keyboard/countdown screenshots. The reviewer
+  independently inspected the native result and images.
+- **Findings addressed:** missing/invalid samples do not imply silence; speech resumes before
+  expiry checks; disconnected impulses cannot confirm speech; the hard capture limit wins;
+  capture requires current app-active state after permission; outside taps exclude text
+  selection and preserve button actions; the dock is grouped and orb always visible.
+- **Reviewer Verdicts:** conditional approval for the developer preview, no unresolved blocker.
+- **Inference Or Unverified Claims / Missing Evidence:** physical microphone tuning, real
+  speaker/headphone/Bluetooth routes and calls, VoiceOver/large Dynamic Type, camera/cloud
+  imports and live provider behavior. The raw-energy gate is not semantic speech recognition.
+- **Residual Risk:** room noise, quiet speech and device permission/audio routes need hands-on
+  exercise. The automation warning remains a follow-up. No push or background polling.
+- **Final Verdict:** suitable for a developer preview with the stated validation limits.
 
 ## Resource isolation
 
-Builds use a dedicated iPhone simulator, separate DerivedData and one low-priority job.
-They never target `booted`. The helper yields to other builds and stops only its own
-process. A specific known-idle Watch test PID was temporarily allowed; Watch compilation,
-activity or memory pressure would stop the phone build. The Watch process subsequently
-finished independently. No Watch process, simulator or source was modified. XCTest retains
-results and screenshots while disabling lengthy simulator-wide diagnostic collection.
+Builds use a dedicated iPhone simulator, separate DerivedData and one low-priority job,
+never `booted`. The helper yields to other builds and stops only its own process. A specific
+known-idle Watch test PID was permitted with monitoring for Watch compilation/activity or
+memory pressure. No Watch process, simulator or source was modified. XCTest retains results
+and screenshots while disabling lengthy simulator-wide diagnostic collection.
+
+## Physical deployment
+
+Preview **0.4.0 (5)** was built for the connected iPhone 17 Pro Max, signature-verified,
+installed over the existing app and launched successfully with `devicectl` on 17 October
+2026. Bundle ID: `ai.abstractframework.assistant.iphone`. The installation preserved app
+data and Keychain; no uninstall or reset was performed. Installation and launch establish
+deployment, while the physical microphone and audio-route checks above remain hands-on.
 
 [Build instructions](../BUILD.md) · [Architecture](architecture.md) · [iPhone overview](../README.md)

@@ -122,32 +122,26 @@ struct VoicePresence: View {
     let voice: VoiceController
     var working: Bool
     var enabled: Bool
-    var onPress: () -> Void
-    var onRelease: () -> Void
+    var onTap: () -> Void
     var onCancel: () -> Void
-    var onAccessibleActivate: () -> Void
     private var status: String {
         switch voice.inputPhase {
-        case .authorizing: return "Microphone…"
-        case .recording: return "Listening"
-        case .atLimit: return "Release to send"
-        case .countdown: return "Tap to cancel"
-        case .ready, .transcribing: return "Transcribing"
-        case .idle: return voice.speaking ? (voice.paused ? "Reading paused" : "Reading aloud") : working ? "Thinking" : "Hold to speak"
+        case .authorizing: return "Starting microphone"
+        case .recording: return "Listening. Tap to cancel"
+        case .countdown: return "Sending in \(voice.secondsRemaining) seconds. Tap to cancel"
+        case .ready, .transcribing: return "Transcribing. Tap to cancel"
+        case .idle: return voice.speaking ? "Reading aloud. Tap to speak" : working ? "Thinking" : "Tap to speak"
         }
     }
     var body: some View {
-        VStack(spacing: 7) {
-            ZStack {
-                AssistantOrb(size: 72, active: voice.recording || voice.speaking || working, level: voice.meter.level)
-                if voice.inputPhase == .countdown {
-                    Circle().trim(from: 0, to: voice.meter.graceProgress).stroke(PhoneTheme.mint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90)).frame(width: 84, height: 84)
-                    Text("\(voice.secondsRemaining)").font(.system(.title2, design: .rounded, weight: .medium)).contentTransition(.numericText(countsDown: true))
-                }
-                OrbTouchSurface(enabled: enabled, label: status, onPress: onPress, onRelease: onRelease, onCancel: onCancel, onAccessibleActivate: onAccessibleActivate)
-                    .frame(width: 98, height: 92)
-            }.frame(height: 92)
-            Text(status).font(.system(.caption2, design: .rounded, weight: .medium)).foregroundStyle(voice.localPending ? PhoneTheme.mint : PhoneTheme.secondary).lineLimit(1).minimumScaleFactor(0.75)
-        }.frame(width: 98)
+        ZStack {
+            AssistantOrb(size: 68, active: voice.recording || voice.speaking || working, level: voice.meter.level)
+            if voice.inputPhase == .countdown {
+                Circle().trim(from: 0, to: voice.meter.graceProgress).stroke(PhoneTheme.mint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90)).frame(width: 78, height: 78)
+                Text("\(voice.secondsRemaining)").font(.system(.title2, design: .rounded, weight: .medium)).contentTransition(.numericText(countsDown: true))
+            }
+            OrbTouchSurface(enabled: enabled, label: status, cancelOnTouchDown: voice.inputPending, onTap: onTap, onCancel: onCancel)
+                .frame(width: 84, height: 80)
+        }.frame(width: 84, height: 80)
     }
 }

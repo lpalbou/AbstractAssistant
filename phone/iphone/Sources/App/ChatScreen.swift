@@ -52,18 +52,19 @@ struct ChatScreen: View {
                 .onChange(of: store.messages.last?.text) { _, _ in withAnimation(.easeOut(duration: 0.2)) { scroll.scrollTo("bottom", anchor: .bottom) } }
             }
             .background(PhoneTheme.ground)
+            .background(OutsideInputDismissal(focused: typing, dismiss: { typing = false }))
             .navigationTitle(store.conversationTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) { NavigationCaption(title: store.conversationTitle, demo: store.isDemo) }
-                ToolbarItem(placement: .topBarLeading) { Button { cancelVoice(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
+                ToolbarItem(placement: .topBarLeading) { Button { typing = false; cancelVoice(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { cancelVoice(); showFiles = true } label: { Image(systemName: "folder") }.accessibilityLabel("Conversation files")
+                    Button { typing = false; cancelVoice(); showFiles = true } label: { Image(systemName: "folder") }.accessibilityLabel("Conversation files")
                     Menu {
                         Button("Assistant", systemImage: "sparkle") { cancelVoice(); store.newConversation() }
                         ForEach(store.entities) { entity in Button("Talk with " + entity.name.capitalized) { cancelVoice(); store.newConversation(entity: entity.name) } }
                     } label: { Image(systemName: "person.crop.circle.badge.plus") }
                     .disabled(!store.canSend || attachments.busy || mediaLoading || !attachments.pending.isEmpty).accessibilityLabel("Choose who answers")
-                    Button { cancelVoice(); openSettings() } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("Settings").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
+                    Button { typing = false; cancelVoice(); openSettings() } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("Settings").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
@@ -102,12 +103,12 @@ struct ChatScreen: View {
                 if let client = store.client { Task { await attachments.refresh(client: client, sessionId: store.sessionID) } }
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase != .active { cancelVoice() }
+                if phase == .background || (phase == .inactive && voice.inputPhase != .authorizing) { cancelVoice() }
             }
             .onDisappear { cancelVoice(); attachments.cancel(); cancelMedia() }
             .onAppear { let context = store.contextID; voice.onUnauthorized = { if context == store.contextID { store.authenticationExpired() } }; attachments.onUnauthorized = voice.onUnauthorized }
             .onChange(of: voice.inputPhase) { _, phase in if phase == .ready { finishVoice() } }
-            .onChange(of: typing) { _, focused in if focused { cancelVoice() } }
+            .onChange(of: typing) { _, focused in if focused && voice.inputPending { cancelVoice() } }
         }
     }
     private var emptyState: some View {
@@ -150,7 +151,7 @@ struct ChatScreen: View {
                     if voice.speaking { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
                 }.font(.subheadline).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain).frame(minHeight: 44)
                 if message.id == store.messages.last(where: { $0.role == .assistant })?.id && !attachments.files.isEmpty {
-                    Button { cancelVoice(); showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
+                    Button { typing = false; cancelVoice(); showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
                 }
             }
         }
@@ -164,10 +165,6 @@ struct ChatScreen: View {
     }
     private var composer: some View {
         VStack(spacing: 10) {
-            if typing {
-                HStack { Spacer(); Button("Done", systemImage: "keyboard.chevron.compact.down") { typing = false }.font(.caption.weight(.medium)).foregroundStyle(PhoneTheme.lavender).frame(minHeight: 36) }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
             if attachments.busy || mediaLoading { HStack { ProgressView(); Text(mediaLoading ? "Importing media…" : attachments.status).font(.caption); Spacer(); Button("Cancel") { cancelMedia(); attachments.cancel() } } }
             if !attachments.pending.isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(attachments.pending) { file in
@@ -183,14 +180,21 @@ struct ChatScreen: View {
                     if store.activeRunID != nil { Button("Stop", role: .destructive) { Task { await store.stopRun() } }.font(.subheadline.weight(.medium)).frame(minHeight: 44) }
                 }
             }
+            if voice.inputPending {
+                HStack(spacing: 8) {
+                    Text(voiceInstruction).font(.caption).foregroundStyle(PhoneTheme.mint).contentTransition(.numericText(countsDown: true))
+                    Spacer(minLength: 0)
+                    Button("Cancel", action: cancelVoice).font(.caption.weight(.medium)).accessibilityLabel("Cancel voice message")
+                }.padding(.horizontal, 10)
+            }
             HStack(alignment: .center, spacing: 10) {
                 attachmentMenu
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField(compactEmptyInput ? "Message…" : "Type a message…", text: $draft, axis: .vertical)
-                        .font(.subheadline).lineLimit(1...4).focused($typing).padding(.vertical, 16)
+                        .font(.subheadline).lineLimit(typing ? 1...4 : 1...1).focused($typing).padding(.vertical, 14)
                         .accessibilityIdentifier("composer.input")
-                        .disabled(!store.canSend || voice.recording || voice.inputPhase == .authorizing || voice.inputPhase == .atLimit || voice.transcribing)
-                    if typing || !draft.isEmpty || !attachments.pending.isEmpty {
+                        .disabled(!store.canSend || voice.transcribing)
+                    if typing || !attachments.pending.isEmpty {
                         Button(action: sendText) { Image(systemName: "arrow.up").font(.subheadline.weight(.semibold)).foregroundStyle(PhoneTheme.ground).frame(width: 36, height: 36).background(PhoneTheme.mint, in: Circle()) }
                             .disabled(!store.canSend || voice.inputPending || attachments.busy || mediaLoading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.pending.isEmpty))
                             .opacity(!store.canSend || voice.inputPending || attachments.busy || mediaLoading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.pending.isEmpty) ? 0.35 : 1)
@@ -201,35 +205,29 @@ struct ChatScreen: View {
                 .background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 25))
                 .overlay(RoundedRectangle(cornerRadius: 25).stroke(typing ? PhoneTheme.lavender.opacity(0.5) : PhoneTheme.stroke))
                 .containerRelativeFrame(.horizontal) { width, _ in
-                    let available = max(88, width - 32 - 40 - (typing ? 10 : 98 + 20))
-                    return compactEmptyInput ? available / 2 : available
+                    let available = max(88, width - 32 - 20 - 40 - 84 - 20)
+                    return compactEmptyInput ? max(88, (width - 190) / 2) : available
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                if !typing {
-                    VoicePresence(voice: voice, working: store.phase != .ready, enabled: store.canSend && !attachments.busy && !mediaLoading, onPress: beginVoice, onRelease: { voice.release() }, onCancel: cancelVoice, onAccessibleActivate: accessibleVoice)
-                        .alignmentGuide(VerticalAlignment.center) { _ in 46 } // Align the orb itself with the input and +; its caption sits below.
-                        .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.75, anchor: .trailing)), removal: .opacity.combined(with: .scale(scale: 0.75, anchor: .trailing))))
-                }
+
+                VoicePresence(voice: voice, working: store.phase != .ready, enabled: store.canSend && !attachments.busy && !mediaLoading, onTap: beginVoice, onCancel: cancelVoice)
             }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(PhoneTheme.surface.opacity(0.85), in: RoundedRectangle(cornerRadius: 38))
+            .overlay(RoundedRectangle(cornerRadius: 38).stroke(PhoneTheme.stroke))
+            .frame(maxWidth: .infinity)
             .animation(composerAnimation, value: typing)
-            .animation(composerAnimation, value: draft.isEmpty)
-            if !typing && voice.inputPending {
-                HStack(spacing: 8) {
-                    Text(voiceInstruction).font(.caption2).foregroundStyle(voice.localPending ? PhoneTheme.mint : PhoneTheme.secondary).contentTransition(.numericText(countsDown: true))
-                    if voice.inputPending { Spacer(minLength: 0); Button("Cancel", action: cancelVoice).font(.caption.weight(.medium)).accessibilityLabel("Cancel voice message") }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
+            .animation(composerAnimation, value: attachments.pending.isEmpty)
         }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10).background(PhoneTheme.ground.opacity(0.97))
     }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var composerAnimation: Animation? { reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.12) }
-    private var compactEmptyInput: Bool { !typing && draft.isEmpty && attachments.pending.isEmpty }
+    private var compactEmptyInput: Bool { !typing && attachments.pending.isEmpty }
     private var voiceInstruction: String {
         switch voice.inputPhase {
-        case .authorizing: return "Allow the microphone, then hold again."
-        case .recording: return "Release when finished · slide away to cancel"
-        case .atLimit: return "One minute recorded · release to send"
-        case .countdown, .ready: return "Sending in \(voice.secondsRemaining)s · touch the orb to cancel"
+        case .authorizing: return "Starting the microphone…"
+        case .recording: return "Listening…"
+        case .countdown: return "Sending in \(voice.secondsRemaining)s…"
+        case .ready: return "Sending voice…"
         case .transcribing: return "Transcribing your voice…"
         case .idle: return ""
         }
@@ -242,7 +240,7 @@ struct ChatScreen: View {
                 Button("Take a photo", systemImage: "camera") { cancelVoice(); pickerOrigin = (store.contextID, store.sessionID); camera = .photo }
                 Button("Record a video", systemImage: "video") { cancelVoice(); pickerOrigin = (store.contextID, store.sessionID); camera = .video }
             }
-        } label: { Image(systemName: "plus").font(.title3.weight(.light)).foregroundStyle(PhoneTheme.lavender).frame(width: 40, height: 48).background(PhoneTheme.surface, in: Capsule()).overlay(Capsule().stroke(PhoneTheme.stroke)) }
+        } label: { Image(systemName: "plus").font(.title3.weight(.light)).foregroundStyle(PhoneTheme.lavender).frame(width: 40, height: 48) }
         .accessibilityLabel("Add attachment").disabled(!store.canSend || attachments.busy || mediaLoading || voice.inputPending || store.selectedEntity != nil)
     }
     private func sendText() {
@@ -253,10 +251,7 @@ struct ChatScreen: View {
     private func beginVoice() {
         if voice.inputPending { cancelVoice(); return }
         guard store.canSend, scenePhase == .active, !attachments.busy, !mediaLoading else { return }
-        typing = false; voiceOrigin = (store.contextID, store.sessionID); voice.press()
-    }
-    private func accessibleVoice() {
-        if voice.recording || voice.inputPhase == .atLimit { voice.release() } else { beginVoice() }
+        typing = false; voiceOrigin = (store.contextID, store.sessionID); voice.activate()
     }
     private func cancelVoice() { voiceTask?.cancel(); voiceTask = nil; voiceOrigin = nil; voice.stop() }
     private func finishVoice() {

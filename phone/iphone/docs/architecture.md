@@ -52,32 +52,40 @@ separate. A shared package can be extracted after both clients’ APIs settle.
 
 ## Voice lifecycle
 
-`VoiceTurn` is a local capture policy: authorizing → recording → countdown → ready →
-transcribing. Only `claimForTranscription` permits the network handoff, exactly once.
-Release seals the local WAV and starts a fresh three-second deadline on a monotonic clock.
-Touch-down during grace cancels synchronously; it cannot start a replacement recording.
-Quick taps, a permission grant after release, keyboard focus, navigation, backgrounding,
-audio interruption and lost routes discard pending audio. At 60 seconds capture seals and
-waits for actual release, retaining the user's ownership of the hold. A voice message sends
-separately from a typed draft and includes the currently staged attachment references.
+`VoiceTurn` is a local policy: authorizing → recording ↔ countdown → ready → transcribing.
+Only `claimForTranscription` permits a network handoff, once. A tap activates capture.
+`SpeechActivity` applies an adaptive raw-power gate with onset/offset hysteresis; confirmed
+speech requires 180 ms of observed activity. Three quiet seconds after speech permit the
+handoff. Resumed speech is processed before expiry and resets the quiet window. Recording
+continues during the countdown, so a second phrase stays in the same local WAV. Initial
+quiet/brief impulses never start a message; eight seconds without confirmed speech and
+60 seconds of total capture discard locally. The hard duration limit wins over commit.
 
-`VoiceController` owns recorder/player lifetime, generation guards, temporary-file cleanup
-and network-task cancellation through chat. AVAudioRecorder and AVAudioPlayer feed
-average/peak power into the same finite fast-attack/slow-release `AudioEnvelope`. A sleeping
-main-actor Task samples every 33 ms independently of run-loop modes, so touch tracking
-cannot pause metering. Only `VoicePresence` observes the envelope; message layout does not
-rerender on every sample. The dot-free orb's silhouette, rings and light respond to energy.
-A small isolated TimelineView maintains continuous ring motion. Reduce Motion freezes
-rotation/scale while retaining signal-driven light. Timers/tasks and audio stop on exit.
+Touch-down while capture is pending cancels synchronously, even if the finger lifts after
+the old deadline. No upload/STT happens before ready. Unknown meter values and sample gaps
+over 250 ms reset the quiet/onset window; unobserved time is never inferred as silence.
+Camera/navigation/account/session/background/audio-interruption paths cancel pending voice.
+Permission completion checks current UIApplication state and generation before recording;
+it briefly waits for prompt dismissal to activate the app and otherwise requires a new tap.
+A voice turn sends separately from any typed draft, with currently staged attachments.
 
-The independent attachment control sits beside the text panel and orb. The empty,
-unfocused text panel takes half its normal width; the controls align to the actual orb
-center, with its caption below. Idle instructions are not repeated beneath the row.
-Keyboard focus expands the text panel and removes the orb with
-a spring transition; focus cancels pending voice before hiding its cancel control. A native
-UIControl surface supplies reliable down/up/drag-cancel events and a VoiceOver toggle path.
-The Debug-only `--demo --ui-test --voice-fixture` capture is isolated from live gateways;
-it lets native UI tests exercise hold/countdown without device microphone permission.
+`VoiceController` owns recorder/player lifetime and temporary-file cleanup. Chat owns the
+cancelable transcription task. A main-actor Task samples every 33 ms independently of run
+loop modes. Raw power drives silence detection; a separate fast-attack/slow-release
+`AudioEnvelope` drives the orb from microphone or actual AVAudioPlayer power. Only the
+small `VoicePresence` subtree observes the envelope. Continuous phase survives state changes;
+idle rendering is slower and background rendering stops. Reduce Motion freezes geometry
+and rotation while retaining responsive light. The Debug-only
+`--demo --ui-test --voice-fixture` supplies speech followed by silence, isolated from live
+credentials and Release builds, to exercise tap/cancel/automatic send in native UI tests.
+
+The centered dock groups +, a compact text panel and an always-visible orb. Keyboard focus
+expands the field; outside taps minimize it even with an unsent draft. There is no Done
+button in chat. `OutsideInputDismissal` installs a screen-owned UIKit recognizer rather
+than a window handler. It excludes text/caret/selection touches, allows simultaneous
+recognition, never cancels the outside control's event and defers focus changes until that
+action can finish. Native tests exercise field/caret taps, outside dismissal, Send, orb and
+opening the attachment menu with one tap while editing. Leaving the screen detaches it.
 
 `AssistantStore.completedReply` signals only a newly completed current turn. Automatic
 reading listens for this event while active, rather than message-list refreshes, so restored

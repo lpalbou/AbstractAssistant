@@ -1,45 +1,64 @@
 import Testing
 import AssistantKit
 
-@Test func releaseRequiresThreeLocalSecondsBeforeTranscription() {
-    var turn = VoiceTurn()
-    #expect({ turn.begin() }()); #expect({ turn.recordingStarted(at: 10) }())
-    turn.advance(to: 50) // Pausing while holding never sends.
-    #expect(turn.phase == .recording); #expect({ !turn.claimForTranscription() }())
-    turn.release(at: 51)
-    #expect(turn.secondsRemaining(at: 51) == 3)
-    turn.advance(to: 53.999)
+private func speakingTurn() -> VoiceTurn {
+    var turn = VoiceTurn(); _ = turn.begin(); _ = turn.recordingStarted(at: 0)
+    for i in 1...10 { turn.sample(at: Double(i) * 0.03, speech: true) }
+    return turn
+}
+private func quiet(_ turn: inout VoiceTurn, from: Double, to: Double) {
+    var time = from + 0.05
+    while time < to { turn.sample(at: time, speech: false); time += 0.05 }
+    turn.sample(at: to, speech: false)
+}
+@Test func threeSecondsOfSilenceAreRequiredBeforeTranscription() {
+    var turn = speakingTurn()
+    quiet(&turn, from: 0.3, to: 0.9)
+    #expect(turn.phase == .countdown && turn.secondsRemaining(at: 0.9) == 3)
+    quiet(&turn, from: 0.9, to: 3.299); #expect({ !turn.claimForTranscription() }())
+    turn.sample(at: 3.3, speech: false); #expect({ turn.claimForTranscription() }())
     #expect({ !turn.claimForTranscription() }())
-    turn.advance(to: 54)
-    #expect({ turn.claimForTranscription() }())
-    #expect({ !turn.claimForTranscription() }()) // Only one network handoff.
 }
-
-@Test func touchingTheOrbDuringGraceCancelsBeforeDeadline() {
-    var turn = VoiceTurn()
-    #expect({ turn.begin() }()); #expect({ turn.recordingStarted(at: 0) }()); turn.release(at: 1)
-    #expect({ !turn.begin() }()) // Touch DOWN cancels; holding that touch cannot restart capture.
-    turn.advance(to: 20); turn.release(at: 21)
-    #expect(turn.phase == .idle); #expect({ !turn.claimForTranscription() }())
+@Test func speechResumingAtTheDeadlineRestartsTheQuietWindow() {
+    var turn = speakingTurn()
+    quiet(&turn, from: 0.3, to: 3.29); #expect(turn.phase == .countdown)
+    turn.sample(at: 3.3, speech: true)
+    #expect(turn.phase == .recording && turn.deadline == nil)
+    quiet(&turn, from: 3.3, to: 6.299); #expect({ !turn.claimForTranscription() }())
+    turn.sample(at: 6.3, speech: false); #expect({ turn.claimForTranscription() }())
 }
-
-@Test func releasedPermissionRequestAndShortTapsCannotCreateVoiceMessages() {
-    var turn = VoiceTurn()
-    #expect({ turn.begin() }()); turn.release(at: 1)
-    #expect({ !turn.recordingStarted(at: 2) }())
-    #expect({ turn.begin() }()); #expect({ turn.recordingStarted(at: 3) }()); turn.release(at: 3.1)
-    turn.advance(to: 10); #expect({ !turn.claimForTranscription() }())
-}
-
-@Test func cancelInvalidatesReadyAndInFlightVoiceTurns() {
-    for claim in [false, true] {
-        var turn = VoiceTurn()
-        #expect({ turn.begin() }()); #expect({ turn.recordingStarted(at: 0) }()); turn.release(at: 1); turn.advance(to: 4)
-        if claim { #expect({ turn.claimForTranscription() }()) }
-        turn.cancel(); #expect(turn.phase == .idle); #expect({ !turn.claimForTranscription() }())
+@Test func cancellingDuringListeningOrCountdownCannotReviveAVoiceTurn() {
+    for quiet in [false, true] {
+        var turn = speakingTurn()
+        if quiet { turn.sample(at: 1, speech: false) }
+        #expect({ !turn.begin() }()) // A second tap cancels, rather than replacing the turn.
+        turn.sample(at: 20, speech: false)
+        #expect(turn.phase == .idle); #expect({ !turn.claimForTranscription() }())
     }
 }
-
+@Test func initialSilenceAndBriefImpulsesNeverCreateAMessage() {
+    for impulse in [false, true] {
+        var turn = VoiceTurn(); _ = turn.begin(); _ = turn.recordingStarted(at: 0)
+        if impulse { turn.sample(at: 0.03, speech: true) }
+        turn.sample(at: 4, speech: false)
+        #expect(!turn.heardSpeech && turn.phase == .recording)
+        turn.sample(at: 8, speech: false)
+        #expect(turn.phase == .idle); #expect({ !turn.claimForTranscription() }())
+    }
+}
+@Test func permissionGrantAfterCancelCannotStartRecording() {
+    var turn = VoiceTurn(); _ = turn.begin(); turn.cancel()
+    #expect({ !turn.recordingStarted(at: 1) }())
+}
+@Test func speechActivityUsesRawPowerWithHysteresisAndRejectsInvalidSamples() {
+    var detector = SpeechActivity()
+    #expect({ !detector.sample(averageDB: -80) }())
+    #expect({ detector.sample(averageDB: -30) }())
+    #expect({ detector.sample(averageDB: -54) }()) // Below onset but above the offset threshold.
+    #expect({ !detector.sample(averageDB: -80) }())
+    #expect({ !detector.sample(averageDB: -.infinity) }())
+    #expect({ !detector.sample(averageDB: .nan) }())
+}
 @Test func audioEnvelopeRespondsToRealEnergyAndDecaysWithoutInvalidLevels() {
     var envelope = AudioEnvelope()
     for _ in 0..<10 { envelope.sample(averageDB: -160, peakDB: -160) }
@@ -55,12 +74,25 @@ import AssistantKit
     }
 }
 
-@Test func maximumCaptureStillWaitsForActualRelease() {
-    var turn = VoiceTurn()
-    #expect({ turn.begin() }()); #expect({ turn.recordingStarted(at: 0) }())
-    turn.reachedLimit(); turn.advance(to: 100)
-    #expect(turn.phase == .atLimit); #expect({ !turn.claimForTranscription() }())
-    turn.release(at: 100); turn.advance(to: 102.9)
-    #expect({ !turn.claimForTranscription() }())
-    turn.advance(to: 103); #expect({ turn.claimForTranscription() }())
+@Test func missingMicrophoneSamplesCannotBeAssumedSilent() {
+    var turn = speakingTurn()
+    quiet(&turn, from: 0.3, to: 2.9)
+    turn.sample(at: 6, speech: false) // A UI stall could have hidden more speech.
+    #expect(turn.phase == .recording); #expect({ !turn.claimForTranscription() }())
+    quiet(&turn, from: 6, to: 8.99); #expect({ !turn.claimForTranscription() }())
+    turn.sample(at: 9, speech: false); #expect({ turn.claimForTranscription() }())
+}
+
+@Test func unknownMeterValuesRestartTheQuietWindow() {
+    var turn = speakingTurn()
+    quiet(&turn, from: 0.3, to: 2.9)
+    turn.sample(at: 3.0, speech: nil)
+    quiet(&turn, from: 3.0, to: 5.99); #expect({ !turn.claimForTranscription() }())
+    turn.sample(at: 6.0, speech: false); #expect({ turn.claimForTranscription() }())
+}
+@Test func disconnectedSpeechImpulsesDoNotAccumulateIntoSpeech() {
+    var turn = VoiceTurn(); _ = turn.begin(); _ = turn.recordingStarted(at: 0)
+    turn.sample(at: 0.1, speech: true); turn.sample(at: 1, speech: true)
+    turn.sample(at: 2, speech: false); turn.sample(at: 8, speech: false)
+    #expect(!turn.heardSpeech && turn.phase == .idle)
 }
