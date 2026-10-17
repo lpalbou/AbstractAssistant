@@ -27,6 +27,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo or video to attach to your assistant conversation.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your AbstractGateway on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>

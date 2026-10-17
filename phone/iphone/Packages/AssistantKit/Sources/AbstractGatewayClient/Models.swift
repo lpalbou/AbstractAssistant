@@ -692,7 +692,9 @@ public struct StartRunRequest: Encodable, Sendable {
         /// The agent's system prompt (the default agent has no persona of its own).
         public var system: String?
         public var runtime: Runtime?
-        enum CodingKeys: String, CodingKey { case prompt, useSessionHistory = "use_session_history", system, runtime = "_runtime" }
+        public var attachments: [JSONValue]?
+        public var context: JSONValue?
+        enum CodingKeys: String, CodingKey { case prompt, attachments, context, useSessionHistory = "use_session_history", system, runtime = "_runtime" }
     }
     public var flowId = "@default"
     public var interface = "abstractassistant.agent.v1"
@@ -905,6 +907,71 @@ public enum SpeechScope: Hashable, Sendable {
 struct SpeechRequest: Encodable {
     let text: String
     let format = "wav"
+    /// A voice chosen on this watch (provider and model always as a pair; nil: the gateway's default).
+    var provider: String? = nil
+    var model: String? = nil
+    var voice: String? = nil
+}
+
+/// A speaking voice the gateway offers (`GET /voice/voices` → `items`): "Supertonic F2" is
+/// provider `supertonic`, model `supertonic-3`, voice `F2`.
+public struct VoiceChoice: Hashable, Sendable, Identifiable, Codable {
+    public var provider: String
+    public var model: String
+    public var voice: String
+    public var label: String
+    public var gender: String?
+    public var id: String { "\(provider)/\(model)/\(voice)" }
+    public init(provider: String, model: String, voice: String, label: String, gender: String? = nil) {
+        self.provider = provider; self.model = model; self.voice = voice; self.label = label; self.gender = gender
+    }
+}
+
+/// A transcription model the gateway offers (`GET /audio/transcriptions/models` → `models_by_provider`).
+public struct TranscriptionChoice: Hashable, Sendable, Identifiable, Codable {
+    public var provider: String
+    public var model: String
+    public var id: String { "\(provider)/\(model)" }
+    public init(provider: String, model: String) { self.provider = provider; self.model = model }
+}
+
+/// What the gateway offers for voice, and its own defaults (`gateway_defaults`).
+public struct VoiceCatalog: Sendable, Equatable {
+    public var voices: [VoiceChoice]
+    public var transcription: [TranscriptionChoice]
+    /// The gateway's defaults, as words: "supertonic-3", "faster-whisper base".
+    public var defaultVoice: String?
+    public var defaultTranscription: String?
+    public init(voices: [VoiceChoice], transcription: [TranscriptionChoice], defaultVoice: String?, defaultTranscription: String?) {
+        self.voices = voices; self.transcription = transcription; self.defaultVoice = defaultVoice; self.defaultTranscription = defaultTranscription
+    }
+
+    /// From the two listings: voices from `items[].params {provider, model, voice}`; transcription
+    /// models from `models_by_provider` (the providers that can transcribe, not every name listed).
+    public static func parse(voices v: JSONValue, transcription t: JSONValue) -> VoiceCatalog {
+        var voices: [VoiceChoice] = []
+        if case .array(let items)? = v["items"] {
+            for i in items {
+                guard let p = i["params"], let provider = p["provider"]?.stringValue, let model = p["model"]?.stringValue,
+                      let voice = p["voice"]?.stringValue else { continue }
+                voices.append(VoiceChoice(provider: provider, model: model, voice: voice,
+                                          label: i["label"]?.stringValue ?? voice, gender: i["tags"]?["gender"]?.stringValue))
+            }
+        }
+        var transcription: [TranscriptionChoice] = []
+        if case .object(let byProvider)? = t["models_by_provider"] {
+            for provider in byProvider.keys.sorted() {
+                if case .array(let models)? = byProvider[provider] {
+                    transcription += models.compactMap { $0.stringValue.map { TranscriptionChoice(provider: provider, model: $0) } }
+                }
+            }
+        }
+        let d = v["gateway_defaults"]
+        let tts = [d?["tts"]?["model"]?.stringValue, d?["tts"]?["voice"]?.stringValue].compactMap { $0 }.joined(separator: " ")
+        let stt = [d?["stt"]?["provider"]?.stringValue, d?["stt"]?["model"]?.stringValue].compactMap { $0 }.joined(separator: " ")
+        return VoiceCatalog(voices: voices, transcription: transcription,
+                            defaultVoice: tts.isEmpty ? nil : tts, defaultTranscription: stt.isEmpty ? nil : stt)
+    }
 }
 
 struct SpeechEvent: Decodable {
@@ -952,7 +1019,9 @@ struct AttachmentUploadResponse: Decodable {
 
 struct TranscribeRequest: Encodable {
     let audioArtifact: [String: String]
-    enum CodingKeys: String, CodingKey { case audioArtifact = "audio_artifact" }
+    var provider: String? = nil
+    var model: String? = nil
+    enum CodingKeys: String, CodingKey { case audioArtifact = "audio_artifact", provider, model }
 }
 
 struct TranscribeResponse: Decodable { let text: String }

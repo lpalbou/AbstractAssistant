@@ -46,6 +46,9 @@ struct PhoneRoot: View {
     private func demo() {
         store.connect(nil, client: MockGatewayClient())
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test") { store.preferences.readAloud = false }
+        #endif
+        #if DEBUG
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--screen"), ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
             switch ProcessInfo.processInfo.arguments[index + 1] {
             case "inbox": tab = 1

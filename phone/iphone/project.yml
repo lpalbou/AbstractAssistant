@@ -7,8 +7,8 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 packages:
   AssistantKit:
     path: Packages/AssistantKit
@@ -29,6 +29,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: Take a photo or video to attach to your assistant conversation.
         NSMicrophoneUsageDescription: Record a voice message for your assistant. Audio goes to your gateway for transcription.
         NSLocalNetworkUsageDescription: Connect to your AbstractGateway on your local network.
         NSAppTransportSecurity:

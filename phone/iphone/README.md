@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.1.0 · iOS 26+**
+**Developer preview · 0.2.0 · iOS 26+**
 
 ## Three small spaces
 
@@ -12,17 +12,41 @@ AbstractGateway, with the conversation at the center and the controls you need c
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Choose an entity with the person icon to talk to it.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
+  The orb remains beside the composer after the first exchange and reacts to microphone
+  and playback levels. Tap it to record, finish recording, or pause/resume reading.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
   action and its complete arguments. Allow once or deny; decisions already made on another
   device cannot resume a later action. There is no blanket tool trust switch.
 - **Automations.** See your routines, their latest answers and five earlier runs. Run an
-  active or paused routine now, pause it, or resume it. Use the gateway console to create
-  or edit routines.
+  active or paused routine now, pause it, or resume it. Tap **+** to create a routine: describe the task, choose a workflow and
+  interval or daily time, and decide whether it builds on earlier runs and asks before tools.
+  Daily times use your account’s time zone, which the creation screen displays. Editing
+  an existing routine’s definition remains in the gateway console.
 
 The app uses your account’s Assistant workflow preference (`abstractassistant.agent.v1`), or
 the gateway’s Assistant default when you follow the default. If it is unavailable, choose an
-available workflow in the gateway console’s Accounts → Preferences. The phone never switches
+available workflow in **Settings → Workflow**. Saving changes the Assistant preference
+for your account across devices and applies to the next message, keeping your draft and history. The phone never switches
 to another agent interface or runs models locally.
+
+## Voice and files
+
+**Settings → Voice & reading** offers automatic reading of new replies, the gateway’s
+speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
+to your account and gateway. **Gateway default** sends no override; entities retain their
+own speaking voice. Restored history is never read automatically.
+
+Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
+a short video. Uploaded file chips remain until you send or remove them. The **folder**
+in the toolbar opens **Conversation files**, including files the assistant generates.
+Tap a file to download it privately and preview, play or share it with the native viewer.
+Attachments retain their gateway artifact and owning-run references. Credentials never
+travel in a share link or to an AI-provided URL.
+
+Files are limited to **25 MB each** on the phone; the gateway may impose a smaller limit.
+Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts
+text only, so file messages are available in Assistant conversations. The files list shows
+the latest 100 session artifacts; older files remain on the gateway.
 
 ## Connect
 
@@ -56,9 +80,11 @@ and gateway-client snapshot. It neither embeds nor modifies the Watch applicatio
 - Entity conversations continue that entity’s server-side home conversation. Selecting an
   entity is not a promise to reset its memory or create a separate entity thread.
 - Voice capture is limited to one minute. Audio goes to your gateway, then the temporary
-  recording is removed. Reading uses the gateway’s voice, never a separate phone provider.
-- Attachments, automation authoring, model overrides, push, CarPlay and iPad layouts are
-  outside this first version. The desktop and gateway console expose the broader controls.
+  recording is removed. Transcription and speech use the gateway providers you select;
+  no model runs on the iPhone. The orb’s level response is local; the conversation still
+  proceeds through recording, transcription, a gateway run, then speech.
+- Chat model overrides, editing existing automation definitions, push, CarPlay and iPad
+  layouts remain outside this preview. The desktop and gateway console expose those controls.
 - Device microphone permissions, private-network reachability and real provider audio need
   verification on your own iPhone and gateway before daily use.
 

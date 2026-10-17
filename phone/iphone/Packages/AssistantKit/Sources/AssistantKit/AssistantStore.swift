@@ -5,6 +5,9 @@ import AbstractGatewayClient
 @MainActor @Observable
 public final class AssistantStore {
     public enum Phase: String { case ready, sending, working, waiting }
+    public var preferences = PhonePreferences()
+    public private(set) var contextID = UUID()
+    public private(set) var completedReply: ConversationMessage?
     public private(set) var client: (any GatewayClient)?
     public private(set) var connection: SavedConnection?
     public private(set) var principal: Principal?
@@ -46,15 +49,18 @@ public final class AssistantStore {
     public func connect(_ connection: SavedConnection?, client: any GatewayClient) {
         disconnect()
         self.connection = connection; self.client = client
+        preferences = PhonePreferences(scope: connection?.scope ?? "demo", defaults: defaults)
         if let connection { restorationID = defaults.string(forKey: "phone.session." + connection.scope) }
         if restorationID == nil { persistSession() }
         if foreground { startPolling() }
     }
     public func disconnect() {
+        contextID = UUID()
         generation += 1; conversationGeneration += 1
         poll?.cancel(); poll = nil; turn?.cancel(); turn = nil
         client = nil; connection = nil; principal = nil; messages = []; runs = []; waits = []; automations = []; entities = []
         titles = [:]; entityChatIDs = [:]; activeRunID = nil; selectedEntity = nil; restorationID = nil
+        completedReply = nil
         phase = .ready; error = nil; automationsError = nil; lastRefresh = nil; isRefreshing = false; isOpening = false
         deciding = []; automationBusy = []; sessionID = "iphone-" + UUID().uuidString.lowercased()
     }
@@ -116,14 +122,16 @@ public final class AssistantStore {
     public func authenticationExpired() { handle(GatewayError.unauthorized) }
     public func newConversation(entity: String? = nil) {
         guard phase == .ready, !isOpening else { return }
+        completedReply = nil
         conversationGeneration += 1; messages = []; selectedEntity = entity; activeRunID = nil; restorationID = nil
         sessionID = "iphone-" + UUID().uuidString.lowercased(); persistSession()
     }
-    public func send(_ text: String) {
+    public func send(_ text: String, attachments: [PhoneArtifact] = []) {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, canSend, let client else { return }
+        guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let client else { return }
+        if selectedEntity != nil && !attachments.isEmpty { error = "Files can be sent to Assistant conversations. Entity file messages are not supported by this gateway interface."; return }
         let epoch = generation, view = conversationGeneration, session = sessionID, entity = selectedEntity
-        messages.append(.init(role: .user, text: prompt)); phase = .sending; error = nil
+        messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")))); phase = .sending; error = nil
         turn = Task {
             do {
                 if let entity {
@@ -134,9 +142,10 @@ public final class AssistantStore {
                     entityChatIDs[entity] = chat
                     let answer = try await client.entityChatTurn(name: entity, chatId: chat, text: prompt)
                     guard epoch == generation, view == conversationGeneration else { return }
-                    messages.append(.init(role: .assistant, text: answer)); phase = .ready
+                    let reply = ConversationMessage(role: .assistant, text: answer)
+                    messages.append(reply); completedReply = reply; phase = .ready
                 } else {
-                    let id = try await client.startRun(prompt: prompt, sessionId: session, toolPolicy: nil)
+                    let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref))
                     guard epoch == generation, view == conversationGeneration else { return }
                     activeRunID = id; phase = .working
                     if foreground { await followActiveRun() }
@@ -160,6 +169,7 @@ public final class AssistantStore {
                 else { messages.append(.init(id: "answer-" + id, role: .assistant, text: output, runID: id)) }
             }
             if run.isTerminal {
+                if run.status == "completed", let reply = messages.first(where: { $0.id == "answer-" + id }) { completedReply = reply }
                 if run.status == "failed" { error = run.error ?? "The run stopped. Open Conversations for details." }
                 if run.status == "cancelled" { messages.append(.init(role: .notice, text: "Run stopped.")) }
                 phase = .ready; activeRunID = nil
@@ -220,6 +230,7 @@ public final class AssistantStore {
             await refresh()
         } catch { if epoch == generation { self.error = say(error); handle(error) } }
     }
+    public func rememberAutomation(_ row: AutomationSummary) { automations.removeAll { $0.id == row.id }; automations.insert(row, at: 0) }
     private func persistSession() { if let connection { defaults.set(sessionID, forKey: "phone.session." + connection.scope) } }
     private func handle(_ error: Error) {
         guard error as? GatewayError == .unauthorized else { return }

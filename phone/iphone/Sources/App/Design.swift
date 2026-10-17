@@ -27,6 +27,7 @@ struct NavigationCaption: View {
 struct AssistantOrb: View {
     var size: CGFloat = 170
     var active = false
+    var level: Double = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var rotate = false
     var body: some View {
@@ -42,7 +43,9 @@ struct AssistantOrb: View {
             Circle().fill(.white).frame(width: 5, height: 5).offset(x: size * 0.29, y: -size * 0.30).shadow(color: PhoneTheme.mint, radius: 6)
         }
         .frame(width: size, height: size)
-        .scaleEffect(active && rotate ? 1.025 : 1)
+        .scaleEffect(reduceMotion ? 1 : 1 + level * 0.18)
+        .shadow(color: PhoneTheme.mint.opacity(level * 0.65), radius: 8 + level * 28)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.06), value: level)
         .animation(reduceMotion ? nil : .easeInOut(duration: active ? 3 : 10).repeatForever(autoreverses: true), value: rotate)
         .onAppear { rotate = true }
         .accessibilityHidden(true)
@@ -108,5 +111,28 @@ struct ErrorBanner: View {
             Text(message).font(.footnote).fixedSize(horizontal: false, vertical: true)
             if let dismiss { Button(action: dismiss) { Image(systemName: "xmark").frame(width: 32, height: 32) }.accessibilityLabel("Dismiss message") }
         }.padding(14).background(PhoneTheme.amber.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+
+/// Audio observations stay inside this small view, separate from the conversation list.
+struct VoicePresence: View {
+    let voice: VoiceController
+    var working: Bool
+    var compact: Bool
+    var action: () -> Void
+    private var status: String {
+        if voice.recording { return "Listening" }
+        if voice.transcribing { return "Transcribing" }
+        if voice.speaking { return voice.paused ? "Reading paused" : "Reading aloud" }
+        return working ? "Thinking" : "Tap to speak"
+    }
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                AssistantOrb(size: compact ? 68 : 170, active: voice.recording || voice.speaking || working, level: voice.meter.level)
+                Text(status).font(.caption).foregroundStyle(PhoneTheme.secondary)
+            }.frame(maxWidth: .infinity).padding(.vertical, compact ? 4 : 18)
+        }.buttonStyle(.plain).accessibilityLabel(status).accessibilityHint(voice.speaking ? "Pause or resume reading" : "Record a voice message")
     }
 }

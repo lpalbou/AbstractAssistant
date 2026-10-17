@@ -74,4 +74,10 @@ iPhone simulator with isolated DerivedData and one job:
 python3 scripts/build.py --ui-test <your-own-iphone-simulator-id>
 ```
 
+Use `--only-testing Target/Class/testMethod` to rerun an affected native test. Test runs
+keep results and screenshots but disable the lengthy automatic simulator diagnostic pass.
+The optional `--allow-idle-watch-test <pid>` permits only a specifically identified idle
+Watch UI-test process; the helper still yields to Watch activity or compilation and memory
+pressure. Omit it for normal builds.
+
 App Store distribution, signing and upload are not configured by this preview.

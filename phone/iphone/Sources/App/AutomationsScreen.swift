@@ -4,6 +4,9 @@ import AbstractGatewayClient
 
 struct AutomationsScreen: View {
     @Environment(AssistantStore.self) private var store
+    @State private var creating = false
+    @State private var createdID: String?
+    @State private var pendingCreatedID: String?
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -13,13 +16,15 @@ struct AutomationsScreen: View {
                     if let error = store.automationsError ?? store.error { ErrorBanner(message: error) }
                     if store.lastRefresh == nil { ProgressView("Checking your gateway…").padding(.vertical, 18) }
                     if store.automations.isEmpty && store.lastRefresh != nil && store.automationsError == nil {
-                        ContentUnavailableView("Make room for a routine", systemImage: "clock.arrow.circlepath", description: Text("Create an automation in your gateway console. Follow its results here."))
-                        if let url = store.connection?.gateway.appending(path: "console") { Link("Open gateway console", destination: url).frame(maxWidth: .infinity) }
+                        ContentUnavailableView("Make room for a routine", systemImage: "clock.arrow.circlepath", description: Text("Create your first routine here. Your gateway runs it even while the app is closed."))
+                        Button("Create automation") { creating = true }.buttonStyle(.borderedProminent)
                     }
                     ForEach(store.automations) { automation in NavigationLink { AutomationDetailScreen(automationID: automation.id) } label: { automationCard(automation) }.buttonStyle(.plain) }
                 }.padding(22)
             }.background(PhoneTheme.ground).navigationTitle("Automations").navigationBarTitleDisplayMode(.inline).refreshable { await store.refresh() }
-                .toolbar { ToolbarItem(placement: .principal) { NavigationCaption(title: "Automations", demo: store.isDemo) } }
+                .toolbar { ToolbarItem(placement: .principal) { NavigationCaption(title: "Automations", demo: store.isDemo) }; ToolbarItem(placement: .topBarTrailing) { Button("New automation", systemImage: "plus") { creating = true } } }
+                .sheet(isPresented: $creating, onDismiss: { if let id = pendingCreatedID { pendingCreatedID = nil; createdID = id } }) { NewAutomationScreen { pendingCreatedID = $0.id } }
+                .navigationDestination(item: $createdID) { id in AutomationDetailScreen(automationID: id) }
         }
     }
     private func automationCard(_ a: AutomationSummary) -> some View {
@@ -63,8 +68,8 @@ struct AutomationDetailScreen: View {
                     }
                     if let url = store.connection?.gateway.appending(path: "console") { Link("Edit in gateway console", destination: url).font(.footnote) }
                 }
-            }.padding(24)
-        }.background(PhoneTheme.ground).navigationBarTitleDisplayMode(.inline).task { await load() }.refreshable { await store.refresh(); await load() }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PhoneTheme.ground).navigationBarTitleDisplayMode(.inline).task { await load() }.refreshable { await store.refresh(); await load() }
     }
     private func load() async {
         guard let client = store.client else { return }

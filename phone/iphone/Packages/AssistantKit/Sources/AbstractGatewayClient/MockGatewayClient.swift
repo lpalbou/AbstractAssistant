@@ -89,6 +89,10 @@ public actor MockGatewayClient: GatewayClient {
     """
     public static let cannedAnswer = "Let’s make a little room.\n\n**Start with one protected hour.** Choose a morning this week, silence notifications, and give that time to the idea you keep postponing.\n\n1. Pick one outcome that would make the week feel worthwhile.\n2. Move one meeting or small task out of the way.\n3. Leave ten minutes afterward to capture what changed.\n\nWhat would you most like that hour to be for?"
 
+    private var createdAutomations: [AutomationSummary] = []
+    private var chosenWorkflow: String?
+    private var uploaded: [String: [(PhoneArtifact, Data)]] = [:]
+    private var statuses: [String: String] = [:]
     private var pending: [Wait]
     private var started: [String: (Date, String)] = [:]
     private let wordInterval: TimeInterval
@@ -103,17 +107,18 @@ public actor MockGatewayClient: GatewayClient {
     public func recentRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns }
     public func automations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
-        for a in Self.sampleAutomations { out.append(try await automation(id: a.id)) }
+        for a in Self.sampleAutomations + createdAutomations { out.append(try await automation(id: a.id)) }
         return out
     }
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
     private var automationRunStarted: [String: Date] = [:]
     public func runAutomationNow(id: String) async throws { automationRunStarted[id] = Date() }
     public func automation(id: String) async throws -> AutomationSummary {
-        guard var a = Self.sampleAutomations.first(where: { $0.id == id }) else { throw GatewayError.http(status: 404, body: "") }
+        guard var a = (Self.sampleAutomations + createdAutomations).first(where: { $0.id == id }) else { throw GatewayError.http(status: 404, body: "") }
         if let t = automationRunStarted[id], Date().timeIntervalSince(t) < 14 {
             a.currentOccurrence = CurrentOccurrence(index: (a.lastOccurrence?.index ?? 0) + 1, runId: "occ-live", attempt: 1, status: "running")
         } else { automationRunStarted[id] = nil }
+        if let status = statuses[id] { a.status = status }
         return a
     }
     /// The live occurrence's agent steps, by seconds since Run now.
@@ -127,7 +132,7 @@ public actor MockGatewayClient: GatewayClient {
         if s > 9 { out.append(LedgerRecord(nodeId: "reason", status: "started", effect: llm)) }
         return out
     }
-    public func automationCommand(id: String, type: String) async throws {}
+    public func automationCommand(id: String, type: String) async throws { statuses[id] = type == "automation.pause" ? "paused" : "active" }
     public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {}
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
         [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent"),
@@ -139,10 +144,12 @@ public actor MockGatewayClient: GatewayClient {
     }
     public func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary {
         try await Task.sleep(for: .milliseconds(600))
-        return AutomationSummary(id: "auto-" + a.requestId.prefix(6), name: a.title, status: "active", scheduleText: nil, lastOccurrence: nil,
+        let row = AutomationSummary(id: "auto-" + a.requestId.prefix(6), name: a.title, status: "active", scheduleText: nil, lastOccurrence: nil,
                                  triggerSource: "schedule", triggerConfig: { switch a.when {
                                      case .every(let e): ["kind": .string("every"), "every": .string(e)]
                                      case .daily(let at): ["kind": .string("daily"), "at": .string(at)] } }(), revision: 1)
+        if !createdAutomations.contains(where: { $0.id == row.id }) { createdAutomations.append(row) }
+        return row
     }
     public func automationDefinition(id: String) async throws -> AutomationDefinition {
         AutomationDefinition(revision: 2, title: Self.sampleAutomations.first { $0.id == id }?.name, target: [
@@ -150,6 +157,32 @@ public actor MockGatewayClient: GatewayClient {
             "input_data": .object(["prompt": .string("Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin."),
                                    "tools": .array([.string("web_search")])]),
         ])
+    }
+    public func voiceCatalog() async throws -> VoiceCatalog {
+        VoiceCatalog(voices: [VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "F2", label: "Supertonic · F2"), VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: "M1", label: "Supertonic · M1")], transcription: [TranscriptionChoice(provider: "faster-whisper", model: "base"), TranscriptionChoice(provider: "faster-whisper", model: "large-v3-turbo")], defaultVoice: "Supertonic · F2", defaultTranscription: "faster-whisper · base")
+    }
+    public func accountPreferences() async throws -> JSONValue {
+        .object(["time_zone": .object(["effective": .string("Europe/Paris")]), "apps": .array([.object([
+            "interface": .string("abstractassistant.agent.v1"), "value": chosenWorkflow.map(JSONValue.string) ?? .null,
+            "gateway_default_label": .string("Gateway default · Basic agent"),
+            "effective": .object(["available": .bool(true)]),
+            "choices": .array([.object(["value": .string("basic-agent:root"), "name": .string("Basic agent"), "label": .string("Basic agent")]), .object(["value": .string("deep-research:root"), "name": .string("Deep research"), "label": .string("Deep research")])])
+        ])])])
+    }
+    public func setAssistantWorkflow(_ value: String?) async throws -> JSONValue { chosenWorkflow = value; return try await accountPreferences() }
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String { try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: nil) }
+    public func upload(data: Data, filename: String, contentType: String, sessionId: String) async throws -> PhoneArtifact {
+        let artifact = PhoneArtifact(artifactId: UUID().uuidString, runId: "session_memory_" + sessionId, filename: filename, contentType: contentType, size: data.count)
+        uploaded[sessionId, default: []].append((artifact, data)); return artifact
+    }
+    public func artifacts(sessionId: String) async throws -> [PhoneArtifact] {
+        let sample = PhoneArtifact(artifactId: "demo-report", runId: "demo-run", filename: "A little focus.txt", contentType: "text/plain", size: Self.cannedAnswer.utf8.count)
+        return [sample] + (uploaded[sessionId] ?? []).map { $0.0 }
+    }
+    public func download(_ artifact: PhoneArtifact) async throws -> Data {
+        if artifact.artifactId == "demo-report" { return Data(Self.cannedAnswer.utf8) }
+        for rows in uploaded.values { if let row = rows.first(where: { $0.0.id == artifact.id }) { return row.1 } }
+        throw GatewayError.invalidResponse
     }
     public func entities() async throws -> [EntitySummary] { Self.sampleEntities }
     public func openEntityChat(name: String) async throws -> String { "chat-" + name }

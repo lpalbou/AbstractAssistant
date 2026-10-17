@@ -42,6 +42,7 @@ import AbstractGatewayClient
     await store.refresh()
     #expect(store.sessionID == "s-adtte")
     #expect(!store.messages.isEmpty && !store.isRestoring)
+    #expect(store.completedReply == nil)
     store.disconnect()
     #expect(store.messages.isEmpty && store.runs.isEmpty && store.waits.isEmpty)
 }

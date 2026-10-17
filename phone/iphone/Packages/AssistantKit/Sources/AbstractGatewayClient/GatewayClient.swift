@@ -82,6 +82,15 @@ public protocol GatewayClient: Sendable {
     /// What the person said: uploads the WAV as a session attachment (`POST /api/gateway/attachments/upload`)
     /// and transcribes it with the gateway's STT (`POST /api/gateway/runs/{session owner}/audio/transcribe`).
     func transcribe(wav: Data, sessionId: String) async throws -> String
+    func voiceCatalog() async throws -> VoiceCatalog
+    func accountPreferences() async throws -> JSONValue
+    func setAssistantWorkflow(_ value: String?) async throws -> JSONValue
+    func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String
+    func upload(data: Data, filename: String, contentType: String, sessionId: String) async throws -> PhoneArtifact
+    func artifacts(sessionId: String) async throws -> [PhoneArtifact]
+    func download(_ artifact: PhoneArtifact) async throws -> Data
+    nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error>
+    func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String
 }
 
 /// Live client over URLSession: `Authorization: Bearer <token>`, or a gateway session from an
@@ -275,7 +284,70 @@ public actor LiveGatewayClient: GatewayClient {
         _ = try await request("POST", "api/gateway/automations/\(automationId)/seen", body: SeenRequest(attentionCursor: cursor))
     }
 
-    public func transcribe(wav: Data, sessionId: String) async throws -> String {
+    public func voiceCatalog() async throws -> VoiceCatalog {
+        async let voices = get("api/gateway/voice/voices", as: JSONValue.self)
+        async let models = get("api/gateway/audio/transcriptions/models", as: JSONValue.self)
+        return VoiceCatalog.parse(voices: try await voices, transcription: try await models)
+    }
+    public func accountPreferences() async throws -> JSONValue { try await get("api/gateway/accounts/me/preferences", as: JSONValue.self) }
+    public func setAssistantWorkflow(_ value: String?) async throws -> JSONValue {
+        let data = try await request("PUT", "api/gateway/accounts/me/preferences", body: JSONValue.object(["default_workflow": .object(["abstractassistant.agent.v1": value.map(JSONValue.string) ?? .null])]))
+        return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String {
+        var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: nil, preferences: try await accountPreferences())
+        if !attachments.isEmpty {
+            body.inputData.attachments = attachments
+            body.inputData.context = .object(["attachments": .array(attachments), "media": .array(attachments)])
+        }
+        return try JSONDecoder().decode(StartRunResponse.self, from: try await request("POST", "api/gateway/runs/start", body: body)).runId
+    }
+    public func upload(data: Data, filename: String, contentType: String, sessionId: String) async throws -> PhoneArtifact {
+        try requireSignIn()
+        guard data.count <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
+        let boundary = "iphone-" + UUID().uuidString
+        let filename = PhoneArtifact.safeFilename(filename)
+        var body = Data()
+        for (key, value) in [("session_id", sessionId), ("filename", filename), ("content_type", contentType)] {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(key)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8)); body.append(data); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var req = URLRequest(url: baseURL.appending(path: "api/gateway/attachments/upload")); req.httpMethod = "POST"; req.timeoutInterval = 120
+        credential.apply(to: &req, write: true); req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type"); req.httpBody = body
+        let originalSize = data.count
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+        if http.statusCode == 401 { lockedOut = true; throw GatewayError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: String(decoding: data, as: UTF8.self)) }
+        let v = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard let artifact = PhoneArtifact.upload(v, filename: filename, contentType: contentType, size: originalSize) else { throw GatewayError.invalidResponse }
+        return artifact
+    }
+    public func artifacts(sessionId: String) async throws -> [PhoneArtifact] {
+        let v = try await get("api/gateway/sessions/\(sessionId)/artifacts", query: [.init(name: "limit", value: "100")], as: JSONValue.self)
+        guard case .array(let items)? = v["items"] else { throw GatewayError.invalidResponse }
+        return items.compactMap(PhoneArtifact.parse)
+    }
+    public func download(_ artifact: PhoneArtifact) async throws -> Data {
+        try requireSignIn()
+        guard PhoneArtifact.validID(artifact.runId), PhoneArtifact.validID(artifact.artifactId) else { throw GatewayError.invalidResponse }
+        guard artifact.size <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
+        // Construct only a gateway-owned artifact route. Never follow an AI-provided URL with credentials.
+        var req = URLRequest(url: baseURL.appending(path: "api/gateway/runs/\(artifact.runId)/artifacts/\(artifact.artifactId)/content")); req.timeoutInterval = 120
+        credential.apply(to: &req, write: false)
+        let (bytes, response) = try await session.bytes(for: req)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+        if http.statusCode == 401 { lockedOut = true; throw GatewayError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: "") }
+        guard response.expectedContentLength <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
+        var out = Data()
+        for try await byte in bytes { try Task.checkCancellation(); guard out.count < PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }; out.append(byte) }
+        return out
+    }
+
+    public func transcribe(wav: Data, sessionId: String) async throws -> String { try await transcribe(wav: wav, sessionId: sessionId, model: nil) }
+    public func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String {
         if lockedOut { throw GatewayError.unauthorized }
         let boundary = "watch-" + UUID().uuidString
         var body = Data()
@@ -298,11 +370,12 @@ public actor LiveGatewayClient: GatewayClient {
         guard let ref = upload.artifact ?? upload.attachment, let id = ref.artifact else { throw GatewayError.invalidResponse }
         let owner = upload.runId ?? ref.runId ?? "session_memory_\(sessionId)"
         let out = try await request("POST", "api/gateway/runs/\(owner)/audio/transcribe",
-                                    body: TranscribeRequest(audioArtifact: ["$artifact": id]), timeout: 120)
+                                    body: TranscribeRequest(audioArtifact: ["$artifact": id], provider: model?.provider, model: model?.model), timeout: 120)
         return try JSONDecoder().decode(TranscribeResponse.self, from: out).text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> {
+    public nonisolated func speech(text: String, scope: SpeechScope) -> AsyncThrowingStream<Data, Error> { speech(text: text, scope: scope, voice: nil) }
+    public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
         let path: String
         switch scope {
         case .run(let id): path = "api/gateway/runs/\(id)/voice/tts/stream"
@@ -313,7 +386,7 @@ public actor LiveGatewayClient: GatewayClient {
         req.timeoutInterval = 90
         credential.apply(to: &req, write: true)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONEncoder().encode(SpeechRequest(text: text))
+        req.httpBody = try? JSONEncoder().encode(SpeechRequest(text: text, provider: voice?.provider, model: voice?.model, voice: voice?.voice))
         let session = self.session
         let request = req
         return AsyncThrowingStream { continuation in
@@ -321,6 +394,7 @@ public actor LiveGatewayClient: GatewayClient {
                 do {
                     try await self.requireSignIn()
                     let (bytes, resp) = try await session.bytes(for: request)
+                    defer { bytes.task.cancel() }
                     guard let http = resp as? HTTPURLResponse else { throw GatewayError.invalidResponse }
                     if http.statusCode == 401 { await self.lockSignIn(); throw GatewayError.unauthorized }
                     guard (200..<300).contains(http.statusCode) else {
