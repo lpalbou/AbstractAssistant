@@ -3,16 +3,17 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.4.0 · iOS 26+**
+**Developer preview · 0.4.1 · iOS 26+**
 
 ## Three small spaces
 
 - **Assistant.** Type a message, or **tap the orb to listen**. After you speak, three seconds
   of silence sends your voice message automatically. Speaking again restarts the countdown;
-  tap the orb before sending to cancel. The orb stays visible while typing and reacts to
-  microphone and read-aloud playback levels. Tap outside the text field to dismiss the
-  keyboard and minimize your draft; tap the field to expand it again. The compact dock
-  groups attachments, text and voice together without a separate Done button.
+  tap the orb before sending to cancel. Separate floating **+**, **keyboard** and orb controls
+  keep the conversation open. The keyboard button expands the editor across the available
+  width and hides the orb. Tap outside to dismiss the keyboard and restore the controls,
+  preserving your draft. While listening, only a small Listening label appears above the orb.
+  The orb reacts to microphone and read-aloud playback levels.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Choose an entity with the person icon to talk to it.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
@@ -40,7 +41,7 @@ to your account and gateway. **Gateway default** sends no override; entities ret
 own speaking voice. Restored history is never read automatically.
 
 **Tap → speak → three seconds of silence → send.** Capture stays on the iPhone until the
-silence countdown ends. Speaking again restarts that countdown. Tap the orb or **Cancel**
+silence countdown ends. Speaking again restarts that countdown. Tap the orb
 to discard pending voice without uploading it. A tap without confirmed speech times out
 after eight seconds, and the one-minute recording limit discards an unfinished message.
 Leaving chat, changing conversations, opening the keyboard, backgrounding or an audio

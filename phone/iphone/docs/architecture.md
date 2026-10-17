@@ -79,8 +79,15 @@ and rotation while retaining responsive light. The Debug-only
 `--demo --ui-test --voice-fixture` supplies speech followed by silence, isolated from live
 credentials and Release builds, to exercise tap/cancel/automatic send in native UI tests.
 
-The centered dock groups +, a compact text panel and an always-visible orb. Keyboard focus
-expands the field; outside taps minimize it even with an unsent draft. There is no Done
+The composer uses separate floating + and keyboard buttons on the left and the orb on the
+right, without a shared panel. The keyboard button cancels pending capture and expands
+the editor into the available width while hiding the orb. A separate composing state
+mounts the editor before requesting keyboard focus; its cancelable task checks that the
+editor is still open before focusing. The field is removed while minimized, including
+from accessibility. The keyboard button's accessibility value reports a preserved draft.
+Outside taps dismiss editing and restore the floating controls. Only a small Listening
+label sits above the
+active orb; there is no visible voice Cancel/countdown or Done
 button in chat. `OutsideInputDismissal` installs a screen-owned UIKit recognizer rather
 than a window handler. It excludes text/caret/selection touches, allows simultaneous
 recognition, never cancels the outside control's event and defers focus changes until that

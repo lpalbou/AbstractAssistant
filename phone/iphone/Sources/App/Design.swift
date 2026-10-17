@@ -136,12 +136,14 @@ struct VoicePresence: View {
     var body: some View {
         ZStack {
             AssistantOrb(size: 68, active: voice.recording || voice.speaking || working, level: voice.meter.level)
-            if voice.inputPhase == .countdown {
-                Circle().trim(from: 0, to: voice.meter.graceProgress).stroke(PhoneTheme.mint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90)).frame(width: 78, height: 78)
-                Text("\(voice.secondsRemaining)").font(.system(.title2, design: .rounded, weight: .medium)).contentTransition(.numericText(countsDown: true))
-            }
             OrbTouchSurface(enabled: enabled, label: status, cancelOnTouchDown: voice.inputPending, onTap: onTap, onCancel: onCancel)
                 .frame(width: 84, height: 80)
         }.frame(width: 84, height: 80)
+            .overlay(alignment: .top) {
+                if voice.recording {
+                    Text("Listening").font(.caption2).foregroundStyle(PhoneTheme.secondary)
+                        .fixedSize().offset(y: -14).allowsHitTesting(false)
+                }
+            }
     }
 }
