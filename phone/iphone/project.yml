@@ -1,0 +1,73 @@
+name: AbstractAssistantPhone
+options:
+  bundleIdPrefix: ai.abstractframework.assistant
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  AssistantKit:
+    path: Packages/AssistantKit
+targets:
+  AbstractAssistantPhone:
+    type: application
+    platform: iOS
+    sources: [Sources/App, Resources]
+    dependencies:
+      - package: AssistantKit
+        product: AssistantKit
+      - package: AssistantKit
+        product: AbstractGatewayClient
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Assistant
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        NSMicrophoneUsageDescription: Record a voice message for your assistant. Audio goes to your gateway for transcription.
+        NSLocalNetworkUsageDescription: Connect to your AbstractGateway on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.iphone
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+    scheme:
+      gatherCoverageData: false
+  AbstractAssistantPhoneUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: AbstractAssistantPhone
+    settings:
+      base:
+        TEST_TARGET_NAME: AbstractAssistantPhone
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.iphone.uitests
+        GENERATE_INFOPLIST_FILE: YES
+    scheme:
+      testTargets: [AbstractAssistantPhoneTests, AbstractAssistantPhoneUITests]
+  AbstractAssistantPhoneTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: AbstractAssistantPhone
+      - package: AssistantKit
+        product: AssistantKit
+      - package: AssistantKit
+        product: AbstractGatewayClient
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.iphone.tests
+        GENERATE_INFOPLIST_FILE: YES

@@ -1,0 +1,7 @@
+.build/
+build/
+*.xcodeproj/
+.DS_Store
+__pycache__/
+Packages/AssistantKit/.build/
+Packages/AssistantKit/.swiftpm/
