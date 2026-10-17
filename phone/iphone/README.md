@@ -3,17 +3,20 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.2.0 · iOS 26+**
+**Developer preview · 0.3.0 · iOS 26+**
 
 ## Three small spaces
 
-- **Assistant.** Type a message, or tap the microphone to record one. Tap again to finish;
-  your gateway transcribes it into the composer so you can review it before sending.
+- **Assistant.** Type a message, or **hold the orb while speaking**. Release to start a
+  three-second countdown; touch the orb again to cancel. After the countdown, your gateway
+  transcribes and sends the voice message automatically.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Choose an entity with the person icon to talk to it.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
-  The orb remains beside the composer after the first exchange and reacts to microphone
-  and playback levels. Tap it to record, finish recording, or pause/resume reading.
+  The orb stays beside the text field and responds to microphone and playback energy.
+  Tap the text field to expand it and hide the orb; **Done** brings the orb back. Attachments
+  have their own **+** button, shared by text and voice. Any typed draft stays intact when
+  you send a separate voice message.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
   action and its complete arguments. Allow once or deny; decisions already made on another
   device cannot resume a later action. There is no blanket tool trust switch.
@@ -35,6 +38,20 @@ to another agent interface or runs models locally.
 speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
 to your account and gateway. **Gateway default** sends no override; entities retain their
 own speaking voice. Restored history is never read automatically.
+
+**Hold → speak → release → send.** Recording stays on the iPhone until the three-second
+countdown ends. Touch the orb during the countdown, tap **Cancel**, or slide your finger
+off the orb while holding to discard the recording without uploading it. Pauses while
+holding never send. At the one-minute recording limit, release before the countdown starts.
+Quick taps do not send a voice message. Leaving chat, changing conversations, opening the
+keyboard, backgrounding or an audio interruption cancels pending capture. Once the
+countdown finishes, upload/transcription has begun; canceling then stops the pending turn
+but cannot retract audio already uploaded. With VoiceOver, double-tap the orb to start,
+double-tap to finish, then double-tap during the countdown to cancel.
+
+The microphone in the text field and the decorative white dot have been removed. The orb
+uses the same measured-energy envelope for recording and playback; Reduce Motion keeps
+the responsive light while disabling shape/rotation motion.
 
 Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
 a short video. Uploaded file chips remain until you send or remove them. The **folder**

@@ -32,7 +32,7 @@ struct VoiceSettingsScreen: View {
                     ForEach(catalog?.transcription ?? []) { t in Text(t.provider + " · " + t.model).tag(Optional(t)) }
                 }.pickerStyle(.navigationLink)
                 if let selected = prefs.transcription, !(catalog?.transcription.contains(selected) ?? true) { Text("Saved transcription model is currently unavailable. Choose another model or Gateway default.").font(.footnote).foregroundStyle(PhoneTheme.amber) }
-            } header: { Text("Listening") } footer: { Text("Record, then review the transcript before sending. Larger transcription models can take longer.") }
+            } header: { Text("Listening") } footer: { Text("Hold the orb while speaking, then release. After three seconds, your gateway transcribes and sends automatically. Touch the orb during the countdown to cancel before any audio is uploaded. Larger models can take longer.") }
             Section { Text("These choices apply to this account on this iPhone. They do not change gateway defaults. Entities keep their own speaking voice.").font(.footnote).foregroundStyle(PhoneTheme.secondary) }
             if let error { Section { ErrorBanner(message: error); Button("Try again") { Task { await load() } } } }
             if catalog == nil && error == nil { ProgressView("Loading voices…") }

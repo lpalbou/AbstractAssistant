@@ -52,11 +52,30 @@ separate. A shared package can be extracted after both clients’ APIs settle.
 
 ## Voice lifecycle
 
-AVAudioRecorder and AVAudioPlayer update meters at 25 Hz only during recording/playback.
-The small `VoicePresence` view observes the meter independently of the message list. Its
-compact orb stays pinned by the composer during conversation and active capture; the
-welcome view also has a larger orb. Reduced Motion disables scaling/rotation animation.
-Timers and audio stop on background, account/session changes and when leaving chat.
+`VoiceTurn` is a local capture policy: authorizing → recording → countdown → ready →
+transcribing. Only `claimForTranscription` permits the network handoff, exactly once.
+Release seals the local WAV and starts a fresh three-second deadline on a monotonic clock.
+Touch-down during grace cancels synchronously; it cannot start a replacement recording.
+Quick taps, a permission grant after release, keyboard focus, navigation, backgrounding,
+audio interruption and lost routes discard pending audio. At 60 seconds capture seals and
+waits for actual release, retaining the user's ownership of the hold. A voice message sends
+separately from a typed draft and includes the currently staged attachment references.
+
+`VoiceController` owns recorder/player lifetime, generation guards, temporary-file cleanup
+and network-task cancellation through chat. AVAudioRecorder and AVAudioPlayer feed
+average/peak power into the same finite fast-attack/slow-release `AudioEnvelope`. A sleeping
+main-actor Task samples every 33 ms independently of run-loop modes, so touch tracking
+cannot pause metering. Only `VoicePresence` observes the envelope; message layout does not
+rerender on every sample. The dot-free orb's silhouette, rings and light respond to energy.
+A small isolated TimelineView maintains continuous ring motion. Reduce Motion freezes
+rotation/scale while retaining signal-driven light. Timers/tasks and audio stop on exit.
+
+The independent attachment control sits beside the text panel and orb (roughly 70/30 of
+remaining portrait width). Keyboard focus expands the text panel and removes the orb with
+a spring transition; focus cancels pending voice before hiding its cancel control. A native
+UIControl surface supplies reliable down/up/drag-cancel events and a VoiceOver toggle path.
+The Debug-only `--demo --ui-test --voice-fixture` capture is isolated from live gateways;
+it lets native UI tests exercise hold/countdown without device microphone permission.
 
 `AssistantStore.completedReply` signals only a newly completed current turn. Automatic
 reading listens for this event while active, rather than message-list refreshes, so restored

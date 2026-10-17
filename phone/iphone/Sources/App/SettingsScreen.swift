@@ -26,13 +26,13 @@ struct SettingsScreen: View {
                 Section("Made for a little less friction") {
                     Text("Your conversations, tools, automations and model choices live on your gateway. This phone follows your account’s Assistant workflow preference.")
                     Text("Updates are checked while the app is open. Runs and automations keep going on your gateway when you leave. Open the app again to catch up.")
-                    Text("Voice recordings go to your gateway for transcription. The transcript is placed in the composer for you to review before sending. Temporary audio is removed after use.")
+                    Text("Hold the orb to speak. Release for a three-second countdown, then your gateway transcribes and sends the message automatically. Touch the orb during the countdown to cancel; no audio is uploaded before it ends. Temporary audio is removed after use.")
                 }.font(.footnote).foregroundStyle(PhoneTheme.secondary)
                 Section("AbstractAssistant · iPhone preview") {
                     Link("AbstractFramework", destination: URL(string: "https://abstractframework.ai")!)
                     Link("Source & community", destination: URL(string: "https://github.com/lpalbou/AbstractAssistant")!)
                     Link("Get in touch", destination: URL(string: "mailto:contact@abstractframework.ai")!)
-                    Text("Version 0.2.0 · iOS 26 or later").font(.caption).foregroundStyle(PhoneTheme.secondary)
+                    Text("Version 0.3.0 · iOS 26 or later").font(.caption).foregroundStyle(PhoneTheme.secondary)
                 }
                 Section { Button(store.isDemo ? "Leave demo" : "Disconnect this iPhone", role: .destructive) { confirm = true } }
             }.scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("Your space").navigationBarTitleDisplayMode(.inline)

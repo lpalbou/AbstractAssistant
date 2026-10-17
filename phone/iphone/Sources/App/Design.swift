@@ -23,32 +23,34 @@ struct NavigationCaption: View {
     }
 }
 
-/// A small native drawing: no downloaded media, shader or continuously running render loop.
+/// Local audio energy changes the silhouette, ring spacing, light and halo together.
 struct AssistantOrb: View {
-    var size: CGFloat = 170
+    var size: CGFloat = 88
     var active = false
     var level: Double = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var rotate = false
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        ZStack {
-            Circle().fill(PhoneTheme.lavender.opacity(0.10)).blur(radius: size * 0.15).padding(-size * 0.08)
-            Circle().fill(RadialGradient(colors: [.white.opacity(0.18), PhoneTheme.lavender.opacity(0.16), PhoneTheme.ground], center: .init(x: 0.28, y: 0.2), startRadius: 2, endRadius: size * 0.68))
-            ForEach(0..<5) { index in
-                Ellipse().stroke(AngularGradient(colors: [.clear, PhoneTheme.mint.opacity(0.7), PhoneTheme.lavender, .white.opacity(0.85), .clear], center: .center), lineWidth: index == 2 ? 1.6 : 0.7)
-                    .frame(width: size * (0.65 + Double(index) * 0.07), height: size * 0.49)
-                    .rotationEffect(.degrees(Double(index) * 34 + (rotate ? 110 : -15)))
+        TimelineView(.animation(minimumInterval: active ? 1.0 / 30 : 1.0 / 12, paused: reduceMotion || scenePhase != .active)) { frame in
+            let time = reduceMotion ? 0 : frame.date.timeIntervalSinceReferenceDate
+            let energy = level.isFinite ? min(1, max(0, level)) : 0
+            let motionEnergy = reduceMotion ? 0 : energy
+            let breath = reduceMotion ? 0 : sin(time * 0.85) * 0.018
+            ZStack {
+                Circle().fill(PhoneTheme.mint.opacity(0.10 + energy * 0.28)).blur(radius: size * 0.14).padding(-size * (0.04 + energy * 0.12))
+                Circle().fill(RadialGradient(colors: [PhoneTheme.mint.opacity(0.30 + energy * 0.35), PhoneTheme.lavender.opacity(0.28), PhoneTheme.ground], center: .init(x: 0.32, y: 0.28), startRadius: 1, endRadius: size * 0.67))
+                ForEach(0..<5) { index in
+                    Ellipse().stroke(AngularGradient(colors: [.clear, PhoneTheme.mint.opacity(0.8), PhoneTheme.lavender, PhoneTheme.mint.opacity(0.9), .clear], center: .center), lineWidth: (index == 2 ? 1.5 : 0.7) + energy * 1.5)
+                        .frame(width: size * (0.58 + Double(index) * 0.075 + motionEnergy * 0.08), height: size * (0.43 + motionEnergy * 0.14))
+                        .rotationEffect(.degrees(Double(index) * 34 + time * 9 + motionEnergy * Double(index - 2) * 13))
+                }
+                Circle().stroke(PhoneTheme.lavender.opacity(0.28 + energy * 0.42), lineWidth: 0.8 + energy)
             }
-            Circle().stroke(.white.opacity(0.13), lineWidth: 0.8)
-            Circle().fill(.white).frame(width: 5, height: 5).offset(x: size * 0.29, y: -size * 0.30).shadow(color: PhoneTheme.mint, radius: 6)
-        }
-        .frame(width: size, height: size)
-        .scaleEffect(reduceMotion ? 1 : 1 + level * 0.18)
-        .shadow(color: PhoneTheme.mint.opacity(level * 0.65), radius: 8 + level * 28)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.06), value: level)
-        .animation(reduceMotion ? nil : .easeInOut(duration: active ? 3 : 10).repeatForever(autoreverses: true), value: rotate)
-        .onAppear { rotate = true }
-        .accessibilityHidden(true)
+            .frame(width: size, height: size)
+            .scaleEffect(reduceMotion ? 1 : 1 + breath + energy * 0.20)
+            .shadow(color: PhoneTheme.mint.opacity(energy * 0.6), radius: 5 + energy * 18)
+            .animation(reduceMotion ? nil : .linear(duration: 0.055), value: energy)
+        }.frame(width: size, height: size).accessibilityHidden(true)
     }
 }
 
@@ -115,24 +117,37 @@ struct ErrorBanner: View {
 }
 
 
-/// Audio observations stay inside this small view, separate from the conversation list.
+/// Only this small subtree observes the audio envelope, keeping message layout out of the meter loop.
 struct VoicePresence: View {
     let voice: VoiceController
     var working: Bool
-    var compact: Bool
-    var action: () -> Void
+    var enabled: Bool
+    var onPress: () -> Void
+    var onRelease: () -> Void
+    var onCancel: () -> Void
+    var onAccessibleActivate: () -> Void
     private var status: String {
-        if voice.recording { return "Listening" }
-        if voice.transcribing { return "Transcribing" }
-        if voice.speaking { return voice.paused ? "Reading paused" : "Reading aloud" }
-        return working ? "Thinking" : "Tap to speak"
+        switch voice.inputPhase {
+        case .authorizing: return "Microphone…"
+        case .recording: return "Listening"
+        case .atLimit: return "Release to send"
+        case .countdown: return "Tap to cancel"
+        case .ready, .transcribing: return "Transcribing"
+        case .idle: return voice.speaking ? (voice.paused ? "Reading paused" : "Reading aloud") : working ? "Thinking" : "Hold to speak"
+        }
     }
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                AssistantOrb(size: compact ? 68 : 170, active: voice.recording || voice.speaking || working, level: voice.meter.level)
-                Text(status).font(.caption).foregroundStyle(PhoneTheme.secondary)
-            }.frame(maxWidth: .infinity).padding(.vertical, compact ? 4 : 18)
-        }.buttonStyle(.plain).accessibilityLabel(status).accessibilityHint(voice.speaking ? "Pause or resume reading" : "Record a voice message")
+        VStack(spacing: 7) {
+            ZStack {
+                AssistantOrb(size: 72, active: voice.recording || voice.speaking || working, level: voice.meter.level)
+                if voice.inputPhase == .countdown {
+                    Circle().trim(from: 0, to: voice.meter.graceProgress).stroke(PhoneTheme.mint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90)).frame(width: 84, height: 84)
+                    Text("\(voice.secondsRemaining)").font(.system(.title2, design: .rounded, weight: .medium)).contentTransition(.numericText(countsDown: true))
+                }
+                OrbTouchSurface(enabled: enabled, label: status, onPress: onPress, onRelease: onRelease, onCancel: onCancel, onAccessibleActivate: onAccessibleActivate)
+                    .frame(width: 98, height: 92)
+            }.frame(height: 92)
+            Text(status).font(.system(.caption2, design: .rounded, weight: .medium)).foregroundStyle(voice.localPending ? PhoneTheme.mint : PhoneTheme.secondary).lineLimit(1).minimumScaleFactor(0.75)
+        }.frame(width: 98)
     }
 }

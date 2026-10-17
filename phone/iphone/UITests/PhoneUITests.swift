@@ -12,10 +12,10 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Share answer"].firstMatch.waitForExistence(timeout: 30))
         let finished = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Stop"].firstMatch)
         XCTAssertEqual(XCTWaiter.wait(for: [finished], timeout: 30), .completed)
-        XCTAssertTrue(app.buttons["Tap to speak"].exists)
+        XCTAssertTrue(app.buttons["voice.orb"].exists)
         XCTAssertTrue(app.buttons["View conversation files (1)"].exists)
         XCTAssertTrue(app.buttons["Settings"].isHittable)
-        XCTAssertTrue(app.buttons["Record a voice message"].isHittable)
+        XCTAssertTrue(app.buttons["voice.orb"].isHittable)
         capture(app, "Conversation")
         app.tabBars.buttons["Inbox"].tap()
         XCTAssertTrue(app.staticTexts["A little attention.\nA lot of progress."].exists)
@@ -69,6 +69,42 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Conversation files"].waitForExistence(timeout: 10)); app.buttons["Conversation files"].tap()
         XCTAssertTrue(app.staticTexts["A little focus.txt"].waitForExistence(timeout: 10))
         capture(app, "Conversation files")
+    }
+    @MainActor func testKeyboardExpandsAndRestoresVoiceComposer() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        let input = app.textFields["composer.input"].exists ? app.textFields["composer.input"] : app.textViews["composer.input"]
+        XCTAssertTrue(app.buttons["voice.orb"].waitForExistence(timeout: 10))
+        let compactWidth = input.frame.width
+        input.tap(); input.typeText("Keep this typed draft")
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["voice.orb"].exists)
+        XCTAssertGreaterThan(input.frame.width, compactWidth + 50)
+        XCTAssertTrue(app.buttons["Add attachment"].isHittable)
+        XCTAssertTrue(app.buttons["Send message"].isHittable)
+        XCTAssertFalse(app.buttons["Done"].frame.intersects(app.buttons["Send message"].frame))
+        capture(app, "Keyboard composer")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["voice.orb"].waitForExistence(timeout: 5))
+        XCTAssertEqual(input.value as? String, "Keep this typed draft")
+        capture(app, "Compact composer")
+    }
+    @MainActor func testHoldReleaseCancelAndAutomaticVoiceSend() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--voice-fixture"]; app.launch()
+        let orb = app.buttons["voice.orb"]
+        XCTAssertTrue(orb.waitForExistence(timeout: 10))
+        let input = app.textFields["composer.input"]
+        input.tap(); input.typeText("Keep my keyboard draft"); app.buttons["Done"].tap()
+        orb.press(forDuration: 0.7)
+        XCTAssertTrue(app.buttons["Cancel voice message"].exists)
+        // Touch DOWN must cancel, even when this second touch lifts after the old deadline.
+        orb.press(forDuration: 3.2)
+        XCTAssertFalse(app.buttons["Cancel voice message"].exists)
+        XCTAssertFalse(app.buttons["Share answer"].waitForExistence(timeout: 4))
+        orb.press(forDuration: 0.7)
+        capture(app, "Voice countdown")
+        XCTAssertTrue(app.staticTexts["Help me make room for focused work this week"].firstMatch.waitForExistence(timeout: 12))
+        XCTAssertEqual(input.value as? String, "Keep my keyboard draft")
+        XCTAssertTrue(app.buttons["Share answer"].firstMatch.waitForExistence(timeout: 30))
     }
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
         Thread.sleep(forTimeInterval: 0.7) // Capture settled native navigation, not an intermediate animation frame.

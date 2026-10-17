@@ -12,7 +12,9 @@ struct ChatScreen: View {
     @State private var draft = ""
     @State private var history = false
     @State private var showWait: Wait?
-    @State private var voice = VoiceController()
+    @State private var voice = VoiceController.forApp()
+    @State private var voiceOrigin: (UUID, String)?
+    @State private var voiceTask: Task<Void, Never>?
     @State private var attachments = AttachmentsController()
     @State private var importing = false
     @State private var photoLibrary = false
@@ -53,15 +55,15 @@ struct ChatScreen: View {
             .navigationTitle(store.conversationTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) { NavigationCaption(title: store.conversationTitle, demo: store.isDemo) }
-                ToolbarItem(placement: .topBarLeading) { Button { voice.stop(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
+                ToolbarItem(placement: .topBarLeading) { Button { cancelVoice(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showFiles = true } label: { Image(systemName: "folder") }.accessibilityLabel("Conversation files")
+                    Button { cancelVoice(); showFiles = true } label: { Image(systemName: "folder") }.accessibilityLabel("Conversation files")
                     Menu {
-                        Button("Assistant", systemImage: "sparkle") { voice.stop(); store.newConversation() }
-                        ForEach(store.entities) { entity in Button("Talk with " + entity.name.capitalized) { voice.stop(); store.newConversation(entity: entity.name) } }
+                        Button("Assistant", systemImage: "sparkle") { cancelVoice(); store.newConversation() }
+                        ForEach(store.entities) { entity in Button("Talk with " + entity.name.capitalized) { cancelVoice(); store.newConversation(entity: entity.name) } }
                     } label: { Image(systemName: "person.crop.circle.badge.plus") }
                     .disabled(!store.canSend || attachments.busy || mediaLoading || !attachments.pending.isEmpty).accessibilityLabel("Choose who answers")
-                    Button { voice.stop(); openSettings() } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("Settings").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
+                    Button { cancelVoice(); openSettings() } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("Settings").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
@@ -92,25 +94,25 @@ struct ChatScreen: View {
                 switch result { case .success(let url): stage(url, owned: true, origin: pickerOrigin); case .failure(let error): attachments.error = error.localizedDescription }
             }.ignoresSafeArea() }
             .task(id: store.contextID.uuidString + store.sessionID) { attachments.bind(store.contextID.uuidString + store.sessionID); if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) } }
-            .onChange(of: store.sessionID) { _, _ in voice.stop(); cancelMedia() }
-            .onChange(of: store.contextID) { _, _ in voice.stop(); cancelMedia(); draft = "" }
+            .onChange(of: store.sessionID) { _, _ in cancelVoice(); cancelMedia() }
+            .onChange(of: store.contextID) { _, _ in cancelVoice(); cancelMedia(); draft = "" }
             .onChange(of: store.completedReply?.id) { _, _ in
                 guard let reply = store.completedReply else { return }
-                if store.preferences.readAloud && scenePhase == .active { read(reply) }
+                if store.preferences.readAloud && scenePhase == .active && !voice.inputPending { read(reply) }
                 if let client = store.client { Task { await attachments.refresh(client: client, sessionId: store.sessionID) } }
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background || (phase == .inactive && (voice.recording || voice.speaking)) { voice.stop() }
+                if phase != .active { cancelVoice() }
             }
-            .onDisappear { voice.stop(); attachments.cancel(); cancelMedia() }
+            .onDisappear { cancelVoice(); attachments.cancel(); cancelMedia() }
             .onAppear { let context = store.contextID; voice.onUnauthorized = { if context == store.contextID { store.authenticationExpired() } }; attachments.onUnauthorized = voice.onUnauthorized }
-            .onChange(of: voice.limitReached) { _, reached in if reached { microphone() } }
+            .onChange(of: voice.inputPhase) { _, phase in if phase == .ready { finishVoice() } }
+            .onChange(of: typing) { _, focused in if focused { cancelVoice() } }
         }
     }
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack { QuietLabel(text: "A moment of clarity", color: PhoneTheme.mint); Spacer(); Image(systemName: "sparkle").foregroundStyle(PhoneTheme.mint.opacity(0.6)) }
-            VoicePresence(voice: voice, working: store.phase != .ready, compact: false, action: voiceTap).disabled(!store.canSend && !voice.speaking)
             VStack(alignment: .leading, spacing: 10) {
                 Text("What’s on\nyour mind?").font(.system(.largeTitle, design: .rounded, weight: .semibold)).tracking(-0.8)
                 Text("Think it through. Make a plan.\nOr just start a conversation.").foregroundStyle(PhoneTheme.secondary).lineSpacing(5)
@@ -143,12 +145,12 @@ struct ChatScreen: View {
                     ShareLink(item: message.text) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share answer")
                     Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer")
                     if let client = store.client, let scope = store.selectedEntity.map({ SpeechScope.entity($0) }) ?? message.runID.map({ SpeechScope.run($0) }) {
-                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
+                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
-                    if voice.speaking { Button { voice.stop() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
+                    if voice.speaking { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
                 }.font(.subheadline).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain).frame(minHeight: 44)
                 if message.id == store.messages.last(where: { $0.role == .assistant })?.id && !attachments.files.isEmpty {
-                    Button { showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
+                    Button { cancelVoice(); showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
                 }
             }
         }
@@ -162,7 +164,10 @@ struct ChatScreen: View {
     }
     private var composer: some View {
         VStack(spacing: 10) {
-            if !store.messages.isEmpty || voice.recording || voice.transcribing || voice.speaking { VoicePresence(voice: voice, working: store.phase != .ready, compact: true, action: voiceTap).disabled(!store.canSend && !voice.speaking) }
+            if typing {
+                HStack { Spacer(); Button("Done", systemImage: "keyboard.chevron.compact.down") { typing = false }.font(.caption.weight(.medium)).foregroundStyle(PhoneTheme.lavender).frame(minHeight: 36) }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             if attachments.busy || mediaLoading { HStack { ProgressView(); Text(mediaLoading ? "Importing media…" : attachments.status).font(.caption); Spacer(); Button("Cancel") { cancelMedia(); attachments.cancel() } } }
             if !attachments.pending.isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(attachments.pending) { file in
@@ -170,41 +175,94 @@ struct ChatScreen: View {
                 } } }
             }
             if store.selectedEntity != nil { Text("File attachments are available in Assistant conversations.").font(.caption2).foregroundStyle(PhoneTheme.secondary) }
-            if voice.recording {
-                HStack { Circle().fill(.red).frame(width: 7, height: 7); Text("Listening · tap the microphone to finish").font(.footnote); Spacer(); Button("Cancel") { voice.stop() } }.foregroundStyle(PhoneTheme.secondary)
-            }
             if !store.canSend {
                 HStack(spacing: 12) {
-                    Image(systemName: "sparkle").foregroundStyle(PhoneTheme.mint)
+                    ProgressView().tint(PhoneTheme.mint)
                     Text(store.isOpening || store.isRestoring ? "Opening conversation…" : store.phase == .waiting ? "Review the request above" : "Waiting for your assistant…").font(.subheadline).foregroundStyle(PhoneTheme.secondary)
                     Spacer(minLength: 0)
                     if store.activeRunID != nil { Button("Stop", role: .destructive) { Task { await store.stopRun() } }.font(.subheadline.weight(.medium)).frame(minHeight: 44) }
-                }.padding(.horizontal, 16).padding(.vertical, 8).frame(minHeight: 60)
-                    .background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 27))
-            } else { HStack(alignment: .bottom, spacing: 6) {
-                Menu {
-                    Button("Choose a file", systemImage: "doc") { pickerOrigin = (store.contextID, store.sessionID); importing = true }
-                    Button("Photo or video library", systemImage: "photo.on.rectangle") { pickerOrigin = (store.contextID, store.sessionID); photoLibrary = true }
-                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                        Button("Take a photo", systemImage: "camera") { pickerOrigin = (store.contextID, store.sessionID); camera = .photo }
-                        Button("Record a video", systemImage: "video") { pickerOrigin = (store.contextID, store.sessionID); camera = .video }
-                    }
-                } label: { Image(systemName: "plus").frame(width: 36, height: 44) }.accessibilityLabel("Add attachment").disabled(attachments.busy || mediaLoading || voice.recording || voice.transcribing || store.selectedEntity != nil)
-                Button { microphone() } label: { Group { if voice.transcribing { ProgressView() } else { Image(systemName: voice.recording ? "stop.circle.fill" : "mic") } }.frame(width: 44, height: 44) }
-                    .disabled(!store.canSend || voice.transcribing).accessibilityLabel(voice.recording ? "Finish recording" : "Record a voice message")
-                TextField("Ask anything…", text: $draft, axis: .vertical).lineLimit(1...5).focused($typing).padding(.vertical, 12)
-                    .disabled(!store.canSend || voice.recording || voice.transcribing)
-                Button {
-                    let prompt = draft; typing = false; voice.stop(); store.send(prompt, attachments: attachments.pending)
-                    if store.phase == .sending { draft = ""; attachments.sent() }
-                } label: { Image(systemName: "arrow.up").fontWeight(.semibold).foregroundStyle(PhoneTheme.ground).frame(width: 42, height: 42).background(PhoneTheme.mint, in: Circle()) }
-                    .disabled(!store.canSend || voice.recording || voice.transcribing || attachments.busy || mediaLoading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.pending.isEmpty))
-                    .opacity(store.canSend && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.pending.isEmpty) ? 1 : 0.4).accessibilityLabel("Send message")
-            }.padding(8).background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 27)).overlay(RoundedRectangle(cornerRadius: 27).stroke(PhoneTheme.stroke))
+                }
             }
-        }.padding(.horizontal, 16).padding(.vertical, 10).background(PhoneTheme.ground.opacity(0.97))
+            HStack(alignment: .center, spacing: 10) {
+                attachmentMenu
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField("Type a message…", text: $draft, axis: .vertical)
+                        .font(.subheadline).lineLimit(1...4).focused($typing).padding(.vertical, 16)
+                        .accessibilityIdentifier("composer.input")
+                        .disabled(!store.canSend || voice.recording || voice.inputPhase == .authorizing || voice.inputPhase == .atLimit || voice.transcribing)
+                    if typing || !draft.isEmpty || !attachments.pending.isEmpty {
+                        Button(action: sendText) { Image(systemName: "arrow.up").font(.subheadline.weight(.semibold)).foregroundStyle(PhoneTheme.ground).frame(width: 36, height: 36).background(PhoneTheme.mint, in: Circle()) }
+                            .disabled(!store.canSend || voice.inputPending || attachments.busy || mediaLoading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.pending.isEmpty))
+                            .opacity(!store.canSend || voice.inputPending || attachments.busy || mediaLoading || (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.pending.isEmpty) ? 0.35 : 1)
+                            .padding(.bottom, 9).accessibilityLabel("Send message")
+                    }
+                }
+                .padding(.horizontal, 14).frame(maxWidth: .infinity)
+                .background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 25))
+                .overlay(RoundedRectangle(cornerRadius: 25).stroke(typing ? PhoneTheme.lavender.opacity(0.5) : PhoneTheme.stroke))
+                if !typing {
+                    VoicePresence(voice: voice, working: store.phase != .ready, enabled: store.canSend && !attachments.busy && !mediaLoading, onPress: beginVoice, onRelease: { voice.release() }, onCancel: cancelVoice, onAccessibleActivate: accessibleVoice)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.75, anchor: .trailing)), removal: .opacity.combined(with: .scale(scale: 0.75, anchor: .trailing))))
+                }
+            }
+            .animation(composerAnimation, value: typing)
+            .animation(composerAnimation, value: draft.isEmpty)
+            if !typing {
+                HStack(spacing: 8) {
+                    Text(voiceInstruction).font(.caption2).foregroundStyle(voice.localPending ? PhoneTheme.mint : PhoneTheme.secondary).contentTransition(.numericText(countsDown: true))
+                    if voice.inputPending { Spacer(minLength: 0); Button("Cancel", action: cancelVoice).font(.caption.weight(.medium)).accessibilityLabel("Cancel voice message") }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10).background(PhoneTheme.ground.opacity(0.97))
     }
-    private func voiceTap() { if voice.speaking { voice.togglePause() } else { microphone() } }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var composerAnimation: Animation? { reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.12) }
+    private var voiceInstruction: String {
+        switch voice.inputPhase {
+        case .authorizing: return "Allow the microphone, then hold again."
+        case .recording: return "Release when finished · slide away to cancel"
+        case .atLimit: return "One minute recorded · release to send"
+        case .countdown, .ready: return "Sending in \(voice.secondsRemaining)s · touch the orb to cancel"
+        case .transcribing: return "Transcribing your voice…"
+        case .idle: return draft.isEmpty ? "Hold, speak, release · three seconds to cancel" : "Voice sends separately. Your typed draft stays here."
+        }
+    }
+    private var attachmentMenu: some View {
+        Menu {
+            Button("Choose a file", systemImage: "doc") { cancelVoice(); pickerOrigin = (store.contextID, store.sessionID); importing = true }
+            Button("Photo or video library", systemImage: "photo.on.rectangle") { cancelVoice(); pickerOrigin = (store.contextID, store.sessionID); photoLibrary = true }
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take a photo", systemImage: "camera") { cancelVoice(); pickerOrigin = (store.contextID, store.sessionID); camera = .photo }
+                Button("Record a video", systemImage: "video") { cancelVoice(); pickerOrigin = (store.contextID, store.sessionID); camera = .video }
+            }
+        } label: { Image(systemName: "plus").font(.title3.weight(.light)).foregroundStyle(PhoneTheme.lavender).frame(width: 40, height: 48).background(PhoneTheme.surface, in: Capsule()).overlay(Capsule().stroke(PhoneTheme.stroke)) }
+        .accessibilityLabel("Add attachment").disabled(!store.canSend || attachments.busy || mediaLoading || voice.inputPending || store.selectedEntity != nil)
+    }
+    private func sendText() {
+        guard store.canSend, !voice.inputPending else { return }
+        let prompt = draft; typing = false; cancelVoice(); store.send(prompt, attachments: attachments.pending)
+        if store.phase == .sending { draft = ""; attachments.sent() }
+    }
+    private func beginVoice() {
+        if voice.inputPending { cancelVoice(); return }
+        guard store.canSend, scenePhase == .active, !attachments.busy, !mediaLoading else { return }
+        typing = false; voiceOrigin = (store.contextID, store.sessionID); voice.press()
+    }
+    private func accessibleVoice() {
+        if voice.recording || voice.inputPhase == .atLimit { voice.release() } else { beginVoice() }
+    }
+    private func cancelVoice() { voiceTask?.cancel(); voiceTask = nil; voiceOrigin = nil; voice.stop() }
+    private func finishVoice() {
+        guard let origin = voiceOrigin, origin.0 == store.contextID, origin.1 == store.sessionID, scenePhase == .active, store.canSend, let client = store.client else { cancelVoice(); return }
+        let model = store.preferences.transcription
+        voiceTask = Task {
+            guard let text = await voice.finish(client: client, sessionID: origin.1, model: model), !Task.isCancelled,
+                  origin.0 == store.contextID, origin.1 == store.sessionID, scenePhase == .active, store.canSend else { return }
+            store.send(text, attachments: attachments.pending)
+            if store.phase == .sending { attachments.sent() }
+            voiceOrigin = nil
+        }
+    }
     private func read(_ reply: ConversationMessage) {
         guard let client = store.client, !voice.recording, !reply.text.isEmpty else { return }
         let scope = store.selectedEntity.map(SpeechScope.entity) ?? reply.runID.map(SpeechScope.run)
@@ -234,15 +292,7 @@ struct ChatScreen: View {
                 .quickLookPreview($attachments.preview)
         }
     }
-    private func microphone() {
-        guard store.canSend, !attachments.busy, !mediaLoading, let client = store.client else { return }
-        let context = store.contextID, session = store.sessionID
-        typing = false
-        Task {
-            if voice.recording { if let text = await voice.finish(client: client, sessionID: session, model: store.preferences.transcription), context == store.contextID, session == store.sessionID { draft = draft.isEmpty ? text : draft + " " + text } }
-            else { await voice.start() }
-        }
-    }
+
 }
 
 struct ConversationsSheet: View {
