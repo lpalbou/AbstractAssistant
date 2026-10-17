@@ -40,6 +40,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   music, sound) that ride each request without touching the gateway's shared defaults.
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
+- On your wrist: **AbstractAssistant for Apple Watch** (pre-release, TestFlight) talks to the same
+  gateway by voice around the orb, answers approvals and questions, continues your sessions and
+  runs your automations. See [watch/apple/README.md](watch/apple/README.md).
 
 ## Install
 
@@ -129,6 +132,7 @@ Start with [docs/README.md](docs/README.md).
 - [docs/faq.md](docs/faq.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/adr/README.md](docs/adr/README.md)
+- [watch/apple/README.md](watch/apple/README.md) — the Apple Watch app
 
 ## Development
 

@@ -336,6 +336,18 @@ public struct Attention: Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey { case pendingWaits = "pending_waits", unread, unseenCount = "unseen_count", cursor, items }
 }
 
+/// The occurrence in progress (`current_occurrence {index, run_id, attempt, status}`), nil when idle.
+public struct CurrentOccurrence: Codable, Hashable, Sendable {
+    public var index: Int?
+    public var runId: String?
+    public var attempt: Int?
+    public var status: String?
+    public init(index: Int? = nil, runId: String?, attempt: Int? = nil, status: String? = nil) {
+        self.index = index; self.runId = runId; self.attempt = attempt; self.status = status
+    }
+    enum CodingKeys: String, CodingKey { case index, runId = "run_id", attempt, status }
+}
+
 /// Row of `GET /api/gateway/automations` (verified on gateway 0.15, 2026-10-17): `automation_id`, `title`,
 /// `status`, `trigger {source_id, config {every | kind…}}`, `next_fire_at`, `last_occurrence`, `attention`,
 /// `context_mode`, `occurrence_count`. Older/mock rows use `id` and `name`; both are read.
@@ -352,10 +364,24 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     /// Display-only cadence pill used by the mock ("daily", "weekly", "on event").
     public var cadence: String?
     public var detail: String?
+    /// The trigger as the gateway stores it (`source_id`, `source_version`, `config`): `config.every`
+    /// ("12h") for a fixed interval, `config.kind` ("daily", "weekly", "monthly", "once") for a
+    /// calendar rule. A revision sends it back whole, with only what changed.
+    public var triggerSource: String?
+    public var triggerSourceVersion: Int?
+    public var triggerConfig: [String: JSONValue]?
+    /// The definition's revision: a change is sent with it, so a concurrent edit is refused, not lost.
+    public var revision: Int?
+    /// The run in progress right now (scheduled or Run now), nil when idle.
+    public var currentOccurrence: CurrentOccurrence?
+    public var every: String? { triggerConfig?["every"]?.stringValue }
 
     public init(id: String, name: String?, status: String?, scheduleText: String?, lastOccurrence: LastOccurrence?,
                 cadence: String? = nil, detail: String? = nil, nextFireAt: String? = nil, attention: Attention? = nil,
-                contextMode: String? = nil, occurrenceCount: Int? = nil) {
+                contextMode: String? = nil, occurrenceCount: Int? = nil, triggerSource: String? = nil,
+                triggerConfig: [String: JSONValue]? = nil, revision: Int? = nil, currentOccurrence: CurrentOccurrence? = nil) {
+        self.triggerSource = triggerSource; self.triggerConfig = triggerConfig; self.revision = revision
+        self.currentOccurrence = currentOccurrence
         self.id = id; self.name = name; self.status = status; self.scheduleText = scheduleText
         self.lastOccurrence = lastOccurrence; self.cadence = cadence; self.detail = detail
         self.nextFireAt = nextFireAt; self.attention = attention; self.contextMode = contextMode; self.occurrenceCount = occurrenceCount
@@ -364,8 +390,9 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, automationId = "automation_id", name, title, status, scheduleText = "schedule_text", lastOccurrence = "last_occurrence"
         case nextFireAt = "next_fire_at", attention, contextMode = "context_mode", occurrenceCount = "occurrence_count", trigger, cadence, detail
+        case revision, currentOccurrence = "current_occurrence"
     }
-    enum TriggerKeys: String, CodingKey { case sourceId = "source_id", config, summary }
+    enum TriggerKeys: String, CodingKey { case sourceId = "source_id", sourceVersion = "source_version", config, summary }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -382,6 +409,13 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
         occurrenceCount = try c.decodeIfPresent(Int.self, forKey: .occurrenceCount)
         cadence = try c.decodeIfPresent(String.self, forKey: .cadence)
         detail = try c.decodeIfPresent(String.self, forKey: .detail)
+        revision = try? c.decodeIfPresent(Int.self, forKey: .revision)
+        currentOccurrence = try? c.decodeIfPresent(CurrentOccurrence.self, forKey: .currentOccurrence)
+        if let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) {
+            triggerSource = try? t.decodeIfPresent(String.self, forKey: .sourceId)
+            triggerSourceVersion = try? t.decodeIfPresent(Int.self, forKey: .sourceVersion)
+            if case .object(let o)?? = try? t.decodeIfPresent(JSONValue.self, forKey: .config) { triggerConfig = o }
+        }
         var text = try c.decodeIfPresent(String.self, forKey: .scheduleText)
         if text == nil, let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) {
             let source = try t.decodeIfPresent(String.self, forKey: .sourceId) ?? ""
@@ -414,6 +448,38 @@ public struct AutomationSummary: Codable, Hashable, Sendable, Identifiable {
     }
     public var needsAttention: Bool { (attention?.pendingWaits ?? 0) > 0 || (attention?.unread ?? false) }
 }
+
+/// `GET /automations/{id}` → `{definition: {revision, title, target {bundle_ref, flow_id, input_data}}}`:
+/// what an edit needs beyond the list row. The task is `target.input_data.prompt`.
+public struct AutomationDefinition: Decodable, Sendable {
+    public var revision: Int?
+    public var title: String?
+    public var target: [String: JSONValue]?
+    public init(revision: Int?, title: String?, target: [String: JSONValue]?) {
+        self.revision = revision; self.title = title; self.target = target
+    }
+    public var prompt: String? { target?["input_data"]?["prompt"]?.stringValue }
+    /// The title after the task is edited: an automation named by its task (the title is the task,
+    /// or its first 120 characters) keeps that name in step; a title of its own is left alone (nil).
+    public static func title(afterTask newTask: String, oldTitle: String?, oldTask: String?) -> String? {
+        guard let t = oldTitle, let old = oldTask else { return nil }
+        let namedByTask = t == old || (t.count == 120 && old.hasPrefix(t))
+        return namedByTask ? String(newTask.prefix(120)) : nil
+    }
+
+    /// The target with a new task, everything else as committed (what the console's form sends).
+    public func target(withPrompt prompt: String) -> [String: JSONValue]? {
+        guard let t = target, case .object(var input)? = t["input_data"] else { return nil }
+        input["prompt"] = .string(prompt)
+        var out: [String: JSONValue] = ["input_data": .object(input)]
+        if let b = t["bundle_ref"] { out["bundle_ref"] = b }
+        if let f = t["flow_id"] { out["flow_id"] = f }
+        return out
+    }
+}
+
+struct AutomationDefinitionResponse: Decodable { var definition: AutomationDefinition }
+struct AutomationSummaryResponse: Decodable { var summary: AutomationSummary }
 
 public struct AutomationsPage: Codable, Sendable {
     public var items: [AutomationSummary]
@@ -546,6 +612,11 @@ public struct EntitySummary: Codable, Hashable, Sendable, Identifiable {
         } else if let age = extra["age"]?.stringValue { parts.append(age) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
+    /// How apps draw it (`appearance` on the gateway's entity row): `#rrggbb` and
+    /// planet | kitty | face | wave; nil when the entity has no look of its own.
+    public var appearanceColor: String? { extra["appearance"]?["color"]?.stringValue }
+    public var appearanceShape: String? { extra["appearance"]?["shape"]?.stringValue }
+
     public init(name: String, extra: [String: JSONValue] = [:]) { self.name = name; self.extra = extra }
     public init(from decoder: Decoder) throws {
         let all = try decoder.singleValueContainer().decode([String: JSONValue].self)

@@ -61,3 +61,56 @@ import Testing
     #expect(Responder(storageKey: nil) == .assistant)
     #expect(Responder.entity("castor").title == "Castor")
 }
+
+
+@Test func entityAppearanceIsReadFromTheRow() throws {
+    let page = try JSONDecoder().decode(EntitiesPage.self, from: Data(##"{"entities":[{"name":"vega","appearance":{"color":"#f59e0b","shape":"kitty"}},{"name":"aster"}]}"##.utf8))
+    #expect(page.entities[0].appearanceColor == "#f59e0b" && page.entities[0].appearanceShape == "kitty")
+    #expect(page.entities[1].appearanceColor == nil && page.entities[1].appearanceShape == nil)
+}
+
+/// The gateway 0.15 automation row: the trigger is kept whole (a revision sends it back with only
+/// `every` changed) and the revision travels with it.
+@Test func automationRowKeepsItsTriggerAndRevision() throws {
+    let json = ##"{"items":[{"automation_id":"07e9","title":"daily research","status":"active","revision":2,"context_mode":"growing","trigger":{"binding_id":"b","source_id":"schedule","source_version":1,"config":{"anchor":"2026-09-27T23:28:21Z","every":"12h"}},"next_fire_at":"2026-10-17T23:28:21Z"}],"next_cursor":null}"##
+    let page = try JSONDecoder().decode(AutomationsPage.self, from: Data(json.utf8))
+    let a = try #require(page.items.first)
+    #expect(a.every == "12h")
+    #expect(a.revision == 2)
+    #expect(a.triggerSource == "schedule")
+    #expect(a.triggerSourceVersion == 1)
+    #expect(a.triggerConfig?["anchor"]?.stringValue == "2026-09-27T23:28:21Z")
+}
+
+/// An edited task goes back inside the committed target: every other input (tools, model, workspace)
+/// unchanged, as the console's form sends it.
+@Test func editedTaskKeepsTheRestOfTheTarget() throws {
+    let json = ##"{"definition":{"revision":2,"title":"daily research","target":{"workflow_id":"w","bundle_ref":"basic-agent@0.0.5","flow_id":"81795ea9","input_data":{"prompt":"old task","tools":["web_search"],"model":"m"}}},"summary":{}}"##
+    let d = try JSONDecoder().decode(AutomationDefinitionResponse.self, from: Data(json.utf8)).definition
+    #expect(d.prompt == "old task")
+    #expect(d.revision == 2)
+    let t = try #require(d.target(withPrompt: "new task"))
+    #expect(t["input_data"]?["prompt"]?.stringValue == "new task")
+    #expect(t["input_data"]?["model"]?.stringValue == "m")
+    #expect(t["input_data"]?["tools"] == .array([.string("web_search")]))
+    #expect(t["bundle_ref"]?.stringValue == "basic-agent@0.0.5")
+    #expect(t["workflow_id"] == nil)   // the gateway refuses fields it resolves itself
+}
+
+/// `GET /automations/{id}` while an occurrence runs: `summary.current_occurrence` carries its run.
+@Test func runningAutomationCarriesItsRun() throws {
+    let json = ##"{"definition":{},"active_revision":2,"summary":{"automation_id":"07e9","title":"t","status":"active","current_occurrence":{"index":44,"run_id":"r-44","attempt":1,"status":"running"}}}"##
+    let a = try JSONDecoder().decode(AutomationSummaryResponse.self, from: Data(json.utf8)).summary
+    #expect(a.currentOccurrence?.runId == "r-44")
+    #expect(a.currentOccurrence?.index == 44)
+    let idle = ##"{"summary":{"automation_id":"07e9","status":"active","current_occurrence":null}}"##
+    #expect(try JSONDecoder().decode(AutomationSummaryResponse.self, from: Data(idle.utf8)).summary.currentOccurrence == nil)
+}
+
+/// An automation named by its task keeps its name in step with an edited task; its own title stays.
+@Test func titleFollowsTheTaskOnlyWhenItWasTheTask() {
+    #expect(AutomationDefinition.title(afterTask: "new task", oldTitle: "old task", oldTask: "old task") == "new task")
+    let long = String(repeating: "a", count: 150)
+    #expect(AutomationDefinition.title(afterTask: "b" + long, oldTitle: String(long.prefix(120)), oldTask: long) == String(("b" + long).prefix(120)))
+    #expect(AutomationDefinition.title(afterTask: "new task", oldTitle: "Morning digest", oldTask: "old task") == nil)
+}

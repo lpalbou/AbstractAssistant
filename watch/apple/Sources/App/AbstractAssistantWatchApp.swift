@@ -5,6 +5,7 @@ import SwiftUI
 struct AbstractAssistantWatchApp: App {
     @StateObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(OrbDesign.chosenKey) private var orbChosen = false
     private let options: LaunchOptions
 
     init() {
@@ -15,8 +16,13 @@ struct AbstractAssistantWatchApp: App {
         _model = StateObject(wrappedValue: model)
         // Answers that arrive while the app is not on screen come back as notifications.
         AnswerNotifier.shared.activate()
-        AnswerNotifier.shared.open = { [weak model] ref in model?.path = [.answer(ref)] }
-        AnswerNotifier.shared.openWaits = { [weak model] in model?.path = [.waits] }
+        // A tapped answer: when the orb is already on screen (it shows and speaks that answer),
+        // just come back to it; a second Ask page would show a still orb over the live one.
+        AnswerNotifier.shared.open = { [weak model] ref in
+            guard let model else { return }
+            switch model.path.last { case .ask, .answer: return; default: model.path = [.answer(ref)] }
+        }
+        AnswerNotifier.shared.openWait = { [weak model] w in model?.path = [w.kind == .askUser ? .askUser(w) : .approval(w)] }
     }
 
     var body: some Scene {
@@ -24,6 +30,9 @@ struct AbstractAssistantWatchApp: App {
             Group {
             if model.needsSignIn {
                 SignInView()
+            } else if !orbChosen {
+                // First launch, after sign-in: the orb is the assistant, so its look is the first choice.
+                NavigationStack { OrbStylePicker(onboarding: true) }
             } else {
             NavigationStack(path: $model.path) {
                 HomeView()
@@ -31,21 +40,22 @@ struct AbstractAssistantWatchApp: App {
                         switch route {
                         case .approval(let w): ApprovalView(wait: w)
                         case .askUser(let w): AskUserView(wait: w)
-                        case .approvalDone(let wf): ApprovalDoneView(workflow: wf)
                         case .draft(let w): DraftView(wait: w)
                         case .waits: WaitsView()
                         case .automation(let a): AutomationDetailView(automation: a)
+                        case .automationEdit(let a): AutomationEditView(automation: a)
+                        case .occurrence(let title, let o): OccurrenceView(title: title, occurrence: o)
                         case .ask(let phase): AskView(initialPhase: phase)
                         case .picker: ResponderPickerView()
                         case .sessions: SessionsView()
                         case .session(let s): SessionDetailView(session: s)
-                        case .run(let r): RunDetailView(run: r)
                         case .automations: AutomationsView()
                         case .settings: SettingsView()
-                        case .pairing: SignInView()
                         case .read(let item): ReadView(item: item)
+                        case .about: AboutView()
                         case .link(let url): LinkView(url: url)
                         case .answer(let ref): AskView(initialPhase: .idle, opening: ref)
+                        case .orbStyle: OrbStylePicker()
                         }
                     }
             }

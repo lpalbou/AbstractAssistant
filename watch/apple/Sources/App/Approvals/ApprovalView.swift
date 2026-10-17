@@ -2,20 +2,19 @@ import AbstractGatewayClient
 import SwiftUI
 import WatchKit
 
-/// One tool approval. What will run is the big text; the tool and its risk are the caption.
-/// Allow and Deny stay in the bottom bar, always reachable; Back is "later". "Allow all in this
-/// session" (from Ask, never for sends) sits behind the "…" button.
+/// One tool approval: what the assistant wants to do, in plain words, then what exactly (the
+/// command, the page, the recipient). Deny and Allow stay in the bottom bar; Back is "later".
+/// From a conversation a third icon allows all tools for the rest of it (never for sends).
 struct ApprovalView: View {
     let wait: Wait
     @EnvironmentObject private var model: AppModel
     @State private var sending = false
-    @State private var askAll = false
 
     private var call: ToolCallDetail? { wait.details?.first }
     private var command: String? { call?.arguments["command"]?.stringValue }
-    private var cwd: String? {
-        guard let p = call?.arguments["working_directory"]?.stringValue else { return nil }
-        return "…/" + p.split(separator: "/").suffix(2).joined(separator: "/")
+    private var folder: String? {
+        let a = call?.arguments
+        return (a?["working_directory"] ?? a?["cwd"])?.stringValue.flatMap { $0.split(separator: "/").last.map(String.init) }
     }
     private var outreach: Bool { model.isOutreach(wait) }
     private var destructive: Bool { model.isDestructive(wait) }
@@ -23,39 +22,27 @@ struct ApprovalView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 5) {
-                    Text(wait.toolName).font(.mono(.caption2, weight: .semibold)).foregroundStyle(Theme.text2)
-                        .lineLimit(1).truncationMode(.middle)
-                    tierPill
-                }
+                Text(wait.headline).font(.rounded(.headline)).foregroundStyle(destructive ? Theme.red : Theme.text).lineLimit(2)
                 if outreach { outreachCard } else { callCard }
-                HStack(spacing: 4) {
-                    Text(wait.workflow.map(Self.workflowName) ?? "run")
-                    if let askedAt = wait.askedAt { Text("· " + Self.ago(askedAt)) }
-                }
-                .font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1)
             }
+            .padding(.horizontal, 4)
         }
-        .screen(outreach ? "Send?" : "Allow?")
+        .screen("")
         .toolbar {
-            if model.approvalFromAsk && !outreach {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { askAll = true } label: { BarIcon(symbol: "ellipsis") }
-                        .tint(Theme.neutralButton)
-                        .accessibilityLabel("More choices")
-                }
-            }
             ToolbarItemGroup(placement: .bottomBar) {
                 Button { decide(.deny) } label: { BarIcon(symbol: "xmark") }
                     .tint(Theme.redButton)
                     .accessibilityLabel("Deny")
                     .disabled(sending)
                 allowButton
+                // From a conversation: allow every tool for the rest of it (sends still ask).
+                if model.approvalFromAsk && !outreach {
+                    Button { decide(.approve, trustSession: true) } label: { BarIcon(symbol: "checkmark.seal.fill") }
+                        .tint(Theme.indigoButton)
+                        .accessibilityLabel("Allow all tools in this session")
+                        .disabled(sending)
+                }
             }
-        }
-        .confirmationDialog("Allow every tool in this conversation? Sends still ask.", isPresented: $askAll) {
-            Button("Allow all in this session") { decide(.approve, trustSession: true) }
-            Button("Cancel", role: .cancel) {}
         }
         #if DEBUG
         .task {
@@ -71,23 +58,18 @@ struct ApprovalView: View {
     @ViewBuilder private var callCard: some View {
         VStack(alignment: .leading, spacing: 3) {
             if let command {
-                Text(command).font(.mono(.body, weight: .medium)).foregroundStyle(destructive ? Theme.red : Theme.text)
-                if let cwd { Text("in \(cwd)").font(.mono(.caption2)).foregroundStyle(Theme.muted).lineLimit(1) }
-            } else if let (key, value) = wait.primaryArgument {
+                Text(command).font(.mono(.footnote, weight: .medium)).foregroundStyle(destructive ? Theme.red : Theme.text2).lineLimit(6)
+                if let folder { Text("in \(folder)").font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1) }
+            } else if let (_, value) = wait.primaryArgument {
                 if let url = URL(string: value), url.scheme?.hasPrefix("http") == true {
                     Link(destination: url) {
                         Text(value).font(.mono(.footnote, weight: .medium)).foregroundStyle(Theme.cyan).underline()
                             .lineLimit(4).multilineTextAlignment(.leading)
                     }
                     .buttonStyle(.plain)
-                    Text("tap to read the page").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                 } else {
-                    Text(key).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
-                    Text(value).font(.mono(.body, weight: .medium)).foregroundStyle(Theme.text).lineLimit(5)
+                    Text(value).font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(5)
                 }
-            }
-            ForEach(wait.secondaryArguments, id: \.0) { key, value in
-                Text("\(key) \(value)").font(.mono(.caption2)).foregroundStyle(Theme.muted).lineLimit(2)
             }
         }
     }
@@ -101,7 +83,7 @@ struct ApprovalView: View {
                 Text(subject).font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(3)
             }
             NavigationLink(value: Route.draft(wait)) {
-                Label("Draft", systemImage: "doc.text").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
+                Label("Read the email", systemImage: "envelope.open").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
             }
             .buttonStyle(.plain)
         }
@@ -118,42 +100,41 @@ struct ApprovalView: View {
         if destructive || outreach { button } else { button.handGestureShortcut(.primaryAction) }
     }
 
-    @ViewBuilder private var tierPill: some View {
-        switch model.tier(of: wait) {
-        case "destroy": Pill(text: "can delete", color: Theme.red)
-        case "outreach": Pill(text: "sends", color: Theme.amber)
-        case "act": Pill(text: "acts", color: Theme.cyan)
-        case "observe": Pill(text: "reads", color: Theme.green)
-        default: if wait.isOutreach { Pill(text: "sends", color: Theme.amber) }
-        }
-    }
-
     private func decide(_ answer: WaitAnswer, trustSession: Bool = false) {
         sending = true
-        let fromAsk = model.approvalFromAsk
         Task {
             let ok = await model.answer(wait, with: answer)
             sending = false
-            guard ok else { return }
+            guard ok else {
+                if !model.waits.contains(where: { $0.id == wait.id }) { model.path.removeLast() }   // answered elsewhere
+                return
+            }
             model.markDecided(wait)
             if trustSession { model.trustSession() }
-            if fromAsk || answer != .approve {
-                model.path.removeLast()   // back to the orb (or wherever the approval was opened from)
-            } else {
-                model.path = [.approvalDone(workflow: wait.workflow ?? "run")]
-            }
+            model.path.removeLast()   // back where it was opened: the orb, Home or the list
         }
     }
+}
 
-    /// "basic-agent@0.0.5:81795ea9" → "basic agent".
-    static func workflowName(_ id: String) -> String {
-        let base = id.split(separator: "@").first.map(String.init) ?? id
-        return base.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
-    }
-
-    /// "now", "45 s ago", "3 min ago", "2 h ago", "4 d ago".
-    static func ago(_ d: Date) -> String {
-        let s = max(0, Int(Date().timeIntervalSince(d)))
-        return s < 5 ? "now" : s < 60 ? "\(s) s ago" : s < 3600 ? "\(s / 60) min ago" : s < 86_400 ? "\(s / 3600) h ago" : "\(s / 86_400) d ago"
+extension Wait {
+    /// What the assistant wants to do, in plain words.
+    var headline: String {
+        if kind == .askUser { return prompt ?? "A question for you" }
+        switch toolName {
+        case "execute_command", "shell_exec": return "Run a command"
+        case "send_email", "reply_email": return "Send an email"
+        case "send_telegram_message", "send_telegram_artifact": return "Send a Telegram message"
+        case "send_whatsapp_message": return "Send a WhatsApp message"
+        case "write_file": return "Write a file"
+        case "edit_file": return "Edit a file"
+        case "read_file", "skim_files": return "Read a file"
+        case "list_files", "search_files", "skim_folders": return "Look through your files"
+        case "fetch_url", "skim_url", "render_url_html": return "Open a web page"
+        case "web_search", "skim_websearch": return "Search the web"
+        case "read_email", "list_emails", "search_emails": return "Read your email"
+        default:
+            let w = toolName.replacingOccurrences(of: "_", with: " ")
+            return w.prefix(1).uppercased() + w.dropFirst()
+        }
     }
 }

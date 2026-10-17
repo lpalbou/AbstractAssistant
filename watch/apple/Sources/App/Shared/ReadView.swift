@@ -1,5 +1,6 @@
 import AbstractGatewayClient
 import SwiftUI
+import WatchKit
 
 /// A text and where its voice comes from: a run (the gateway's voice) or an entity (its own voice).
 struct ReadItem: Hashable {
@@ -8,8 +9,8 @@ struct ReadItem: Hashable {
     var scope: SpeechScope
 }
 
-/// Read aloud: the orb speaks with the voice (its size and glow follow the audio level),
-/// the text stays readable below, Stop or Read again.
+/// Read aloud: the orb speaks with the voice and fills the screen; the text is below on scroll.
+/// Tap the orb to pause or resume (or read again once done); beside Back, go back 10 seconds.
 struct ReadView: View {
     let item: ReadItem
     @EnvironmentObject private var model: AppModel
@@ -17,31 +18,48 @@ struct ReadView: View {
     @State private var started = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 8) {
-                // Tap the orb: pause, and tap again to resume exactly where it stopped.
-                Button { if speaker.isPaused { speaker.resume() } else if speaker.isActive { speaker.pause() } else { start() } } label: {
-                    Orb(mode: orbMode, size: 78, level: { speaker.level() })
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 6) {
+                    // Like Ask: the orb fills the screen and is the control (tap: pause, resume, read
+                    // again); the text is below, on scroll.
+                    ZStack(alignment: .bottom) {
+                        Orb(mode: orbMode, size: min(geo.size.width, geo.size.height + geo.safeAreaInsets.bottom), level: { speaker.level() }, look: lookOfVoice)
+                            .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.bottom)   // the text below starts off screen
+                            .contentShape(Rectangle())
+                            .onTapGesture(perform: orbTapped)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel(speaker.isActive ? "Pause" : speaker.isPaused ? "Resume" : "Read aloud")
+                        Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
+                            .lineLimit(1).shadow(color: .black, radius: 3)
+                            .padding(.bottom, geo.safeAreaInsets.bottom * 0.25)   // low, clear of the orb and the round corners
+                    }
+                    MarkdownText(item.text, font: .rounded(.body)).padding(.horizontal, 10)
                 }
-                .buttonStyle(.plain)
-                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                    Text(status).font(.rounded(.caption2)).foregroundStyle(statusColor)
-                        .multilineTextAlignment(.center).lineLimit(4)
-                }
-                if speaker.isActive || speaker.isPaused {
-                    Button("Stop") { speaker.stop() }
-                        .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton, foreground: Theme.text2))
-                } else {
-                    Button { start() } label: { Label(speaker.state == .idle ? "Read aloud" : "Read again", systemImage: "speaker.wave.2.fill") }
-                        .buttonStyle(FilledButtonStyle(fill: Theme.indigoButton))
-                }
-                Card { MarkdownText(item.text) }
             }
         }
-        .screen(item.title)
+        .screen("")            // like Ask: the orb is the screen
+        .overlay(alignment: .topLeading) {
+            rewindButton.padding(.leading, 56).padding(.top, 18).ignoresSafeArea()
+        }
         // Starts once: watchOS repeats onAppear (dimming, polling) and reading must go on with the
         // wrist down. Leaving the screen (Back) is what stops it.
         .onAppear { if !started { started = true; start() } }
+        #if DEBUG
+        .task {   // --test-rewind: rewind once mid-reading, once after it finished; positions printed
+            guard ProcessInfo.processInfo.arguments.contains("--test-rewind") else { return }
+            while speaker.playedSeconds == 0 { try? await Task.sleep(for: .milliseconds(100)) }
+            try? await Task.sleep(for: .milliseconds(600))
+            let before = speaker.position()
+            speaker.rewind(ProcessInfo.processInfo.arguments.contains("--rewind-1") ? 1 : 10)
+            print(String(format: "test-rewind playing: %.2f s -> %.2f s, state %@", before, speaker.position(), "\(speaker.state)"))
+            while speaker.state != .finished { try? await Task.sleep(for: .milliseconds(100)) }
+            let end = speaker.position()
+            speaker.rewind(10)
+            try? await Task.sleep(for: .milliseconds(400))
+            print(String(format: "test-rewind finished: %.2f s -> %.2f s, state %@", end, speaker.position(), "\(speaker.state)"))
+        }
+        #endif
         .task {
             guard model.testPause else { return }
             model.testPause = false
@@ -50,6 +68,37 @@ struct ReadView: View {
             try? await Task.sleep(for: .seconds(3)); speaker.resume()
         }
         .onChange(of: model.path) { _, path in if !path.contains(.read(item)) { speaker.stop() } }
+    }
+
+    private func orbTapped() {
+        if speaker.isPaused { speaker.resume() } else if speaker.isActive { speaker.pause() } else { start() }
+    }
+
+    /// Back 10 s, in the top bar beside Back (drawn over the page: a toolbar item there would
+    /// replace the Back button).
+    /// Once something has been spoken (the player clamps a rewind past the start to the start).
+    private var rewindable: Bool {
+        switch speaker.state {
+        case .idle, .failed: false
+        case .preparing: speaker.playedSeconds > 0
+        default: true
+        }
+    }
+
+    private var rewindButton: some View {
+        Button { speaker.rewind(10); WKInterfaceDevice.current().play(.click) } label: {
+            GlassIcon(symbol: "gobackward.10")
+        }
+        .buttonStyle(.plain)
+        .disabled(!rewindable)
+        .opacity(rewindable ? 1 : 0.4)
+        .accessibilityLabel("Back 10 seconds")
+    }
+
+    /// The orb of the voice that reads: the entity's own for an entity's text, else the Assistant's.
+    private var lookOfVoice: OrbLook {
+        if case .entity(let name) = item.scope { return model.look(for: .entity(name)) }
+        return .assistant
     }
 
     private func start() { speaker.read(item.text, scope: item.scope, client: model.client) }
@@ -64,12 +113,9 @@ struct ReadView: View {
 
     private var status: String {
         switch speaker.state {
-        case .idle: "stopped"
-        case .paused: "paused · " + Self.clock(speaker.position()) + " · tap the orb to resume"
-        case .preparing: speaker.playedSeconds > 0 ? "waiting for the next sentence…" : "preparing the voice…"
-        case .speaking: "reading · " + Self.clock(speaker.position()) + (speaker.receivedSeconds > 0 ? " / " + Self.clock(speaker.receivedSeconds) : "")
-        case .finished: "read · " + Self.clock(speaker.playedSeconds)
-        case .failed(let why): why
+        case .paused: "Paused"
+        case .failed: "Voice unavailable"
+        default: ""
         }
     }
 
@@ -78,19 +124,14 @@ struct ReadView: View {
         return speaker.state == .speaking ? Theme.cyan : Theme.muted
     }
 
-    private static func clock(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
 }
 
-/// "Read aloud" as a row under a text.
+/// "Read aloud": a small glass speaker beside a text's title.
 struct ReadAloudLink: View {
     let item: ReadItem
     var body: some View {
-        NavigationLink(value: Route.read(item)) {
-            Label("Read aloud", systemImage: "speaker.wave.2.fill")
-                .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
-                .frame(maxWidth: .infinity, minHeight: 34)
-                .background(Theme.cyan.opacity(0.1), in: RoundedRectangle(cornerRadius: 17))
-        }
-        .buttonStyle(.plain)
+        NavigationLink(value: Route.read(item)) { GlassIcon(symbol: "speaker.wave.2.fill") }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Read aloud")
     }
 }

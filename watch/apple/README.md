@@ -1,114 +1,109 @@
 # AbstractAssistant for Apple Watch
 
-**Your AI, everywhere. On your wrist.** A thin, secure client for your AbstractGateway.
+**Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Status: design proposal and buildable scaffold (2026-10-16). Nothing here is released. The watch
-app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns workflows,
-runs, tools, policy and speech; the watch owns nothing but a token and a cache.
+Version 0.2.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
+TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
-## Why a watch app
+The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
+workflows, runs, tools, policy and speech, and the watch keeps only your sign-in and what it shows.
+Everything you do on the watch is the same session you see on your Mac, in the terminal or in the
+browser.
 
-The gateway already makes runs durable and waits first-class: an agent stops at a tool approval or a
-question, the run is persisted, and the answer can come from any client. The desktop assistant,
-the terminal client and the browser render that wait today. The wrist is the one surface you carry
-when you are away from all three. So the watch app is not a chat app. It is the **decision and
-continuity surface** of your gateway:
+## What you can do
 
-- **Decide.** Approvals and questions reach your wrist with a haptic; you allow, deny or answer in
-  one tap, and the run continues on your Mac. Each answer is a ledger record with who and when.
-- **Ask.** A short question, dictated, becomes a run of your default agent workflow; the answer
-  comes back as text and can be spoken.
-- **Know.** Runs and automations at a glance, a complication that says "2 waiting for you".
-- **Continue.** Everything is the same session as on the Mac: "Continue on Mac" is not a hand-off,
-  it is the same run viewed from another client.
+**Talk to your assistant.** The orb is the assistant. Tap it and speak; tap again, or stop speaking
+for 3 seconds, to send. The gateway transcribes what you said, the answer appears under the orb in
+markdown, and the orb speaks it, swirling with its own voice. Tap the orb to pause and resume the
+voice. A small keyboard icon lets you type, dictate or scribble instead.
 
-## What it is not
+**Choose who answers.** "Assistant ⌄" at the top of the orb screen switches between:
 
-- Not a transcript browser, not a workflow editor, not a place to configure the gateway.
-- Not a model host: nothing runs on the watch; speech-to-text and text-to-speech run on the
-  gateway, through the run-scoped audio routes.
-- Not a replacement for the desktop assistant's hands-free loop.
+- **Assistant** — a one-shot agent: you ask, it works with its tools, it answers.
+- **Entities** — someone you keep talking with over time, who remembers. Each entity has its own
+  colour and shape (planet, kitty, face, wave), set on the gateway.
 
-## Where it lives and why
+**Decide what needs you.** When an agent wants to use a tool or asks a question, it appears on your
+wrist with a haptic:
 
-`abstractassistant/watch/apple/` inside the AbstractAssistant repository.
+- an approval says what the assistant wants to do ("Run a command", "Send an email") and exactly
+  what (the command, the page, the recipient and subject, the full email);
+- three icons answer it: deny, allow once, and, from a conversation, allow all tools for the rest
+  of that conversation (sends to other people always ask);
+- a question shows its choices, or takes your own answer.
 
-- One product, one identity, one documentation and backlog system. ADR 0001 (gateway-native thin
-  client) applies to the watch verbatim.
-- The folder name leaves room for parity: `watch/wearos/` later, and a shared Swift package can
-  move to `clients/swift/` the day a native iOS or macOS client appears.
-- The Swift sources are excluded from the Python sdist and wheel (`MANIFEST.in`,
-  `[tool.setuptools.packages.find]` only includes `abstractassistant*`). The watch app has its own
-  version (`MARKETING_VERSION` in `project.yml`) and its own release channel (TestFlight, App
-  Store), so the PyPI cadence is untouched.
-- A separate repository was considered and set aside: it would fragment identity and docs, add a
-  25th repository for one maintainer, and the only thing worth sharing (the Swift gateway client)
-  can be extracted later if two apps need it.
+**Pick up a conversation.** Sessions lists your conversations (Today, Yesterday, Earlier) with the
+number of exchanges and tools. Tap one to continue it on the orb; open its details to read its
+recent exchanges.
 
-## Scope by version
+**Follow your automations.** Each automation shows how often it runs and when it runs next
+("🕐 12h ➜ 6h"). Its page has:
 
-| Version | Ships | Needs from the gateway |
-|---|---|---|
-| 0.1 (this scaffold) | Waiting for you (tool approvals, outreach sends with the draft, questions), Ask by voice to the default assistant or to one of your entities (picker): tap the orb and speak, the gateway transcribes, the orb speaks the answer, the answer comes back as a notification when the app is not on screen; markdown answers, read aloud, links read in the app, Runs with counts, Automations with Run now, Settings. Foreground polling every 15 s, best-effort background refresh, haptics, Double Tap on safe approvals only. Sign-in with a pasted account token. | Nothing new. Uses `GET /api/gateway/runs?status=waiting` + `GET /runs/{id}`, `POST /api/gateway/commands`, `POST /api/gateway/runs/start`, `GET /api/gateway/entities` + `POST /entities/{name}/chat/open|turn`, `GET /api/gateway/automations`. |
-| 0.2 | Push notifications with Allow / Deny actions, pairing by short code with a per-device revocable token, Allow all in this run, risk tier on the approval card, voice in and out through the gateway, Smart Stack widget and corner complication, Siri "Ask my assistant". | Device pairing and per-device tokens; a notification bridge (APNs); risk tier and approve-all in the wait payload; session-scoped transcription. See the backlog track. |
-| 0.3 | Optional iPhone companion (pairing by QR, local notification relay), Wear OS parity study. | None beyond 0.2. |
+- Run now, on the schedule line; while it runs, you see what the agent is doing ("Searching the
+  web…", "Reading 4 web pages…"), you can stop it, and you can leave: a notification brings the
+  result;
+- the latest result in full, readable aloud by the orb;
+- Edit: the task, how often it runs, whether each run builds on the earlier ones, active or paused;
+- the earlier runs, five at first, any of them opened in full.
 
-## Reaching the gateway from a cellular watch
+**Get answers while away.** An answer that arrives after you left the app comes as a notification.
+New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
+approval can be allowed or denied from the notification itself.
 
-The gateway never terminates TLS and listens on loopback by default. A watch on cellular needs an
-HTTPS address: Tailscale Funnel, Cloudflare Tunnel, or a reverse proxy in front of a gateway set to
-the `internet` network mode, with accounts on. There is no Tailscale client for watchOS, so a
-tailnet-only address does not work away from the phone. On a LAN, plain HTTP works for development
-only, with an App Transport Security exception for local networking.
+**Read aloud.** Any answer or automation result can be read by the orb. Tap the orb to pause or
+resume; the rewind icon beside Back goes back 10 seconds.
 
-With Tailscale (Funnel enabled on the tailnet), the whole setup is:
+**Make it yours.** Settings → Orb style offers six orbs (Halo, Vortex, Nebula, Rings, Liquid,
+Galaxy), asked once at first launch. Settings → About shows the version and build of the app.
+
+## Sign in
+
+The first screen asks for your **user or email**, on `gateway.abstractframework.ai` by default (tap
+the server line to change it):
+
+- a user name asks for its account token;
+- a registered email receives an 8-digit one-time code from the gateway, which signs you in for
+  30 days.
+
+Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
+
+## Reaching your gateway from the watch
+
+The watch needs an HTTPS address for your gateway. A gateway on your Mac can be published with
+Tailscale Funnel, Cloudflare Tunnel or a reverse proxy, with accounts on and the gateway's network
+mode set to `internet`. There is no Tailscale client for watchOS, so a tailnet-only address does not
+work away from the phone. With Tailscale Funnel:
 
 ```sh
 abstractgateway network set --mode internet --acknowledge-internet   # or the console's Network page
-tailscale funnel 8080            # foreground: the public address exists while this runs
-tailscale funnel --bg 8080       # or persistent across logins; `tailscale funnel off` removes it
+tailscale funnel --bg 8080                                           # `tailscale funnel off` removes it
 curl https://<host>.<tailnet>.ts.net/api/health
 ```
 
-Funnel runs on the gateway machine, so the gateway believes its `X-Forwarded-For`: sign-in
-lockouts and the audit log see the real client address, and no loopback-only privilege leaks to
-the internet. Give the watch its own account (`POST /api/gateway/admin/users {user_id: "watch",
-roles: ["user"]}`, token shown once); never put the admin token on a watch.
+## Install
 
-## Design and prototype
+- **TestFlight.** Testers invited to the TestFlight build install it from the TestFlight app; the
+  watch app installs on the paired watch.
+- **From source.** Build and run in the simulator or on your own watch with Xcode: see
+  [BUILD.md](BUILD.md) and [docs/pairing.md](docs/pairing.md).
 
-- `docs/design.md` — screens, flows, interaction rules (haptics, Double Tap, what never happens
-  without a tap), states and error handling. The orb (`Sources/App/Shared/Orb.swift`) is the
-  assistant's presence: it breathes when idle, becomes a constellation of dots while listening, orbits while
-  thinking; `design/anim/orb-states.gif` shows the three states captured from the simulator.
-- `docs/architecture.md` — client architecture, API mapping, polling and push, security, the gaps
-  that need gateway work.
-- `design/screens/` — 16 screen mockups (PNG in a Series 11 46 mm frame, SVG sources) generated by
-  `design/make_screens.py`; `design/sheet.png` shows them all.
-- `design/prototype.html` — animated prototype of the three key flows (an approval arrives, ask by
-  voice, an automation result); `design/flows/*.gif` are the same flows as GIFs.
-- `../../docs/backlog/proposed/watch-apple/` — the backlog track.
+## Current limits
 
-## Build and run
+- No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
+  watchOS decides when background checks run.
+- Your sign-in is kept in the app's storage on the watch, not in a sealed store.
+- Risk levels come from the gateway's tool catalog; the approval itself does not carry one yet.
+- Editing long text is done in the watch's own text editor.
 
-Requires Xcode 27.1 with the watchOS 26 simulator and XcodeGen; a paired watch for the device build.
+## Documentation
 
-```sh
-cd watch/apple
-./scripts/build.sh                                   # generate, test the Swift package, build, run in the simulator, screenshot
-./scripts/deploy-watch.sh --env <file with GW_URL and GW_TOKEN>   # signed build, install on the paired watch, launch provisioned
-```
+- [docs/design.md](docs/design.md) — screens, flows and interaction rules.
+- [docs/architecture.md](docs/architecture.md) — components, the gateway calls behind each screen,
+  background behaviour and security.
+- [BUILD.md](BUILD.md) — build, test, run in the simulator and on a watch, App Store packaging.
+- [docs/pairing.md](docs/pairing.md) — pairing a physical watch for development.
+- [CHANGELOG.md](CHANGELOG.md) — release history of the watch app.
+- [../../docs/backlog/proposed/watch-apple/](../../docs/backlog/proposed/watch-apple/) — planned work.
 
-`docs/pairing.md` is the watchOS 27 pairing procedure; the app has run on a Series 11 against a
-local gateway through Tailscale Funnel and against gateway.abstractframework.ai.
-
-Launch arguments select the initial screen for screenshots (`--screen approval`) and the data
-source (`--mock`, the default in Debug). `scripts/run-live.sh [screen]` launches the installed
-simulator app in live mode against the gateway named in a private env file and captures a
-screenshot; `EXTRA="--test-action allow-first"` answers the first real wait, for an end-to-end
-check without a tap. See `BUILD.md` and `docs/architecture.md`.
-
-## Apple developer account
-
-Simulator builds and the Swift package tests need no account. A device build signs with an Apple
-developer team (`DEVELOPMENT_TEAM` in `project.yml`, automatic signing).
+The watch app is part of [AbstractAssistant](../../README.md) and of
+[AbstractFramework](https://abstractframework.ai). MIT License.

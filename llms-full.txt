@@ -28,6 +28,9 @@ Included files (in order):
 - ACKNOWLEDGMENTS.md
 - LICENSE
 - CHANGELOG.md
+- watch/apple/README.md
+- watch/apple/CHANGELOG.md
+- watch/apple/docs/architecture.md
 - pyproject.toml
 - abstractassistant/cli.py
 - abstractassistant/config.py
@@ -74,7 +77,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
 - [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary
 - [docs/backlog/overview.md](docs/backlog/overview.md): planned and proposed work
-- [watch/apple/README.md](watch/apple/README.md): Apple Watch client (not released): design with mockups and animated prototype, a working standalone watchOS app that runs on a paired watch against a gateway (`BUILD.md`, `docs/pairing.md`, `scripts/deploy-watch.sh`); backlog track `docs/backlog/proposed/watch-apple/`
+- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.2.0, pre-release through TestFlight), a watch-only watchOS 26+ client of the same gateway: voice Ask around the orb, approvals and questions, sessions, automations (run now with live progress, edit, earlier runs); [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
 
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
@@ -129,6 +132,9 @@ Tray / Palette / CLI -> AbstractGateway -> AbstractRuntime -> AbstractCore -> Pr
   music, sound) that ride each request without touching the gateway's shared defaults.
 - Per-answer statistics (tokens, tools, files, duration, model) with clickable detail views.
 - Multi-attachment composer with an image gallery, drag and drop, and artifact previews.
+- On your wrist: **AbstractAssistant for Apple Watch** (pre-release, TestFlight) talks to the same
+  gateway by voice around the orb, answers approvals and questions, continues your sessions and
+  runs your automations. See [watch/apple/README.md](watch/apple/README.md).
 
 ## Install
 
@@ -218,6 +224,7 @@ Start with [docs/README.md](docs/README.md).
 - [docs/faq.md](docs/faq.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/adr/README.md](docs/adr/README.md)
+- [watch/apple/README.md](watch/apple/README.md) — the Apple Watch app
 
 ## Development
 
@@ -260,7 +267,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
 - [backlog/overview.md](backlog/overview.md) — planned and proposed work
-- [../watch/apple/README.md](../watch/apple/README.md) — Apple Watch client: design proposal, mockups, animated prototype and buildable scaffold (not released; backlog track `proposed/watch-apple/`)
+- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.2.0, pre-release through TestFlight): voice around the orb, approvals and questions, sessions, automations; with its design, architecture, build guide and changelog
 
 ## Project
 
@@ -3537,6 +3544,301 @@ abstractassistant --config custom.toml # Custom config
 - CustomTkinter for modern UI components
 - pystray for cross-platform system tray
 - TOML libraries for configuration management
+
+--- watch/apple/README.md ---
+# AbstractAssistant for Apple Watch
+
+**Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
+
+Version 0.2.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
+TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
+
+The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
+workflows, runs, tools, policy and speech, and the watch keeps only your sign-in and what it shows.
+Everything you do on the watch is the same session you see on your Mac, in the terminal or in the
+browser.
+
+## What you can do
+
+**Talk to your assistant.** The orb is the assistant. Tap it and speak; tap again, or stop speaking
+for 3 seconds, to send. The gateway transcribes what you said, the answer appears under the orb in
+markdown, and the orb speaks it, swirling with its own voice. Tap the orb to pause and resume the
+voice. A small keyboard icon lets you type, dictate or scribble instead.
+
+**Choose who answers.** "Assistant ⌄" at the top of the orb screen switches between:
+
+- **Assistant** — a one-shot agent: you ask, it works with its tools, it answers.
+- **Entities** — someone you keep talking with over time, who remembers. Each entity has its own
+  colour and shape (planet, kitty, face, wave), set on the gateway.
+
+**Decide what needs you.** When an agent wants to use a tool or asks a question, it appears on your
+wrist with a haptic:
+
+- an approval says what the assistant wants to do ("Run a command", "Send an email") and exactly
+  what (the command, the page, the recipient and subject, the full email);
+- three icons answer it: deny, allow once, and, from a conversation, allow all tools for the rest
+  of that conversation (sends to other people always ask);
+- a question shows its choices, or takes your own answer.
+
+**Pick up a conversation.** Sessions lists your conversations (Today, Yesterday, Earlier) with the
+number of exchanges and tools. Tap one to continue it on the orb; open its details to read its
+recent exchanges.
+
+**Follow your automations.** Each automation shows how often it runs and when it runs next
+("🕐 12h ➜ 6h"). Its page has:
+
+- Run now, on the schedule line; while it runs, you see what the agent is doing ("Searching the
+  web…", "Reading 4 web pages…"), you can stop it, and you can leave: a notification brings the
+  result;
+- the latest result in full, readable aloud by the orb;
+- Edit: the task, how often it runs, whether each run builds on the earlier ones, active or paused;
+- the earlier runs, five at first, any of them opened in full.
+
+**Get answers while away.** An answer that arrives after you left the app comes as a notification.
+New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
+approval can be allowed or denied from the notification itself.
+
+**Read aloud.** Any answer or automation result can be read by the orb. Tap the orb to pause or
+resume; the rewind icon beside Back goes back 10 seconds.
+
+**Make it yours.** Settings → Orb style offers six orbs (Halo, Vortex, Nebula, Rings, Liquid,
+Galaxy), asked once at first launch. Settings → About shows the version and build of the app.
+
+## Sign in
+
+The first screen asks for your **user or email**, on `gateway.abstractframework.ai` by default (tap
+the server line to change it):
+
+- a user name asks for its account token;
+- a registered email receives an 8-digit one-time code from the gateway, which signs you in for
+  30 days.
+
+Give the watch its own gateway account with the `user` role; do not put an admin token on a watch.
+
+## Reaching your gateway from the watch
+
+The watch needs an HTTPS address for your gateway. A gateway on your Mac can be published with
+Tailscale Funnel, Cloudflare Tunnel or a reverse proxy, with accounts on and the gateway's network
+mode set to `internet`. There is no Tailscale client for watchOS, so a tailnet-only address does not
+work away from the phone. With Tailscale Funnel:
+
+```sh
+abstractgateway network set --mode internet --acknowledge-internet   # or the console's Network page
+tailscale funnel --bg 8080                                           # `tailscale funnel off` removes it
+curl https://<host>.<tailnet>.ts.net/api/health
+```
+
+## Install
+
+- **TestFlight.** Testers invited to the TestFlight build install it from the TestFlight app; the
+  watch app installs on the paired watch.
+- **From source.** Build and run in the simulator or on your own watch with Xcode: see
+  [BUILD.md](BUILD.md) and [docs/pairing.md](docs/pairing.md).
+
+## Current limits
+
+- No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
+  watchOS decides when background checks run.
+- Your sign-in is kept in the app's storage on the watch, not in a sealed store.
+- Risk levels come from the gateway's tool catalog; the approval itself does not carry one yet.
+- Editing long text is done in the watch's own text editor.
+
+## Documentation
+
+- [docs/design.md](docs/design.md) — screens, flows and interaction rules.
+- [docs/architecture.md](docs/architecture.md) — components, the gateway calls behind each screen,
+  background behaviour and security.
+- [BUILD.md](BUILD.md) — build, test, run in the simulator and on a watch, App Store packaging.
+- [docs/pairing.md](docs/pairing.md) — pairing a physical watch for development.
+- [CHANGELOG.md](CHANGELOG.md) — release history of the watch app.
+- [../../docs/backlog/proposed/watch-apple/](../../docs/backlog/proposed/watch-apple/) — planned work.
+
+The watch app is part of [AbstractAssistant](../../README.md) and of
+[AbstractFramework](https://abstractframework.ai). MIT License.
+
+--- watch/apple/CHANGELOG.md ---
+# Changelog — AbstractAssistant for Apple Watch
+
+The watch app has its own version (`MARKETING_VERSION` in `project.yml`) and its own release
+channel (TestFlight, then the App Store); the Python package's history is in
+[../../CHANGELOG.md](../../CHANGELOG.md).
+
+## [0.2.0] - 2026-10-17
+
+### Added
+
+- **Automations, on the wrist.** Each automation shows how often it runs and when it runs next in
+  one short line ("🕐 12h ➜ 6h"; a calendar rule reads Daily, Weekly or Monthly; Paused when
+  paused). Its page shows the latest result in full, with Read aloud, Edit and Run now.
+- **Run now with live progress.** While an automation runs, its page says what the agent is doing
+  now ("Thinking…", "Searching the web…", "Reading 4 web pages…") with a running time; the play
+  button becomes stop, the automations list shows a spinner on that automation, and a notification
+  brings the result if you leave the app.
+- **Edit an automation**: its task (the text field opens with the current task), how often it runs,
+  whether each run builds on the earlier ones, active or paused. An automation named by its task
+  keeps its name in step. A change made elsewhere meanwhile is refused instead of overwritten.
+- **Earlier runs**: an automation's past runs at the end of its page (five at first, then ten more
+  at a time), each opened in full and readable aloud.
+- **Orb styles**: six orbs (Halo, Vortex, Nebula, Rings, Liquid, Galaxy), chosen at first launch
+  and in Settings → Orb style. The orb fills the screen while it listens or speaks and swirls with
+  the voice; the app icon is the orb at rest.
+- **Entities have a look**: an entity's colour and shape (planet, kitty, face, wave), as set on the
+  gateway, give its orb.
+- **Rewind 10 seconds** while an answer is read aloud (the icon beside Back).
+- **Settings → About**: the app's version and build, and the AbstractFramework links.
+
+### Changed
+
+- **The orb screen.** "Assistant ⌄" (top left) chooses who answers, the Assistant (a one-shot
+  agent) or one of your entities (long-term discussions); a small keyboard icon (top right) types
+  instead of speaking. The answer appears under the orb and is spoken by it, on the same screen.
+- **Approvals** say what the assistant wants to do in plain words ("Run a command", "Send an
+  email") with exactly what (the command, the page, the email), and offer three icons: deny, allow
+  once and, from a conversation, allow all tools for the rest of it. Answering returns to where you
+  were.
+- **Plain words everywhere**: statuses ("Listening…", "Thinking…", "Needs you"), errors in one
+  short sentence, no internal identifiers on screen.
+- **Layout**: actions sit at the bottom of a screen that fits; sign-in fits one screen ("Sign in
+  with user or email" with the send arrow inside the field); every round icon has the size and
+  look of the Back button.
+- **Sessions**: a conversation's exchanges open their full answer; a running exchange can be
+  stopped from there.
+- **Notifications**: no notification while the answer is already on screen (even dimmed); tapping
+  an answer notification returns to the orb; a question notification opens the question.
+
+### Removed
+
+- The run steps screen and the "Allowed once" confirmation screen.
+
+## [0.1.0] - 2026-10-17
+
+First TestFlight build.
+
+- Ask by voice around the orb (tap to talk, 3 seconds of silence sends, tap to pause or resume the
+  spoken answer), with the gateway's speech-to-text and text-to-speech; markdown answers; links
+  read inside the app.
+- Approvals and questions from your agents, with per-conversation trust; email drafts in full
+  before a send.
+- Sessions with titles, resumed in one tap; automations with Run now.
+- Sign-in with a user and token, or a registered email and a one-time code.
+- Answers, approvals and questions as notifications while the app is closed; the app stays awake
+  while it listens, works or speaks.
+
+--- watch/apple/docs/architecture.md ---
+# Architecture: AbstractAssistant for Apple Watch
+
+The watch app follows ADR 0001 of this repository: the gateway is the authority for workflows,
+runs, tools, policy and speech; the watch holds a credential and what it shows, and every action it
+takes is a gateway request.
+
+```mermaid
+flowchart LR
+  subgraph Watch["Apple Watch (watchOS 26+, watch-only)"]
+    UI[SwiftUI screens]
+    Model[AppModel<br/>polling · haptics · state]
+    Media[Listener · Speaker<br/>microphone · voice playback]
+    BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
+    Kit[AbstractGatewayClient<br/>Swift package]
+    Store[(app storage<br/>gateway · credential)]
+    UI --> Model --> Kit
+    UI --> Media --> Kit
+    BG --> Kit
+    Kit --> Store
+  end
+  subgraph GW["AbstractGateway (HTTPS)"]
+    API[/api/gateway/*/]
+    Runs[(runs · ledgers · waits)]
+    Auto[automations]
+    Ent[entities]
+    Voice[speech-to-text · text-to-speech]
+    API --> Runs
+    API --> Auto
+    API --> Ent
+    API --> Voice
+  end
+  Kit -- "Bearer token, or session + CSRF" --> API
+  Other[Desktop assistant · terminal · browser] --> API
+```
+
+A wait answered on the watch is answered for every client; a question asked on the watch is a run
+in the same session pool as the desktop assistant's.
+
+## Components
+
+| Component | Responsibility |
+|---|---|
+| `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
+| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), the 15 s foreground poll, haptics, per-conversation trust. |
+| `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
+| `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
+| `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
+| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession, posts answers and waits as notifications, background refresh for new waits. |
+| `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
+| `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
+
+## Gateway calls behind each screen
+
+| Screen / action | Gateway call |
+|---|---|
+| Sign in with a token | `GET /api/gateway/me` (must name the account typed) |
+| Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
+| Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
+| Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
+| Allow all tools in this session | later approvals of the conversation's runs are answered by the watch; new runs carry `_runtime.tool_policy {auto_approve_max_risk_rank: 4, require_approval_tools: <send tools>}`; risk levels from `GET /api/gateway/discovery/tools` |
+| Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system}}`, then `GET /api/gateway/runs/{id}` |
+| Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
+| Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
+| Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`) |
+| Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, titles from `GET /api/gateway/runs/{id}/input_data` |
+| Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
+| Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
+| Run now / stop / pause / resume | `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now" \| "automation.stop_current" \| "automation.pause" \| "automation.resume"}` |
+| Edit an automation | `PATCH /api/gateway/automations/{id}` `{expected_revision, changes}` with only what changed (`title`, `target`, `trigger`, `context`); a stale revision is refused (409) |
+| Earlier runs | `GET /api/gateway/automations/{id}/occurrences?limit=` |
+| Live progress | `GET /api/gateway/runs/{id}/ledger?after=` on the occurrence's run and the child runs it starts |
+| Seen | `POST /api/gateway/automations/{id}/seen` `{attention_cursor}` |
+| Links | the page itself, fetched by the watch and shown as readable text |
+
+## Background and notifications
+
+- **On screen**: waits, sessions and automations every 15 s; a running Ask every second; a running
+  automation every 3 s and its steps every 2 s.
+- **Answers while away**: each Ask hands `GET /api/gateway/runs/{id}/ledger/stream` to a background
+  URLSession. watchOS keeps it open with the app suspended and wakes the app when the gateway
+  closes it; the app posts the answer as a notification. Run now does the same for an automation's
+  run. No notification is posted for an answer that is on screen.
+- **New waits while closed**: a background refresh, about every 15 minutes at the system's
+  discretion, posts each new approval or question once. An ordinary tool approval offers Allow
+  (the watch must be unlocked) and Deny; a send or a destructive call opens the app.
+- **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
+  from the tap that starts a turn until the voice ends.
+- **No push**: the gateway has no push channel; see the backlog track.
+
+## Security
+
+- The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the
+  credential.
+- The credential (an account token, or a 30-day session with its CSRF value) is kept in the app's
+  storage on the watch (`UserDefaults`), not in a sealed store; Sign out forgets it.
+- After a 401 the client sends nothing more (the gateway locks out an address after repeated
+  failures) and the app returns to the sign-in screen.
+- Transport is HTTPS; plain HTTP is accepted only for local-network addresses (development).
+- Nothing else is stored on the watch beyond the choices in Settings.
+
+## Gaps that need gateway work
+
+| Gap | Effect on the watch |
+|---|---|
+| No device pairing, one token per account | the watch signs in with an account token or an emailed code; rotating the token signs out every client |
+| No push channel | waits arrive on the next poll or background refresh, not within a second |
+| No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
+
+## Build and verification
+
+`scripts/build.sh` regenerates the Xcode project with XcodeGen, runs the Swift package tests,
+builds the app for the simulator, installs it and captures one screenshot per screen through the
+`--screen` launch argument. The `AbstractAssistantWatchUITests` scheme runs UI tests that need a
+real tap. See [../BUILD.md](../BUILD.md).
 
 --- pyproject.toml ---
 [build-system]
@@ -17989,6 +18291,9 @@ INCLUDED_FILES: list[str] = [
     "ACKNOWLEDGMENTS.md",
     "LICENSE",
     "CHANGELOG.md",
+    "watch/apple/README.md",
+    "watch/apple/CHANGELOG.md",
+    "watch/apple/docs/architecture.md",
     "pyproject.toml",
     "abstractassistant/cli.py",
     "abstractassistant/config.py",

@@ -7,7 +7,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
 packages:
   AbstractGatewayClient:
@@ -52,6 +52,24 @@ targets:
       configs:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+
+  # UI checks that need a real tap (e.g. a text field opens with its current text). Own scheme:
+  # the app's scheme, CI and the release archive do not build it.
+  AbstractAssistantWatchUITests:
+    type: bundle.ui-testing
+    platform: watchOS
+    sources: [UITests]
+    dependencies:
+      - target: AbstractAssistantWatch
+    scheme:
+      testTargets: [AbstractAssistantWatchUITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.abstractframework.assistant.watch.uitests
+        TEST_TARGET_NAME: AbstractAssistantWatch
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: K3R4D6HP2A
 
   # App Store / TestFlight carrier: a watch-only app ships inside an empty iOS container
   # (Xcode's watch-only template; product type watchapp2-container). It has no code and no UI;

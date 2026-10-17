@@ -26,7 +26,7 @@ struct MarkdownText: View {
         switch block {
         case .heading(let level, let text):
             Text(Self.inline(text))
-                .font(.rounded(level <= 1 ? .headline : level == 2 ? .subheadline : .footnote, weight: .bold))
+                .font(level <= 1 ? .rounded(.headline, weight: .bold) : font.bold())
                 .foregroundStyle(Theme.text).padding(.top, level <= 2 ? 3 : 1)
         case .paragraph(let text):
             Text(Self.inline(text)).font(font).foregroundStyle(Theme.text)

@@ -14,6 +14,11 @@ final class Speaker: NSObject, ObservableObject {
     @Published private(set) var playedSeconds: Double = 0
 
     private var queue: [Data] = []
+    /// Chunks already spoken, in order (rewind reaches back into them), and the one playing now.
+    private var history: [(data: Data, duration: Double)] = []
+    private var currentData: Data?
+    /// Where the next chunk starts (a rewind into the middle of an earlier chunk).
+    private var startAt: TimeInterval = 0
     private var player: AVAudioPlayer?
     private var streamDone = false
     private var task: Task<Void, Never>?
@@ -121,9 +126,46 @@ final class Speaker: NSObject, ObservableObject {
     func stop() {
         task?.cancel(); task = nil
         player?.stop(); player = nil
-        queue.removeAll()
+        queue.removeAll(); history.removeAll(); currentData = nil; startAt = 0
         if isActive || state == .paused { state = .idle }
         release()
+    }
+
+    /// Something has been spoken that a rewind can go back to.
+    var canRewind: Bool { position() > 0.5 || !history.isEmpty }
+
+    /// Goes back `seconds` in what was spoken (into earlier chunks if needed) and goes on from
+    /// there; paused stays paused at the new place, a finished reading speaks again from there.
+    func rewind(_ seconds: Double = 10) {
+        var back = seconds
+        if let p = player {
+            if p.currentTime >= back { p.currentTime -= back; trace("rewound within the chunk"); return }
+            back -= p.currentTime
+            p.stop(); player = nil
+            if let d = currentData { queue.insert(d, at: 0) }
+        }
+        currentData = nil
+        var offset: Double = 0
+        while let last = history.popLast() {
+            playedSeconds -= last.duration
+            queue.insert(last.data, at: 0)
+            if last.duration >= back { offset = last.duration - back; break }
+            back -= last.duration
+        }
+        playedSeconds = max(0, playedSeconds)
+        startAt = offset
+        guard !queue.isEmpty else { return }
+        if state == .paused {
+            loadNext(play: false)                        // ready at the new place; resume() plays it
+            return
+        }
+        if !isActive {                                   // finished (or stopped early): speak again
+            try? AVAudioSession.sharedInstance().setActive(true)
+            RuntimeKeeper.shared.hold(holder)
+            state = .preparing
+        }
+        trace("rewound \(seconds) s, starting \(String(format: "%.1f", offset)) s into an earlier chunk")
+        advanceIfIdle()
     }
 
     /// Seconds spoken so far, inside the current sentence too.
@@ -157,14 +199,22 @@ final class Speaker: NSObject, ObservableObject {
             }
             return
         }
+        loadNext(play: true)
+    }
+
+    /// The next chunk in the player (at `startAt`), playing or held for `resume()`.
+    private func loadNext(play: Bool) {
         let next = queue.removeFirst()
         do {
             let p = try AVAudioPlayer(data: next)
             p.isMeteringEnabled = true
             p.delegate = self
             p.prepareToPlay()
-            guard p.play() else { throw GatewayError.invalidResponse }
+            if startAt > 0 { p.currentTime = min(startAt, max(0, p.duration - 0.05)); startAt = 0 }
+            currentData = next
             player = p
+            guard play else { return }
+            guard p.play() else { throw GatewayError.invalidResponse }
             trace("playing \(String(format: "%.1f", p.duration)) s, route \(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portName))")
             if state != .speaking { state = .speaking; WKHaptic.start() }
         } catch {
@@ -176,6 +226,8 @@ final class Speaker: NSObject, ObservableObject {
     fileprivate func finishedChunk(_ p: AVAudioPlayer) {
         guard p === player else { return }
         playedSeconds += p.duration
+        if let d = currentData { history.append((d, p.duration)) }
+        currentData = nil
         trace("finished chunk, played \(String(format: "%.1f", playedSeconds)) s, peak level \(String(format: "%.2f", peak))")
         peak = 0
         player = nil

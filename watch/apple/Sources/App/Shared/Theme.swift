@@ -37,6 +37,47 @@ enum Theme {
     static func statusLabel(_ status: String) -> String { status == "completed" ? "done" : status }
 }
 
+extension Color {
+    /// "#rrggbb" (an entity's colour from the gateway); nil when malformed.
+    init?(hexString: String) {
+        var s = Substring(hexString.trimmingCharacters(in: .whitespaces))
+        if s.hasPrefix("#") { s = s.dropFirst() }
+        guard s.count == 6, s.allSatisfy(\.isHexDigit), let v = UInt32(s, radix: 16) else { return nil }
+        self.init(hex: v)
+    }
+}
+
+/// The layout rule for screens with actions: content from the top, actions pinned to the bottom
+/// when everything fits on one screen (a Spacer before the actions does it); a longer screen
+/// scrolls as usual, the actions after the content.
+struct FitScroll<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        GeometryReader { geo in
+            ScrollView {
+                content().frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+}
+
+/// A round button face like the system's Back button (same size, same fill): the discreet
+/// secondary controls (keyboard, ✕, read aloud, rewind, edit, run now).
+struct GlassIcon: View {
+    let symbol: String
+    var size: CGFloat = 35
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.45, weight: .semibold))
+            .foregroundStyle(Theme.text)
+            .frame(width: size, height: size)
+            .background(Color(red: 28 / 255, green: 28 / 255, blue: 38 / 255), in: Circle())   // the Back button's fill
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+            .contentShape(Circle())
+    }
+}
+
 /// A toolbar icon that stays readable: white glyph on a neutral glass tint (the app's indigo tint
 /// otherwise colours both the button and its glyph).
 struct BarIcon: View {
@@ -93,22 +134,23 @@ struct StatusDot: View {
 struct FilledButtonStyle: ButtonStyle {
     let fill: Color
     var foreground: Color = Theme.text
+    var font: Font = .rounded(.body, weight: .semibold)
+    var lines = 1
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.rounded(.body, weight: .semibold))
+            .font(font).lineLimit(lines).minimumScaleFactor(0.75)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12).padding(.vertical, 4)
             .foregroundStyle(foreground)
             .frame(maxWidth: .infinity, minHeight: 40)
             .background(fill.opacity(configuration.isPressed ? 0.7 : 1), in: Capsule())
+            .modifier(DimWhenDisabled())
     }
 }
 
-struct Footnote: View {
-    let text: String
-    var mono = false
-    var body: some View {
-        Text(text).font(mono ? .mono(.caption2) : .rounded(.caption2)).foregroundStyle(Theme.muted)
-            .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 4)
-    }
+private struct DimWhenDisabled: ViewModifier {
+    @Environment(\.isEnabled) private var enabled
+    func body(content: Content) -> some View { content.opacity(enabled ? 1 : 0.45) }
 }
 
 extension View {

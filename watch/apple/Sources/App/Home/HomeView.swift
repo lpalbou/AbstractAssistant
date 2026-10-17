@@ -8,11 +8,13 @@ struct HomeView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(spacing: 8) {
                 NavigationLink(value: Route.ask(.idle)) {
                     VStack(spacing: 2) {
-                        Orb(mode: .idle, size: 76, fps: 24)
+                        // Smaller when something needs you, so that card stays on the first screen.
+                        Orb(mode: .idle, size: model.waits.isEmpty ? 96 : 68, fps: 24, look: model.responderLook)
                         Text("Talk to \(model.responder.title)").font(.rounded(.footnote, weight: .medium)).foregroundStyle(Theme.text2)
                     }
                     .frame(maxWidth: .infinity)
@@ -27,16 +29,24 @@ struct HomeView: View {
                 if !model.waits.isEmpty { waitingCard }
                 NavigationLink(value: Route.sessions) {
                     row("Sessions", symbol: "bubble.left.and.bubble.right",
-                        detail: model.sessions.first.map { model.title(of: $0) } ?? "no conversation yet",
-                        badge: model.runningCount > 0 ? "\(model.runningCount) working" : nil, badgeColor: Theme.cyan)
+                        detail: model.sessions.first.map { model.title(of: $0) } ?? "None yet",
+                        badge: nil, badgeColor: Theme.cyan, count: model.runningCount, countLabel: "working")
                 }
                 .buttonStyle(.plain)
                 NavigationLink(value: Route.automations) {
                     row("Automations", symbol: "clock.arrow.circlepath", detail: automationDetail,
-                        badge: unseenCount > 0 ? "\(unseenCount) new" : nil, badgeColor: Theme.amber)
+                        badge: nil, badgeColor: Theme.amber, count: unseenCount, countLabel: "new")
                 }
                 .buttonStyle(.plain)
+                .id("bottom")
             }
+        }
+        #if DEBUG
+        .task {   // screenshots of the lower rows: --home-bottom
+            guard ProcessInfo.processInfo.arguments.contains("--home-bottom") else { return }
+            try? await Task.sleep(for: .seconds(1)); proxy.scrollTo("bottom", anchor: .bottom)
+        }
+        #endif
         }
         .screen("Assistant")
         .toolbar {
@@ -50,16 +60,16 @@ struct HomeView: View {
         .task {
             #if DEBUG
             if let url = model.testOpen { model.testOpen = nil; try? await Task.sleep(for: .seconds(2)); openURL(url) }
+            if ProcessInfo.processInfo.arguments.contains("--render-icon") { OrbIcon.render() }
             #endif
         }
     }
 
     /// Nothing while all is well: only connecting, offline, signed-out or a minute-old refresh.
     private var gatewayLine: (text: String, color: Color)? {
-        if model.client.isMock { return ("mock data", Theme.muted) }
+        if model.client.isMock { return nil }
         if let err = model.lastError { return (err, Theme.red) }
-        if model.connecting { return ("connecting to \(model.gatewayHost)…", Theme.amber) }
-        if let t = model.lastRefresh, Date().timeIntervalSince(t) > 60, let f = model.freshness { return (f, Theme.muted) }
+        if model.connecting { return ("Connecting…", Theme.amber) }
         return nil
     }
 
@@ -71,9 +81,8 @@ struct HomeView: View {
                 HStack(spacing: 8) {
                     Text("\(model.waits.count)").font(.rounded(.title2, weight: .bold)).foregroundStyle(Theme.amber)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(model.waits.count == 1 ? "needs you" : "need you").font(.rounded(.headline)).foregroundStyle(Theme.text)
-                        Text(first.kind == .askUser ? (first.prompt ?? "a question") : first.toolName)
-                            .font(.rounded(.caption2)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                        Text(model.waits.count == 1 ? "Needs you" : "Need you").font(.rounded(.headline)).foregroundStyle(Theme.text)
+                        Text(first.headline).font(.rounded(.caption2)).foregroundStyle(Theme.text2).lineLimit(1)
                     }
                     Spacer(minLength: 2)
                     Image(systemName: "chevron.right").foregroundStyle(Theme.amber)
@@ -83,16 +92,24 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
-    private func row(_ title: String, symbol: String, detail: String, badge: String?, badgeColor: Color) -> some View {
+    private func row(_ title: String, symbol: String, detail: String, badge: String?, badgeColor: Color, count: Int = 0, countLabel: String = "") -> some View {
         Card {
             HStack(spacing: 8) {
                 Image(systemName: symbol).font(.rounded(.body)).foregroundStyle(Theme.cyan).frame(width: 22)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.rounded(.headline)).foregroundStyle(Theme.text)
+                    Text(title).font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(1)
                     Text(detail).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 2)
                 if let badge { Pill(text: badge, color: badgeColor) }
+                // A count (new results, conversations working): just the number, in a round badge.
+                if count > 0 {
+                    Text("\(count)").font(.rounded(.caption2, weight: .bold)).monospacedDigit()
+                        .foregroundStyle(Theme.ground)
+                        .frame(minWidth: 20, minHeight: 20).padding(.horizontal, count > 9 ? 3 : 0)
+                        .background(badgeColor, in: Capsule())
+                        .accessibilityLabel("\(count) \(countLabel)")
+                }
             }
         }
     }
@@ -100,7 +117,7 @@ struct HomeView: View {
     private var unseenCount: Int { model.automations.reduce(0) { $0 + ($1.attention?.unseenCount ?? 0) } }
 
     private var automationDetail: String {
-        guard let a = model.automations.first else { return model.lastRefresh == nil ? "loading…" : "none yet" }
-        return a.name ?? a.id
+        guard let a = model.automations.first else { return model.lastRefresh == nil ? "" : "None yet" }
+        return a.name ?? "Automation"
     }
 }

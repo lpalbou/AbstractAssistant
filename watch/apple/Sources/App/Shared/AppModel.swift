@@ -3,9 +3,10 @@ import SwiftUI
 import WatchKit
 
 enum Route: Hashable {
-    case approval(Wait), askUser(Wait), approvalDone(workflow: String), draft(Wait), waits
-    case ask(AskView.Phase), picker, sessions, session(SessionSummary), run(RunSummary), automations, automation(AutomationSummary), settings, pairing
-    case read(ReadItem), link(URL), answer(AnswerRef)
+    case approval(Wait), askUser(Wait), draft(Wait), waits
+    case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), settings
+    case occurrence(title: String, LastOccurrence)
+    case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -72,6 +73,8 @@ final class AppModel: ObservableObject {
     var testPause = false
     /// `--test-approve once|all`: the next approval screen answers itself after 2 s (Allow once / Allow all in this session).
     var testApprove: String?
+    /// `--open-automation N`: opens the Nth live automation after the first refresh (screenshots of real data).
+    var testOpenAutomation: Int?
     static let pollInterval: Duration = .seconds(15)
 
     init(client: any GatewayClient, gatewayHost: String) {
@@ -117,6 +120,11 @@ final class AppModel: ObservableObject {
         path = []; signInNotice = notice; needsSignIn = true
     }
 
+    /// A fresher row for one automation (its page knows first that it runs or has finished).
+    func replaceAutomation(_ a: AutomationSummary) {
+        if let i = automations.firstIndex(where: { $0.id == a.id }) { automations[i] = a }
+    }
+
     /// Returns false when polling must stop (401: the gateway locks out by address).
     @discardableResult
     func refresh() async -> Bool {
@@ -141,7 +149,13 @@ final class AppModel: ObservableObject {
                 testRead = nil
                 path = [.read(ReadItem(title: "Read", text: text, scope: .run(run.runId)))]
             }
-            do { automations = try await client.automations() } catch { automationsError = error.localizedDescription }
+            do { automations = try await client.automations() } catch { automationsError = Self.say(error) }
+            #if DEBUG
+            if let i = testOpenAutomation, i < automations.count {
+                testOpenAutomation = nil
+                path = [.automations, .automation(automations[i])]
+            }
+            #endif
             await loadTitles()
             if tools.isEmpty, let list = try? await client.tools() {
                 tools = Dictionary(list.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
@@ -157,15 +171,15 @@ final class AppModel: ObservableObject {
                 #if DEBUG
                 print("test-action \(action): \(ok ? "sent" : "failed") for \(first.id)")
                 #endif
-                if ok { path = [.approvalDone(workflow: first.workflow ?? "run")] }
+                if ok { path = [] }
             }
             return true
         } catch GatewayError.unauthorized {
             // A revoked token or an ended session: back to the sign-in page, saying why.
-            signOut(notice: "You were signed out by the gateway (session ended or token revoked). Sign in again.")
+            signOut(notice: "You were signed out. Please sign in again.")
             return false
         } catch {
-            lastError = error.localizedDescription
+            lastError = Self.say(error)
             return true
         }
     }
@@ -179,11 +193,14 @@ final class AppModel: ObservableObject {
         } catch GatewayError.alreadyHandled {
             WKInterfaceDevice.current().play(.failure)
             waits.removeAll { $0.id == wait.id }
-            lastError = GatewayError.alreadyHandled.errorDescription
+            lastError = Self.say(GatewayError.alreadyHandled)
+            return false
+        } catch GatewayError.unauthorized {
+            signOut(notice: "You were signed out. Please sign in again.")
             return false
         } catch {
             WKInterfaceDevice.current().play(.failure)
-            lastError = error.localizedDescription
+            lastError = Self.say(error)
             return false
         }
     }
@@ -227,6 +244,29 @@ final class AppModel: ObservableObject {
     var approvalFromAsk: Bool {
         guard path.count >= 2 else { return false }
         switch path[path.count - 2] { case .ask, .answer: return true; default: return false }
+    }
+
+    /// The orb's look for a responder: the Assistant's own, or the entity's colour and shape. Until
+    /// the entities are loaded (launch) an entity shows the Assistant's look; a changed look shows
+    /// on the next entities load (the picker reloads them).
+    func look(for r: Responder) -> OrbLook {
+        guard case .entity(let name) = r, let e = entities.first(where: { $0.name == name }) else { return .assistant }
+        return OrbLook(color: e.appearanceColor.flatMap(Color.init(hexString:)),
+                       shape: e.appearanceShape.flatMap(OrbShape.init(rawValue:)) ?? .planet)
+    }
+    var responderLook: OrbLook { look(for: responder) }
+
+    /// Any error as one short sentence a person can act on (never a code or a server's text).
+    nonisolated static func say(_ error: Error) -> String {
+        switch error {
+        case GatewayError.unauthorized: "You were signed out. Please sign in again."
+        case GatewayError.alreadyHandled: "Already answered on another device."
+        case let e as URLError where [.notConnectedToInternet, .networkConnectionLost, .dataNotAllowed].contains(e.code): "No connection."
+        case is URLError: "Can't reach your assistant."
+        case let e as GatewaySignIn.Failure: e.errorDescription ?? "Sign-in failed. Try again."
+        case let e as GatewayError: e.errorDescription ?? "Something went wrong. Try again."
+        default: "Something went wrong. Try again."
+        }
     }
 
     func title(of s: SessionSummary) -> String { sessionTitles[s.id] ?? "Conversation" }
@@ -294,9 +334,9 @@ final class AppModel: ObservableObject {
             entities = try await client.entities()
             if case .entity(let name) = responder, !entities.contains(where: { $0.name == name }) {
                 setResponder(.assistant)
-                lastError = "\(name.capitalized) is not an entity of this account; asking the Assistant instead."
+                lastError = "\(name.capitalized) isn't available. Asking the Assistant."
             }
-        } catch { lastError = error.localizedDescription }
+        } catch { lastError = Self.say(error) }
     }
 
     /// One turn with an entity, opening its conversation on first use.
@@ -346,6 +386,13 @@ struct LaunchOptions {
         // Screenshot runs: never put the one-time notification question over the screen.
         if args.contains("--no-notification-prompt") { defaults.set(true, forKey: "notify.asked") }
         if args.contains("--forget-gateway") { SavedSignIn.clear(defaults) }
+        // Simulator previews: `--orb-design B` picks the orb design (the same key Settings writes).
+        if let d = value("--orb-design"), OrbDesign(rawValue: d.uppercased()) != nil {
+            defaults.set(d.uppercased(), forKey: OrbDesign.storageKey); defaults.set(true, forKey: OrbDesign.chosenKey)
+        }
+        // Screenshot runs never stop at the first-launch question; `--ask-orb` asks it again.
+        if args.contains("--mock") { defaults.set(true, forKey: OrbDesign.chosenKey) }
+        if args.contains("--ask-orb") { defaults.set(false, forKey: OrbDesign.chosenKey) }
         let saved = SavedSignIn.load(defaults)
         // Mock data only when asked (`--mock`: the simulator screenshots). Otherwise a saved
         // sign-in goes live, and without one the sign-in page shows.
@@ -380,6 +427,9 @@ struct LaunchOptions {
         if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "--test-approve"), i + 1 < ProcessInfo.processInfo.arguments.count {
             model.testApprove = ProcessInfo.processInfo.arguments[i + 1]
         }
+        if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "--open-automation"), i + 1 < ProcessInfo.processInfo.arguments.count {
+            model.testOpenAutomation = Int(ProcessInfo.processInfo.arguments[i + 1])
+        }
         #endif
         return model
     }
@@ -403,13 +453,17 @@ struct LaunchOptions {
         let ask = waits.first { $0.kind == .askUser }!
         switch screen {
         case "approval": return [.approval(approval)]
+        case "approval-ask": return [.ask(.idle), .approval(approval)]
         case "email": return [.approval(email)]
         case "draft": return [.approval(email), .draft(email)]
         case "picker": return [.ask(.idle), .picker]
         case "askuser": return [.askUser(ask)]
         case "waits": return [.waits]
         case "automation": return [.automations, .automation(MockGatewayClient.sampleAutomations[0])]
-        case "done": return [.approvalDone(workflow: approval.workflow ?? "run")]
+        case "automation-edit": return [.automations, .automation(MockGatewayClient.sampleAutomations[0]), .automationEdit(MockGatewayClient.sampleAutomations[0])]
+        case "occurrence":
+            let a = MockGatewayClient.sampleAutomations[0]
+            return [.automations, .automation(a), .occurrence(title: a.name ?? "", a.lastOccurrence!)]
         case "ask": return [.ask(.idle)]
         case "ask-entity": model.setResponder(.entity("castor"), persist: false); return [.ask(.idle)]
         case "listening": return [.ask(.listening)]
@@ -419,10 +473,10 @@ struct LaunchOptions {
         case "session":
             let s = SessionSummary.group(MockGatewayClient.sampleRuns)[1]
             return [.sessions, .session(s)]
-        case "run": return [.sessions, .run(MockGatewayClient.sampleRuns[1])]
         case "automations": return [.automations]
         case "settings": return [.settings]
-        case "pairing": return [.settings, .pairing]
+        case "orblab", "orbstyle": return [.settings, .orbStyle]
+        case "about": return [.settings, .about]
         case "read": return [.read(ReadItem(title: "Answer", text: MockGatewayClient.cannedAnswer, scope: .run("7c1e02aa")))]
         default: return []
         }

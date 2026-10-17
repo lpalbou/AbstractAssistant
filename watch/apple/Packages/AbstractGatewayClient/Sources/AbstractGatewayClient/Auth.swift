@@ -48,8 +48,8 @@ public enum GatewaySignIn {
     /// `POST /api/gateway/session/recovery/request` `{user_id: <id or registered email>}`.
     public static func requestCode(gateway: URL, identifier: String, session: URLSession = .shared) async throws -> CodeAnswer {
         let (data, status) = try await post(gateway, "api/gateway/session/recovery/request", ["user_id": identifier], session: session)
-        if status == 404 { return CodeAnswer(sent: false, message: detail(data) ?? "Sign-in by email is off on this gateway. Use your user name and token.", reasonCode: "recovery_off") }
-        guard (200..<300).contains(status) else { throw Failure.refused(detail(data) ?? "The gateway answered \(status).") }
+        if status == 404 { return CodeAnswer(sent: false, message: "Email sign-in is off. Use your user name.", reasonCode: "recovery_off") }
+        guard (200..<300).contains(status) else { throw Failure.refused("Sign-in failed. Try again.") }
         return try JSONDecoder().decode(CodeAnswer.self, from: data)
     }
 
@@ -63,10 +63,10 @@ public enum GatewaySignIn {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["user_id": identifier, "code": code, "remember": true] as [String: Any])
         let data: Data, resp: URLResponse
-        do { (data, resp) = try await s.data(for: req) } catch { throw Failure.unreachable(error.localizedDescription) }
-        guard let http = resp as? HTTPURLResponse else { throw Failure.unreachable("No answer from the gateway.") }
+        do { (data, resp) = try await s.data(for: req) } catch { throw Failure.unreachable("Can't reach the server.") }
+        guard let http = resp as? HTTPURLResponse else { throw Failure.unreachable("Can't reach the server.") }
         guard (200..<300).contains(http.statusCode) else {
-            throw Failure.refused(detail(data) ?? "That code was not accepted.")
+            throw Failure.refused("Wrong or expired code.")
         }
         let headers = http.allHeaderFields.reduce(into: [String: String]()) { out, kv in
             if let k = kv.key as? String, let v = kv.value as? String { out[k] = v }
@@ -74,7 +74,7 @@ public enum GatewaySignIn {
         let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
         guard let sid = cookies.first(where: { $0.name == "abstractgateway_session" })?.value,
               let csrf = cookies.first(where: { $0.name == "abstractgateway_csrf" })?.value else {
-            throw Failure.refused("The gateway accepted the code but opened no session.")
+            throw Failure.refused("Sign-in failed. Try again.")
         }
         let principal = try JSONDecoder().decode(Principal.self, from: data)
         return (.session(id: sid, csrf: csrf), principal)
@@ -86,13 +86,13 @@ public enum GatewaySignIn {
         req.timeoutInterval = 20
         GatewayCredential.token(token).apply(to: &req, write: false)
         let data: Data, resp: URLResponse
-        do { (data, resp) = try await session.data(for: req) } catch { throw Failure.unreachable(error.localizedDescription) }
+        do { (data, resp) = try await session.data(for: req) } catch { throw Failure.unreachable("Can't reach the server.") }
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        if status == 401 { throw Failure.refused("This token was not accepted. After five wrong tries the gateway pauses sign-ins from this address for a while.") }
-        guard (200..<300).contains(status) else { throw Failure.refused(detail(data) ?? "The gateway answered \(status).") }
+        if status == 401 { throw Failure.refused("Wrong token.") }
+        guard (200..<300).contains(status) else { throw Failure.refused("Sign-in failed. Try again.") }
         let me = try JSONDecoder().decode(Principal.self, from: data)
         if let id = me.userId, id.lowercased() != user.lowercased() {
-            throw Failure.refused("This token belongs to \(id), not \(user).")
+            throw Failure.refused("This token is for \(id).")
         }
         return me
     }
@@ -105,7 +105,7 @@ public enum GatewaySignIn {
         do {
             let (data, resp) = try await session.data(for: req)
             return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
-        } catch { throw Failure.unreachable(error.localizedDescription) }
+        } catch { throw Failure.unreachable("Can't reach the server.") }
     }
 
     /// FastAPI's `detail`, a string or `{message}`.

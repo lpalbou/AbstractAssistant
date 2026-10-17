@@ -23,7 +23,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
 - [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary
 - [docs/backlog/overview.md](docs/backlog/overview.md): planned and proposed work
-- [watch/apple/README.md](watch/apple/README.md): Apple Watch client (not released): design with mockups and animated prototype, a working standalone watchOS app that runs on a paired watch against a gateway (`BUILD.md`, `docs/pairing.md`, `scripts/deploy-watch.sh`); backlog track `docs/backlog/proposed/watch-apple/`
+- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.2.0, pre-release through TestFlight), a watch-only watchOS 26+ client of the same gateway: voice Ask around the orb, approvals and questions, sessions, automations (run now with live progress, edit, earlier runs); [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
 
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style

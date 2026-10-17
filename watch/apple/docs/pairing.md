@@ -1,10 +1,10 @@
 # Pairing a physical Apple Watch for development (watchOS 27)
 
-What it took to get the app onto a Series 11 on watchOS 27.0.1 from Xcode 27.1 on macOS 27.0.1,
-on 2026-10-17, after three hours of a watch that "did not exist". The whole procedure is five
-minutes once the order is right. Everything here was read in the Mac's unified log
-(`/usr/bin/log stream --predicate 'process == "remotepairingd" OR process == "CoreDeviceService"'`;
-the `log` word alone is a zsh builtin and prints nothing).
+How to pair an Apple Watch on watchOS 27 with Xcode 27.1 on macOS 27 for development (tested with a
+Series 11). The procedure takes about five minutes when the steps are followed in order. To see
+what the Mac does while pairing, follow its unified log:
+`/usr/bin/log stream --predicate 'process == "remotepairingd" OR process == "CoreDeviceService"'`
+(the bare word `log` is a zsh builtin and prints nothing).
 
 ## How the Mac reaches a watch
 
@@ -34,11 +34,10 @@ A watch is never on the cable. Xcode reaches it two ways, and watchOS 26+ change
 5. **Watch → tap the Mac → Pair**: a six-digit PIN shows on the watch; type it into the Mac's
    sheet. The watch becomes a CoreDevice ("Connected", with its own identifier).
 6. **Verify from a shell**: `xcrun devicectl list devices` lists the watch with a CoreDevice
-   identifier (`6CA9…` style, not the `00008310-…` UDID). Save it to
-   `untracked/watch/.secrets/watch-device-id.txt`; `scripts/deploy-watch.sh` reads it.
+   identifier (`6CA9…` style, not the `00008310-…` UDID). `scripts/deploy-watch.sh` reads it from
+   `WATCH_DEVICE`.
 
-Tailscale on the phone, Mac or watch has nothing to do with any of this; it was switched off during
-the investigation and switched back on afterwards without effect.
+A VPN such as Tailscale on the phone, the Mac or the watch plays no part in pairing.
 
 ## Signing
 
@@ -55,16 +54,9 @@ need the debugger: `scripts/deploy-watch.sh` builds signed, installs with
 passing the gateway URL and token as launch arguments so nothing is typed on the wrist:
 
 ```sh
-scripts/deploy-watch.sh --env ../../../untracked/watch/.secrets/public-gateway.env   # GW_URL + GW_TOKEN
+scripts/deploy-watch.sh --env <file with GW_URL and GW_TOKEN>
 scripts/deploy-watch.sh --no-build --screen settings --shoot settings                # relaunch + screenshot
 scripts/deploy-watch.sh --no-build --forget                                          # clear the saved pairing
 ```
 
 Screenshots of the real watch: `xcrun devicectl device capture screenshot --device <id> --destination x.png`.
-
-## What did not matter
-
-Updating watchOS, macOS and Xcode (all done during the investigation) changed nothing; the
-missing step was always the Mac-side beacon (step 3) that makes the Developer Mode row appear on
-the watch. The three `defaults write com.apple.remotepairing …` keys tried along the way were
-removed afterwards; they were not what made it work.

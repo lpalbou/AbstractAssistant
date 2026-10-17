@@ -1,119 +1,114 @@
 # Architecture: AbstractAssistant for Apple Watch
 
 The watch app follows ADR 0001 of this repository: the gateway is the authority for workflows,
-runs, tools, policy and speech; the client holds a credential and a cache, and every action it
-takes is a gateway request that becomes a ledger record.
+runs, tools, policy and speech; the watch holds a credential and what it shows, and every action it
+takes is a gateway request.
 
 ```mermaid
 flowchart LR
-  subgraph Watch["Apple Watch (watchOS 26, standalone)"]
-    UI[SwiftUI views]
-    Model[AppModel\npolling · haptics · cache]
-    Kit[AbstractGatewayClient\nSwift package]
-    KC[(Keychain\nbase_url · token)]
+  subgraph Watch["Apple Watch (watchOS 26+, watch-only)"]
+    UI[SwiftUI screens]
+    Model[AppModel<br/>polling · haptics · state]
+    Media[Listener · Speaker<br/>microphone · voice playback]
+    BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
+    Kit[AbstractGatewayClient<br/>Swift package]
+    Store[(app storage<br/>gateway · credential)]
     UI --> Model --> Kit
-    Kit --> KC
+    UI --> Media --> Kit
+    BG --> Kit
+    Kit --> Store
   end
-  subgraph Net["Reachability"]
-    LAN[LAN http\n(development)]
-    TLS[HTTPS endpoint\nTailscale Funnel · Cloudflare Tunnel · reverse proxy]
-  end
-  subgraph GW["AbstractGateway"]
+  subgraph GW["AbstractGateway (HTTPS)"]
     API[/api/gateway/*/]
-    Runs[(runs · ledgers\nwaits · artifacts)]
+    Runs[(runs · ledgers · waits)]
     Auto[automations]
-    Voice[run-scoped STT / TTS]
+    Ent[entities]
+    Voice[speech-to-text · text-to-speech]
     API --> Runs
     API --> Auto
+    API --> Ent
     API --> Voice
   end
-  Kit -- Bearer token --> LAN --> API
-  Kit -- Bearer token --> TLS --> API
-  Mac[Desktop assistant · terminal · browser] --> API
+  Kit -- "Bearer token, or session + CSRF" --> API
+  Other[Desktop assistant · terminal · browser] --> API
 ```
 
-The desktop assistant, the terminal client and the browser talk to the same gateway. A wait
-answered on the watch is answered for all of them; a question asked on the watch is a run in the
-same session pool.
+A wait answered on the watch is answered for every client; a question asked on the watch is a run
+in the same session pool as the desktop assistant's.
 
 ## Components
 
-| Component | Responsibility | Notes |
-|---|---|---|
-| `Sources/App` (SwiftUI) | Screens and navigation; no networking | One `NavigationStack`, screens as in `design.md` |
-| `AppModel` (`@MainActor`) | Holds the client, the cached state (waits, runs, automations), the polling loop, haptics | Polls every 15 s while active; stops on 401 |
-| `AbstractGatewayClient` (SwiftPM) | Typed, async `URLSession` client: models, endpoints, SSE follow, resume commands | Platforms watchOS, iOS, macOS so a future native client reuses it; tested with `swift test` on macOS |
-| `MockGatewayClient` | The same protocol with canned data | Default in Debug and for screenshots |
-| Keychain | `base_url`, `user_id`, token | Never logged, never exported |
-| WidgetKit extension (0.2) | Smart Stack widget and corner complication | Reads a shared snapshot written by the app |
-| Notification service (0.2) | Actionable approval notifications | Needs APNs and a gateway notification bridge |
+| Component | Responsibility |
+|---|---|
+| `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
+| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), the 15 s foreground poll, haptics, per-conversation trust. |
+| `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
+| `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
+| `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
+| `AnswerNotifier` | Hands a run's ledger stream to a background URLSession, posts answers and waits as notifications, background refresh for new waits. |
+| `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
+| `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
 
-## API mapping (0.1)
-
-All calls carry `Authorization: Bearer <token>`; none use cookies or CSRF.
+## Gateway calls behind each screen
 
 | Screen / action | Gateway call |
 |---|---|
-| Reachability, sign-in check | `GET /api/health`, `GET /api/gateway/me` |
-| Waiting for you | `GET /api/gateway/runs?status=waiting` (active-run index, cheap) and `GET /api/gateway/automations` (`attention.pending_waits`) |
-| Approval card | the run detail's `waiting` block: `{reason: "user", wait_key: "tool_approval:<run>:act:<hash>", details: {mode: "approval_required", tool_calls: [{name, arguments}]}}`; the list row carries only `waiting.reason`, and the approval lives on the agent's child run (the root waits on `subworkflow`) |
-| Allow once / Deny | `POST /api/gateway/commands` `{command_id, run_id, type: "resume", payload: {wait_key, payload: {approved: true|false}}}` |
-| Question | wait `kind: ask_user` with `prompt`, `choices`; answer `payload: {response}` |
-| Ask | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id?, input_data: {prompt, use_session_history: true}}` |
-| Thinking | `GET /api/gateway/runs/{id}` (`status`, `waiting`, `output`) on a 2 s poll; SSE `GET /api/gateway/runs/{id}/ledger/stream?after=N` when the connection allows |
-| Cancel | `POST /api/gateway/commands` `{type: "cancel"}` |
-| Runs | `GET /api/gateway/runs?root_only=true&limit=20` |
-| Automations, Run now | `GET /api/gateway/automations`, `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now"}`, `GET .../occurrences?limit=1`, `POST .../seen` |
-| Voice (0.2) | `POST /api/gateway/attachments/upload` then `POST /api/gateway/runs/{id}/audio/transcribe`; `GET /api/gateway/runs/{id}/voice/tts/stream` |
+| Sign in with a token | `GET /api/gateway/me` (must name the account typed) |
+| Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
+| Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
+| Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
+| Allow all tools in this session | later approvals of the conversation's runs are answered by the watch; new runs carry `_runtime.tool_policy {auto_approve_max_risk_rank: 4, require_approval_tools: <send tools>}`; risk levels from `GET /api/gateway/discovery/tools` |
+| Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system}}`, then `GET /api/gateway/runs/{id}` |
+| Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
+| Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
+| Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`) |
+| Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, titles from `GET /api/gateway/runs/{id}/input_data` |
+| Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
+| Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
+| Run now / stop / pause / resume | `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now" \| "automation.stop_current" \| "automation.pause" \| "automation.resume"}` |
+| Edit an automation | `PATCH /api/gateway/automations/{id}` `{expected_revision, changes}` with only what changed (`title`, `target`, `trigger`, `context`); a stale revision is refused (409) |
+| Earlier runs | `GET /api/gateway/automations/{id}/occurrences?limit=` |
+| Live progress | `GET /api/gateway/runs/{id}/ledger?after=` on the occurrence's run and the child runs it starts |
+| Seen | `POST /api/gateway/automations/{id}/seen` `{attention_cursor}` |
+| Links | the page itself, fetched by the watch and shown as readable text |
 
-The assistant interface `abstractassistant.agent.v1` is used when the gateway reports a default
-workflow for it; otherwise the watch uses `abstractcode.agent.v1`, which every gateway serves.
+## Background and notifications
 
-Verified live on 2026-10-16 through Tailscale Funnel: the app listed a real tool approval, sent the
-`resume` command, and the gateway ledger recorded it; the run completed with the tool's output.
-Before answering, the client re-reads the run and refuses to send when the wait key changed
-(answered elsewhere): a stale approval never resumes another step.
-
-## Polling, push and budgets
-
-- Foreground: waits and runs every 15 s; the thinking screen polls its run every 2 s. watchOS
-  suspends the app seconds after the wrist drops, so the loop is restarted on every activation.
-- Background: `WKApplicationRefreshBackgroundTask` runs at the system's discretion (typically a few
-  times per hour). It refreshes the widget snapshot and posts a local notification for a new wait.
-  It is best-effort and is not the plan for approvals.
-- Push (0.2): approvals and failures as APNs notifications with Allow once / Deny actions. The
-  gateway has no push channel today; the plan is a small notification bridge that watches
-  `runs?status=waiting` and automation attention for a user and forwards to APNs, with the device
-  token registered against the user. The email channel ("Approval needed") works today as an
-  interim: the mail arrives on the phone and mirrors to the watch, and the app opens the wait.
-- Rate and lockout: the gateway locks out an address after repeated failed sign-ins and caps SSE
-  connections. The client never retries a 401, backs off on 5xx, and holds at most one SSE stream.
+- **On screen**: waits, sessions and automations every 15 s; a running Ask every second; a running
+  automation every 3 s and its steps every 2 s.
+- **Answers while away**: each Ask hands `GET /api/gateway/runs/{id}/ledger/stream` to a background
+  URLSession. watchOS keeps it open with the app suspended and wakes the app when the gateway
+  closes it; the app posts the answer as a notification. Run now does the same for an automation's
+  run. No notification is posted for an answer that is on screen.
+- **New waits while closed**: a background refresh, about every 15 minutes at the system's
+  discretion, posts each new approval or question once. An ordinary tool approval offers Allow
+  (the watch must be unlocked) and Deny; a send or a destructive call opens the app.
+- **Keep awake**: `WKExtendedRuntimeSession` (`WKBackgroundModes: self-care`, up to 10 minutes)
+  from the tap that starts a turn until the voice ends.
+- **No push**: the gateway has no push channel; see the backlog track.
 
 ## Security
 
-- The token is stored in the Keychain with `kSecAttrAccessibleAfterFirstUnlock`; the app never
-  writes it to logs or crash reports.
-- Transport is HTTPS; a LAN `http://` address is accepted only in Debug with the local-networking
-  App Transport Security exception.
-- The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the token.
-- 0.1 uses the account token, which is shared with the desktop assistant. Rotating it signs out
-  every client. 0.2 moves to a per-device, revocable token minted by a short pairing code entered
-  in the console; see the backlog track.
-- Nothing is stored on the watch beyond the last snapshot of waits, runs and automations.
+- The watch sends no `user_id` or `tenant_id`: the gateway derives the principal from the
+  credential.
+- The credential (an account token, or a 30-day session with its CSRF value) is kept in the app's
+  storage on the watch (`UserDefaults`), not in a sealed store; Sign out forgets it.
+- After a 401 the client sends nothing more (the gateway locks out an address after repeated
+  failures) and the app returns to the sign-in screen.
+- Transport is HTTPS; plain HTTP is accepted only for local-network addresses (development).
+- Nothing else is stored on the watch beyond the choices in Settings.
 
 ## Gaps that need gateway work
 
-| Gap | Effect on the watch | Backlog |
-|---|---|---|
-| No device pairing, one token per account | 0.1 pastes the account token; rotation signs out the Mac | 0013 |
-| No push channel | approvals arrive on the next poll, not within a second | 0014 |
-| Wait payload has no risk tier, no "approve all in this run" | the card cannot show `Destructive` from the payload; Double Tap stays off; long-press is disabled | 0015 |
-| Transcription is run-scoped | the Ask screen must start a run before it can transcribe audio; a session-scoped route would avoid the empty first run | 0016 |
+| Gap | Effect on the watch |
+|---|---|
+| No device pairing, one token per account | the watch signs in with an account token or an emailed code; rotating the token signs out every client |
+| No push channel | waits arrive on the next poll or background refresh, not within a second |
+| No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
 
 ## Build and verification
 
-`scripts/build.sh` regenerates the Xcode project with XcodeGen, runs the Swift package tests on
-macOS, builds the app for the simulator without signing, installs and launches it on
-"Apple Watch Series 11 (46mm)", and captures one screenshot per screen through the `--screen`
-launch argument. A device compile (`generic/platform=watchOS`) checks that nothing simulator-only
-leaked in. The `.xcodeproj` is generated and not committed.
+`scripts/build.sh` regenerates the Xcode project with XcodeGen, runs the Swift package tests,
+builds the app for the simulator, installs it and captures one screenshot per screen through the
+`--screen` launch argument. The `AbstractAssistantWatchUITests` scheme runs UI tests that need a
+real tap. See [../BUILD.md](../BUILD.md).

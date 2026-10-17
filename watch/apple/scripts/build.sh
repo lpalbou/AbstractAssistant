@@ -8,7 +8,7 @@ SIM="${SIM:-Apple Watch Series 11 (46mm)}"
 SIM_ID="$(xcrun simctl list devices available | grep -F "$SIM (" | head -1 | grep -oE '[0-9A-F]{8}-[0-9A-F-]{27}')"
 [ -n "$SIM_ID" ] || { echo "no simulator named $SIM (xcrun simctl list devices)"; exit 1; }
 BUNDLE=ai.abstractframework.assistant.watch
-SCREENS=(home approval email draft askuser ask ask-entity picker listening thinking answer sessions session run automations automation settings signin read waits)
+SCREENS=(home approval email draft askuser ask ask-entity picker listening thinking answer sessions session automations automation settings orbstyle signin read waits)
 t() { date +%s; }
 
 T0=$(t)

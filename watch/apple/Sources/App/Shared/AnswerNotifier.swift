@@ -26,7 +26,7 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
     static let allowAction = "assistant.allow"
     static let denyAction = "assistant.deny"
     /// Opens the waits on screen (set by the app).
-    var openWaits: (@MainActor () -> Void)?
+    var openWait: (@MainActor (Wait) -> Void)?
 
     /// Opens an answer in the app (set by the app; called on the main actor).
     var open: (@MainActor (AnswerRef) -> Void)?
@@ -96,7 +96,9 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
         let state = await MainActor.run { WKApplication.shared().applicationState }
         let skip: Bool = lock.withLock {
             if notified.contains(key) { return true }
-            if state == .active && showing == key { return true }
+            // On screen (even dimmed, wrist down): the orb shows and speaks it; only a person who
+            // left the app gets the notification.
+            if state != .background && showing == key { return true }
             notified.insert(key); return false
         }
         if skip { trace("not posted for \(key.prefix(8)) (already notified or on screen)"); return }
@@ -140,13 +142,13 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
             content.sound = .default
             if w.kind == .askUser {
                 content.title = "A question for you"
-                content.body = w.prompt ?? "Open to answer."
-                content.categoryIdentifier = Self.reviewCategory
+                content.body = w.prompt ?? ""
+                // No category: a question has no Allow or Deny; a tap opens it.
             } else {
                 let tier = tiers[w.toolName] ?? ""
                 let risky = tier == "outreach" || tier == "destroy" || tier.isEmpty || w.isOutreach
-                content.title = tier == "outreach" || w.isOutreach ? "Send?" : "Allow \(w.toolName)?"
-                content.body = w.primaryArgument.map { "\($0.key): \($0.value)" } ?? w.toolName
+                content.title = w.headline + "?"
+                content.body = w.recipient.map { [$0, w.subject].compactMap { $0 }.joined(separator: " · ") } ?? w.primaryArgument?.value ?? ""
                 content.categoryIdentifier = risky ? Self.reviewCategory : Self.approvalCategory
             }
             if let data = try? JSONEncoder().encode(w) { content.userInfo = ["wait": String(decoding: data, as: UTF8.self)] }
@@ -192,8 +194,8 @@ final class AnswerNotifier: NSObject, @unchecked Sendable {
         guard run.isTerminal || run.status == "waiting" else { rewatch(w); return }
         let text: String
         if let out = run.outputText, !out.isEmpty { text = out }
-        else if run.status == "waiting" { text = "Waiting for you: open to decide." }
-        else { text = run.error ?? "The run ended (\(run.status))." }
+        else if run.status == "waiting" { text = "I need your OK to continue." }
+        else { text = "I couldn't finish this one." }
         await deliver(key: w.runId, title: w.title, ref: AnswerRef(runId: w.runId, prompt: w.prompt), answer: text)
     }
 }
@@ -244,7 +246,7 @@ extension AnswerNotifier: UNUserNotificationCenterDelegate {
                 let client = LiveGatewayClient(baseURL: saved.gateway, credential: saved.credential)
                 try? await client.answer(w, with: response.actionIdentifier == Self.allowAction ? .approve : .deny)
             case UNNotificationDismissActionIdentifier: break
-            default: await MainActor.run { self.openWaits?() }
+            default: await MainActor.run { self.openWait?(w) }
             }
             return
         }

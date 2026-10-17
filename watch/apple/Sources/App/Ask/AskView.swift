@@ -25,9 +25,7 @@ struct AskView: View {
     @State private var answerEntity: String?
     @State private var error: String?
     @State private var note: String?
-    @State private var step: String?
     @State private var transcribing = false
-    @State private var ledgerCursor = 0
     @State private var listenSince: Date?
     /// An approval or question opened from here and not yet decided (Back keeps it pending).
     @State private var pendingWait: Wait?
@@ -36,11 +34,6 @@ struct AskView: View {
     private let opening: AnswerRef?
 
     private static let demoPrompt = "Compare overall survival by treatment arm in the ADTTE I sent you"
-    /// Ledger effect types in words for the status line; unknown types show nothing.
-    private static let stepWords: [String: String] = [
-        "llm_call": "thinking", "tool_calls": "using a tool", "start_subworkflow": "starting",
-        "ask_user": "has a question", "wait_event": "waiting", "wait_until": "waiting", "answer_user": "answering",
-    ]
 
     init(initialPhase: Phase = .idle, opening: AnswerRef? = nil) {
         self.opening = opening
@@ -58,82 +51,110 @@ struct AskView: View {
     }
 
     var body: some View {
-        VStack(spacing: 4) {
-            header
-            Orb(mode: orbMode, size: phase == .answer ? 58 : 104, level: orbLevel, countdown: orbCountdown, since: listenSince)
-                .contentShape(Circle())
-                .onTapGesture(perform: orbTapped)
-                // Hold: talk now, even while it speaks or is paused (cut in).
-                .onLongPressGesture(minimumDuration: 0.5) { if phase == .answer { startListening() } }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(orbHint)
-            Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
-                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
-            if phase == .answer, !answer.isEmpty {
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if !prompt.isEmpty {
-                            Text(prompt).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1)
+                    VStack(spacing: 6) {
+                        // The orb fills the screen, centred in what is visible; everything else is below.
+                        ZStack(alignment: .bottom) {
+                            Orb(mode: orbMode, size: min(geo.size.width, geo.size.height + geo.safeAreaInsets.bottom), level: orbLevel, countdown: orbCountdown,
+                                since: listenSince, look: orbLook)
+                                .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.bottom)   // the text below starts off screen
+                                .contentShape(Rectangle())
+                                .onTapGesture(perform: orbTapped)
+                                // Hold: talk now, even while it speaks or is paused (cut in).
+                                .onLongPressGesture(minimumDuration: 0.5) { if phase == .answer { startListening() } }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityLabel(orbHint)
+                            Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
+                                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
+                                .shadow(color: .black, radius: 3)
+                                .padding(.bottom, geo.safeAreaInsets.bottom * 0.25)   // low, clear of the orb and the round corners
                         }
-                        MarkdownText(answer, font: .rounded(.body))
-                        if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red) }
-                        // After the answer, not over it: type a reply, or start a new conversation.
-                        HStack(spacing: 6) {
-                            keyboardLink.buttonStyle(.bordered)
-                            Button { newConversation() } label: { BarIcon(symbol: "square.and.pencil") }
-                                .buttonStyle(.bordered)
-                                .accessibilityLabel("New conversation")
+                        // One row, centred on one line: who answers left, the input icon right.
+                        .overlay(alignment: .top) {
+                            HStack(alignment: .center) { responderSwitch; Spacer(minLength: 4); inputButton }
+                                .offset(y: -12)        // snug under the Back button and the time
                         }
-                        .padding(.top, 4)
+                        .id("orb")
+                        below
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } else {
-                if !prompt.isEmpty, phase == .thinking {
-                    Text(prompt).font(.rounded(.footnote)).foregroundStyle(Theme.text2)
-                        .multilineTextAlignment(.center).lineLimit(3)
-                }
-                if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red).multilineTextAlignment(.center).lineLimit(3) }
-                Spacer(minLength: 0)
+                // Nothing below the orb yet (no question, no answer): the page does not move.
+                .scrollDisabled(!hasBelow)
+                .onChange(of: phase) { _, _ in withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("orb", anchor: .top) } }
             }
         }
-        .padding(.horizontal, 4)
         .background(Theme.ground)
-        .navigationTitle(phase == .answer ? "Answer" : "Ask")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { bottomBar }
         .task { await onOpen() }
         .onChange(of: model.path) { _, path in pathChanged(path) }
+        // "New conversation" (in the Assistant ⌄ choice): this screen starts empty.
+        .onChange(of: model.askSessionId) { _, _ in if model.resuming == nil { clearConversation() } }
         // The run on screen (followed or answered) is never also posted as a notification while active.
         .onChange(of: runId) { _, id in AnswerNotifier.shared.setShowing(id) }
     }
 
+    /// Below the orb (scroll): what you said, the answer, the controls, who answers.
+    private var hasBelow: Bool {
+        (!prompt.isEmpty && phase != .idle && phase != .listening) || (phase == .answer && !answer.isEmpty) || model.sessionTrusted
+    }
+
+    private var below: some View {
+        VStack(alignment: .leading, spacing: 6) { belowContent }.padding(.horizontal, 10)
+    }
+
+    @ViewBuilder private var belowContent: some View {
+        if !prompt.isEmpty, phase != .idle, phase != .listening {
+            Text(prompt).font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+                .frame(maxWidth: .infinity, alignment: .leading).lineLimit(3)
+        }
+        if phase == .answer, !answer.isEmpty {
+            MarkdownText(answer, font: .rounded(.body))
+        }
+        if model.sessionTrusted {
+            Label("Tools allowed", systemImage: "checkmark.seal.fill")
+                .font(.rounded(.caption2)).foregroundStyle(Theme.green.opacity(0.85))
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+        }
+    }
+
     // MARK: - Pieces
 
-    /// Who answers (one tap to change) and, when granted, the session's trust.
-    private var header: some View {
-        HStack(spacing: 4) {
-            NavigationLink(value: Route.picker) {
-                HStack(spacing: 3) {
-                    Text(model.responder.title).font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.cyan)
-                    Image(systemName: "chevron.down").font(.caption2).foregroundStyle(Theme.muted)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(phase == .thinking || phase == .listening)
-            Spacer()
-            if model.sessionTrusted {
-                Label("Trusted", systemImage: "checkmark.seal.fill").labelStyle(.titleAndIcon)
-                    .font(.rounded(.caption2)).foregroundStyle(Theme.green.opacity(0.85))
-                    .accessibilityLabel("Every tool in this conversation runs without asking, except sends")
+    /// The other input, top left: a tiny glass keyboard (dictation, Scribble, keyboard); while the orb
+    /// listens, works or speaks the same button is ✕ (stop or cancel). The orb itself is the voice.
+    @ViewBuilder private var inputButton: some View {
+        Group {
+            if busy {
+                Button(action: cancel) { GlassIcon(symbol: "xmark") }
+                    .accessibilityLabel(phase == .listening ? "Stop listening" : phase == .thinking ? "Cancel" : "Stop the voice")
+            } else {
+                keyboardLink
             }
         }
+        .buttonStyle(.plain)
+        .padding(.trailing, 6)
+    }
+
+    /// Who answers, top right under the clock: "Assistant ⌄", one tap opens the choice.
+    private var responderSwitch: some View {
+        NavigationLink(value: Route.picker) {
+            HStack(spacing: 3) {
+                Text(model.responder.title).font(.rounded(.headline, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Image(systemName: "chevron.down").font(.rounded(.caption2, weight: .bold))
+            }
+            .foregroundStyle(phase == .thinking || phase == .listening ? Theme.muted : Theme.text)
+            .padding(.leading, 8)
+        }
+        .buttonStyle(.plain)
+        .disabled(phase == .thinking || phase == .listening)
+        .accessibilityLabel("Talking to \(model.responder.title). Choose who answers")
     }
 
     /// The watch's text input (dictation, Scribble, keyboard) behind one keyboard icon.
     private var keyboardLink: some View {
         TextFieldLink(prompt: Text("Ask \(model.responder.title)")) {
-            BarIcon(symbol: "keyboard")
+            GlassIcon(symbol: "keyboard")
         } onSubmit: { text in
             let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !t.isEmpty { speaker.stop(); send(t) }
@@ -141,21 +162,9 @@ struct AskView: View {
         .accessibilityLabel("Type or dictate")
     }
 
-    /// Not in the answer state: the bar would cover the answer's first lines; the orb replies and
-    /// pauses there, and the keyboard and New follow the answer.
-    @ToolbarContentBuilder private var bottomBar: some ToolbarContent {
-        ToolbarItemGroup(placement: .bottomBar) {
-            if phase == .answer {
-                EmptyView()
-            } else if busy {
-                Button(action: cancel) { BarIcon(symbol: "xmark") }
-                    .tint(Theme.neutralButton)
-                    .accessibilityLabel(phase == .listening ? "Stop listening" : phase == .thinking ? "Cancel" : "Stop the voice")
-            } else {
-                keyboardLink.tint(Theme.neutralButton)
-            }
-        }
-    }
+    /// The orb of whoever answers: the entity that wrote the answer on screen (it may not be the
+    /// responder now selected), else the selected responder.
+    private var orbLook: OrbLook { answerEntity.map { model.look(for: .entity($0)) } ?? model.responderLook }
 
     private var busy: Bool { phase == .listening || (phase == .thinking && pendingWait == nil) || speaker.isActive }
 
@@ -195,26 +204,24 @@ struct AskView: View {
     }
 
     private var status: String {
+        if let error { return error }
         if let note { return note }
         switch phase {
-        case .idle: return "Tap and speak"
-        case .listening: return listener.heardSpeech ? "Listening · tap to send" : "Listening…"
-        case .thinking:
-            if pendingWait != nil { return "Waiting for you · tap the orb" }
-            if transcribing { return "Writing it down…" }
-            return step.map { "Working · \($0)" } ?? "Working…"
+        case .idle: return "Tap to talk"
+        case .listening: return "Listening…"
+        case .thinking: return pendingWait != nil ? "Needs you" : "Thinking…"
         case .answer:
             switch speaker.state {
-            case .preparing: return "Finding the voice…"
-            case .speaking: return "Tap to pause · hold to reply"
-            case .paused: return "Paused · tap to resume"
-            case .failed(let why): return why
-            default: return "Tap to reply"
+            case .preparing, .speaking: return ""
+            case .paused: return "Paused"
+            case .failed: return "Voice unavailable"
+            default: return ""
             }
         }
     }
 
     private var statusColor: Color {
+        if error != nil { return Theme.red }
         if case .failed = speaker.state, phase == .answer { return Theme.red }
         switch phase {
         case .listening: return Theme.cyan
@@ -284,12 +291,12 @@ struct AskView: View {
                 let text = try await model.client.transcribe(wav: wav, sessionId: model.askSessionId)
                 guard mine == turn else { return }
                 transcribing = false
-                if text.isEmpty { phase = back; note = "I couldn't make out any words"; RuntimeKeeper.shared.release("ask"); return }
+                if text.isEmpty { phase = back; note = "I didn't catch that"; RuntimeKeeper.shared.release("ask"); return }
                 send(text)
             } catch {
                 guard mine == turn else { return }
                 transcribing = false; phase = back
-                self.error = "Transcription failed: \(error.localizedDescription)"
+                self.error = "I couldn't hear that."
                 RuntimeKeeper.shared.release("ask")
             }
         }
@@ -299,13 +306,12 @@ struct AskView: View {
         RuntimeKeeper.shared.hold("ask")
         turn += 1
         let mine = turn
-        prompt = text; answer = ""; error = nil; note = nil; step = nil; runId = nil; answerEntity = nil; pendingWait = nil
+        prompt = text; answer = ""; error = nil; note = nil; runId = nil; answerEntity = nil; pendingWait = nil
         phase = .thinking; transcribing = false
         Task {
             do {
                 switch model.responder {
                 case .assistant:
-                    ledgerCursor = 0
                     let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: model.runToolPolicy)
                     guard mine == turn else {
                         // Cancelled (or left) while the run was starting: stop it on the gateway too.
@@ -318,22 +324,29 @@ struct AskView: View {
                     let reply = try await model.entityTurn(name, text: text)
                     guard mine == turn else { return }
                     answerEntity = name
-                    show(reply.isEmpty ? "(no reply)" : reply)
-                    if scenePhase != .active {
+                    if reply.isEmpty { fail("No answer.") } else { show(reply) }
+                    if scenePhase == .background {   // wrist down, app still in front: the orb speaks it
                         await AnswerNotifier.shared.deliver(key: "entity-\(name)-\(Int(Date().timeIntervalSince1970))", title: model.responder.title,
                                                             ref: AnswerRef(text: answer, entity: name, prompt: text), answer: answer)
                     }
                 }
             } catch {
                 guard mine == turn else { return }
-                self.error = error.localizedDescription
-                phase = answer.isEmpty ? .idle : .answer
-                RuntimeKeeper.shared.release("ask")
+                fail(Self.human(error))
             }
         }
     }
 
-    /// Polls GET /runs/{id} (and its ledger, for the step line) until the run ends or needs a person.
+    /// A turn that ends without an answer: one short line in the status, the last answer kept.
+    private func fail(_ message: String) {
+        error = message
+        phase = answer.isEmpty ? .idle : .answer
+        RuntimeKeeper.shared.release("ask")
+    }
+
+    static func human(_ e: Error) -> String { AppModel.say(e) }
+
+    /// Polls GET /runs/{id} until the run ends or needs a person.
     /// A transient network error is retried (a watch's radio drops); 401/404 end it.
     private func follow(_ id: String, turn mine: Int) async throws {
         let interval: Duration = model.client.isMock ? .milliseconds(120) : .seconds(1)
@@ -348,12 +361,6 @@ struct AskView: View {
                 if failures >= 8 { throw error }
                 try await Task.sleep(for: .seconds(2)); continue
             }
-            if let page = try? await model.client.ledger(runId: id, after: ledgerCursor) {
-                ledgerCursor = page.nextAfter ?? (ledgerCursor + page.items.count)
-                if let last = page.items.last(where: { $0.status != "completed" || $0.effectType != nil }) {
-                    step = Self.stepWords[last.effectType ?? ""] ?? (last.status == "waiting" ? "waiting" : nil)
-                }
-            }
             guard mine == turn else { return }
             if run.status == "waiting" {
                 // The turn needs a person (approval/question) on this run or on the agent's child run.
@@ -361,8 +368,7 @@ struct AskView: View {
                 if wait == nil, let child = run.waitingOnChild { wait = try? await model.client.run(id: child).personWait }
                 if let w = wait, !model.decidedWaits.contains(w.id) {
                     if model.autoApprovable(w), await model.answer(w, with: .approve) {
-                        step = "allowed \(w.toolName)"          // trusted session: the run goes on
-                        model.markDecided(w)
+                        model.markDecided(w)                   // trusted session: the run goes on
                     } else {
                         // A person decides now; the screen is on. Waiting on them must not keep the app awake.
                         pendingWait = w
@@ -373,9 +379,9 @@ struct AskView: View {
                 }
             }
             if run.isTerminal {
-                if run.status != "completed" { error = run.error ?? run.status }
-                show(run.outputText ?? "(no output)")
-                if scenePhase != .active {
+                if let out = run.outputText, !out.isEmpty { show(out) }
+                else { fail(run.status == "cancelled" ? "Stopped" : "That didn't work. Try again."); return }
+                if scenePhase == .background {   // wrist down, app still in front: the orb speaks it
                     await AnswerNotifier.shared.deliver(key: id, title: model.responder.title, ref: AnswerRef(runId: id, prompt: prompt), answer: answer)
                 }
                 return
@@ -387,13 +393,12 @@ struct AskView: View {
     private func resumeFollowing(_ id: String) {
         RuntimeKeeper.shared.hold("ask")
         let mine = turn
-        phase = .thinking; step = nil
+        phase = .thinking
         Task {
             do { try await follow(id, turn: mine) }
             catch {
                 guard mine == turn else { return }
-                self.error = error.localizedDescription; phase = answer.isEmpty ? .idle : .answer
-                RuntimeKeeper.shared.release("ask")
+                fail(Self.human(error))
             }
         }
     }
@@ -423,7 +428,7 @@ struct AskView: View {
         if phase == .thinking {
             turn += 1
             if let id = runId, !transcribing { Task { try? await model.client.cancel(runId: id) } }
-            transcribing = false; step = nil; pendingWait = nil
+            transcribing = false; pendingWait = nil
             phase = .idle; note = "Cancelled"; prompt = ""
             RuntimeKeeper.shared.release("ask")
             WKInterfaceDevice.current().play(.click)
@@ -432,10 +437,10 @@ struct AskView: View {
         speaker.stop()
     }
 
-    private func newConversation() {
-        speaker.stop(); turn += 1
+    private func clearConversation() {
+        speaker.stop(); listener.cancel(); turn += 1
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
-        model.newAskSession(); phase = .idle
+        phase = .idle
     }
 
     /// Opened from a notification (an answer to show and speak), from "Continue" on a session,
@@ -445,7 +450,6 @@ struct AskView: View {
             // Continue a session: open on its last exchange, quiet; the next tap talks in it.
             model.resuming = nil
             prompt = r.prompt; answer = r.answer; runId = r.runId
-            note = "Continuing · tap to talk"
             if !answer.isEmpty { phase = .answer }
             return
         }
@@ -455,7 +459,7 @@ struct AskView: View {
             runId = ref.runId
             if let text = ref.text { show(text); return }
             if let id = ref.runId, let run = try? await model.client.run(id: id) {
-                show(run.outputText ?? run.error ?? "The run ended (\(run.status)).")
+                if let out = run.outputText, !out.isEmpty { show(out) } else { error = "No answer." }
             }
             return
         }

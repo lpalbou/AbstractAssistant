@@ -47,7 +47,7 @@ final class Listener: ObservableObject {
             let allowed = await AVAudioApplication.requestRecordPermission()
             guard mine == generation else { return }          // cancelled while asking
             guard allowed else {
-                deliver(.failed("Microphone access is off: Settings → Privacy & Security → Microphone → Assistant."))
+                deliver(.failed("Allow the microphone in Settings."))
                 return
             }
             do {
@@ -73,7 +73,7 @@ final class Listener: ObservableObject {
                     }
                 }
             } catch {
-                deliver(.failed("The microphone could not start: \(error.localizedDescription)"))
+                deliver(.failed("The microphone isn't available."))
             }
         }
     }

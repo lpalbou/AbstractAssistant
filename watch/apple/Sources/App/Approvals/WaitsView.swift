@@ -1,37 +1,29 @@
 import AbstractGatewayClient
 import SwiftUI
 
-/// Everything waiting for the person, oldest first. One tap opens the approval or the question.
+/// What needs you, oldest first. One tap opens it; the screen closes itself once nothing is left.
 struct WaitsView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 6) {
-                if model.waits.isEmpty { Text("Nothing waiting for you").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
-                ForEach(model.waits) { w in
-                    NavigationLink(value: w.kind == .askUser ? Route.askUser(w) : Route.approval(w)) {
-                        Card(stroke: Theme.amber.opacity(0.5)) {
-                            HStack(spacing: 6) {
-                                Pill(text: w.kind == .askUser ? "question" : w.isOutreach ? "send" : "approval",
-                                     color: w.kind == .askUser ? Theme.indigo : w.isOutreach ? Theme.amber : Theme.cyan)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(w.kind == .askUser ? (w.prompt ?? "question") : w.toolName)
-                                        .font(w.kind == .askUser ? .rounded(.footnote, weight: .semibold) : .mono(.footnote, weight: .semibold))
-                                        .foregroundStyle(Theme.text).lineLimit(w.kind == .askUser ? 2 : 1).truncationMode(.middle)
-                                    Text(w.workflow ?? String(w.runId.prefix(8))).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1)
-                                }
-                                Spacer(minLength: 2)
-                                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.amber)
-                            }
+        List(model.waits) { w in
+            NavigationLink(value: w.kind == .askUser ? Route.askUser(w) : Route.approval(w)) {
+                HStack(spacing: 8) {
+                    Image(systemName: w.kind == .askUser ? "questionmark.bubble" : model.isOutreach(w) ? "paperplane" : "checkmark.shield")
+                        .font(.rounded(.body)).foregroundStyle(Theme.amber).frame(width: 22)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(w.headline).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                        if w.kind != .askUser, let d = w.recipient ?? w.primaryArgument?.value {
+                            Text(d).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1)
                         }
                     }
-                    .buttonStyle(.plain)
                 }
-                Footnote(text: "each answer is a record on the run's ledger")
+                .padding(.vertical, 2)
             }
         }
-        .screen("Waiting for you")
+        .navigationTitle("Needs you")
+        .containerBackground(Theme.ground, for: .navigation)
         .refreshable { await model.refresh() }
+        .onChange(of: model.waits.isEmpty) { _, empty in if empty, model.path.last == .waits { model.path.removeLast() } }
     }
 }

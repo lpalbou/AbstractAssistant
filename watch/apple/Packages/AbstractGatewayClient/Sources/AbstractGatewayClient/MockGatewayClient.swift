@@ -44,13 +44,15 @@ public actor MockGatewayClient: GatewayClient {
     }()
 
     public static let sampleAutomations: [AutomationSummary] = [
-        AutomationSummary(id: "auto-morning", name: "Morning digest", status: "active", scheduleText: "every day",
+        AutomationSummary(id: "auto-morning", name: "Morning digest", status: "active", scheduleText: "Every 24 hours (UTC)",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: "Three things today: the assay QC run passed; two new papers on your target; one dependency to pin.",
                                                          runId: "b81f3302", index: 41, firedAt: "2026-10-17T05:04:00Z", finishedAt: "2026-10-17T05:06:10Z",
                                                          answer: "Three things today: the assay QC run passed; two new papers on your target (one with a phase II readout); the dependency check found one update to pin."),
                           cadence: "daily", detail: "every day · last 07:04 · ok", nextFireAt: "2026-10-18T05:00:00Z",
                           attention: Attention(pendingWaits: 0, unread: true, unseenCount: 1, cursor: "att1:41",
-                                               items: [.init(kind: "notify", runId: "b81f3302", at: "2026-10-17T05:06:10Z", title: "Morning digest", body: "3 things today", cursor: "att1:41")])),
+                                               items: [.init(kind: "notify", runId: "b81f3302", at: "2026-10-17T05:06:10Z", title: "Morning digest", body: "3 things today", cursor: "att1:41")]),
+                          contextMode: "growing", occurrenceCount: 41, triggerSource: "schedule",
+                          triggerConfig: ["every": .string("24h"), "anchor": .string("2026-09-07T05:04:00Z")], revision: 2),
         AutomationSummary(id: "auto-lit", name: "Literature watch", status: "active", scheduleText: "every 7 days",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: "3 new papers"), cadence: "weekly", detail: "every 7 days · 3 new papers"),
         AutomationSummary(id: "auto-qc", name: "Assay QC check", status: "active", scheduleText: "when a file lands",
@@ -58,9 +60,12 @@ public actor MockGatewayClient: GatewayClient {
     ]
 
     public static let sampleEntities: [EntitySummary] = [
-        EntitySummary(name: "castor", extra: ["phase": .string("work"), "age": .string("long-lived")]),
-        EntitySummary(name: "mira", extra: ["phase": .string("personal")]),
-        EntitySummary(name: "nerin", extra: ["phase": .string("sleep")]),
+        EntitySummary(name: "castor", extra: ["phase": .string("work"), "age": .string("long-lived"),
+                                              "appearance": .object(["color": .string("#f59e0b"), "shape": .string("kitty")])]),
+        EntitySummary(name: "mira", extra: ["phase": .string("personal"),
+                                            "appearance": .object(["color": .string("#f472b6"), "shape": .string("face")])]),
+        EntitySummary(name: "nerin", extra: ["phase": .string("sleep"),
+                                             "appearance": .object(["color": .string("#2dd4bf"), "shape": .string("wave")])]),
     ]
     public static let cannedEntityReply = "Yes. The nightly QC finished at 02:14 and passed on 10 of 12 plates; P07 and P12 are flagged for a re-read, and I drafted a note to the QC team that is waiting for your approval."
 
@@ -96,8 +101,41 @@ public actor MockGatewayClient: GatewayClient {
     public func me() async throws -> Principal { Principal(userId: "albou", tenantId: "default", roles: ["admin"]) }
     public func waits() async throws -> [Wait] { pending }
     public func recentRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns }
-    public func automations() async throws -> [AutomationSummary] { Self.sampleAutomations }
-    public func runAutomationNow(id: String) async throws {}
+    public func automations() async throws -> [AutomationSummary] {
+        var out: [AutomationSummary] = []
+        for a in Self.sampleAutomations { out.append(try await automation(id: a.id)) }
+        return out
+    }
+    /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
+    private var automationRunStarted: [String: Date] = [:]
+    public func runAutomationNow(id: String) async throws { automationRunStarted[id] = Date() }
+    public func automation(id: String) async throws -> AutomationSummary {
+        guard var a = Self.sampleAutomations.first(where: { $0.id == id }) else { throw GatewayError.http(status: 404, body: "") }
+        if let t = automationRunStarted[id], Date().timeIntervalSince(t) < 14 {
+            a.currentOccurrence = CurrentOccurrence(index: (a.lastOccurrence?.index ?? 0) + 1, runId: "occ-live", attempt: 1, status: "running")
+        } else { automationRunStarted[id] = nil }
+        return a
+    }
+    /// The live occurrence's agent steps, by seconds since Run now.
+    private func liveLedger() -> [LedgerRecord] {
+        let s = Date().timeIntervalSince(automationRunStarted.values.first ?? Date())
+        func call(_ n: [String]) -> JSONValue { .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array(n.map { .object(["name": .string($0)]) })])]) }
+        let llm: JSONValue = .object(["type": .string("llm_call")])
+        var out = [LedgerRecord(nodeId: "reason", status: "started", effect: llm)]
+        if s > 3 { out.append(LedgerRecord(nodeId: "act", status: "started", effect: call(["skim_websearch", "skim_websearch", "skim_websearch"]))) }
+        if s > 6 { out.append(LedgerRecord(nodeId: "act", status: "started", effect: call(["skim_url", "skim_url", "skim_url", "skim_url"]))) }
+        if s > 9 { out.append(LedgerRecord(nodeId: "reason", status: "started", effect: llm)) }
+        return out
+    }
+    public func automationCommand(id: String, type: String) async throws {}
+    public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {}
+    public func automationDefinition(id: String) async throws -> AutomationDefinition {
+        AutomationDefinition(revision: 2, title: Self.sampleAutomations.first { $0.id == id }?.name, target: [
+            "bundle_ref": .string("basic-agent@0.0.5"), "flow_id": .string("81795ea9"),
+            "input_data": .object(["prompt": .string("Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin."),
+                                   "tools": .array([.string("web_search")])]),
+        ])
+    }
     public func entities() async throws -> [EntitySummary] { Self.sampleEntities }
     public func openEntityChat(name: String) async throws -> String { "chat-" + name }
     public func entityChatTurn(name: String, chatId: String, text: String) async throws -> String {
@@ -114,11 +152,23 @@ public actor MockGatewayClient: GatewayClient {
         LedgerRecord(nodeId: "review", status: "started", effect: .object(["type": .string("llm_call")])),
     ]
     public func ledger(runId: String, after: Int) async throws -> LedgerPage {
-        LedgerPage(items: Array(Self.sampleLedger.dropFirst(min(after, Self.sampleLedger.count))), nextAfter: Self.sampleLedger.count)
+        if runId == "occ-live" { let all = liveLedger(); return LedgerPage(items: Array(all.dropFirst(min(after, all.count))), nextAfter: all.count) }
+        return LedgerPage(items: Array(Self.sampleLedger.dropFirst(min(after, Self.sampleLedger.count))), nextAfter: Self.sampleLedger.count)
     }
     public func cancel(runId: String) async throws { started[runId] = nil }
     public func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence] {
-        Self.sampleAutomations.first { $0.id == automationId }?.lastOccurrence.map { [$0] } ?? []
+        guard let last = Self.sampleAutomations.first(where: { $0.id == automationId })?.lastOccurrence else { return [] }
+        guard let top = last.index, top > 1 else { return [last] }
+        if limit > 1 { try await Task.sleep(for: .seconds(3)) }   // like a public gateway: full answers take seconds
+        // Earlier runs, a day apart; one failed.
+        let older = (max(1, top - min(limit, 12) + 1)..<top).reversed().map { i -> LastOccurrence in
+            let day = Date(timeIntervalSince1970: 1_792_213_440 - Double(top - i) * 86_400)
+            let failed = i == top - 2
+            return LastOccurrence(status: failed ? "failed" : "completed", excerpt: nil, runId: "occ-\(i)", index: i,
+                                  firedAt: ISO8601DateFormatter().string(from: day),
+                                  answer: failed ? "The run stopped: the model was not reachable." : "Digest \(i): the assay QC run passed; nothing new to pin.")
+        }
+        return [last] + older
     }
     public func markSeen(automationId: String, cursor: String) async throws {}
 

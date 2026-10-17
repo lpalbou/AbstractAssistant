@@ -11,10 +11,11 @@ public enum GatewayError: Error, Equatable, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .unauthorized: "Token rejected (401). Re-enter it in Settings."
-        case .http(let s, let b): "HTTP \(s): \(b.prefix(200))"
-        case .invalidResponse: "Not an HTTP response"
-        case .alreadyHandled: "Already handled on another device"
+        // Shown to people as is: plain words, no codes (the body stays on the value for logs).
+        case .unauthorized: "Please sign in again."
+        case .http(let s, _): s >= 500 ? "Your assistant is having trouble. Try again." : "That didn't work. Try again."
+        case .invalidResponse: "Can't reach your assistant."
+        case .alreadyHandled: "Already answered on another device."
         }
     }
 }
@@ -46,6 +47,14 @@ public protocol GatewayClient: Sendable {
     func automations() async throws -> [AutomationSummary]
     /// `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now"}`.
     func runAutomationNow(id: String) async throws
+    /// `POST /automations/{id}/commands` (`automation.pause`, `automation.resume`, …).
+    func automationCommand(id: String, type: String) async throws
+    /// `GET /automations/{id}` → `summary`: one automation's row, fresh (e.g. its run in progress).
+    func automation(id: String) async throws -> AutomationSummary
+    /// `GET /automations/{id}`: the committed definition (its task and target).
+    func automationDefinition(id: String) async throws -> AutomationDefinition
+    /// `PATCH /automations/{id}`: only what changed, with the revision it was read at.
+    func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws
     /// `GET /api/gateway/entities`: the entities this account may visit.
     func entities() async throws -> [EntitySummary]
     /// `POST /api/gateway/entities/{name}/chat/open` → chat id (one live session per home).
@@ -181,6 +190,33 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func runAutomationNow(id: String) async throws {
         _ = try await request("POST", "api/gateway/automations/\(id)/commands", body: RunNow())
+    }
+
+    private struct Command: Encodable {
+        var command_id = UUID().uuidString.lowercased()
+        let type: String
+    }
+
+    public func automationCommand(id: String, type: String) async throws {
+        _ = try await request("POST", "api/gateway/automations/\(id)/commands", body: Command(type: type))
+    }
+
+    private struct Revise: Encodable {
+        var command_id = UUID().uuidString.lowercased()
+        let expected_revision: Int?
+        let changes: [String: JSONValue]
+    }
+
+    public func automation(id: String) async throws -> AutomationSummary {
+        try await get("api/gateway/automations/\(id)", as: AutomationSummaryResponse.self).summary
+    }
+
+    public func automationDefinition(id: String) async throws -> AutomationDefinition {
+        try await get("api/gateway/automations/\(id)", as: AutomationDefinitionResponse.self).definition
+    }
+
+    public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {
+        _ = try await request("PATCH", "api/gateway/automations/\(id)", body: Revise(expected_revision: expectedRevision, changes: changes))
     }
 
     public func entities() async throws -> [EntitySummary] {

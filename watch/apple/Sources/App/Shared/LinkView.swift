@@ -14,28 +14,27 @@ struct LinkView: View {
     @State private var error: String?
 
     var body: some View {
-        ScrollView {
+        FitScroll {
             VStack(alignment: .leading, spacing: 6) {
-                Text(page?.title ?? url.host() ?? url.absoluteString)
-                    .font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(4)
-                Text(url.absoluteString).font(.mono(.caption2)).foregroundStyle(Theme.muted).lineLimit(2)
-                if let page {
-                    if let run = model.runs.first, !page.text.isEmpty {
+                HStack(alignment: .top) {
+                    Text(page?.title ?? url.host() ?? url.absoluteString)
+                        .font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(4)
+                    Spacer(minLength: 4)
+                    if let page, let run = model.runs.first, !page.text.isEmpty {
                         ReadAloudLink(item: ReadItem(title: url.host() ?? "Page", text: page.markdown, scope: .run(run.runId)))
                     }
-                    Card { MarkdownText(page.markdown.isEmpty ? "This page has no readable text." : page.markdown) }
-                } else if let error {
-                    Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red)
-                } else {
-                    HStack(spacing: 6) { ProgressView().frame(width: 18); Text("reading the page…").font(.rounded(.caption2)).foregroundStyle(Theme.muted) }
                 }
-                Label("Continue on iPhone: open the app switcher there", systemImage: "iphone")
-                    .font(.rounded(.caption2)).foregroundStyle(Theme.muted)
-                Button("Open in the watch browser") { WKApplication.shared().openSystemURL(url) }
-                    .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton, foreground: Theme.text2))
+                if let page {
+                    MarkdownText(page.markdown.isEmpty ? "Nothing to read on this page." : page.markdown)
+                } else if let error {
+                    Text(error).font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 8)
+                }
             }
+            .padding(.horizontal, 4)
         }
-        .screen("Link")
+        .screen("")
         .userActivity("NSUserActivityTypeBrowsingWeb") { activity in
             activity.webpageURL = url
             activity.isEligibleForHandoff = true
@@ -51,13 +50,13 @@ struct LinkView: View {
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 200
-            guard (200..<400).contains(status) else { error = "The page answered \(status)."; return }
+            guard (200..<400).contains(status) else { error = "This page didn't open."; return }
             let type = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
             let body = String(decoding: data.prefix(1_500_000), as: UTF8.self)
             page = type.contains("html") || body.lowercased().contains("<html") ? WebPageText(html: body)
                 : WebPageText(title: nil, paragraphs: [String(body.prefix(6000))])
         } catch {
-            self.error = "Could not read the page: \(error.localizedDescription)"
+            self.error = "Couldn't open this page."
         }
     }
 }
