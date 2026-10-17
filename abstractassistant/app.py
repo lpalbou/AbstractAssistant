@@ -6226,7 +6226,7 @@ class AssistantPalette(QMainWindow):
         # The voice-conversation toggle keeps its widget (state and tooltips are
         # mirrored on it by the conversation code) but no longer sits in the
         # composer row: ⌘⇧V and the mic's right-click menu start and end it.
-        self.conversation_button = QPushButton()
+        self.conversation_button = QPushButton(self)
         self.conversation_button.setObjectName("composerIconButton")
         self.conversation_button.setCheckable(True)
         self.conversation_button.setIcon(_symbol_icon("audio-lines", size=18))
