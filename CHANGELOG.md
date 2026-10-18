@@ -3,11 +3,12 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
-## [Unreleased]
+## [0.14.2] - 2026-10-18
 
 ### Added
 
-- **Voice recordings from the built-in orchestrator.** Asking for spoken audio ("make a voice message saying good morning") now routes to a new `voice` mode: the router writes out the exact words, and the gateway's voice engine (the `output.voice` route that reads replies aloud) speaks them; the reply carries the recording. Before, the router had no mode for speech. Workflow revision 7: the app republishes `abstractassistant-orchestrator` on launch.
+- **Voice recordings from the built-in orchestrator.** Asking for spoken audio ("make a voice message saying good morning") now routes to a new `voice` mode: the router writes out the exact words, and the gateway's voice engine (the `output.voice` route that reads replies aloud) speaks them; the reply carries the recording. Before, the router had no mode for speech (workflow revision 6).
+- **The orchestrator's routing call follows the run's text provider and model** unless the request selects them explicitly, so routing runs on the same connection as the chat agent instead of the gateway's pooled default (workflow revision 7). The app republishes `abstractassistant-orchestrator` on launch; a gateway that already serves a newer revision keeps it.
 
 ## [0.14.1] - 2026-10-18
 

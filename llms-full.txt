@@ -1846,6 +1846,15 @@ when you named none). "A 3 s laser gunshot" reaches the sound model as `seconds:
 length a sound effect lasts 5 seconds and music 30. The length is the router model's typed answer;
 the app does not read numbers out of your text.
 
+Asking for spoken audio ("a voice message saying…", "read this aloud as a recording") routes to
+`voice`: the router writes out the exact words in `media_prompt`, and the `generate_voice` node
+speaks them with the gateway's voice engine (`output.voice`, the one that reads replies aloud). The
+reply carries the recording as an audio artifact (workflow revision 6).
+
+The routing call (`route_call`) takes the run's `_runtime.provider` and `_runtime.model`
+unless the request selects a provider and model explicitly, so routing runs on the same
+connection as the chat agent rather than the gateway's pooled default (workflow revision 7).
+
 The app never substitutes another workflow on its own: when the gateway sets no default and the
 built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
 is blocked and the palette says why. A running turn always keeps the workflow it started with.
@@ -2631,6 +2640,13 @@ SOFTWARE.
 
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
+
+## [0.14.2] - 2026-10-18
+
+### Added
+
+- **Voice recordings from the built-in orchestrator.** Asking for spoken audio ("make a voice message saying good morning") now routes to a new `voice` mode: the router writes out the exact words, and the gateway's voice engine (the `output.voice` route that reads replies aloud) speaks them; the reply carries the recording. Before, the router had no mode for speech (workflow revision 6).
+- **The orchestrator's routing call follows the run's text provider and model** unless the request selects them explicitly, so routing runs on the same connection as the chat agent instead of the gateway's pooled default (workflow revision 7). The app republishes `abstractassistant-orchestrator` on launch; a gateway that already serves a newer revision keeps it.
 
 ## [0.14.1] - 2026-10-18
 
@@ -4346,6 +4362,44 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **What is new, at a glance.** Home's Sessions and Automations rows carry a count: what is new
+  (answers you have not seen, results of automations you have not opened) in a filled badge, else
+  how many there are, muted. In Sessions a conversation with an answer you have not seen is
+  outlined in cyan with a dot (seen on this watch: the gateway keeps no "seen" for conversations);
+  an automation with new results is outlined in amber.
+- **Archive a conversation.** Each conversation in Sessions has a red archive button: after a
+  confirmation it is archived on the gateway, out of Sessions on all your devices, nothing deleted.
+  **Archived**, at the bottom of Sessions, lists them, each with Restore.
+- **Search your conversations.** Sessions has a search field: the gateway's search finds the words
+  in every conversation's questions, answers and artifacts (an image by what it was made from, an
+  attachment by its name; parts of words too, accents ignored, a typo forgiven), the words marked
+  in each result, an image shown beside them; a result continues its conversation. A gateway
+  without search says so.
+- **Its work, live, under the orb.** While the Assistant works, what is below the orb shows its
+  steps instead of the conversation, newest first on a thin rail: thinking (with its own words when
+  it writes some), each tool with what it is about (the search, the page, the file, the command),
+  an image or a recording being made, and a step waiting on you (tap it to decide). The status line
+  says what it does now ("Searching the web…"). The conversation comes back with the answer, which
+  carries "9 steps · 0:11": it opens every step in order.
+- **The orb shows the work.** Each tool call sends a ring of light out from the centre of the
+  planet (parallel calls a few tenths apart), each new thought a softer one, an image or a recording
+  a slow wide wave, and a failed tool makes it shiver; every tool running circles the planet as a
+  small satellite with a trail.
+- **Accept all, taken back at once.** After an approval's Accept all, the tools it allowed are
+  approved by the watch itself while it follows the run (the gateway keeps asking for them, since a
+  run's permissions are fixed when it starts). An amber shield on the orb (bottom right, while it works),
+  and **Ask again** on the conversation's Tools page, end it at once: the very next call asks, also
+  in the run working now.
+- **Images and recordings in answers.** A conversation can run another workflow: the **Workflow**
+  row at the top of its Tools page (the tools icon on the orb page) lists the gateway's default agent,
+  then the Assistant's workflows ("AbstractAssistant Orchestrator", which also makes images and
+  other media), then the other agents; **Settings → Tools** sets the one new conversations use. A
+  conversation continued from another device keeps the workflow its last turn ran. What a turn makes
+  shows under its answer: an image as a picture (tap: full screen, the Digital Crown zooms, drag to
+  look around, share), a recording as a row with its length (on the orb page it plays through the
+  orb right after the spoken answer, at its own speed), a video as a row that opens it. Earlier
+  messages that carry media show a small icon on their card. A chosen workflow the gateway no
+  longer has stops the question with a sentence saying so; it never runs another one instead.
 - **Tools you choose.** A tools icon on the orb page (bottom right, as far from the bottom as the keyboard is from the top, shown with it; for the
   Assistant) opens this conversation's tools, by group (Files, Web, System, Email, …): each tool is
   Off (not offered), Auto (runs without asking) or Ask (asks first), with its risk (Reads only, Makes
@@ -4355,10 +4409,10 @@ channel (TestFlight, then the App Store); the Python package's history is in
   **Settings → Tools** sets the defaults; a conversation's changes sit on top of them (the icon shows
   a dot, each changed tool its default, and "Use my defaults" undoes them). A question goes out only
   with the tools read from the gateway (read again every 10 minutes and on each visit to Tools).
-- An approval's **Accept all** now sets this conversation's tools: those on Ask stop asking, up to
-  the risk of the call approved; tools turned off stay off, and sends and tools whose destination
-  the assistant picks keep asking. The watch answers a later approval itself only when every call in
-  it is on Auto.
+- An approval's **Accept all** allows this conversation's tools on Ask, up to the risk of the call
+  approved; tools turned off stay off, and sends and tools whose destination the assistant picks
+  keep asking. The watch answers a later approval itself only when every call in it is on Auto or
+  allowed.
 - **New automation** (top of the Automations list): the task, the workflow that runs it (the
   gateway's default by its name, e.g. "Basic agent · default", then the workflows the gateway offers
   your account), the tools it may use, when it runs (every 5 min, 30 min, 1 h, 8 h, 24 h or 7 days,
@@ -4569,12 +4623,18 @@ in the same session pool as the desktop assistant's.
 | Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
-| Accept all (an approval) | this conversation's tools on Ask stop asking, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking; the watch answers a later approval itself only when every call in it is on Auto |
+| Accept all (an approval) | allows this conversation's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) while it follows, and only when every call is on Auto or allowed; the shield (or Ask again on the Tools page) clears them, so the next call asks |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules |
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
 | Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); the whole text in one request (the gateway speaks it in whole sentences); playback starts once 1.5 s of speech is queued and plays at the speed chosen on the watch |
 | Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
+| Workflow | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` and `…=abstractassistant.agent.v1` (newest version per bundle); a chosen one starts as `bundle_id`, `bundle_version`, `flow_id`, `interface`, `registry_scope`; none chosen: `flow_id: "@default"` of `abstractcode.agent.v1`; kept on the watch per conversation (defaults in Settings → Tools) |
+| New answers | a conversation is new when its newest turn ended after the watch started counting and is not the turn last seen there (kept on the watch, `sessions.seen`); automations: the gateway's `attention.unseen_count` |
+| Archive | `POST /api/gateway/sessions/{id}/archive` (and `/unarchive`): out of `GET /runs?root_only=true` on every client, nothing deleted; `GET /api/gateway/runs?archived_only=true&root_only=true` lists them |
+| Search | `GET /api/gateway/sessions/search?q=…&limit=25` (AbstractRuntime `ConversationSearch`, the caller's own plane): one item per session with `snippet` and `highlights`; 404 on a gateway without it |
+| Live work | the root's `GET /api/gateway/runs/{id}` each second, down its `subworkflow:<child>` waits to the run doing the work; that run's `GET /api/gateway/runs/{id}/ledger?after=N`, decoded for `effect.type`, `effect.payload.tool_calls[{name, arguments}]`, `effect.payload.output.modality`, `response_schema`, `result.results[{success, error}]`, `result.content`, `result.wait` only (a thinking record's conversation is skipped); a run that handed off to a child is not read again. About as much data as the run's records (a 90 s agent run with 6 tools: ~3 MB, mostly its thinking records) |
+| Media | a finished run's `output` (`outputs.{modality}[].artifact_ref`, `artifact`, `image_artifact`, `audio_artifact`, `video_artifact`); history: `GET /api/gateway/sessions/{id}/artifacts` (`tags.kind == generated_media`, by `run_id` and `parent_run_id`); bytes: `GET /api/gateway/runs/{run}/artifacts/{id}/content` (at most 25 MB), kept in the watch's caches, images shrunk on the watch |
 | Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, a row's title is its latest run's prompt from `GET /api/gateway/runs/{id}/input_data` (none is made up); a conversation's history on the orb page: `GET /api/gateway/runs/{newest}/history_bundle?include_session=true&detail=replay` (one request) |
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
 | Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
@@ -4634,7 +4694,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.14.1"
+version = "0.14.2"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"

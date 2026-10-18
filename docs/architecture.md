@@ -313,6 +313,10 @@ Asking for spoken audio ("a voice message saying…", "read this aloud as a reco
 speaks them with the gateway's voice engine (`output.voice`, the one that reads replies aloud). The
 reply carries the recording as an audio artifact (workflow revision 6).
 
+The routing call (`route_call`) takes the run's `_runtime.provider` and `_runtime.model`
+unless the request selects a provider and model explicitly, so routing runs on the same
+connection as the chat agent rather than the gateway's pooled default (workflow revision 7).
+
 The app never substitutes another workflow on its own: when the gateway sets no default and the
 built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
 is blocked and the palette says why. A running turn always keeps the workflow it started with.
