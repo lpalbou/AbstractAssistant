@@ -166,17 +166,21 @@ catalog workflows unsupported by automations v1 remain a gateway validation erro
 turns carry the same enabled names in `input_data.tools` and `_runtime.allowed_tools`,
 plus named `auto_approve_tools` and `require_approval_tools` in `_runtime.tool_policy`.
 An empty list denies every tool; omitted policy inherits gateway defaults. Attachments and
-policy travel in the same start request. Preferences use gateway/account, responder and
-session keys. A compatibility client cannot silently discard an explicit policy.
+policy travel in the same start request. This is the established desktop Assistant contract;
+no additional tool-policy capability endpoint is required. Preferences use gateway/account,
+responder and session keys. A compatibility client cannot silently discard an explicit policy.
 
-Entity discovery advertises `GET /entities/{name}/session-tools`. Managed sessions open
-with the policy before the first tick, then use the entity's durable visit and owner-bound
-policy/state/decision/end endpoints. An approval is a persisted runtime wait; only its
+Entity discovery uses `GET /entities/{name}/session-tools`. When its `visit_routes` field
+is true, managed sessions open with the policy through the existing `visit/open` route,
+then end through `visit/{run_id}/close` with `closed_by: pause`. The policy is installed
+before the first tick. Gateways serving this inventory without `visit_routes` use the
+compatible `/sessions` and `/end` aliases. Entity policy/state/decision routes remain
+owner-bound. An approval is a persisted runtime wait; only its
 exact key and a strict boolean decision are sent. The server executes through the entity's
 own handler and rechecks its grant. Policy changes are accepted only between turns.
 The phone reuses its session/visit IDs after reconnect, while generations prevent late
 responses from crossing accounts or conversations. Legacy chat is used only when the
-capability endpoint is unavailable and no explicit policy was requested.
+entity session-tool inventory is unavailable and no explicit policy was requested.
 
 Message statistics are optional and answer-owned. Agent metrics fold the run's execution
 subtree; elapsed time is the root wall span, not the sum of overlapping child durations.

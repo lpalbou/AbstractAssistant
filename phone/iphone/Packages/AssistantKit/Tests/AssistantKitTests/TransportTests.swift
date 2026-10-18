@@ -108,35 +108,53 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
     @Test func toolModesAndAttachmentsTravelTogetherAndEmptyIsDenyAll() async throws {
         let client = client()
         WireStub.response = { request in
-            if request.url!.path.hasSuffix("/capabilities") { return (200, #"{"supported":true,"modes":["off","auto","approve"]}"#) }
-            return request.httpMethod == "GET" ? (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#) : (200, #"{"run_id":"new-run"}"#)
+            switch request.url!.path {
+            case "/api/gateway/accounts/me/preferences": (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#)
+            case "/api/gateway/runs/start": (200, #"{"run_id":"new-run"}"#)
+            default: (404, "{}")
+            }
         }
         let tools = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
         let file = PhoneArtifact(artifactId: "file", runId: "owner", filename: "a.txt", contentType: "text/plain")
         _ = try await client.startRun(prompt: "Review", sessionId: "s", attachments: [file.ref], tools: tools)
-        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[1])
         #expect(body["input_data"]?["tools"] == .array([.string("read_file"), .string("send_email")]))
         #expect(body["input_data"]?["_runtime"]?["allowed_tools"] == body["input_data"]?["tools"])
         #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["auto_approve_tools"] == .array([.string("read_file")]))
         #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["require_approval_tools"] == .array([.string("send_email")]))
         #expect(body["input_data"]?["attachments"] == .array([file.ref]))
         _ = try await client.startRun(prompt: "No tools", sessionId: "s", attachments: [], tools: .init(modes: [:]))
-        let empty = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[5])
+        let empty = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[3])
         #expect(empty["input_data"]?["tools"] == .array([]))
         #expect(empty["input_data"]?["_runtime"]?["allowed_tools"] == .array([]))
     }
-    @Test func entityPolicyIsStampedBeforeFirstTurnAndDecisionCarriesOnlyExactChoice() async throws {
+    @Test(arguments: [true, false]) func entityPolicyUsesAdvertisedVisitRoutesOrExistingAliases(canonical: Bool) async throws {
         let client = client()
-        WireStub.response = { _ in (200, #"{"run_id":"visit","status":"waiting","turn_n":0,"reply":null}"#) }
+        WireStub.response = { request in
+            if request.url!.path.hasSuffix("/session-tools") {
+                return canonical ? (200, #"{"items":[],"visit_routes":true}"#) : (200, #"{"items":[]}"#)
+            }
+            return (200, #"{"run_id":"visit","status":"waiting","turn_n":0,"reply":null}"#)
+        }
         _ = try await client.openEntitySession(name: "castor", sessionID: "local", tools: .init(modes: ["diary_read": .approve]))
-        let open = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[0])
+        #expect(WireStub.requests[1].url!.path == "/api/gateway/entities/castor/" + (canonical ? "visit/open" : "sessions"))
+        let open = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[1])
         #expect(open["session_id"] == .string("local"))
         #expect(open["tool_policy"]?["modes"]?["diary_read"] == .string("approve"))
         _ = try await client.answerEntity(name: "castor", runID: "visit", waitKey: "exact-key", approved: true)
-        let decision = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[1])
+        let decision = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
         #expect(decision == .object(["wait_key": .string("exact-key"), "approved": .bool(true)]))
         try await client.setEntityTools(name: "castor", runID: "visit", tools: nil)
-        #expect(try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2]) == .object(["modes": .null]))
+        #expect(try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[3]) == .object(["modes": .null]))
+        try await client.endEntitySession(name: "castor", runID: "visit")
+        #expect(WireStub.requests[4].url!.path == "/api/gateway/entities/castor/visit/visit/" + (canonical ? "close" : "end"))
+        #expect(try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[4]) == .object(canonical ? ["closed_by": .string("pause")] : [:]))
+        _ = try await client.openEntitySession(name: "castor", sessionID: "inherit", tools: nil)
+        let inherited = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[5])
+        #expect(inherited["tool_policy"] == .object(["modes": .null]))
+        _ = try await client.openEntitySession(name: "castor", sessionID: "deny", tools: .init(modes: [:]))
+        let deny = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[6])
+        #expect(deny["tool_policy"] == .object(["modes": .object([:])]))
     }
     @Test func optionalMeasurementsAndDefaultsHandleOlderGatewaysWithoutInventedValues() async throws {
         let client = client(); WireStub.response = { _ in (404, "{}") }
@@ -146,10 +164,34 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
         await #expect(throws: GatewayError.self) { try await client.automationDefaults() }
     }
 
-    @Test func anOlderGatewayCannotSilentlyAcceptExplicitToolModes() async {
-        let client = client(); WireStub.response = { _ in (404, "{}") }
-        await #expect(throws: GatewayError.self) { try await client.startRun(prompt: "Hi", sessionId: "s", attachments: [], tools: .init(modes: [:])) }
-        #expect(WireStub.requests.count == 1 && WireStub.requests[0].httpMethod == "GET")
+    @Test func establishedAssistantRoutesSupportToolsWithoutAnyNewCapabilityEndpoint() async throws {
+        let client = client()
+        WireStub.response = { request in
+            switch request.url!.path {
+            case "/api/gateway/discovery/tools": (200, #"{"items":[{"name":"read_file","description":"Read a file","approval_default":"auto"}]}"#)
+            case "/api/gateway/accounts/me/preferences": (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#)
+            case "/api/gateway/runs/start": (200, #"{"run_id":"established-run"}"#)
+            default: (404, "{}") // Includes the unnecessary capability probe.
+            }
+        }
+        #expect(try await client.tools().map(\.name) == ["read_file"])
+        let choices = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
+        #expect(try await client.startRun(prompt: "Hi", sessionId: "s", attachments: [], tools: choices) == "established-run")
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
+        #expect(body["input_data"]?["tools"] == .array([.string("read_file"), .string("send_email")]))
+        #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["require_approval_tools"] == .array([.string("send_email")]))
+        #expect(WireStub.requests.map { $0.url!.path } == ["/api/gateway/discovery/tools", "/api/gateway/accounts/me/preferences", "/api/gateway/runs/start"])
+        _ = try await client.startRun(prompt: "Inherit", sessionId: "s", attachments: [], tools: nil)
+        let inherited = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[4])
+        #expect(inherited["input_data"]?["tools"] == nil)
+        #expect(inherited["input_data"]?["_runtime"]?["allowed_tools"] == nil)
+    }
+    @Test func entityToolDiscoveryFailureNeverSendsAPolicyThroughLegacyVisitOpen() async throws {
+        for status in [404, 403] {
+            let client = client(); WireStub.response = { _ in (status, "{}") }
+            await #expect(throws: GatewayError.self) { try await client.openEntitySession(name: "castor", sessionID: "s", tools: .init(modes: [:])) }
+            #expect(WireStub.requests.count == 1 && WireStub.requests[0].httpMethod == "GET")
+        }
     }
     @Test @MainActor func restoredEntityHistoryStaysQuietAndTerminalVisitsAreForgotten() async throws {
         let client = client(), defaults = UserDefaults(suiteName: "entity-restore-\(UUID())")!
@@ -199,6 +241,7 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
             defaults.set("castor", forKey: "phone.entity." + connection.scope)
             defaults.set("v", forKey: "phone.visit." + connection.scope + ".s")
             WireStub.response = { request in
+                if request.url!.path.hasSuffix("/session-tools") { return (200, #"{"items":[]}"#) }
                 if request.url!.path.hasSuffix("/state") { return (200, #"{"run_id":"v","status":"waiting","turn_n":1,"reply":"Earlier","turn_complete":true}"#) }
                 if request.url!.path.hasSuffix("/end") { return (successfulEnd ? 200 : 409, "{}") }
                 return (200, #"{"items":[]}"#)

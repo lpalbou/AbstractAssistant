@@ -1,5 +1,8 @@
 # Developer preview validation
 
+For **0.6.3 (11)** gateway compatibility and existing visit-route reuse, see the
+[contract review and evidence](../design/validation/tool-contract-review.md).
+
 For **0.6.2 (10)** microphone normalization and grouped session tools, see the [review and evidence](../design/validation/microphone-and-tools-review.md).
 
 For the **0.6.1 (9)** orb/Stop refinement, see the [interaction review and evidence](../design/validation/orb-interaction-review.md).
@@ -62,6 +65,7 @@ self-review is not counted as independent approval. Review findings led to serve
 owner checks, quiet restoration, lifecycle recovery and accurate inherited-mode displays.
 See the [decision and review record](../design/validation/conversation-controls-review.md).
 
-A gateway update is required for advertised conversation-tool controls, durable entity
-approvals and detailed statistics. Unsupported gateways preserve ordinary chat; explicit
-tool choices are blocked with an update message rather than silently ignored.
+Assistant tool controls use the established discovery and run-start contract without
+a capability probe. Entity session approvals require the entity session-tool extension;
+ordinary entity chat remains available without it. Optional statistics require their
+own gateway endpoint and stay absent when unavailable.

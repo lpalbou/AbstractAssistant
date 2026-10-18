@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.2 · iOS 26+**
+**Developer preview · 0.6.3 · iOS 26+**
 
 ## Three small spaces
 
@@ -96,9 +96,11 @@ elapsed wall time, input/output tokens and executed tool calls. It is off by def
 Unavailable measurements stay absent. Reading controls belong to the answer being spoken;
 other answers retain their own Read action.
 
-Conversation tool controls, entity approvals and detailed metrics require a gateway with the session-tools and
-message-statistics endpoints. Earlier gateways retain ordinary text chat, but the app
-refuses to send explicit tool policies through an interface that cannot advertise enforcement.
+Assistant conversation tools use the same discovery and run-start APIs as the desktop
+assistant; they do not require a gateway update for a capability probe. Entity conversation
+approvals require entity session-tool support. On gateways without that support, ordinary
+entity chat remains available and explicit entity tool choices stay unavailable. Detailed
+answer statistics appear only when the gateway supplies them.
 
 ## Entities
 

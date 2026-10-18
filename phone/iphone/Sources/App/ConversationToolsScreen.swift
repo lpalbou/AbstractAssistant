@@ -159,7 +159,6 @@ struct ConversationToolsScreen: View {
                     catch { rows = offered } // Unreported categories remain Other.
                 } else { rows = offered }
             } else {
-                guard try await client.supportsConversationTools() else { throw GatewayError.http(status: 409, body: "{\"detail\":\"Update this gateway to configure tools per conversation.\"}") }
                 rows = try await client.tools()
             }
             guard context == store.contextID, session == store.sessionID, !Task.isCancelled else { return }
@@ -169,7 +168,7 @@ struct ConversationToolsScreen: View {
             if let saved = store.conversationTools { for row in rows { modes[row.name] = saved.modes[row.name] ?? .off } }
         } catch {
             guard context == store.contextID, session == store.sessionID else { return }
-            if case GatewayError.http(status: 404, body: _) = error { self.error = "Update this gateway to configure entity tools per conversation." }
+            if entity != nil, case GatewayError.http(status: 404, body: _) = error { self.error = "This gateway does not support tools per entity conversation. Assistant conversation tools remain available." }
             else { self.error = error.localizedDescription }
             if error as? GatewayError == .unauthorized { store.authenticationExpired() }
         }

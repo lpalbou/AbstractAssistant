@@ -45,7 +45,6 @@ public struct EntitySessionState: Decodable, Sendable {
 }
 
 public extension GatewayClient {
-    func supportsConversationTools() async throws -> Bool { isMock }
     func automationDefaults() async throws -> Int? { nil }
     func messageStats(runID: String) async throws -> MessageStats? { nil }
     func entityTools(name: String) async throws -> [ToolInfo] { throw PhoneAttachmentError.unsupported }

@@ -25,7 +25,6 @@ public protocol GatewayClient: Sendable {
     var isMock: Bool { get }
     /// `GET /api/health`
     func health() async throws -> Bool
-    func supportsConversationTools() async throws -> Bool
     func automationDefaults() async throws -> Int?
     func messageStats(runID: String) async throws -> MessageStats?
     func entityTools(name: String) async throws -> [ToolInfo]
@@ -114,6 +113,7 @@ public actor LiveGatewayClient: GatewayClient {
     private let credential: GatewayCredential
     private let session: URLSession
     private var lockedOut = false
+    private var entityVisitRoutes: [String: Bool] = [:]
     private func requireSignIn() throws { if lockedOut { throw GatewayError.unauthorized } }
     private func lockSignIn() { lockedOut = true }
 
@@ -326,14 +326,6 @@ public actor LiveGatewayClient: GatewayClient {
         }
         return try JSONDecoder().decode(StartRunResponse.self, from: try await request("POST", "api/gateway/runs/start", body: body)).runId
     }
-    public func supportsConversationTools() async throws -> Bool {
-        struct Capabilities: Decodable { var supported: Bool; var modes: [String] }
-        do {
-            let info = try await get("api/gateway/tool-policy/capabilities", as: Capabilities.self)
-            let supported = info.supported && Set(info.modes).isSuperset(of: ["off", "auto", "approve"])
-            return supported
-        } catch GatewayError.http(status: 404, body: _) { return false }
-    }
     public func automationDefaults() async throws -> Int? {
         struct Defaults: Decodable { var growing_max_tokens: Int }
         do { return try await get("api/gateway/automations/defaults", as: Defaults.self).growing_max_tokens }
@@ -344,11 +336,22 @@ public actor LiveGatewayClient: GatewayClient {
         catch GatewayError.http(status: 404, body: _) { return nil }
     }
     public func entityTools(name: String) async throws -> [ToolInfo] {
-        try await get("api/gateway/entities/\(name)/session-tools", as: ToolsPage.self).items
+        struct Inventory: Decodable { var items: [ToolInfo]; var visit_routes: Bool? }
+        let inventory = try await get("api/gateway/entities/\(name)/session-tools", as: Inventory.self)
+        entityVisitRoutes[name] = inventory.visit_routes == true
+        return inventory.items
+    }
+    private func usesEntityVisitRoutes(name: String) async throws -> Bool {
+        if let known = entityVisitRoutes[name] { return known }
+        _ = try await entityTools(name: name)
+        return entityVisitRoutes[name] == true
     }
     public func openEntitySession(name: String, sessionID: String, tools: ConversationTools?) async throws -> EntitySessionState {
-        struct Body: Encodable { var session_id: String; var tool_policy: ConversationTools? }
-        let data = try await request("POST", "api/gateway/entities/\(name)/sessions", body: Body(session_id: sessionID, tool_policy: tools), timeout: 120)
+        let suffix = try await usesEntityVisitRoutes(name: name) ? "visit/open" : "sessions"
+        // An explicit modes:null opts into an owned visit with inherited home grants.
+        let policy: JSONValue = .object(["modes": tools.map { .object($0.modes.mapValues { .string($0.rawValue) }) } ?? .null])
+        let body: JSONValue = .object(["session_id": .string(sessionID), "tool_policy": policy])
+        let data = try await request("POST", "api/gateway/entities/\(name)/\(suffix)", body: body, timeout: 120)
         return try JSONDecoder().decode(EntitySessionState.self, from: data)
     }
     public func sendEntityTurn(name: String, runID: String, text: String) async throws -> JSONValue {
@@ -356,7 +359,9 @@ public actor LiveGatewayClient: GatewayClient {
         return try JSONDecoder().decode(JSONValue.self, from: data)
     }
     public func endEntitySession(name: String, runID: String) async throws {
-        _ = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/end", body: JSONValue.object([:]), timeout: 120)
+        let canonical = try await usesEntityVisitRoutes(name: name)
+        _ = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/\(canonical ? "close" : "end")",
+                              body: JSONValue.object(canonical ? ["closed_by": .string("pause")] : [:]), timeout: 120)
     }
     public func entitySession(name: String, runID: String) async throws -> EntitySessionState {
         try await get("api/gateway/entities/\(name)/visit/\(runID)/state", as: EntitySessionState.self)
@@ -372,9 +377,6 @@ public actor LiveGatewayClient: GatewayClient {
         return try JSONDecoder().decode(EntitySessionState.self, from: data)
     }
     public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String {
-        if tools != nil, !(try await supportsConversationTools()) {
-            throw GatewayError.http(status: 409, body: "{\"detail\":\"Update this gateway to configure tools per conversation.\"}")
-        }
         var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: tools?.policy, preferences: try await accountPreferences())
         if let tools {
             body.inputData.tools = tools.allowed
