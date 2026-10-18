@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.19 · iOS 26+**
+**Developer preview · 0.6.20 · iOS 26+**
 
 ## Three small spaces
 

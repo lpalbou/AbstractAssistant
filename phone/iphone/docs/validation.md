@@ -1,5 +1,9 @@
 # Developer preview validation
 
+For **0.6.20 (28)** stop-orb contrast and continuous two-way morph, see package backlog
+**1039** and `docs/backlog/evidence/1039`. Native verification includes real hosted animation
+frames, an interrupted transition, Reduced Motion and the stop/restore UI journey.
+
 For **0.6.19 (27)** category controls and grouped history with archive/restore, see package
 backlog **1038** and `docs/backlog/evidence/1038`. Validation covers mixed/inherited bulk
 choices, disabled tools, calendar boundaries, existing archive routes and paginated history,

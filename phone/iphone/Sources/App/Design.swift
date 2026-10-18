@@ -52,7 +52,7 @@ struct OrbContour: Shape {
     }
 }
 
-/// Only real microphone/playback levels deform the ribbons; idle motion stays calm.
+/// Animate the presentation outside TimelineView so audio/clock updates cannot snap the morph.
 struct AssistantOrb: View {
     var size: CGFloat = 88
     var active = false
@@ -63,34 +63,91 @@ struct AssistantOrb: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        TimelineView(.animation(minimumInterval: active ? (working ? 1.0 / 30 : 1.0 / 60) : 1.0 / 12, paused: reduceMotion || scenePhase != .active)) { frame in
-            let time = reduceMotion ? 0 : animationTime ?? frame.date.timeIntervalSinceReferenceDate
-            let energy = level.isFinite ? min(1, max(0, level)) : 0
-            let motionEnergy = reduceMotion ? 0 : energy
-            let breath = reduceMotion ? 0 : sin(time * 0.85) * (working ? 0.025 : 0.018)
-            let shape = OrbContour(squareness: working ? 1 : 0)
-            ZStack {
-                shape.fill(PhoneTheme.mint.opacity(0.10 + energy * 0.32))
-                    .blur(radius: size * 0.14).padding(-size * (0.04 + energy * 0.09))
-                shape.fill(RadialGradient(colors: [PhoneTheme.mint.opacity(0.30 + energy * 0.35), PhoneTheme.lavender.opacity(0.28), PhoneTheme.ground], center: .init(x: 0.32, y: 0.28), startRadius: 1, endRadius: size * 0.67))
-                ForEach(0..<5) { index in
-                    OrbContour(squareness: working ? 1 : 0, energy: motionEnergy, phase: time * 3 + Double(index) * 1.7 + (listening ? motionEnergy * 3 : 0), ribbon: true)
-                        .stroke(AngularGradient(colors: [.clear, PhoneTheme.mint.opacity(0.8), PhoneTheme.lavender, PhoneTheme.mint.opacity(0.9), .clear], center: .center), lineWidth: (index == 2 ? 1.4 : 0.75) + energy * 1.9)
-                        .frame(width: size * (0.53 + Double(index) * 0.055 + motionEnergy * 0.16), height: size * (0.39 + motionEnergy * 0.33))
-                        .rotationEffect(.degrees(Double(index) * 34 + time * 9 + motionEnergy * Double(index - 2) * 28))
-                        .opacity(working ? 0.50 : 1)
-                }
-                shape.stroke(PhoneTheme.lavender.opacity(0.28 + energy * 0.42), lineWidth: 0.8 + energy)
-                RoundedRectangle(cornerRadius: 3).fill(PhoneTheme.ink)
-                    .frame(width: size * 0.23, height: size * 0.23)
-                    .opacity(working ? 1 : 0).scaleEffect(working ? 1 : 0.5)
+        OrbArtwork(size: size, stopProgress: working ? 1 : 0, active: active, level: level,
+                   listening: listening, animationTime: animationTime, reduceMotion: reduceMotion,
+                   paused: scenePhase != .active)
+            .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: 0.65), value: working)
+            .frame(width: size, height: size).accessibilityHidden(true)
+    }
+}
+
+/// A single interpolated value shapes the shell, ribbons, light and stop mark in both directions.
+struct OrbArtwork: View, Animatable {
+    var size: CGFloat
+    nonisolated var stopProgress: Double
+    var active = false
+    var level: Double = 0
+    var listening = false
+    var animationTime: TimeInterval? = nil
+    var reduceMotion = false
+    var paused = false
+    nonisolated var animatableData: Double {
+        get { stopProgress }
+        set { stopProgress = newValue }
+    }
+    var body: some View {
+        TimelineView(.animation(minimumInterval: active ? (stopProgress > 0 ? 1.0 / 30 : 1.0 / 60) : 1.0 / 12,
+                                paused: reduceMotion || paused)) { frame in
+            OrbFrame(size: size, stopProgress: stopProgress, level: level, listening: listening,
+                     time: reduceMotion ? 0 : animationTime ?? frame.date.timeIntervalSinceReferenceDate,
+                     reduceMotion: reduceMotion)
+        }
+    }
+}
+
+/// Only real microphone/playback levels deform the ribbons; working adds a quiet pulse of light.
+struct OrbFrame: View {
+    var size: CGFloat
+    var stopProgress: Double
+    var level: Double = 0
+    var listening = false
+    var time: TimeInterval
+    var reduceMotion = false
+    var body: some View {
+        let progress = min(1, max(0, stopProgress))
+        let energy = level.isFinite ? min(1, max(0, level)) : 0
+        let motionEnergy = reduceMotion ? 0 : energy
+        let pulse = reduceMotion ? 0 : sin(time * 1.8)
+        let breath = reduceMotion ? 0 : sin(time * 0.85) * 0.018
+        let shape = OrbContour(squareness: progress)
+        ZStack {
+            shape.fill(PhoneTheme.mint.opacity(0.10 + energy * 0.32 + progress * (0.10 + pulse * 0.035)))
+                .blur(radius: size * 0.14).padding(-size * (0.04 + energy * 0.09))
+            shape.fill(RadialGradient(colors: [PhoneTheme.mint.opacity(0.30 + energy * 0.35 + progress * 0.16),
+                                             PhoneTheme.lavender.opacity(0.28 + progress * 0.16), PhoneTheme.ground],
+                                      center: .init(x: 0.32, y: 0.28), startRadius: 1, endRadius: size * 0.8))
+            ForEach(0..<5) { index in
+                OrbContour(squareness: progress, energy: motionEnergy,
+                           phase: time * 3 + Double(index) * 1.7 + (listening ? motionEnergy * 3 : 0), ribbon: true)
+                    .stroke(AngularGradient(colors: [.clear, PhoneTheme.mint.opacity(0.8), PhoneTheme.lavender,
+                                                     PhoneTheme.mint.opacity(0.9), .clear], center: .center),
+                            lineWidth: (index == 2 ? 1.4 : 0.75) + energy * 1.9 + progress * 0.3)
+                    .frame(width: size * (0.53 + Double(index) * 0.055 + motionEnergy * 0.16),
+                           height: size * (0.39 + motionEnergy * 0.33 + progress * 0.16))
+                    .rotationEffect(.degrees(Double(index) * 34 + time * 9 + motionEnergy * Double(index - 2) * 28))
             }
-            .frame(width: size, height: size)
-            .scaleEffect((working ? 0.79 : 1) * (1 + breath + motionEnergy * 0.08))
-            .shadow(color: PhoneTheme.mint.opacity(energy * 0.6), radius: 5 + energy * 14)
-            .animation(reduceMotion ? nil : .linear(duration: 0.035), value: energy)
-            .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.08), value: working)
-        }.frame(width: size, height: size).accessibilityHidden(true)
+            shape.stroke(PhoneTheme.lavender.opacity(0.28 + energy * 0.42 + progress * 0.35),
+                         lineWidth: 0.8 + energy + progress * 0.5)
+            shape.stroke(AngularGradient(colors: [PhoneTheme.mint.opacity(0.95), PhoneTheme.lavender.opacity(0.25),
+                                                   PhoneTheme.lavender, PhoneTheme.mint.opacity(0.95)],
+                                         center: .center, angle: .degrees(time * 28)), lineWidth: 1.3)
+                .opacity(progress)
+            // A dark inset keeps the familiar stop symbol legible over moving ribbons.
+            RoundedRectangle(cornerRadius: size * 0.12)
+                .fill(PhoneTheme.ground.opacity(0.90))
+                .overlay(RoundedRectangle(cornerRadius: size * 0.12).stroke(PhoneTheme.mint.opacity(0.28)))
+                .frame(width: size * 0.46, height: size * 0.46)
+                .overlay {
+                    RoundedRectangle(cornerRadius: size * 0.045)
+                        .fill(LinearGradient(colors: [PhoneTheme.mint, PhoneTheme.lavender],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: size * 0.25, height: size * 0.25)
+                }
+                .opacity(progress).scaleEffect(0.65 + progress * 0.35)
+        }
+        .frame(width: size, height: size)
+        .scaleEffect((1 - progress * 0.04) * (1 + breath + motionEnergy * 0.08))
+        .shadow(color: PhoneTheme.mint.opacity(energy * 0.6 + progress * 0.18), radius: 5 + energy * 14)
     }
 }
 
