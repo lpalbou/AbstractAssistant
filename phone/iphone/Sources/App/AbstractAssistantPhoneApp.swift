@@ -51,7 +51,7 @@ struct PhoneRoot: View {
         #endif
         store.connect(nil, client: MockGatewayClient(emptyAutomations: emptyAutomations))
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-test") { store.preferences.readAloud = false; store.preferences.voice = nil; store.preferences.speed = 1; store.preferences.transcription = nil }
+        if ProcessInfo.processInfo.arguments.contains("--ui-test") { store.preferences.readAloud = false; store.preferences.showMessageStats = false; store.preferences.voice = nil; store.preferences.speed = 1; store.preferences.transcription = nil }
         #endif
         #if DEBUG
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--screen"), ProcessInfo.processInfo.arguments.indices.contains(index + 1) {

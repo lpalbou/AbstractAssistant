@@ -562,9 +562,10 @@ public struct NewAutomation: Sendable {
     public var when: When
     public var buildsOnEarlierRuns: Bool
     public var askBeforeTools: Bool
-    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool) {
+    public var growingMaxTokens: Int?
+    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool, growingMaxTokens: Int? = nil) {
         self.task = task; self.target = target; self.when = when
-        self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.askBeforeTools = askBeforeTools
+        self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.askBeforeTools = askBeforeTools; self.growingMaxTokens = growingMaxTokens
     }
 
     /// The task's first line, at most 120 characters (the other clients' default title).
@@ -595,7 +596,7 @@ public struct NewAutomation: Sendable {
             "title": .string(title),
             "target": target,
             "trigger": .object(["source_id": .string("schedule"), "source_version": .number(2), "config": .object(config)]),
-            "context": .object(["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]),
+            "context": .object(buildsOnEarlierRuns && (growingMaxTokens ?? 0) > 0 ? ["mode": .string("growing"), "growing": .object(["max_tokens": .number(Double(growingMaxTokens!))])] : ["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]),
             "policy": .object(["tool_approval": .string(askBeforeTools ? "ask" : "auto")]),
         ])
     }
@@ -655,10 +656,11 @@ public struct ResumeCommand: Encodable, Sendable {
 public struct RunToolPolicy: Encodable, Sendable, Equatable {
     public var autoApproveMaxRiskRank: Int?
     public var requireApprovalTools: [String]
-    public init(autoApproveMaxRiskRank: Int?, requireApprovalTools: [String]) {
-        self.autoApproveMaxRiskRank = autoApproveMaxRiskRank; self.requireApprovalTools = requireApprovalTools
+    public var autoApproveTools: [String]?
+    public init(autoApproveMaxRiskRank: Int? = nil, requireApprovalTools: [String], autoApproveTools: [String]? = nil) {
+        self.autoApproveMaxRiskRank = autoApproveMaxRiskRank; self.requireApprovalTools = requireApprovalTools; self.autoApproveTools = autoApproveTools
     }
-    enum CodingKeys: String, CodingKey { case autoApproveMaxRiskRank = "auto_approve_max_risk_rank", requireApprovalTools = "require_approval_tools" }
+    enum CodingKeys: String, CodingKey { case autoApproveTools = "auto_approve_tools", autoApproveMaxRiskRank = "auto_approve_max_risk_rank", requireApprovalTools = "require_approval_tools" }
 }
 
 /// One tool of `GET /api/gateway/discovery/tools`, with the gateway's risk tier
@@ -667,12 +669,16 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
     public var name: String
     public var riskTier: String?
     public var riskRank: Int?
-    enum CodingKeys: String, CodingKey { case name, riskTier = "risk_tier", riskRank = "risk_rank", risk }
+    public var description: String? = nil
+    public var approvalDefault: String? = nil
+    enum CodingKeys: String, CodingKey { case name, description, approvalDefault = "approval_default", riskTier = "risk_tier", riskRank = "risk_rank", risk }
     struct Risk: Decodable { var rank: Int?; var tier: String? }
     public init(name: String, riskTier: String?, riskRank: Int?) { self.name = name; self.riskTier = riskTier; self.riskRank = riskRank }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
+        description = try? c.decodeIfPresent(String.self, forKey: .description)
+        approvalDefault = try? c.decodeIfPresent(String.self, forKey: .approvalDefault)
         let risk = try? c.decodeIfPresent(Risk.self, forKey: .risk)
         riskTier = (try? c.decodeIfPresent(String.self, forKey: .riskTier)) ?? risk?.tier
         riskRank = (try? c.decodeIfPresent(Int.self, forKey: .riskRank)) ?? risk?.rank
@@ -684,8 +690,9 @@ struct ToolsPage: Decodable { let items: [ToolInfo] }
 public struct StartRunRequest: Encodable, Sendable {
     public struct InputData: Encodable, Sendable {
         public struct Runtime: Encodable, Sendable {
-            public var toolPolicy: RunToolPolicy
-            enum CodingKeys: String, CodingKey { case toolPolicy = "tool_policy" }
+            public var toolPolicy: RunToolPolicy?
+            public var allowedTools: [String]? = nil
+            enum CodingKeys: String, CodingKey { case toolPolicy = "tool_policy", allowedTools = "allowed_tools" }
         }
         public var prompt: String
         public var useSessionHistory = true
@@ -694,7 +701,8 @@ public struct StartRunRequest: Encodable, Sendable {
         public var runtime: Runtime?
         public var attachments: [JSONValue]?
         public var context: JSONValue?
-        enum CodingKeys: String, CodingKey { case prompt, attachments, context, useSessionHistory = "use_session_history", system, runtime = "_runtime" }
+        public var tools: [String]? = nil
+        enum CodingKeys: String, CodingKey { case prompt, attachments, context, tools, useSessionHistory = "use_session_history", system, runtime = "_runtime" }
     }
     public var flowId = "@default"
     public var interface = "abstractassistant.agent.v1"

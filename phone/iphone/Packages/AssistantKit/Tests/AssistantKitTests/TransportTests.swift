@@ -1,11 +1,12 @@
 import Foundation
 import Testing
 import AbstractGatewayClient
+import AssistantKit
 
 private final class WireStub: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var requests: [URLRequest] = []
     nonisolated(unsafe) static var bodies: [Data] = []
-    nonisolated(unsafe) static var response: (URLRequest) -> (Int, String) = { _ in (500, "{}") }
+    nonisolated(unsafe) static var response: @Sendable (URLRequest) -> (Int, String) = { _ in (500, "{}") }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -102,6 +103,115 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
         WireStub.response = { _ in (429, #"{"detail":"Entity limit reached. Contact your administrator."}"#) }
         do { _ = try await client.createEntity(EntityDraft(name: "Atlas")); Issue.record("Expected quota rejection") }
         catch { #expect(error.localizedDescription == "Entity limit reached. Contact your administrator.") }
+    }
+
+    @Test func toolModesAndAttachmentsTravelTogetherAndEmptyIsDenyAll() async throws {
+        let client = client()
+        WireStub.response = { request in
+            if request.url!.path.hasSuffix("/capabilities") { return (200, #"{"supported":true,"modes":["off","auto","approve"]}"#) }
+            return request.httpMethod == "GET" ? (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#) : (200, #"{"run_id":"new-run"}"#)
+        }
+        let tools = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
+        let file = PhoneArtifact(artifactId: "file", runId: "owner", filename: "a.txt", contentType: "text/plain")
+        _ = try await client.startRun(prompt: "Review", sessionId: "s", attachments: [file.ref], tools: tools)
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
+        #expect(body["input_data"]?["tools"] == .array([.string("read_file"), .string("send_email")]))
+        #expect(body["input_data"]?["_runtime"]?["allowed_tools"] == body["input_data"]?["tools"])
+        #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["auto_approve_tools"] == .array([.string("read_file")]))
+        #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["require_approval_tools"] == .array([.string("send_email")]))
+        #expect(body["input_data"]?["attachments"] == .array([file.ref]))
+        _ = try await client.startRun(prompt: "No tools", sessionId: "s", attachments: [], tools: .init(modes: [:]))
+        let empty = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[5])
+        #expect(empty["input_data"]?["tools"] == .array([]))
+        #expect(empty["input_data"]?["_runtime"]?["allowed_tools"] == .array([]))
+    }
+    @Test func entityPolicyIsStampedBeforeFirstTurnAndDecisionCarriesOnlyExactChoice() async throws {
+        let client = client()
+        WireStub.response = { _ in (200, #"{"run_id":"visit","status":"waiting","turn_n":0,"reply":null}"#) }
+        _ = try await client.openEntitySession(name: "castor", sessionID: "local", tools: .init(modes: ["diary_read": .approve]))
+        let open = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[0])
+        #expect(open["session_id"] == .string("local"))
+        #expect(open["tool_policy"]?["modes"]?["diary_read"] == .string("approve"))
+        _ = try await client.answerEntity(name: "castor", runID: "visit", waitKey: "exact-key", approved: true)
+        let decision = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[1])
+        #expect(decision == .object(["wait_key": .string("exact-key"), "approved": .bool(true)]))
+        try await client.setEntityTools(name: "castor", runID: "visit", tools: nil)
+        #expect(try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2]) == .object(["modes": .null]))
+    }
+    @Test func optionalMeasurementsAndDefaultsHandleOlderGatewaysWithoutInventedValues() async throws {
+        let client = client(); WireStub.response = { _ in (404, "{}") }
+        #expect(try await client.messageStats(runID: "old") == nil)
+        #expect(try await client.automationDefaults() == nil)
+        WireStub.response = { _ in (403, "{}") }
+        await #expect(throws: GatewayError.self) { try await client.automationDefaults() }
+    }
+
+    @Test func anOlderGatewayCannotSilentlyAcceptExplicitToolModes() async {
+        let client = client(); WireStub.response = { _ in (404, "{}") }
+        await #expect(throws: GatewayError.self) { try await client.startRun(prompt: "Hi", sessionId: "s", attachments: [], tools: .init(modes: [:])) }
+        #expect(WireStub.requests.count == 1 && WireStub.requests[0].httpMethod == "GET")
+    }
+    @Test @MainActor func restoredEntityHistoryStaysQuietAndTerminalVisitsAreForgotten() async throws {
+        let client = client(), defaults = UserDefaults(suiteName: "entity-restore-\(UUID())")!
+        let connection = SavedConnection(gateway: URL(string: "https://gateway.example")!, user: "alice", credential: .token("test"))
+        defaults.set("saved-session", forKey: "phone.session." + connection.scope)
+        defaults.set("castor", forKey: "phone.entity." + connection.scope)
+        let key = "phone.visit." + connection.scope + ".saved-session"
+        defaults.set("visit", forKey: key)
+        WireStub.response = { _ in (200, #"{"run_id":"visit","status":"waiting","turn_n":1,"reply":"An earlier answer","turn_complete":true}"#) }
+        let store = AssistantStore(defaults: defaults); store.connect(connection, client: client)
+        await store.followActiveRun()
+        #expect(store.messages.last?.text == "An earlier answer" && store.completedReply == nil)
+        #expect(store.canSend && defaults.string(forKey: key) == "visit")
+        // Reconnecting to a terminal visit must not leave an unusable cached visit id.
+        store.connect(connection, client: client)
+        WireStub.response = { _ in (200, #"{"run_id":"visit","status":"cancelled","turn_n":1,"turn_complete":false}"#) }
+        await store.followActiveRun()
+        #expect(store.canSend && defaults.string(forKey: key) == nil)
+        #expect(store.activeEntityRunID == nil && store.completedReply == nil)
+    }
+
+    @Test @MainActor func lostEntityTurnResponseRecoversItsApprovalWithoutResending() async throws {
+        let client = client(), defaults = UserDefaults(suiteName: "lost-turn-\(UUID())")!
+        let connection = SavedConnection(gateway: URL(string: "https://gateway.example")!, user: "alice", credential: .token("test"))
+        defaults.set("s", forKey: "phone.session." + connection.scope)
+        defaults.set("castor", forKey: "phone.entity." + connection.scope)
+        defaults.set("v", forKey: "phone.visit." + connection.scope + ".s")
+        WireStub.response = { request in
+            if request.url!.path.hasSuffix("/tool-policy") { return (200, "{}") }
+            if request.url!.path.hasSuffix("/turn") { return (503, "{}") }
+            let first = WireStub.requests.filter { $0.url!.path.hasSuffix("/state") }.count == 1
+            return first ? (200, #"{"run_id":"v","status":"waiting","turn_n":1,"reply":"Earlier","turn_complete":true,"ready_for_input":true}"#) : (200, #"{"run_id":"v","status":"waiting","turn_n":2,"turn_complete":false,"ready_for_input":false,"pending_wait":{"reason":"user","wait_key":"tool_approval:v:key","details":{"mode":"approval_required","tool_calls":[{"name":"read_memory","arguments":{}}]}}}"#)
+        }
+        let store = AssistantStore(defaults: defaults); store.connect(connection, client: client)
+        await store.followActiveRun(); store.send("Next answer")
+        for _ in 0..<200 { if store.phase == .waiting { break }; try await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.phase == .waiting && store.activeEntityRunID == "v")
+        #expect(store.waits.first?.waitKey == "tool_approval:v:key" && !store.canSend)
+        #expect(WireStub.requests.filter { $0.url!.path.hasSuffix("/turn") }.count == 1)
+        #expect(store.completedReply == nil)
+    }
+    @Test @MainActor func openingAssistantHistoryEndsTheOwnedEntityVisitFirst() async throws {
+        for successfulEnd in [false, true] {
+            let client = client(), defaults = UserDefaults(suiteName: "switch-visit-\(UUID())")!
+            let connection = SavedConnection(gateway: URL(string: "https://gateway.example")!, user: "alice", credential: .token("test"))
+            defaults.set("s", forKey: "phone.session." + connection.scope)
+            defaults.set("castor", forKey: "phone.entity." + connection.scope)
+            defaults.set("v", forKey: "phone.visit." + connection.scope + ".s")
+            WireStub.response = { request in
+                if request.url!.path.hasSuffix("/state") { return (200, #"{"run_id":"v","status":"waiting","turn_n":1,"reply":"Earlier","turn_complete":true}"#) }
+                if request.url!.path.hasSuffix("/end") { return (successfulEnd ? 200 : 409, "{}") }
+                return (200, #"{"items":[]}"#)
+            }
+            let store = AssistantStore(defaults: defaults); store.connect(connection, client: client)
+            await store.followActiveRun()
+            let session = SessionSummary.group([RunSummary(runId: "r", workflowId: nil, status: "completed", sessionId: "history")])[0]
+            await store.openSession(session)
+            #expect(WireStub.requests.filter { $0.url!.path.hasSuffix("/end") }.count == 1)
+            #expect(store.selectedEntity == (successfulEnd ? nil : "castor"))
+            #expect(store.sessionID == (successfulEnd ? "history" : "s"))
+            #expect(store.canSend)
+        }
     }
 
 }

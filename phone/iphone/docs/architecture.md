@@ -139,3 +139,33 @@ times follow the account time zone reported by the gateway. A pending creation r
 request ID across retries, preventing uncertain responses from duplicating routines. The
 creation response is retained for navigation even if refreshing the list fails. Shared
 catalog workflows unsupported by automations v1 remain a gateway validation error.
+
+
+## Conversation tool scope and metrics
+
+`ConversationTools` is an explicit whitelist with Off, Auto and Approve modes. Assistant
+turns carry the same enabled names in `input_data.tools` and `_runtime.allowed_tools`,
+plus named `auto_approve_tools` and `require_approval_tools` in `_runtime.tool_policy`.
+An empty list denies every tool; omitted policy inherits gateway defaults. Attachments and
+policy travel in the same start request. Preferences use gateway/account, responder and
+session keys. A compatibility client cannot silently discard an explicit policy.
+
+Entity discovery advertises `GET /entities/{name}/session-tools`. Managed sessions open
+with the policy before the first tick, then use the entity's durable visit and owner-bound
+policy/state/decision/end endpoints. An approval is a persisted runtime wait; only its
+exact key and a strict boolean decision are sent. The server executes through the entity's
+own handler and rechecks its grant. Policy changes are accepted only between turns.
+The phone reuses its session/visit IDs after reconnect, while generations prevent late
+responses from crossing accounts or conversations. Legacy chat is used only when the
+capability endpoint is unavailable and no explicit policy was requested.
+
+Message statistics are optional and answer-owned. Agent metrics fold the run's execution
+subtree; elapsed time is the root wall span, not the sum of overlapping child durations.
+Entity metrics cover only the latest completed turn between visitor-input parks, excluding
+visitor idle time. Missing token usage remains unknown. Active streaming answers are not
+cached as final measurements. Playback actions require both active playback and a matching
+`readingID`, so only the spoken answer can expose Pause and Stop.
+
+Automation history budgets are sent as `context.growing.max_tokens` only for growing
+history with a custom positive value. Omission inherits the runtime default returned by
+`GET /automations/defaults`. The budget is part of the creation retry fingerprint.

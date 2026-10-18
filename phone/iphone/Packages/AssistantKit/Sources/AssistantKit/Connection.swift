@@ -72,7 +72,8 @@ public struct ConversationMessage: Identifiable, Equatable, Sendable {
     public var role: Role
     public var text: String
     public var runID: String?
-    public init(id: String = UUID().uuidString, role: Role, text: String, runID: String? = nil) {
-        self.id = id; self.role = role; self.text = text; self.runID = runID
+    public var stats: MessageStats?
+    public init(id: String = UUID().uuidString, role: Role, text: String, runID: String? = nil, stats: MessageStats? = nil) {
+        self.id = id; self.role = role; self.text = text; self.runID = runID; self.stats = stats
     }
 }

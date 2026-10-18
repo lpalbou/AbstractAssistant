@@ -25,6 +25,17 @@ public protocol GatewayClient: Sendable {
     var isMock: Bool { get }
     /// `GET /api/health`
     func health() async throws -> Bool
+    func supportsConversationTools() async throws -> Bool
+    func automationDefaults() async throws -> Int?
+    func messageStats(runID: String) async throws -> MessageStats?
+    func entityTools(name: String) async throws -> [ToolInfo]
+    func openEntitySession(name: String, sessionID: String, tools: ConversationTools?) async throws -> EntitySessionState
+    func sendEntityTurn(name: String, runID: String, text: String) async throws -> JSONValue
+    func endEntitySession(name: String, runID: String) async throws
+    func entitySession(name: String, runID: String) async throws -> EntitySessionState
+    func setEntityTools(name: String, runID: String, tools: ConversationTools?) async throws
+    func answerEntity(name: String, runID: String, waitKey: String, approved: Bool) async throws -> EntitySessionState
+    func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String
     /// `GET /api/gateway/me`
     func me() async throws -> Principal
     /// `GET /api/gateway/runs?status=waiting`, projected to waits on a person.
@@ -309,6 +320,67 @@ public actor LiveGatewayClient: GatewayClient {
     }
     public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String {
         var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: nil, preferences: try await accountPreferences())
+        if !attachments.isEmpty {
+            body.inputData.attachments = attachments
+            body.inputData.context = .object(["attachments": .array(attachments), "media": .array(attachments)])
+        }
+        return try JSONDecoder().decode(StartRunResponse.self, from: try await request("POST", "api/gateway/runs/start", body: body)).runId
+    }
+    public func supportsConversationTools() async throws -> Bool {
+        struct Capabilities: Decodable { var supported: Bool; var modes: [String] }
+        do {
+            let info = try await get("api/gateway/tool-policy/capabilities", as: Capabilities.self)
+            let supported = info.supported && Set(info.modes).isSuperset(of: ["off", "auto", "approve"])
+            return supported
+        } catch GatewayError.http(status: 404, body: _) { return false }
+    }
+    public func automationDefaults() async throws -> Int? {
+        struct Defaults: Decodable { var growing_max_tokens: Int }
+        do { return try await get("api/gateway/automations/defaults", as: Defaults.self).growing_max_tokens }
+        catch GatewayError.http(status: 404, body: _) { return nil }
+    }
+    public func messageStats(runID: String) async throws -> MessageStats? {
+        do { return try await get("api/gateway/runs/\(runID)/message-stats", as: MessageStats.self) }
+        catch GatewayError.http(status: 404, body: _) { return nil }
+    }
+    public func entityTools(name: String) async throws -> [ToolInfo] {
+        try await get("api/gateway/entities/\(name)/session-tools", as: ToolsPage.self).items
+    }
+    public func openEntitySession(name: String, sessionID: String, tools: ConversationTools?) async throws -> EntitySessionState {
+        struct Body: Encodable { var session_id: String; var tool_policy: ConversationTools? }
+        let data = try await request("POST", "api/gateway/entities/\(name)/sessions", body: Body(session_id: sessionID, tool_policy: tools), timeout: 120)
+        return try JSONDecoder().decode(EntitySessionState.self, from: data)
+    }
+    public func sendEntityTurn(name: String, runID: String, text: String) async throws -> JSONValue {
+        let data = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/turn", body: ChatTurnRequest(text: text), timeout: 120)
+        return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+    public func endEntitySession(name: String, runID: String) async throws {
+        _ = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/end", body: JSONValue.object([:]), timeout: 120)
+    }
+    public func entitySession(name: String, runID: String) async throws -> EntitySessionState {
+        try await get("api/gateway/entities/\(name)/visit/\(runID)/state", as: EntitySessionState.self)
+    }
+    public func setEntityTools(name: String, runID: String, tools: ConversationTools?) async throws {
+        // Null restores home defaults; an empty map disables every tool.
+        let body: JSONValue = tools.map { .object(["modes": .object($0.modes.mapValues { .string($0.rawValue) })]) } ?? .object(["modes": .null])
+        _ = try await request("PUT", "api/gateway/entities/\(name)/visit/\(runID)/tool-policy", body: body)
+    }
+    public func answerEntity(name: String, runID: String, waitKey: String, approved: Bool) async throws -> EntitySessionState {
+        struct Body: Encodable { var wait_key: String; var approved: Bool }
+        let data = try await request("POST", "api/gateway/entities/\(name)/visit/\(runID)/decision", body: Body(wait_key: waitKey, approved: approved), timeout: 120)
+        return try JSONDecoder().decode(EntitySessionState.self, from: data)
+    }
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String {
+        if tools != nil, !(try await supportsConversationTools()) {
+            throw GatewayError.http(status: 409, body: "{\"detail\":\"Update this gateway to configure tools per conversation.\"}")
+        }
+        var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: tools?.policy, preferences: try await accountPreferences())
+        if let tools {
+            body.inputData.tools = tools.allowed
+            if body.inputData.runtime == nil { body.inputData.runtime = .init(toolPolicy: tools.policy) }
+            body.inputData.runtime?.allowedTools = tools.allowed
+        }
         if !attachments.isEmpty {
             body.inputData.attachments = attachments
             body.inputData.context = .object(["attachments": .array(attachments), "media": .array(attachments)])

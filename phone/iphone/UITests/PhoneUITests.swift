@@ -222,6 +222,126 @@ final class PhoneUITests: XCTestCase {
         chooser.tap(); XCTAssertTrue(app.buttons["Talk with Atlas One"].waitForExistence(timeout: 5))
         capture(app, "Created entity")
     }
+    @MainActor func testToolsSaveOnlyForTheCurrentConversation() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        openTools(app)
+        let defaults = app.switches["tools.defaults"]
+        XCTAssertTrue(defaults.waitForExistence(timeout: 10)); XCTAssertEqual(defaults.value as? String, "1")
+        capture(app, "Inherited conversation tools")
+        defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        let read = app.segmentedControls["tool.read_file"]
+        XCTAssertTrue(read.waitForExistence(timeout: 5))
+        read.buttons["Off"].tap()
+        app.segmentedControls["tool.fetch_url"].buttons["Auto"].tap()
+        app.segmentedControls["tool.execute_command"].buttons["Approve"].tap()
+        capture(app, "Conversation tools")
+        app.buttons["Save"].tap()
+        openTools(app)
+        XCTAssertEqual(defaults.value as? String, "0")
+        XCTAssertTrue(read.buttons["Off"].isSelected)
+        XCTAssertTrue(app.segmentedControls["tool.fetch_url"].buttons["Auto"].isSelected)
+        XCTAssertTrue(app.segmentedControls["tool.execute_command"].buttons["Approve"].isSelected)
+        defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertTrue(read.buttons["Auto"].isSelected)
+        defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertTrue(read.buttons["Off"].isSelected)
+        app.buttons["Close"].tap()
+        app.buttons["More options"].tap(); app.buttons["New conversation"].tap()
+        openTools(app)
+        XCTAssertTrue(defaults.waitForExistence(timeout: 5)); XCTAssertEqual(defaults.value as? String, "1")
+        defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertTrue(read.buttons["Auto"].isSelected)
+    }
+    @MainActor func testAnswerStatisticsAreOptionalAndCanBeHiddenAgain() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        openSettings(app)
+        let toggle = app.switches["settings.messageStats"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        if toggle.value as? String == "1" { toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap() }
+        app.buttons["Done"].tap()
+        app.buttons["Find a little focus"].firstMatch.tap(); app.buttons["Send message"].tap()
+        XCTAssertTrue(app.buttons["Share answer"].firstMatch.waitForExistence(timeout: 30))
+        let keyboard = app.buttons["composer.keyboard"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: keyboard)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 30), .completed)
+        let stats = app.descendants(matching: .any).matching(identifier: "message.stats").firstMatch
+        XCTAssertFalse(stats.exists)
+        openSettings(app)
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertEqual(toggle.value as? String, "1")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(stats.waitForExistence(timeout: 10))
+        XCTAssertTrue(stats.label.contains("Input:")); XCTAssertTrue(stats.label.contains("Output:"))
+        XCTAssertTrue(stats.label.contains("tool calls"))
+        capture(app, "Answer statistics")
+        openSettings(app); toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap(); app.buttons["Done"].tap()
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: stats)
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed)
+    }
+    @MainActor func testGrowingAutomationBudgetValidatesAndInheritsByDefault() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
+        XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
+        let task = app.textFields["automation.task"]
+        XCTAssertTrue(task.waitForExistence(timeout: 10)); task.tap(); task.typeText("My inherited history briefing")
+        app.buttons["Done"].firstMatch.tap()
+        let growing = app.switches["automation.growing"]
+        let budget = app.textFields["automation.historyBudget"]
+        XCTAssertFalse(budget.exists)
+        growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertTrue(budget.waitForExistence(timeout: 5))
+        XCTAssertTrue((budget.value as? String ?? "").contains("50,000"))
+        budget.tap(); budget.typeText("0"); app.buttons["Done"].firstMatch.tap()
+        let create = app.buttons["automation.create"]
+        XCTAssertFalse(create.isEnabled)
+        budget.tap(); budget.typeText(XCUIKeyboardKey.delete.rawValue + "24000"); app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(create.isEnabled)
+        capture(app, "Custom history budget")
+        growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertFalse(budget.exists)
+        growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertEqual(budget.value as? String, "24000")
+        budget.tap(); budget.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5)); app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue((budget.value as? String ?? "").contains("50,000"))
+        XCTAssertTrue(create.isEnabled)
+        capture(app, "Inherited history budget")
+        for _ in 0..<4 { if create.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(create.isHittable); create.tap()
+        XCTAssertTrue(app.staticTexts["My inherited history briefing"].firstMatch.waitForExistence(timeout: 20))
+    }
+    @MainActor func testOnlyTheSpeakingAnswerShowsStop() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        for index in 1...2 {
+            let keyboard = app.buttons["composer.keyboard"]
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: keyboard)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 30), .completed)
+            keyboard.tap(); app.textFields["composer.input"].typeText("Answer \(index)"); app.buttons["Send message"].tap()
+            let done = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: keyboard)
+            XCTAssertEqual(XCTWaiter.wait(for: [done], timeout: 30), .completed)
+        }
+        let readers = app.buttons.matching(identifier: "Read answer aloud")
+        XCTAssertEqual(readers.count, 2)
+        readers.element(boundBy: 1).tap()
+        XCTAssertTrue(app.buttons["Stop reading"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(identifier: "Stop reading").count, 1)
+        XCTAssertEqual(app.buttons.matching(identifier: "Read answer aloud").count, 1)
+        capture(app, "Isolated answer playback")
+        app.buttons["Stop reading"].tap()
+        XCTAssertEqual(app.buttons.matching(identifier: "Read answer aloud").count, 2)
+    }
+    @MainActor func testSettingsAlsoOpensToolsForTheCurrentConversation() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        openSettings(app)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Conversation tools'")).firstMatch.tap()
+        XCTAssertTrue(app.switches["tools.defaults"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Assistant · This conversation"].exists)
+        app.buttons["Close"].tap()
+        XCTAssertTrue(app.switches["settings.messageStats"].waitForExistence(timeout: 5))
+    }
+    @MainActor private func openTools(_ app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 10)); app.buttons["More options"].tap()
+        app.buttons["Tools"].tap()
+    }
     @MainActor private func openSettings(_ app: XCUIApplication) {
         XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 10)); app.buttons["More options"].tap()
         app.buttons["Settings"].tap()

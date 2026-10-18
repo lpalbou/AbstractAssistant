@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.5.0 · iOS 26+**
+**Developer preview · 0.6.0 · iOS 26+**
 
 ## Three small spaces
 
@@ -26,6 +26,11 @@ AbstractGateway, with the conversation at the center and the controls you need c
   interval or daily time, and decide whether it builds on earlier runs and asks before tools.
   Daily times use your account’s time zone, which the creation screen displays. Editing
   an existing routine’s definition remains in the gateway console.
+
+When creating an automation, **Build on earlier runs** reveals **History token budget**.
+Leave it blank to inherit the gateway’s default (50,000 tokens in the runtime shipped with
+this feature), or enter a positive whole number. The displayed default comes from your
+gateway. The budget limits retained history rather than the length of an individual answer.
 
 The app uses your account’s Assistant workflow preference (`abstractassistant.agent.v1`), or
 the gateway’s Assistant default when you follow the default. If it is unavailable, choose an
@@ -66,6 +71,28 @@ Files are limited to **25 MB each** on the phone; the gateway may impose a small
 Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts
 text only, so file messages are available in Assistant conversations. The files list shows
 the latest 100 session artifacts; older files remain on the gateway.
+
+## Conversation tools and answer statistics
+
+Open **Settings → Conversation tools** or **More options (…) → Tools**. Gateway defaults are inherited
+until you choose explicit modes. Turn off **Use gateway defaults** to set each tool:
+
+- **Off** blocks it for this conversation.
+- **Auto** allows execution without asking.
+- **Approve** waits for your decision before execution. Review and allow or deny in chat or Inbox.
+
+Choices belong to the signed-in gateway account, responder and conversation. They apply
+to subsequent messages; starting a new conversation restores inheritance. A tool choice
+cannot grant a capability that the gateway or entity does not offer.
+
+In **Settings**, enable **Show answer statistics** for a small line below AI answers:
+elapsed wall time, input/output tokens and executed tool calls. It is off by default.
+Unavailable measurements stay absent. Reading controls belong to the answer being spoken;
+other answers retain their own Read action.
+
+Conversation tool controls, entity approvals and detailed metrics require a gateway with the session-tools and
+message-statistics endpoints. Earlier gateways retain ordinary text chat, but the app
+refuses to send explicit tool policies through an interface that cannot advertise enforcement.
 
 ## Entities
 
@@ -109,8 +136,9 @@ and gateway-client snapshot. It neither embeds nor modifies the Watch applicatio
 - Answers use the gateway’s run output; the phone does not implement token-by-token SSE.
 - The conversation picker shows the most recent 60 chat/discussion runs and opens up to
   30 turns per conversation. Older history remains on the gateway.
-- Entity conversations continue that entity’s server-side home conversation. Selecting an
-  entity is not a promise to reset its memory or create a separate entity thread.
+- Entity conversations use durable gateway visits when supported. Starting a new conversation
+  ends the previous owned visit; the entity retains its ongoing memory. Earlier gateways
+  use the home’s existing text-chat interface.
 - Voice capture is limited to one minute. Audio goes to your gateway, then the temporary
   recording is removed. Transcription and speech use the gateway providers you select;
   no model runs on the iPhone. The orb’s level response is local; the conversation still

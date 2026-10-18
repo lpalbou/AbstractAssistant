@@ -22,6 +22,7 @@ struct ChatScreen: View {
     @State private var pickedMedia: PhotosPickerItem?
     @State private var camera: CaptureMode?
     @State private var showFiles = false
+    @State private var showTools = false
     @State private var mediaTask: Task<Void, Never>?
     @State private var mediaLoading = false
     @State private var mediaGeneration = UUID()
@@ -54,6 +55,8 @@ struct ChatScreen: View {
                 .onChange(of: store.messages.last?.text) { _, _ in withAnimation(.easeOut(duration: 0.2)) { scroll.scrollTo("bottom", anchor: .bottom) } }
             }
             .background(PhoneTheme.ground)
+            .sheet(isPresented: $showTools) { ConversationToolsScreen() }
+            .task(id: store.preferences.showMessageStats) { await store.loadMessageStats() }
             .background(OutsideInputDismissal(focused: typing, dismiss: { typing = false; composing = false }))
             .navigationTitle(store.conversationTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -65,6 +68,7 @@ struct ChatScreen: View {
                 ToolbarItem(placement: .topBarLeading) { Button { typing = false; composing = false; cancelVoice(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button("Tools", systemImage: "wrench.and.screwdriver") { typing = false; composing = false; cancelVoice(); showTools = true }.disabled(!store.canSend)
                         Button("Conversation files", systemImage: "folder") { typing = false; composing = false; cancelVoice(); showFiles = true }
                         Button("New conversation", systemImage: "square.and.pencil") { typing = false; composing = false; cancelVoice(); store.newConversation(entity: store.selectedEntity) }.disabled(!store.canSend || attachments.busy || mediaLoading || !attachments.pending.isEmpty)
                         Button("Settings", systemImage: "slider.horizontal.3") { typing = false; composing = false; cancelVoice(); openSettings() }.disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
@@ -152,13 +156,16 @@ struct ChatScreen: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) { Image(systemName: "sparkle").foregroundStyle(PhoneTheme.mint); QuietLabel(text: store.conversationTitle) }
                 PhoneMarkdown(text: message.text)
+                if store.preferences.showMessageStats, let stats = message.stats {
+                    MessageStatsView(wallTimeSeconds: stats.wallTimeSeconds, inputTokens: stats.inputTokens, outputTokens: stats.outputTokens, toolCalls: stats.toolCalls)
+                }
                 HStack(spacing: 22) {
                     ShareLink(item: message.text) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share answer")
                     Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer")
                     if let client = store.client, let scope = store.selectedEntity.map({ SpeechScope.entity($0) }) ?? message.runID.map({ SpeechScope.run($0) }) {
                         Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
-                    if voice.speaking { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
+                    if voice.speaking && voice.readingID == message.id { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
                 }.font(.subheadline).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain).frame(minHeight: 44)
                 if message.id == store.messages.last(where: { $0.role == .assistant })?.id && !attachments.files.isEmpty {
                     Button { typing = false; composing = false; cancelVoice(); showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
@@ -187,7 +194,7 @@ struct ChatScreen: View {
                     ProgressView().tint(PhoneTheme.mint)
                     Text(store.isOpening || store.isRestoring ? "Opening conversation…" : store.phase == .waiting ? "Review the request above" : "Waiting for your assistant…").font(.subheadline).foregroundStyle(PhoneTheme.secondary)
                     Spacer(minLength: 0)
-                    if store.activeRunID != nil { Button("Stop", role: .destructive) { Task { await store.stopRun() } }.font(.subheadline.weight(.medium)).frame(minHeight: 44) }
+                    if store.activeRunID != nil || store.activeEntityRunID != nil { Button("Stop", role: .destructive) { Task { await store.stopRun() } }.font(.subheadline.weight(.medium)).frame(minHeight: 44) }
                 }
             }
             HStack(alignment: .center, spacing: 12) {

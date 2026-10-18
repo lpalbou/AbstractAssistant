@@ -21,6 +21,7 @@ public final class AssistantStore {
     public private(set) var entities: [EntitySummary] = []
     public private(set) var sessionID = "iphone-" + UUID().uuidString.lowercased()
     public private(set) var activeRunID: String?
+    public private(set) var activeEntityRunID: String?
     public private(set) var selectedEntity: String?
     public private(set) var error: String?
     public private(set) var automationsError: String?
@@ -42,6 +43,10 @@ public final class AssistantStore {
     @ObservationIgnored private var poll: Task<Void, Never>?
     @ObservationIgnored private var turn: Task<Void, Never>?
     @ObservationIgnored private var entityChatIDs: [String: String] = [:]
+    @ObservationIgnored private var entityVisitIDs: [String: String] = [:]
+    @ObservationIgnored private var quietEntityRestoreID: String?
+    @ObservationIgnored private var measuredMessages: Set<String> = []
+    @ObservationIgnored private var toolSelections: [String: ConversationTools] = [:]
     private var restorationID: String?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored public var onUnauthorized: (@MainActor () -> Void)?
@@ -52,7 +57,15 @@ public final class AssistantStore {
         disconnect()
         self.connection = connection; self.client = client
         preferences = PhonePreferences(scope: connection?.scope ?? "demo", defaults: defaults)
-        if let connection { restorationID = defaults.string(forKey: "phone.session." + connection.scope) }
+        if let connection {
+            restorationID = defaults.string(forKey: "phone.session." + connection.scope)
+            if let entity = defaults.string(forKey: "phone.entity." + connection.scope), let saved = restorationID {
+                selectedEntity = entity; sessionID = saved; restorationID = nil
+                if let id = defaults.string(forKey: "phone.visit." + connection.scope + "." + saved) {
+                    entityVisitIDs[entity + ":" + saved] = id; activeEntityRunID = id; quietEntityRestoreID = id; phase = .working
+                }
+            }
+        }
         if restorationID == nil { persistSession() }
         if foreground { startPolling() }
     }
@@ -61,8 +74,8 @@ public final class AssistantStore {
         generation += 1; conversationGeneration += 1
         poll?.cancel(); poll = nil; turn?.cancel(); turn = nil
         client = nil; connection = nil; principal = nil; messages = []; runs = []; waits = []; automations = []; entities = []
-        titles = [:]; entityChatIDs = [:]; activeRunID = nil; selectedEntity = nil; restorationID = nil
-        completedReply = nil
+        titles = [:]; entityChatIDs = [:]; entityVisitIDs = [:]; toolSelections = [:]; measuredMessages = []; activeEntityRunID = nil; activeRunID = nil; selectedEntity = nil; restorationID = nil
+        completedReply = nil; quietEntityRestoreID = nil
         phase = .ready; error = nil; automationsError = nil; entitiesError = nil; loadingEntities = false; lastRefresh = nil; isRefreshing = false; isOpening = false
         deciding = []; automationBusy = []; sessionID = "iphone-" + UUID().uuidString.lowercased()
     }
@@ -91,7 +104,7 @@ public final class AssistantStore {
             let me = try await client.me()
             guard epoch == generation else { return }; principal = me
             let newWaits = try await client.waits()
-            guard epoch == generation else { return }; waits = newWaits
+            guard epoch == generation else { return }; waits = newWaits + waits.filter { $0.runId == activeEntityRunID }
             let newRuns = try await client.recentRuns(limit: 60)
             guard epoch == generation else { return }; runs = newRuns
             if let saved = restorationID {
@@ -131,43 +144,118 @@ public final class AssistantStore {
     public func authenticationExpired() { handle(GatewayError.unauthorized) }
     public func newConversation(entity: String? = nil) {
         guard phase == .ready, !isOpening else { return }
-        completedReply = nil
-        conversationGeneration += 1; messages = []; selectedEntity = entity; activeRunID = nil; restorationID = nil
+        if let oldEntity = selectedEntity, let id = entityVisitIDs[oldEntity + ":" + sessionID], let client {
+            let epoch = generation, oldSession = sessionID
+            isOpening = true
+            turn = Task {
+                do {
+                    try await client.endEntitySession(name: oldEntity, runID: id)
+                    guard epoch == generation else { return }
+                    entityVisitIDs.removeValue(forKey: oldEntity + ":" + oldSession)
+                    if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + oldSession) }
+                    isOpening = false; resetConversation(entity: entity)
+                } catch { if epoch == generation { isOpening = false; self.error = say(error); handle(error) } }
+            }
+        } else { resetConversation(entity: entity) }
+    }
+    private func resetConversation(entity: String?) {
+        completedReply = nil; quietEntityRestoreID = nil; error = nil
+        conversationGeneration += 1; measuredMessages = []; messages = []; selectedEntity = entity; activeEntityRunID = nil; activeRunID = nil; restorationID = nil
         sessionID = "iphone-" + UUID().uuidString.lowercased(); persistSession()
+    }
+    private var toolsKey: String { "phone.tools." + (connection?.scope ?? "demo") + "." + (selectedEntity ?? "assistant") + "." + sessionID }
+    public var conversationTools: ConversationTools? {
+        if let selection = toolSelections[toolsKey] { return selection }
+        guard let data = defaults.data(forKey: toolsKey) else { return nil }
+        return try? JSONDecoder().decode(ConversationTools.self, from: data)
+    }
+    public func setConversationTools(_ tools: ConversationTools?) {
+        guard canSend else { return }
+        toolSelections[toolsKey] = tools
+        if let tools, let data = try? JSONEncoder().encode(tools) { defaults.set(data, forKey: toolsKey) }
+        else { defaults.removeObject(forKey: toolsKey) }
+    }
+    public func loadMessageStats() async {
+        guard preferences.showMessageStats, let client else { return }
+        let epoch = generation, view = conversationGeneration
+        for message in messages where message.role == .assistant && message.stats == nil && message.runID != activeRunID && !measuredMessages.contains(message.id) {
+            guard epoch == generation, view == conversationGeneration else { return }
+            guard let id = message.runID else { continue }
+            do {
+                let stats = try await client.messageStats(runID: id)
+                guard epoch == generation, view == conversationGeneration else { return }
+                measuredMessages.insert(message.id)
+                if let index = messages.firstIndex(where: { $0.id == message.id }) { messages[index].stats = stats }
+            } catch { if epoch == generation { handle(error) } }
+        }
     }
     public func send(_ text: String, attachments: [PhoneArtifact] = []) {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let client else { return }
         if selectedEntity != nil && !attachments.isEmpty { error = "Files can be sent to Assistant conversations. Entity file messages are not supported by this gateway interface."; return }
         let epoch = generation, view = conversationGeneration, session = sessionID, entity = selectedEntity
+        let tools = conversationTools
         messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")))); phase = .sending; error = nil
         turn = Task {
             do {
                 if let entity {
-                    let chat: String
-                    if let existing = entityChatIDs[entity] { chat = existing }
-                    else { chat = try await client.openEntityChat(name: entity) }
-                    guard epoch == generation, view == conversationGeneration else { return }
-                    entityChatIDs[entity] = chat
-                    let answer = try await client.entityChatTurn(name: entity, chatId: chat, text: prompt)
-                    guard epoch == generation, view == conversationGeneration else { return }
-                    let reply = ConversationMessage(role: .assistant, text: answer)
-                    messages.append(reply); completedReply = reply; phase = .ready
+                    let key = entity + ":" + session
+                    if let existing = entityVisitIDs[key] {
+                        activeEntityRunID = existing
+                        try await client.setEntityTools(name: entity, runID: existing, tools: tools)
+                        guard epoch == generation, view == conversationGeneration else { return }
+                        activeEntityRunID = existing
+                        _ = try await client.sendEntityTurn(name: entity, runID: existing, text: prompt)
+                        guard epoch == generation, view == conversationGeneration else { return }
+                        activeEntityRunID = existing; phase = .working
+                        await followEntitySession()
+                    } else {
+                        // Capability discovery precedes the write; older gateways keep ordinary chat,
+                        // but explicit policies can never fall through to the legacy ungated API.
+                        let supported: Bool
+                        do { _ = try await client.entityTools(name: entity); supported = true }
+                        catch GatewayError.http(status: 404, body: _) { supported = false }
+                        catch PhoneAttachmentError.unsupported { supported = false }
+                        if supported {
+                            let state = try await client.openEntitySession(name: entity, sessionID: session, tools: tools)
+                            guard epoch == generation, view == conversationGeneration else { return }
+                            entityVisitIDs[key] = state.runID
+                            if let connection { defaults.set(state.runID, forKey: "phone.visit." + connection.scope + "." + session) }
+                            activeEntityRunID = state.runID
+                            _ = try await client.sendEntityTurn(name: entity, runID: state.runID, text: prompt)
+                            guard epoch == generation, view == conversationGeneration else { return }
+                            activeEntityRunID = state.runID; phase = .working
+                            await followEntitySession()
+                        } else {
+                            guard tools == nil else { throw PhoneAttachmentError.unsupported }
+                            let chat: String
+                            if let existing = entityChatIDs[entity] { chat = existing }
+                            else { chat = try await client.openEntityChat(name: entity) }
+                            guard epoch == generation, view == conversationGeneration else { return }
+                            entityChatIDs[entity] = chat
+                            let answer = try await client.entityChatTurn(name: entity, chatId: chat, text: prompt)
+                            guard epoch == generation, view == conversationGeneration else { return }
+                            let reply = ConversationMessage(role: .assistant, text: answer)
+                            messages.append(reply); completedReply = reply; phase = .ready
+                        }
+                    }
                 } else {
-                    let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref))
+                    let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref), tools: tools)
                     guard epoch == generation, view == conversationGeneration else { return }
                     activeRunID = id; phase = .working
                     if foreground { await followActiveRun() }
                 }
             } catch {
                 guard epoch == generation, view == conversationGeneration else { return }
-                phase = .ready
+                phase = activeEntityRunID == nil ? .ready : .working
                 self.error = say(error) + " Check Conversations before resending: the gateway may already have received your request."
                 handle(error)
+                if let id = activeEntityRunID { quietEntityRestoreID = id; await followEntitySession() }
             }
         }
     }
     public func followActiveRun() async {
+        if activeEntityRunID != nil { await followEntitySession(); return }
         guard foreground, let client, let id = activeRunID else { return }
         let epoch = generation, view = conversationGeneration
         do {
@@ -182,11 +270,60 @@ public final class AssistantStore {
                 if run.status == "failed" { error = run.error ?? "The run stopped. Open Conversations for details." }
                 if run.status == "cancelled" { messages.append(.init(role: .notice, text: "Run stopped.")) }
                 phase = .ready; activeRunID = nil
+                if preferences.showMessageStats { await loadMessageStats() }
             } else { phase = run.waitsOnPerson ? .waiting : .working }
             if let wait = run.personWait, !waits.contains(where: { $0.id == wait.id }) { waits.insert(wait, at: 0) }
         } catch { if epoch == generation, !(error is CancellationError) { self.error = say(error); handle(error) } }
     }
+    private func followEntitySession() async {
+        guard let client, let entity = selectedEntity, let id = activeEntityRunID else { return }
+        let epoch = generation, view = conversationGeneration
+        do {
+            let state = try await client.entitySession(name: entity, runID: id)
+            guard epoch == generation, view == conversationGeneration, activeEntityRunID == id else { return }
+            if let wait = state.personWait {
+                waits.removeAll { $0.runId == id }; waits.insert(wait, at: 0); phase = .waiting
+            } else if state.finishedTurn {
+                if state.status == "failed" { error = state.error ?? "The entity could not finish its reply." }
+                waits.removeAll { $0.runId == id }
+                if let text = state.reply, !text.isEmpty {
+                    let messageID = id + "-turn-" + String(state.turn)
+                    let reply = ConversationMessage(id: messageID, role: .assistant, text: text, stats: state.stats)
+                    if let index = messages.firstIndex(where: { $0.id == messageID }) { messages[index] = reply }
+                    else { messages.append(reply) }
+                    if quietEntityRestoreID != id { completedReply = reply }
+                }
+                if ["completed", "failed", "cancelled"].contains(state.status) {
+                    entityVisitIDs.removeValue(forKey: entity + ":" + sessionID)
+                    if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + sessionID) }
+                }
+                quietEntityRestoreID = nil
+                phase = .ready; activeEntityRunID = nil
+            } else { phase = .working }
+        } catch {
+            if epoch == generation, view == conversationGeneration, activeEntityRunID == id {
+                if case GatewayError.http(status: 404, body: _) = error {
+                    entityVisitIDs.removeValue(forKey: entity + ":" + sessionID)
+                    if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + sessionID) }
+                    activeEntityRunID = nil; quietEntityRestoreID = nil; phase = .ready
+                }
+                self.error = say(error); handle(error)
+            }
+        }
+    }
     public func stopRun() async {
+        if let id = activeEntityRunID, let entity = selectedEntity, let client {
+            let epoch = generation, view = conversationGeneration
+            do {
+                try await client.endEntitySession(name: entity, runID: id)
+                guard epoch == generation, view == conversationGeneration else { return }
+                waits.removeAll { $0.runId == id }; entityVisitIDs.removeValue(forKey: entity + ":" + sessionID)
+                if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + sessionID) }
+                activeEntityRunID = nil; phase = .ready
+                messages.append(.init(role: .notice, text: "Conversation stopped."))
+            } catch { if epoch == generation { self.error = say(error); handle(error) } }
+            return
+        }
         guard let id = activeRunID, let client else { return }
         let epoch = generation
         do { try await client.cancel(runId: id); if epoch == generation { await followActiveRun() } }
@@ -206,9 +343,18 @@ public final class AssistantStore {
                 if let answer = run.outputText { restored.append(.init(id: "answer-" + run.runId, role: .assistant, text: answer, runID: run.runId)) }
             }
             guard epoch == generation else { return }
-            conversationGeneration += 1; messages = restored; selectedEntity = nil; sessionID = session.id
+            if let entity = selectedEntity, let id = entityVisitIDs[entity + ":" + sessionID] {
+                let oldSession = sessionID
+                try await client.endEntitySession(name: entity, runID: id)
+                guard epoch == generation else { return }
+                entityVisitIDs.removeValue(forKey: entity + ":" + oldSession)
+                if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + oldSession) }
+            }
+            activeEntityRunID = nil; quietEntityRestoreID = nil; completedReply = nil
+            conversationGeneration += 1; measuredMessages = []; messages = restored; selectedEntity = nil; sessionID = session.id
             activeRunID = session.latest.isTerminal ? nil : session.latest.runId
             phase = activeRunID == nil ? .ready : .working; persistSession()
+            if preferences.showMessageStats { await loadMessageStats() }
         } catch { if epoch == generation { self.error = say(error); handle(error) } }
     }
     @discardableResult public func answer(_ wait: Wait, _ answer: WaitAnswer) async -> Bool {
@@ -216,7 +362,11 @@ public final class AssistantStore {
         let epoch = generation; deciding.insert(wait.id)
         defer { if epoch == generation { deciding.remove(wait.id) } }
         do {
-            try await client.answer(wait, with: answer)
+            if let entity = selectedEntity, activeEntityRunID == wait.runId {
+                let approved: Bool
+                switch answer { case .approve: approved = true; case .deny: approved = false; case .respond: throw PhoneAttachmentError.unsupported }
+                _ = try await client.answerEntity(name: entity, runID: wait.runId, waitKey: wait.waitKey, approved: approved)
+            } else { try await client.answer(wait, with: answer) }
             guard epoch == generation else { return false }
             waits.removeAll { $0.id == wait.id }; await followActiveRun(); return true
         } catch {
@@ -240,7 +390,13 @@ public final class AssistantStore {
         } catch { if epoch == generation { self.error = say(error); handle(error) } }
     }
     public func rememberAutomation(_ row: AutomationSummary) { automations.removeAll { $0.id == row.id }; automations.insert(row, at: 0) }
-    private func persistSession() { if let connection { defaults.set(sessionID, forKey: "phone.session." + connection.scope) } }
+    private func persistSession() {
+        if let connection {
+            defaults.set(sessionID, forKey: "phone.session." + connection.scope)
+            if let selectedEntity { defaults.set(selectedEntity, forKey: "phone.entity." + connection.scope) }
+            else { defaults.removeObject(forKey: "phone.entity." + connection.scope) }
+        }
+    }
     private func handle(_ error: Error) {
         guard error as? GatewayError == .unauthorized else { return }
         disconnect(); self.error = "Your sign-in has expired. Connect again to continue."; onUnauthorized?()

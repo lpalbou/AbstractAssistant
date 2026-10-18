@@ -263,9 +263,16 @@ public actor MockGatewayClient: GatewayClient {
         Self.sampleRuns.filter { ($0.sessionId ?? $0.runId) == id }
     }
 
+    public func automationDefaults() async throws -> Int? { 50_000 }
+    public func messageStats(runID: String) async throws -> MessageStats? {
+        .init(wallTimeSeconds: 4.8, inputTokens: 1234, outputTokens: 245, toolCalls: 2)
+    }
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String {
+        try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: tools?.policy)
+    }
     public func tools() async throws -> [ToolInfo] {
         [ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1), ToolInfo(name: "fetch_url", riskTier: "act", riskRank: 2),
-         ToolInfo(name: "send_email", riskTier: "outreach", riskRank: 3), ToolInfo(name: "execute_command", riskTier: "destroy", riskRank: 4)]
+         ToolInfo(name: "send_email", riskTier: "outreach", riskRank: 3), ToolInfo(name: "execute_command", riskTier: "destroy", riskRank: 4)].map { row in var row = row; row.approvalDefault = row.riskRank == 1 ? "auto" : "ask"; return row }
     }
 
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {

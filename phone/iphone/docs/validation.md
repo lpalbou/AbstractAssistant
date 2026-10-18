@@ -1,113 +1,62 @@
 # Developer preview validation
 
-This iteration preserves the committed 0.4.1 baseline (`e2c7025`) and improves the iPhone
-app using the Watch voice/responder flows as a direct reference. Version **0.5.0 (7)**.
-Changes are owned by `phone/`; Watch source and shared desktop files are untouched.
+Version **0.6.0 (8)** preserves the saved 0.5.0 baseline (`762b4a9`) and adds
+conversation tool modes, isolated answer playback, optional answer statistics and an
+automation history budget. The implementation stays within `phone/iphone`; the matching
+gateway implementation is commit `3769d62e`. Watch source and builds are independently owned.
 
-## What changed
+## Verified behavior
 
-- Voice selection immediately previews the selected voice. Speed choices 1×, 1.15×, 1.3×
-  and 1.5× preview the current voice and apply to real playback. The separate Preview step
-  and long explanatory text are removed. Speech recognition has a focused model chooser.
-- Who answers is opened by the current chat title and chevron. It lists/searches accessible
-  entities and Assistant, shows the current selection and offers New entity. Files/settings
-  use one More menu, preventing the crowded toolbar from collapsing essential controls.
-- Entity creation checks the name through the gateway, explains permanence before Create,
-  opens a successfully created entity, and preserves partial/existing outcomes and warnings.
-  It uses the ordinary authenticated-user endpoint, without inventing an admin-only gate.
-- Automations/Inbox show useful content first. Empty Automations has one full-width padded
-  action. Settings puts preferences first and collapses connection details. Chat keeps its
-  established floating controls, typing expansion/hide-orb and outside-tap draft behavior.
+- Tools are reachable from Settings and the chat More menu. Explicit Off, Auto and Approve
+  choices are scoped to the account, responder and session. Defaults remain visible; starting
+  another conversation restores inheritance. Attachments and tool policy travel together.
+- Only the speaking answer shows Stop. The native check creates two answers and verifies
+  exactly one Stop control while the other answer retains Read.
+- Statistics default off. Enabling them shows an answer-owned time/input/output/tools row;
+  disabling them restores the lean layout. Missing usage is not inferred from total tokens.
+- Growing history reveals a positive token budget. Blank inherits the gateway value; switching
+  history off omits the override. The native flow tests zero rejection, custom values,
+  preservation across toggles, default inheritance and successful creation.
+- Entity approvals persist before execution. Approving executes through the entity's own
+  executor; denial, Off, stale decisions and revoked home grants cannot execute the blocked
+  tool. Foreign-owner reads/turns/decisions through both managed and legacy routes are refused.
 
-## Package evidence
+## Evidence
 
-**61 tests passed:** 33 phone state/transport/feature tests and 28 inherited gateway tests.
-New checks cover account-scoped speed persistence/invalid values, safe entity paths,
-authenticated validation/create bodies, manifest parsing, partial warnings, duplicate
-creation and readable quota errors. Existing tests cover local silence/cancellation,
-permissions, attachments, account generations, workflows and authentication lockout.
+**72 package tests** pass (44 phone state/transport/feature tests and 28 inherited client
+tests). They include quiet entity restoration, terminal-visit cleanup, a lost turn response
+recovering its pending approval without resending, and preserving the current conversation
+when ending its visit fails.
 
-```sh
-swift test --package-path Packages/AssistantKit --scratch-path build/SwiftTests --jobs 1
-python3 scripts/build.py --ui-test <dedicated-iphone-simulator-id>
-```
+**29 native tests** pass (13 hosted and 16 UI), followed by **16 focused tests** after the
+scope/header refinements and **one final inheritance-toggle test**. The full result is `build/UITests-1792283589234957000.xcresult`;
+the focused result is `build/UITests-1792284015547476000.xcresult`, and the final inheritance
+result is `build/UITests-1792284134776882000.xcresult`.
 
-Live gateway HTTP tests intercept URLSession and inspect actual requests. Native UI tests
-use demo data; they send no production messages or automations and create no live entities.
-The explicit Debug voice fixture supplies measured synthetic activity then silence, and
-cannot activate against a live gateway or Release build.
+**63 gateway tests** pass, including real HTTP routes, durable SQLite execution, the entity's
+native ReAct visit workflow and existing visit/memory-tool regressions. Scripted model
+responses make execution and denial counts deterministic; they do not contact an external
+provider or create production email, entities or automations.
 
-## Native and visual evidence
+Rendered screens inspected by the parent and reviewers:
 
-**25 native tests passed** (13 hosted, 12 UI) on the dedicated iPhone 17 Pro simulator,
-iOS 26.5: `build/UITests-1792273161919583000.xcresult`. They include actual AVAudioPlayer
-speed/preview replacement and waveform metering, voice selection and speed auto-preview,
-entity listing/selection/creation, empty automation CTA geometry, conversation, approvals,
-files and the established composer/silence behavior. The final canonical entity-id and visual polish changes then passed **two focused UI
-tests**, with no runtime warnings: `build/UITests-1792273463421121000.xcresult`. Entity
-manifest tests also verify canonical routing IDs and readable display-name round trips.
+- [Inherited tools](../design/screenshots/conversation-tools-defaults.png) and [custom tools](../design/screenshots/conversation-tools.png)
+- [Answer statistics](../design/screenshots/answer-statistics.png) and [isolated playback](../design/screenshots/isolated-answer-playback.png)
+- [Inherited budget](../design/screenshots/history-budget-default.png) and [custom budget](../design/screenshots/history-budget-custom.png)
 
-Both parent and reviewers inspected the rendered native screens, including:
+The full native run reports the previously recorded SwiftUI frame-dimension warning during
+automation creation; its creation checks pass and rendered controls remain usable. The
+focused run reports no runtime warnings. Physical microphone sensitivity and live provider
+quality remain device/environment dependent.
 
-- [Voice](../design/screenshots/voice-settings.png), [Automatic preview](../design/screenshots/voice-choices.png), [Speed](../design/screenshots/speaking-speed.png), [Speech recognition](../design/screenshots/speech-recognition.png)
-- [Empty Automations](../design/screenshots/empty-automations.png), [Automations](../design/screenshots/automations.png), [New automation](../design/screenshots/new-automation.png)
-- [Who answers](../design/screenshots/entities.png), [New entity](../design/screenshots/new-entity.png), [Created entity](../design/screenshots/created-entity.png), [Selected entity](../design/screenshots/entity-conversation.png)
-- [Assistant](../design/screenshots/assistant.png), [Expanded editor](../design/screenshots/keyboard-composer.png), [Inbox](../design/screenshots/inbox.png)
+## Review and compatibility
 
-A preexisting SwiftUI runtime warning remains during automation creation: “Invalid frame
-dimension (negative or non-finite).” The exact source is unidentified. The native creation
-check passes and its inspected screens fill their container; the warning is recorded as
-an unresolved follow-up, rather than claimed fixed by the layout correction.
+Two adversarial reviewers covered everyday usability and technical behavior. As each also
+implemented an isolated piece, the other reviewer and parent checked those changes;
+self-review is not counted as independent approval. Review findings led to server-side
+owner checks, quiet restoration, lifecycle recovery and accurate inherited-mode displays.
+See the [decision and review record](../design/validation/conversation-controls-review.md).
 
-The earlier [WAV energy trace](../design/validation/wav-playback-energy.csv) remains evidence
-for the unchanged audio envelope (interior range 0.5192–0.9999). Silence detection uses raw
-audio power rather than semantic recognition. Injected microphone tests do not establish
-physical microphone sensitivity.
-
-## Independent review
-
-- **Execution Mode:** implementation plus two independent adversarial reviewers, as requested.
-- **Planned / Actual Reviewer Set:** everyday usability, and technical/user behavior.
-- **Subagents Used:** `iphone_adversary` and `iphone_behavior_adversary`; read-only, no builds.
-- **Fallback Reason / Contract Degradation:** none; user requested exactly two reviewers.
-- **Observed Evidence:** Watch and phone source, gateway route contracts, package tests;
-  both native bundles and the final rendered voice/entity/automation/composer images.
-- **Findings addressed:** explicit discovery/validation retry, search-empty feedback, readable
-  entity names, account-scoped speed, stale preview cancellation, permanent creation,
-  partial-warning handling, one empty-state CTA and discoverable responder navigation.
-- **Critical distinctions:** local voice/speed preferences versus gateway defaults; entity
-  own voice; a new chat view versus retained entity memory; permanent birth versus settings.
-- **State coverage:** entry/happy/empty/keyboard states have native checks. Loading/error/
-  quota/partial outcomes are covered by source or transport checks where noted; they are
-  not automatically treated as visually inspected states.
-- **Inference / Missing Evidence:** live provider preview and entity creation, physical
-  microphone sensitivity, calls/Bluetooth routes, VoiceOver and large Dynamic Type remain
-  hands-on. No uninspected state is claimed fully validated.
-- **Residual Risk:** low/constant room noise and quiet speech can affect the local energy
-  gate. Server permissions/defaults/quotas can refuse entity creation and remain authoritative.
-
-- **Reviewer Verdicts:** everyday UX Approved for developer preview; technical/user behavior
-  Conditional Approval pending physical deployment verification. Neither found an unresolved
-  blocker in the reviewed implementation. The parent completed deployment verification below.
-- **Final Verdict:** suitable for this developer preview with the stated live-provider,
-  physical audio, accessibility and known automation-warning limits.
-
-## Physical deployment
-
-On 17 October 2026, preview **0.5.0 (7)** was built for the connected iPhone 17 Pro Max,
-its code signature and version verified, installed over the existing app and launched with
-`devicectl`. Bundle: `ai.abstractframework.assistant.iphone`. No app uninstall, data reset or
-Keychain clearing was performed. Deployment proves installation and launch; live provider
-preview and remote entity creation are not claimed tested by that action.
-
-## Resource isolation
-
-Builds use one low-priority job, separate phone DerivedData and a named iPhone simulator.
-The Watch has priority. A Darwin truncated-process-column bug was repaired in the resource
-monitor; assertions verify that the phone yields to another Xcode build, only the explicitly named idle
-Watch test is excepted, and the phone's own process is excluded. The in-flight phone build
-was stopped to make that repair; no Watch process or simulator was stopped. No global
-Xcode/simulator reset was performed. Only phone build products were refreshed after an
-incremental-module cache failed to recognize a new phone-owned package extension.
-
-[Build](../BUILD.md) · [Architecture](architecture.md) · [iPhone overview](../README.md)
+A gateway update is required for advertised conversation-tool controls, durable entity
+approvals and detailed statistics. Unsupported gateways preserve ordinary chat; explicit
+tool choices are blocked with an update message rather than silently ignored.

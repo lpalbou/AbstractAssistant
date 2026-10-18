@@ -14,13 +14,20 @@ struct NewAutomationScreen: View {
     @State private var hour = 8
     @State private var minute = 0
     @State private var growing = false
+    @State private var historyBudget = ""
+    @State private var gatewayHistoryBudget: Int?
+    @FocusState private var editingBudget: Bool
     @State private var ask = true
     @State private var zone = "your account’s time zone"
     @State private var creating = false
     @State private var loading = true
     @State private var error: String?
     @State private var pending: NewAutomation?
-    private var fingerprint: String { [task, workflowID, frequency, String(hour), String(minute), String(growing), String(ask)].joined(separator: "|") }
+    private var budgetText: String { historyBudget.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var customHistoryBudget: Int? { Int(budgetText).flatMap { $0 > 0 ? $0 : nil } }
+    private var invalidHistoryBudget: Bool { growing && !budgetText.isEmpty && customHistoryBudget == nil }
+    private var budgetPlaceholder: String { gatewayHistoryBudget.map { "Gateway default · " + $0.formatted() } ?? "Gateway default" }
+    private var fingerprint: String { [task, workflowID, frequency, String(hour), String(minute), String(growing), growing ? budgetText : "", String(ask)].joined(separator: "|") }
     var body: some View {
         NavigationStack {
             Form {
@@ -48,13 +55,28 @@ struct NewAutomationScreen: View {
                 }
                 Section {
                     Toggle("Build on earlier runs", isOn: $growing)
+                        .accessibilityIdentifier("automation.growing")
+                    if growing {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("History token budget").font(.subheadline)
+                            TextField(budgetPlaceholder, text: $historyBudget)
+                                .keyboardType(.numberPad).focused($editingBudget)
+                                .accessibilityLabel("History token budget")
+                                .accessibilityIdentifier("automation.historyBudget")
+                        }.padding(.vertical, 4)
+                        if invalidHistoryBudget { Text("Enter a positive whole number, or leave blank for the gateway default.").font(.footnote).foregroundStyle(PhoneTheme.amber) }
+                    }
+                } footer: {
+                    if growing { Text("Keeps history from earlier runs within this token budget. Leave blank to use the gateway default" + (gatewayHistoryBudget.map { " (" + $0.formatted() + " tokens)." } ?? "; the gateway sets the limit when created.")) }
+                }
+                Section {
                     Toggle("Ask before using tools", isOn: $ask)
                 } footer: { Text(ask ? "Tool actions wait for your approval in Inbox." : "Runs may use tools automatically, including actions that change files or services. The gateway still applies its required approval rules.") }
                 if let error { Section { ErrorBanner(message: error) } }
-                Section { Button(creating ? "Creating…" : pending == nil ? "Create automation" : "Retry creation") { Task { await create() } }.disabled(task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || creating || loading).accessibilityIdentifier("automation.create") }
+                Section { Button(creating ? "Creating…" : pending == nil ? "Create automation" : "Retry creation") { Task { await create() } }.disabled(task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || invalidHistoryBudget || creating || loading).accessibilityIdentifier("automation.create") }
                 if loading { ProgressView("Loading workflows…") }
             }.disabled(creating).scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("New automation").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editingTask = false } }; ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(creating) } }
+                .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editingTask = false; editingBudget = false } }; ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(creating) } }
                 .interactiveDismissDisabled(creating).task { await load() }.onChange(of: fingerprint) { _, _ in pending = nil }
         }
     }
@@ -64,10 +86,18 @@ struct NewAutomationScreen: View {
             let result = try await client.workflows(forInterface: "abstractassistant.agent.v1"); guard context == store.contextID else { return }; workflows = result
             let prefs = try await client.accountPreferences(); guard context == store.contextID else { return }
             zone = prefs["time_zone"]?["effective"]?.stringValue ?? zone
+            do {
+                let budget = try await client.automationDefaults(); guard context == store.contextID else { return }
+                gatewayHistoryBudget = budget.flatMap { $0 > 0 ? $0 : nil }
+            } catch {
+                guard context == store.contextID else { return }
+                gatewayHistoryBudget = nil
+                if error as? GatewayError == .unauthorized { fail(error) }
+            }
         } catch { if context == store.contextID { fail(error) } }
     }
     private func create() async {
-        guard let client = store.client, !creating else { return }; let context = store.contextID; creating = true; error = nil
+        guard let client = store.client, !creating, !invalidHistoryBudget else { return }; let context = store.contextID; creating = true; error = nil
         defer { creating = false }
         do {
             if pending == nil {
@@ -80,7 +110,7 @@ struct NewAutomationScreen: View {
                     }
                 } else if workflowID.isEmpty { target = .gatewayDefault(interface: "abstractassistant.agent.v1") }
                 else { error = "Choose an available workflow."; return }
-                pending = NewAutomation(task: text, target: target, when: frequency == "daily" ? .daily(at: String(format: "%02d:%02d", hour, minute)) : .every(frequency), buildsOnEarlierRuns: growing, askBeforeTools: ask)
+                pending = NewAutomation(task: text, target: target, when: frequency == "daily" ? .daily(at: String(format: "%02d:%02d", hour, minute)) : .every(frequency), buildsOnEarlierRuns: growing, askBeforeTools: ask, growingMaxTokens: growing ? customHistoryBudget : nil)
             }
             guard context == store.contextID, let pending else { return }
             let created = try await client.createAutomation(pending); guard context == store.contextID else { return }
