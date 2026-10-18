@@ -10,9 +10,17 @@ final class SessionsUITests: XCTestCase {
         // A row is titled by its latest question, as the gateway has it (never its first, never made up).
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Now split it by age group")).firstMatch
         XCTAssertTrue(app.buttons["sessions.search"].waitForExistence(timeout: 15), app.debugDescription)
-        // Below New conversation and Search: a list loads its rows as they come near the screen.
-        for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp(velocity: .slow); usleep(300_000) }
-        XCTAssertTrue(row.waitForExistence(timeout: 5), app.debugDescription)
+        // Its title arrives after the list (a placeholder meanwhile): wait for it, then scroll to it
+        // only if it is below the screen (a list loads its rows as they come near).
+        if !row.waitForExistence(timeout: 5) {
+            for _ in 0..<10 where !row.exists { app.nudgeUp() }
+        }
+        if !row.exists, let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
+            try? app.debugDescription.write(to: URL(fileURLWithPath: dir).appendingPathComponent("sessions-ui-tree.txt"), atomically: true, encoding: .utf8)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("sessions-ui.png"))
+        }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "no row for the conversation")
+        if !row.isHittable { app.swipeDown(velocity: .slow); usleep(300_000) }     // under the title: back a little
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Compare overall survival")).firstMatch.exists,
                        "a row is titled by an older question:\n\(app.debugDescription)")
         row.tap()

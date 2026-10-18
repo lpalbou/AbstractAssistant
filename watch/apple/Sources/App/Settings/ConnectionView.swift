@@ -15,7 +15,7 @@ struct ConnectionView: View {
             VStack(alignment: .leading, spacing: 6) {
                 section("Gateway") {
                     line(model.gatewayHost, strong: true)
-                    line(status, color: model.lastError == nil ? Theme.green : Theme.red)
+                    line(status, color: model.unreachable ? Theme.red : model.connecting ? Theme.amber : Theme.green)
                 }
                 section("Account") {
                     line(model.principal?.userId ?? (model.connecting ? "Checking…" : "Unknown"), strong: true)
@@ -62,7 +62,7 @@ struct ConnectionView: View {
     }
 
     private var status: String {
-        if model.lastError != nil { return "Not connected" }
+        if model.unreachable { return "Not connected" }
         if model.connecting { return "Connecting…" }
         return model.freshness.map { "Connected · \($0)" } ?? "Connected"
     }

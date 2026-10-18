@@ -59,7 +59,7 @@ nothing). The app's own scheme, CI and the release archive do not build the UI t
 | Argument | Effect |
 |---|---|
 | `--mock` | sample data instead of a gateway (screenshots, previews) |
-| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-new` `automation-edit` `occurrence` `settings` `orbstyle` `about` `read` `link` |
+| `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-new` `automation-edit` `occurrence` `settings` `orbstyle` `about` `read` `link` `tools` `tools:<group>` `session-search` `session-search-media` |
 | `--gateway <url> --token <token> [--user <id>]` | signs in with that gateway and token and keeps the sign-in, so one launch provisions a simulator or a watch |
 | `--forget-gateway` | forgets the saved sign-in (the sign-in screen shows) |
 | `--orb-design <A–F>` | chooses the orb style; `--ask-orb` asks the first-launch question again |
@@ -69,8 +69,11 @@ Debug builds also accept test hooks that answer, ask or navigate without a tap: 
 / `--test-secret` (sign-in), `--test-approve once|all`, `--test-action allow-first|deny-first`,
 `--test-ask "<prompt>"`, `--test-read "<markdown>"`, `--test-open <url>`, `--test-listen`,
 `--test-pause`, `--test-rewind` (with `--rewind-1`), `--open-automation <n>`, `--run-now`,
-`--run-first`, `--scroll-bottom`, `--scroll-end-now`, `--home-bottom`, `--render-icon`. Release
-builds ignore them.
+`--run-first`, `--scroll-bottom`, `--scroll-end-now`, `--home-bottom`, `--render-icon`,
+`--render-orb-work` (the orb at work, frame by frame, into Documents), `--reset-tools` (tool and
+workflow choices back to the gateway's), `--reset-seen` (every answer counts as new),
+`--fresh-conversation` and `--test-session <id>` (open a conversation), `--slow-automations`
+(sample automations answer 6 s late, as on a public gateway). Release builds ignore them.
 
 ## Live in the simulator
 

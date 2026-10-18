@@ -24,7 +24,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
 - [backlog/overview.md](backlog/overview.md) — planned and proposed work
-- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.2.0, pre-release through TestFlight): voice around the orb, approvals and questions, sessions, automations; with its design, architecture, build guide and changelog
+- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.3.0, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations; its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
 
 ## Project
 

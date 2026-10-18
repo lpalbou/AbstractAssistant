@@ -8,7 +8,7 @@ enum Route: Hashable {
     case occurrence(title: String, LastOccurrence)
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
-    case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String)
+    case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -74,6 +74,81 @@ final class AppModel: ObservableObject {
         await refresh()
     }
 
+    /// An automation on or off (`automation.resume` / `automation.pause`): the switch moves at once,
+    /// and back if the gateway refuses.
+    func setActive(_ a: AutomationSummary, _ on: Bool) async throws {
+        var changed = a; changed.status = on ? "active" : "paused"
+        replaceAutomation(changed)
+        do {
+            try await client.automationCommand(id: a.id, type: on ? "automation.resume" : "automation.pause")
+            if let fresh = try? await client.automation(id: a.id) { replaceAutomation(fresh) }
+        } catch {
+            replaceAutomation(a)
+            throw error
+        }
+    }
+
+    /// Archives an automation on the gateway (it stops and leaves the list; nothing is deleted).
+    func archiveAutomation(_ a: AutomationSummary) async throws {
+        try await client.automationCommand(id: a.id, type: "automation.archive")
+        automations.removeAll { $0.id == a.id }
+    }
+
+    func unarchiveAutomation(_ id: String) async throws {
+        try await client.automationCommand(id: id, type: "automation.unarchive")
+        refreshAutomations()
+    }
+
+    // MARK: An automation's details, shared by its pages
+
+    /// Each automation's definition (title, task, instructions) and latest results, as last read:
+    /// its page and Edit show them at once and refresh behind; a save updates them in place.
+    @Published private(set) var definitions: [String: AutomationDefinition] = [:]
+    @Published private(set) var results: [String: [LastOccurrence]] = [:]
+    /// Edits saved here that the gateway may not have applied yet (it applies them in order, a few
+    /// seconds later): a list read meanwhile keeps the saved title. Dropped after 2 min.
+    private var savedAt: [String: Date] = [:]
+
+    /// The definition: as known when it is at least the list's revision, else read (and kept). A
+    /// read under way is shared (Edit opened while its page still reads it waits for that read).
+    func definition(of id: String) async throws -> AutomationDefinition {
+        let listed = automations.first { $0.id == id }?.revision ?? 0
+        if let d = definitions[id], (d.revision ?? 0) >= listed { return d }
+        let reading = definitionReads[id] ?? Task { [client] in try await client.automationDefinition(id: id) }
+        definitionReads[id] = reading
+        defer { definitionReads[id] = nil }
+        let read = try await reading.value
+        if (read.revision ?? 0) >= (definitions[id]?.revision ?? 0) { definitions[id] = read }
+        return definitions[id] ?? read
+    }
+    private var definitionReads: [String: Task<AutomationDefinition, Error>] = [:]
+
+    /// The latest results read for an automation (newest first).
+    func keep(results list: [LastOccurrence], of id: String) { results[id] = list }
+
+    /// A saved edit: the definition, the list's row and the page show it at once.
+    func saved(_ d: AutomationDefinition, of id: String) {
+        definitions[id] = d; savedAt[id] = Date()
+        if let i = automations.firstIndex(where: { $0.id == id }) {
+            automations[i].name = d.title; automations[i].revision = d.revision
+        }
+        refreshAutomations()
+    }
+
+    /// The list as read, with any edit saved here in the last 2 min that the gateway has not applied
+    /// yet kept as saved (a rejected edit comes back after 2 min, when the list's own values win).
+    private func merged(_ list: [AutomationSummary]) -> [AutomationSummary] {
+        list.map { row in
+            guard let at = savedAt[row.id], Date().timeIntervalSince(at) < 120, let d = definitions[row.id],
+                  (row.revision ?? 0) < (d.revision ?? 0) else {
+                if let d = definitions[row.id], (d.revision ?? 0) < (row.revision ?? 0) { definitions[row.id] = nil }   // changed elsewhere
+                return row
+            }
+            var kept = row; kept.name = d.title; kept.revision = d.revision
+            return kept
+        }
+    }
+
     func unarchive(_ sessionId: String) async throws {
         try await client.setArchived(sessionId: sessionId, false)
         await refresh()
@@ -91,12 +166,66 @@ final class AppModel: ObservableObject {
     @Published var automations: [AutomationSummary] = []
     @Published var principal: Principal?
     @Published var lastError: String?
+    /// Polls that failed in a row, and since when: a watch's radio takes seconds to come up, so the
+    /// gateway is said unreachable only after 3 failures spread over 20 s (until then: Connecting).
+    @Published private(set) var failures = 0
+    private var failingSince: Date?
+    @Published private(set) var unreachable = false
     /// No usable sign-in: the sign-in page replaces everything (first launch, Sign out, a session that ended).
     @Published var needsSignIn = false
     /// Why the sign-in page is back, when it is not the first launch.
     @Published var signInNotice: String?
     /// The automations call failed while waits and runs were fine (shown on the Automations screen only).
     @Published var automationsError: String?
+    /// The automations have been read once (they arrive after the conversations: their call is the
+    /// slow one), so an empty list means none, not "not read yet".
+    @Published private(set) var automationsLoaded = false
+    /// A read of the automations is under way (with its retries).
+    @Published private(set) var automationsLoading = false
+    private var automationsTask: Task<Void, Never>?
+    /// When the list was last read: it is the gateway's slowest call (each automation's history is
+    /// read for it), so the poll reads it at most once a minute; an action reads it at once.
+    private var automationsReadAt: Date?
+    static let automationsMaxAge: TimeInterval = 60
+    /// Which read is current (a read cancelled for a newer one never clears the newer one's state).
+    private var automationsGeneration = 0
+
+    /// The list read again now (after an action): a read under way, started before it, is replaced.
+    func refreshAutomations() {
+        automationsTask?.cancel(); automationsTask = nil
+        loadAutomations()
+    }
+
+    /// Reads the automations (the client retries a failed read); one read at a time. A read that
+    /// fails leaves the error for the Automations page; Home keeps its spinner until the list is in.
+    func loadAutomations() {
+        guard automationsTask == nil else { return }
+        let client = self.client
+        automationsGeneration += 1
+        let generation = automationsGeneration
+        automationsLoading = true
+        automationsTask = Task { [weak self] in
+            do {
+                let list = try await client.automations()
+                guard let self, !Task.isCancelled else { return }
+                automations = merged(list); automationsError = nil; automationsLoaded = true; automationsReadAt = Date()
+                #if DEBUG
+                if let i = testOpenAutomation, i < automations.count {
+                    testOpenAutomation = nil
+                    path = [.automations, .automation(automations[i])]
+                }
+                #endif
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                automationsError = Self.say(error)
+            }
+            guard let self, self.automationsGeneration == generation else { return }
+            self.automationsTask = nil
+            self.automationsLoading = false
+        }
+    }
+    /// The conversations have been read once.
+    var sessionsLoaded: Bool { lastRefresh != nil }
     @Published var path: [Route] = []
     @Published var entities: [EntitySummary] = []
     /// The gateway's tools by name, with their risk tier (observe · act · outreach · destroy).
@@ -149,6 +278,8 @@ final class AppModel: ObservableObject {
     /// `--open-automation N`: opens the Nth live automation after the first refresh (screenshots of real data).
     var testOpenAutomation: Int?
     static let pollInterval: Duration = .seconds(15)
+    /// After a failed poll, until the gateway is said unreachable.
+    static let retryInterval: Duration = .seconds(3)
 
     init(client: any GatewayClient, gatewayHost: String) {
         self.client = client; self.gatewayHost = gatewayHost
@@ -161,7 +292,7 @@ final class AppModel: ObservableObject {
 
     var connected: Bool { principal != nil }
     /// First poll still in flight: no answer yet, but no failure either.
-    var connecting: Bool { principal == nil && lastError == nil && !client.isMock }
+    var connecting: Bool { principal == nil && !unreachable && (failures > 0 || !client.isMock) }
 
     func startPolling() {
         guard pollTask == nil, !needsSignIn else { return }
@@ -170,7 +301,7 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 let keepGoing = await self.refresh()
                 if !keepGoing { break }
-                try? await Task.sleep(for: Self.pollInterval)
+                try? await Task.sleep(for: self.failures > 0 && !self.unreachable ? Self.retryInterval : Self.pollInterval)
             }
         }
     }
@@ -183,7 +314,8 @@ final class AppModel: ObservableObject {
         stopPolling()
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
-        waits = []; runs = []; automations = []; principal = nil; lastError = nil; seenWaitIDs = []; entities = []
+        waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()                                    // each account has its own tools (email, …)
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
         needsSignIn = false; signInNotice = nil; path = []
@@ -195,7 +327,8 @@ final class AppModel: ObservableObject {
         SavedSignIn.clear()
         stopPolling()
         client = MockGatewayClient(); gatewayHost = "—"
-        waits = []; runs = []; automations = []; principal = nil; lastError = nil; seenWaitIDs = []; entities = []
+        waits = []; runs = []; automations = []; principal = nil; lastError = nil; failures = 0; failingSince = nil; unreachable = false; seenWaitIDs = []; entities = []; automationsLoaded = false; automationsError = nil; automationsTask?.cancel(); automationsTask = nil; automationsLoading = false; automationsReadAt = nil
+        definitions = [:]; results = [:]; savedAt = [:]
         forgetTools()
         workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
         path = []; signInNotice = notice; needsSignIn = true
@@ -224,19 +357,15 @@ final class AppModel: ObservableObject {
             runs = try await runsCall
             // The fast part is on screen now. Automations is the slow call on a public gateway
             // (~7 s measured) and its own failure never marks the gateway offline.
-            lastError = nil
+            lastError = nil; failures = 0; failingSince = nil; unreachable = false
             lastRefresh = Date()
             if let text = testRead, let run = runs.first {
                 testRead = nil
                 path = [.read(ReadItem(title: "Read", text: text, scope: .run(run.runId)))]
             }
-            do { automations = try await client.automations() } catch { automationsError = Self.say(error) }
-            #if DEBUG
-            if let i = testOpenAutomation, i < automations.count {
-                testOpenAutomation = nil
-                path = [.automations, .automation(automations[i])]
-            }
-            #endif
+            // The automations (the slow call) load on their own, so the titles below never wait for them,
+            // and at most once a minute.
+            if automationsReadAt.map({ Date().timeIntervalSince($0) > Self.automationsMaxAge }) ?? true { loadAutomations() }
             await loadTitles()
             await ensureTools(maxAge: 600)
             if entities.isEmpty, case .entity = responder { await loadEntities() }
@@ -259,6 +388,10 @@ final class AppModel: ObservableObject {
             return false
         } catch {
             lastError = Self.say(error)
+            failures += 1
+            let since = failingSince ?? Date()
+            failingSince = since
+            unreachable = failures >= 3 && Date().timeIntervalSince(since) >= 20
             return true
         }
     }
@@ -575,7 +708,12 @@ final class AppModel: ObservableObject {
 
     /// Test hooks that send questions use a conversation of their own, never kept: a test must not
     /// write into the person's conversation (it did once, 2026-10-17, and became its "title").
-    func useTestSession() { askSessionId = "watch-test-" + UUID().uuidString.lowercased() }
+    /// `--test-session-id <id>`: the conversation the test names (so it can archive it when done).
+    func useTestSession() {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "--test-session-id"), i + 1 < args.count { askSessionId = args[i + 1]; return }
+        askSessionId = "watch-test-" + UUID().uuidString.lowercased()
+    }
     #endif
 
     /// A session's last exchange: its newest turn's question, answer, state and media (two requests together).
@@ -622,7 +760,7 @@ final class AppModel: ObservableObject {
         guard let t = lastRefresh else { return nil }
         let s = Int(Date().timeIntervalSince(t))
         let age = s < 60 ? "\(s) s" : s < 3600 ? "\(s / 60) min" : "\(s / 3600) h"
-        return lastError == nil ? "updated \(age) ago" : "offline for \(age)"
+        return unreachable ? "offline for \(age)" : "updated \(age) ago"
     }
     var runningCount: Int { runs.filter { $0.status == "running" }.count }
     var doneCount: Int { runs.filter { $0.status == "completed" }.count }
@@ -724,7 +862,15 @@ struct LaunchOptions {
         if !useMock, let s = signIn {
             model = AppModel(client: LiveGatewayClient(baseURL: s.gateway, credential: s.credential), gatewayHost: s.gateway.host() ?? s.gateway.absoluteString)
         } else {
-            model = AppModel(client: MockGatewayClient(), gatewayHost: "mbp")
+            // `--slow-automations`: they answer 3 s after the conversations, as on a public gateway;
+            // `--flaky-automations`: the first call fails (it times out), the retry answers;
+            // `--slow-start`: the first 3 polls fail (a radio coming up); `--offline`: every poll fails;
+            // `--slow-definitions`: an automation's definition takes 3 s (Edit shows it at once once read).
+            let args = ProcessInfo.processInfo.arguments
+            model = AppModel(client: MockGatewayClient(automationsDelay: args.contains("--slow-automations") ? .seconds(3) : .zero,
+                                                       automationsFailures: args.contains("--flaky-automations") ? 1 : 0,
+                                                       pollFailures: args.contains("--offline") ? .max : args.contains("--slow-start") ? 3 : 0,
+                                                       definitionDelay: args.contains("--slow-definitions") ? .seconds(3) : .zero), gatewayHost: "mbp")
         }
         model.needsSignIn = showSignIn
         model.testIdentify = testIdentify; model.testSecret = testSecret

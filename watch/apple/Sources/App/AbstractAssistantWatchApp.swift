@@ -63,6 +63,7 @@ struct AbstractAssistantWatchApp: App {
                         case .activity(let runId): ActivityDetailView(runId: runId)
                         case .archivedSessions: ArchivedSessionsView()
                         case .sessionSearch(let q): SessionSearchView(query: q)
+                        case .archivedAutomations: ArchivedAutomationsView()
                         case .toolGroup(let scope, let id): ToolGroupView(scope: scope, groupId: id)
                         case .link(let url): LinkView(url: url)
                         case .answer(let ref): AskView(initialPhase: .idle, opening: ref)

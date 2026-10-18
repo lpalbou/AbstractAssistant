@@ -2,62 +2,56 @@
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.2.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
+Version 0.3.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
-workflows, runs, tools, policy and speech, and the watch keeps only your sign-in and what it shows.
-Everything you do on the watch is the same session you see on your Mac, in the terminal or in the
-browser.
+workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
+choices for it and what it shows. Everything you do on the watch is the same session you see on
+your Mac, in the terminal or in the browser.
 
 ## What you can do
 
 **Talk to your assistant.** The orb is the assistant. Tap it and speak; tap again, or stop speaking
-for 3 seconds, to send. The gateway transcribes what you said, the answer appears under the orb in
-markdown, and the orb speaks it, swirling with its own voice. Tap the orb to pause and resume the
-voice. A small keyboard icon lets you type, dictate or scribble instead.
+for 3 seconds, to send. The keyboard icon lets you type, dictate or scribble instead. While the
+assistant works, the space below the orb shows its steps live (thinking, each tool with what it is
+about, an image being made) and the orb pulses with each tool call, a satellite circling it for
+each tool running. The answer appears in markdown and the orb speaks it, following its voice; the
+voice button beside Back plays, pauses and rewinds.
 
-**Choose who answers.** "Assistant ⌄" at the top of the orb screen switches between:
-
-- **Assistant** — a one-shot agent: you ask, it works with its tools, it answers.
-- **Entities** — someone you keep talking with over time, who remembers. Each entity has its own
-  colour and shape (planet, kitty, face, wave), set on the gateway.
+**Choose who answers and with what.** "Assistant ⌄" below the orb switches between the
+**Assistant** (it works with its tools and answers) and your **entities** (someone you keep talking
+with, who remembers; each has its own colour and shape). The tools icon opens this conversation's
+tools (Off, Auto or Ask for each, by group, with its risk) and its **Workflow**: choose
+"AbstractAssistant Orchestrator" and the assistant also makes images and recordings, shown under
+its answer (tap an image for full screen; the Digital Crown zooms).
 
 **Decide what needs you.** When an agent wants to use a tool or asks a question, it appears on your
-wrist with a haptic:
+wrist with a haptic: what it wants to do and exactly what (the command, the page, the recipient and
+the email). Deny, allow once, or, from a conversation, allow its tools for the rest of it; while it
+works, the amber shield on the orb takes that back at once. Sends to other people always ask.
 
-- an approval says what the assistant wants to do ("Run a command", "Send an email") and exactly
-  what (the command, the page, the recipient and subject, the full email);
-- three icons answer it: deny, allow once, and, from a conversation, allow all tools for the rest
-  of that conversation (sends to other people always ask);
-- a question shows its choices, or takes your own answer.
+**Find and tidy your conversations.** Sessions lists your conversations (Today, Yesterday,
+Earlier), outlines the ones with an answer you have not opened, searches every question, answer and
+artifact (an image by what it was made from, a file by its name), and archives one with the
+archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb.
 
-**Pick up a conversation.** Sessions lists your conversations (Today, Yesterday, Earlier) with the
-number of exchanges and tools. Tap one to continue it on the orb; open its details to read its
-recent exchanges.
-
-**Follow your automations.** New automation (top of the list) creates one: the task, the
-workflow that runs it, when it runs (every few minutes to every week, or daily at a time), whether
-each run builds on the earlier ones, and whether it asks before using tools. Each automation shows how often it runs and when it runs next
-("🕐 12h ➜ 6h"). Its page has:
-
-- Run now, on the schedule line; while it runs, you see what the agent is doing ("Searching the
-  web…", "Reading 4 web pages…"), you can stop it, and you can leave: a notification brings the
-  result;
-- the latest result in full, readable aloud by the orb;
-- Edit: the task, how often it runs, whether each run builds on the earlier ones, active or paused;
-- the earlier runs, five at first, any of them opened in full.
+**Follow your automations.** New automation creates one: the task, the workflow, the tools it may
+use, when it runs and whether each run builds on the earlier ones. In the list, each shows its name,
+how many times it has run, how often it runs and when next; a switch turns one off and on, and its
+archive button archives it (Archived brings it back). Its page shows its instructions in full, Run
+now (with live progress, and you can leave: a notification brings the result), the latest result in
+full, Edit (its title, task and instructions, apart), and the earlier runs; once read, a page opens
+at once. Every screen shows a spinner until
+its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
 New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
 approval can be allowed or denied from the notification itself.
 
-**Read aloud.** Any answer or automation result can be read by the orb. Tap the orb to pause or
-resume; the rewind icon beside Back goes back 10 seconds.
-
-**Make it yours.** Settings → Orb style offers six orbs (Halo, Vortex, Nebula, Rings, Liquid,
-Galaxy), asked once at first launch. Settings → Read aloud turns the spoken answers on or off; Settings → About shows the version
-and build of the app.
+**Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
+for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
+aloud, Orb style (six orbs: Halo, Vortex, Nebula, Rings, Liquid, Galaxy) and About.
 
 ## Sign in
 
@@ -95,11 +89,15 @@ curl https://<host>.<tailnet>.ts.net/api/health
 - No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
   watchOS decides when background checks run.
 - Your sign-in is kept in the app's storage on the watch, not in a sealed store.
-- Risk levels come from the gateway's tool catalog; the approval itself does not carry one yet.
-- Editing long text is done in the watch's own text editor.
+- Tools allowed with Accept all are approved by the watch while it follows the run; away from the
+  orb page, they ask.
+- "New" answers are tracked on this watch: an answer read on another device still shows as new here.
+- Search and the live steps read your gateway's data: search needs a gateway that serves it, and
+  the live steps read the run's records (about as much data as reading an answer aloud).
 
 ## Documentation
 
+- [docs/README.md](docs/README.md) — the index of these pages.
 - [docs/design.md](docs/design.md) — screens, flows and interaction rules.
 - [docs/architecture.md](docs/architecture.md) — components, the gateway calls behind each screen,
   background behaviour and security.

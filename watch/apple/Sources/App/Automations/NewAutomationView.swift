@@ -163,9 +163,9 @@ struct NewAutomationView: View {
             let new = NewAutomation(task: text, target: target, when: when, buildsOnEarlierRuns: buildsOnEarlierRuns, tools: tools)
             let created = try await model.client.createAutomation(new)
             WKInterfaceDevice.current().play(.success)
-            await model.refresh()
+            model.refreshAutomations()
             model.path.removeLast()
-            model.path.append(.automation(model.automations.first { $0.id == created.id } ?? created))
+            model.path.append(.automation(created))
         } catch {
             self.error = AppModel.say(error)
         }

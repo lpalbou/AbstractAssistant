@@ -1,21 +1,37 @@
 import AbstractGatewayClient
 import SwiftUI
 
-/// "🕐 12h   ➜ 6h": how often an automation runs and when it runs next, in one short line.
-/// A paused one says Paused. Rewritten every minute so "next" stays true.
+/// "⟳ 44   🕐 12h   ➜ 6h": how many times an automation has run, how often it runs and when it
+/// runs next, in one short line. A paused one says Paused. Rewritten every minute so "next" stays true.
 struct ScheduleLine: View {
     let automation: AutomationSummary
+    /// The run count on a line of its own (beside the page's Edit and Run now there is no room for one line).
+    var stacked = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { ctx in
-            HStack(spacing: 12) {
-                if automation.status == "active" {
-                    if let i = Self.interval(automation) { SessionStat(symbol: "clock", value: i) }
-                    if let n = Self.nextIn(automation.nextFireAt, now: ctx.date) { SessionStat(symbol: "arrow.forward.circle", value: n) }
-                } else {
-                    SessionStat(symbol: automation.status == "paused" ? "pause.circle" : "stop.circle",
-                                value: automation.status == "paused" ? "Paused" : "Ended")
-                }
+            if stacked {
+                VStack(alignment: .leading, spacing: 3) { runs; schedule(ctx.date) }
+            } else {
+                HStack(spacing: 10) { runs; schedule(ctx.date) }
+            }
+        }
+    }
+
+    @ViewBuilder private var runs: some View {
+        if let n = automation.occurrenceCount {
+            SessionStat(symbol: "arrow.triangle.2.circlepath", value: "\(n)").accessibilityLabel("Ran \(n) \(n == 1 ? "time" : "times")")
+        }
+    }
+
+    private func schedule(_ now: Date) -> some View {
+        HStack(spacing: 10) {
+            if automation.status == "active" {
+                if let i = Self.interval(automation) { SessionStat(symbol: "clock", value: i) }
+                if let n = Self.nextIn(automation.nextFireAt, now: now) { SessionStat(symbol: "arrow.forward.circle", value: n) }
+            } else {
+                SessionStat(symbol: automation.status == "paused" ? "pause.circle" : "stop.circle",
+                            value: automation.status == "paused" ? "Paused" : "Ended")
             }
         }
     }

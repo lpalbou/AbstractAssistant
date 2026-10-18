@@ -63,6 +63,18 @@ public actor MockGatewayClient: GatewayClient {
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: "3 new papers"), cadence: "weekly", detail: "every 7 days · 3 new papers"),
         AutomationSummary(id: "auto-qc", name: "Assay QC check", status: "active", scheduleText: "when a file lands",
                           lastOccurrence: LastOccurrence(status: "completed", excerpt: nil), cadence: "on event", detail: "when a file lands · ok"),
+        // Same name, same task: only their instructions tell them apart.
+        AutomationSummary(id: "auto-news-ai", name: "investigate today's news.", status: "active", scheduleText: "Every 12 hours (UTC)",
+                          lastOccurrence: LastOccurrence(status: "completed", excerpt: "AI news digest"), nextFireAt: "2026-10-18T23:21:00Z",
+                          occurrenceCount: 44, triggerSource: "schedule", triggerConfig: ["every": .string("12h")], revision: 1),
+        AutomationSummary(id: "auto-news-world", name: "investigate today's news.", status: "active", scheduleText: "Every 12 hours (UTC)",
+                          lastOccurrence: LastOccurrence(status: "completed", excerpt: "International news digest"), nextFireAt: "2026-10-18T23:21:00Z",
+                          occurrenceCount: 42, triggerSource: "schedule", triggerConfig: ["every": .string("12h")], revision: 1),
+    ]
+    /// The automations' instructions (their workflow's system prompt), where they have some.
+    public static let sampleInstructions: [String: String] = [
+        "auto-news-ai": "You are an expert at identifying the relevant AI stories and research, and you provide informative and actionable digests.",
+        "auto-news-world": "You are an expert at identifying the relevant international political and economic stories, and you provide informative and actionable digests.",
     ]
 
     public static let sampleEntities: [EntitySummary] = [
@@ -99,13 +111,35 @@ public actor MockGatewayClient: GatewayClient {
     private var started: [String: (Date, String)] = [:]
     private let wordInterval: TimeInterval
 
-    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12) {
-        self.pending = waits; self.wordInterval = wordInterval
+    /// How long the automations take to answer (a public gateway's is the slow call, ~7 s), and how
+    /// many of the first calls fail (a request that times out over a watch's radio).
+    private let automationsDelay: Duration
+    private var automationsFailures: Int
+    /// How long an automation's definition takes to read (a public gateway's take seconds).
+    private let definitionDelay: Duration
+    /// How many polls fail before the gateway answers (a watch whose radio is still coming up);
+    /// `.max`: it never does.
+    private var pollFailures: Int
+
+    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, automationsDelay: Duration = .zero,
+                automationsFailures: Int = 0, pollFailures: Int = 0, definitionDelay: Duration = .zero) {
+        self.definitionDelay = definitionDelay
+        self.pending = waits; self.wordInterval = wordInterval; self.automationsDelay = automationsDelay
+        self.automationsFailures = automationsFailures; self.pollFailures = pollFailures
     }
 
     public func health() async throws -> Bool { true }
-    public func me() async throws -> Principal { Principal(userId: "albou", tenantId: "default", roles: ["admin"]) }
-    public func waits() async throws -> [Wait] { pending }
+    public func me() async throws -> Principal {
+        if pollFailures > 0 { throw URLError(.notConnectedToInternet) }
+        return Principal(userId: "albou", tenantId: "default", roles: ["admin"])
+    }
+    public func waits() async throws -> [Wait] {
+        if pollFailures > 0 {
+            if pollFailures != .max { pollFailures -= 1 }
+            throw URLError(.notConnectedToInternet)
+        }
+        return pending
+    }
     public func recentRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns.filter { !archived.contains($0.sessionId ?? "") } }
     /// Archived conversations (`POST /sessions/{id}/archive`): out of the listing, nothing deleted.
     private var archived: Set<String> = []
@@ -139,8 +173,10 @@ public actor MockGatewayClient: GatewayClient {
         return SessionSearchPage(items: Array(hits.values.prefix(limit)))
     }
     public func automations() async throws -> [AutomationSummary] {
+        if automationsDelay > .zero { try await Task.sleep(for: automationsDelay) }
+        if automationsFailures > 0 { automationsFailures -= 1; throw URLError(.timedOut) }
         var out: [AutomationSummary] = []
-        for a in Self.sampleAutomations { out.append(try await automation(id: a.id)) }
+        for a in Self.sampleAutomations where !archivedAutomationIds.contains(a.id) { out.append(try await automation(id: a.id)) }
         return out
     }
     /// Run now: the automation runs for 14 s (`current_occurrence` set, a ledger that moves on).
@@ -148,6 +184,9 @@ public actor MockGatewayClient: GatewayClient {
     public func runAutomationNow(id: String) async throws { automationRunStarted[id] = Date() }
     public func automation(id: String) async throws -> AutomationSummary {
         guard var a = Self.sampleAutomations.first(where: { $0.id == id }) else { throw GatewayError.http(status: 404, body: "") }
+        if let status = automationStatus[id] { a.status = status }
+        if let t = revisedTitle[id] { a.name = t }
+        if let n = revisions[id] { a.revision = (a.revision ?? 1) + n }
         if let t = automationRunStarted[id], Date().timeIntervalSince(t) < 14 {
             a.currentOccurrence = CurrentOccurrence(index: (a.lastOccurrence?.index ?? 0) + 1, runId: "occ-live", attempt: 1, status: "running")
         } else { automationRunStarted[id] = nil }
@@ -164,8 +203,35 @@ public actor MockGatewayClient: GatewayClient {
         if s > 9 { out.append(LedgerRecord(nodeId: "reason", status: "started", effect: llm)) }
         return out
     }
-    public func automationCommand(id: String, type: String) async throws {}
-    public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {}
+    /// Pause / resume / archive, as the gateway applies them (the sample automations' state).
+    private var automationStatus: [String: String] = [:]
+    private var archivedAutomationIds: Set<String> = []
+    public func automationCommand(id: String, type: String) async throws {
+        try await Task.sleep(for: .milliseconds(300))
+        switch type {
+        case "automation.pause": automationStatus[id] = "paused"
+        case "automation.resume": automationStatus[id] = "active"
+        case "automation.archive": archivedAutomationIds.insert(id)
+        case "automation.unarchive": archivedAutomationIds.remove(id)
+        default: break
+        }
+    }
+    public func archivedAutomations() async throws -> [AutomationSummary] {
+        var out: [AutomationSummary] = []
+        for a in Self.sampleAutomations where archivedAutomationIds.contains(a.id) { out.append(try await automation(id: a.id)) }
+        return out
+    }
+    /// A revision's new title and task, kept (the list, the page and the next edit show them).
+    private var revisedTitle: [String: String] = [:]
+    private var revisedTask: [String: String] = [:]
+    private var revisedInstructions: [String: String?] = [:]
+    private var revisions: [String: Int] = [:]
+    public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {
+        if let t = changes["title"]?.stringValue { revisedTitle[id] = t }
+        if let p = changes["target"]?["input_data"]?["prompt"]?.stringValue { revisedTask[id] = p }
+        if changes["target"] != nil { revisedInstructions[id] = changes["target"]?["input_data"]?["system"]?.stringValue }
+        revisions[id, default: 0] += 1
+    }
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
         if interface == WorkflowChoice.assistantInterface {
             return [WorkflowChoice(bundleId: "abstractassistant-orchestrator", bundleVersion: "0.0.0", flowId: "d5d4e5a1",
@@ -211,10 +277,14 @@ public actor MockGatewayClient: GatewayClient {
                                      case .daily(let at): ["kind": .string("daily"), "at": .string(at)] } }(), revision: 1)
     }
     public func automationDefinition(id: String) async throws -> AutomationDefinition {
-        AutomationDefinition(revision: 2, title: Self.sampleAutomations.first { $0.id == id }?.name, target: [
+        if definitionDelay > .zero { try await Task.sleep(for: definitionDelay) }
+        let base = Self.sampleAutomations.first { $0.id == id }
+        let system = revisedInstructions[id] ?? Self.sampleInstructions[id]
+        return AutomationDefinition(revision: (base?.revision ?? 1) + (revisions[id] ?? 0), title: revisedTitle[id] ?? base?.name, target: [
             "bundle_ref": .string("basic-agent@0.0.5"), "flow_id": .string("81795ea9"),
-            "input_data": .object(["prompt": .string("Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin."),
-                                   "tools": .array([.string("web_search")])]),
+            "input_data": .object(["prompt": .string(revisedTask[id] ?? (id.hasPrefix("auto-news") ? "investigate today's news." : "Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin.")),
+                                   "tools": .array([.string("web_search")])]
+                                   .merging(system.map { ["system": JSONValue.string($0)] } ?? [:]) { a, _ in a }),
         ])
     }
     public func entities() async throws -> [EntitySummary] { Self.sampleEntities }

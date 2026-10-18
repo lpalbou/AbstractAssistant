@@ -33,8 +33,11 @@ final class LiveMediaUITests: XCTestCase {
         orchestrator.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10) && row.label.contains("Orchestrator"), row.label)
 
+        let conversation = LiveConversation.newId()
+        defer { LiveConversation.archive(conversation, url: url, token: token) }
         app = XCUIApplication()
-        app.launchArguments = live + ["--screen", "ask", "--test-ask", "Generate an image of a small red apple on a white plate."]
+        app.launchArguments = live + ["--screen", "ask", "--test-session-id", conversation,
+                                      "--test-ask", "Generate an image of a small red apple on a white plate."]
         app.launch()
         let image = element("media.image")
         XCTAssertTrue(image.waitForExistence(timeout: 240), "no image under the answer:\n\(app.debugDescription)")

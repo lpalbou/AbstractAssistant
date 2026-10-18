@@ -6,8 +6,11 @@ final class LiveActivityUITests: XCTestCase {
     func testRealStepsUnderTheOrb() throws {
         let env = ProcessInfo.processInfo.environment
         guard let url = env["LIVE_GW_URL"], let token = env["LIVE_GW_TOKEN"] else { throw XCTSkip("live only") }
+        let conversation = LiveConversation.newId()
+        defer { LiveConversation.archive(conversation, url: url, token: token) }
         let app = XCUIApplication()
         app.launchArguments = ["--no-notification-prompt", "--gateway", url, "--token", token, "--reset-tools", "--screen", "ask",
+                               "--test-session-id", conversation,
                                "--test-ask", "Search the web for the height of the tallest building in Europe, then answer in one sentence."]
         app.launch()
         func shot(_ name: String) {

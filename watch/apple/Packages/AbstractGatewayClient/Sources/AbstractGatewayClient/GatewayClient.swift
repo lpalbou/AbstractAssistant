@@ -64,6 +64,8 @@ public protocol GatewayClient: Sendable {
     func runAutomationNow(id: String) async throws
     /// `POST /automations/{id}/commands` (`automation.pause`, `automation.resume`, …).
     func automationCommand(id: String, type: String) async throws
+    /// `GET /api/gateway/automations?archived_only=true`: the archived automations.
+    func archivedAutomations() async throws -> [AutomationSummary]
     /// `GET /automations/{id}` → `summary`: one automation's row, fresh (e.g. its run in progress).
     func automation(id: String) async throws -> AutomationSummary
     /// `GET /bundles?executable_for=<interface>`: the workflows this account may schedule.
@@ -125,8 +127,38 @@ public actor LiveGatewayClient: GatewayClient {
         self.init(baseURL: baseURL, credential: .token(token), session: session)
     }
 
+    /// How many times a read is tried before its failure is reported.
+    public static let readTries = 3
+
+    /// A read (GET) that times out, loses its connection or meets a server error is tried again,
+    /// after 1 s then 3 s: a screen keeps its spinner through the tries and says a read failed
+    /// only once every try has (ADR-0039 in abstractframework docs/adr). A write (POST, PUT, …) is sent once.
     private func request(_ method: String, _ path: String, query: [URLQueryItem] = [], body: (any Encodable)? = nil,
                          timeout: TimeInterval = 20) async throws -> Data {
+        var attempt = 1
+        while true {
+            do { return try await send(method, path, query: query, body: body, timeout: timeout) }
+            catch {
+                guard method == "GET", attempt < Self.readTries, Self.isTransient(error), !Task.isCancelled else { throw error }
+                try await Task.sleep(for: .seconds(attempt == 1 ? 1 : 3))
+                attempt += 1
+            }
+        }
+    }
+
+    /// A failure that another try may not meet: no answer in time, a connection lost or refused,
+    /// a server error (5xx, 408, 429). A refusal (401, 403, 404, …) or an unreadable answer is final.
+    public static func isTransient(_ error: Error) -> Bool {
+        switch error {
+        case let e as URLError: return ![.cancelled, .badURL, .unsupportedURL, .userAuthenticationRequired, .userCancelledAuthentication].contains(e.code)
+        case GatewayError.http(let status, _): return status >= 500 || status == 408 || status == 429
+        case GatewayError.invalidResponse: return true
+        default: return false
+        }
+    }
+
+    private func send(_ method: String, _ path: String, query: [URLQueryItem], body: (any Encodable)?,
+                      timeout: TimeInterval) async throws -> Data {
         if lockedOut { throw GatewayError.unauthorized }
         var comps = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
@@ -152,8 +184,8 @@ public actor LiveGatewayClient: GatewayClient {
         return data
     }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as: T.Type) async throws -> T {
-        try JSONDecoder().decode(T.self, from: try await request("GET", path, query: query))
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as: T.Type, timeout: TimeInterval = 20) async throws -> T {
+        try JSONDecoder().decode(T.self, from: try await request("GET", path, query: query, timeout: timeout))
     }
 
     public func health() async throws -> Bool {
@@ -165,7 +197,7 @@ public actor LiveGatewayClient: GatewayClient {
     /// Person waits: list the waiting runs, keep the rows whose `waiting.reason` is `user`,
     /// then read each run's detail, which carries the full wait block (see `RunSummary.personWait`).
     public func waits() async throws -> [Wait] {
-        let page = try await get("api/gateway/runs", query: [.init(name: "status", value: "waiting")], as: RunsPage.self)
+        let page = try await get("api/gateway/runs", query: [.init(name: "status", value: "waiting")], as: RunsPage.self, timeout: 45)
         let candidates = page.items.filter(\.waitsOnPerson).prefix(12)
         return try await withThrowingTaskGroup(of: Wait?.self) { group in
             for row in candidates {
@@ -201,7 +233,7 @@ public actor LiveGatewayClient: GatewayClient {
     public func recentRuns(limit: Int) async throws -> [RunSummary] {
         try await get("api/gateway/runs", query: [.init(name: "root_only", value: "true"), .init(name: "limit", value: String(limit)),
                                                    .init(name: "include_metrics", value: "true"), .init(name: "session_kind", value: "chat,discussion")],
-                      as: RunsPage.self).items
+                      as: RunsPage.self, timeout: 45).items   // ~5 s on a public gateway, more over a watch's radio
     }
 
     public func run(id: String) async throws -> RunSummary { try await get("api/gateway/runs/\(id)", as: RunSummary.self) }
@@ -253,8 +285,9 @@ public actor LiveGatewayClient: GatewayClient {
         _ = try await request("POST", "api/gateway/commands", body: ResumeCommand(runId: wait.runId, waitKey: wait.waitKey, answer: answer))
     }
 
+    /// The slow call on a public gateway (~7 s of server time, more over a watch's radio): 60 s.
     public func automations() async throws -> [AutomationSummary] {
-        try await get("api/gateway/automations", as: AutomationsPage.self).items
+        try JSONDecoder().decode(AutomationsPage.self, from: try await request("GET", "api/gateway/automations", timeout: 60)).items
     }
 
     private struct RunNow: Encodable {
@@ -269,6 +302,11 @@ public actor LiveGatewayClient: GatewayClient {
     private struct Command: Encodable {
         var command_id = UUID().uuidString.lowercased()
         let type: String
+    }
+
+    public func archivedAutomations() async throws -> [AutomationSummary] {
+        try JSONDecoder().decode(AutomationsPage.self, from: try await request(
+            "GET", "api/gateway/automations", query: [.init(name: "archived_only", value: "true")], timeout: 60)).items
     }
 
     public func automationCommand(id: String, type: String) async throws {
@@ -345,7 +383,8 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence] {
-        try await get("api/gateway/automations/\(automationId)/occurrences", query: [.init(name: "limit", value: String(limit))], as: OccurrencesPage.self).items
+        // Full answers: 6 of them take 7 s on a public gateway, more over a watch's radio.
+        try await get("api/gateway/automations/\(automationId)/occurrences", query: [.init(name: "limit", value: String(limit))], as: OccurrencesPage.self, timeout: 60).items
     }
 
     public func markSeen(automationId: String, cursor: String) async throws {

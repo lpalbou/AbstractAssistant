@@ -6,147 +6,112 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
 ### Added
 
-- **What is new, at a glance.** Home's Sessions and Automations rows carry a count: what is new
-  (answers you have not seen, results of automations you have not opened) in a filled badge, else
-  how many there are, muted. In Sessions a conversation with an answer you have not seen is
-  outlined in cyan with a dot (seen on this watch: the gateway keeps no "seen" for conversations);
-  an automation with new results is outlined in amber.
-- **Archive a conversation.** Each conversation in Sessions has a red archive button: after a
-  confirmation it is archived on the gateway, out of Sessions on all your devices, nothing deleted.
-  **Archived**, at the bottom of Sessions, lists them, each with Restore.
-- **Search your conversations.** Sessions has a search field: the gateway's search finds the words
-  in every conversation's questions, answers and artifacts (an image by what it was made from, an
-  attachment by its name; parts of words too, accents ignored, a typo forgiven), the words marked
-  in each result, an image shown beside them; a result continues its conversation. A gateway
-  without search says so.
-- **Its work, live, under the orb.** While the Assistant works, what is below the orb shows its
-  steps instead of the conversation, newest first on a thin rail: thinking (with its own words when
-  it writes some), each tool with what it is about (the search, the page, the file, the command),
-  an image or a recording being made, and a step waiting on you (tap it to decide). The status line
-  says what it does now ("Searching the web…"). The conversation comes back with the answer, which
-  carries "9 steps · 0:11": it opens every step in order.
-- **The orb shows the work.** Each tool call sends a ring of light out from the centre of the
-  planet (parallel calls a few tenths apart), each new thought a softer one, an image or a recording
-  a slow wide wave, and a failed tool makes it shiver; every tool running circles the planet as a
-  small satellite with a trail.
-- **Accept all, taken back at once.** After an approval's Accept all, the tools it allowed are
-  approved by the watch itself while it follows the run (the gateway keeps asking for them, since a
-  run's permissions are fixed when it starts). An amber shield on the orb (bottom right, while it works),
-  and **Ask again** on the conversation's Tools page, end it at once: the very next call asks, also
-  in the run working now.
-- **Images and recordings in answers.** A conversation can run another workflow: the **Workflow**
-  row at the top of its Tools page (the tools icon on the orb page) lists the gateway's default agent,
-  then the Assistant's workflows ("AbstractAssistant Orchestrator", which also makes images and
-  other media), then the other agents; **Settings → Tools** sets the one new conversations use. A
-  conversation continued from another device keeps the workflow its last turn ran. What a turn makes
-  shows under its answer: an image as a picture (tap: full screen, the Digital Crown zooms, drag to
-  look around, share), a recording as a row with its length (on the orb page it plays through the
-  orb right after the spoken answer, at its own speed), a video as a row that opens it. Earlier
-  messages that carry media show a small icon on their card. A chosen workflow the gateway no
-  longer has stops the question with a sentence saying so; it never runs another one instead.
-- **Tools you choose.** A tools icon on the orb page (bottom right, as far from the bottom as the keyboard is from the top, shown with it; for the
-  Assistant) opens this conversation's tools, by group (Files, Web, System, Email, …): each tool is
-  Off (not offered), Auto (runs without asking) or Ask (asks first), with its risk (Reads only, Makes
-  changes, Reaches outside, Destructive), what it can do, and More for the gateway's description. A
-  group's All sets its tools at once; All auto leaves the tools that reach outside, can destroy, or
-  go where the assistant picks on Ask. Tools the gateway has not set up are listed by name.
-  **Settings → Tools** sets the defaults; a conversation's changes sit on top of them (the icon shows
-  a dot, each changed tool its default, and "Use my defaults" undoes them). A question goes out only
-  with the tools read from the gateway (read again every 10 minutes and on each visit to Tools).
-- An approval's **Accept all** allows this conversation's tools on Ask, up to the risk of the call
-  approved; tools turned off stay off, and sends and tools whose destination the assistant picks
-  keep asking. The watch answers a later approval itself only when every call in it is on Auto or
-  allowed.
-- **New automation** (top of the Automations list): the task, the workflow that runs it (the
-  gateway's default by its name, e.g. "Basic agent · default", then the workflows the gateway offers
-  your account), the tools it may use, when it runs (every 5 min, 30 min, 1 h, 8 h, 24 h or 7 days,
-  or daily at a time) and whether each run builds on the earlier ones; Create opens its page. The
-  request is the one the console, the tray app and the terminal send.
-- An automation's **Tools** use the same page as a conversation's, starting from your defaults: Off,
-  Auto or Ask per tool. A tool on Ask waits for you in Needs you when the automation runs.
-- **Settings → Connection** (first row): the gateway, its status, the account you are signed in as
-  and its role, its email, and how many tools are set up for that account, with "Sign in as someone
-  else". Email tools follow the account: one without a mailbox shows them as "Not connected for this
-  account", where another account on the same gateway has them.
-
-- **Share** a web page's link from the icon beside Back (Messages, Mail, …). The share icon is one
-  reusable control for any text or link; the watch has no clipboard, so sharing is how a text
-  leaves it.
-- **About → Contact** opens a new message to that address in the watch's Mail.
+- **Its work, live, under the orb.** While the Assistant works, the space below the orb shows its
+  steps, newest first on a thin rail: thinking (with its own words when it writes some), each tool
+  with what it is about (the search, the page, the file, the command), an image or a recording
+  being made, and a step waiting on you (tap it to decide). The status line says what it does now
+  ("Searching the web…"). The conversation returns with the answer, which carries "9 steps · 0:11"
+  to open every step in order.
+- **The orb shows the work.** Each tool call sends a ring of light out from the planet (parallel
+  calls a few tenths apart), each new thought a softer one, an image or a recording a slow wide
+  wave; a failed tool makes it shiver, and every tool running circles the planet as a small
+  satellite.
+- **Tools you choose.** The tools icon on the orb page (bottom right, shown with the keyboard)
+  opens this conversation's tools by group (Files, Web, System, Email, …): each tool Off, Auto or
+  Ask, with its risk, what it can do and the gateway's description. A group's All sets its tools at
+  once (All auto keeps the tools that reach outside, can destroy, or go where the assistant picks on
+  Ask). **Settings → Tools** sets the defaults; a conversation's changes sit on top of them, and
+  "Use my defaults" undoes them.
+- **Accept all, taken back at once.** An approval's Accept all allows this conversation's tools on
+  Ask, up to the risk of the call approved (sends and tools whose destination the assistant picks
+  keep asking). The watch approves them for you while it follows the run; the amber shield on the
+  orb, or **Ask again** on the Tools page, ends it, and the very next call asks.
+- **A workflow per conversation; images and recordings in answers.** The **Workflow** row at the
+  top of a conversation's Tools page chooses what answers: the gateway's default agent, the
+  Assistant's workflows ("AbstractAssistant Orchestrator" also makes images and other media), or
+  another agent; **Settings → Tools** sets the one new conversations use, and a conversation
+  continued from another device keeps its workflow. An image shows under its answer (tap: full
+  screen, the Digital Crown zooms, drag to look around, share); a recording plays through the orb
+  right after the spoken answer; a video opens full screen.
+- **Search your conversations.** Sessions has a search field: it finds the words in every
+  conversation's questions, answers and artifacts (an image by what it was made from, an attachment
+  by its name), parts of words too, accents ignored, a typo forgiven; found words are marked and a
+  matching image is shown. It needs a gateway that serves `GET /api/gateway/sessions/search`.
+- **Archive a conversation.** The archive button at the right of a conversation archives it on
+  the gateway after a confirmation: it leaves Sessions on all your devices and nothing is deleted. **Archived**, at the
+  bottom of Sessions, restores it.
+- **What is new, at a glance.** Home's Sessions and Automations rows show what is new (answers you
+  have not opened on this watch, automation results you have not seen) in a filled badge, else how
+  many there are; a spinner holds the place until they are read. A conversation with a new answer
+  is outlined in cyan, an automation with new results in amber.
+- **Automations on and off, and archived, from the list.** Each automation has a switch (the
+  gateway's pause and resume) and an archive button at its right: after a confirmation it stops and
+  leaves Automations on all your devices, nothing deleted; **Archived**, at the bottom, restores it.
+- **How many runs, and the instructions.** Each automation's line starts with how many times it
+  has run ("⟳ 44  🕐 12h  ➜ 2h"), and its name takes up to two lines in the list. An automation's
+  page shows its name and its instructions in full.
+- **Edit an automation's title, task and instructions apart.** Edit has a Title, a Task and an
+  Instructions field, each opening with the current text. A title that is the task follows the
+  task until you edit the title itself. Leaving Edit with changes asks whether to save or discard
+  them.
+- **An automation opens at once the second time.** Its definition and latest results are kept once
+  read: its page and Edit show them at once and read again only when the list says something
+  changed; a saved edit shows on its page and in the list at once.
+- **New automation** (top of Automations): the task, the workflow (the gateway's default by name),
+  the tools it may use (the same page as a conversation's), when it runs (every 5 min to every 7
+  days, or daily at a time) and whether each run builds on the earlier ones.
+- **Settings → Connection**: the gateway and its status, the account you are signed in as and its
+  role, its email, and how many tools are set up for it, with "Sign in as someone else". Email tools
+  follow the account.
+- **Settings → Voice**: the speaking voice and the transcription model among those the gateway
+  offers, a sample when you choose, and **Speed** (Normal, 1.15×, 1.3×, 1.5×, same pitch). The
+  choices stay on this watch.
+- **One voice button beside Back**: a tap plays, pauses or resumes the selected message; holding it
+  rewinds, faster the longer it is held.
+- **Share** the conversation as markdown, or a web page's link, from the icon beside Back.
+- **About → Contact** opens a message to the project in the watch's Mail.
 
 ### Changed
 
-- The orb is centred on the screen on the orb and read-aloud screens; the page opens at the top
-  and scrolls only when there is text below the orb.
+- The orb follows the voice itself, yours and the Assistant's: its loudness within the voice's own
+  range and its spectrum in 8 bands; each orb style draws it. At full voice it reaches 8% less far.
+- Read aloud speaks a whole answer from one request, in whole sentences and one language for the
+  reply, and starts once 1.5 s of speech is ready.
+- The conversation under the orb reads like an automation's page: the last message in full, then
+  earlier messages as cards (5, then Show older), each opening on its own page with Read aloud. The
+  whole history is read in one request; if it cannot be read, the page says so with Retry.
+- Sessions open with **New** and **Search** side by side on one line.
+- Sessions are titled by their latest question as the gateway has it (a grey placeholder while it
+  is read) and say how long ago they last changed ("10 h ago"); opening one shows its last exchange
+  first and follows a turn still working.
+- Each question offers the agent every tool the gateway has on, with instructions on when to use
+  them; sends to other people and risky tools still ask you first.
+- An automation's page shows its latest result in full once read (a spinner meanwhile, Retry if it
+  cannot be read); Edit sits beside Run now.
+- The orb is centred on its screen, with "Assistant ⌄" below it and the keyboard at the top right
+  while it is at rest; round icons dip when pressed; the orbs draw fewer points.
 - Settings: **Read aloud** (was "Speak answers").
-- **Sessions open on the right conversation, and say which.** A row is titled by the
-  conversation's latest question, as the gateway has it (up to 60 characters): never its first
-  question, never a made-up name; while it is read the row shows a grey placeholder, and "Question
-  not available" if the gateway cannot give it. Opening a session shows its last exchange, then the whole conversation below it, read in one
-  request (the gateway's replay of the session, ~200 KB for 44 messages instead of ~850 KB in 88
-  requests that timed out over the watch's radio and silently cut the history short); Show older
-  pages through it; if it cannot be read, the page says so with Retry. A
-  conversation whose last turn is still working (or waits on an approval) shows it and follows it;
-  one session opens at a time; a session's newest turn is the one created last.
-- From Home, the orb opens on your current conversation's last exchange and its title.
-- **Share on the orb**: beside Back, share the conversation as markdown; while the orb speaks (and
-  between its sentences), go back 10 seconds.
-- **The orb screen at rest and at work**: "Assistant ⌄" sits below the orb and the keyboard at the
-  top right, both only while the orb is at rest; while it listens, works or speaks, neither shows
-  (no ✕ either).
-- The orbs draw 30% fewer points (smoother on every watch).
-- **A more capable Assistant**: each question now offers the agent every tool the gateway has on
-  (as the desktop assistant does; before, the workflow's 9 default file and code tools), read from
-  the gateway before the first question if needed; and its instructions say when to use them (live
-  information, the web, email and messages, files, actions) and never to claim it cannot browse.
-  Sends to other people and risky tools still ask you first.
-- Automation page: Edit sits beside Run now on the schedule line; Read aloud sits on the result's
-  date line.
-- **Settings → Voice**: choose the speaking voice and the transcription model among those the
-  gateway offers (its default first). A voice plays a short sample when chosen (a spinner on its row while the gateway makes it). The choices stay on
-  this watch and ride each request; the gateway's defaults are not changed. The speaking voice is
-  the Assistant's; an entity keeps its own.
-- **Settings → Voice → Speed**: Normal, 1.15×, 1.3× or 1.5×, played faster on the watch at the
-  same pitch (the sample plays at the speed chosen). It applies to every voice the watch reads.
-- **A conversation's page**: its last 5 exchanges in order, Show older for the rest, and Read aloud
-  for the latest answer beside the title (as on an automation's page).
-- **One voice button beside Back** (the orb page and Read aloud): a tap plays the selected message
-  or pauses / resumes the one playing; holding it (longer than 0.65 s) rewinds, about 4 seconds per
-  second held at first and faster the longer it is held. While the voice is being made it shows a
-  spinner (a second tap waits too, instead of pausing a voice not yet heard). Its touch area
-  reaches past the drawn circle; a quick tap is never lost and a firm half-second tap is still a tap; a touch the watch takes away
-  (a notification, wrist down) never leaves it stuck rewinding. It shares the orb's state (a tap on
-  the orb pauses it too) and hides while the orb listens or works, or when there is nothing to read.
-  It replaces the rewind icon.
-- **The conversation under the orb**, as an automation's page: the last message in full (the one
-  the voice button reads), then "Earlier messages" as cards, 5 at first and Show older for the
-  rest; a card opens that message, with Read aloud.
-- One look for every message: an automation's results and a conversation's messages share the
-  same cards (a caption line, then the text at the same size) and the same page for one message.
-- Round icons dip when pressed, so a tap visibly lands; text scrolled under the top row fades out.
-- The icon beside Back (share, rewind) and Back itself take a tap on a real watch; a tap in that
-  top row never reaches the orb, even with the page scrolled (a tap just beside an icon used to
-  start listening). At rest, the orb page says "Tap to talk" again.
-
-- **The orb follows the voice itself**, yours and the Assistant's: its loudness within the
-  voice's own range (a syllable reaches full strength, a pause falls back) and its spectrum in 8
-  bands from low to high pitches. Each orb style draws the spectrum (the Halo: each angle is a band,
-  low pitches at the top). The orb reaches 8% less far at full voice; its size at rest is unchanged.
-- Read aloud sends the whole text in one request: the gateway's voice speaks it in whole sentences,
-  made ahead of playback, in one language for the whole reply (one request per paragraph added a
-  pause and a fresh short opening at every paragraph).
-- An automation's page shows its latest result in full once it is read, with a spinner meanwhile
-  (never the shortened preview first), and says so with Retry if it cannot be read.
 
 ### Fixed
 
-- **The voice no longer stops after its first words.** The gateway sends the first two or three
-  words alone ("Ah oui,") and the rest of the sentence seconds later; the watch now waits for 1.5 s
-  of speech before it starts (2 s again if it ever runs dry), so it speaks without a break. The
-  first sound comes about 3 s later than before with today's gateway voice; a gateway on
-  abstractvoice 0.15.2 sends a whole clause first, which starts at once.
+- Home shows a spinner in place of a count, and "Loading…" in place of its line, until that
+  information is in: the automations (slow on some gateways) are read with up to 60 s per request
+  and retried after 2, 4 and 8 s, and the conversation titles no longer wait for them.
+- The automations list, the gateway's slowest call, is read at most once a minute while the app is
+  open (an action reads it at once), instead of on every 15-second refresh.
+- A read that times out, loses its connection or meets a server error is tried again (3 tries,
+  after 1 s then 3 s) before a screen reports it; the spinner stays up meanwhile. An automation's
+  latest results are read with up to 60 s per request. Actions (send, start, archive, save) are
+  sent once.
+- Opening the app no longer says the gateway cannot be reached while the watch's connection is
+  still coming up: Home says "Connecting…" (animated) while the first tries fail and are retried
+  every 3 s, and says the gateway is unreachable only after 3 failed tries over at least 20 s. The
+  conversations are read with up to 45 s per request. A poll that fails once the app is connected is
+  retried quietly.
 
 ## [0.2.0] - 2026-10-17
 

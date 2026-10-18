@@ -459,6 +459,11 @@ public struct AutomationDefinition: Decodable, Sendable {
         self.revision = revision; self.title = title; self.target = target
     }
     public var prompt: String? { target?["input_data"]?["prompt"]?.stringValue }
+    /// How it does the task (the workflow's system prompt), nil when it has none.
+    public var instructions: String? {
+        guard let s = target?["input_data"]?["system"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        return s
+    }
     /// The title after the task is edited: an automation named by its task (the title is the task,
     /// or its first 120 characters) keeps that name in step; a title of its own is left alone (nil).
     public static func title(afterTask newTask: String, oldTitle: String?, oldTask: String?) -> String? {
@@ -467,10 +472,12 @@ public struct AutomationDefinition: Decodable, Sendable {
         return namedByTask ? String(newTask.prefix(120)) : nil
     }
 
-    /// The target with a new task, everything else as committed (what the console's form sends).
-    public func target(withPrompt prompt: String) -> [String: JSONValue]? {
+    /// The target with a new task and instructions (empty: none), everything else as committed
+    /// (what the console's form sends).
+    public func target(withPrompt prompt: String, instructions: String? = nil) -> [String: JSONValue]? {
         guard let t = target, case .object(var input)? = t["input_data"] else { return nil }
         input["prompt"] = .string(prompt)
+        if let instructions { input["system"] = instructions.isEmpty ? nil : .string(instructions) }
         var out: [String: JSONValue] = ["input_data": .object(input)]
         if let b = t["bundle_ref"] { out["bundle_ref"] = b }
         if let f = t["flow_id"] { out["flow_id"] = f }

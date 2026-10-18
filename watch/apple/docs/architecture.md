@@ -10,11 +10,15 @@ flowchart LR
     UI[SwiftUI screens]
     Model[AppModel<br/>polling · haptics · state]
     Media[Listener · Speaker<br/>microphone · voice playback]
+    Work[RunActivity<br/>live steps · orb pulses]
+    Files[MediaStore<br/>images · recordings · cache]
     BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
     Kit[AbstractGatewayClient<br/>Swift package]
-    Store[(app storage<br/>gateway · credential)]
+    Store[(app storage<br/>gateway · credential · choices)]
     UI --> Model --> Kit
     UI --> Media --> Kit
+    UI --> Work --> Kit
+    UI --> Files --> Kit
     BG --> Kit
     Kit --> Store
   end
@@ -24,10 +28,14 @@ flowchart LR
     Auto[automations]
     Ent[entities]
     Voice[speech-to-text · text-to-speech]
+    Art[(artifacts<br/>images · recordings · files)]
+    Search[(conversation search index<br/>per account)]
     API --> Runs
     API --> Auto
     API --> Ent
     API --> Voice
+    API --> Art
+    API --> Search
   end
   Kit -- "Bearer token, or session + CSRF" --> API
   Other[Desktop assistant · terminal · browser] --> API
@@ -36,18 +44,43 @@ flowchart LR
 A wait answered on the watch is answered for every client; a question asked on the watch is a run
 in the same session pool as the desktop assistant's.
 
+### One question, while it works
+
+```mermaid
+sequenceDiagram
+  participant You
+  participant Orb as Orb page
+  participant RA as RunActivity
+  participant GW as Gateway
+  You->>Orb: speak or type
+  Orb->>GW: POST /runs/start (workflow, tools, tool policy)
+  loop every second until the run ends
+    Orb->>GW: GET /runs/{root} (answer? a wait on you?)
+    RA->>GW: GET /runs/{root} → subworkflow:{agent} → GET /runs/{agent}
+    RA->>GW: GET /runs/{agent}/ledger?after=N (only when it changed)
+    RA-->>Orb: steps below the orb · a pulse per tool call
+  end
+  GW-->>Orb: a tool approval (an allowed tool: the watch answers it)
+  Orb->>GW: POST /commands resume
+  GW-->>Orb: the answer, with its media refs
+  Orb->>GW: GET /runs/{run}/artifacts/{id}/content
+  Orb-->>You: the answer spoken, the image under it
+```
+
 ## Components
 
 | Component | Responsibility |
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
-| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), the 15 s foreground poll, haptics, per-conversation trust. |
+| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s foreground poll (the automations list at most once a minute), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
 | `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
+| `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
+| `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
 | `AnswerNotifier` | Hands a run's ledger stream to a background URLSession, posts answers and waits as notifications, background refresh for new waits. |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
-| `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
+| `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
 
 ## Gateway calls behind each screen
 
@@ -65,6 +98,7 @@ in the same session pool as the desktop assistant's.
 | Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
 | Workflow | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` and `…=abstractassistant.agent.v1` (newest version per bundle); a chosen one starts as `bundle_id`, `bundle_version`, `flow_id`, `interface`, `registry_scope`; none chosen: `flow_id: "@default"` of `abstractcode.agent.v1`; kept on the watch per conversation (defaults in Settings → Tools) |
 | New answers | a conversation is new when its newest turn ended after the watch started counting and is not the turn last seen there (kept on the watch, `sessions.seen`); automations: the gateway's `attention.unseen_count` |
+| Automation on/off, archive | `POST /api/gateway/automations/{id}/commands` `{type: "automation.pause" \| "automation.resume" \| "automation.archive" \| "automation.unarchive"}`; `GET /api/gateway/automations?archived_only=true` lists the archived ones; the automations list is read with up to 60 s per request and retried |
 | Archive | `POST /api/gateway/sessions/{id}/archive` (and `/unarchive`): out of `GET /runs?root_only=true` on every client, nothing deleted; `GET /api/gateway/runs?archived_only=true&root_only=true` lists them |
 | Search | `GET /api/gateway/sessions/search?q=…&limit=25` (AbstractRuntime `ConversationSearch`, the caller's own plane): one item per session with `snippet` and `highlights`; 404 on a gateway without it |
 | Live work | the root's `GET /api/gateway/runs/{id}` each second, down its `subworkflow:<child>` waits to the run doing the work; that run's `GET /api/gateway/runs/{id}/ledger?after=N`, decoded for `effect.type`, `effect.payload.tool_calls[{name, arguments}]`, `effect.payload.output.modality`, `response_schema`, `result.results[{success, error}]`, `result.content`, `result.wait` only (a thinking record's conversation is skipped); a run that handed off to a child is not read again. About as much data as the run's records (a 90 s agent run with 6 tools: ~3 MB, mostly its thinking records) |
@@ -113,6 +147,8 @@ in the same session pool as the desktop assistant's.
 | No device pairing, one token per account | the watch signs in with an account token or an emailed code; rotating the token signs out every client |
 | No push channel | waits arrive on the next poll or background refresh, not within a second |
 | No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
+| No compact view of a run's records | the live steps read the run's full records (a thinking record carries the conversation); reads are skipped when the run has not changed |
+| No "seen" state for conversations | new answers are tracked on each watch |
 
 ## Build and verification
 

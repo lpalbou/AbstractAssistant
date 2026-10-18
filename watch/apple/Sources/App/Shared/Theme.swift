@@ -280,3 +280,20 @@ extension View {
             .containerBackground(Theme.ground, for: .navigation)
     }
 }
+
+
+/// "Loading" with three dots that fill in turn: what a line says until its information is in.
+struct LoadingText: View {
+    var text = "Loading"
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.4)) { ctx in
+            let n = Int(ctx.date.timeIntervalSinceReferenceDate / 0.4) % 4
+            HStack(spacing: 0) {
+                Text(text)
+                ForEach(0..<3, id: \.self) { i in Text(".").opacity(i < n ? 1 : 0) }   // the width never moves
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+    }
+}

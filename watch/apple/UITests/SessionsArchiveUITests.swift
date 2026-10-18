@@ -13,9 +13,9 @@ final class SessionsArchiveUITests: XCTestCase {
     private func text(containing s: String) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", s)).firstMatch
     }
-    /// Slow swipes until `e` can be tapped (a list loads its rows as they come near the screen).
+    /// Short drags until `e` can be tapped (a list loads its rows as they come near the screen).
     private func reveal(_ e: XCUIElement) {
-        for _ in 0..<12 where !(e.exists && e.isHittable) { app.swipeUp(velocity: .slow); usleep(300_000) }
+        for _ in 0..<12 where !(e.exists && e.isHittable) { app.nudgeUp() }
     }
 
     func testNewSessionsAndArchive() throws {
@@ -31,27 +31,31 @@ final class SessionsArchiveUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Sessions'")).firstMatch.tap()
         let archive = app.buttons.matching(identifier: "session.archive")
         XCTAssertTrue(archive.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
-        // The QC conversation is further down (a list loads the rows near the screen).
-        let qcRow = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Did the nightly assay QC pass'")).firstMatch
-        reveal(qcRow)
-        if let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
-            try? app.debugDescription.write(to: URL(fileURLWithPath: dir).appendingPathComponent("sessions-tree.txt"), atomically: true, encoding: .utf8)
-        }
-        shot("s2b-after-scroll")
-        XCTAssertTrue(qcRow.exists, "no QC row")
-        XCTAssertTrue(qcRow.label.contains("New answer"), "its new answer is not marked: \(qcRow.label)")
+        // Finished conversations with an answer not opened yet are marked.
+        let marked = app.buttons.matching(NSPredicate(format: "label CONTAINS 'New answer'")).firstMatch
+        for _ in 0..<8 where !marked.exists { app.nudgeUp() }
+        XCTAssertTrue(marked.exists, "no new answer is marked")
         shot("s2-sessions")
-        // Archive it (it is finished, so its button is on).
-        let rowFrame = qcRow.frame
-        let button = archive.allElementsBoundByIndex.first { abs($0.frame.midY - rowFrame.midY) < 30 && $0.isEnabled }
-        XCTAssertNotNil(button, "no archive button beside the QC conversation")
-        button!.tap()
+        // Archive a conversation whose button is on screen (below the title bar) and on (it is finished).
+        var target: XCUIElement?
+        for _ in 0..<10 {
+            target = archive.allElementsBoundByIndex.first { $0.isEnabled && $0.frame.minY > 70 && $0.frame.maxY < 230 }
+            if target != nil { break }
+            app.nudgeUp()
+        }
+        guard let button = target else { return XCTFail("no archive button on screen:\n\(app.debugDescription)") }
+        usleep(800_000)                                   // the list stops coasting: a tap is a tap, not "stop"
+        button.tap()
         let confirm = element("archive.confirm")
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "archiving does not ask first")
+        // The confirmation names the conversation.
+        let named = element("archive.title")
+        guard named.waitForExistence(timeout: 3), !named.label.isEmpty else { return XCTFail("the confirmation does not name the conversation") }
+        let title = named.label
         shot("s3-confirm")
         confirm.tap()
-        let gone = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Did the nightly assay QC pass'")).firstMatch
-        XCTAssertTrue(gone.waitForNonExistence(timeout: 10), "the archived conversation is still listed")
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        XCTAssertTrue(row.waitForNonExistence(timeout: 10), "the archived conversation is still listed: \(title)")
         shot("s4-archived")
         // Archived lists it; Restore brings it back.
         let archived = element("sessions.archived")
@@ -59,11 +63,13 @@ final class SessionsArchiveUITests: XCTestCase {
         archived.tap()
         let restore = element("archived.restore")
         XCTAssertTrue(restore.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text(containing: title).exists, "Archived does not list \(title)")
         shot("s5-archived-list")
         restore.tap()
         XCTAssertTrue(restore.waitForNonExistence(timeout: 10))
         app.buttons["Back"].firstMatch.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Did the nightly assay QC pass'")).firstMatch.waitForExistence(timeout: 10),
-                      "the restored conversation is not back")
+        let back = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        for _ in 0..<10 where !back.exists { app.nudgeUp() }
+        XCTAssertTrue(back.exists, "the restored conversation is not back: \(title)")
     }
 }

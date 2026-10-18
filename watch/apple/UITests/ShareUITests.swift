@@ -118,9 +118,15 @@ final class AskShareUITests: XCTestCase {
 /// rewind while the gateway's voice plays must take it back. Runs only with LIVE_ASK=1.
 final class LiveRewindUITests: XCTestCase {
     func testRewindDuringARealAnswer() throws {
-        guard ProcessInfo.processInfo.environment["LIVE_ASK"] == "1" else { throw XCTSkip("live only") }
+        let env = ProcessInfo.processInfo.environment
+        guard env["LIVE_ASK"] == "1", let url = env["LIVE_GW_URL"], let token = env["LIVE_GW_TOKEN"] else {
+            throw XCTSkip("live only (LIVE_ASK=1, LIVE_GW_URL, LIVE_GW_TOKEN)")
+        }
+        let conversation = LiveConversation.newId()
+        defer { LiveConversation.archive(conversation, url: url, token: token) }
         let app = XCUIApplication()
-        app.launchArguments = ["--no-notification-prompt", "--screen", "ask", "--test-ask",
+        app.launchArguments = ["--no-notification-prompt", "--gateway", url, "--token", token, "--screen", "ask",
+                               "--test-session-id", conversation, "--test-ask",
                                "Count slowly from one to twenty in words, one number per sentence."]
         app.launch()
         let rewind = app.buttons["voice.button"].firstMatch

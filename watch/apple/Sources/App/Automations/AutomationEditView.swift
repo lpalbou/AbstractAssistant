@@ -2,10 +2,13 @@ import AbstractGatewayClient
 import SwiftUI
 import WatchKit
 
-/// Change an automation from the wrist: its task (what it does each run; one field, holding the
-/// current text so editing starts from it), how often it runs, whether each run builds on the
-/// earlier ones, and whether it runs at all. An automation named by its task keeps its name in step. Save sends only
-/// what changed, with the revision it was read at (a change made elsewhere meanwhile is refused).
+/// Change an automation from the wrist: its title, its task (what it is asked each run) and its
+/// instructions (how it works), each in its own field holding the current text so editing starts
+/// from it; how often it runs, whether each run builds on the earlier ones, and whether it runs at
+/// all. A title that is the task follows the task while the title itself is not edited. Save sends
+/// only what changed, with the revision it was read at (a change made elsewhere meanwhile is
+/// refused); leaving with changes asks to save or discard them. The definition is the one its page
+/// already read (shown at once), and a save updates it for every page.
 struct AutomationEditView: View {
     let automation: AutomationSummary
     @EnvironmentObject private var model: AppModel
@@ -18,6 +21,12 @@ struct AutomationEditView: View {
     /// The committed definition (the task lives there, not in the list row); nil until read.
     @State private var definition: AutomationDefinition?
     @State private var task = ""
+    @State private var title = ""
+    @State private var instructions = ""
+    /// Back with changes: Save or Discard.
+    @State private var leaving = false
+    /// The title was typed in (else a title that is the task follows the task).
+    @State private var titleEdited = false
     @State private var loadFailed = false
 
     private static let presets = ["30m", "1h", "2h", "4h", "6h", "8h", "12h", "24h", "7d"]
@@ -37,18 +46,35 @@ struct AutomationEditView: View {
         let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
         return !t.isEmpty && t != before.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    private var changed: Bool { taskChanged || everyChanged || remembersChanged || activeChanged }
+    private var titleChanged: Bool {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !t.isEmpty && t != (definition?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private var instructionsChanged: Bool {
+        guard definition != nil else { return false }
+        return instructions.trimmingCharacters(in: .whitespacesAndNewlines) != (definition?.instructions ?? "")
+    }
+    private var changed: Bool { titleChanged || taskChanged || instructionsChanged || everyChanged || remembersChanged || activeChanged }
 
     var body: some View {
         FitScroll {
             VStack(spacing: 6) {
                 // Real text fields: they show the current text, and editing starts from it.
-                // One field: the task, as it is now (editing starts from it).
                 if definition != nil {
-                    TextField("Task", text: $task, axis: .vertical).lineLimit(1...10)
-                        .font(.rounded(.footnote)).accessibilityIdentifier("edit.task")
+                    field("Title") {
+                        TextField("Title", text: Binding(get: { title }, set: { title = $0; titleEdited = true }), axis: .vertical)
+                            .lineLimit(1...4).font(.rounded(.footnote)).accessibilityIdentifier("edit.title")
+                    }
+                    field("Task") {
+                        TextField("Task", text: $task, axis: .vertical).lineLimit(1...10)
+                            .font(.rounded(.footnote)).accessibilityIdentifier("edit.task")
+                    }
+                    field("Instructions") {
+                        TextField("None", text: $instructions, axis: .vertical).lineLimit(1...10)
+                            .font(.rounded(.footnote)).accessibilityIdentifier("edit.instructions")
+                    }
                 } else if loadFailed {
-                    Text("Couldn't load the task").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                    Text("Couldn't load this automation").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 44)
                 }
@@ -79,10 +105,32 @@ struct AutomationEditView: View {
         .screen("Edit")
         .task {
             do {
-                let d = try await model.client.automationDefinition(id: automation.id)
+                let d = try await model.definition(of: automation.id)
                 definition = d
                 task = d.prompt ?? ""
+                title = d.title ?? automation.name ?? ""
+                instructions = d.instructions ?? ""
             } catch { loadFailed = true }
+        }
+        // Back with unsaved changes asks first (they used to vanish without a word).
+        .navigationBarBackButtonHidden(changed)
+        .toolbar {
+            if changed {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { leaving = true } label: { Image(systemName: "chevron.backward") }
+                        .accessibilityLabel("Back")
+                }
+            }
+        }
+        .confirmationDialog("Save your changes?", isPresented: $leaving) {
+            Button("Save") { Task { await save() } }
+            Button("Discard", role: .destructive) { model.path.removeLast() }
+        }
+        .onChange(of: task) { _, new in
+            guard !titleEdited, let d = definition,
+                  let t = AutomationDefinition.title(afterTask: new.trimmingCharacters(in: .whitespacesAndNewlines), oldTitle: d.title, oldTask: d.prompt)
+            else { return }
+            title = t
         }
         .sheet(isPresented: $choosingEvery) {
             List(options, id: \.self) { e in
@@ -94,6 +142,14 @@ struct AutomationEditView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// A small label above its field.
+    private func field(_ label: String, @ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.rounded(.caption2)).foregroundStyle(Theme.muted).padding(.leading, 6)
+            content()
         }
     }
 
@@ -118,12 +174,15 @@ struct AutomationEditView: View {
         defer { saving = false }
         var changes: [String: JSONValue] = [:]
         let newTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        if taskChanged, let target = definition?.target(withPrompt: newTask) {
-            changes["target"] = .object(target)
-            if let t = AutomationDefinition.title(afterTask: newTask, oldTitle: definition?.title, oldTask: definition?.prompt) {
-                changes["title"] = .string(t)
-            }
+        let newInstructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var newTarget: [String: JSONValue]?
+        if taskChanged || instructionsChanged,
+           let target = definition?.target(withPrompt: taskChanged ? newTask : (definition?.prompt ?? ""),
+                                           instructions: instructionsChanged ? newInstructions : nil) {
+            changes["target"] = .object(target); newTarget = target
         }
+        if titleChanged { changes["title"] = .string(newTitle) }
         if everyChanged, let source = automation.triggerSource {
             var config = automation.triggerConfig ?? [:]
             config["every"] = .string(every)
@@ -141,7 +200,15 @@ struct AutomationEditView: View {
                 try await model.client.automationCommand(id: automation.id, type: active ? "automation.resume" : "automation.pause")
             }
             WKInterfaceDevice.current().play(.success)
-            await model.refresh()
+            if !changes.isEmpty, let d = definition {
+                // Every page shows the edit at once (the gateway applies it a few seconds later).
+                var merged = d.target ?? [:]
+                for (k, v) in newTarget ?? [:] { merged[k] = v }
+                model.saved(AutomationDefinition(revision: (d.revision ?? 0) + 1, title: titleChanged ? newTitle : d.title,
+                                                 target: newTarget == nil ? d.target : merged), of: automation.id)
+            } else {
+                model.refreshAutomations()
+            }
             model.path.removeLast()
         } catch GatewayError.http(let status, _) where status == 409 {
             error = "Changed elsewhere meanwhile. Open it again."

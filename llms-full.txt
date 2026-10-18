@@ -82,7 +82,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
 - [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary
 - [docs/backlog/overview.md](docs/backlog/overview.md): planned and proposed work
-- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.2.0, pre-release through TestFlight), a watch-only watchOS 26+ client of the same gateway: voice Ask around the orb, approvals and questions, sessions, automations (run now with live progress, edit, earlier runs); [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
+- [watch/apple/README.md](watch/apple/README.md): AbstractAssistant for Apple Watch (0.3.0, pre-release through TestFlight), a watch-only watchOS 26+ client of the same gateway: voice Ask around the orb with the work shown live (steps under the orb, pulses), tools and workflow per conversation, images and recordings in answers, approvals (Accept all taken back with the shield), sessions with search and archive, automations; [watch/apple/docs/README.md](watch/apple/docs/README.md) indexes its pages; [watch/apple/docs/architecture.md](watch/apple/docs/architecture.md) maps each screen to its gateway call; [watch/apple/BUILD.md](watch/apple/BUILD.md) builds and tests it; [watch/apple/CHANGELOG.md](watch/apple/CHANGELOG.md) is its release history
 
 ## Contributing
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, style
@@ -274,7 +274,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 
 - [adr/README.md](adr/README.md) — architecture decision records (the gateway-native boundary)
 - [backlog/overview.md](backlog/overview.md) — planned and proposed work
-- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.2.0, pre-release through TestFlight): voice around the orb, approvals and questions, sessions, automations; with its design, architecture, build guide and changelog
+- [../watch/apple/README.md](../watch/apple/README.md) — AbstractAssistant for Apple Watch (0.3.0, pre-release through TestFlight): voice around the orb with the work shown live, tools and workflow per conversation, images and recordings in answers, approvals, sessions with search and archive, automations; its pages are indexed in [../watch/apple/docs/README.md](../watch/apple/docs/README.md)
 
 ## Project
 
@@ -1846,6 +1846,11 @@ when you named none). "A 3 s laser gunshot" reaches the sound model as `seconds:
 length a sound effect lasts 5 seconds and music 30. The length is the router model's typed answer;
 the app does not read numbers out of your text.
 
+Asking for spoken audio ("a voice message saying…", "read this aloud as a recording") routes to
+`voice`: the router writes out the exact words in `media_prompt`, and the `generate_voice` node
+speaks them with the gateway's voice engine (`output.voice`, the one that reads replies aloud). The
+reply carries the recording as an audio artifact (workflow revision 6).
+
 The app never substitutes another workflow on its own: when the gateway sets no default and the
 built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
 is blocked and the palette says why. A running turn always keeps the workflow it started with.
@@ -2631,6 +2636,12 @@ SOFTWARE.
 
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
+
+## [Unreleased]
+
+### Added
+
+- **Voice recordings from the built-in orchestrator.** Asking for spoken audio ("make a voice message saying good morning") now routes to a new `voice` mode: the router writes out the exact words, and the gateway's voice engine (the `output.voice` route that reads replies aloud) speaks them; the reply carries the recording. Before, the router had no mode for speech. Workflow revision 7: the app republishes `abstractassistant-orchestrator` on launch.
 
 ## [0.14.1] - 2026-10-18
 
@@ -3568,7 +3579,7 @@ abstractassistant --config custom.toml # Custom config
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.9 · iOS 26+**
+**Developer preview · 0.6.20 · iOS 26+**
 
 ## Three small spaces
 
@@ -3583,7 +3594,12 @@ AbstractGateway, with the conversation at the center and the controls you need c
   in a collapsible activity panel. It shows model cycles, tool calls, public results and
   failures. When a tool needs approval, **Approval needed → Review tools** appears directly
   in the conversation. Connection loss is reported separately from run failure. The orb
-  returns when the gateway confirms the run has ended.
+  returns when the gateway confirms the run has ended. Completed activity moves into cycle
+  and tool-count buttons beside the answer’s speaker. Cycles opens a connected progression
+  per agent, with expandable model details and approval context. Tools opens the individual
+  calls with recorded input, output and timing, plus search.
+  Positive-only file, email and web actions open compact source collections; file views
+  also open the conversation’s workspace browser.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Reloading restores every turn’s public answer without
   reading old replies aloud. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
@@ -3638,8 +3654,18 @@ detection uses local microphone power; room noise and very quiet speech can affe
 
 Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
 a short video. Uploaded file chips remain until you send or remove them.
-**More options (…) → Conversation files** opens your files, including files the assistant generates.
-Tap a file to download it privately and preview, play or share it with the native viewer.
+**Conversation files**, from **More options (…)** or **Browse session files** inside file
+activity, includes actual workspace files and stored attachments. Open a folder to follow its
+hierarchy; tap a Markdown document to read it, or preview/play/share other files. Separate
+workspaces are shown when the session’s runs use different folders. Files are fetched afresh
+when opened, so an edited workspace document does not show an old cached copy.
+
+**Conversation audio** is off by default. Turn it on to see dictation, its transcripts and
+read-aloud recordings. Explicit user attachments and voice files returned by the assistant
+remain visible. New dictation has explicit provenance. For older recordings the app first
+checks every turn’s input/output references, then uses linked upload/transcription and TTS
+metadata; the modal identifies this as inference. If history cannot be fully checked, older
+ambiguous files stay visible. This filtering never deletes anything.
 Attachments retain their gateway artifact and owning-run references. Credentials never
 travel in a share link or to an AI-provided URL.
 
@@ -3668,7 +3694,11 @@ Uploads are limited to **25 MB each**; generated-media previews stream to disk w
 **256 MB per-file limit**. The gateway may impose a smaller limit.
 Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts
 text only, so file messages are available in Assistant conversations. The files list shows
-the latest 100 session artifacts; older files remain on the gateway.
+attachments in pages of 500 with **Load more attachments**. Workspace summaries inspect up
+to 1,000 entries per workspace; a **+** count signals more or incomplete results. Folder
+browsing offers **Load entire folder** when its listing is limited. Workspace discovery and
+activity history each inspect up to 64 runs and disclose limits. Text previews show up to
+200,000 characters; sharing retains the complete downloaded file.
 
 ## Conversation tools and answer statistics
 
@@ -3773,6 +3803,79 @@ and gateway-client snapshot. It neither embeds nor modifies the Watch applicatio
 [AbstractAssistant](../../README.md) · [AbstractFramework](https://abstractframework.ai)
 
 MIT License — see [the repository license](../../LICENSE).
+
+Email activity uses two directional envelope counts beside the answer’s other actions:
+incoming for messages read, outgoing for messages sent. Each appears only when that direction has
+confirmed activity. Repeated reads of the same message
+are counted once; inbox listings/searches are not counted as reads.
+
+Tap either count for a compact searchable message list, then open any message to inspect
+sender, To/Cc/Bcc, subject, body, recorded action time, original message date and attachment
+names where available. Several long messages stay easy to browse without scrolling through
+all their bodies. Replies appear in Sent emails. Partial recipient refusals and headers-only
+reads are explicit. Send receipts confirm mail-server submission rather than delivery;
+read activity does not change mailbox read/unread flags. Missing old history fields are
+identified. HTML-only messages expose inert source without loading remote resources.
+
+The answer action row also shows optional counts for files read, files written/modified,
+web searches, and web pages fetched. Tap for searchable source lists and recorded excerpts,
+results or change receipts. Repeated reads/edits of a file are grouped, with individual
+operations in its detail; skim/full modes and request methods remain visible. Searches
+count query operations, not every returned link; pages count successfully fetched URLs.
+File sources are distinct per run to preserve separate workspaces. Only confirmed tool
+results count: failed skims, preview/no-op edits and opaque shell side effects stay in
+full activity. Zero actions are hidden. Complex strips scroll horizontally.
+
+File receipt views offer Browse session files for current workspace document previews.
+The session-wide browser is also always available from the toolbar’s folder button; its total
+is no longer presented as if it were an answer's file activity.
+
+
+Activity steps expand to show their recorded public output, model/provider, token usage,
+finish reason and run/step identity. Start times and elapsed durations sit under each step;
+history is ordered oldest first across parent and child runs, using this iPhone’s time zone.
+Routing decisions are labeled Choose response type, so they are distinct from agent cycles
+and media generation. Missing legacy fields are shown as unavailable, never estimated.
+Private reasoning, system prompts and raw provider traces stay out of this view.
+
+
+The chat toolbar has three islands: Conversations on the left, conversation Share/Files/Tools
+in the middle, and Settings on the right. Open Conversations to start a new conversation;
+it keeps the selected responder. The responder chooser sits directly below the toolbar.
+New conversation is highlighted in mint above the conversation history. History groups into
+Today, Yesterday and Earlier, with two-line titles, exchange/tool counts, last-activity ages and
+Working/Needs you/Failed indicators. A “+” marks counts from the bounded recent history.
+Use the archive icon to hide a finished conversation across devices; Archived offers Restore.
+Archiving preserves messages and files, and working conversations cannot be archived.
+Share conversation opens the native share sheet with formatted messages currently loaded,
+in order with speaker labels, plus their original attachments and recorded generated files.
+Images appear beside their messages in the rich transcript; other files have a caption at
+the relevant answer and accompany the share as originals. Mail and Notes receive rich-text
+alternatives; each receiving app controls the final formatting and inline placement.
+Conversation recordings and read-aloud audio are excluded. Workspace files use their current
+saved version. Sharing supports up to 100 original files and 200 MB combined, with inline
+previews for the first 12 images. If a required file cannot be retrieved, retry or share
+individual files from Conversation files. Temporary export copies are removed after sharing.
+Copy and speech controls remain under individual answers.
+Answer action counts appear only when positive.
+An unnumbered Activity icon opens missing or unavailable history, with retry when needed.
+Activity requests survive scrolling away and are shared across rows; changing accounts or
+conversations invalidates them so late results cannot replace the current view.
+
+Approval hands stay amber after resolution. Tool icons use lavender throughout the app;
+status labels identify failures separately. The cycle graph groups tools and approvals under
+their preceding cycle within the same agent run. Separate agent runs have separate lanes.
+Tool inputs redact credential fields and omit private control fields; missing inputs are
+marked unavailable. Long inputs and public outputs disclose display truncation. Credential
+redaction is based on field names and does not inspect secrets embedded inside ordinary
+command, URL or document text.
+
+
+Each Tools category has an Off / Auto / Approve selector, available even while collapsed.
+A category with mixed choices shows “Mixed” with no selected segment. Choosing a mode updates all available
+tools in that category, including those hidden by search, while preserving other categories.
+It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
+category controls apply in Settings, a session, and an automation.
 
 --- phone/iphone/docs/architecture.md ---
 # iPhone architecture
@@ -3908,11 +4011,32 @@ stored per gateway/account and applied locally through AVAudioPlayer.enableRate/
 playback. It applies to Assistant and entity speech while entity voice overrides remain
 entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
 
-The chat title is a labelled responder chooser. Files/settings move into one More menu,
-avoiding an adaptive toolbar that hides actions. Who answers lists Assistant and searchable
+The labelled responder chooser sits below the chat toolbar. Its bounded width lets long names
+truncate while retaining their full accessible value. Who answers lists Assistant and searchable
 entities with explicit loading/error/retry. Entity discovery can load independently of the
 store's run polling chain. Switching is blocked with a reason during an active run/import
 or staged files; drafts are preserved.
+
+The toolbar has three separate glass islands: Conversations, Share/Files/Tools, and Settings.
+New conversation lives in Conversations, has a mint accent, and preserves the selected responder.
+Sharing captures loaded user/assistant messages, their original media references, cached activity
+and account/session identity at tap time. `ConversationExportBuilder` downloads explicit media
+and files from confirmed write/edit records through existing artifact and workspace routes.
+Unrelated workspace contents, notices, stats, runtime records and pending drafts are excluded.
+Conversation voice recordings/read-aloud files are excluded; generated voice remains shareable.
+Workspace bytes reflect the current saved file rather than a historical revision. Files are
+deduplicated by original name and content hash, with collision-safe local names. Missing files,
+incomplete activity or the 100-file/200-MB limits fail the entire preparation with a retryable error.
+
+`RichConversation` renders public Markdown into attributed text, self-contained HTML and flat
+RTFD alternatives on one transcript provider. The first 12 image previews are downsampled and
+bounded to 320 points, placed after their message text; original files have separate typed file
+providers. Attributed message-body metadata supports rich Mail/Notes handoff; receiving apps
+control final layout. A prepared-share lease keeps owned copies available until activity
+completion/cancellation, then removes them. Context checks before and after awaits prevent stale
+exports and old unauthorized responses from affecting a newer account. Sharing is disabled for
+empty/loading history or an active run. Per-answer Copy and speech controls remain; conversation
+sharing owns the navbar action. Existing attachment/import navigation guards remain in place.
 
 Entity creation uses the existing principal-scoped gateway endpoints. A cancelable name
 check calls POST /entities/{slug}/validate before enabling the explicit Create action; the
@@ -3931,7 +4055,7 @@ runs; the owner from each artifact is used for its download. IDs are validated b
 constructing a gateway route. Size checks cap imports and streamed downloads at 25 MB.
 Only app-owned local files reach QuickLook. Dismissing or replacing the preview removes
 its local copy; account/session changes also remove preview data. Imports, recordings and
-previews live under `tmp/AbstractAssistant/{imports,voice,previews}`, in separate operation
+previews and export copies live under `tmp/AbstractAssistant/{imports,voice,previews,exports}`, in separate operation
 directories. Upload completion/failure/cancellation and transcription completion/cancellation
 discard their owned copies. Startup clears that temporary namespace and strict UUID-named
 legacy copies left by interrupted processes; originals and Documents are outside its scope.
@@ -4111,6 +4235,184 @@ media-host reconstruction. Without it, a healthy inventory and successful text r
 still precede `Unknown or disabled endpoint profile` in the image-generation node. The
 phone reports that run failure; it does not copy endpoint credentials or resolve profiles itself.
 
+## Session files and completed answer activity
+
+The action row owns share/copy/speech and cycle/tool buttons per answer, plus positive-only
+email/file/web source counters. The session file browser remains in More and file source
+sheets, rather than as a session-wide count beside an individual answer. Live/wait/error
+activity retains its existing panel.
+Terminal Assistant activity snapshots are keyed by root run ID. Older answers reconstruct
+root/descendant ledgers independently; no latest-run state is attached to another answer.
+Entity turns use their entity ledger and per-visit cursor boundaries. A restored entity
+visit without a known boundary is labeled Visit activity rather than per-answer counts.
+
+SessionFilesController combines paged session artifacts with existing authorized run
+workspace metadata/list/content routes. It discovers roots and descendants, deduplicates
+workspace roots, preserves relative directory paths, and fetches mutable file bytes anew
+for each preview. It avoids admin host-file APIs. Bound account/session operations reject
+late refresh/download results; cancellations delete owned partial/local files. Downloads
+share the authenticated streaming size limit, redirect refusal and 401 lockout.
+
+The artifact classifier retains logical paths, semantic type, producer and source refs.
+Explicit voice_playback metadata and reserved dictation paths identify conversational
+files. Legacy inference requires successful full session input/output hydration (four
+concurrent reads, at most 64 turns) and preserves explicit user/AI file references. Older
+ask.wav is inferred only through a same-owner session-memory source_audio link from an
+audio.transcribe transcript to an uploaded client:ask.wav attachment. Older unreferenced
+voice/tts artifacts from llm_call are inferred read-aloud files. The toggle discloses
+inference; history failure retains ambiguous files. All paging is reversible display
+filtering; no remote artifacts or originals are modified. Partial counts use + or an
+unknown indicator, and ignored offset pagination is refused rather than looping.
+
+Markdown/text previews render locally without executing embedded HTML. They read at most
+1 MiB and display at most 200,000 characters with an explicit truncation note; Share uses
+the complete local download. Image zoom and native audio/document preview remain available.
+
+### Read and sent email collections
+
+`RunActivity` projects confirmed `send_email`/`reply_email` tool results into `SentEmail`.
+It joins results by runtime identity (or an unambiguous legacy match), requires explicit
+inner success plus a message ID or accepted recipients, and deduplicates message IDs.
+Only a whitelist of mail fields is retained from arguments; headers/credentials are not
+copied. Bodies stay outside the generic 4,000-character activity summary. Existing
+per-answer replay/snapshot/account-reset ownership also owns receipts; no mail endpoint
+or mailbox reads are introduced. `EmailActivityView` shows separate read/sent searchable collections from directional
+envelope counts, with compact rows and individual detail navigation. Message body rendering is plain text; HTML is optional source, never active content.
+
+The latest 100 receipts are retained with a cumulative count and a visible limit notice.
+Each text/HTML body is capped at 50,000 characters with an explicit truncation marker.
+Send time comes from the completed ledger record and is not a delivery timestamp. Missing
+fields and refused recipients are explicit. Read-only physical verification replays the
+saved conversation and exports completeness/counts only, never the emails themselves.
+
+`ReadEmail` projects successful `read_email` results; listing/search tools do not count.
+Identity uses account + mailbox + UIDVALIDITY + UID (message ID only when no UID exists),
+so replay/repeated reads do not inflate the count, and mailbox/UID namespace collisions
+stay distinct. A later full-body read improves a headers-only receipt without a second
+count. The action timestamp and original message Date header remain distinct; `body_skipped`
+is surfaced as headers only. `RunActivity` retains the latest 100 read messages with a
+cumulative count and visible limit; bodies/HTML share the 50,000-character display cap.
+
+Each optional direction appears only for a positive confirmed count. The answer action strip scrolls horizontally if large text/counts need
+more space. No mail is read or sent to populate these views: they replay authorized ledger
+results, preserving existing answer/account/session ownership.
+
+### Condensed file and web source receipts
+
+`RunActivity.access` projects eight recognized Core tool contracts using `AccessActivity`:
+read_file/skim_files, write_file/edit_file, web_search/skim_websearch, skim_url/fetch_url.
+File headers/success prefixes and structured web success are required in addition to
+outer execution state. Per-file skim errors, HTTP403 textual skims, edit previews/no-ops
+are excluded. Skim URL metadata is parsed only before Content-Type, so page text cannot
+spoof redirects. Returned file paths define run-scoped source identity; requested aliases
+are retained separately. Relative/absolute aliases with the same returned path group, but
+separate child workspaces do not conflate. Mail, discovery lists, search hits and opaque
+shell commands are never misclassified as file/page reads.
+
+File counts are unique run-scoped sources per category; repeated actions retain distinct
+runtime identities and modes under each source. Web searches count successful query
+operations, including empty results; discovered links are not fetched pages. Pages group
+returned URLs and preserve requested URLs, HTTP methods and skim/fetch modes. The receipt
+projection retains only whitelisted path/query/mode fields, never write content, HTTP request
+headers or request bodies. File excerpts/change receipts and web previews remain recorded
+data; no file/site is automatically opened. User-initiated links accept only HTTP(S)
+without URL credentials. File sheets hand off on dismissal to the existing session browser.
+
+`AccessActivityView` uses compact searchable lists and independent source details. Each
+category retains 100 sources, each source's latest five operations, with cumulative counts
+and visible limit notices. Excerpts cap at 8,000 characters with explicit truncation;
+search links cap at 30. Positive-only actions replace the old session-wide folder count
+in answer rows; More → Conversation files still exposes the complete workspace browser.
+Partial ledger histories keep existing warning/count conventions. These receipts cover
+recognized tools, not every OS operation inside shell/browser subprocesses.
+
+
+## Timed expandable activity
+
+`RunActivityItem` keeps start/end timestamps separately from its latest event timestamp.
+Paired starts/completions preserve the earliest recorded start; durations use actual end
+minus start, with unknown or invalid dates remaining absent. Cross-run replay sorts by
+start (or the available event timestamp), then stable identity; undated rows preserve their
+ledger order. Subworkflow resumes close existing boundary rows rather than adding internal
+resume steps. Resolved waits are labeled Approval resolved/Wait ended, without inferring
+an allow/deny decision from mere resumption.
+
+Every live/history row expands, including model steps with no recorded public content.
+Model details whitelist explicit result content/data, served provider/model, usage and finish
+reason. They never stringify effect payloads, provider metadata, system/messages, raw
+responses or reasoning. Existing receipt projections retain their separate field contracts.
+Result text remains bounded to 4,000 characters with visible truncation. Times are local;
+rows state missing evidence. Child boundaries expose their owning run/step identifiers.
+
+The orchestrator revision 8 isolates route_call with declared include_context=false:
+routing neither reads conversation history nor appends its control prompt/plan to it.
+Spoken literary recitations use voice generation. Existing corrupted historical assistant
+replies are preserved as history; they are not silently rewritten. The immutable corrected
+bundle is abstractassistant-orchestrator@0.0.15, tested through the saved iPhone connection.
+
+
+## Historical activity task ownership
+
+AssistantStore owns coalesced per-run tasks rather than borrowing a lazy history row’s task.
+Each caller awaits the same task; cancelling one or all view callers does not cancel public
+ledger loading/publication. An activity-cache epoch and per-load UUID guard publication and
+deferred cleanup. All account/conversation/session resets cancel/clear tasks and advance the
+epoch. Terminal live snapshots invalidate pending historical replay before publication, so an
+older replay cannot replace fresher completed counts. Unavailable history caches explicit
+issues, with retry on opening the activity sheet; transient metrics failures do not replace
+the conversation with a global chat error. Current-account authentication failures retain
+the existing sign-in flow; stale failures cannot invalidate a newer connection.
+
+Compact cycle/model/tool/email/file/web counts are positive-only. Unknown or all-zero history
+retains one accessible unnumbered Activity action; partial positive counts retain their +
+coverage marker. No unresolved ellipsis or invented zero is presented as a count.
+
+## Cycle graph and tool call details
+
+Cycle and tool actions select distinct sheet modes. The cycle graph groups recorded `reason`
+model steps by run, preserves their per-run ordinal numbers and connects consecutive retained
+cycles only within that run. Tools and explicit tool-approval waits attach to the preceding
+reason observed in the same ledger. This is presentation grouping, not a runtime causal ID.
+Late tool completions preserve their first association; evicted or unassociated steps appear
+outside recorded cycles. Routing and generation steps have their own expandable section.
+
+The tool sheet includes only tool calls, with search over names, displayed input and public
+output. Call numbering stays stable when filtering. `ToolCallInput` accepts structured JSON
+arguments, recursively hides credential keys and excludes private/control fields before
+formatting; malformed raw strings remain unavailable. Display is bounded to 4,000 characters
+with a visible truncation marker. This field-name redaction does not inspect embedded secrets
+inside command, URL or document strings. Inputs and outputs use separate headings, with
+unknown fields kept explicit. Run-scoped tool identities and cursor deduplication are shared
+with live and historical projections.
+
+Approval icons use amber even after resolution; tool icons use lavender across activity,
+answer actions and tool configuration entry points. Failure status remains independently red.
+Retained-event notices state the bound because waits and failures can outlive other rows.
+
+
+## Conversation history and category controls
+
+The iPhone uses the Watch's existing session archive contract: POST
+`/api/gateway/sessions/{id}/archive` and `/unarchive`; archived roots come from
+`GET /api/gateway/runs?archived_only=true&root_only=true&include_metrics=true`.
+Archive listing follows all pages with cancellation and repeated-page protection. Recent
+history remains bounded to 60 root runs, so its exchange/tool counts display “+” at that
+boundary. Rows group by the iPhone's local calendar day and show explicit last-activity ages.
+Archive confirmation explains the cross-device effect and recovery through Archived.
+
+AssistantStore blocks archive of sessions with any loaded nonterminal root and rechecks their
+turns before the write. The server remains authoritative for races after that check. A current
+session can be archived only while idle; successful archive starts a new conversation without
+changing the responder. Mutations block local send/open transitions until resolved. Account
+generations and history revisions reject old list/mutation results and errors. Failed writes
+retain the original rows. Restore removes the archived row and returns its roots to recent history.
+
+Category controls materialize the inherited effective selection before applying a change.
+They use the complete gateway inventory for that category, independently of search-filtered
+rows. A mixed group has no selected segment; unavailable tools stay Off, and unrelated
+categories preserve their modes. Existing Settings/session/automation save paths and grant
+precedence are unchanged.
+
 --- phone/iphone/BUILD.md ---
 # Build the iPhone app
 
@@ -4221,67 +4523,72 @@ remove that test report before deliberately creating a new verification session.
 Normal tests skip these network actions. After live testing, use the normal device build
 and install commands above to replace the test host with the ordinary app.
 
+Read-only live file verification (no generations or messages) uses the saved conversation:
+
+```sh
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testBrowseSavedConversationWorkspace
+```
+
+This regression expects the reported discussion-summary.md in that conversation. It browses
+root/child workspaces, downloads/decodes the document, checks cleanup and records only
+relative names, counts, run IDs and filtered provenance; document contents are not exported.
+
 --- watch/apple/README.md ---
 # AbstractAssistant for Apple Watch
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.2.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
+Version 0.3.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
-workflows, runs, tools, policy and speech, and the watch keeps only your sign-in and what it shows.
-Everything you do on the watch is the same session you see on your Mac, in the terminal or in the
-browser.
+workflows, runs, tools, policy, speech and search, and the watch keeps only your sign-in, your
+choices for it and what it shows. Everything you do on the watch is the same session you see on
+your Mac, in the terminal or in the browser.
 
 ## What you can do
 
 **Talk to your assistant.** The orb is the assistant. Tap it and speak; tap again, or stop speaking
-for 3 seconds, to send. The gateway transcribes what you said, the answer appears under the orb in
-markdown, and the orb speaks it, swirling with its own voice. Tap the orb to pause and resume the
-voice. A small keyboard icon lets you type, dictate or scribble instead.
+for 3 seconds, to send. The keyboard icon lets you type, dictate or scribble instead. While the
+assistant works, the space below the orb shows its steps live (thinking, each tool with what it is
+about, an image being made) and the orb pulses with each tool call, a satellite circling it for
+each tool running. The answer appears in markdown and the orb speaks it, following its voice; the
+voice button beside Back plays, pauses and rewinds.
 
-**Choose who answers.** "Assistant ⌄" at the top of the orb screen switches between:
-
-- **Assistant** — a one-shot agent: you ask, it works with its tools, it answers.
-- **Entities** — someone you keep talking with over time, who remembers. Each entity has its own
-  colour and shape (planet, kitty, face, wave), set on the gateway.
+**Choose who answers and with what.** "Assistant ⌄" below the orb switches between the
+**Assistant** (it works with its tools and answers) and your **entities** (someone you keep talking
+with, who remembers; each has its own colour and shape). The tools icon opens this conversation's
+tools (Off, Auto or Ask for each, by group, with its risk) and its **Workflow**: choose
+"AbstractAssistant Orchestrator" and the assistant also makes images and recordings, shown under
+its answer (tap an image for full screen; the Digital Crown zooms).
 
 **Decide what needs you.** When an agent wants to use a tool or asks a question, it appears on your
-wrist with a haptic:
+wrist with a haptic: what it wants to do and exactly what (the command, the page, the recipient and
+the email). Deny, allow once, or, from a conversation, allow its tools for the rest of it; while it
+works, the amber shield on the orb takes that back at once. Sends to other people always ask.
 
-- an approval says what the assistant wants to do ("Run a command", "Send an email") and exactly
-  what (the command, the page, the recipient and subject, the full email);
-- three icons answer it: deny, allow once, and, from a conversation, allow all tools for the rest
-  of that conversation (sends to other people always ask);
-- a question shows its choices, or takes your own answer.
+**Find and tidy your conversations.** Sessions lists your conversations (Today, Yesterday,
+Earlier), outlines the ones with an answer you have not opened, searches every question, answer and
+artifact (an image by what it was made from, a file by its name), and archives one with the
+archive button at its right (Archived brings it back). Each says how long ago it last changed. Tap a conversation to continue it on the orb.
 
-**Pick up a conversation.** Sessions lists your conversations (Today, Yesterday, Earlier) with the
-number of exchanges and tools. Tap one to continue it on the orb; open its details to read its
-recent exchanges.
-
-**Follow your automations.** New automation (top of the list) creates one: the task, the
-workflow that runs it, when it runs (every few minutes to every week, or daily at a time), whether
-each run builds on the earlier ones, and whether it asks before using tools. Each automation shows how often it runs and when it runs next
-("🕐 12h ➜ 6h"). Its page has:
-
-- Run now, on the schedule line; while it runs, you see what the agent is doing ("Searching the
-  web…", "Reading 4 web pages…"), you can stop it, and you can leave: a notification brings the
-  result;
-- the latest result in full, readable aloud by the orb;
-- Edit: the task, how often it runs, whether each run builds on the earlier ones, active or paused;
-- the earlier runs, five at first, any of them opened in full.
+**Follow your automations.** New automation creates one: the task, the workflow, the tools it may
+use, when it runs and whether each run builds on the earlier ones. In the list, each shows its name,
+how many times it has run, how often it runs and when next; a switch turns one off and on, and its
+archive button archives it (Archived brings it back). Its page shows its instructions in full, Run
+now (with live progress, and you can leave: a notification brings the result), the latest result in
+full, Edit (its title, task and instructions, apart), and the earlier runs; once read, a page opens
+at once. Every screen shows a spinner until
+its information is in, and an error only once reading it has failed several times.
 
 **Get answers while away.** An answer that arrives after you left the app comes as a notification.
 New approvals and questions are checked in the background about every 15 minutes; an ordinary tool
 approval can be allowed or denied from the notification itself.
 
-**Read aloud.** Any answer or automation result can be read by the orb. Tap the orb to pause or
-resume; the rewind icon beside Back goes back 10 seconds.
-
-**Make it yours.** Settings → Orb style offers six orbs (Halo, Vortex, Nebula, Rings, Liquid,
-Galaxy), asked once at first launch. Settings → Read aloud turns the spoken answers on or off; Settings → About shows the version
-and build of the app.
+**Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
+for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
+aloud, Orb style (six orbs: Halo, Vortex, Nebula, Rings, Liquid, Galaxy) and About.
 
 ## Sign in
 
@@ -4319,11 +4626,15 @@ curl https://<host>.<tailnet>.ts.net/api/health
 - No push notifications: the app polls the gateway every 15 seconds while it is on screen, and
   watchOS decides when background checks run.
 - Your sign-in is kept in the app's storage on the watch, not in a sealed store.
-- Risk levels come from the gateway's tool catalog; the approval itself does not carry one yet.
-- Editing long text is done in the watch's own text editor.
+- Tools allowed with Accept all are approved by the watch while it follows the run; away from the
+  orb page, they ask.
+- "New" answers are tracked on this watch: an answer read on another device still shows as new here.
+- Search and the live steps read your gateway's data: search needs a gateway that serves it, and
+  the live steps read the run's records (about as much data as reading an answer aloud).
 
 ## Documentation
 
+- [docs/README.md](docs/README.md) — the index of these pages.
 - [docs/design.md](docs/design.md) — screens, flows and interaction rules.
 - [docs/architecture.md](docs/architecture.md) — components, the gateway calls behind each screen,
   background behaviour and security.
@@ -4344,109 +4655,112 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
 ### Added
 
-- **Tools you choose.** A tools icon on the orb page (bottom right, as far from the bottom as the keyboard is from the top, shown with it; for the
-  Assistant) opens this conversation's tools, by group (Files, Web, System, Email, …): each tool is
-  Off (not offered), Auto (runs without asking) or Ask (asks first), with its risk (Reads only, Makes
-  changes, Reaches outside, Destructive), what it can do, and More for the gateway's description. A
-  group's All sets its tools at once; All auto leaves the tools that reach outside, can destroy, or
-  go where the assistant picks on Ask. Tools the gateway has not set up are listed by name.
-  **Settings → Tools** sets the defaults; a conversation's changes sit on top of them (the icon shows
-  a dot, each changed tool its default, and "Use my defaults" undoes them). A question goes out only
-  with the tools read from the gateway (read again every 10 minutes and on each visit to Tools).
-- An approval's **Accept all** now sets this conversation's tools: those on Ask stop asking, up to
-  the risk of the call approved; tools turned off stay off, and sends and tools whose destination
-  the assistant picks keep asking. The watch answers a later approval itself only when every call in
-  it is on Auto.
-- **New automation** (top of the Automations list): the task, the workflow that runs it (the
-  gateway's default by its name, e.g. "Basic agent · default", then the workflows the gateway offers
-  your account), the tools it may use, when it runs (every 5 min, 30 min, 1 h, 8 h, 24 h or 7 days,
-  or daily at a time) and whether each run builds on the earlier ones; Create opens its page. The
-  request is the one the console, the tray app and the terminal send.
-- An automation's **Tools** use the same page as a conversation's, starting from your defaults: Off,
-  Auto or Ask per tool. A tool on Ask waits for you in Needs you when the automation runs.
-- **Settings → Connection** (first row): the gateway, its status, the account you are signed in as
-  and its role, its email, and how many tools are set up for that account, with "Sign in as someone
-  else". Email tools follow the account: one without a mailbox shows them as "Not connected for this
-  account", where another account on the same gateway has them.
-
-- **Share** a web page's link from the icon beside Back (Messages, Mail, …). The share icon is one
-  reusable control for any text or link; the watch has no clipboard, so sharing is how a text
-  leaves it.
-- **About → Contact** opens a new message to that address in the watch's Mail.
+- **Its work, live, under the orb.** While the Assistant works, the space below the orb shows its
+  steps, newest first on a thin rail: thinking (with its own words when it writes some), each tool
+  with what it is about (the search, the page, the file, the command), an image or a recording
+  being made, and a step waiting on you (tap it to decide). The status line says what it does now
+  ("Searching the web…"). The conversation returns with the answer, which carries "9 steps · 0:11"
+  to open every step in order.
+- **The orb shows the work.** Each tool call sends a ring of light out from the planet (parallel
+  calls a few tenths apart), each new thought a softer one, an image or a recording a slow wide
+  wave; a failed tool makes it shiver, and every tool running circles the planet as a small
+  satellite.
+- **Tools you choose.** The tools icon on the orb page (bottom right, shown with the keyboard)
+  opens this conversation's tools by group (Files, Web, System, Email, …): each tool Off, Auto or
+  Ask, with its risk, what it can do and the gateway's description. A group's All sets its tools at
+  once (All auto keeps the tools that reach outside, can destroy, or go where the assistant picks on
+  Ask). **Settings → Tools** sets the defaults; a conversation's changes sit on top of them, and
+  "Use my defaults" undoes them.
+- **Accept all, taken back at once.** An approval's Accept all allows this conversation's tools on
+  Ask, up to the risk of the call approved (sends and tools whose destination the assistant picks
+  keep asking). The watch approves them for you while it follows the run; the amber shield on the
+  orb, or **Ask again** on the Tools page, ends it, and the very next call asks.
+- **A workflow per conversation; images and recordings in answers.** The **Workflow** row at the
+  top of a conversation's Tools page chooses what answers: the gateway's default agent, the
+  Assistant's workflows ("AbstractAssistant Orchestrator" also makes images and other media), or
+  another agent; **Settings → Tools** sets the one new conversations use, and a conversation
+  continued from another device keeps its workflow. An image shows under its answer (tap: full
+  screen, the Digital Crown zooms, drag to look around, share); a recording plays through the orb
+  right after the spoken answer; a video opens full screen.
+- **Search your conversations.** Sessions has a search field: it finds the words in every
+  conversation's questions, answers and artifacts (an image by what it was made from, an attachment
+  by its name), parts of words too, accents ignored, a typo forgiven; found words are marked and a
+  matching image is shown. It needs a gateway that serves `GET /api/gateway/sessions/search`.
+- **Archive a conversation.** The archive button at the right of a conversation archives it on
+  the gateway after a confirmation: it leaves Sessions on all your devices and nothing is deleted. **Archived**, at the
+  bottom of Sessions, restores it.
+- **What is new, at a glance.** Home's Sessions and Automations rows show what is new (answers you
+  have not opened on this watch, automation results you have not seen) in a filled badge, else how
+  many there are; a spinner holds the place until they are read. A conversation with a new answer
+  is outlined in cyan, an automation with new results in amber.
+- **Automations on and off, and archived, from the list.** Each automation has a switch (the
+  gateway's pause and resume) and an archive button at its right: after a confirmation it stops and
+  leaves Automations on all your devices, nothing deleted; **Archived**, at the bottom, restores it.
+- **How many runs, and the instructions.** Each automation's line starts with how many times it
+  has run ("⟳ 44  🕐 12h  ➜ 2h"), and its name takes up to two lines in the list. An automation's
+  page shows its name and its instructions in full.
+- **Edit an automation's title, task and instructions apart.** Edit has a Title, a Task and an
+  Instructions field, each opening with the current text. A title that is the task follows the
+  task until you edit the title itself. Leaving Edit with changes asks whether to save or discard
+  them.
+- **An automation opens at once the second time.** Its definition and latest results are kept once
+  read: its page and Edit show them at once and read again only when the list says something
+  changed; a saved edit shows on its page and in the list at once.
+- **New automation** (top of Automations): the task, the workflow (the gateway's default by name),
+  the tools it may use (the same page as a conversation's), when it runs (every 5 min to every 7
+  days, or daily at a time) and whether each run builds on the earlier ones.
+- **Settings → Connection**: the gateway and its status, the account you are signed in as and its
+  role, its email, and how many tools are set up for it, with "Sign in as someone else". Email tools
+  follow the account.
+- **Settings → Voice**: the speaking voice and the transcription model among those the gateway
+  offers, a sample when you choose, and **Speed** (Normal, 1.15×, 1.3×, 1.5×, same pitch). The
+  choices stay on this watch.
+- **One voice button beside Back**: a tap plays, pauses or resumes the selected message; holding it
+  rewinds, faster the longer it is held.
+- **Share** the conversation as markdown, or a web page's link, from the icon beside Back.
+- **About → Contact** opens a message to the project in the watch's Mail.
 
 ### Changed
 
-- The orb is centred on the screen on the orb and read-aloud screens; the page opens at the top
-  and scrolls only when there is text below the orb.
+- The orb follows the voice itself, yours and the Assistant's: its loudness within the voice's own
+  range and its spectrum in 8 bands; each orb style draws it. At full voice it reaches 8% less far.
+- Read aloud speaks a whole answer from one request, in whole sentences and one language for the
+  reply, and starts once 1.5 s of speech is ready.
+- The conversation under the orb reads like an automation's page: the last message in full, then
+  earlier messages as cards (5, then Show older), each opening on its own page with Read aloud. The
+  whole history is read in one request; if it cannot be read, the page says so with Retry.
+- Sessions open with **New** and **Search** side by side on one line.
+- Sessions are titled by their latest question as the gateway has it (a grey placeholder while it
+  is read) and say how long ago they last changed ("10 h ago"); opening one shows its last exchange
+  first and follows a turn still working.
+- Each question offers the agent every tool the gateway has on, with instructions on when to use
+  them; sends to other people and risky tools still ask you first.
+- An automation's page shows its latest result in full once read (a spinner meanwhile, Retry if it
+  cannot be read); Edit sits beside Run now.
+- The orb is centred on its screen, with "Assistant ⌄" below it and the keyboard at the top right
+  while it is at rest; round icons dip when pressed; the orbs draw fewer points.
 - Settings: **Read aloud** (was "Speak answers").
-- **Sessions open on the right conversation, and say which.** A row is titled by the
-  conversation's latest question, as the gateway has it (up to 60 characters): never its first
-  question, never a made-up name; while it is read the row shows a grey placeholder, and "Question
-  not available" if the gateway cannot give it. Opening a session shows its last exchange, then the whole conversation below it, read in one
-  request (the gateway's replay of the session, ~200 KB for 44 messages instead of ~850 KB in 88
-  requests that timed out over the watch's radio and silently cut the history short); Show older
-  pages through it; if it cannot be read, the page says so with Retry. A
-  conversation whose last turn is still working (or waits on an approval) shows it and follows it;
-  one session opens at a time; a session's newest turn is the one created last.
-- From Home, the orb opens on your current conversation's last exchange and its title.
-- **Share on the orb**: beside Back, share the conversation as markdown; while the orb speaks (and
-  between its sentences), go back 10 seconds.
-- **The orb screen at rest and at work**: "Assistant ⌄" sits below the orb and the keyboard at the
-  top right, both only while the orb is at rest; while it listens, works or speaks, neither shows
-  (no ✕ either).
-- The orbs draw 30% fewer points (smoother on every watch).
-- **A more capable Assistant**: each question now offers the agent every tool the gateway has on
-  (as the desktop assistant does; before, the workflow's 9 default file and code tools), read from
-  the gateway before the first question if needed; and its instructions say when to use them (live
-  information, the web, email and messages, files, actions) and never to claim it cannot browse.
-  Sends to other people and risky tools still ask you first.
-- Automation page: Edit sits beside Run now on the schedule line; Read aloud sits on the result's
-  date line.
-- **Settings → Voice**: choose the speaking voice and the transcription model among those the
-  gateway offers (its default first). A voice plays a short sample when chosen (a spinner on its row while the gateway makes it). The choices stay on
-  this watch and ride each request; the gateway's defaults are not changed. The speaking voice is
-  the Assistant's; an entity keeps its own.
-- **Settings → Voice → Speed**: Normal, 1.15×, 1.3× or 1.5×, played faster on the watch at the
-  same pitch (the sample plays at the speed chosen). It applies to every voice the watch reads.
-- **A conversation's page**: its last 5 exchanges in order, Show older for the rest, and Read aloud
-  for the latest answer beside the title (as on an automation's page).
-- **One voice button beside Back** (the orb page and Read aloud): a tap plays the selected message
-  or pauses / resumes the one playing; holding it (longer than 0.65 s) rewinds, about 4 seconds per
-  second held at first and faster the longer it is held. While the voice is being made it shows a
-  spinner (a second tap waits too, instead of pausing a voice not yet heard). Its touch area
-  reaches past the drawn circle; a quick tap is never lost and a firm half-second tap is still a tap; a touch the watch takes away
-  (a notification, wrist down) never leaves it stuck rewinding. It shares the orb's state (a tap on
-  the orb pauses it too) and hides while the orb listens or works, or when there is nothing to read.
-  It replaces the rewind icon.
-- **The conversation under the orb**, as an automation's page: the last message in full (the one
-  the voice button reads), then "Earlier messages" as cards, 5 at first and Show older for the
-  rest; a card opens that message, with Read aloud.
-- One look for every message: an automation's results and a conversation's messages share the
-  same cards (a caption line, then the text at the same size) and the same page for one message.
-- Round icons dip when pressed, so a tap visibly lands; text scrolled under the top row fades out.
-- The icon beside Back (share, rewind) and Back itself take a tap on a real watch; a tap in that
-  top row never reaches the orb, even with the page scrolled (a tap just beside an icon used to
-  start listening). At rest, the orb page says "Tap to talk" again.
-
-- **The orb follows the voice itself**, yours and the Assistant's: its loudness within the
-  voice's own range (a syllable reaches full strength, a pause falls back) and its spectrum in 8
-  bands from low to high pitches. Each orb style draws the spectrum (the Halo: each angle is a band,
-  low pitches at the top). The orb reaches 8% less far at full voice; its size at rest is unchanged.
-- Read aloud sends the whole text in one request: the gateway's voice speaks it in whole sentences,
-  made ahead of playback, in one language for the whole reply (one request per paragraph added a
-  pause and a fresh short opening at every paragraph).
-- An automation's page shows its latest result in full once it is read, with a spinner meanwhile
-  (never the shortened preview first), and says so with Retry if it cannot be read.
 
 ### Fixed
 
-- **The voice no longer stops after its first words.** The gateway sends the first two or three
-  words alone ("Ah oui,") and the rest of the sentence seconds later; the watch now waits for 1.5 s
-  of speech before it starts (2 s again if it ever runs dry), so it speaks without a break. The
-  first sound comes about 3 s later than before with today's gateway voice; a gateway on
-  abstractvoice 0.15.2 sends a whole clause first, which starts at once.
+- Home shows a spinner in place of a count, and "Loading…" in place of its line, until that
+  information is in: the automations (slow on some gateways) are read with up to 60 s per request
+  and retried after 2, 4 and 8 s, and the conversation titles no longer wait for them.
+- The automations list, the gateway's slowest call, is read at most once a minute while the app is
+  open (an action reads it at once), instead of on every 15-second refresh.
+- A read that times out, loses its connection or meets a server error is tried again (3 tries,
+  after 1 s then 3 s) before a screen reports it; the spinner stays up meanwhile. An automation's
+  latest results are read with up to 60 s per request. Actions (send, start, archive, save) are
+  sent once.
+- Opening the app no longer says the gateway cannot be reached while the watch's connection is
+  still coming up: Home says "Connecting…" (animated) while the first tries fail and are retried
+  every 3 s, and says the gateway is unreachable only after 3 failed tries over at least 20 s. The
+  conversations are read with up to 45 s per request. A poll that fails once the app is connected is
+  retried quietly.
 
 ## [0.2.0] - 2026-10-17
 
@@ -4522,11 +4836,15 @@ flowchart LR
     UI[SwiftUI screens]
     Model[AppModel<br/>polling · haptics · state]
     Media[Listener · Speaker<br/>microphone · voice playback]
+    Work[RunActivity<br/>live steps · orb pulses]
+    Files[MediaStore<br/>images · recordings · cache]
     BG[AnswerNotifier · RuntimeKeeper<br/>background · notifications · keep awake]
     Kit[AbstractGatewayClient<br/>Swift package]
-    Store[(app storage<br/>gateway · credential)]
+    Store[(app storage<br/>gateway · credential · choices)]
     UI --> Model --> Kit
     UI --> Media --> Kit
+    UI --> Work --> Kit
+    UI --> Files --> Kit
     BG --> Kit
     Kit --> Store
   end
@@ -4536,10 +4854,14 @@ flowchart LR
     Auto[automations]
     Ent[entities]
     Voice[speech-to-text · text-to-speech]
+    Art[(artifacts<br/>images · recordings · files)]
+    Search[(conversation search index<br/>per account)]
     API --> Runs
     API --> Auto
     API --> Ent
     API --> Voice
+    API --> Art
+    API --> Search
   end
   Kit -- "Bearer token, or session + CSRF" --> API
   Other[Desktop assistant · terminal · browser] --> API
@@ -4548,18 +4870,43 @@ flowchart LR
 A wait answered on the watch is answered for every client; a question asked on the watch is a run
 in the same session pool as the desktop assistant's.
 
+### One question, while it works
+
+```mermaid
+sequenceDiagram
+  participant You
+  participant Orb as Orb page
+  participant RA as RunActivity
+  participant GW as Gateway
+  You->>Orb: speak or type
+  Orb->>GW: POST /runs/start (workflow, tools, tool policy)
+  loop every second until the run ends
+    Orb->>GW: GET /runs/{root} (answer? a wait on you?)
+    RA->>GW: GET /runs/{root} → subworkflow:{agent} → GET /runs/{agent}
+    RA->>GW: GET /runs/{agent}/ledger?after=N (only when it changed)
+    RA-->>Orb: steps below the orb · a pulse per tool call
+  end
+  GW-->>Orb: a tool approval (an allowed tool: the watch answers it)
+  Orb->>GW: POST /commands resume
+  GW-->>Orb: the answer, with its media refs
+  Orb->>GW: GET /runs/{run}/artifacts/{id}/content
+  Orb-->>You: the answer spoken, the image under it
+```
+
 ## Components
 
 | Component | Responsibility |
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
-| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), the 15 s foreground poll, haptics, per-conversation trust. |
+| `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s foreground poll (the automations list at most once a minute), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
 | `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
+| `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
+| `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
 | `AnswerNotifier` | Hands a run's ledger stream to a background URLSession, posts answers and waits as notifications, background refresh for new waits. |
 | `RuntimeKeeper` | An extended runtime session while the app listens, works or speaks, so the voice continues with the wrist down. |
-| `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
+| `AbstractGatewayClient` (SwiftPM) | Typed async client: models, endpoints, markdown and speech text, sign-in; reads (GET) that time out, lose their connection or meet a server error are tried 3 times before they fail, writes are sent once ([ADR-0039](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0039-loading-states-spinner-until-a-read-has-failed.md) of AbstractFramework); `MockGatewayClient` with the same protocol for previews and screenshots. Tested with `swift test`. |
 
 ## Gateway calls behind each screen
 
@@ -4569,12 +4916,19 @@ in the same session pool as the desktop assistant's.
 | Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
-| Accept all (an approval) | this conversation's tools on Ask stop asking, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking; the watch answers a later approval itself only when every call in it is on Auto |
+| Accept all (an approval) | allows this conversation's tools on Ask, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking. Allowed tools stay on Ask in the run's `_runtime.tool_policy` (fixed when a run starts); the watch answers their approvals (`POST /api/gateway/commands` resume) while it follows, and only when every call is on Auto or allowed; the shield (or Ask again on the Tools page) clears them, so the next call asks |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules |
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
 | Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); the whole text in one request (the gateway speaks it in whole sentences); playback starts once 1.5 s of speech is queued and plays at the speed chosen on the watch |
 | Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
+| Workflow | `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` and `…=abstractassistant.agent.v1` (newest version per bundle); a chosen one starts as `bundle_id`, `bundle_version`, `flow_id`, `interface`, `registry_scope`; none chosen: `flow_id: "@default"` of `abstractcode.agent.v1`; kept on the watch per conversation (defaults in Settings → Tools) |
+| New answers | a conversation is new when its newest turn ended after the watch started counting and is not the turn last seen there (kept on the watch, `sessions.seen`); automations: the gateway's `attention.unseen_count` |
+| Automation on/off, archive | `POST /api/gateway/automations/{id}/commands` `{type: "automation.pause" \| "automation.resume" \| "automation.archive" \| "automation.unarchive"}`; `GET /api/gateway/automations?archived_only=true` lists the archived ones; the automations list is read with up to 60 s per request and retried |
+| Archive | `POST /api/gateway/sessions/{id}/archive` (and `/unarchive`): out of `GET /runs?root_only=true` on every client, nothing deleted; `GET /api/gateway/runs?archived_only=true&root_only=true` lists them |
+| Search | `GET /api/gateway/sessions/search?q=…&limit=25` (AbstractRuntime `ConversationSearch`, the caller's own plane): one item per session with `snippet` and `highlights`; 404 on a gateway without it |
+| Live work | the root's `GET /api/gateway/runs/{id}` each second, down its `subworkflow:<child>` waits to the run doing the work; that run's `GET /api/gateway/runs/{id}/ledger?after=N`, decoded for `effect.type`, `effect.payload.tool_calls[{name, arguments}]`, `effect.payload.output.modality`, `response_schema`, `result.results[{success, error}]`, `result.content`, `result.wait` only (a thinking record's conversation is skipped); a run that handed off to a child is not read again. About as much data as the run's records (a 90 s agent run with 6 tools: ~3 MB, mostly its thinking records) |
+| Media | a finished run's `output` (`outputs.{modality}[].artifact_ref`, `artifact`, `image_artifact`, `audio_artifact`, `video_artifact`); history: `GET /api/gateway/sessions/{id}/artifacts` (`tags.kind == generated_media`, by `run_id` and `parent_run_id`); bytes: `GET /api/gateway/runs/{run}/artifacts/{id}/content` (at most 25 MB), kept in the watch's caches, images shrunk on the watch |
 | Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, a row's title is its latest run's prompt from `GET /api/gateway/runs/{id}/input_data` (none is made up); a conversation's history on the orb page: `GET /api/gateway/runs/{newest}/history_bundle?include_session=true&detail=replay` (one request) |
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
 | Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
@@ -4619,6 +4973,8 @@ in the same session pool as the desktop assistant's.
 | No device pairing, one token per account | the watch signs in with an account token or an emailed code; rotating the token signs out every client |
 | No push channel | waits arrive on the next poll or background refresh, not within a second |
 | No risk level in the wait payload | the risk comes from the tool catalog; Double Tap allows only approvals that neither send nor destroy |
+| No compact view of a run's records | the live steps read the run's full records (a thinking record carries the conversation); reads are skipped when the run has not changed |
+| No "seen" state for conversations | new answers are tracked on each watch |
 
 ## Build and verification
 

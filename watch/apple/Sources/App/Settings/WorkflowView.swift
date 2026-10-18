@@ -76,8 +76,12 @@ struct WorkflowRow: View {
                     Image(systemName: "square.stack.3d.up").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.cyan).frame(width: 18)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Workflow").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
-                        Text(model.workflowName(scope) ?? (failed ? "Couldn't load. Tap to retry" : "Loading…")).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
-                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        if let name = model.workflowName(scope) ?? (failed ? "Couldn't load. Tap to retry" : nil) {
+                            Text(name).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            LoadingText().font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2)
+                        }
                         if model.workflowPick(scope).isGatewayDefault {
                             Text("Default").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                         }

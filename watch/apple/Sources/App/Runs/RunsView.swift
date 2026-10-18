@@ -15,26 +15,33 @@ struct SessionsView: View {
 
     var body: some View {
         List {
-            // A fresh conversation: the orb, in a new session (the current one stays listed here).
-            Button {
-                model.newAskSession()
-                model.path = [.ask(.idle)]
-            } label: {
-                Label("New conversation", systemImage: "plus")
-                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
+            // One line: New (the orb, in a new conversation) and Search (the keyboard, then the results).
+            HStack(spacing: 6) {
+                Button {
+                    model.newAskSession()
+                    model.path = [.ask(.idle)]
+                } label: {
+                    TopAction(symbol: "plus", title: "New", color: Theme.cyan)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New conversation")
+                // Search the questions, answers and artifacts of every conversation (the gateway's index).
+                TextFieldLink(prompt: Text("Words to find")) {
+                    TopAction(symbol: "magnifyingglass", title: "Search", color: Theme.text2)
+                } onSubmit: { text in
+                    let q = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))   // the gateway's limit
+                    if !q.isEmpty { model.path.append(.sessionSearch(q)) }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Search")
+                .accessibilityIdentifier("sessions.search")
             }
-            // Search the questions and answers of every conversation (the gateway's index).
-            TextFieldLink(prompt: Text("Words to find")) {
-                Label("Search", systemImage: "magnifyingglass").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
-            } onSubmit: { text in
-                let q = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))   // the gateway's limit
-                if !q.isEmpty { model.path.append(.sessionSearch(q)) }
-            }
-            .accessibilityIdentifier("sessions.search")
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
             if model.sessions.isEmpty {
-                if model.lastRefresh == nil && model.lastError == nil { ProgressView().frame(maxWidth: .infinity) }
+                if model.lastRefresh == nil && !model.unreachable { ProgressView().frame(maxWidth: .infinity) }
                 else {
-                    Text(model.lastError == nil ? "No conversations yet" : "Can't reach your assistant")
+                    Text(model.unreachable ? "Can't reach your assistant" : "No conversations yet")
                         .font(.rounded(.footnote)).foregroundStyle(Theme.muted)
                 }
             }
@@ -52,12 +59,13 @@ struct SessionsView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(opening != nil && opening != s.id)   // one session opens at a time
+                            // Discreet, at the row's edge: a soft red symbol, a full-size touch area.
                             Button { archiving = s } label: {
-                                Image(systemName: "archivebox.fill").font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 30, height: 30)
-                                    .background(Theme.redButton, in: Circle())
-                                    .frame(width: 40, height: 44)
+                                Image(systemName: "archivebox").font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Theme.red.opacity(0.8))
+                                    .frame(width: 26, height: 26)
+                                    .background(Theme.red.opacity(0.12), in: Circle())
+                                    .frame(width: 34, height: 44, alignment: .trailing)
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -67,6 +75,7 @@ struct SessionsView: View {
                             .accessibilityIdentifier("session.archive")
                         }
                         .listRowBackground(SessionRowGround(new: new))
+                        .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 4))
                         .swipeActions {
                             Button { model.path.append(.session(s)) } label: { Label("Details", systemImage: "list.bullet") }
                                 .tint(Theme.indigoButton)
@@ -90,7 +99,7 @@ struct SessionsView: View {
         .navigationTitle("Sessions")
         // Archiving asks first: the conversation leaves the list on every device (nothing is deleted).
         .sheet(item: $archiving) { s in
-            ArchiveConfirm(title: model.title(of: s)) { confirmed in
+            ArchiveConfirm(title: model.title(of: s), what: .conversation) { confirmed in
                 archiving = nil
                 guard confirmed else { return }
                 Task {
@@ -155,11 +164,20 @@ struct SessionRow: View {
                 SessionStat(symbol: "bubble.left.and.bubble.right", value: "\(session.turns)")
                 if session.toolCalls > 0 { SessionStat(symbol: "wrench.and.screwdriver", value: "\(session.toolCalls)") }
                 if session.needsPerson { Text("Needs you").font(.rounded(.caption2)).foregroundStyle(Theme.amber) }
-                else if let at = session.updatedAt { SessionStat(symbol: "clock", value: SessionRow.age(at)) }
+                // How long ago the conversation last changed (its newest turn, usually its answer).
+                else if let at = session.updatedAt {
+                    SessionStat(symbol: "clock", value: SessionRow.ago(at)).accessibilityLabel("Last activity \(SessionRow.ago(at))")
+                }
             }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    /// "just now", "4 min ago", "2 h ago", "3 d ago".
+    static func ago(_ d: Date) -> String {
+        let a = age(d)
+        return a == "now" ? "just now" : a + " ago"
     }
 
     /// "now", "4 min", "2 h", "3 d".
@@ -338,17 +356,41 @@ struct SessionRowGround: View {
     }
 }
 
-/// "Archive this conversation?" before it leaves the list.
+/// One half of a list's top line: a symbol and a word in a rounded card.
+struct TopAction: View {
+    let symbol: String
+    let title: String
+    let color: Color
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol).font(.system(size: 14, weight: .semibold))
+            Text(title).font(.rounded(.footnote, weight: .semibold)).lineLimit(1)
+        }
+        .foregroundStyle(color)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(Theme.neutralButton, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// "Archive this conversation?" (or automation) before it leaves the list.
 struct ArchiveConfirm: View {
+    enum What { case conversation, automation }
     let title: String?
+    var what: What = .conversation
     let done: (Bool) -> Void
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
                 Image(systemName: "archivebox.fill").font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.red)
-                Text("Archive this conversation?").font(.rounded(.headline)).multilineTextAlignment(.center)
-                if let title { Text(title).font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(3).multilineTextAlignment(.center) }
-                Text("It leaves Sessions on all your devices. Nothing is deleted: Archived brings it back.")
+                Text(what == .conversation ? "Archive this conversation?" : "Archive this automation?")
+                    .font(.rounded(.headline)).multilineTextAlignment(.center)
+                if let title {
+                    Text(title).font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(3).multilineTextAlignment(.center)
+                        .accessibilityIdentifier("archive.title")
+                }
+                Text(what == .conversation ? "It leaves Sessions on all your devices. Nothing is deleted: Archived brings it back."
+                     : "It stops running and leaves Automations on all your devices. Nothing is deleted: Archived brings it back.")
                     .font(.rounded(.caption2)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 Button("Archive") { done(true) }
                     .buttonStyle(FilledButtonStyle(fill: Theme.redButton))

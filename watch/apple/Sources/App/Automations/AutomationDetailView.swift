@@ -9,11 +9,10 @@ struct AutomationDetailView: View {
     let automation: AutomationSummary
     @EnvironmentObject private var model: AppModel
     @StateObject private var progress = RunProgress()
-    @State private var occurrences: [LastOccurrence] = []
     /// Full answers are heavy on a public gateway (measured 2026-10-17: 1 run 3 s, 5 runs 7 s,
     /// 30 runs 17 s): the latest first, then it and 5 earlier ones, older on demand.
     @State private var limit = 6
-    @State private var loading = true
+    @State private var loading = false
     /// A run in progress (Run now, or a scheduled one found on opening); its id once known.
     @State private var running = false
     @State private var runId: String?
@@ -23,6 +22,14 @@ struct AutomationDetailView: View {
     @State private var readFailed = false
 
     private var current: AutomationSummary { model.automations.first { $0.id == automation.id } ?? automation }
+    /// Its results and definition as last read (shared with the other pages: shown at once on return).
+    private var occurrences: [LastOccurrence] { model.results[automation.id] ?? [] }
+    private var definition: AutomationDefinition? { model.definitions[automation.id] }
+    /// The results known are the latest ones, and as many as shown: nothing to read.
+    private var resultsCurrent: Bool {
+        guard let first = occurrences.first else { return false }
+        return first.index == current.lastOccurrence?.index && occurrences.count >= min(limit, current.occurrenceCount ?? limit)
+    }
     private var title: String { current.name ?? "Automation" }
     /// The latest result as read in full (the list's preview is a cut excerpt: never shown here).
     private var last: LastOccurrence? { occurrences.first }
@@ -33,10 +40,11 @@ struct AutomationDetailView: View {
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                Text(title).font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(3)
+                Text(title).font(.rounded(.headline)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("automation.title")
                 // When it runs, then Edit and Run now on the same line (while it runs: stop).
                 HStack(spacing: 6) {
-                    ScheduleLine(automation: current)
+                    ScheduleLine(automation: current, stacked: true)
                     Spacer(minLength: 4)
                     NavigationLink(value: Route.automationEdit(current)) { GlassIcon(symbol: "pencil") }
                         .buttonStyle(GlassPress()).accessibilityLabel("Edit")
@@ -44,6 +52,7 @@ struct AutomationDetailView: View {
                         .buttonStyle(GlassPress()).accessibilityLabel(running ? "Stop this run" : "Run now")
                 }
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red) }
+                if let how = definition?.instructions { about("Instructions", how, id: "automation.instructions") }
                 if running { RunningCard(progress: progress) }
                 if let last { result(last) }
                 else if readingLast && readFailed {
@@ -85,16 +94,28 @@ struct AutomationDetailView: View {
         .screen("")
         .task {
             if current.currentOccurrence != nil { running = true; watch() }
-            if occurrences.isEmpty, let one = try? await model.client.occurrences(automationId: automation.id, limit: 1), !one.isEmpty {
-                occurrences = one
+            if occurrences.isEmpty, current.lastOccurrence != nil,
+               let one = try? await model.client.occurrences(automationId: automation.id, limit: 1), !one.isEmpty {
+                model.keep(results: one, of: automation.id)
             }
-            await load()
+            if !resultsCurrent { await load() }
             if let c = current.attention?.cursor, (current.attention?.unseenCount ?? 0) > 0 || (current.attention?.unread ?? false) {
                 try? await model.client.markSeen(automationId: automation.id, cursor: c)
-                await model.refresh()
+                model.refreshAutomations()
             }
         }
+        .task { _ = try? await model.definition(of: automation.id) }   // beside the results, never before
         .onDisappear { watcher?.cancel(); watcher = nil; progress.stop(); AnswerNotifier.shared.setShowing(nil) }
+    }
+
+    /// The instructions, whole.
+    private func about(_ label: String, _ text: String, id: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+            Text(text).font(.rounded(.footnote)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(id)
     }
 
     /// The latest result in full: when, failed or not, the markdown answer.
@@ -115,7 +136,7 @@ struct AutomationDetailView: View {
         loading = true
         defer { loading = false }
         do {
-            occurrences = try await model.client.occurrences(automationId: automation.id, limit: limit)
+            model.keep(results: try await model.client.occurrences(automationId: automation.id, limit: limit), of: automation.id)
             readFailed = false
         } catch {
             readFailed = true
@@ -180,12 +201,12 @@ struct AutomationDetailView: View {
     private func finished() async {
         progress.stop(); watcher = nil; runId = nil
         if let one = try? await model.client.occurrences(automationId: automation.id, limit: 1), !one.isEmpty {
-            occurrences = one + occurrences.filter { $0.index != one.first?.index }
+            model.keep(results: one + occurrences.filter { $0.index != one.first?.index }, of: automation.id)
         }
         running = false
         WKInterfaceDevice.current().play(.success)
+        model.refreshAutomations()
         await load()
-        await model.refresh()
     }
 
     /// "today 07:04", "tomorrow 07:00", "Mon 20, 07:00"; empty when unreadable.
