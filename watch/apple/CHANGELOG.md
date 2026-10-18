@@ -24,11 +24,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 - The orb is centred on the screen on the orb and read-aloud screens; the page opens at the top
   and scrolls only when there is text below the orb.
 - Settings: **Read aloud** (was "Speak answers").
-- **Sessions open on the right conversation, and say which.** Opening a session shows its title on
-  the orb and its last exchange; a row shows the latest question under the title when the
-  conversation has moved on; titles are longer (60 characters), so conversations that start alike
-  stay apart; a conversation whose last turn is still working (or waits on an approval) shows it and
-  follows it; one session opens at a time; a session's newest turn is the one created last.
+- **Sessions open on the right conversation, and say which.** A row is titled by the
+  conversation's latest question, as the gateway has it (up to 60 characters): never its first
+  question, never a made-up name; while it is read the row shows a grey placeholder, and "Question
+  not available" if the gateway cannot give it. Opening a session shows its last exchange, then the whole conversation below it, read in one
+  request (the gateway's replay of the session, ~200 KB for 44 messages instead of ~850 KB in 88
+  requests that timed out over the watch's radio and silently cut the history short); Show older
+  pages through it; if it cannot be read, the page says so with Retry. A
+  conversation whose last turn is still working (or waits on an approval) shows it and follows it;
+  one session opens at a time; a session's newest turn is the one created last.
 - From Home, the orb opens on your current conversation's last exchange and its title.
 - **Share on the orb**: beside Back, share the conversation as markdown; while the orb speaks (and
   between its sentences), go back 10 seconds.
@@ -47,13 +51,18 @@ channel (TestFlight, then the App Store); the Python package's history is in
   gateway offers (its default first). A voice plays a short sample when chosen (a spinner on its row while the gateway makes it). The choices stay on
   this watch and ride each request; the gateway's defaults are not changed. The speaking voice is
   the Assistant's; an entity keeps its own.
+- **Settings → Voice → Speed**: Normal, 1.15×, 1.3× or 1.5×, played faster on the watch at the
+  same pitch (the sample plays at the speed chosen). It applies to every voice the watch reads.
 - **A conversation's page**: its last 5 exchanges in order, Show older for the rest, and Read aloud
   for the latest answer beside the title (as on an automation's page).
 - **One voice button beside Back** (the orb page and Read aloud): a tap plays the selected message
-  or pauses / resumes the one playing; holding it rewinds, about 4 seconds per second held at first
-  and faster the longer it is held. It shares the orb's state (a tap on the orb pauses it too) and
-  hides while the orb listens or works, or when there is nothing to read. It replaces the rewind
-  icon.
+  or pauses / resumes the one playing; holding it (longer than 0.65 s) rewinds, about 4 seconds per
+  second held at first and faster the longer it is held. While the voice is being made it shows a
+  spinner (a second tap waits too, instead of pausing a voice not yet heard). Its touch area
+  reaches past the drawn circle; a quick tap is never lost and a firm half-second tap is still a tap; a touch the watch takes away
+  (a notification, wrist down) never leaves it stuck rewinding. It shares the orb's state (a tap on
+  the orb pauses it too) and hides while the orb listens or works, or when there is nothing to read.
+  It replaces the rewind icon.
 - **The conversation under the orb**, as an automation's page: the last message in full (the one
   the voice button reads), then "Earlier messages" as cards, 5 at first and Show older for the
   rest; a card opens that message, with Read aloud.
@@ -61,7 +70,16 @@ channel (TestFlight, then the App Store); the Python package's history is in
   same cards (a caption line, then the text at the same size) and the same page for one message.
 - Round icons dip when pressed, so a tap visibly lands; text scrolled under the top row fades out.
 - The icon beside Back (share, rewind) and Back itself take a tap on a real watch; a tap in that
-  top row never reaches the orb.
+  top row never reaches the orb, even with the page scrolled (a tap just beside an icon used to
+  start listening). At rest, the orb page says "Tap to talk" again.
+
+### Fixed
+
+- **The voice no longer stops after its first words.** The gateway sends the first two or three
+  words alone ("Ah oui,") and the rest of the sentence seconds later; the watch now waits for 1.5 s
+  of speech before it starts (2 s again if it ever runs dry), so it speaks without a break. The
+  first sound comes about 3 s later than before with today's gateway voice; a gateway on
+  abstractvoice 0.15.1 sends a whole clause first, which starts at once.
 
 ## [0.2.0] - 2026-10-17
 

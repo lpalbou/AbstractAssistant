@@ -29,7 +29,8 @@ struct SessionsView: View {
                 Section(label) {
                     ForEach(items) { s in
                         Button { open(s) } label: {
-                            SessionRow(session: s, title: model.title(of: s), latest: model.latestPrompts[s.latest.runId],
+                            SessionRow(session: s, title: model.title(of: s),
+                                       unreadable: model.unreadablePrompts.contains(s.latest.runId),
                                        opening: opening == s.id)
                         }
                         .disabled(opening != nil && opening != s.id)   // one session opens at a time
@@ -73,9 +74,10 @@ struct SessionsView: View {
 
 struct SessionRow: View {
     let session: SessionSummary
-    let title: String
-    /// The session's latest question, shown when it is not the first one (a long session drifts).
-    var latest: String? = nil
+    /// The latest question (nil while it is read: a placeholder shape, never made-up words).
+    let title: String?
+    /// The gateway could not give the latest question.
+    var unreadable = false
     var opening = false
 
     var body: some View {
@@ -84,12 +86,16 @@ struct SessionRow: View {
                 if session.needsPerson { StatusDot(color: Theme.amber) }
                 else if session.isLive { StatusDot(color: Theme.cyan) }
                 else if session.status == "failed" { StatusDot(color: Theme.red) }
-                Text(title).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                if let title {
+                    Text(title).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                } else if unreadable {
+                    Text("Question not available").font(.rounded(.footnote)).foregroundStyle(Theme.muted).lineLimit(1)
+                } else {
+                    Text("Reading the latest question").font(.rounded(.footnote, weight: .semibold)).lineLimit(2)
+                        .redacted(reason: .placeholder)
+                }
                 Spacer(minLength: 2)
                 if opening { ProgressView().frame(width: 14) }
-            }
-            if let latest, latest != title, session.turns > 1 {
-                Text("Last: " + latest).font(.rounded(.caption2)).foregroundStyle(Theme.text2).lineLimit(1)
             }
             HStack(spacing: 8) {
                 SessionStat(symbol: "bubble.left.and.bubble.right", value: "\(session.turns)")
@@ -145,11 +151,11 @@ struct SessionDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top) {
-                    Text(model.title(of: session)).font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(2)
+                    Text(model.title(of: session) ?? "").font(.rounded(.headline)).foregroundStyle(Theme.text).lineLimit(2)
                     Spacer(minLength: 4)
                     // Read the latest answer aloud, as on an automation's page.
                     if let last = latest, let out = last.outputText, !out.isEmpty, last.isTerminal {
-                        ReadAloudLink(item: ReadItem(title: model.title(of: session), text: out, scope: .run(last.runId)))
+                        ReadAloudLink(item: ReadItem(title: model.title(of: session) ?? "", text: out, scope: .run(last.runId)))
                     }
                 }
                 if loading && rows.isEmpty { ProgressView().frame(maxWidth: .infinity) }
@@ -161,7 +167,7 @@ struct SessionDetailView: View {
                 ForEach(turns.reversed()) { run in
                     // A finished answer opens whole (it is cut at 6 lines here) and can be read aloud.
                     if let out = run.outputText, !out.isEmpty, run.isTerminal {
-                        NavigationLink(value: Route.read(ReadItem(title: model.title(of: session), text: out, scope: .run(run.runId)))) { turn(run) }
+                        NavigationLink(value: Route.read(ReadItem(title: model.title(of: session) ?? "", text: out, scope: .run(run.runId)))) { turn(run) }
                             .buttonStyle(.plain)
                     } else { turn(run) }
                 }

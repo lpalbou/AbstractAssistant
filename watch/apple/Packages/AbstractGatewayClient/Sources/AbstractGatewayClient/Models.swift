@@ -1092,3 +1092,32 @@ struct RunInputData: Decodable {
     let inputData: Inner?
     enum CodingKeys: String, CodingKey { case inputData = "input_data" }
 }
+
+/// One turn of a session as the gateway replays it (`history_bundle` → `session.turns`).
+public struct SessionTurn: Decodable, Sendable, Hashable {
+    public var runId: String
+    public var createdAt: String?
+    public var prompt: String?
+    public var answer: String?
+    public var status: String?
+
+    public init(runId: String, createdAt: String?, prompt: String?, answer: String?, status: String?) {
+        self.runId = runId; self.createdAt = createdAt; self.prompt = prompt; self.answer = answer; self.status = status
+    }
+
+    enum CodingKeys: String, CodingKey { case runId = "run_id", createdAt = "created_at", prompt, answer, status }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        runId = try c.decode(String.self, forKey: .runId)
+        createdAt = try? c.decode(String.self, forKey: .createdAt)
+        prompt = try? c.decode(String.self, forKey: .prompt)
+        answer = try? c.decode(String.self, forKey: .answer)
+        status = try? c.decode(String.self, forKey: .status)
+    }
+}
+
+struct HistoryBundle: Decodable {
+    struct Session: Decodable { var turns: [SessionTurn]? }
+    var session: Session?
+}

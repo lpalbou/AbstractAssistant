@@ -63,8 +63,9 @@ struct FitScroll<Content: View>: View {
     }
 }
 
-/// The orb's tap area: its screen-sized box minus the top row (Back and the controls beside it,
-/// "Assistant ⌄"), so a tap there never pauses or starts the orb.
+/// The orb's tap area: its own square minus its top 60 pt (the row of Back and the controls beside
+/// it, before any scroll). Scrolled, the orb slides under that row: the row's band then takes the
+/// taps (see `BesideBack`).
 struct BelowTopRow: Shape {
     func path(in r: CGRect) -> Path { Path(CGRect(x: r.minX, y: r.minY + 60, width: r.width, height: max(0, r.height - 60))) }
 }
@@ -105,7 +106,7 @@ struct ShareIcon<Item: Transferable>: View {
     var subject: String?
     var body: some View {
         ShareLink(item: item, subject: subject.map { Text($0) }, preview: SharePreview(subject ?? "AbstractAssistant")) {
-            GlassIcon(symbol: "square.and.arrow.up")
+            GlassIcon(symbol: "square.and.arrow.up").rowReach()
         }
             .buttonStyle(GlassPress())
             .accessibilityLabel("Share")
@@ -113,6 +114,13 @@ struct ShareIcon<Item: Transferable>: View {
 }
 
 extension View {
+    /// The touch area of an icon in the top row reaches `RowReach.vertical` above and below its
+    /// circle (and `trailing` to its right): a fingertip is wider than the 35 pt drawn. A real frame,
+    /// not a negative padding, which a watch does not hit-test beyond.
+    func rowReach(trailing: CGFloat = 0) -> some View {
+        padding(.vertical, RowReach.vertical).padding(.trailing, trailing).contentShape(Rectangle())
+    }
+
     /// A control on the top line, right beside Back. The system bar is hidden on such a screen
     /// and Back is drawn here with the control, where the bar's Back was: a control drawn over the
     /// bar is not tappable on a real watch (the bar takes the touch), and the bar's leading side
@@ -146,15 +154,22 @@ private struct BesideBack<V: View>: ViewModifier {
             }
             .overlay(alignment: .topLeading) {
                 HStack(spacing: 6) {
-                    Button { dismiss() } label: { GlassIcon(symbol: "chevron.left") }
+                    Button { dismiss() } label: { GlassIcon(symbol: "chevron.left").rowReach() }
                         .buttonStyle(GlassPress()).accessibilityLabel("Back")
                     control
                 }
-                .padding(.leading, 15).padding(.top, 18)
+                // The row owns its band, whatever is scrolled beneath: a tap just beside an icon
+                // lands here and does nothing (it never reaches the orb, which would start listening).
+                // The circles' tops stay 18 pt down, as the system bar's Back.
+                .padding(EdgeInsets(top: 0, leading: 6, bottom: 14 - RowReach.vertical, trailing: 6))
+                .background(Color.clear.contentShape(Rectangle()).onTapGesture {})
+                .padding(.leading, 9).padding(.top, 18 - RowReach.vertical)
                 .ignoresSafeArea()
             }
     }
 }
+
+enum RowReach { static let vertical: CGFloat = 9 }
 
 /// The press of a round icon: it dips and dims while held, so a tap visibly lands.
 struct GlassPress: ButtonStyle {

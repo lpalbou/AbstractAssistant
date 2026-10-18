@@ -27,9 +27,10 @@ struct AskView: View {
     /// The exchange the voice is reading (the voice button reads the last one).
     @State private var readingId: String?
     @State private var shownCount = 5
-    /// The server may hold older turns than those read (a resumed conversation).
-    @State private var moreOnServer = false
+    /// The conversation's history is being read (one request, after its last exchange shows).
     @State private var loadingOlder = false
+    /// The history could not be read: the session and its newest run, for Retry.
+    @State private var historyFailed: (id: String, run: String)?
     @State private var runId: String?
     @State private var answerEntity: String?
     @State private var error: String?
@@ -161,18 +162,7 @@ struct AskView: View {
     /// The earlier messages, newest first (as an automation's earlier runs).
     private var earlier: [Exchange] { Array(exchanges.dropLast().reversed()) }
 
-    private func showOlder() async {
-        shownCount += 5
-        guard earlier.count < shownCount, moreOnServer, model.responder == .assistant else { return }
-        loadingOlder = true
-        defer { loadingOlder = false }
-        let session = model.askSessionId
-        let limit = shownCount + 1 + 5
-        let more = await model.sessionExchanges(session, limit: limit)
-        guard model.askSessionId == session, more.count >= exchanges.count else { return }
-        exchanges = more
-        moreOnServer = more.count >= limit
-    }
+    private func showOlder() { shownCount += 5 }
 
     private var below: some View {
         VStack(alignment: .leading, spacing: 6) { belowContent }.padding(.horizontal, 10)
@@ -190,16 +180,25 @@ struct AskView: View {
             Text(prompt).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2)
                 .frame(maxWidth: .infinity, alignment: .leading).lineLimit(3)
         }
-        if !earlier.isEmpty || moreOnServer {
+        if !earlier.isEmpty {
             Text("Earlier messages").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).padding(.top, 6)
             ForEach(earlier.prefix(shownCount)) { e in
                 NavigationLink(value: Route.message(title: model.responder.title, e)) { MessageRow(exchange: e) }
                     .buttonStyle(.plain)
             }
-            if earlier.count > shownCount || moreOnServer {
-                Button(loadingOlder ? "Loading…" : "Show older") { Task { await showOlder() } }
-                    .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.cyan).disabled(loadingOlder)
+            if earlier.count > shownCount {
+                Button("Show older") { showOlder() }
+                    .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
             }
+        }
+        // The conversation's history is read in one request; when it fails the page says so
+        // (a partial list must never pass for the whole conversation).
+        if loadingOlder {
+            HStack(spacing: 6) { ProgressView().frame(width: 16); Text("Loading earlier messages…") }
+                .font(.rounded(.footnote)).foregroundStyle(Theme.muted).padding(.top, 6)
+        } else if let session = historyFailed {
+            Button("Couldn't load earlier messages. Retry") { Task { await loadHistory(session.id, latestRun: session.run) } }
+                .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
         }
         if model.sessionTrusted {
             Label("Tools allowed", systemImage: "checkmark.seal.fill")
@@ -292,7 +291,7 @@ struct AskView: View {
             case .preparing, .speaking: return ""
             case .paused: return "Paused"
             case .failed: return "Voice unavailable"
-            default: return ""
+            default: return "Tap to talk"                    // at rest the orb listens again
             }
         }
     }
@@ -522,7 +521,7 @@ struct AskView: View {
     private func clearConversation() {
         speaker.stop(); listener.cancel(); turn += 1
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
-        exchanges = []; readingId = nil; shownCount = 5; moreOnServer = false
+        exchanges = []; readingId = nil; shownCount = 5; historyFailed = nil
         phase = .idle
     }
 
@@ -533,17 +532,12 @@ struct AskView: View {
             // Continue a session: open on its last exchange, quiet; the next tap talks in it.
             model.resuming = nil
             prompt = r.prompt; answer = r.answer; runId = r.runId
-            note = r.title                                   // which conversation this is
             if !answer.isEmpty || !prompt.isEmpty { phase = .answer }
             exchanges = [Exchange(id: r.runId, prompt: r.prompt, answer: r.answer, scope: .run(r.runId))]
             // Its last turn is still working (or waits on an approval): follow it, as when asked here
             // (the status line then says what it does, not the title).
             if r.status == "running" || r.status == "waiting" { note = nil; resumeFollowing(r.runId) }
-            let session = model.askSessionId
-            let earlier = await model.sessionExchanges(session)
-            if !earlier.isEmpty, model.askSessionId == session, exchanges.count <= 1 {
-                exchanges = earlier; moreOnServer = earlier.count >= 10
-            }
+            await loadHistory(model.askSessionId, latestRun: r.runId)
             return
         }
         if let ref = opening, answer.isEmpty {
@@ -573,14 +567,28 @@ struct AskView: View {
         // Meanwhile the person may have started talking, or switched conversation.
         guard model.askSessionId == s.id, phase == .idle, prompt.isEmpty, !(last.prompt.isEmpty && last.answer.isEmpty) else { return }
         prompt = last.prompt; answer = last.answer; runId = last.runId
-        note = model.title(of: s)
         phase = .answer
         exchanges = [Exchange(id: last.runId, prompt: last.prompt, answer: last.answer, scope: .run(last.runId))]
-        if last.status == "running" || last.status == "waiting" { note = nil; resumeFollowing(last.runId); return }
-        let session = s.id
-        let earlier = await model.sessionExchanges(session)
-        if !earlier.isEmpty, model.askSessionId == session, exchanges.count <= 1 {
-            exchanges = earlier; moreOnServer = earlier.count >= 10
+        if last.status == "running" || last.status == "waiting" { note = nil; resumeFollowing(last.runId) }
+        await loadHistory(s.id, latestRun: last.runId)
+    }
+
+    /// The whole conversation below the orb, from the gateway's replay of the session (one
+    /// request; "Show older" then pages through it without the network).
+    private func loadHistory(_ session: String, latestRun: String) async {
+        loadingOlder = true
+        historyFailed = nil
+        defer { loadingOlder = false }
+        do {
+            let turns = try await model.client.sessionHistory(latestRun: latestRun, limit: 1000)
+            guard model.askSessionId == session else { return }
+            // Before the exchanges on screen (read fresh, or asked meanwhile), which stay as they are.
+            let known = Set(exchanges.map(\.id))
+            exchanges = turns.filter { !known.contains($0.runId) && ($0.prompt?.isEmpty == false || $0.answer?.isEmpty == false) }
+                .map { Exchange(id: $0.runId, prompt: $0.prompt ?? "", answer: $0.answer ?? "", scope: .run($0.runId)) } + exchanges
+        } catch {
+            guard model.askSessionId == session else { return }
+            historyFailed = (session, latestRun)
         }
     }
 }

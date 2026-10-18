@@ -29,7 +29,7 @@ struct HomeView: View {
                 if !model.waits.isEmpty { waitingCard }
                 NavigationLink(value: Route.sessions) {
                     row("Sessions", symbol: "bubble.left.and.bubble.right",
-                        detail: model.sessions.first.map { model.title(of: $0) } ?? "None yet",
+                        detail: model.sessions.isEmpty ? "None yet" : (model.sessions.first.flatMap { model.title(of: $0) } ?? ""),
                         badge: nil, badgeColor: Theme.cyan, count: model.runningCount, countLabel: "working")
                 }
                 .buttonStyle(.plain)

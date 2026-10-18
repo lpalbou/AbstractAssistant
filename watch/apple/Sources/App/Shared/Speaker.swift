@@ -13,7 +13,14 @@ final class Speaker: NSObject, ObservableObject {
     @Published private(set) var receivedSeconds: Double = 0
     @Published private(set) var playedSeconds: Double = 0
 
-    private var queue: [Data] = []
+    private var queue: [(data: Data, duration: Double)] = []
+    /// Playback waits until this much speech is queued (or the stream is done): a gateway voice
+    /// before abstractvoice 0.15.1 sends two words first (1.3 s, "Ah oui,") and the rest seconds
+    /// later, so starting on that piece alone breaks the voice after it; from 0.15.1 the first piece
+    /// is a whole clause (2 s or more) and starts at once. Set again when the queue runs dry.
+    private var buffering = true
+    private static let startBuffer = 1.5, refillBuffer = 2.0
+    private var refilling = false
     /// Chunks already spoken, in order (rewind reaches back into them), and the one playing now.
     private var history: [(data: Data, duration: Double)] = []
     private var currentData: Data?
@@ -75,7 +82,7 @@ final class Speaker: NSObject, ObservableObject {
             trace("resuming at \(String(format: "%.2f", player.currentTime)) s of this chunk")
             player.play()
         } else {
-            state = pausedFromPreparing && queue.isEmpty ? .preparing : .speaking
+            state = pausedFromPreparing ? .preparing : .speaking
             advanceIfIdle()
         }
     }
@@ -96,6 +103,7 @@ final class Speaker: NSObject, ObservableObject {
             return
         }
         state = .preparing; streamDone = false; streamError = nil; receivedSeconds = 0; playedSeconds = 0
+        buffering = true; refilling = false
         RuntimeKeeper.shared.hold(holder)
         task = Task { [weak self] in
             do {
@@ -118,6 +126,8 @@ final class Speaker: NSObject, ObservableObject {
                     self.state = .failed(Self.describe(error))
                     self.trace("stream error \(error)")
                     self.release()
+                } else {
+                    self.advanceIfIdle()                  // what arrived plays, even under the buffer
                 }
             }
         }
@@ -142,13 +152,13 @@ final class Speaker: NSObject, ObservableObject {
             if p.currentTime >= back { p.currentTime -= back; trace("rewound within the chunk"); return }
             back -= p.currentTime
             p.stop(); player = nil
-            if let d = currentData { queue.insert(d, at: 0) }
+            if let d = currentData { queue.insert((d, p.duration), at: 0) }
         }
         currentData = nil
         var offset: Double = 0
         while let last = history.popLast() {
             playedSeconds -= last.duration
-            queue.insert(last.data, at: 0)
+            queue.insert(last, at: 0)
             if last.duration >= back { offset = last.duration - back; break }
             back -= last.duration
         }
@@ -190,8 +200,9 @@ final class Speaker: NSObject, ObservableObject {
     }
 
     private func enqueue(_ wav: Data) {
-        queue.append(wav)
-        if let p = try? AVAudioPlayer(data: wav) { receivedSeconds += p.duration }
+        let duration = (try? AVAudioPlayer(data: wav))?.duration ?? 0
+        queue.append((wav, duration))
+        receivedSeconds += duration
         trace("chunk \(wav.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
         advanceIfIdle()
     }
@@ -199,6 +210,7 @@ final class Speaker: NSObject, ObservableObject {
     private func advanceIfIdle() {
         guard player == nil, state != .paused else { return }
         guard !queue.isEmpty else {
+            if !streamDone, playedSeconds > 0 { buffering = true; refilling = true; trace("ran dry, buffering") }
             if streamDone, isActive {
                 if let why = streamError { state = .failed("The voice stopped early. \(why)"); trace("ended early: \(why)") }
                 else { state = .finished; trace("done") }
@@ -206,16 +218,25 @@ final class Speaker: NSObject, ObservableObject {
             }
             return
         }
+        if buffering && !streamDone {
+            let queued = queue.reduce(0) { $0 + $1.duration } / VoicePrefs.speed
+            guard queued >= (refilling ? Self.refillBuffer : Self.startBuffer) else {
+                trace("buffering, \(String(format: "%.1f", queued)) s queued"); return
+            }
+        }
+        buffering = false
         loadNext(play: true)
     }
 
     /// The next chunk in the player (at `startAt`), playing or held for `resume()`.
     private func loadNext(play: Bool) {
-        let next = queue.removeFirst()
+        let next = queue.removeFirst().data
         do {
             let p = try AVAudioPlayer(data: next)
             p.isMeteringEnabled = true
             p.delegate = self
+            p.enableRate = true                           // the speed chosen in Settings → Voice
+            p.rate = Float(VoicePrefs.speed)
             p.prepareToPlay()
             if startAt > 0 { p.currentTime = min(startAt, max(0, p.duration - 0.05)); startAt = 0 }
             currentData = next

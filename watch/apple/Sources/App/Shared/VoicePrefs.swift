@@ -5,7 +5,8 @@ import Foundation
 /// request; nil is the gateway's default. They never change the gateway's defaults for others.
 /// The speaking voice applies to the Assistant; an entity keeps its own voice.
 enum VoicePrefs {
-    private static let voiceKey = "voice.tts", transcriptionKey = "voice.stt"
+    private static let voiceKey = "voice.tts", transcriptionKey = "voice.stt", speedKey = "voice.speed"
+    static let speeds: [Double] = [1, 1.15, 1.3, 1.5]
 
     static var voice: VoiceChoice? {
         get { load(voiceKey) }
@@ -14,6 +15,12 @@ enum VoicePrefs {
     static var transcription: TranscriptionChoice? {
         get { load(transcriptionKey) }
         set { save(newValue, transcriptionKey) }
+    }
+
+    /// How fast the watch plays the voice (1 is as made; the pitch stays the same).
+    static var speed: Double {
+        get { let v = UserDefaults.standard.double(forKey: speedKey); return v > 0 ? v : 1 }
+        set { UserDefaults.standard.set(newValue, forKey: speedKey) }
     }
 
     /// The voice for one reading: the chosen one for the Assistant's text, the entity's own otherwise.

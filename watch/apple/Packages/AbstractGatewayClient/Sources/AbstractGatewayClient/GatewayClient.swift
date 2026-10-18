@@ -35,6 +35,10 @@ public protocol GatewayClient: Sendable {
     func prompt(ofRun id: String) async throws -> String?
     /// `GET /api/gateway/runs?session_id=…&root_only=true&include_metrics=true`: one session's turns, newest first.
     func turns(ofSession id: String, limit: Int) async throws -> [RunSummary]
+    /// `GET /api/gateway/runs/{run}/history_bundle?include_session=true`: the session of `run` (its
+    /// newest turn) as the gateway replays it, each turn's question and answer, oldest first. One
+    /// request (~200 KB for 44 turns) instead of two per turn (~850 KB over the watch's radio).
+    func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn]
     /// `GET /api/gateway/runs/{id}`
     func run(id: String) async throws -> RunSummary
     /// `POST /api/gateway/runs/start`; returns the run id.
@@ -153,6 +157,16 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func prompt(ofRun id: String) async throws -> String? {
         try await get("api/gateway/runs/\(id)/input_data", as: RunInputData.self).inputData?.prompt
+    }
+
+    public func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn] {
+        let data = try await request("GET", "api/gateway/runs/\(runId)/history_bundle", query: [
+            .init(name: "include_session", value: "true"), .init(name: "session_turn_limit", value: String(limit)),
+            .init(name: "include_subruns", value: "false"), .init(name: "ledger_mode", value: "tail"),
+            .init(name: "ledger_max_items", value: "1"), .init(name: "detail", value: "replay"),
+        ], timeout: 90)
+        let turns = try JSONDecoder().decode(HistoryBundle.self, from: data).session?.turns ?? []
+        return turns.sorted { ($0.createdAt ?? "") < ($1.createdAt ?? "") }
     }
 
     public func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] {

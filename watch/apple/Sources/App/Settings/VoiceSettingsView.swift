@@ -12,6 +12,7 @@ struct VoiceSettingsView: View {
     @State private var failed = false
     @State private var voice = VoicePrefs.voice
     @State private var transcription = VoicePrefs.transcription
+    @State private var speed = VoicePrefs.speed
     /// The voice whose sample is being made (its row shows a spinner until it speaks).
     @State private var previewing: String?
 
@@ -46,6 +47,11 @@ struct VoiceSettingsView: View {
                 choice("Gateway default", detail: catalog?.defaultVoice, selected: voice == nil, loading: generating("default")) { pickVoice(nil) }
                 ForEach(catalog?.voices ?? []) { v in
                     choice(v.label, detail: v.gender, selected: voice == v, loading: generating(v.id)) { pickVoice(v) }
+                }
+            }
+            Section("Speed") {
+                ForEach(VoicePrefs.speeds, id: \.self) { s in
+                    choice(Self.label(speed: s), detail: nil, selected: speed == s, loading: generating("speed-\(s)")) { pickSpeed(s) }
                 }
             }
             Section {
@@ -88,6 +94,19 @@ struct VoiceSettingsView: View {
         previewing = v?.id ?? "default"
         WKInterfaceDevice.current().play(.click)
         speaker.read("Hello, I'm AbstractAssistant.", scope: .run("session_memory_\(model.askSessionId)"), client: model.client)
+    }
+
+    /// Chosen, then heard: the sample in the chosen voice at that speed.
+    private func pickSpeed(_ s: Double) {
+        speed = s
+        VoicePrefs.speed = s
+        previewing = "speed-\(s)"
+        WKInterfaceDevice.current().play(.click)
+        speaker.read("Hello, I'm AbstractAssistant.", scope: .run("session_memory_\(model.askSessionId)"), client: model.client)
+    }
+
+    static func label(speed s: Double) -> String {
+        s == 1 ? "Normal" : s.formatted(.number.precision(.fractionLength(0...2))) + "×"
     }
 
     private func pickTranscription(_ t: TranscriptionChoice?) {

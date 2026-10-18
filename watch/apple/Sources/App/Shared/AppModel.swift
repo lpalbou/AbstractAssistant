@@ -25,10 +25,10 @@ final class AppModel: ObservableObject {
     @Published var runs: [RunSummary] = []
     /// Conversations (turns grouped by session), newest activity first.
     var sessions: [SessionSummary] { SessionSummary.group(runs) }
-    /// Session titles from each session's first prompt (immutable, so cached per watch).
-    @Published private(set) var sessionTitles: [String: String] = (UserDefaults.standard.dictionary(forKey: "session.titles.v2") as? [String: String]) ?? [:]
-    /// Each session's latest question, by its newest run id (the row's second line).
+    /// Each session's latest question, by its newest run id (the row's title).
     @Published private(set) var latestPrompts: [String: String] = [:]
+    /// Latest runs whose question the gateway could not give (the row says so; nothing is made up).
+    @Published private(set) var unreadablePrompts: Set<String> = []
     /// How many turns the session list reads (Show older adds 100).
     private(set) var runsLimit = 80
     func showOlder() async { runsLimit += 100; await refresh() }
@@ -295,64 +295,50 @@ final class AppModel: ObservableObject {
         return tools.values.filter(\.offered).map(\.name).sorted()
     }
 
-    func title(of s: SessionSummary) -> String { sessionTitles[s.id] ?? "Conversation" }
+    /// A conversation's label: its latest question, as the gateway has it (a watch conversation runs
+    /// for days; its first question says little about it). Nil until read: never a made-up title.
+    func title(of s: SessionSummary) -> String? { latestPrompts[s.latest.runId] }
 
-    /// Titles the sessions that have none yet from their oldest listed prompt, and reads each
-    /// session's latest question (the row shows both: a long session drifts from its first topic).
+    /// Reads each listed conversation's latest question (a new turn has a new run id: read again).
     func loadTitles() async {
-        let latestMissing = sessions.filter { $0.turns > 1 && latestPrompts[$0.latest.runId] == nil }.prefix(30)
-        if !latestMissing.isEmpty {
-            let latest: [(String, String)] = await withTaskGroup(of: (String, String)?.self) { group in
-                for s in latestMissing {
-                    group.addTask { [client] in
-                        guard let p = try? await client.prompt(ofRun: s.latest.runId), !p.isEmpty else { return nil }
-                        return (s.latest.runId, SessionSummary.title(fromPrompt: p))
-                    }
-                }
-                var out: [(String, String)] = []
-                for await x in group { if let x { out.append(x) } }
-                return out
-            }
-            for (k, v) in latest { latestPrompts[k] = v }
-        }
-        let missing = sessions.filter { sessionTitles[$0.id] == nil }.prefix(30)
+        let missing = sessions.filter { latestPrompts[$0.latest.runId] == nil }.prefix(40)
         guard !missing.isEmpty else { return }
-        let found: [(String, String)] = await withTaskGroup(of: (String, String)?.self) { group in
+        let found: [(String, String?)] = await withTaskGroup(of: (String, String?).self) { group in
             for s in missing {
                 group.addTask { [client] in
-                    guard let p = try? await client.prompt(ofRun: s.firstRunId), !p.isEmpty else { return nil }
-                    return (s.id, SessionSummary.title(fromPrompt: p))
+                    guard let p = try? await client.prompt(ofRun: s.latest.runId), !p.isEmpty else { return (s.latest.runId, nil) }
+                    return (s.latest.runId, SessionSummary.title(fromPrompt: p))
                 }
             }
-            var out: [(String, String)] = []
-            for await x in group { if let x { out.append(x) } }
-            return out
-        }
-        for (k, v) in found { sessionTitles[k] = v }
-        UserDefaults.standard.set(sessionTitles, forKey: "session.titles.v2")
-    }
-
-    /// A conversation's exchanges, oldest first: its newest `limit` turns, read in parallel (a
-    /// listing row carries neither the prompt nor the output), by creation time.
-    func sessionExchanges(_ id: String, limit: Int = 10) async -> [Exchange] {
-        guard let rows = try? await client.turns(ofSession: id, limit: limit) else { return [] }
-        let newest = rows.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }.prefix(limit)
-        let client = self.client
-        let loaded: [(String, Exchange)] = await withTaskGroup(of: (String, Exchange).self) { group in
-            for r in newest {
-                group.addTask {
-                    async let full = try? client.run(id: r.runId)
-                    async let p = try? client.prompt(ofRun: r.runId)
-                    let (run, prompt) = await (full, p)
-                    return (r.createdAt ?? "", Exchange(id: r.runId, prompt: (prompt ?? nil) ?? "", answer: run?.outputText ?? "", scope: .run(r.runId)))
-                }
-            }
-            var out: [(String, Exchange)] = []
+            var out: [(String, String?)] = []
             for await x in group { out.append(x) }
             return out
         }
-        return loaded.sorted { $0.0 < $1.0 }.map(\.1).filter { !$0.prompt.isEmpty || !$0.answer.isEmpty }
+        for (k, v) in found {
+            if let v { latestPrompts[k] = v; unreadablePrompts.remove(k) } else { unreadablePrompts.insert(k) }
+        }
     }
+
+    #if DEBUG
+    /// Device probe (`--test-history <session id>`): the orb page's history read, timed (watch console).
+    func probeHistory(_ id: String) async {
+        for attempt in 1...3 {
+            let t0 = Date()
+            guard let rows = try? await client.turns(ofSession: id, limit: 1), let latest = rows.first else { print("history: listing failed"); return }
+            do {
+                let turns = try await client.sessionHistory(latestRun: latest.runId, limit: 1000)
+                print("history \(attempt): \(turns.count) turns in \(String(format: "%.1f", Date().timeIntervalSince(t0))) s, oldest «\(turns.first?.prompt?.prefix(50) ?? "")»")
+            } catch {
+                print("history \(attempt): failed after \(String(format: "%.1f", Date().timeIntervalSince(t0))) s: \(error)")
+            }
+        }
+        print("history probe done")
+    }
+
+    /// Test hooks that send questions use a conversation of their own, never kept: a test must not
+    /// write into the person's conversation (it did once, 2026-10-17, and became its "title").
+    func useTestSession() { askSessionId = "watch-test-" + UUID().uuidString.lowercased() }
+    #endif
 
     /// A session's last exchange: its newest turn's question, answer and state (two requests together).
     func lastExchange(of s: SessionSummary) async -> (prompt: String, answer: String, runId: String, status: String) {
@@ -371,7 +357,7 @@ final class AppModel: ObservableObject {
     /// "Continue": Ask talks in this session from now on, opening on its last exchange (`runId`:
     /// the exchange shown, when the caller read a fresher one than the listing's).
     func resume(_ s: SessionSummary, lastPrompt: String, lastAnswer: String, runId: String? = nil, status: String? = nil) {
-        resuming = Resuming(sessionId: s.id, title: title(of: s), prompt: lastPrompt, answer: lastAnswer,
+        resuming = Resuming(sessionId: s.id, title: title(of: s) ?? "", prompt: lastPrompt, answer: lastAnswer,
                             runId: runId ?? s.latest.runId, status: status ?? s.latest.status)
         askSessionId = s.id
         UserDefaults.standard.set(askSessionId, forKey: "ask.session")
@@ -511,9 +497,28 @@ struct LaunchOptions {
     func initialPath(_ model: AppModel) -> [Route] {
         model.testAction = testAction
         model.testAsk = testAsk
+        #if DEBUG
+        if testAsk != nil { model.useTestSession() }   // before the orb screen opens on it
+        #endif
         model.testRead = testRead
         model.testOpen = testOpen.flatMap(URL.init(string:))
         model.testListen = testListen
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        // `--test-session <id>`: opens that conversation as a tap on its row does (read-only).
+        if let i = args.firstIndex(of: "--test-session"), i + 1 < args.count {
+            let sid = args[i + 1]
+            Task {
+                guard let rows = try? await model.client.turns(ofSession: sid, limit: 100),
+                      let s = SessionSummary.group(rows).first else { print("test-session: not found"); return }
+                await model.continueSession(s)
+            }
+        }
+        if let i = args.firstIndex(of: "--test-history"), i + 1 < args.count {
+            let sid = args[i + 1]
+            Task { await model.probeHistory(sid) }
+        }
+        #endif
         if testListen { return [.ask(.idle)] }
         if !useMock, testAsk != nil { return [.ask(.idle)] }
         if !useMock, screen == "approval" || screen == "askuser" {

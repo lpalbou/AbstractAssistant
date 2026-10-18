@@ -38,3 +38,21 @@ import Testing
     let input = try JSONDecoder().decode(RunInputData.self, from: Data(#"{"run_id":"r","input_data":{"prompt":"What is AbstractFramework?","use_session_history":true}}"#.utf8))
     #expect(input.inputData?.prompt == "What is AbstractFramework?")
 }
+
+/// The live `history_bundle` shape (public gateway, 2026-10-17): `session.turns` beside many other
+/// keys; a turn's answer can be null, and keys the watch does not read are ignored.
+@Test func sessionHistoryReadsTheBundlesTurns() throws {
+    let json = """
+    {"version": 1, "run": {"run_id": "r3"}, "ledgers": {}, "session": {"session_id": "s", "turns": [
+      {"run_id": "r2", "created_at": "2026-10-17T17:45:29Z", "prompt": "Second", "answer": null, "status": "running",
+       "answer_meta": {"tools": [1, 2]}, "stats": {"tokens": 3}},
+      {"run_id": "r1", "created_at": "2026-10-17T01:14:06Z", "prompt": "In one sentence: what is the tallest mountain on Earth?",
+       "answer": "Mount Everest.", "status": "completed", "attachments": []}
+    ]}, "warnings": []}
+    """
+    let turns = try JSONDecoder().decode(HistoryBundle.self, from: Data(json.utf8)).session?.turns ?? []
+    #expect(turns.map(\.runId) == ["r2", "r1"])
+    #expect(turns[0].answer == nil && turns[0].status == "running")
+    #expect(turns[1].prompt == "In one sentence: what is the tallest mountain on Earth?")
+    #expect(turns[1].answer == "Mount Everest.")
+}

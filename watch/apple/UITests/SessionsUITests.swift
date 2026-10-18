@@ -7,13 +7,16 @@ final class SessionsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "sessions"]
         app.launch()
-        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Compare overall survival")).firstMatch
+        // A row is titled by its latest question, as the gateway has it (never its first, never made up).
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Now split it by age group")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Compare overall survival")).firstMatch.exists,
+                       "a row is titled by an older question:\n\(app.debugDescription)")
         row.tap()
         // The orb screen opens in that conversation: its last question shows (and, once answered,
         // its title in the status line; a turn still running says what it does instead).
         // (The orb is working on that turn here: "who answers" is hidden while it works.)
-        let question = app.staticTexts["Now split it by age group"].firstMatch   // its last question (the title is its first)
+        let question = app.staticTexts["Now split it by age group"].firstMatch   // its last question
         XCTAssertTrue(question.waitForExistence(timeout: 15), "not the conversation tapped:\n\(app.debugDescription)")
         XCTAssertFalse(app.buttons["New conversation"].exists)
         if let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
@@ -82,13 +85,32 @@ final class OrbHistoryUITests: XCTestCase {
         XCTAssertEqual(cards.count, 7, "all 7 earlier messages after Show older")
         XCTAssertFalse(app.buttons["Show older"].exists, "nothing older left")
         // A card opens its message, with Read aloud.
-        cards.element(boundBy: 2).tap()
-        XCTAssertTrue(app.buttons["Read aloud"].waitForExistence(timeout: 10), "the message page has no Read aloud")
+        // Where a finger would tap it: below the top row (which takes the taps in its strip) and on
+        // screen. Found by its question (a lazy list's n-th card changes as cards scroll in and out).
+        let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Did the assay QC pass, 3 nights ago")).firstMatch
+        func drag(_ dy: CGFloat) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5 + dy)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        for _ in 0..<14 {
+            if card.exists && card.frame.minY >= 70 && card.frame.maxY <= app.frame.maxY { break }
+            if card.exists && card.frame.minY >= 70 { drag(-0.25) } else { drag(0.25) }   // below: up; above or not built: down
+            usleep(300_000)
+        }
+        print("card frame \(card.frame) in \(app.frame)")
+        card.tap()
+        XCTAssertTrue(app.buttons["Read aloud"].waitForExistence(timeout: 10), "the message page has no Read aloud (card at \(card.frame))")
         app.buttons["Back"].firstMatch.tap()
         // The voice button reads the last message.
         let voice = app.buttons["voice.button"].firstMatch
         XCTAssertTrue(voice.waitForExistence(timeout: 10) && voice.label == "Play", app.debugDescription)
         voice.tap()
-        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 15), "the last message is not read")
+        var labels: [String] = []
+        for _ in 0..<30 where voice.label != "Pause" { labels.append(voice.label + "/" + ((voice.value as? String) ?? "")); usleep(500_000) }
+        if let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("h3-read.png"))
+        }
+        XCTAssertEqual(voice.label, "Pause", "the last message is not read; labels \(labels)")
     }
 }

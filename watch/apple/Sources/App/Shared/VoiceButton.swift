@@ -4,7 +4,8 @@ import WatchKit
 /// The one voice control beside Back, sharing the orb's state (the same `Speaker`): a tap plays the
 /// selected message, or pauses / resumes the one playing; holding it rewinds, about 4 s per second
 /// held at first and faster the longer it is held (the voice waits while held, then goes on from
-/// there). The screen hides it while there is nothing to read, or while the orb listens or works.
+/// there). While the voice is being made it shows a spinner and a tap waits with it. The screen
+/// hides it while there is nothing to read, or while the orb listens or works.
 struct VoiceButton: View {
     @ObservedObject var speaker: Speaker
     /// The voice playing or paused is the selected message's (else a tap starts the selection).
@@ -12,49 +13,85 @@ struct VoiceButton: View {
     /// Reads the selected message from its start.
     let play: () -> Void
 
-    @State private var pressed = false
+    /// The finger is down (the dip). Reset by SwiftUI when the touch ends AND when the system takes
+    /// it (a banner, the top-edge swipe, wrist down), so the button can never stay pressed. A quick
+    /// tap may set and reset it within one frame, unseen: the press itself starts from the gesture.
+    @GestureState private var touching = false
+    /// The press in progress (a token: the gesture's end and its reset may arrive in either order).
+    @State private var press: Int?
+    @State private var presses = 0
+    /// A press whose rewind was ended by the system taking the touch: its late release is no tap.
+    @State private var cancelledScrub: Int?
     @State private var scrubbing = false
     @State private var wasPlaying = false
     @State private var scrub: Task<Void, Never>?
+    /// A firm tap on a watch can last half a second: only a longer press is a hold.
+    private static let holdDelay = Duration.milliseconds(650)
 
     private var playing: Bool { isCurrent && speaker.isActive }
+    private var preparing: Bool { isCurrent && speaker.state == .preparing }
+    /// Only a voice playing or paused can go back (a finished one replays with a tap).
+    private var canScrub: Bool { isCurrent && (speaker.state == .speaking || speaker.isPaused) }
 
     var body: some View {
         GlassIcon(symbol: scrubbing ? "backward.fill" : playing ? "pause.fill" : "play.fill")
-            .scaleEffect(pressed ? 0.86 : 1).opacity(pressed ? 0.7 : 1)
-            .animation(.easeOut(duration: 0.12), value: pressed)
-            .contentShape(Circle())
+            .overlay {
+                if preparing && !scrubbing {
+                    Circle().fill(Color(red: 28 / 255, green: 28 / 255, blue: 38 / 255))
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .scaleEffect(touching ? 0.86 : 1).opacity(touching ? 0.7 : 1)
+            .animation(.easeOut(duration: 0.12), value: touching)
+            // The touch area reaches past the drawn circle (a fingertip is wider than 35 pt), above,
+            // below and to the right (the icon beside it is 6 pt to the left).
+            .rowReach(trailing: 9)
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { _ in if !pressed { began() } }
-                .onEnded { _ in ended() })
+                .updating($touching) { _, down, _ in down = true }
+                .onChanged { _ in if press == nil { pressed() } }
+                .onEnded { _ in released() })
+            .onChange(of: touching) { _, down in if !down { touchGone() } }
             .accessibilityElement()
-            .accessibilityLabel(playing ? "Pause" : "Play")
+            .accessibilityLabel(preparing ? "Making the voice" : playing ? "Pause" : "Play")
+            .accessibilityValue(debugValue)
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("voice.button")
             .accessibilityAction { tap() }
             .accessibilityAction(named: "Back 10 seconds") { speaker.rewindAndPlay(10) }
-            .onDisappear { scrub?.cancel(); scrub = nil }
+            .onDisappear { cancelPress() }
+    }
+
+    /// For the UI tests: whether a press or a rewind is still under way.
+    private var debugValue: String {
+        #if DEBUG
+        scrubbing ? "rewinding" : press != nil ? "down" : ""
+        #else
+        ""
+        #endif
     }
 
     private func tap() {
         if !isCurrent { play() }
+        else if speaker.state == .preparing { }           // the voice is on its way: a second tap waits too
         else if speaker.isActive { speaker.pause() }
         else if speaker.isPaused { speaker.resume() }
         else { play() }
         WKInterfaceDevice.current().play(.click)
     }
 
-    private func began() {
-        pressed = true
+    private func pressed() {
+        presses += 1
+        let mine = presses
+        press = mine
+        scrub?.cancel()
         scrub = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(450))
-            // A hold, not a tap: rewind while held (only a message already heard can go back).
-            guard !Task.isCancelled, isCurrent, speaker.isActive || speaker.isPaused || speaker.state == .finished else { return }
+            try? await Task.sleep(for: Self.holdDelay)
+            guard !Task.isCancelled, press == mine, canScrub else { return }
             scrubbing = true
             wasPlaying = speaker.isActive
             if speaker.isActive { speaker.pause() }
             var step = 1.0, ticks = 0
-            while !Task.isCancelled {
+            while !Task.isCancelled, press == mine {
                 speaker.rewind(step)
                 ticks += 1
                 if ticks % 4 == 0 { WKInterfaceDevice.current().play(.click) }
@@ -64,14 +101,31 @@ struct VoiceButton: View {
         }
     }
 
-    private func ended() {
+    /// The finger lifted: a tap, or the end of a hold (the voice goes on from the earlier point).
+    private func released() {
+        let mine = presses
+        press = nil
+        if endScrub(resumeIfPaused: true) || cancelledScrub == mine { return }
+        tap()
+    }
+
+    /// The touch is gone; without a release (the system took it) nothing is tapped.
+    private func touchGone() {
+        guard let mine = press else { return }
+        Task { @MainActor in if press == mine { cancelPress() } }
+    }
+
+    private func cancelPress() {
+        if scrubbing { cancelledScrub = press }
+        press = nil
+        endScrub(resumeIfPaused: false)
+    }
+
+    @discardableResult private func endScrub(resumeIfPaused: Bool) -> Bool {
         scrub?.cancel(); scrub = nil
-        pressed = false
-        if scrubbing {
-            scrubbing = false
-            if wasPlaying || speaker.isPaused { speaker.resume() }   // go on from the earlier point
-        } else {
-            tap()
-        }
+        guard scrubbing else { return false }
+        scrubbing = false
+        if wasPlaying || (resumeIfPaused && speaker.isPaused) { speaker.resume() }
+        return true
     }
 }

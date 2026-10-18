@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  # The newest installed Xcode of this major version (the xcode-27 runner image).
+  # The newest released (not beta) Xcode of this major version (the xcode-27 runner image).
   XCODE_MAJOR: "27"
   PROJECT_DIR: watch/apple
   SCHEME: AbstractAssistantWatch
@@ -33,9 +33,10 @@ jobs:
 
       - name: Select Xcode ${{ env.XCODE_MAJOR }}
         run: |
-          app=$(ls -d /Applications/Xcode_${XCODE_MAJOR}.*.app 2>/dev/null | sort -V | tail -1)
+          # A released Xcode only: App Store Connect refuses builds made with a beta.
+          app=$(ls -d /Applications/Xcode_${XCODE_MAJOR}.*.app 2>/dev/null | grep -vi beta | sort -V | tail -1)
           if [ -z "$app" ]; then
-            echo "::error::No Xcode ${XCODE_MAJOR}.x on this runner image. Installed:"
+            echo "::error::No released Xcode ${XCODE_MAJOR}.x on this runner image. Installed:"
             ls -d /Applications/Xcode*.app
             exit 1
           fi
@@ -109,9 +110,10 @@ jobs:
 
       - name: Select Xcode ${{ env.XCODE_MAJOR }}
         run: |
-          app=$(ls -d /Applications/Xcode_${XCODE_MAJOR}.*.app 2>/dev/null | sort -V | tail -1)
+          # A released Xcode only: App Store Connect refuses builds made with a beta.
+          app=$(ls -d /Applications/Xcode_${XCODE_MAJOR}.*.app 2>/dev/null | grep -vi beta | sort -V | tail -1)
           if [ -z "$app" ]; then
-            echo "::error::No Xcode ${XCODE_MAJOR}.x on this runner image. Installed:"
+            echo "::error::No released Xcode ${XCODE_MAJOR}.x on this runner image. Installed:"
             ls -d /Applications/Xcode*.app
             exit 1
           fi
@@ -147,23 +149,64 @@ jobs:
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
           chmod 600 "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
 
-      - name: Archive, signed for distribution
-        working-directory: ${{ env.PROJECT_DIR }}
+      - name: Apple accepts the API key
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          # Signing reports a refused key only as "Communication with Apple failed (401)" and
+          # "No profiles": ask the App Store Connect API directly and say which part is wrong.
+          key="$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+          if ! head -1 "$key" | grep -q -- "-----BEGIN PRIVATE KEY-----"; then
+            echo "::error::ASC_KEY_P8 must be the whole .p8 text, from -----BEGIN PRIVATE KEY----- to -----END PRIVATE KEY-----"
+            exit 1
+          fi
+          python3 -m venv "$RUNNER_TEMP/jwt" && "$RUNNER_TEMP/jwt/bin/pip" install -q "pyjwt[crypto]==2.10.1"
+          "$RUNNER_TEMP/jwt/bin/python" - "$key" <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+          import jwt
+          kid, iss = os.environ["ASC_KEY_ID"].strip(), os.environ["ASC_ISSUER_ID"].strip()
+          now = int(time.time())
+          token = jwt.encode({"iss": iss, "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
+                             open(sys.argv[1]).read(), algorithm="ES256", headers={"kid": kid, "typ": "JWT"})
+          req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/bundleIds?limit=200",
+                                       headers={"Authorization": "Bearer " + token})
+          try:
+              ids = [b["attributes"]["identifier"] for b in json.load(urllib.request.urlopen(req, timeout=60))["data"]]
+          except urllib.error.HTTPError as e:
+              if e.code == 401:
+                  print("::error::Apple refused the key (401): ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8 do not "
+                        "belong together, or the key was revoked. The Issuer ID is shown above the Team Keys "
+                        "list in App Store Connect → Users and Access → Integrations.")
+              elif e.code == 403:
+                  print("::error::The key has no access to certificates and profiles (403): it needs the Admin role.")
+              else:
+                  print(f"::error::App Store Connect answered {e.code}: {e.read()[:300]!r}")
+              sys.exit(1)
+          print(f"Key accepted; {len(ids)} bundle ids on the team.")
+          for bid in ("ai.abstractframework.assistant", "ai.abstractframework.assistant.watch"):
+              print(f"  {bid}: {'registered' if bid in ids else 'not registered yet (signing registers it)'}")
+          PY
+
+      - name: Archive (signed at upload)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          # Unsigned: a fresh runner has no development certificate, which automatic signing wants
+          # at archive time ("No profiles … App Development"). The upload step signs both apps
+          # with Apple's cloud-managed distribution certificate; checked locally 2026-10-17: same
+          # identity and entitlements as an archive signed on a Mac. An archive made without
+          # signing carries no .entitlements file, so a target that declares one must sign here.
+          if grep -qi "entitlements" project.yml; then
+            echo "::error::project.yml now declares entitlements: an unsigned archive would drop them. Sign the archive (development certificate as a secret) before uploading."
+            exit 1
+          fi
           # The Info.plists read $(MARKETING_VERSION) / $(CURRENT_PROJECT_VERSION) (project.yml).
           xcodebuild archive -project AbstractAssistantWatch.xcodeproj -scheme AbstractAssistant \
             -destination "generic/platform=iOS" -configuration Release \
             -archivePath "$RUNNER_TEMP/AbstractAssistant.xcarchive" \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
-            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGNING_ALLOWED=NO
 
       - name: The archive carries this version and build number
         run: |

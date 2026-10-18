@@ -209,9 +209,12 @@ public actor MockGatewayClient: GatewayClient {
     public nonisolated func speech(text: String, scope: SpeechScope, voice: VoiceChoice?) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             Task {
-                try? await Task.sleep(for: .milliseconds(600))
-                continuation.yield(SyntheticSpeech.wav(seconds: 2.4, seed: 1))
-                continuation.yield(SyntheticSpeech.wav(seconds: 2.0, seed: 2))
+                // The public gateway's timeline (measured 2026-10-17): a first piece of two words
+                // (1.3 s of audio) after about 1 s, the rest of the sentence about 3.4 s later.
+                try? await Task.sleep(for: .milliseconds(900))
+                continuation.yield(SyntheticSpeech.wav(seconds: 1.3, seed: 1))
+                try? await Task.sleep(for: .milliseconds(3400))
+                continuation.yield(SyntheticSpeech.wav(seconds: 8.0, seed: 2))
                 continuation.finish()
             }
         }
@@ -226,6 +229,16 @@ public actor MockGatewayClient: GatewayClient {
         return ["94a436e1": "Clean the build folder and rebuild the app", "7c1e02aa": "Now split it by age group",
          "r1a9e0b2": "Compare overall survival by treatment arm in the ADTTE I sent you",
          "3e9a10c4": "Did the nightly assay QC pass?", "d0c5a971": "Summarise the open issues in the docs"][id]
+    }
+
+    public func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn] {
+        guard let session = Self.sampleRuns.first(where: { $0.runId == runId })?.sessionId else { return [] }
+        var out: [SessionTurn] = []
+        for r in Self.sampleRuns where r.sessionId == session {
+            out.append(SessionTurn(runId: r.runId, createdAt: r.createdAt, prompt: try await prompt(ofRun: r.runId),
+                                   answer: r.outputText, status: r.status))
+        }
+        return Array(out.sorted { ($0.createdAt ?? "") < ($1.createdAt ?? "") }.suffix(limit))
     }
 
     public func turns(ofSession id: String, limit: Int) async throws -> [RunSummary] {
