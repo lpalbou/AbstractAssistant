@@ -36,18 +36,13 @@ struct ChatScreen: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
-                        if let message = store.error { ErrorBanner(message: message, dismiss: store.dismissError) }
+                        if let message = store.error, message != store.activityFailure, store.activityIssue?.contains(message) != true { ErrorBanner(message: message, dismiss: store.dismissError) }
                         if let message = attachments.error { ErrorBanner(message: message, dismiss: { attachments.error = nil }) }
                         if let message = voice.error { ErrorBanner(message: message, dismiss: { voice.error = nil }) }
                         if store.messages.isEmpty { emptyState }
                         ForEach(store.messages) { message in messageView(message) }
-                        if store.phase != .ready || store.isStopping { workingState }
+                        if store.activityState != .idle || store.phase != .ready || store.isStopping { RunActivityPanel { showWait = $0 } }
                         else if store.isRestoring || store.isOpening { ProgressView("Opening your conversation…").padding(.vertical, 28).frame(maxWidth: .infinity) }
-                        if let wait = conversationWait {
-                            Button { showWait = wait } label: {
-                                PhoneCard { HStack { Image(systemName: "hand.raised").foregroundStyle(PhoneTheme.amber); Text("Your assistant needs you").fontWeight(.medium); Spacer(); Image(systemName: "arrow.up.right") } }
-                            }.buttonStyle(.plain)
-                        }
                         Color.clear.frame(height: 1).id("bottom")
                     }.padding(22)
                 }
@@ -172,19 +167,6 @@ struct ChatScreen: View {
                     Button { typing = false; composing = false; cancelVoice(); showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
                 }
             }
-        }
-    }
-    private var conversationWait: Wait? {
-        store.waits.first { wait in
-            wait.runId == store.activeRunID || wait.runId == store.activeEntityRunID ||
-                store.runs.contains { $0.runId == wait.runId && $0.sessionId == store.sessionID }
-        }
-    }
-    private var workingState: some View {
-        HStack(spacing: 12) {
-            ProgressView().tint(PhoneTheme.mint)
-            Text(store.isStopping ? "Stopping…" : store.phase == .waiting ? "Waiting for your reply" : store.phase == .sending ? "Sending to your gateway…" : "Your assistant is working…").font(.footnote).foregroundStyle(PhoneTheme.secondary)
-            Spacer()
         }
     }
     private var composer: some View {

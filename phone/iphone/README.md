@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.5 · iOS 26+**
+**Developer preview · 0.6.6 · iOS 26+**
 
 ## Three small spaces
 
@@ -15,14 +15,20 @@ AbstractGateway, with the conversation at the center and the controls you need c
   preserving your draft. While listening, only a small Listening label appears above the orb.
   The orb’s ribbons react to microphone and read-aloud playback levels. While the assistant
   works, it becomes an animated square: tap it to stop the response. Progress appears once
-  in the conversation; the orb returns when the gateway confirms the run has ended.
+  in a collapsible activity panel. It shows model cycles, tool calls, public results and
+  failures. When a tool needs approval, **Approval needed → Review tools** appears directly
+  in the conversation. Connection loss is reported separately from run failure. The orb
+  returns when the gateway confirms the run has ended.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
   Voice sends separately from your typed draft. The **+** button serves text and voice.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
-  action and its complete arguments. Allow once or deny; decisions already made on another
-  device cannot resume a later action. There is no blanket tool trust switch.
+  action and its complete arguments. **Approve** allows the pending request; **Deny** refuses
+  it. For the open conversation, **Approve all** also switches its currently enabled tools
+  to Auto. Off, unavailable and newly added tools remain outside that grant. Change the
+  choices in **Tools** to revoke it. Questions still require an answer. Decisions already
+  made on another device cannot resume a different wait.
 - **Automations.** See your routines, their latest answers and five earlier runs. Run an
   active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: describe the task, choose a workflow and
   interval or daily time, and decide whether it builds on earlier runs and asks before tools.

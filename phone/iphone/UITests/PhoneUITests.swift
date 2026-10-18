@@ -1,6 +1,48 @@
 import XCTest
 
 final class PhoneUITests: XCTestCase {
+    @MainActor func testLiveActivityExpandsAndShowsToolResults() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=running", "--screen", "conversation"]; app.launch()
+        let toggle = app.buttons["activity.toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Your assistant is working…"].exists)
+        capture(app, "Activity — compact live view")
+        toggle.tap()
+        XCTAssertTrue(app.staticTexts["read file, Done"].exists || app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'read file'")).firstMatch.exists || app.buttons.containing(NSPredicate(format: "label CONTAINS 'read file'")).firstMatch.exists)
+        let result = app.buttons.containing(NSPredicate(format: "label CONTAINS 'read file'")).firstMatch
+        if result.exists { result.tap() }
+        XCTAssertTrue(app.staticTexts["Operating system: Linux. Architecture: arm64."].waitForExistence(timeout: 5))
+        capture(app, "Activity — tool result expanded")
+        toggle.tap()
+        XCTAssertFalse(app.staticTexts["Operating system: Linux. Architecture: arm64."].exists)
+    }
+    @MainActor func testChildApprovalIsVisibleInConversationAndOffersThreeChoices() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=approval", "--screen", "conversation"]; app.launch()
+        XCTAssertTrue(app.buttons["activity.review"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Approval needed"].exists)
+        XCTAssertFalse(app.staticTexts["Your assistant is working…"].exists)
+        capture(app, "Activity — approval needs you")
+        app.buttons["activity.review"].tap()
+        XCTAssertTrue(app.buttons["Approve"].waitForExistence(timeout: 5))
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["Deny"].exists)
+        XCTAssertTrue(app.buttons["approval.all"].exists)
+        capture(app, "Approval — three choices and conversation scope")
+        app.buttons["approval.all"].tap()
+        XCTAssertTrue(app.staticTexts["Activity complete"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["activity.review"].exists)
+        capture(app, "Activity — completed after approval")
+    }
+    @MainActor func testFailedRunAndLostConnectionHaveDistinctFeedback() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=failure", "--screen", "conversation"]; app.launch()
+        XCTAssertTrue(app.staticTexts["Couldn’t finish"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["activity.failure"].exists)
+        capture(app, "Activity — failure preserved")
+        app.terminate(); app.launchArguments = ["--demo", "--ui-test", "--activity=offline", "--screen", "conversation"]; app.launch()
+        XCTAssertTrue(app.buttons["Reconnect activity"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Couldn’t finish"].exists)
+        capture(app, "Activity — connection lost")
+    }
     @MainActor func testConversationAndNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "--ui-test"]
@@ -34,7 +76,7 @@ final class PhoneUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Waiting for your assistant…"].exists)
         XCTAssertFalse(app.buttons["Stop"].exists)
         XCTAssertFalse(app.staticTexts["Your assistant needs you"].exists) // Unrelated Inbox waits stay in Inbox.
-        XCTAssertEqual(app.staticTexts.matching(identifier: "Your assistant is working…").count, 1)
+        XCTAssertTrue(app.buttons["activity.toggle"].exists)
         capture(app, "Working orb — single progress indicator")
         orb.tap()
         let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@ AND enabled == true", "Tap to speak"), object: orb)
@@ -50,7 +92,7 @@ final class PhoneUITests: XCTestCase {
         app.launch()
         let permission = app.buttons.containing(.staticText, identifier: "Permission to proceed").firstMatch
         XCTAssertTrue(permission.waitForExistence(timeout: 10)); permission.tap()
-        XCTAssertTrue(app.buttons["Allow once"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Approve"].waitForExistence(timeout: 10))
         capture(app, "Approval")
         app.buttons["Deny"].tap()
         XCTAssertTrue(app.staticTexts["RECENT ACTIVITY"].waitForExistence(timeout: 10))

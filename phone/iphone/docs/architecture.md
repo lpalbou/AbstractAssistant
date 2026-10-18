@@ -217,3 +217,37 @@ conversation. The search toolbar keeps Close and Save reachable while filtering.
 For older entity inventories, exact-name discovery metadata can supplement a missing
 category/risk classification. The entity’s availability and approval defaults remain its
 own. Unknown categories remain Other. The phone adds no category-wide approval shortcut.
+
+
+## Live conversation activity
+
+`RunActivity` projects durable ledger records into model cycles, tool calls, public results,
+waits and failures. Model messages, prompts and reasoning deltas are excluded. Runtime call
+identities pair tool starts, approval resumes and results; cursors count consumed records
+independently for each run. Retained detail is bounded to 250 rows and 4,000 characters per
+result with visible truncation labels; counters include earlier events.
+
+`AssistantStore` keeps the parent run as the owner of cancellation and final replies while
+following its descendants for progress and person waits. Child sessions need not share the
+parent's session ID. Listing rows are hydrated through run detail before presenting a
+question or approval. The existing ledger SSE route provides live events, with polling on
+404/405. Four simultaneous streams leave HTTP capacity for status reads; additional children
+are polled. Reconnect resumes at the last applied cursor. Root completion drains all known
+child ledgers, including children no longer referenced by an older gateway. Traversal stops
+at 64 runs or depth 16 with an explicit coverage notice. Entity visits use their existing
+scoped ledger endpoint, polling while the visit is active. Their wrapped records are
+validated and adapted to the same projection.
+
+Connection problems remain separate from run failures. Terminal failures and the activity
+panel remain visible after refresh. Reopening a completed conversation loads its latest
+turn's activity without reading conversation history aloud. Backgrounding cancels streams;
+account and conversation changes invalidate pending responses.
+
+**Approve** and **Deny** send the existing exact-key decision. **Approve all** is scoped to
+the open conversation's currently enabled tool names, stored with its account, responder
+and session preferences. It sends the same ordinary approval for the current batch and
+uses named Auto policies for future turns. For an already running workflow, the client
+answers later qualifying approval waits only while connected and active. Every tool in a
+batch must still be available, covered by the grant and set to Auto; questions never qualify.
+Manually saving Tools revokes the grant. The action is unavailable for unrelated Inbox
+items, preventing a decision there from changing the open conversation's permissions.

@@ -5,6 +5,26 @@ import AbstractGatewayClient
 @MainActor @Observable
 public final class AssistantStore {
     public enum Phase: String { case ready, sending, working, waiting }
+    public enum ActivityState: String { case idle, connecting, running, waiting, completed, failed, cancelled }
+    public private(set) var activity = RunActivity()
+    public private(set) var activityRootID: String?
+    public private(set) var activityState: ActivityState = .idle
+    public private(set) var activityFailure: String?
+    public private(set) var activityIssue: String?
+    public private(set) var activityCheckedAt: Date?
+    public private(set) var activitySummary: String?
+    public var conversationWait: Wait? { activityWaits.first }
+    @ObservationIgnored private var activityWaits: [Wait] = []
+    @ObservationIgnored private var autoAnsweredWaits: Set<String> = []
+    @ObservationIgnored private var activityWaitSteps: [String: String] = [:]
+    @ObservationIgnored private var activityRunIDs: Set<String> = []
+    @ObservationIgnored private var activityCursors: [String: Int] = [:]
+    @ObservationIgnored private var activityStreams: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var activityFinishedStreams: Set<String> = []
+    @ObservationIgnored private var activityEpoch = UUID()
+    @ObservationIgnored private var activityProblems: [String: String] = [:]
+    @ObservationIgnored private var followingID: UUID?
+    @ObservationIgnored private var quietActivityRootID: String?
     public var preferences = PhonePreferences()
     public private(set) var contextID = UUID()
     public private(set) var completedReply: ConversationMessage?
@@ -31,6 +51,7 @@ public final class AssistantStore {
     public private(set) var isStopping = false
     public var canStop: Bool { client != nil && (phase != .ready || isStopping) }
     public private(set) var deciding: Set<String> = []
+    public private(set) var approvingAll: Set<String> = []
     public private(set) var automationBusy: Set<String> = []
     public private(set) var titles: [String: String] = [:]
     public var isDemo: Bool { client?.isMock == true }
@@ -80,6 +101,7 @@ public final class AssistantStore {
         if foreground { startPolling() }
     }
     public func disconnect() {
+        resetActivity()
         contextID = UUID()
         generation += 1; conversationGeneration += 1
         poll?.cancel(); poll = nil; turn?.cancel(); turn = nil; stopping?.cancel(); stopping = nil
@@ -88,21 +110,21 @@ public final class AssistantStore {
         titles = [:]; entityChatIDs = [:]; entityVisitIDs = [:]; toolSelections = [:]; measuredMessages = []; activeEntityRunID = nil; activeRunID = nil; selectedEntity = nil; restorationID = nil
         completedReply = nil; quietEntityRestoreID = nil
         phase = .ready; error = nil; automationsError = nil; entitiesError = nil; loadingEntities = false; lastRefresh = nil; isRefreshing = false; isOpening = false
-        deciding = []; automationBusy = []; sessionID = "iphone-" + UUID().uuidString.lowercased()
+        deciding = []; approvingAll = []; automationBusy = []; sessionID = "iphone-" + UUID().uuidString.lowercased()
     }
     public func setForeground(_ value: Bool) {
         foreground = value
-        if value { startPolling() } else { poll?.cancel(); poll = nil }
+        if value { startPolling() } else { poll?.cancel(); poll = nil; pauseActivityStreams() }
     }
     private func startPolling() {
         guard poll == nil, client != nil else { return }
         poll = Task { [weak self] in
             var ticks = 0
             while !Task.isCancelled, let self, self.client != nil {
-                if ticks % 5 == 0 { await self.refresh() }
-                await self.followActiveRun()
+                if self.activeEntityRunID != nil || ticks % 3 == 0 { await self.followActiveRun() }
+                if ticks % 15 == 0 { await self.refresh() }
                 ticks += 1
-                do { try await Task.sleep(for: .seconds(3)) } catch { break }
+                do { try await Task.sleep(for: .seconds(1)) } catch { break }
             }
         }
     }
@@ -170,6 +192,7 @@ public final class AssistantStore {
         } else { resetConversation(entity: entity) }
     }
     private func resetConversation(entity: String?) {
+        resetActivity()
         completedReply = nil; quietEntityRestoreID = nil; error = nil
         stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
         conversationGeneration += 1; measuredMessages = []; messages = []; selectedEntity = entity; activeEntityRunID = nil; activeRunID = nil; restorationID = nil
@@ -183,6 +206,7 @@ public final class AssistantStore {
     }
     public func setConversationTools(_ tools: ConversationTools?) {
         guard canSend else { return }
+        defaults.removeObject(forKey: toolsKey + ".grant")
         toolSelections[toolsKey] = tools
         if let tools, let data = try? JSONEncoder().encode(tools) { defaults.set(data, forKey: toolsKey) }
         else { defaults.removeObject(forKey: toolsKey) }
@@ -208,6 +232,7 @@ public final class AssistantStore {
         let epoch = generation, view = conversationGeneration, session = sessionID, entity = selectedEntity
         let tools = conversationTools, requestVersion = stopVersion, requestID = UUID()
         stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil; completedReply = nil; sendInFlight = true; sendID = requestID
+        resetActivity(); activityState = .connecting
         messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")))); phase = .sending; error = nil
         turn = Task {
             defer { if epoch == generation, view == conversationGeneration, sendID == requestID { sendInFlight = false; sendID = nil } }
@@ -224,6 +249,7 @@ public final class AssistantStore {
                         guard epoch == generation, view == conversationGeneration else { return }
                         guard requestVersion == stopVersion else { return }
                         activeEntityRunID = existing; phase = .working
+                        beginActivity(existing)
                         await followEntitySession()
                     } else {
                         // Capability discovery precedes the write; older gateways keep ordinary chat,
@@ -246,6 +272,7 @@ public final class AssistantStore {
                             guard epoch == generation, view == conversationGeneration else { return }
                             guard requestVersion == stopVersion else { return }
                             activeEntityRunID = state.runID; phase = .working
+                            beginActivity(state.runID)
                             await followEntitySession()
                         } else {
                             guard tools == nil else { throw PhoneAttachmentError.unsupported }
@@ -263,6 +290,7 @@ public final class AssistantStore {
                             }
                             let reply = ConversationMessage(role: .assistant, text: answer)
                             messages.append(reply); completedReply = reply; phase = .ready
+                            activityState = .completed; activityIssue = "Live activity is unavailable for this gateway’s legacy entity chat."
                         }
                     }
                 } else {
@@ -270,6 +298,7 @@ public final class AssistantStore {
                     let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref), tools: tools)
                     guard epoch == generation, view == conversationGeneration else { return }
                     unknownStart = false; activeRunID = id; phase = .working
+                    beginActivity(id)
                     if foreground { await followActiveRun() }
                 }
             } catch {
@@ -280,6 +309,7 @@ public final class AssistantStore {
                     handle(error); return
                 }
                 phase = activeEntityRunID == nil ? .ready : .working
+                activityState = .failed; activityFailure = say(error)
                 self.error = say(error) + " Check Conversations before resending: the gateway may already have received your request."
                 handle(error)
                 if let id = activeEntityRunID { quietEntityRestoreID = id; await followEntitySession() }
@@ -287,48 +317,92 @@ public final class AssistantStore {
         }
     }
     public func followActiveRun() async {
+        guard followingID == nil else { return }
+        let follow = UUID(); followingID = follow
+        defer { if followingID == follow { followingID = nil } }
         if activeEntityRunID != nil { await followEntitySession(); return }
-        guard foreground || isStopping, let client, let id = activeRunID else { return }
-        let epoch = generation, view = conversationGeneration
+        guard let client, let id = activeRunID else { return }
+        if activityRootID != id { beginActivity(id) }
+        let epoch = activityEpoch
         do {
             let run = try await client.run(id: id)
-            guard epoch == generation, view == conversationGeneration, activeRunID == id else { return }
+            guard epoch == activityEpoch, activeRunID == id else { return }
+            activityCheckedAt = Date(); setActivityProblem("status", nil); setActivityProblem("children", nil)
+            let tree = await activityTree(root: run, client: client, epoch: epoch)
+            guard epoch == activityEpoch, activeRunID == id else { return }
+            activityWaits = stopRequested ? [] : tree.compactMap { $0.isTerminal ? nil : $0.personWait }
+            autoAnsweredWaits.formIntersection(Set(activityWaits.map(\.id)))
+            waits.removeAll { activityRunIDs.contains($0.runId) }
+            waits.insert(contentsOf: activityWaits, at: 0)
+            if !run.isTerminal { await applyConversationTrust(epoch: epoch) }
+            guard epoch == activityEpoch, activeRunID == id else { return }
             if let output = run.outputText, !output.isEmpty {
                 if let index = messages.firstIndex(where: { $0.id == "answer-" + id }) { messages[index].text = output }
                 else { messages.append(.init(id: "answer-" + id, role: .assistant, text: output, runID: id)) }
             }
             if run.isTerminal {
-                if !stopRequested, run.status == "completed", let reply = messages.first(where: { $0.id == "answer-" + id }) { completedReply = reply }
-                if run.status == "failed" { error = run.error ?? "The run stopped. Open Conversations for details." }
+                pauseActivityStreams()
+                for childID in activityRunIDs { await drainActivity(runID: childID, entity: nil, epoch: epoch) }
+                guard epoch == activityEpoch, activeRunID == id else { return }
+                activityState = run.status == "failed" ? .failed : run.status == "cancelled" ? .cancelled : .completed
+                activityFailure = run.status == "failed" ? (run.error ?? "The workflow failed without an error description.") : nil
+                activitySummary = nil
+                activity.finish(status: run.status)
+                activityWaits = []; waits.removeAll { activityRunIDs.contains($0.runId) }
+                if !stopRequested, quietActivityRootID != id, run.status == "completed", let reply = messages.first(where: { $0.id == "answer-" + id }) { completedReply = reply }
+                if run.status == "failed" { error = activityFailure }
                 if run.status == "cancelled" { messages.append(.init(role: .notice, text: "Run stopped.")) }
                 phase = .ready; activeRunID = nil
                 if stopRequested {
-                    if let current = try? await client.waits(), epoch == generation, view == conversationGeneration { waits = current }
-                    guard epoch == generation, view == conversationGeneration else { return }
+                    if let current = try? await client.waits(), epoch == activityEpoch { waits = current }
+                    guard epoch == activityEpoch else { return }
                     finishStop(); return
                 }
                 if preferences.showMessageStats { await loadMessageStats() }
-            } else { phase = run.waitsOnPerson ? .waiting : .working }
-            if !stopRequested, let wait = run.personWait, !waits.contains(where: { $0.id == wait.id }) { waits.insert(wait, at: 0) }
+            } else {
+                phase = activityWaits.isEmpty ? .working : .waiting
+                activityState = activityWaits.isEmpty ? .running : .waiting
+                let leaf = tree.last ?? run
+                activitySummary = leaf.waiting?.reason == "job" ? "Waiting for a background job" : leaf.waiting?.reason == "event" ? "Waiting for an event" : leaf.runId != id && leaf.isTerminal ? "Finishing workflow" : nil
+                for child in tree {
+                    guard epoch == activityEpoch, activeRunID == id else { return }
+                    if !foreground || child.isTerminal || (activityStreams[child.runId] == nil && activityStreams.count >= 4) {
+                        await drainActivity(runID: child.runId, entity: nil, epoch: epoch)
+                    } else { startActivityStream(child.runId) }
+                }
+            }
         } catch {
-            if epoch == generation, view == conversationGeneration, activeRunID == id, !(error is CancellationError) {
-                self.error = isStopping ? "Stop is not yet confirmed. Tap Stop to retry. " + say(error) : say(error)
-                if isStopping { isStopping = false }
+            if epoch == activityEpoch, activeRunID == id, !(error is CancellationError) {
+                setActivityProblem("status", "Status connection lost. Reconnecting… " + say(error))
+                if isStopping { self.error = "Stop is not yet confirmed. Tap Stop to retry. " + say(error); isStopping = false }
                 handle(error)
             }
         }
     }
     private func followEntitySession() async {
         guard let client, let entity = selectedEntity, let id = activeEntityRunID else { return }
+        if activityRootID != id { beginActivity(id) }
+        let activityToken = activityEpoch
         let epoch = generation, view = conversationGeneration
         do {
             let state = try await client.entitySession(name: entity, runID: id)
             guard epoch == generation, view == conversationGeneration, activeEntityRunID == id else { return }
+            activityCheckedAt = Date()
+            await drainActivity(runID: id, entity: entity, epoch: activityToken)
+            guard activityToken == activityEpoch else { return }
             // The stop worker owns entity lifecycle until the server confirms closure.
             guard !stopRequested else { return }
             if let wait = state.personWait {
-                waits.removeAll { $0.runId == id }; waits.insert(wait, at: 0); phase = .waiting
+                waits.removeAll { $0.runId == id }; waits.insert(wait, at: 0); activityWaits = [wait]
+                autoAnsweredWaits.formIntersection([wait.id])
+                await applyConversationTrust(epoch: activityToken)
+                guard activityToken == activityEpoch else { return }
+                phase = activityWaits.isEmpty ? .working : .waiting; activityState = activityWaits.isEmpty ? .running : .waiting
             } else if state.finishedTurn {
+                activityWaits = []
+                activityState = state.status == "failed" ? .failed : state.status == "cancelled" ? .cancelled : .completed
+                activityFailure = state.status == "failed" ? (state.error ?? "The entity could not finish its reply.") : nil
+                activity.finish(status: state.status == "waiting" ? "completed" : state.status)
                 if state.status == "failed" { error = state.error ?? "The entity could not finish its reply." }
                 waits.removeAll { $0.runId == id }
                 if let text = state.reply, !text.isEmpty {
@@ -344,7 +418,7 @@ public final class AssistantStore {
                 }
                 quietEntityRestoreID = nil
                 phase = .ready; activeEntityRunID = nil
-            } else { phase = .working }
+            } else { activityWaits = []; autoAnsweredWaits = []; phase = .working; activityState = .running }
         } catch {
             if epoch == generation, view == conversationGeneration, activeEntityRunID == id {
                 if case GatewayError.http(status: 404, body: _) = error {
@@ -352,6 +426,7 @@ public final class AssistantStore {
                     if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + sessionID) }
                     activeEntityRunID = nil; quietEntityRestoreID = nil; phase = .ready
                 }
+                setActivityProblem("status", "Status connection lost. Reconnecting… " + say(error))
                 self.error = say(error); handle(error)
             }
         }
@@ -422,6 +497,8 @@ public final class AssistantStore {
         await task.value
     }
     private func finishStop() {
+        pauseActivityStreams(); activityWaits = []
+        activityState = .cancelled; activity.finish(status: "cancelled")
         stopRequested = false; isStopping = false; phase = .ready; cancelledRunID = nil
         sendID = nil; sendInFlight = false; turn?.cancel(); turn = nil
     }
@@ -446,11 +523,20 @@ public final class AssistantStore {
                 entityVisitIDs.removeValue(forKey: entity + ":" + oldSession)
                 if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + oldSession) }
             }
+            resetActivity()
             activeEntityRunID = nil; quietEntityRestoreID = nil; completedReply = nil
             stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
             conversationGeneration += 1; measuredMessages = []; messages = restored; selectedEntity = nil; sessionID = session.id
             activeRunID = session.latest.isTerminal ? nil : session.latest.runId
             phase = activeRunID == nil ? .ready : .working; error = nil; persistSession()
+            if let id = activeRunID { beginActivity(id) }
+            else {
+                // A reopened terminal turn keeps its diagnostics without reading history aloud.
+                activeRunID = session.latest.runId
+                beginActivity(session.latest.runId); quietActivityRootID = session.latest.runId
+                await followActiveRun()
+                guard epoch == generation else { return }
+            }
             if preferences.showMessageStats { await loadMessageStats() }
         } catch { if epoch == generation { self.error = say(error); handle(error) } }
     }
@@ -465,7 +551,7 @@ public final class AssistantStore {
                 _ = try await client.answerEntity(name: entity, runID: wait.runId, waitKey: wait.waitKey, approved: approved)
             } else { try await client.answer(wait, with: answer) }
             guard epoch == generation else { return false }
-            waits.removeAll { $0.id == wait.id }; await followActiveRun(); return true
+            waits.removeAll { $0.id == wait.id }; activityWaits.removeAll { $0.id == wait.id }; await followActiveRun(); return true
         } catch {
             if epoch == generation {
                 self.error = say(error)
@@ -474,6 +560,73 @@ public final class AssistantStore {
             }
             return false
         }
+    }
+    public func canApproveAll(_ wait: Wait) -> Bool {
+        wait.kind == .toolApproval && activityRunIDs.contains(wait.runId) && !(wait.details ?? []).isEmpty
+    }
+    /// Like the desktop assistant, conversation trust is client owned. The wire
+    /// decision is still approved:true; no invented resume fields or endpoints.
+    @discardableResult public func approveAll(_ wait: Wait) async -> Bool {
+        guard canApproveAll(wait), !approvingAll.contains(wait.id), let client else { return false }
+        approvingAll.insert(wait.id)
+        defer { approvingAll.remove(wait.id) }
+        let epoch = activityEpoch, key = toolsKey, selected = conversationTools
+        do {
+            let inventory: [ToolInfo]
+            if let entity = selectedEntity { inventory = try await client.entityTools(name: entity) }
+            else { inventory = try await client.tools() }
+            guard epoch == activityEpoch, key == toolsKey else { return false }
+            var modes: [String: ToolMode] = [:]
+            for tool in inventory {
+                let enabled = tool.isAvailable && (selected.map { $0.modes[tool.name] ?? .off } ?? (tool.approvalDefault == "off" || tool.approvalDefault == "disabled" ? .off : .approve)) != .off
+                modes[tool.name] = enabled ? .auto : .off
+            }
+            let granted = Set(modes.filter { $0.value == .auto }.keys)
+            guard let calls = wait.details, !calls.isEmpty, calls.allSatisfy({ granted.contains($0.name) }) else {
+                error = "Some requested tools are not enabled in this conversation. Review Tools before approving all."; return false
+            }
+            guard await answer(wait, .approve), epoch == activityEpoch, key == toolsKey else { return false }
+            autoAnsweredWaits.insert(wait.id)
+            let selection = ConversationTools(modes: modes)
+            toolSelections[key] = selection
+            defaults.set(try JSONEncoder().encode(selection), forKey: key)
+            defaults.set(Array(granted).sorted(), forKey: key + ".grant")
+            await followActiveRun()
+            return true
+        } catch {
+            if epoch == activityEpoch { self.error = say(error); handle(error) }
+            return false
+        }
+    }
+    private func applyConversationTrust(epoch: UUID) async {
+        guard let client, let names = defaults.stringArray(forKey: toolsKey + ".grant"), !names.isEmpty else { return }
+        let granted = Set(names)
+        activityWaits.removeAll { autoAnsweredWaits.contains($0.id) }
+        waits.removeAll { activityRunIDs.contains($0.runId) && autoAnsweredWaits.contains($0.id) }
+        guard activityWaits.contains(where: { wait in
+            wait.kind == .toolApproval && !(wait.details ?? []).isEmpty && (wait.details ?? []).allSatisfy {
+                granted.contains($0.name) && conversationTools?.modes[$0.name] == .auto
+            }
+        }) else { return }
+        // Refresh availability for every pending batch; trust never enables an Off,
+        // unavailable or newly added tool and never answers a question.
+        do {
+            let inventory: [ToolInfo]
+            if let entity = selectedEntity { inventory = try await client.entityTools(name: entity) }
+            else { inventory = try await client.tools() }
+            guard epoch == activityEpoch else { return }
+            let available = Set(inventory.filter { $0.isAvailable }.map(\.name))
+            for wait in activityWaits {
+                guard epoch == activityEpoch, !stopRequested else { return }
+                guard wait.kind == .toolApproval, let calls = wait.details, !calls.isEmpty,
+                      calls.allSatisfy({ granted.contains($0.name) && available.contains($0.name) && conversationTools?.modes[$0.name] == .auto }) else { continue }
+                if !autoAnsweredWaits.contains(wait.id) {
+                    guard await answer(wait, .approve), epoch == activityEpoch else { continue }
+                    autoAnsweredWaits.insert(wait.id)
+                }
+                activityWaits.removeAll { $0.id == wait.id }; waits.removeAll { $0.id == wait.id }
+            }
+        } catch { if epoch == activityEpoch { setActivityProblem("approval", "Automatic approval could not be sent. " + say(error)); handle(error) } }
     }
     public func automationAction(_ automation: AutomationSummary, runNow: Bool) async {
         guard let client, !automationBusy.contains(automation.id) else { return }
@@ -487,6 +640,141 @@ public final class AssistantStore {
         } catch { if epoch == generation { self.error = say(error); handle(error) } }
     }
     public func rememberAutomation(_ row: AutomationSummary) { automations.removeAll { $0.id == row.id }; automations.insert(row, at: 0) }
+    private func setActivityProblem(_ key: String, _ message: String?) {
+        activityProblems[key] = message
+        activityIssue = activityProblems.keys.sorted().compactMap { activityProblems[$0] }.first
+    }
+    private func resetActivity() {
+        pauseActivityStreams()
+        activityEpoch = UUID(); followingID = nil; quietActivityRootID = nil
+        activity = RunActivity(); activityRootID = nil; activityState = .idle
+        activityFailure = nil; activityIssue = nil; activityProblems = [:]; activityCheckedAt = nil; activitySummary = nil
+        activityWaits = []; autoAnsweredWaits = []; activityWaitSteps = [:]; activityRunIDs = []; activityCursors = [:]; activityFinishedStreams = []
+    }
+    private func beginActivity(_ id: String) {
+        if activityRootID == id { return }
+        resetActivity(); activityRootID = id; activityRunIDs = [id]; activityState = .running
+        startActivityStream(id)
+    }
+    private func pauseActivityStreams() {
+        activityStreams.values.forEach { $0.cancel() }; activityStreams = [:]
+    }
+    private func ingestActivity(_ record: LedgerRecord, runID: String, cursor: Int) {
+        guard cursor > (activityCursors[runID] ?? 0) else { return }
+        if let key = record.result?["wait"]?["wait_key"]?.stringValue, let step = record.stepId {
+            let id = runID + ":" + key
+            if let previous = activityWaitSteps[id], previous != step { autoAnsweredWaits.remove(id) }
+            activityWaitSteps[id] = step
+        }
+        activity.ingest(record, runID: runID, cursor: cursor)
+        activityCursors[runID] = cursor
+    }
+    private func activityTree(root: RunSummary, client: any GatewayClient, epoch: UUID) async -> [RunSummary] {
+        var queue: [(RunSummary, Int)] = [(root, 0)], rows: [RunSummary] = [], seen: Set<String> = []
+        while !queue.isEmpty, rows.count < 64, epoch == activityEpoch {
+            let (run, depth) = queue.removeFirst()
+            guard seen.insert(run.runId).inserted else { continue }
+            rows.append(run); activityRunIDs.insert(run.runId)
+            guard depth < 16 else { setActivityProblem("children", "Some deeply nested activity is not shown."); continue }
+            // The explicit child pointer works even on gateways without child-list filtering.
+            if let id = run.waitingOnChild, !seen.contains(id) {
+                do {
+                    let child = try await client.run(id: id)
+                    guard epoch == activityEpoch else { return [] }
+                    if child.runId == id { queue.append((child, depth + 1)) }
+                } catch {
+                    guard epoch == activityEpoch else { return [] }
+                    setActivityProblem("children", "Some agent activity could not be refreshed. " + say(error)); handle(error)
+                }
+            }
+            do {
+                let children = try await client.childRuns(ofRunID: run.runId)
+                guard epoch == activityEpoch else { return [] }
+                for child in children where child.parentRunId == run.runId && !seen.contains(child.runId) {
+                    if queue.count + rows.count < 64 {
+                        // Listing rows omit wait keys/details. Hydrate before surfacing decisions.
+                        let full = try await client.run(id: child.runId)
+                        guard epoch == activityEpoch else { return [] }
+                        if full.runId == child.runId { queue.append((full, depth + 1)) }
+                    }
+                    else { setActivityProblem("children", "Showing the first 64 runs in this workflow."); break }
+                }
+            } catch GatewayError.http(status: 404, body: _) { /* explicit wait pointers remain supported */ }
+            catch GatewayError.http(status: 400, body: _) { }
+            catch {
+                guard epoch == activityEpoch else { return [] }
+                setActivityProblem("children", "Some agent activity could not be refreshed. " + say(error)); handle(error)
+            }
+        }
+        return rows
+    }
+    private func startActivityStream(_ id: String) {
+        guard foreground, selectedEntity == nil, let client, activityStreams[id] == nil, activityStreams.count < 4,
+              !activityFinishedStreams.contains(id) else { return }
+        let epoch = activityEpoch
+        activityStreams[id] = Task { [weak self] in
+            var retry = 0
+            while !Task.isCancelled {
+                guard let self, epoch == self.activityEpoch else { return }
+                do {
+                    let start = self.activityCursors[id] ?? 0
+                    for try await event in client.ledgerEvents(runID: id, after: start) {
+                        guard !Task.isCancelled, epoch == self.activityEpoch else { return }
+                        switch event {
+                        case .record(let cursor, let record):
+                            self.ingestActivity(record, runID: id, cursor: cursor)
+                            self.setActivityProblem("stream:" + id, nil); retry = 0
+                            if record.result?["wait"] != nil {
+                                Task { [weak self] in await self?.followActiveRun() }
+                            }
+                        case .done:
+                            self.activityFinishedStreams.insert(id)
+                            self.activityStreams.removeValue(forKey: id)
+                            Task { [weak self] in await self?.followActiveRun() }
+                            return
+                        }
+                    }
+                    throw GatewayError.invalidResponse
+                } catch {
+                    guard !Task.isCancelled, epoch == self.activityEpoch else { return }
+                    self.setActivityProblem("stream:" + id, "Activity connection lost. Reconnecting… " + self.say(error))
+                    self.handle(error)
+                    guard epoch == self.activityEpoch else { return }
+                    retry += 1
+                    do { try await Task.sleep(for: .seconds(min(10, retry * 2))) } catch { return }
+                }
+            }
+        }
+    }
+    private func drainActivity(runID: String, entity: String?, epoch: UUID) async {
+        guard let client else { return }
+        do {
+            // Each page cursor is a consumed record count, independent of step IDs.
+            while epoch == activityEpoch, !Task.isCancelled {
+                let cursor = activityCursors[runID] ?? 0
+                let page: LedgerPage
+                if let entity { page = try await client.entityLedger(name: entity, runID: runID, after: cursor) }
+                else { page = try await client.ledger(runId: runID, after: cursor) }
+                guard epoch == activityEpoch else { return }
+                let next = page.nextAfter ?? cursor + page.items.count
+                guard next == cursor + page.items.count else { throw LedgerStreamError.invalidCursor }
+                for (index, record) in page.items.enumerated() { ingestActivity(record, runID: runID, cursor: cursor + index + 1) }
+                setActivityProblem("drain:" + runID, nil); setActivityProblem("stream:" + runID, nil)
+                if page.items.count < 200 { break }
+            }
+        } catch {
+            guard epoch == activityEpoch, !(error is CancellationError) else { return }
+            setActivityProblem("drain:" + runID, "Activity could not be loaded. " + say(error)); handle(error)
+        }
+    }
+    public func refreshActivity() async {
+        activityProblems = [:]; activityIssue = nil; activityFinishedStreams = []
+        if activeRunID != nil || activeEntityRunID != nil { await followActiveRun() }
+        else {
+            let epoch = activityEpoch
+            for id in activityRunIDs { await drainActivity(runID: id, entity: selectedEntity, epoch: epoch) }
+        }
+    }
     private func persistSession() {
         if let connection {
             defaults.set(sessionID, forKey: "phone.session." + connection.scope)

@@ -66,19 +66,19 @@ struct WaitDetailScreen: View {
     @Environment(AssistantStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var response = ""
-    private var busy: Bool { store.deciding.contains(wait.id) }
+    private var busy: Bool { store.deciding.contains(wait.id) || store.approvingAll.contains(wait.id) }
     private var pending: Bool { store.waits.contains { $0.id == wait.id } }
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Image(systemName: wait.kind == .askUser ? "bubble.left.and.text.bubble.right" : "hand.raised").font(.largeTitle).foregroundStyle(PhoneTheme.amber)
-                    Text(wait.kind == .askUser ? "A question for you." : "A moment for your approval.").font(.system(.title, design: .rounded, weight: .semibold))
+                    Text(wait.kind == .askUser ? "A question for you." : "Approve these tools?").font(.system(.title, design: .rounded, weight: .semibold))
                     if let error = store.error { ErrorBanner(message: error, dismiss: store.dismissError) }
                     if !pending { Label("Already handled or no longer waiting.", systemImage: "checkmark.circle").foregroundStyle(PhoneTheme.mint) }
                     if let prompt = wait.prompt { Text(prompt).textSelection(.enabled) }
                     if wait.kind == .toolApproval {
-                        Text("Review every action below. Allow once applies to this entire request.").font(.subheadline).foregroundStyle(PhoneTheme.secondary)
+                        Text(store.canApproveAll(wait) ? "Approve allows this request. Approve all also allows enabled tools in this conversation without asking again. You can change this in Tools." : "Approve allows all actions in this request.").font(.subheadline).foregroundStyle(PhoneTheme.secondary)
                         ForEach(Array((wait.details ?? []).enumerated()), id: \.offset) { index, call in
                             PhoneCard {
                                 VStack(alignment: .leading, spacing: 14) {
@@ -91,8 +91,13 @@ struct WaitDetailScreen: View {
                             }
                         }
                         if !(wait.details ?? []).isEmpty {
-                            Button { decide(.approve) } label: { Label("Allow once", systemImage: "checkmark").frame(maxWidth: .infinity).padding(.vertical, 7) }.buttonStyle(.borderedProminent).controlSize(.large).disabled(busy || !pending)
+                            Button { decide(.approve) } label: { Label("Approve", systemImage: "checkmark").frame(maxWidth: .infinity).padding(.vertical, 7) }.buttonStyle(.borderedProminent).controlSize(.large).disabled(busy || !pending)
                         } else { Text("This request has no action details. Open your gateway console to inspect it before allowing it.").foregroundStyle(PhoneTheme.amber) }
+                        if store.canApproveAll(wait) {
+                            Button { Task { if await store.approveAll(wait) { dismiss() } } } label: {
+                                Text("Approve all").frame(maxWidth: .infinity, minHeight: 44)
+                            }.buttonStyle(.bordered).disabled(busy || !pending).accessibilityIdentifier("approval.all")
+                        }
                         Button("Deny", role: .destructive) { decide(.deny) }.frame(maxWidth: .infinity, minHeight: 44).disabled(busy || !pending)
                     } else if wait.kind == .askUser {
                         ForEach(wait.choices ?? [], id: \.self) { choice in Button(choice) { decide(.respond(choice)) }.buttonStyle(.bordered).controlSize(.large).disabled(busy || !pending) }

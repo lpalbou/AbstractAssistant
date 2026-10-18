@@ -1,5 +1,8 @@
 # Developer preview validation
 
+For **0.6.6 (14)** live activity, visible child approvals and conversation trust, see the
+[activity review and evidence](../design/validation/activity-review.md).
+
 For **0.6.5 (13)** inherited tools reaching the agent's model request, see the
 [workflow regression and evidence](../design/validation/inherited-tools-review.md).
 

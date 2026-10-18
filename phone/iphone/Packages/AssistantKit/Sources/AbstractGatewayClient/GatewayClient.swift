@@ -81,6 +81,9 @@ public protocol GatewayClient: Sendable {
     func entityChatTurn(name: String, chatId: String, text: String) async throws -> String
     /// `GET /api/gateway/runs/{id}/ledger?after=N` → records after the cursor.
     func ledger(runId: String, after: Int) async throws -> LedgerPage
+    nonisolated func ledgerEvents(runID: String, after: Int) -> AsyncThrowingStream<LedgerStreamEvent, Error>
+    func entityLedger(name: String, runID: String, after: Int) async throws -> LedgerPage
+    func childRuns(ofRunID: String) async throws -> [RunSummary]
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
     func cancel(runId: String) async throws
     /// `GET /api/gateway/automations/{id}/occurrences?limit=N`.
@@ -295,6 +298,79 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func ledger(runId: String, after: Int) async throws -> LedgerPage {
         try await get("api/gateway/runs/\(runId)/ledger", query: [.init(name: "after", value: String(after))], as: LedgerPage.self)
+    }
+
+    public func childRuns(ofRunID id: String) async throws -> [RunSummary] {
+        struct Page: Decodable { var items: [RunSummary]; var has_more: Bool? }
+        var offset = 0
+        var rows: [RunSummary] = []
+        var seen: Set<String> = []
+        while true {
+            let page = try await get("api/gateway/runs", query: [.init(name: "parent_run_id", value: id), .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset))], as: Page.self)
+            // Old gateways may ignore an unknown parent filter. Never adopt unrelated runs.
+            let children = page.items.filter { $0.parentRunId == id }
+            let fresh = children.filter { seen.insert($0.runId).inserted }
+            rows.append(contentsOf: fresh)
+            guard page.has_more == true else { return rows }
+            guard !page.items.isEmpty, !fresh.isEmpty else { throw LedgerStreamError.invalidCursor }
+            offset += page.items.count
+        }
+    }
+
+    public func entityLedger(name: String, runID: String, after: Int) async throws -> LedgerPage {
+        struct Entry: Decodable { var cursor: Int; var record: LedgerRecord }
+        struct VisitPage: Decodable {
+            var after: Int; var records: [Entry]; var next_cursor: Int; var total: Int
+        }
+        let page = try await get("api/gateway/entities/\(name)/visit/\(runID)/ledger",
+            query: [.init(name: "after", value: String(after)), .init(name: "limit", value: "200")], as: VisitPage.self)
+        // The visit endpoint wraps each row and can clamp an overshot cursor.
+        // Refuse a rewind or gap rather than silently attributing the wrong rows.
+        guard after >= 0, page.after == after, page.next_cursor == after + page.records.count,
+              page.total >= page.next_cursor,
+              page.records.enumerated().allSatisfy({ $0.element.cursor == after + $0.offset + 1 }) else {
+            throw LedgerStreamError.invalidCursor
+        }
+        return LedgerPage(items: page.records.map(\.record), nextAfter: page.next_cursor)
+    }
+
+    public nonisolated func ledgerEvents(runID: String, after: Int) -> AsyncThrowingStream<LedgerStreamEvent, Error> {
+        var url = URLComponents(url: baseURL.appending(path: "api/gateway/runs/\(runID)/ledger/stream"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [.init(name: "after", value: String(after))]
+        var request = URLRequest(url: url.url!)
+        request.timeoutInterval = 60
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        credential.apply(to: &request, write: false)
+        let streamRequest = request
+        let session = self.session
+        return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(128)) { continuation in
+            let task = Task {
+                do {
+                    try await self.requireSignIn()
+                    let (bytes, response) = try await session.bytes(for: streamRequest, delegate: LedgerRedirectGuard())
+                    defer { bytes.task.cancel() }
+                    guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
+                    if http.statusCode == 401 { await self.lockSignIn(); throw GatewayError.unauthorized }
+                    if [404, 405].contains(http.statusCode) {
+                        bytes.task.cancel()
+                        try await pollLedger(client: self, runID: runID, after: after, continuation: continuation)
+                        continuation.finish(); return
+                    }
+                    guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: "") }
+                    var parser = LedgerSSEParser()
+                    for try await byte in bytes {
+                        try Task.checkCancellation()
+                        if let event = try parser.feed(byte: byte) {
+                            try yieldLedger(event, to: continuation)
+                            if case .done = event { continuation.finish(); return }
+                        }
+                    }
+                    // EOF without done is reconnectable, never proof of completion.
+                    throw GatewayError.invalidResponse
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     public func cancel(runId: String) async throws {

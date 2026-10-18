@@ -138,6 +138,7 @@ public struct RunWaiting: Codable, Hashable, Sendable {
 /// Row of `GET /api/gateway/runs` and body of `GET /api/gateway/runs/{id}`.
 public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     public var runId: String
+    public var parentRunId: String?
     public var workflowId: String?
     public var status: String
     public var sessionId: String?
@@ -162,13 +163,15 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
 
     public init(runId: String, workflowId: String?, status: String, sessionId: String? = nil, createdAt: String? = nil,
                 updatedAt: String? = nil, error: String? = nil, waiting: RunWaiting? = nil, output: JSONValue? = nil,
-                kind: String? = nil, subtitle: String? = nil) {
+                kind: String? = nil, subtitle: String? = nil, parentRunId: String? = nil) {
+        self.parentRunId = parentRunId
         self.runId = runId; self.workflowId = workflowId; self.status = status; self.sessionId = sessionId
         self.createdAt = createdAt; self.updatedAt = updatedAt; self.error = error; self.waiting = waiting
         self.output = output; self.kind = kind; self.subtitle = subtitle
     }
 
     enum CodingKeys: String, CodingKey {
+        case parentRunId = "parent_run_id"
         case runId = "run_id", workflowId = "workflow_id", status, sessionId = "session_id"
         case createdAt = "created_at", updatedAt = "updated_at", error, waiting, output, kind, subtitle
         case steps, llmCalls = "llm_calls", toolCalls = "tool_calls", tokensTotal = "tokens_total", sessionKind = "session_kind"
@@ -189,7 +192,9 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     public var waitsOnPerson: Bool { status == "waiting" && waiting?.reason == "user" }
     /// The child run a root waits on (`subworkflow:<child run id>`), if any.
     public var waitingOnChild: String? {
-        guard status == "waiting", let key = waiting?.waitKey, key.hasPrefix("subworkflow:") else { return nil }
+        guard status == "waiting" else { return nil }
+        if waiting?.reason == "subworkflow", let child = waiting?.details?["sub_run_id"]?.stringValue, !child.isEmpty { return child }
+        guard let key = waiting?.waitKey, key.hasPrefix("subworkflow:") else { return nil }
         let id = String(key.dropFirst("subworkflow:".count))
         return id.isEmpty ? nil : id
     }

@@ -67,7 +67,12 @@ struct PhoneRoot: View {
         #else
         let emptyAutomations = false
         #endif
-        store.connect(nil, client: MockGatewayClient(emptyAutomations: emptyAutomations))
+        #if DEBUG
+        let activityScenario = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--activity=") }?.replacingOccurrences(of: "--activity=", with: "")
+        #else
+        let activityScenario: String? = nil
+        #endif
+        store.connect(nil, client: MockGatewayClient(emptyAutomations: emptyAutomations, activityScenario: activityScenario))
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-test") { store.preferences.readAloud = false; store.preferences.showMessageStats = false; store.preferences.voice = nil; store.preferences.speed = 1; store.preferences.transcription = nil }
         #endif

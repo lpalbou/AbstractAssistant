@@ -99,8 +99,11 @@ public actor MockGatewayClient: GatewayClient {
     private var started: [String: (Date, String)] = [:]
     private var cancelledRunIDs: Set<String> = []
     private let wordInterval: TimeInterval
+    private let activityScenario: String?
+    private var activityResolved = false
 
-    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false) {
+    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil) {
+        self.activityScenario = activityScenario
         self.pending = waits; self.wordInterval = wordInterval; self.emptyAutomations = emptyAutomations
     }
 
@@ -212,6 +215,11 @@ public actor MockGatewayClient: GatewayClient {
         LedgerRecord(nodeId: "review", status: "started", effect: .object(["type": .string("llm_call")])),
     ]
     public func ledger(runId: String, after: Int) async throws -> LedgerPage {
+        if activityScenario != nil && runId.hasPrefix("activity-") {
+            if activityScenario == "offline" { throw GatewayError.http(status: 503, body: "Gateway unavailable") }
+            let all = runId == "activity-root" ? [] : activityRecords()
+            return LedgerPage(items: Array(all.dropFirst(after).prefix(200)), nextAfter: min(all.count, after + 200))
+        }
         if runId == "occ-live" { let all = liveLedger(); return LedgerPage(items: Array(all.dropFirst(min(after, all.count))), nextAfter: all.count) }
         return LedgerPage(items: Array(Self.sampleLedger.dropFirst(min(after, Self.sampleLedger.count))), nextAfter: Self.sampleLedger.count)
     }
@@ -253,6 +261,7 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func answer(_ wait: Wait, with answer: WaitAnswer) async throws {
+        if wait.runId == "activity-child" { activityResolved = true }
         pending.removeAll { $0.id == wait.id }
     }
 
@@ -286,14 +295,53 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {
+        if activityScenario != nil {
+            if activityScenario == "offline" { return "activity-root" }
+            let child = try await activityRun("activity-child")
+            if let wait = child.personWait { pending = [wait] }
+            return "activity-root"
+        }
         let id = "mock-" + UUID().uuidString.prefix(6).lowercased()
         started[id] = (Date(), Self.cannedAnswer)
         return id
     }
 
+    public func childRuns(ofRunID id: String) async throws -> [RunSummary] {
+        if activityScenario != nil && id == "activity-root" { return [try await activityRun("activity-child")] }
+        return []
+    }
+    private func activityRun(_ id: String) async throws -> RunSummary {
+        if activityScenario == "offline" { throw GatewayError.http(status: 503, body: "Gateway unavailable") }
+        if activityScenario == "failure", id == "activity-root" { return RunSummary(runId: id, workflowId: "assistant", status: "failed", error: "The model connection timed out.") }
+        if activityResolved { return RunSummary(runId: id, workflowId: "assistant", status: "completed", output: id == "activity-root" ? .string("The host is Linux on arm64.") : nil, parentRunId: id == "activity-child" ? "activity-root" : nil) }
+        if id == "activity-root" {
+            return RunSummary(runId: id, workflowId: "assistant", status: "waiting", waiting: RunWaiting(reason: "subworkflow", waitKey: "subworkflow:activity-child"))
+        }
+        let waiting = activityScenario == "approval" ? RunWaiting(reason: "user", waitKey: "tool_approval:host", prompt: "Inspect the host machine?", details: .object(["mode": .string("approval_required"), "tool_calls": .array([.object(["name": .string("execute_command"), "arguments": .object(["command": .string("uname -srm")])])])])) : nil
+        return RunSummary(runId: id, workflowId: "assistant", status: waiting == nil ? "running" : "waiting", waiting: waiting, parentRunId: "activity-root")
+    }
+    private func activityRecords() -> [LedgerRecord] {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let model = JSONValue.object(["type": .string("llm_call")])
+        let call: JSONValue = .object(["name": .string("read_file"), "runtime_call_id": .string("host-read")])
+        let tool: JSONValue = .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array([call])])])
+        var rows = [LedgerRecord(stepId: "cycle-1", nodeId: "reason", status: "started", effect: model, startedAt: now),
+                    LedgerRecord(stepId: "cycle-1", nodeId: "reason", status: "completed", effect: model, endedAt: now),
+                    LedgerRecord(stepId: "read", nodeId: "act", status: "completed", effect: tool, result: .object(["results": .array([.object(["runtime_call_id": .string("host-read"), "success": .bool(true), "output": .string("Operating system: Linux. Architecture: arm64.")])])]), endedAt: now)]
+        if activityScenario == "approval" {
+            let effect: JSONValue = .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array([.object(["name": .string("execute_command"), "runtime_call_id": .string("host-command")])])])])
+            rows.append(LedgerRecord(stepId: "host", nodeId: "act", status: "waiting", effect: effect, result: .object(["wait": .object(["reason": .string("user"), "wait_key": .string("tool_approval:host"), "prompt": .string("Inspect the host machine?")])]), endedAt: now))
+            if activityResolved { rows.append(LedgerRecord(stepId: "host", nodeId: "act", status: "completed", effect: effect, result: .object(["results": .array([.object(["runtime_call_id": .string("host-command"), "success": .bool(true), "output": .string("Linux 6.8 arm64")])])]), endedAt: now)) }
+        } else if activityScenario == "failure" {
+            rows.append(LedgerRecord(stepId: "cycle-2", nodeId: "reason", status: "failed", effect: model, error: "The model connection timed out.", endedAt: now))
+        } else { rows.append(LedgerRecord(stepId: "cycle-2", nodeId: "reason", status: "started", effect: model, startedAt: now)) }
+        return rows
+    }
+
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
         if cancelledRunIDs.contains(id) { return RunSummary(runId: id, workflowId: nil, status: "cancelled") }
+        if activityScenario != nil && id.hasPrefix("activity-") { return try await activityRun(id) }
         guard let (t0, text) = started[id] else {
             return Self.sampleRuns.first { $0.runId == id } ?? RunSummary(runId: id, workflowId: nil, status: "failed", error: "unknown run")
         }
