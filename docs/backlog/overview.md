@@ -9,9 +9,9 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 - Planned: 7
 - Proposed: 17
-- Completed: 5
+- Completed: 6
 
-Counts recomputed from disk on 2026-10-18 for iPhone item 1039 (topic tracks included).
+Counts recomputed from disk on 2026-10-18 for iPhone item 1040 (topic tracks included).
 0009 is on disk under planned/ and still has no row in the Planned table.
 - Deprecated: 0
 - Recurrent: 0
@@ -65,6 +65,7 @@ Counts recomputed from disk on 2026-10-18 for iPhone item 1039 (topic tracks inc
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1040](completed/1040_iphone_restored_image_previews.md) | iPhone restored image previews | Completed 2026-10-18 | Created/completed 2026-10-18; planned→completed. Conversation-owned shared downloads, inline decoding and retry; native 7/7, inspected cold-relaunch screenshots; normal 0.6.21 (29) installed (phone locked for launch). |
 | [1039](completed/1039_iphone_stop_orb_morph_and_contrast.md) | iPhone stop orb morph and contrast | Completed 2026-10-18 | Created/completed 2026-10-18; moved planned→completed. Checkpoint 7c5d9ec, bright stop control, two-way interrupted morph; native 5/5 and inspected frames; normal 0.6.20 (28) installed/launched. |
 | [1038](completed/1038_iphone_category_tool_controls_and_conversation_archiving.md) | iPhone category controls and actionable conversations | Completed 2026-10-18 | Created/completed 2026-10-18; moved planned→completed. Category Off/Auto/Approve; grouped history, compact stats/status and existing gateway archive/restore. 246 package + two native + one read-only device test passed, screenshots/adversary approved; normal 0.6.19 (27) installed/launched. iPhone only, uncommitted. [Evidence](evidence/1038/README.md). |
 | [0852](completed/0852_automations_in_the_assistant.md) | Automations in the Assistant | Completed 2026-09-27, UNRELEASED | Automations v1 mission A (root 0928): gateway-fed Automations section, the automation view (chat pairs, controls, Discuss, wait answers by kind), "Schedule this conversation" with the tool-approval consent, tray notifications from a 60 s / 5 min poll, and a regular list of `chat` + `discussion`. `e3a0445`…`52d75df`; suite 967; walk 27/27 against a hermetic gateway; review 49 GO. Release: root 0941. |

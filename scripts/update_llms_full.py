@@ -38,6 +38,7 @@ INCLUDED_FILES: list[str] = [
     "LICENSE",
     "CHANGELOG.md",
     "phone/iphone/README.md",
+    "phone/iphone/CHANGELOG.md",
     "phone/iphone/docs/architecture.md",
     "phone/iphone/BUILD.md",
     "watch/apple/README.md",

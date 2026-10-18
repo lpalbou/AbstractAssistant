@@ -1,0 +1,70 @@
+{
+  "error" : {
+    "code" : 10002,
+    "domain" : "com.apple.dt.CoreDeviceError",
+    "userInfo" : {
+      "BundleIdentifier" : {
+        "string" : "ai.abstractframework.assistant.iphone"
+      },
+      "NSLocalizedDescription" : {
+        "string" : "The application failed to launch."
+      },
+      "NSUnderlyingError" : {
+        "error" : {
+          "code" : 1,
+          "domain" : "FBSOpenApplicationServiceErrorDomain",
+          "userInfo" : {
+            "BSErrorCodeDescription" : {
+              "string" : "RequestDenied"
+            },
+            "FBSOpenApplicationRequestID" : {
+              "string" : "0x7b2f"
+            },
+            "NSLocalizedDescription" : {
+              "string" : "The request to open \"ai.abstractframework.assistant.iphone\" failed."
+            },
+            "NSLocalizedFailureReason" : {
+              "string" : "The request was denied by service delegate (SBMainWorkspace) for reason: Locked (\"Unable to launch ai.abstractframework.assistant.iphone because the device was not, or could not be, unlocked\")."
+            },
+            "NSUnderlyingError" : {
+              "error" : {
+                "code" : 7,
+                "domain" : "FBSOpenApplicationErrorDomain",
+                "userInfo" : {
+                  "BSErrorCodeDescription" : {
+                    "string" : "Locked"
+                  },
+                  "NSLocalizedFailureReason" : {
+                    "string" : "Unable to launch ai.abstractframework.assistant.iphone because the device was not, or could not be, unlocked."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "errorSignature" : "(com.apple.dt.CoreDeviceError 10002 (FBSOpenApplicationServiceErrorDomain 1 (FBSOpenApplicationErrorDomain 7)))",
+  "info" : {
+    "arguments" : [
+      "devicectl",
+      "device",
+      "process",
+      "launch",
+      "--device",
+      "33A1ED53-E782-53EB-8858-F2BDA5811593",
+      "ai.abstractframework.assistant.iphone",
+      "--quiet",
+      "--json-output",
+      "/tmp/iphone-1040-launch.json"
+    ],
+    "commandType" : "devicectl.device.process.launch",
+    "environment" : {
+      "TERM" : "dumb"
+    },
+    "jsonVersion" : 5,
+    "outcome" : "failed",
+    "version" : "651.13.5"
+  }
+}

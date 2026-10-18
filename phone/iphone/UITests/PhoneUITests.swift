@@ -324,6 +324,27 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Remove Quiet horizon.png"].exists || app.staticTexts["Quiet horizon.png"].exists)
         capture(app, "Media — generated image reused as a reference")
     }
+    @MainActor func testRestoredImageSurvivesColdRelaunchPreviewAndTabChanges() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--ui-test", "--media-fixture", "--screen", "media"]
+        for launch in 0..<2 {
+            app.launch()
+            let image = app.buttons["media.image.demo-image"]
+            XCTAssertTrue(image.waitForExistence(timeout: 15))
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'Ready'"), object: image)], timeout: 10), .completed)
+            XCTAssertFalse(app.otherElements["media.error.demo-image"].exists)
+            image.tap()
+            XCTAssertTrue(app.images["media.preview.image"].waitForExistence(timeout: 10))
+            app.buttons["media.preview.close"].tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'Ready'"), object: image)], timeout: 10), .completed)
+            app.tabBars.buttons["Inbox"].tap(); app.tabBars.buttons["Assistant"].tap()
+            XCTAssertTrue(image.waitForExistence(timeout: 10))
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'Ready'"), object: image)], timeout: 10), .completed)
+            XCTAssertFalse(app.staticTexts["cancelled"].exists)
+            capture(app, "Restored image — cold launch \(launch + 1), preview and navigation")
+            app.terminate()
+        }
+    }
     @MainActor func testGeneratedImageOpensNativePreview() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--media-fixture", "--screen", "media"]; app.launch()
         let image = app.buttons["media.image.demo-image"]

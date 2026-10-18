@@ -132,6 +132,7 @@ Start with [docs/README.md](docs/README.md).
 - [docs/faq.md](docs/faq.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/adr/README.md](docs/adr/README.md)
+- [phone/iphone/README.md](phone/iphone/README.md) — the native iPhone app and its [release history](phone/iphone/CHANGELOG.md)
 - [watch/apple/README.md](watch/apple/README.md) — the Apple Watch app
 
 ## Development

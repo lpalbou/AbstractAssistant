@@ -3,6 +3,14 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## [Unreleased]
+
+### iPhone
+
+- Native iPhone **0.6.21** keeps generated image previews visible when you reopen conversations
+  or restart the app, shares downloads across message views and offers retry for failed images.
+  See the [iPhone release history](phone/iphone/CHANGELOG.md) for native client versions.
+
 ## [0.14.2] - 2026-10-18
 
 ### Added

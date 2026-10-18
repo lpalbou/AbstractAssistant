@@ -24,7 +24,7 @@ import AbstractGatewayClient
     private var audioRequest = UUID()
     private var folders: [URL] = []
     private var cacheOrder: [String] = []
-    private var downloads: [String: Task<Void, Error>] = [:]
+    private var downloads: [String: Task<URL?, Never>] = [:]
     private let storage: PhoneTemporaryStorage
     init(storage: PhoneTemporaryStorage = .init()) {
         self.storage = storage; super.init()
@@ -43,20 +43,42 @@ import AbstractGatewayClient
     var elapsed: Double { player?.currentTime ?? 0 }
     func seek(_ seconds: Double) { player?.currentTime = seconds }
     private func fetch(_ file: PhoneArtifact, client: any GatewayClient) async -> URL? {
-        if let url = files[file.id] { cacheOrder.removeAll { $0 == file.id }; cacheOrder.append(file.id); return url }
-        guard !loading.contains(file.id) else { return nil }
-        let epoch = generation; loading.insert(file.id); errors[file.id] = nil
-        defer { if epoch == generation { loading.remove(file.id) } }
+        guard !Task.isCancelled else { return nil }
+        if let url = files[file.id], FileManager.default.fileExists(atPath: url.path) {
+            cacheOrder.removeAll { $0 == file.id }; cacheOrder.append(file.id); return url
+        }
+        if let download = downloads[file.id] { return await download.value }
+        if let expired = files.removeValue(forKey: file.id) {
+            let folder = expired.deletingLastPathComponent()
+            try? storage.discard(folder); folders.removeAll { $0 == folder }
+            cacheOrder.removeAll { $0 == file.id }
+        }
+        let epoch = generation
+        loading.insert(file.id); errors[file.id] = nil
+        // The conversation owns this work. SwiftUI can cancel a row task while restoring
+        // history or scrolling; consumers join this task without cancelling one another.
+        let download = Task { [weak self] in await self?.download(file, client: client, epoch: epoch) }
+        downloads[file.id] = download
+        return await download.value
+    }
+    private func download(_ file: PhoneArtifact, client: any GatewayClient, epoch: UUID) async -> URL? {
+        defer { if epoch == generation { loading.remove(file.id); downloads[file.id] = nil } }
         var owned: URL?
         do {
             let folder = try storage.makeDirectory(for: .previews); owned = folder
             let url = folder.appending(path: file.filename)
-            let download = Task { try await client.download(file, to: url) }
-            downloads[file.id] = download
-            defer { if epoch == generation { downloads[file.id] = nil } }
-            try await withTaskCancellationHandler { try await download.value } onCancel: { download.cancel() }
+            try await client.download(file, to: url)
             try Task.checkCancellation()
             guard epoch == generation else { try? storage.discard(folder); return nil }
+            // Populate inline artwork before resuming any thumbnail/full-screen consumer.
+            // Opening a file can therefore never leave its discussion preview blank.
+            if file.isImage {
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                      let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                          kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 1200] as CFDictionary)
+                else { throw PhoneAttachmentError.unsupported }
+                images[file.id] = UIImage(cgImage: image)
+            }
             folders.append(folder); files[file.id] = url; cacheOrder.append(file.id)
             while files.count > 6 || cachedBytes > 128 * 1024 * 1024, let oldest = cacheOrder.first(where: { $0 != file.id && $0 != playingID && files[$0] != preview }) {
                 if let expired = files.removeValue(forKey: oldest) {
@@ -67,22 +89,20 @@ import AbstractGatewayClient
             return url
         } catch {
             if let owned { try? storage.discard(owned) }
-            guard epoch == generation, !(error is CancellationError) else { return nil }
-            errors[file.id] = error.localizedDescription
+            guard epoch == generation, !Task.isCancelled, !(error is CancellationError),
+                  (error as? URLError)?.code != .cancelled else { return nil }
+            errors[file.id] = "Couldn’t load this file. " + error.localizedDescription
             if error as? GatewayError == .unauthorized { onUnauthorized?() }
             return nil
         }
     }
     func thumbnail(_ file: PhoneArtifact, client: any GatewayClient) async {
-        guard file.isImage, images[file.id] == nil, let url = await fetch(file, client: client) else { return }
-        let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 1200] as CFDictionary) else { return }
-        images[file.id] = UIImage(cgImage: cgImage)
+        guard file.isImage, images[file.id] == nil || errors[file.id] != nil else { return }
+        _ = await fetch(file, client: client)
     }
     func open(_ file: PhoneArtifact, client: any GatewayClient) async {
-        if let url = await fetch(file, client: client) { preview = url }
+        let epoch = generation
+        if let url = await fetch(file, client: client), epoch == generation { preview = url }
     }
     func play(_ file: PhoneArtifact, client: any GatewayClient) async {
         if playingID == file.id, let player {
@@ -128,9 +148,14 @@ struct MessageArtifactView: View {
                 Button { Task { await media.open(file, client: client) } } label: {
                     Group {
                         if let image = media.images[file.id] { Image(uiImage: image).resizable().scaledToFit() }
-                        else { Rectangle().fill(PhoneTheme.surface).aspectRatio(1.5, contentMode: .fit).overlay { if media.loading.contains(file.id) { ProgressView() } else { Image(systemName: "photo").foregroundStyle(PhoneTheme.mint) } } }
+                        else { Rectangle().fill(PhoneTheme.surface).aspectRatio(1.5, contentMode: .fit).overlay { if media.loading.contains(file.id) { ProgressView() } else {
+                            VStack(spacing: 8) {
+                                Image(systemName: "arrow.clockwise").foregroundStyle(PhoneTheme.mint)
+                                Text("Tap to load image").font(.caption).foregroundStyle(PhoneTheme.secondary)
+                            }
+                        } } }
                     }.frame(maxHeight: 340).clipShape(RoundedRectangle(cornerRadius: 18))
-                }.buttonStyle(.plain).disabled(media.loading.contains(file.id)).accessibilityLabel("Preview " + file.filename).accessibilityIdentifier("media.image." + file.artifactId).accessibilityValue(media.images[file.id] == nil ? "Loading" : "Ready")
+                }.buttonStyle(.plain).disabled(media.loading.contains(file.id)).accessibilityLabel("Preview " + file.filename).accessibilityIdentifier("media.image." + file.artifactId).accessibilityValue(media.images[file.id] != nil ? "Ready" : media.loading.contains(file.id) ? "Loading" : "Not loaded")
                 .task(id: file.id + media.revision.uuidString) { await media.thumbnail(file, client: client) }
             }
             HStack(spacing: 12) {
@@ -155,7 +180,17 @@ struct MessageArtifactView: View {
                     }.foregroundStyle(PhoneTheme.secondary)
                 }
             }
-            if let error = media.errors[file.id] { Text(error).font(.caption).foregroundStyle(PhoneTheme.amber).textSelection(.enabled) }
+            if let error = media.errors[file.id] {
+                HStack(alignment: .top, spacing: 12) {
+                    Text(error).font(.caption).foregroundStyle(PhoneTheme.amber).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if file.isImage {
+                        Button("Try again") { Task { await media.thumbnail(file, client: client) } }
+                            .font(.caption.weight(.semibold)).foregroundStyle(PhoneTheme.mint)
+                            .disabled(media.loading.contains(file.id)).accessibilityLabel("Retry " + file.filename)
+                    }
+                }.accessibilityIdentifier("media.error." + file.artifactId)
+            }
         }.padding(file.isImage ? 0 : 14)
             .background(file.isImage ? Color.clear : PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 18))
             .frame(maxWidth: .infinity, alignment: .leading)

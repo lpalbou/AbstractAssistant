@@ -91,12 +91,13 @@ voice rendering requests up to 60 Hz, working-state rendering up to 30 Hz; idle 
 and background rendering stops. The soft knee preserves differences
 between loud syllables without saturating at ordinary playback levels. Energy changes
 the ribbons’ curvature, spacing, rotation and stroke, independently of the raw silence gate. Reduce Motion freezes geometry
-and rotation while retaining responsive light. The Debug-only
-`--demo --ui-test --voice-fixture` supplies speech followed by silence, isolated from live
-credentials and Release builds, to exercise tap/cancel/automatic send in native UI tests.
+and rotation while retaining responsive light.
 
 During a gateway turn, the same orb contour morphs into a rounded square with a stable
-Stop glyph. Its surrounding ribbons continue moving; the hit target stays 84 × 80 points.
+mint/lavender Stop glyph on a dark inset. One animatable progress value drives its contour,
+ribbons, lighting and symbol outside the timeline renderer, with 0.65-second easing in both
+directions. The illuminated rim and surrounding ribbons continue moving; working size is
+96% of the sphere. The hit target stays 84 × 80 points.
 The sole progress row belongs to the conversation. Touch-down consumes the Stop action,
 so releasing after cancellation cannot activate the microphone. Repeated touches within
 450 ms of cancellation are consumed. Reduce Motion keeps a static, recognizable square.
@@ -113,8 +114,7 @@ active orb; there is no visible voice Cancel/countdown or Done
 button in chat. `OutsideInputDismissal` installs a screen-owned UIKit recognizer rather
 than a window handler. It excludes text/caret/selection touches, allows simultaneous
 recognition, never cancels the outside control's event and defers focus changes until that
-action can finish. Native tests exercise field/caret taps, outside dismissal, Send, orb and
-opening the attachment menu with one tap while editing. Leaving the screen detaches it.
+action can finish. Leaving the screen detaches it.
 
 `AssistantStore.completedReply` signals only a newly completed current turn. Automatic
 reading listens for this event while active, rather than message-list refreshes, so restored
@@ -346,20 +346,22 @@ Changing sessions clears the source through ordinary message restoration.
 playback. Downloads use authenticated artifact-content routes with redirect refusal and a
 256 MB streaming limit. The disposable cache retains at most six files and 128 MB, excluding
 a file actively open/playing or the newest single-file download. Context changes cancel
-registered downloads and discard cached files. Audio pauses/stops per artifact and shares
+registered downloads and discard cached files. Each artifact has one conversation-owned transfer:
+thumbnail and full-screen consumers await that task without cancelling one another when SwiftUI
+rebuilds or removes a row. Images are decoded into the inline cache before consumers resume;
+late preview presentation is guarded by the conversation generation. Missing temporary files are
+refetched and genuine failures expose a retry. Audio pauses/stops per artifact and shares
 microphone/read-aloud exclusion, interruption handling and measured orb animation.
 
-Endpoint-backed image generation requires Runtime's media host to inherit the gateway's
-provider endpoint resolver. Runtime commit `80a1887` fixes creation, resolver rotation and
-media-host reconstruction. Without it, a healthy inventory and successful text routing can
-still precede `Unknown or disabled endpoint profile` in the image-generation node. The
-phone reports that run failure; it does not copy endpoint credentials or resolve profiles itself.
+Endpoint-backed image generation uses the gateway’s provider endpoint resolver in its Runtime
+media host. The phone receives artifact references and reports public generation results;
+provider endpoint credentials and profile resolution remain on the gateway.
 
 ## Session files and completed answer activity
 
-The action row owns share/copy/speech and cycle/tool buttons per answer, plus positive-only
-email/file/web source counters. The session file browser remains in More and file source
-sheets, rather than as a session-wide count beside an individual answer. Live/wait/error
+The action row owns copy/speech and cycle/tool buttons per answer, plus positive-only
+email/file/web source counters. Conversation sharing and the session file browser are available
+from the toolbar; file source sheets also open the browser. Live/wait/error
 activity retains its existing panel.
 Terminal Assistant activity snapshots are keyed by root run ID. Older answers reconstruct
 root/descendant ledgers independently; no latest-run state is attached to another answer.
@@ -464,12 +466,10 @@ responses or reasoning. Existing receipt projections retain their separate field
 Result text remains bounded to 4,000 characters with visible truncation. Times are local;
 rows state missing evidence. Child boundaries expose their owning run/step identifiers.
 
-The orchestrator revision 8 isolates route_call with declared include_context=false:
-routing neither reads conversation history nor appends its control prompt/plan to it.
-Spoken literary recitations use voice generation. Existing corrupted historical assistant
-replies are preserved as history; they are not silently rewritten. The immutable corrected
-bundle is abstractassistant-orchestrator@0.0.15, tested through the saved iPhone connection.
-
+The `abstractassistant-orchestrator` workflow keeps its response-type routing separate from
+conversation history: `route_call` declares `include_context=false`. Spoken recitations use
+voice generation. The gateway retains public conversation history and serves generated files
+as artifact references on the corresponding answer.
 
 ## Historical activity task ownership
 

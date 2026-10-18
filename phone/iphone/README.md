@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.20 · iOS 26+**
+**Developer preview · 0.6.21 · iOS 26+**
 
 ## Three small spaces
 
@@ -14,7 +14,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
   width and hides the orb. Tap outside to dismiss the keyboard and restore the controls,
   preserving your draft. While listening, only a small Listening label appears above the orb.
   The orb’s ribbons react to microphone and read-aloud playback levels. While the assistant
-  works, it becomes an animated square: tap it to stop the response. Progress appears once
+  works, it morphs into a lit rounded square with a mint/lavender Stop symbol: tap it
+  to stop the response. The same contour returns to the sphere when work ends. Progress appears once
   in a collapsible activity panel. It shows model cycles, tool calls, public results and
   failures. When a tool needs approval, **Approval needed → Review tools** appears directly
   in the conversation. Connection loss is reported separately from run failure. The orb
@@ -27,7 +28,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Reloading restores every turn’s public answer without
   reading old replies aloud. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
-  Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
+  Share the conversation from the toolbar, copy an answer, or ask the gateway to read it
+  aloud; pause, resume and stop playback.
   Voice sends separately from your typed draft. The **+** button serves text and voice.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
   action and its complete arguments. **Approve** allows the pending request; **Deny** refuses
@@ -78,7 +80,7 @@ detection uses local microphone power; room noise and very quiet speech can affe
 
 Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
 a short video. Uploaded file chips remain until you send or remove them.
-**Conversation files**, from **More options (…)** or **Browse session files** inside file
+**Conversation files**, from the toolbar’s **folder** icon or **Browse session files** inside file
 activity, includes actual workspace files and stored attachments. Open a folder to follow its
 hierarchy; tap a Markdown document to read it, or preview/play/share other files. Separate
 workspaces are shown when the session’s runs use different folders. Files are fetched afresh
@@ -101,9 +103,13 @@ or use the image as a reference for the next message. Voice files have their own
 pause, seek and stop controls. Playback also animates the orb. Generated audio stays quiet
 until you play it; automatic reading does not synthesize a second version of that reply.
 The gateway must offer the requested modality; generation errors appear in activity.
-For gateway endpoint profiles, image generation also requires the Runtime media-resolver
-fix from commit `80a1887` (or a release containing it). An older Runtime can list an image
-provider successfully but fail to resolve it during generation; update and restart that gateway.
+Use a gateway release that supports generation through its configured media endpoint profiles.
+The app uses those profiles without storing provider credentials on the phone.
+
+Inline images reload when you reopen a conversation or relaunch the app. Opening and closing
+an image or switching tabs preserves its preview. Image loading continues while its message
+scrolls off screen; switching conversations cancels pending downloads. If a file cannot be
+retrieved, tap **Try again**. Opening an image also restores its inline preview.
 
 Local copies opened through Conversation files are removed when you dismiss the viewer or
 open another file. Inline previews use a disposable conversation cache, bounded to six files
@@ -127,8 +133,8 @@ activity history each inspect up to 64 runs and disclose limits. Text previews s
 ## Conversation tools and answer statistics
 
 Open **Settings → Default tools** to choose defaults for all sessions and new automations
-on this iPhone, scoped to your gateway and account. Tap the **Tools** icon beside the
-responder in a chat to override those defaults for that session. The same editor is
+on this iPhone, scoped to your gateway and account. Tap the **Tools** icon in the middle
+toolbar island to override those defaults for that session. The same editor is
 available under **Tools** when creating an automation and on its detail screen.
 
 Available categories are highlighted and listed first. Categories needing gateway setup
@@ -223,7 +229,7 @@ and gateway-client snapshot. It neither embeds nor modifies the Watch applicatio
 - Device microphone permissions, private-network reachability and real provider audio need
   verification on your own iPhone and gateway before daily use.
 
-[Architecture](docs/architecture.md) · [Validation](docs/validation.md) ·
+[Architecture](docs/architecture.md) · [Release history](CHANGELOG.md) ·
 [AbstractAssistant](../../README.md) · [AbstractFramework](https://abstractframework.ai)
 
 MIT License — see [the repository license](../../LICENSE).

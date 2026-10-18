@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-19",
+  "coredoc": {
+    "links": "pass",
+    "core_set": "present",
+    "architecture_diagrams": "present",
+    "llms_freshness": "pass"
+  },
+  "native_tests": {
+    "passed": 7,
+    "failed": 0,
+    "runtime_warnings": 0,
+    "reused_evidence": "native-summary.json"
+  },
+  "native_code_changed_since_validation": false
+}

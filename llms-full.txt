@@ -29,6 +29,7 @@ Included files (in order):
 - LICENSE
 - CHANGELOG.md
 - phone/iphone/README.md
+- phone/iphone/CHANGELOG.md
 - phone/iphone/docs/architecture.md
 - phone/iphone/BUILD.md
 - watch/apple/README.md
@@ -76,7 +77,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
-- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to messages; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds
+- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -229,6 +230,7 @@ Start with [docs/README.md](docs/README.md).
 - [docs/faq.md](docs/faq.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/adr/README.md](docs/adr/README.md)
+- [phone/iphone/README.md](phone/iphone/README.md) — the native iPhone app and its [release history](phone/iphone/CHANGELOG.md)
 - [watch/apple/README.md](watch/apple/README.md) — the Apple Watch app
 
 ## Development
@@ -268,7 +270,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 - [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
 
-- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, generated image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md) and [build guide](../phone/iphone/BUILD.md)
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md) and [build guide](../phone/iphone/BUILD.md)
 
 ## Design records
 
@@ -2641,6 +2643,14 @@ SOFTWARE.
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## [Unreleased]
+
+### iPhone
+
+- Native iPhone **0.6.21** keeps generated image previews visible when you reopen conversations
+  or restart the app, shares downloads across message views and offers retry for failed images.
+  See the [iPhone release history](phone/iphone/CHANGELOG.md) for native client versions.
+
 ## [0.14.2] - 2026-10-18
 
 ### Added
@@ -3584,7 +3594,7 @@ abstractassistant --config custom.toml # Custom config
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.20 · iOS 26+**
+**Developer preview · 0.6.21 · iOS 26+**
 
 ## Three small spaces
 
@@ -3595,7 +3605,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
   width and hides the orb. Tap outside to dismiss the keyboard and restore the controls,
   preserving your draft. While listening, only a small Listening label appears above the orb.
   The orb’s ribbons react to microphone and read-aloud playback levels. While the assistant
-  works, it becomes an animated square: tap it to stop the response. Progress appears once
+  works, it morphs into a lit rounded square with a mint/lavender Stop symbol: tap it
+  to stop the response. The same contour returns to the sphere when work ends. Progress appears once
   in a collapsible activity panel. It shows model cycles, tool calls, public results and
   failures. When a tool needs approval, **Approval needed → Review tools** appears directly
   in the conversation. Connection loss is reported separately from run failure. The orb
@@ -3608,7 +3619,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Reloading restores every turn’s public answer without
   reading old replies aloud. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
-  Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
+  Share the conversation from the toolbar, copy an answer, or ask the gateway to read it
+  aloud; pause, resume and stop playback.
   Voice sends separately from your typed draft. The **+** button serves text and voice.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
   action and its complete arguments. **Approve** allows the pending request; **Deny** refuses
@@ -3659,7 +3671,7 @@ detection uses local microphone power; room noise and very quiet speech can affe
 
 Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
 a short video. Uploaded file chips remain until you send or remove them.
-**Conversation files**, from **More options (…)** or **Browse session files** inside file
+**Conversation files**, from the toolbar’s **folder** icon or **Browse session files** inside file
 activity, includes actual workspace files and stored attachments. Open a folder to follow its
 hierarchy; tap a Markdown document to read it, or preview/play/share other files. Separate
 workspaces are shown when the session’s runs use different folders. Files are fetched afresh
@@ -3682,9 +3694,13 @@ or use the image as a reference for the next message. Voice files have their own
 pause, seek and stop controls. Playback also animates the orb. Generated audio stays quiet
 until you play it; automatic reading does not synthesize a second version of that reply.
 The gateway must offer the requested modality; generation errors appear in activity.
-For gateway endpoint profiles, image generation also requires the Runtime media-resolver
-fix from commit `80a1887` (or a release containing it). An older Runtime can list an image
-provider successfully but fail to resolve it during generation; update and restart that gateway.
+Use a gateway release that supports generation through its configured media endpoint profiles.
+The app uses those profiles without storing provider credentials on the phone.
+
+Inline images reload when you reopen a conversation or relaunch the app. Opening and closing
+an image or switching tabs preserves its preview. Image loading continues while its message
+scrolls off screen; switching conversations cancels pending downloads. If a file cannot be
+retrieved, tap **Try again**. Opening an image also restores its inline preview.
 
 Local copies opened through Conversation files are removed when you dismiss the viewer or
 open another file. Inline previews use a disposable conversation cache, bounded to six files
@@ -3708,8 +3724,8 @@ activity history each inspect up to 64 runs and disclose limits. Text previews s
 ## Conversation tools and answer statistics
 
 Open **Settings → Default tools** to choose defaults for all sessions and new automations
-on this iPhone, scoped to your gateway and account. Tap the **Tools** icon beside the
-responder in a chat to override those defaults for that session. The same editor is
+on this iPhone, scoped to your gateway and account. Tap the **Tools** icon in the middle
+toolbar island to override those defaults for that session. The same editor is
 available under **Tools** when creating an automation and on its detail screen.
 
 Available categories are highlighted and listed first. Categories needing gateway setup
@@ -3804,7 +3820,7 @@ and gateway-client snapshot. It neither embeds nor modifies the Watch applicatio
 - Device microphone permissions, private-network reachability and real provider audio need
   verification on your own iPhone and gateway before daily use.
 
-[Architecture](docs/architecture.md) · [Validation](docs/validation.md) ·
+[Architecture](docs/architecture.md) · [Release history](CHANGELOG.md) ·
 [AbstractAssistant](../../README.md) · [AbstractFramework](https://abstractframework.ai)
 
 MIT License — see [the repository license](../../LICENSE).
@@ -3881,6 +3897,39 @@ A category with mixed choices shows “Mixed” with no selected segment. Choosi
 tools in that category, including those hidden by search, while preserving other categories.
 It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
 category controls apply in Settings, a session, and an automation.
+
+--- phone/iphone/CHANGELOG.md ---
+# iPhone release history
+
+The native iPhone client has its own version and build number. Desktop package releases are
+listed in the repository’s [Changelog](../../CHANGELOG.md).
+
+## [0.6.21] — 2026-10-18
+
+### Fixed
+
+- Generated images remain visible inline after reopening a conversation, restarting the app,
+  closing an image preview or switching tabs. Message rows share their image downloads.
+- Opening an image also prepares its inline preview. Cleared temporary files download again;
+  failed image downloads offer **Try again**.
+
+## [0.6.20] — 2026-10-18
+
+### Changed
+
+- The working orb has a brighter mint/lavender rim, visible moving ribbons and a colored Stop
+  symbol. It morphs continuously between sphere and rounded square over 0.65 seconds, including
+  when work ends during a transition. Reduce Motion retains clear static endpoints.
+
+## [0.6.19] — 2026-10-18
+
+### Added
+
+- Tool categories offer **Off / Auto / Approve** controls in Settings, session overrides and
+  automations. Mixed selections are labeled, and unavailable tools remain disabled.
+- Conversations group into **Today / Yesterday / Earlier**, with two-line titles, compact
+  statistics, last-activity times and **Working / Needs you / Failed** states.
+- Finished conversations can be archived across devices and restored from **Archived**.
 
 --- phone/iphone/docs/architecture.md ---
 # iPhone architecture
@@ -3976,12 +4025,13 @@ voice rendering requests up to 60 Hz, working-state rendering up to 30 Hz; idle 
 and background rendering stops. The soft knee preserves differences
 between loud syllables without saturating at ordinary playback levels. Energy changes
 the ribbons’ curvature, spacing, rotation and stroke, independently of the raw silence gate. Reduce Motion freezes geometry
-and rotation while retaining responsive light. The Debug-only
-`--demo --ui-test --voice-fixture` supplies speech followed by silence, isolated from live
-credentials and Release builds, to exercise tap/cancel/automatic send in native UI tests.
+and rotation while retaining responsive light.
 
 During a gateway turn, the same orb contour morphs into a rounded square with a stable
-Stop glyph. Its surrounding ribbons continue moving; the hit target stays 84 × 80 points.
+mint/lavender Stop glyph on a dark inset. One animatable progress value drives its contour,
+ribbons, lighting and symbol outside the timeline renderer, with 0.65-second easing in both
+directions. The illuminated rim and surrounding ribbons continue moving; working size is
+96% of the sphere. The hit target stays 84 × 80 points.
 The sole progress row belongs to the conversation. Touch-down consumes the Stop action,
 so releasing after cancellation cannot activate the microphone. Repeated touches within
 450 ms of cancellation are consumed. Reduce Motion keeps a static, recognizable square.
@@ -3998,8 +4048,7 @@ active orb; there is no visible voice Cancel/countdown or Done
 button in chat. `OutsideInputDismissal` installs a screen-owned UIKit recognizer rather
 than a window handler. It excludes text/caret/selection touches, allows simultaneous
 recognition, never cancels the outside control's event and defers focus changes until that
-action can finish. Native tests exercise field/caret taps, outside dismissal, Send, orb and
-opening the attachment menu with one tap while editing. Leaving the screen detaches it.
+action can finish. Leaving the screen detaches it.
 
 `AssistantStore.completedReply` signals only a newly completed current turn. Automatic
 reading listens for this event while active, rather than message-list refreshes, so restored
@@ -4231,20 +4280,22 @@ Changing sessions clears the source through ordinary message restoration.
 playback. Downloads use authenticated artifact-content routes with redirect refusal and a
 256 MB streaming limit. The disposable cache retains at most six files and 128 MB, excluding
 a file actively open/playing or the newest single-file download. Context changes cancel
-registered downloads and discard cached files. Audio pauses/stops per artifact and shares
+registered downloads and discard cached files. Each artifact has one conversation-owned transfer:
+thumbnail and full-screen consumers await that task without cancelling one another when SwiftUI
+rebuilds or removes a row. Images are decoded into the inline cache before consumers resume;
+late preview presentation is guarded by the conversation generation. Missing temporary files are
+refetched and genuine failures expose a retry. Audio pauses/stops per artifact and shares
 microphone/read-aloud exclusion, interruption handling and measured orb animation.
 
-Endpoint-backed image generation requires Runtime's media host to inherit the gateway's
-provider endpoint resolver. Runtime commit `80a1887` fixes creation, resolver rotation and
-media-host reconstruction. Without it, a healthy inventory and successful text routing can
-still precede `Unknown or disabled endpoint profile` in the image-generation node. The
-phone reports that run failure; it does not copy endpoint credentials or resolve profiles itself.
+Endpoint-backed image generation uses the gateway’s provider endpoint resolver in its Runtime
+media host. The phone receives artifact references and reports public generation results;
+provider endpoint credentials and profile resolution remain on the gateway.
 
 ## Session files and completed answer activity
 
-The action row owns share/copy/speech and cycle/tool buttons per answer, plus positive-only
-email/file/web source counters. The session file browser remains in More and file source
-sheets, rather than as a session-wide count beside an individual answer. Live/wait/error
+The action row owns copy/speech and cycle/tool buttons per answer, plus positive-only
+email/file/web source counters. Conversation sharing and the session file browser are available
+from the toolbar; file source sheets also open the browser. Live/wait/error
 activity retains its existing panel.
 Terminal Assistant activity snapshots are keyed by root run ID. Older answers reconstruct
 root/descendant ledgers independently; no latest-run state is attached to another answer.
@@ -4349,12 +4400,10 @@ responses or reasoning. Existing receipt projections retain their separate field
 Result text remains bounded to 4,000 characters with visible truncation. Times are local;
 rows state missing evidence. Child boundaries expose their owning run/step identifiers.
 
-The orchestrator revision 8 isolates route_call with declared include_context=false:
-routing neither reads conversation history nor appends its control prompt/plan to it.
-Spoken literary recitations use voice generation. Existing corrupted historical assistant
-replies are preserved as history; they are not silently rewritten. The immutable corrected
-bundle is abstractassistant-orchestrator@0.0.15, tested through the saved iPhone connection.
-
+The `abstractassistant-orchestrator` workflow keeps its response-type routing separate from
+conversation history: `route_call` declares `include_context=false`. Spoken recitations use
+voice generation. The gateway retains public conversation history and serves generated files
+as artifact references on the corresponding answer.
 
 ## Historical activity task ownership
 
@@ -19453,6 +19502,7 @@ INCLUDED_FILES: list[str] = [
     "LICENSE",
     "CHANGELOG.md",
     "phone/iphone/README.md",
+    "phone/iphone/CHANGELOG.md",
     "phone/iphone/docs/architecture.md",
     "phone/iphone/BUILD.md",
     "watch/apple/README.md",

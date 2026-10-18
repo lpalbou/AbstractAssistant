@@ -1,5 +1,9 @@
 # Developer preview validation
 
+For **0.6.21 (29)** restored inline images, see package backlog **1040** and
+`docs/backlog/evidence/1040`. Checks cover cancelled/overlapping row consumers, shared transport,
+session reset, failure/retry, purged disposable files and a cold-relaunch/preview/navigation journey.
+
 For **0.6.20 (28)** stop-orb contrast and continuous two-way morph, see package backlog
 **1039** and `docs/backlog/evidence/1039`. Native verification includes real hosted animation
 frames, an interrupted transition, Reduced Motion and the stop/restore UI journey.
