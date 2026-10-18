@@ -5,16 +5,21 @@ import SwiftUI
 // share these three views (the same caption, font and size).
 
 /// A message in full: a caption line inside the card (when it ran, or the question asked), then
-/// the text in markdown at the reading size. Red border when it failed.
+/// the text in markdown at the reading size, then the images, recordings and videos it made. Red
+/// border when it failed.
 struct MessageCard<Caption: View>: View {
     let text: String
     var failed = false
+    var media: [MediaItem] = []
+    /// Plays a recording through the orb (on the orb page); nil: it plays on its own.
+    var play: ((MediaItem) -> Void)? = nil
     @ViewBuilder let caption: () -> Caption
     var body: some View {
         Card(stroke: failed ? Theme.red.opacity(0.6) : nil) {
             VStack(alignment: .leading, spacing: 4) {
                 caption()
-                MarkdownText(text.isEmpty ? "No answer" : text)
+                if !text.isEmpty || media.isEmpty { MarkdownText(text.isEmpty ? "No answer" : text) }
+                if !media.isEmpty { MediaStrip(items: media, play: play).padding(.top, 2) }
             }
         }
     }
@@ -23,6 +28,7 @@ struct MessageCard<Caption: View>: View {
 /// An earlier message as a compact card: its caption, the first two lines, a chevron (it opens).
 struct MessageRowCard<Caption: View>: View {
     let text: String
+    var media: [MediaItem] = []
     @ViewBuilder let caption: () -> Caption
     var body: some View {
         Card {
@@ -33,6 +39,10 @@ struct MessageRowCard<Caption: View>: View {
                         .font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(2)
                 }
                 Spacer(minLength: 2)
+                // It made an image, a recording or a video: open it to see.
+                if let symbol = MediaItem.symbol(of: media) {
+                    Image(systemName: symbol).font(.caption2).foregroundStyle(Theme.cyan).accessibilityLabel("With media")
+                }
                 Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
             }
         }
@@ -43,6 +53,8 @@ struct MessageRowCard<Caption: View>: View {
 struct MessagePage<Caption: View>: View {
     let text: String
     let read: ReadItem?
+    var media: [MediaItem] = []
+    var footer: AnyView? = nil
     @ViewBuilder let caption: () -> Caption
     var body: some View {
         ScrollView {
@@ -52,7 +64,9 @@ struct MessagePage<Caption: View>: View {
                     Spacer(minLength: 4)
                     if let read { ReadAloudLink(item: read) }
                 }
-                MarkdownText(text.isEmpty ? "No answer" : text)
+                if !text.isEmpty || media.isEmpty { MarkdownText(text.isEmpty ? "No answer" : text) }
+                if !media.isEmpty { MediaStrip(items: media) }
+                if let footer { footer }
             }
             .padding(.horizontal, 4)
         }

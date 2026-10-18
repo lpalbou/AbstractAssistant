@@ -169,6 +169,9 @@ struct SessionDetailView: View {
                     if let out = run.outputText, !out.isEmpty, run.isTerminal {
                         NavigationLink(value: Route.read(ReadItem(title: model.title(of: session) ?? "", text: out, scope: .run(run.runId)))) { turn(run) }
                             .buttonStyle(.plain)
+                        // What the turn made, under its answer (each opens or plays on its own).
+                        let media = MediaItem.of(output: run.output, runId: run.runId)
+                        if !media.isEmpty { MediaStrip(items: media) }
                     } else { turn(run) }
                 }
             }

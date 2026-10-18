@@ -4,10 +4,12 @@ import SwiftUI
 
 /// Reads a text aloud with the gateway's voice: the speech stream's WAV chunks play back to back
 /// through one AVAudioPlayer at a time; each chunk is analysed (loudness and spectrum) so the orb
-/// follows the voice exactly where it plays.
+/// follows the voice exactly where it plays. An answer's recordings (the Assistant's workflow makes
+/// them) play after its text, at their own speed.
 @MainActor
 final class Speaker: NSObject, ObservableObject {
-    typealias Chunk = (data: Data, duration: Double, frames: [VoiceFrame])
+    /// `rate`: the speed chosen in Settings → Voice for speech; 1 for a recording.
+    typealias Chunk = (data: Data, duration: Double, frames: [VoiceFrame], rate: Float)
 
     enum State: Equatable { case idle, preparing, speaking, paused, finished, failed(String) }
 
@@ -28,6 +30,7 @@ final class Speaker: NSObject, ObservableObject {
     /// Chunks already spoken, in order (rewind reaches back into them), and the one playing now.
     private var history: [Chunk] = []
     private var currentData: Data?
+    private var currentRate: Float = 1
     /// The chunk playing, analysed (60 frames per second of audio) for the orb.
     private var frames: [VoiceFrame] = []
     private let normalizer = VoiceNormalizer()
@@ -92,14 +95,18 @@ final class Speaker: NSObject, ObservableObject {
         }
     }
 
-    func read(_ markdown: String, scope: SpeechScope, client: any GatewayClient) {
+    /// Plays recordings alone (a recording's own row, or its page).
+    func play(clips: [MediaItem], client: any GatewayClient) { read("", scope: nil, client: client, clips: clips) }
+
+    func read(_ markdown: String, scope: SpeechScope?, client: any GatewayClient, clips: [MediaItem] = []) {
         stop()
         if let other = Self.current, other !== self { other.stop() }
         Self.current = self
         // The whole text in one request: the gateway's voice speaks it in whole sentences, made ahead
         // of playback, in one language for the whole reply (abstractvoice 0.15.2).
-        let spoken = SpeechText.plain(markdown)
-        guard !spoken.isEmpty else { state = .failed("Nothing to read in this text."); return }
+        let spoken = scope == nil ? "" : SpeechText.plain(markdown)
+        let clips = clips.filter { $0.kind == .audio }
+        guard !spoken.isEmpty || !clips.isEmpty else { state = .failed("Nothing to read in this text."); return }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [])
@@ -113,29 +120,52 @@ final class Speaker: NSObject, ObservableObject {
         buffering = true; refilling = false
         RuntimeKeeper.shared.hold(holder)
         task = Task { [weak self] in
-            do {
-                for try await wav in client.speech(text: spoken, scope: scope, voice: VoicePrefs.voice(for: scope)) {
-                    let frames = await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: wav) }.value
-                    guard let self, !Task.isCancelled else { return }
-                    self.enqueue(wav, frames: frames)
-                }
-                guard !Task.isCancelled else { return }
-                self?.streamDone = true
-                self?.advanceIfIdle()
-            } catch {
-                guard let self, !Task.isCancelled else { return }
-                self.streamDone = true
-                self.streamError = Self.describe(error)
-                self.trace("stream failed after \(String(format: "%.1f", self.receivedSeconds)) s: \(error)")
-                if self.player == nil && self.queue.isEmpty {
-                    self.state = .failed(Self.describe(error))
-                    self.trace("stream error \(error)")
-                    self.release()
-                } else {
-                    self.advanceIfIdle()                  // what arrived plays, even under the buffer
-                }
+            // The recordings download while the text is spoken; they play after it, even when the
+            // voice fails, and one that cannot be fetched does not keep the others from playing.
+            async let recordings = Self.download(clips, client: client)
+            var voiceError: Error?
+            if let scope, !spoken.isEmpty {
+                do {
+                    for try await wav in client.speech(text: spoken, scope: scope, voice: VoicePrefs.voice(for: scope)) {
+                        let frames = await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: wav) }.value
+                        guard let self, !Task.isCancelled else { return }
+                        self.enqueue(wav, frames: frames)
+                    }
+                } catch { voiceError = error }
             }
+            guard let self, !Task.isCancelled else { return }
+            let spokenSeconds = self.receivedSeconds
+            if !clips.isEmpty { self.awaitingClips = true; self.advanceIfIdle() }
+            let fetched = await recordings
+            guard !Task.isCancelled else { return }
+            self.awaitingClips = false
+            for data in fetched.compactMap({ $0 }) {
+                // A long recording plays without the orb following it (its analysis would copy it twice).
+                let frames = data.count <= Self.analysedBytes
+                    ? await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: data) }.value : []
+                guard !Task.isCancelled else { return }
+                self.enqueue(data, frames: frames, rate: 1)
+            }
+            self.streamDone = true
+            if let error = voiceError {
+                self.streamError = spokenSeconds > 0 ? "The voice stopped early. \(Self.describe(error))" : Self.describe(error)
+                self.trace("voice failed after \(String(format: "%.1f", spokenSeconds)) s: \(error)")
+            } else if fetched.contains(where: { $0 == nil }) {
+                self.streamError = "A recording could not be played."
+            }
+            self.advanceIfIdle()                          // what arrived plays, even under the buffer
         }
+    }
+
+    /// Recordings up to this size are analysed for the orb.
+    private static let analysedBytes = 4 * 1024 * 1024
+    /// The text has been spoken; its recordings are still downloading (the orb waits, not speaks).
+    private var awaitingClips = false
+
+    private static func download(_ clips: [MediaItem], client: any GatewayClient) async -> [Data?] {
+        var out: [Data?] = []
+        for clip in clips { out.append(try? await MediaStore.shared.data(clip, client: client)) }
+        return out
     }
 
     func stop() {
@@ -157,7 +187,7 @@ final class Speaker: NSObject, ObservableObject {
             if p.currentTime >= back { p.currentTime -= back; trace("rewound within the chunk"); return }
             back -= p.currentTime
             p.stop(); player = nil
-            if let d = currentData { queue.insert((d, p.duration, frames), at: 0) }
+            if let d = currentData { queue.insert((d, p.duration, frames, currentRate), at: 0) }
         }
         currentData = nil
         var offset: Double = 0
@@ -201,9 +231,9 @@ final class Speaker: NSObject, ObservableObject {
         return normalizer.push(frames[i], at: t)
     }
 
-    private func enqueue(_ wav: Data, frames: [VoiceFrame]) {
+    private func enqueue(_ wav: Data, frames: [VoiceFrame], rate: Float = Float(VoicePrefs.speed)) {
         let duration = (try? AVAudioPlayer(data: wav))?.duration ?? 0
-        queue.append((wav, duration, frames))
+        queue.append((wav, duration, frames, rate))
         receivedSeconds += duration
         trace("chunk \(wav.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
         advanceIfIdle()
@@ -213,15 +243,16 @@ final class Speaker: NSObject, ObservableObject {
         guard player == nil, state != .paused else { return }
         guard !queue.isEmpty else {
             if !streamDone, playedSeconds > 0 { buffering = true; refilling = true; trace("ran dry, buffering") }
+            if !streamDone, awaitingClips, state == .speaking { state = .preparing }
             if streamDone, isActive {
-                if let why = streamError { state = .failed("The voice stopped early. \(why)"); trace("ended early: \(why)") }
+                if let why = streamError { state = .failed(why); trace("ended early: \(why)") }
                 else { state = .finished; trace("done") }
                 release()
             }
             return
         }
         if buffering && !streamDone {
-            let queued = queue.reduce(0) { $0 + $1.duration } / VoicePrefs.speed
+            let queued = queue.reduce(0) { $0 + $1.duration / Double($1.rate) }
             guard queued >= (refilling ? Self.refillBuffer : Self.startBuffer) else {
                 trace("buffering, \(String(format: "%.1f", queued)) s queued"); return
             }
@@ -238,10 +269,11 @@ final class Speaker: NSObject, ObservableObject {
             let p = try AVAudioPlayer(data: next)
             p.delegate = self
             p.enableRate = true                           // the speed chosen in Settings → Voice
-            p.rate = Float(VoicePrefs.speed)
+            p.rate = chunk.rate
             p.prepareToPlay()
             if startAt > 0 { p.currentTime = min(startAt, max(0, p.duration - 0.05)); startAt = 0 }
             currentData = next
+            currentRate = chunk.rate
             frames = chunk.frames
             player = p
             guard play else { return }
@@ -257,7 +289,7 @@ final class Speaker: NSObject, ObservableObject {
     fileprivate func finishedChunk(_ p: AVAudioPlayer) {
         guard p === player else { return }
         playedSeconds += p.duration
-        if let d = currentData { history.append((d, p.duration, frames)) }
+        if let d = currentData { history.append((d, p.duration, frames, currentRate)) }
         currentData = nil
         trace("finished chunk, played \(String(format: "%.1f", playedSeconds)) s")
         player = nil

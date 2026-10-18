@@ -41,8 +41,12 @@ public protocol GatewayClient: Sendable {
     func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn]
     /// `GET /api/gateway/runs/{id}`
     func run(id: String) async throws -> RunSummary
-    /// `POST /api/gateway/runs/start`; returns the run id.
-    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?) async throws -> String
+    /// `POST /api/gateway/runs/start`; returns the run id. `workflow` nil: the gateway's default agent.
+    func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?) async throws -> String
+    /// `GET /sessions/{id}/artifacts`: the media a conversation's turns made, by run.
+    func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]]
+    /// `GET /runs/{run}/artifacts/{id}/content`: one media item's bytes (at most `MediaItem.byteLimit`).
+    func mediaData(_ item: MediaItem) async throws -> Data
     /// `GET /api/gateway/discovery/tools`: the tools with their risk tiers.
     func tools() async throws -> [ToolInfo]
     /// `POST /api/gateway/commands` with `type: "resume"`.
@@ -57,6 +61,8 @@ public protocol GatewayClient: Sendable {
     func automation(id: String) async throws -> AutomationSummary
     /// `GET /bundles?executable_for=<interface>`: the workflows this account may schedule.
     func workflows(forInterface interface: String) async throws -> [WorkflowChoice]
+    /// The workflows a conversation can run: the agents' and the Assistant's (`WorkflowChoice.conversation`).
+    func conversationWorkflows() async throws -> [WorkflowChoice]
     /// `GET /bundles/{b}/flows/{f}/input_schema?bundle_version=`: a workflow's inputs.
     func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs
     /// `POST /automations`: creates it; returns its row.
@@ -73,6 +79,9 @@ public protocol GatewayClient: Sendable {
     func entityChatTurn(name: String, chatId: String, text: String) async throws -> String
     /// `GET /api/gateway/runs/{id}/ledger?after=N` → records after the cursor.
     func ledger(runId: String, after: Int) async throws -> LedgerPage
+    /// The same step log, read for the run's activity only (`ActivityRecord`): a thinking step's
+    /// conversation is skipped while decoding.
+    func activity(runId: String, after: Int) async throws -> ActivityPage
     /// `POST /api/gateway/commands` `{type: "cancel"}`.
     func cancel(runId: String) async throws
     /// `GET /api/gateway/automations/{id}/occurrences?limit=N`.
@@ -190,9 +199,22 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/discovery/tools", as: ToolsPage.self).items
     }
 
-    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?) async throws -> String {
-        let data = try await request("POST", "api/gateway/runs/start", body: StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools))
+    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?) async throws -> String {
+        let body = StartRunRequest(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, tools: tools, workflow: workflow)
+        let data = try await request("POST", "api/gateway/runs/start", body: body)
         return try JSONDecoder().decode(StartRunResponse.self, from: data).runId
+    }
+
+    public func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]] {
+        MediaItem.bySession(try await get("api/gateway/sessions/\(sessionId)/artifacts", query: [.init(name: "limit", value: "500")], as: JSONValue.self))
+    }
+
+    public func mediaData(_ item: MediaItem) async throws -> Data {
+        guard MediaItem.safe(item.runId), MediaItem.safe(item.artifactId) else { throw GatewayError.invalidResponse }
+        if let size = item.sizeBytes, size > MediaItem.byteLimit { throw GatewayError.invalidResponse }
+        let data = try await request("GET", "api/gateway/runs/\(item.runId)/artifacts/\(item.artifactId)/content", timeout: 120)
+        guard data.count <= MediaItem.byteLimit else { throw GatewayError.invalidResponse }
+        return data
     }
 
     /// Answers a wait. The run is re-read first: if it no longer waits on the same key, the wait
@@ -240,6 +262,12 @@ public actor LiveGatewayClient: GatewayClient {
                                interface: interface)
     }
 
+    public func conversationWorkflows() async throws -> [WorkflowChoice] {
+        async let agents = workflows(forInterface: WorkflowChoice.agentInterface)
+        async let assistant = workflows(forInterface: WorkflowChoice.assistantInterface)
+        return WorkflowChoice.conversation(agents: try await agents, assistant: try await assistant)
+    }
+
     public func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs {
         let v = try await get("api/gateway/bundles/\(w.bundleId)/flows/\(w.flowId)/input_schema",
                               query: [.init(name: "bundle_version", value: w.bundleVersion)], as: JSONValue.self)
@@ -276,6 +304,12 @@ public actor LiveGatewayClient: GatewayClient {
 
     public func ledger(runId: String, after: Int) async throws -> LedgerPage {
         try await get("api/gateway/runs/\(runId)/ledger", query: [.init(name: "after", value: String(after))], as: LedgerPage.self)
+    }
+
+    public func activity(runId: String, after: Int) async throws -> ActivityPage {
+        try JSONDecoder().decode(ActivityPage.self, from: try await request(
+            "GET", "api/gateway/runs/\(runId)/ledger", query: [.init(name: "after", value: String(after)), .init(name: "limit", value: "25")],
+            timeout: 30))
     }
 
     public func cancel(runId: String) async throws {

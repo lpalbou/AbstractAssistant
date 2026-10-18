@@ -5,7 +5,7 @@ import SwiftUI
 struct MessageRow: View {
     let exchange: Exchange
     var body: some View {
-        MessageRowCard(text: exchange.answer) { QuestionCaption(text: exchange.prompt, lines: 1) }
+        MessageRowCard(text: exchange.answer, media: exchange.media) { QuestionCaption(text: exchange.prompt, lines: 1) }
     }
 }
 
@@ -17,7 +17,8 @@ struct MessageView: View {
 
     var body: some View {
         MessagePage(text: exchange.answer,
-                    read: exchange.scope.flatMap { scope in exchange.answer.isEmpty ? nil : ReadItem(title: title, text: exchange.answer, scope: scope) }) {
+                    read: exchange.scope.flatMap { scope in exchange.answer.isEmpty ? nil : ReadItem(title: title, text: exchange.answer, scope: scope) },
+                    media: exchange.media, footer: AnyView(WorkLink(runId: exchange.id))) {
             QuestionCaption(text: exchange.prompt, lines: 4)
         }
     }

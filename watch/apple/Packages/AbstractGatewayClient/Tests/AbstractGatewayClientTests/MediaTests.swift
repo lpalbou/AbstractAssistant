@@ -1,0 +1,118 @@
+import Foundation
+import Testing
+@testable import AbstractGatewayClient
+
+private func json(_ s: String) throws -> JSONValue { try JSONDecoder().decode(JSONValue.self, from: Data(s.utf8)) }
+
+// The Assistant workflow's image run, as the public gateway returned it (2026-10-18, trimmed).
+private let imageOutput = """
+{"response": "I'll generate an image of a red apple on a wooden table.", "success": true,
+ "meta": {"modality": "image", "provider": "endpoint:airelays", "model": "gpt-image-2"},
+ "artifact": {"$artifact": "d0c9a50ce4a51cb207e8c3e0a430cc06", "content_type": "image/png", "size_bytes": 2054680,
+              "artifact_id": "d0c9a50ce4a51cb207e8c3e0a430cc06"},
+ "content_type": "image/png",
+ "outputs": {"image": [{"modality": "image", "content_type": "image/png",
+   "artifact_ref": {"$artifact": "d0c9a50ce4a51cb207e8c3e0a430cc06", "content_type": "image/png", "size_bytes": 2054680}}]},
+ "image_artifact": {"$artifact": "d0c9a50ce4a51cb207e8c3e0a430cc06", "content_type": "image/png"}}
+"""
+
+@Test func aRunsImageIsFoundOnceWhereverTheOutputNamesIt() throws {
+    let media = MediaItem.of(output: try json(imageOutput), runId: "d37ebf77-31af-4ae7-b4ac-6dffb278339f")
+    #expect(media == [MediaItem(artifactId: "d0c9a50ce4a51cb207e8c3e0a430cc06", runId: "d37ebf77-31af-4ae7-b4ac-6dffb278339f",
+                                contentType: "image/png", kind: .image, sizeBytes: 2054680)])
+}
+
+@Test func aTextAnswerHasNoMedia() throws {
+    #expect(MediaItem.of(output: try json(#"{"response": "Hello", "success": true, "meta": {}}"#), runId: "r").isEmpty)
+    #expect(MediaItem.of(output: .string("Hello"), runId: "r").isEmpty)
+    // A JSON artifact (a report, a snapshot) is not media to show.
+    #expect(MediaItem.of(output: try json(#"{"artifact": {"$artifact": "abc", "content_type": "application/json"}}"#), runId: "r").isEmpty)
+}
+
+@Test func aVoiceRecordingIsAudio() throws {
+    let out = try json(#"{"response": "Here it is.", "audio_artifact": {"$artifact": "a1", "content_type": "audio/wav"}, "outputs": {"voice": [{"artifact_ref": {"$artifact": "a1", "content_type": "audio/wav"}}]}}"#)
+    #expect(MediaItem.of(output: out, runId: "r").map(\.kind) == [.audio])
+}
+
+@Test func anIdThatCouldLeaveTheArtifactRouteIsRefused() throws {
+    let out = try json(#"{"artifact": {"$artifact": "../../admin", "content_type": "image/png"}}"#)
+    #expect(MediaItem.of(output: out, runId: "r").isEmpty)
+    let other = try json(#"{"artifact": {"$artifact": "ok", "run_id": "a/b", "content_type": "image/png"}}"#)
+    #expect(MediaItem.of(output: other, runId: "r").isEmpty)
+}
+
+@Test func aSessionsMediaIsGroupedByTheTurnThatMadeIt() throws {
+    let page = try json("""
+    {"items": [
+      {"artifact_id": "img1", "run_id": "turn1", "content_type": "image/png", "size_bytes": 10, "tags": {"kind": "generated_media"}},
+      {"artifact_id": "up1", "run_id": "session_memory_s", "content_type": "image/png", "tags": {"kind": "attachment"}},
+      {"artifact_id": "snap", "run_id": "turn1", "content_type": "application/json", "tags": {"kind": "generated_media"}},
+      {"artifact_id": "wav1", "run_id": "child", "parent_run_id": "turn2", "content_type": "audio/wav", "tags": {"kind": "generated_media"}}
+    ]}
+    """)
+    let byRun = MediaItem.bySession(page)
+    #expect(byRun["turn1"]?.map(\.artifactId) == ["img1"])
+    // Made in an agent's own run: shown with the turn (its parent), fetched from its own run.
+    #expect(byRun["turn2"]?.first?.runId == "child")
+    #expect(byRun["session_memory_s"] == nil)
+}
+
+@Test func aChosenWorkflowIsWhatTheRunStarts() throws {
+    let orchestrator = WorkflowChoice(bundleId: "abstractassistant-orchestrator", bundleVersion: "0.0.0", flowId: "d5d4e5a1",
+                                      name: "AbstractAssistant Orchestrator", interface: WorkflowChoice.assistantInterface, registryScope: "private")
+    let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
+        StartRunRequest(prompt: "draw an apple", sessionId: "s", workflow: orchestrator))) as! [String: Any]
+    #expect(body["bundle_id"] as? String == "abstractassistant-orchestrator")
+    #expect(body["bundle_version"] as? String == "0.0.0")
+    #expect(body["flow_id"] as? String == "d5d4e5a1")
+    #expect(body["interface"] as? String == "abstractassistant.agent.v1")
+    #expect(body["registry_scope"] as? String == "private")
+    // None chosen: the gateway's default agent, as before.
+    let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StartRunRequest(prompt: "hi", sessionId: "s"))) as! [String: Any]
+    #expect(plain["flow_id"] as? String == "@default" && plain["interface"] as? String == "abstractcode.agent.v1")
+    #expect(plain["bundle_id"] == nil)
+}
+
+@Test func aConversationListsTheDefaultAgentThenTheAssistantsWorkflows() throws {
+    let page = try json("""
+    {"default_agent_workflows": {"abstractassistant.agent.v1": {"workflow_id": "abstractassistant-orchestrator@0.0.0:d5d4e5a1"}},
+     "items": [{"bundle_id": "abstractassistant-orchestrator", "bundle_version": "0.0.0", "registry_scope": "private",
+                "entrypoints": [{"flow_id": "d5d4e5a1", "name": "AbstractAssistant Orchestrator"}]}]}
+    """)
+    let assistant = WorkflowChoice.choices(from: page, interface: WorkflowChoice.assistantInterface)
+    #expect(assistant.first?.interface == WorkflowChoice.assistantInterface && assistant.first?.registryScope == "private")
+    let agents = [WorkflowChoice(bundleId: "deep-research", bundleVersion: "1", flowId: "d", name: "Deep research"),
+                  WorkflowChoice(bundleId: "basic-agent", bundleVersion: "1", flowId: "b", name: "Basic agent", isDefault: true)]
+    let all = WorkflowChoice.conversation(agents: agents, assistant: assistant)
+    #expect(all.map(\.bundleId) == ["basic-agent", "abstractassistant-orchestrator", "deep-research"])
+    #expect(all.filter(\.isDefault).map(\.bundleId) == ["basic-agent"])
+}
+
+@Test func theMockMakesAPictureWithTheAssistantsWorkflow() async throws {
+    let mock = MockGatewayClient(wordInterval: 0.001)
+    let orchestrator = try await mock.conversationWorkflows().first { $0.interface == WorkflowChoice.assistantInterface }
+    let id = try await mock.startRun(prompt: "Draw an apple", sessionId: "s", toolPolicy: nil, tools: nil, workflow: orchestrator)
+    try await Task.sleep(for: .milliseconds(1400))
+    let run = try await mock.run(id: id)
+    let media = MediaItem.of(output: run.output, runId: id)
+    #expect(run.status == "completed" && media.map(\.kind) == [.image])
+    let png = try await mock.mediaData(media[0])
+    #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+}
+
+@Test func aBundleListedTwiceShowsItsNewestVersionOnce() {
+    let shipped = WorkflowChoice(bundleId: "abstractassistant-orchestrator", bundleVersion: "0.0.9", flowId: "a", name: "AbstractAssistant Orchestrator",
+                                 interface: WorkflowChoice.assistantInterface)
+    var published = shipped; published.bundleVersion = "0.0.12"; published.flowId = "b"
+    let list = WorkflowChoice.conversation(agents: [], assistant: [shipped, published])
+    #expect(list.map(\.bundleVersion) == ["0.0.12"])
+    #expect(WorkflowChoice.isNewer("0.0.11", than: "0.0.9") && !WorkflowChoice.isNewer("0.1", than: "0.1.0"))
+}
+
+@Test func aRunFromTheWorkflowCatalogNamesItsPublicBundle() {
+    // As the gateway mints it: catalog_internal_bundle_id(tenant_id="default", bundle_id="abstractassistant-orchestrator").
+    let host = "__catalog__v2__tenant_catalog__ZGVmYXVsdA__YWJzdHJhY3Rhc3Npc3RhbnQtb3JjaGVzdHJhdG9y"
+    #expect(WorkflowChoice.bundleId(ofRunWorkflow: "\(host)@0.0.11:c53b1579") == "abstractassistant-orchestrator")
+    #expect(WorkflowChoice.bundleId(ofRunWorkflow: "basic-agent@0.0.5:81795ea9") == "basic-agent")
+    #expect(WorkflowChoice.bundleId(ofRunWorkflow: "__catalog__tenant__default__deep-research@1:x") == "deep-research")
+}

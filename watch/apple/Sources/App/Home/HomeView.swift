@@ -61,6 +61,7 @@ struct HomeView: View {
             #if DEBUG
             if let url = model.testOpen { model.testOpen = nil; try? await Task.sleep(for: .seconds(2)); openURL(url) }
             if ProcessInfo.processInfo.arguments.contains("--render-icon") { OrbIcon.render() }
+            if ProcessInfo.processInfo.arguments.contains("--render-orb-work") { OrbIcon.renderWork() }
             #endif
         }
     }

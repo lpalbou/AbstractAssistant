@@ -46,6 +46,9 @@ struct ToolsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
                 Text(heading).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
+                // Which workflow answers (an automation chooses its own on its page).
+                if scope != .draft { WorkflowRow(scope: scope) }
+                if scope == .session, !model.sessionTrust.isEmpty { trustCard }
                 Text(caption).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                 Text(summary).font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.text2)
                     .accessibilityIdentifier("tools.summary")
@@ -62,6 +65,22 @@ struct ToolsView: View {
                 }
             }
             .padding(.horizontal, 4)
+        }
+    }
+
+    /// After an Accept all: the tools the watch approves for you in this conversation.
+    private var trustCard: some View {
+        Card(stroke: Theme.amber.opacity(0.5)) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Allowed for now", systemImage: "checkmark.shield.fill")
+                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.amber)
+                Text(model.sessionTrust.map(ToolGroup.title(of:)).sorted().joined(separator: ", "))
+                    .font(.rounded(.caption2)).foregroundStyle(Theme.text2)
+                Text("Approved by this watch while it follows the run.").font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                Button("Ask again") { model.revokeTrust(); WKInterfaceDevice.current().play(.click) }
+                    .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton, font: .rounded(.footnote, weight: .semibold)))
+                    .accessibilityIdentifier("tools.trust.revoke")
+            }
         }
     }
 

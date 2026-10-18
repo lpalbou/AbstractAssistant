@@ -483,16 +483,76 @@ struct AutomationDefinitionResponse: Decodable { var definition: AutomationDefin
 /// One workflow an automation can run: an entrypoint of a bundle the gateway lists for the app's
 /// interface (`GET /bundles?executable_for=<interface>`; the gateway decides what is offered).
 public struct WorkflowChoice: Hashable, Sendable, Identifiable {
+    public static let agentInterface = "abstractcode.agent.v1"
+    /// The Assistant's own workflows: they also make images, voice and other media.
+    public static let assistantInterface = "abstractassistant.agent.v1"
+
     public var bundleId: String
     public var bundleVersion: String
     public var flowId: String
     public var name: String
     /// The gateway runs this one when a client asks for "the default" of the interface (`@default`).
     public var isDefault: Bool
+    /// The interface it was listed for: what a run of it is started as.
+    public var interface: String
+    public var registryScope: String?
     public var id: String { "\(bundleId)@\(bundleVersion):\(flowId)" }
-    public init(bundleId: String, bundleVersion: String, flowId: String, name: String, isDefault: Bool = false) {
+    public init(bundleId: String, bundleVersion: String, flowId: String, name: String, isDefault: Bool = false,
+                interface: String = WorkflowChoice.agentInterface, registryScope: String? = nil) {
         self.bundleId = bundleId; self.bundleVersion = bundleVersion; self.flowId = flowId; self.name = name
-        self.isDefault = isDefault
+        self.isDefault = isDefault; self.interface = interface; self.registryScope = registryScope
+    }
+
+    /// What a conversation can run: the gateway's default agent first, then the Assistant's
+    /// workflows, then the other agents. Only the agents' default is the default (the one a
+    /// conversation runs when nothing was chosen).
+    public static func conversation(agents: [WorkflowChoice], assistant: [WorkflowChoice]) -> [WorkflowChoice] {
+        let mine = newest(assistant).map { var w = $0; w.isDefault = false; return w }
+        let agents = newest(agents)
+        return agents.filter(\.isDefault) + mine + agents.filter { !$0.isDefault }
+    }
+
+    /// One row per bundle: its newest version (a gateway may list a shipped copy and a newer
+    /// published one); the default stays the default.
+    static func newest(_ list: [WorkflowChoice]) -> [WorkflowChoice] {
+        var best: [String: WorkflowChoice] = [:]
+        for w in list {
+            guard let kept = best[w.bundleId] else { best[w.bundleId] = w; continue }
+            if w.isDefault || (!kept.isDefault && isNewer(w.bundleVersion, than: kept.bundleVersion)) { best[w.bundleId] = w }
+        }
+        var seen = Set<String>()
+        return list.compactMap { w in seen.insert(w.bundleId).inserted ? best[w.bundleId] : nil }
+    }
+
+    /// The bundle a run ran, as `/bundles` lists it: a run's `workflow_id` is `bundle@version:flow`,
+    /// and a run started from the workflow catalog (the desktop Assistant's) names the catalog's
+    /// host copy, `__catalog__v2__<scope>__<b64 tenant>__<b64 bundle>` (the gateway's
+    /// `parse_catalog_internal_bundle_id`).
+    public static func bundleId(ofRunWorkflow workflowId: String) -> String? {
+        guard let bundle = workflowId.split(separator: "@").first.map(String.init), !bundle.isEmpty else { return nil }
+        let v2 = "__catalog__v2__", v1 = "__catalog__"
+        if bundle.hasPrefix(v2) {
+            let parts = bundle.dropFirst(v2.count).components(separatedBy: "__")
+            guard parts.count >= 3 else { return nil }
+            var b64 = parts.dropFirst(2).joined(separator: "__").replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            b64 += String(repeating: "=", count: (4 - b64.count % 4) % 4)
+            return Data(base64Encoded: b64).flatMap { String(data: $0, encoding: .utf8) }
+        }
+        if bundle.hasPrefix(v1) {
+            let parts = bundle.dropFirst(v1.count).components(separatedBy: "__")
+            return parts.count >= 3 ? parts.dropFirst(2).joined(separator: "__") : nil
+        }
+        return bundle
+    }
+
+    /// "0.0.11" is newer than "0.0.9".
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(x.count, y.count) {
+            let l = i < x.count ? x[i] : 0, r = i < y.count ? y[i] : 0
+            if l != r { return l > r }
+        }
+        return false
     }
 
     /// The bundles page: one choice per entrypoint, in the gateway's order; the interface's default
@@ -506,7 +566,8 @@ public struct WorkflowChoice: Hashable, Sendable, Identifiable {
             return eps.compactMap { e in
                 guard let f = e["flow_id"]?.stringValue else { return nil }
                 return WorkflowChoice(bundleId: id, bundleVersion: v, flowId: f, name: e["name"]?.stringValue ?? f,
-                                      isDefault: defaultId == "\(id)@\(v):\(f)")
+                                      isDefault: defaultId == "\(id)@\(v):\(f)", interface: interface,
+                                      registryScope: b["registry_scope"]?.stringValue)
             }
         }
     }
@@ -827,17 +888,28 @@ public struct StartRunRequest: Encodable, Sendable {
         enum CodingKeys: String, CodingKey { case prompt, useSessionHistory = "use_session_history", system, tools, runtime = "_runtime" }
     }
     public var flowId = "@default"
-    public var interface = "abstractcode.agent.v1"
+    public var interface = WorkflowChoice.agentInterface
+    /// A chosen workflow (nil: the gateway's default agent, `@default`).
+    public var bundleId: String?
+    public var bundleVersion: String?
+    public var registryScope: String?
     public var sessionId: String?
     public var inputData: InputData
 
     public init(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy? = nil, tools: [String]? = nil,
-                system: String? = AssistantPersona.system) {
+                system: String? = AssistantPersona.system, workflow: WorkflowChoice? = nil) {
         self.sessionId = sessionId
         let runtime = toolPolicy == nil && tools == nil ? nil : InputData.Runtime(toolPolicy: toolPolicy, allowedTools: tools)
         self.inputData = InputData(prompt: prompt, system: system, tools: tools, runtime: runtime)
+        if let w = workflow {
+            flowId = w.flowId; interface = w.interface
+            bundleId = w.bundleId; bundleVersion = w.bundleVersion; registryScope = w.registryScope
+        }
     }
-    enum CodingKeys: String, CodingKey { case flowId = "flow_id", interface, sessionId = "session_id", inputData = "input_data" }
+    enum CodingKeys: String, CodingKey {
+        case flowId = "flow_id", interface, sessionId = "session_id", inputData = "input_data"
+        case bundleId = "bundle_id", bundleVersion = "bundle_version", registryScope = "registry_scope"
+    }
 }
 
 

@@ -308,6 +308,11 @@ when you named none). "A 3 s laser gunshot" reaches the sound model as `seconds:
 length a sound effect lasts 5 seconds and music 30. The length is the router model's typed answer;
 the app does not read numbers out of your text.
 
+Asking for spoken audio ("a voice message saying…", "read this aloud as a recording") routes to
+`voice`: the router writes out the exact words in `media_prompt`, and the `generate_voice` node
+speaks them with the gateway's voice engine (`output.voice`, the one that reads replies aloud). The
+reply carries the recording as an audio artifact (workflow revision 6).
+
 The app never substitutes another workflow on its own: when the gateway sets no default and the
 built-in orchestrator is not published, or when a chosen workflow has left the catalog, sending
 is blocked and the palette says why. A running turn always keeps the workflow it started with.

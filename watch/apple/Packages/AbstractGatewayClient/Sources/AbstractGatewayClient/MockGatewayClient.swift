@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 
 /// In-memory client reproducing the design mockups. Same protocol as the live client,
 /// so the UI code path is identical; only the data is canned.
@@ -134,9 +136,36 @@ public actor MockGatewayClient: GatewayClient {
     public func automationCommand(id: String, type: String) async throws {}
     public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {}
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
-        [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent", isDefault: true),
-         WorkflowChoice(bundleId: "deep-research", bundleVersion: "0.1.8", flowId: "deep-research", name: "Deep research"),
-         WorkflowChoice(bundleId: "memact-agent", bundleVersion: "0.1.0", flowId: "memact", name: "MemAct agent")]
+        if interface == WorkflowChoice.assistantInterface {
+            return [WorkflowChoice(bundleId: "abstractassistant-orchestrator", bundleVersion: "0.0.0", flowId: "d5d4e5a1",
+                                   name: "AbstractAssistant Orchestrator", isDefault: true, interface: interface, registryScope: "private")]
+        }
+        return [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent", isDefault: true),
+                WorkflowChoice(bundleId: "deep-research", bundleVersion: "0.1.8", flowId: "deep-research", name: "Deep research"),
+                WorkflowChoice(bundleId: "memact-agent", bundleVersion: "0.1.0", flowId: "memact", name: "MemAct agent")]
+    }
+    public func conversationWorkflows() async throws -> [WorkflowChoice] {
+        WorkflowChoice.conversation(agents: try await workflows(forInterface: WorkflowChoice.agentInterface),
+                                    assistant: try await workflows(forInterface: WorkflowChoice.assistantInterface))
+    }
+
+    /// The media of the sample conversations: an image made in the ADTTE session's earlier turn.
+    public static let sampleMedia: [String: [MediaItem]] = [
+        "r1a9e0b2": [MediaItem(artifactId: "img-km-curve", runId: "r1a9e0b2", contentType: "image/png", kind: .image, sizeBytes: 40_000)],
+    ]
+    public func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]] {
+        try await Task.sleep(for: .milliseconds(300))
+        var out = Self.sampleMedia.filter { id, _ in Self.sampleRuns.contains { $0.runId == id && $0.sessionId == sessionId } }
+        for (id, media) in startedMedia { out[id] = media }
+        return out
+    }
+    public func mediaData(_ item: MediaItem) async throws -> Data {
+        try await Task.sleep(for: .milliseconds(500))
+        switch item.kind {
+        case .image: return SyntheticImage.png(seed: item.artifactId.count)
+        case .audio: return SyntheticSpeech.wav(seconds: 3.0, seed: 3)
+        case .video: throw GatewayError.http(status: 404, body: "")
+        }
     }
     public func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs {
         WorkflowInputs(defaults: ["use_context": .bool(false)], required: w.bundleId == "memact-agent" ? ["prompt"] : [])
@@ -174,7 +203,81 @@ public actor MockGatewayClient: GatewayClient {
         if runId == "occ-live" { let all = liveLedger(); return LedgerPage(items: Array(all.dropFirst(min(after, all.count))), nextAfter: all.count) }
         return LedgerPage(items: Array(Self.sampleLedger.dropFirst(min(after, Self.sampleLedger.count))), nextAfter: Self.sampleLedger.count)
     }
-    public func cancel(runId: String) async throws { started[runId] = nil }
+    public func cancel(runId: String) async throws { started[runId] = nil; scripted[runId] = nil }
+
+    public func activity(runId: String, after: Int) async throws -> ActivityPage {
+        guard let s = scripted[runId] else { return ActivityPage(items: [], nextAfter: after) }
+        let all = Self.timeline(s, at: Date()).records
+        return ActivityPage(items: Array(all.dropFirst(min(after, all.count))), nextAfter: all.count)
+    }
+
+    // MARK: A scripted run ("look up", "research", "check")
+
+    /// Thinks, searches, reads two pages, asks to run a command (waits for you), thinks, asks to
+    /// run a second one, then answers: the activity a person follows on the orb page.
+    private struct Scripted { let t0: Date; var answered: [Int: Date] = [:] }
+    private var scripted: [String: Scripted] = [:]
+    public static let researchAnswer = "Your disk has 42 GB free; the two largest folders are caches you can clear."
+    private enum Seg {
+        case think(Double, String?)
+        case tools([(String, JSONValue)], Double)
+        case approve(String, JSONValue, Double)
+    }
+    private static let script: [Seg] = [
+        .think(1.4, "I'll look for what usually fills a disk first."),
+        .tools([("web_search", .object(["query": .string("what fills a Mac disk caches logs")]))], 1.2),
+        .think(1.0, "Two guides look useful; reading them."),
+        .tools([("skim_url", .object(["url": .string("https://support.apple.com/en-us/102624")])),
+                ("skim_url", .object(["url": .string("https://example.org/guides/disk-space")]))], 1.6),
+        .approve("execute_command", .object(["command": .string("df -h /")]), 1.0),
+        .think(3.0, "Now the largest folders."),
+        .approve("execute_command", .object(["command": .string("du -sh ~/Library/Caches")]), 1.0),
+        .think(1.2, nil),
+    ]
+
+    private static func iso(_ d: Date) -> String {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f.string(from: d)
+    }
+
+    /// The records due at `now`, the wait (if one is open) and whether the run is done.
+    private static func timeline(_ s: Scripted, at now: Date) -> (records: [ActivityRecord], waiting: RunWaiting?, done: Bool) {
+        var out: [ActivityRecord] = []
+        var t = s.t0.addingTimeInterval(1.0)                       // the gateway starts the agent
+        for (i, seg) in script.enumerated() {
+            guard now >= t else { return (out, nil, false) }
+            let step = "s\(i)"
+            switch seg {
+            case .think(let d, let text):
+                out.append(ActivityRecord(stepId: step, nodeId: "reason", status: "started", type: "llm_call", startedAt: iso(t)))
+                guard now >= t + d else { return (out, nil, false) }
+                out.append(ActivityRecord(stepId: step, nodeId: "reason", status: "completed", type: "llm_call", startedAt: iso(t), endedAt: iso(t + d), text: text))
+                t += d
+            case .tools(let calls, let d):
+                let c = calls.map { ActivityRecord.Call(name: $0.0, detail: ToolDetail.preview($0.0, $0.1)) }
+                out.append(ActivityRecord(stepId: step, nodeId: "act", status: "started", type: "tool_calls", startedAt: iso(t), calls: c))
+                guard now >= t + d else { return (out, nil, false) }
+                out.append(ActivityRecord(stepId: step, nodeId: "act", status: "completed", type: "tool_calls", startedAt: iso(t), endedAt: iso(t + d),
+                                          calls: c, outcomes: c.map { _ in .init(success: true) }))
+                t += d
+            case .approve(let name, let args, let d):
+                let c = [ActivityRecord.Call(name: name, detail: ToolDetail.preview(name, args))]
+                let key = "tool_approval:\(i)"
+                out.append(ActivityRecord(stepId: step, nodeId: "act", status: "waiting", type: "tool_calls", startedAt: iso(t), calls: c,
+                                          waitReason: "user", waitKey: key))
+                guard let yes = s.answered[i] else {
+                    let details: JSONValue = .object(["mode": .string("approval_required"),
+                                                      "tool_calls": .array([.object(["name": .string(name), "arguments": args])])])
+                    return (out, RunWaiting(reason: "user", waitKey: key, details: details), false)
+                }
+                let start = max(t, yes)
+                guard now >= start + d else { return (out, nil, false) }
+                out.append(ActivityRecord(stepId: step, nodeId: "act", status: "completed", type: "tool_calls", startedAt: iso(start), endedAt: iso(start + d),
+                                          calls: c, outcomes: [.init(success: true)]))
+                t = start + d
+            }
+        }
+        return (out, nil, now >= t)
+    }
     public func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence] {
         guard let last = Self.sampleAutomations.first(where: { $0.id == automationId })?.lastOccurrence else { return [] }
         guard let top = last.index, top > 1 else { return [last] }
@@ -225,6 +328,11 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func answer(_ wait: Wait, with answer: WaitAnswer) async throws {
+        if var s = scripted[wait.runId], let i = Int(wait.waitKey.split(separator: ":").last ?? "") {
+            s.answered[i] = Date(); scripted[wait.runId] = s
+            approvals.append(wait.waitKey)
+            return
+        }
         pending.removeAll { $0.id == wait.id }
     }
 
@@ -272,14 +380,42 @@ public actor MockGatewayClient: GatewayClient {
         ]
     }
 
-    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?) async throws -> String {
+    /// The workflow of the last question, and the media each mock run made (the Assistant's
+    /// workflow makes an image for "image"/"draw"/"picture", a recording for "voice"/"record").
+    public private(set) var lastWorkflow: WorkflowChoice?
+    /// The approvals answered on scripted runs, in order (tests read who answered what).
+    public private(set) var approvals: [String] = []
+    private var startedMedia: [String: [MediaItem]] = [:]
+
+    public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?) async throws -> String {
         let id = "mock-" + UUID().uuidString.prefix(6).lowercased()
-        started[id] = (Date(), Self.cannedAnswer)
+        lastWorkflow = workflow
+        let p = prompt.lowercased()
+        if ["look up", "research", "check"].contains(where: p.contains) {
+            scripted[id] = Scripted(t0: Date())
+            return id
+        }
+        if workflow?.interface == WorkflowChoice.assistantInterface, ["image", "draw", "picture"].contains(where: p.contains) {
+            started[id] = (Date(), "Here is your picture.")
+            startedMedia[id] = [MediaItem(artifactId: "img-" + id, runId: id, contentType: "image/png", kind: .image, sizeBytes: 40_000)]
+        } else if workflow?.interface == WorkflowChoice.assistantInterface, ["voice", "record"].contains(where: p.contains) {
+            started[id] = (Date(), "Here is the recording.")
+            startedMedia[id] = [MediaItem(artifactId: "wav-" + id, runId: id, contentType: "audio/wav", kind: .audio, sizeBytes: 96_044)]
+        } else {
+            started[id] = (Date(), Self.cannedAnswer)
+        }
         return id
     }
 
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
+        if let s = scripted[id] {
+            let now = Self.timeline(s, at: Date())
+            if now.done {
+                return RunSummary(runId: id, workflowId: "basic-agent@0.0.5:81795ea9", status: "completed", output: .object(["response": .string(Self.researchAnswer)]))
+            }
+            return RunSummary(runId: id, workflowId: "basic-agent@0.0.5:81795ea9", status: now.waiting == nil ? "running" : "waiting", waiting: now.waiting)
+        }
         guard let (t0, text) = started[id] else {
             return Self.sampleRuns.first { $0.runId == id } ?? RunSummary(runId: id, workflowId: nil, status: "failed", error: "unknown run")
         }
@@ -288,7 +424,43 @@ public actor MockGatewayClient: GatewayClient {
         let elapsed = Date().timeIntervalSince(t0) - thinking
         let n = elapsed <= 0 ? 0 : min(words.count, Int(elapsed / wordInterval) + 1)
         let done = n >= words.count
+        if done, let media = startedMedia[id] {
+            // As the Assistant's workflow ends a media branch: the reply, the artifact, the outputs.
+            func ref(_ m: MediaItem) -> JSONValue {
+                .object(["$artifact": .string(m.artifactId), "content_type": .string(m.contentType), "size_bytes": .number(Double(m.sizeBytes ?? 0))])
+            }
+            let modality = media[0].kind == .image ? "image" : "voice"
+            return RunSummary(runId: id, workflowId: lastWorkflow?.id, status: "completed",
+                              output: .object(["response": .string(text), "success": .bool(true), "artifact": ref(media[0]),
+                                               "outputs": .object([modality: .array(media.map { .object(["artifact_ref": ref($0)]) })])]))
+        }
         return RunSummary(runId: id, workflowId: "@default", status: done ? "completed" : "running",
                           output: n == 0 ? nil : .string(words.prefix(n).joined(separator: " ")))
+    }
+}
+
+
+/// A small generated picture (a glowing disc on a dark gradient), so image previews can be
+/// exercised without a gateway.
+public enum SyntheticImage {
+    public static func png(width: Int = 480, height: Int = 360, seed: Int = 0) -> Data {
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Data() }
+        let hue = Double(seed % 7) / 7
+        let colors = [CGColor(red: 0.05, green: 0.07, blue: 0.16, alpha: 1), CGColor(red: 0.2 + hue * 0.3, green: 0.12, blue: 0.45, alpha: 1)] as CFArray
+        if let g = CGGradient(colorsSpace: space, colors: colors, locations: [0, 1]) {
+            ctx.drawLinearGradient(g, start: .zero, end: CGPoint(x: width, y: height), options: [])
+        }
+        ctx.setFillColor(CGColor(red: 0.95, green: 0.3, blue: 0.25, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: width / 2 - 90, y: height / 2 - 90, width: 180, height: 180))
+        ctx.setFillColor(CGColor(red: 0.35, green: 0.75, blue: 0.3, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: width / 2 - 10, y: height / 2 + 80, width: 40, height: 22))
+        guard let image = ctx.makeImage() else { return Data() }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, "public.png" as CFString, 1, nil) else { return Data() }
+        CGImageDestinationAddImage(dest, image, nil)
+        CGImageDestinationFinalize(dest)
+        return out as Data
     }
 }

@@ -64,6 +64,8 @@ struct Orb: View {
     var look: OrbLook = .assistant
     /// nil = the chosen design (Settings → Orb design).
     var design: OrbDesign? = nil
+    /// While it works: the pulses of its steps and the tools running now, at time t.
+    var work: (@MainActor (Double) -> OrbWork)? = nil
 
     @State private var engine = OrbEngine()
     @AppStorage(OrbDesign.storageKey) private var storedDesign = OrbDesign.a.rawValue
@@ -75,7 +77,7 @@ struct Orb: View {
             let t = ctx.date.timeIntervalSinceReferenceDate
             let voiced = mode == .listening || mode == .speaking
             let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking)
-            OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0)
+            OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0, work: work?(t) ?? .none)
                 .frame(width: size, height: size)
         }
         .accessibilityLabel(label)
@@ -145,6 +147,8 @@ struct OrbCanvas: View {
     let design: OrbDesign
     let look: OrbLook
     var countdown: Double = 0
+    /// Its work: each step sends a wave of light across it; each running tool circles it.
+    var work: OrbWork = .none
     /// More points than the screen needs (the 1024 px icon).
     var pointScale: Double = 1
 
@@ -187,11 +191,35 @@ struct OrbCanvas: View {
             px0 = bx; let y1 = py0 * cT - bz * sT; pz0 = py0 * sT + bz * cT; py0 = y1
             var x = px0 * contract, y = py0 * contract
             let z = pz0
+            // 2b. Work: each step sends a ring of light out from the centre (a tool call a quick
+            //     bright one, thinking a soft one, media a slow wide wave); a failed tool shivers.
+            var workLight = 0.0
+            if !work.pulses.isEmpty {
+                let r0 = (x * x + y * y).squareRoot()
+                var push = 0.0
+                for pulse in work.pulses {
+                    let fade = max(0, 1 - pulse.age / 1.6)
+                    switch pulse.tone {
+                    case .failure:
+                        let k = pulse.strength * fade * fade
+                        x += 0.035 * k * sin(t * 55 + p.phase); y += 0.035 * k * cos(t * 47 + p.phase * 1.3)
+                        workLight += 0.3 * k
+                    default:
+                        let speed = pulse.tone == .media ? 0.85 : (pulse.tone == .thinking ? 1.0 : 1.5)
+                        let width = pulse.tone == .media ? 0.24 : (pulse.tone == .thinking ? 0.2 : 0.13)
+                        let ring = (r0 - pulse.age * speed) / width
+                        let k = exp(-ring * ring) * pulse.strength * fade
+                        push += k; workLight += k
+                    }
+                }
+                if r0 > 1e-3 { x += x / r0 * 0.12 * push; y += y / r0 * 0.12 * push }
+            }
             // 2. Light: the sun, the night side, depth (the far side fades), a rim.
             let lit = max(0.0, x * sun.x + y * sun.y + z * sun.z)
             var bright = (0.18 + 0.82 * lit) * p.lum
             bright *= 0.2 + 0.8 * smoothstep(-0.25, 0.15, z)
             if p.surface { bright += 0.35 * pow(1 - min(1, abs(z)), 3) * p.lum }
+            bright += 1.6 * workLight * (0.45 + 0.55 * p.lum) * smoothstep(-0.4, 0.2, z)
             // 3. The voice. Each style defines where a point goes at full strength (its displacement
             //    D); how far it goes is its participation w, a smoothstep of its mobility m (its
             //    distance from the centre on screen, plus a little chance) against a threshold that
@@ -301,11 +329,68 @@ struct OrbCanvas: View {
             moving[b].addRect(CGRect(x: cx + x * R - px / 2, y: cy + y * R - px / 2, width: px, height: px))
         }
         let pal = OrbPalette.colors(for: look.color)
+        drawWaves(&gc, cx: cx, cy: cy, R: R, pal: pal)
         for b in 0..<5 { gc.fill(moving[b], with: .color(pal[b])) }
+        drawSatellites(&gc, cx: cx, cy: cy, R: R, px: px, pal: pal)
+    }
+
+    /// Under the points: each wave's soft ring of light, travelling out with it and fading.
+    private func drawWaves(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, pal: [Color]) {
+        let waves = work.pulses.filter { $0.tone != .failure }
+        guard !waves.isEmpty else { return }
+        // A soft ring as a radial gradient (no blur pass: it is drawn every frame).
+        let glow = OrbPalette.glow(pal)
+        for w in waves {
+            let speed = w.tone == .media ? 0.85 : (w.tone == .thinking ? 1.0 : 1.5)
+            let r = w.age * speed * 0.92 * R
+            guard r > 2 else { continue }
+            let fade = max(0, 1 - w.age / 1.6)
+            let width = (w.tone == .media ? 0.34 : 0.2) * R
+            let alpha = min(0.55, 0.42 * w.strength * fade * (w.tone == .thinking ? 0.5 : 1))
+            let outer = r + width
+            let inner = max(0, r - width) / outer, mid = r / outer
+            let g = Gradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: inner),
+                                     .init(color: glow.opacity(alpha), location: mid), .init(color: .clear, location: 1)])
+            gc.fill(Path(ellipseIn: CGRect(x: cx - outer, y: cy - outer, width: 2 * outer, height: 2 * outer)),
+                    with: .radialGradient(g, center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: outer))
+        }
+    }
+
+    /// Each tool running now circles the planet on a tilted orbit, a bright point with a fading
+    /// trail, dimmed while it passes behind.
+    private func drawSatellites(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, px: Double, pal: [Color]) {
+        let n = work.satellites
+        guard n > 0 else { return }
+        let tilt = -0.32, ca = cos(tilt), sa = sin(tilt)
+        func spot(_ i: Int, _ k: Int) -> (x: Double, y: Double, behind: Bool) {
+            let a = t * 1.7 + 2 * .pi * Double(i) / Double(n) - Double(k) * 0.06
+            let ox = cos(a) * 1.3, oy = sin(a) * 1.3 * 0.34
+            return (cx + (ox * ca - oy * sa) * R, cy + (ox * sa + oy * ca) * R, sin(a) < -0.15)
+        }
+        // A glow under each head (a radial gradient), then the trail and the head.
+        let glow = OrbPalette.glow(pal)
+        for i in 0..<n {
+            let s = spot(i, 0), g = px * 6
+            let fill = Gradient(colors: [glow.opacity(s.behind ? 0.25 : 0.75), .clear])
+            gc.fill(Path(ellipseIn: CGRect(x: s.x - g, y: s.y - g, width: 2 * g, height: 2 * g)),
+                    with: .radialGradient(fill, center: CGPoint(x: s.x, y: s.y), startRadius: 0, endRadius: g))
+        }
+        for i in 0..<n {
+            for k in stride(from: 16, through: 0, by: -1) {
+                let s = spot(i, k)
+                let size = px * (k == 0 ? 4.2 : 2.4 - 0.1 * Double(k))
+                let alpha = (k == 0 ? 1 : 0.7 * (1 - Double(k) / 17)) * (s.behind ? 0.3 : 1)
+                gc.fill(Path(ellipseIn: CGRect(x: s.x - size / 2, y: s.y - size / 2, width: size, height: size)),
+                        with: .color((k == 0 ? pal[4] : pal[3]).opacity(alpha)))
+            }
+        }
     }
 }
 
 enum OrbPalette {
+    /// The light of its work: the palette's bright colour at full strength (a dark entity colour
+    /// would make a faded one vanish on the ground).
+    static func glow(_ pal: [Color]) -> Color { pal[3].opacity(1 / 0.85) }
     /// Five brightness levels: deep, mid, the colour, light, near-white (default: indigo → cyan).
     static func colors(for tint: Color?) -> [Color] {
         guard let tint else {
@@ -439,6 +524,35 @@ enum OrbIcon {
               let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         try? data.write(to: dir.appending(path: "orb-icon.png"))
         print("icon rendered: \(dir.appending(path: "orb-icon.png").path)")
+    }
+
+    /// `--render-orb-work` (simulator): the orb at work, frame by frame, into Documents/orb-work-*.png:
+    /// a tool pulse travelling out, a media wave, a failure, and three tools running (satellites).
+    @MainActor static func renderWork() {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let frames: [(String, OrbWork)] = [
+            ("tool-0.15", OrbWork(pulses: [.init(age: 0.15, strength: 1, tone: .tool)], satellites: 1)),
+            ("tool-0.45", OrbWork(pulses: [.init(age: 0.45, strength: 1, tone: .tool)], satellites: 1)),
+            ("tool-0.8", OrbWork(pulses: [.init(age: 0.8, strength: 1, tone: .tool)], satellites: 1)),
+            ("three", OrbWork(pulses: [.init(age: 0.55, strength: 1, tone: .tool), .init(age: 0.37, strength: 1, tone: .tool),
+                                       .init(age: 0.19, strength: 1, tone: .tool)], satellites: 3)),
+            ("media-0.7", OrbWork(pulses: [.init(age: 0.7, strength: 1.3, tone: .media)])),
+            ("failure", OrbWork(pulses: [.init(age: 0.1, strength: 0.9, tone: .failure)])),
+            ("rest", .none),
+        ]
+        for (name, work) in frames {
+            let engine = OrbEngine()
+            for k in 0..<30 { engine.step(t: 1000 + Double(k) / 30, voice: .silent, engaged: false, thinking: true) }
+            let art = ZStack {
+                Color(hex: 0x0a0a12)
+                OrbCanvas(t: 1001, engine: engine, design: .a, look: .assistant, work: work).frame(width: 396, height: 396)
+            }
+            .frame(width: 396, height: 396)
+            let renderer = ImageRenderer(content: art)
+            renderer.scale = 2
+            if let data = renderer.uiImage?.pngData() { try? data.write(to: dir.appending(path: "orb-work-\(name).png")) }
+        }
+        print("orb work rendered: \(dir.path)")
     }
 }
 #endif

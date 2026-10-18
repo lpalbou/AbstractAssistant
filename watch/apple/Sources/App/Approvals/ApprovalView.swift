@@ -39,7 +39,7 @@ struct ApprovalView: View {
                 if model.approvalFromAsk && !outreach {
                     Button { decide(.approve, trustSession: true) } label: { BarIcon(symbol: "checkmark.seal.fill") }
                         .tint(Theme.indigoButton)
-                        .accessibilityLabel("Allow all tools in this session")
+                        .accessibilityLabel("Allow these tools in this conversation")
                         .disabled(sending)
                 }
             }

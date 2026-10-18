@@ -8,6 +8,31 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Its work, live, under the orb.** While the Assistant works, what is below the orb shows its
+  steps instead of the conversation, newest first on a thin rail: thinking (with its own words when
+  it writes some), each tool with what it is about (the search, the page, the file, the command),
+  an image or a recording being made, and a step waiting on you (tap it to decide). The status line
+  says what it does now ("Searching the web…"). The conversation comes back with the answer, which
+  carries "9 steps · 0:11": it opens every step in order.
+- **The orb shows the work.** Each tool call sends a ring of light out from the centre of the
+  planet (parallel calls a few tenths apart), each new thought a softer one, an image or a recording
+  a slow wide wave, and a failed tool makes it shiver; every tool running circles the planet as a
+  small satellite with a trail.
+- **Accept all, taken back at once.** After an approval's Accept all, the tools it allowed are
+  approved by the watch itself while it follows the run (the gateway keeps asking for them, since a
+  run's permissions are fixed when it starts). An amber shield on the orb (bottom right, while it works),
+  and **Ask again** on the conversation's Tools page, end it at once: the very next call asks, also
+  in the run working now.
+- **Images and recordings in answers.** A conversation can run another workflow: the **Workflow**
+  row at the top of its Tools page (the tools icon on the orb page) lists the gateway's default agent,
+  then the Assistant's workflows ("AbstractAssistant Orchestrator", which also makes images and
+  other media), then the other agents; **Settings → Tools** sets the one new conversations use. A
+  conversation continued from another device keeps the workflow its last turn ran. What a turn makes
+  shows under its answer: an image as a picture (tap: full screen, the Digital Crown zooms, drag to
+  look around, share), a recording as a row with its length (on the orb page it plays through the
+  orb right after the spoken answer, at its own speed), a video as a row that opens it. Earlier
+  messages that carry media show a small icon on their card. A chosen workflow the gateway no
+  longer has stops the question with a sentence saying so; it never runs another one instead.
 - **Tools you choose.** A tools icon on the orb page (bottom right, as far from the bottom as the keyboard is from the top, shown with it; for the
   Assistant) opens this conversation's tools, by group (Files, Web, System, Email, …): each tool is
   Off (not offered), Auto (runs without asking) or Ask (asks first), with its risk (Reads only, Makes
@@ -17,10 +42,10 @@ channel (TestFlight, then the App Store); the Python package's history is in
   **Settings → Tools** sets the defaults; a conversation's changes sit on top of them (the icon shows
   a dot, each changed tool its default, and "Use my defaults" undoes them). A question goes out only
   with the tools read from the gateway (read again every 10 minutes and on each visit to Tools).
-- An approval's **Accept all** now sets this conversation's tools: those on Ask stop asking, up to
-  the risk of the call approved; tools turned off stay off, and sends and tools whose destination
-  the assistant picks keep asking. The watch answers a later approval itself only when every call in
-  it is on Auto.
+- An approval's **Accept all** allows this conversation's tools on Ask, up to the risk of the call
+  approved; tools turned off stay off, and sends and tools whose destination the assistant picks
+  keep asking. The watch answers a later approval itself only when every call in it is on Auto or
+  allowed.
 - **New automation** (top of the Automations list): the task, the workflow that runs it (the
   gateway's default by its name, e.g. "Basic agent · default", then the workflows the gateway offers
   your account), the tools it may use, when it runs (every 5 min, 30 min, 1 h, 8 h, 24 h or 7 days,

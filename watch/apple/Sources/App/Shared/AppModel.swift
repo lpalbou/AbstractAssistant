@@ -8,6 +8,7 @@ enum Route: Hashable {
     case occurrence(title: String, LastOccurrence)
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
+    case workflow(AppModel.ToolScope), media(MediaItem), activity(String)
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -18,6 +19,8 @@ struct Exchange: Identifiable, Hashable {
     var prompt: String
     var answer: String
     var scope: SpeechScope?
+    /// The images, recordings and videos the turn made (the Assistant's workflow makes them).
+    var media: [MediaItem] = []
 }
 
 @MainActor
@@ -34,7 +37,7 @@ final class AppModel: ObservableObject {
     private(set) var runsLimit = 80
     func showOlder() async { runsLimit += 100; await refresh() }
     /// Set by "Continue" on a session: Ask opens on its last exchange, in that session.
-    struct Resuming { let sessionId, title, prompt, answer, runId, status: String }
+    struct Resuming { let sessionId, title, prompt, answer, runId, status: String; var media: [MediaItem] = [] }
     var resuming: Resuming?
     @Published var automations: [AutomationSummary] = []
     @Published var principal: Principal?
@@ -60,7 +63,11 @@ final class AppModel: ObservableObject {
     @Published var lastRefresh: Date?
     /// The Ask conversation: one gateway session per watch, kept until "New".
     @Published var askSessionId: String = UserDefaults.standard.string(forKey: "ask.session") ?? AppModel.newSessionId() {
-        didSet { sessionTools = ToolPrefs.session(askSessionId); ToolPrefs.touch(askSessionId) }
+        didSet {
+            sessionTools = ToolPrefs.session(askSessionId); ToolPrefs.touch(askSessionId)
+            sessionWorkflow = WorkflowPrefs.session(askSessionId)
+            sessionTrust = ToolPrefs.trust(askSessionId)
+        }
     }
     /// Who answers an Ask; kept per watch in UserDefaults.
     @Published private(set) var responder = Responder(storageKey: UserDefaults.standard.string(forKey: "ask.responder"))
@@ -98,7 +105,9 @@ final class AppModel: ObservableObject {
         self.client = client; self.gatewayHost = gatewayHost
         if UserDefaults.standard.string(forKey: "ask.session") == nil { UserDefaults.standard.set(askSessionId, forKey: "ask.session") }
         sessionTools = ToolPrefs.session(askSessionId)
-        UserDefaults.standard.removeObject(forKey: "ask.trusted")   // "Accept all" is now tool choices
+        sessionWorkflow = WorkflowPrefs.session(askSessionId)
+        sessionTrust = ToolPrefs.trust(askSessionId)
+        UserDefaults.standard.removeObject(forKey: "ask.trusted")   // the first "Accept all" store, unused
     }
 
     var connected: Bool { principal != nil }
@@ -127,6 +136,7 @@ final class AppModel: ObservableObject {
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; seenWaitIDs = []; entities = []
         forgetTools()                                    // each account has its own tools (email, …)
+        workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
         needsSignIn = false; signInNotice = nil; path = []
         startPolling()
     }
@@ -138,6 +148,7 @@ final class AppModel: ObservableObject {
         client = MockGatewayClient(); gatewayHost = "—"
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; seenWaitIDs = []; entities = []
         forgetTools()
+        workflows = []; workflowsReadAt = nil; MediaStore.shared.clear()
         path = []; signInNotice = notice; needsSignIn = true
     }
 
@@ -227,10 +238,9 @@ final class AppModel: ObservableObject {
     var activeRunCount: Int { runs.filter { $0.status == "running" || $0.status == "waiting" }.count }
     var isAdmin: Bool { principal?.admin == true || (principal?.roles ?? []).contains("admin") }
     static func newSessionId() -> String { "watch-" + UUID().uuidString.lowercased() }
-    /// An approval's "Accept all": in this conversation, the tools now on Ask stop asking, up to the
-    /// risk of the call just approved (at least "makes changes"). Tools that are Off stay off; sends
-    /// to someone else and tools whose destination the assistant picks keep asking. It is this
-    /// conversation's tool choices, so the tools page shows it and can change it.
+    /// Accept all: this conversation's tools on Ask, up to the risk of the call approved, are
+    /// approved by the watch from now on. They stay on Ask for the gateway (a run's permissions
+    /// are fixed when it starts), so the shield takes them back at once, from the very next call.
     func trustSession(approving wait: Wait) {
         let approved = (wait.details ?? []).map { tools[$0.name]?.riskRank ?? 4 }.max() ?? 4
         let ceiling = max(ToolChoices.allAutoMaxRank, approved)
@@ -238,17 +248,38 @@ final class AppModel: ObservableObject {
             toolMode(t, scope: .session) == .ask && t.riskTier != "outreach" && t.modelControlledDestination != true
                 && (t.riskRank ?? 4) <= ceiling
         }
-        setTools(rise.map(\.name), .auto, scope: .session)
+        sessionTrust.formUnion(rise.map(\.name))
+        ToolPrefs.setTrust(askSessionId, sessionTrust)
+    }
+
+    /// The tools Accept all allowed in this conversation (the watch approves them for you).
+    @Published private(set) var sessionTrust: Set<String> = []
+
+    /// They ask again, from the next call (also in the run working now).
+    func revokeTrust() {
+        sessionTrust = []
+        ToolPrefs.setTrust(askSessionId, [])
+    }
+
+    /// The work of answers followed on this watch, by run (an answer card opens it).
+    @Published var activities: [String: FinishedWork] = [:]
+    func keep(_ work: FinishedWork, for runId: String) {
+        activities[runId] = work
+        if activities.count > 40, let oldest = activities.min(by: { $0.value.ended < $1.value.ended })?.key { activities[oldest] = nil }
     }
 
     func markDecided(_ wait: Wait) { decidedWaits.insert(wait.id) }
 
-    /// The watch approves a call itself only when the tool is known and this conversation runs it
-    /// without asking (a run started before the choice still waits for it).
+    /// The watch approves a call itself only when every call in it is a known tool this conversation
+    /// runs without asking, or one Accept all allowed and that is not Off.
     func autoApprovable(_ wait: Wait) -> Bool {
         guard wait.kind == .toolApproval, let calls = wait.details, !calls.isEmpty else { return false }
         // The runtime asks for a batch as a whole: every call in it must be on Auto.
-        return calls.allSatisfy { c in tools[c.name].map { toolMode($0, scope: .session) == .auto } ?? false }
+        return calls.allSatisfy { c in
+            guard let t = tools[c.name] else { return false }
+            let mode = toolMode(t, scope: .session)
+            return mode == .auto || (mode == .ask && sessionTrust.contains(c.name))
+        }
     }
 
     // MARK: Tools
@@ -280,7 +311,11 @@ final class AppModel: ObservableObject {
                 guard let t = tools[n] else { continue }
                 m[n] = mode == ToolChoices.mode(of: t, defaults: toolDefaults, session: [:]) ? nil : mode
             }
-            if scope == .session { setSessionTools(m) } else { draftTools = m }
+            if scope == .session {
+                setSessionTools(m)
+                // A tool turned Off (or set by hand) is no longer one Accept all allowed.
+                if !sessionTrust.isDisjoint(with: names) { sessionTrust.subtract(names); ToolPrefs.setTrust(askSessionId, sessionTrust) }
+            } else { draftTools = m }
         }
     }
 
@@ -308,11 +343,96 @@ final class AppModel: ObservableObject {
     func resetToolDefaults() { toolDefaults = [:]; ToolPrefs.defaults = [:] }
 
     #if DEBUG
-    func reloadToolPrefs() { toolDefaults = ToolPrefs.defaults; sessionTools = ToolPrefs.session(askSessionId) }
+    func reloadToolPrefs() {
+        toolDefaults = ToolPrefs.defaults; sessionTools = ToolPrefs.session(askSessionId)
+        workflowDefault = WorkflowPrefs.defaultPick; sessionWorkflow = WorkflowPrefs.session(askSessionId)
+        sessionTrust = ToolPrefs.trust(askSessionId)
+    }
     #endif
 
     /// What this conversation's next run receives (nil until the catalog is read).
     var toolPlan: ToolChoices.Plan? { toolPlan(.session) }
+
+    // MARK: Workflow
+
+    /// The workflows a conversation can run (the agents', then the Assistant's), read from the gateway.
+    @Published private(set) var workflows: [WorkflowChoice] = []
+    private var workflowsReadAt: Date?
+    /// The workflow for new conversations (Settings → Tools), and this conversation's own choice.
+    @Published private(set) var workflowDefault: WorkflowPick = WorkflowPrefs.defaultPick
+    @Published private(set) var sessionWorkflow: WorkflowPick?
+
+    func ensureWorkflows(maxAge: TimeInterval = .infinity) async {
+        if !workflows.isEmpty, let read = workflowsReadAt, Date().timeIntervalSince(read) < maxAge { return }
+        guard let list = try? await client.conversationWorkflows() else { return }
+        workflows = list
+        workflowsReadAt = Date()
+    }
+
+    /// The workflow a scope runs: this conversation's choice, else the one its earlier turns ran
+    /// (a conversation started on another device keeps its workflow), else the default.
+    func workflowPick(_ scope: ToolScope) -> WorkflowPick {
+        guard scope == .session else { return workflowDefault }
+        if let pick = sessionWorkflow { return pick }
+        if let bundle = inheritedBundle, let w = workflows.first(where: { $0.bundleId == bundle }) {
+            return w.isDefault ? .gatewayDefault : WorkflowPick(w)
+        }
+        return workflowDefault
+    }
+
+    /// The bundle this conversation's latest turn ran (any device), when no choice was made here.
+    private var inheritedBundle: String? {
+        guard sessionWorkflow == nil else { return nil }
+        let latest = runs.filter { $0.sessionId == askSessionId }.max { ($0.createdAt ?? "") < ($1.createdAt ?? "") }
+        return latest?.workflowId.flatMap(WorkflowChoice.bundleId(ofRunWorkflow:))
+    }
+
+    func setWorkflow(_ pick: WorkflowPick, scope: ToolScope) {
+        switch scope {
+        case .defaults: workflowDefault = pick; WorkflowPrefs.defaultPick = pick
+        case .session: sessionWorkflow = pick; WorkflowPrefs.setSession(askSessionId, pick)
+        case .draft: break
+        }
+    }
+
+    /// The listed workflow a pick runs (nil for the gateway's default agent, or when not listed).
+    func workflowChoice(_ pick: WorkflowPick) -> WorkflowChoice? {
+        if pick.isGatewayDefault { return workflows.first(where: \.isDefault) }
+        return workflows.first { $0.bundleId == pick.bundleId && $0.interface == pick.interface }
+    }
+
+    /// The name of the workflow a scope runs ("Basic agent"); nil until the list is read.
+    func workflowName(_ scope: ToolScope) -> String? {
+        let pick = workflowPick(scope)
+        return workflowChoice(pick)?.name ?? (pick.isGatewayDefault && !workflows.isEmpty ? "Gateway default" : nil)
+    }
+
+    enum WorkflowProblem: LocalizedError {
+        case unreadable, gone
+        var errorDescription: String? {
+            switch self {
+            case .unreadable: "Couldn't read your workflows. Try again."
+            case .gone: "That workflow is no longer on your gateway. Choose another in Tools."
+            }
+        }
+    }
+
+    /// What this conversation's next question starts: nil for the gateway's default agent; a
+    /// chosen workflow at its newest version. A chosen workflow the gateway no longer has fails the
+    /// question (it never quietly runs another one).
+    func runWorkflow() async throws -> WorkflowChoice? {
+        let inherited = inheritedBundle
+        // The list is needed to run a chosen workflow, and to know which one earlier turns ran.
+        if inherited != nil || !workflowPick(.session).isGatewayDefault {
+            await ensureWorkflows(maxAge: 600)
+            if workflows.isEmpty { throw WorkflowProblem.unreadable }
+        }
+        if let inherited, !workflows.contains(where: { $0.bundleId == inherited }) { throw WorkflowProblem.gone }
+        let pick = workflowPick(.session)
+        if pick.isGatewayDefault { return nil }
+        guard let w = workflowChoice(pick) else { throw WorkflowProblem.gone }
+        return w
+    }
 
 
     /// The tool's risk tier from the gateway's inventory (the wait payload carries none).
@@ -409,25 +529,27 @@ final class AppModel: ObservableObject {
     func useTestSession() { askSessionId = "watch-test-" + UUID().uuidString.lowercased() }
     #endif
 
-    /// A session's last exchange: its newest turn's question, answer and state (two requests together).
-    func lastExchange(of s: SessionSummary) async -> (prompt: String, answer: String, runId: String, status: String) {
+    /// A session's last exchange: its newest turn's question, answer, state and media (two requests together).
+    func lastExchange(of s: SessionSummary) async -> (prompt: String, answer: String, runId: String, status: String, media: [MediaItem]) {
         async let runCall = try? client.run(id: s.latest.runId)
         async let promptCall = try? client.prompt(ofRun: s.latest.runId)
         let (run, prompt) = await (runCall, promptCall)
-        return ((prompt ?? nil) ?? "", run?.outputText ?? "", s.latest.runId, run?.status ?? s.latest.status)
+        return ((prompt ?? nil) ?? "", run?.outputText ?? "", s.latest.runId, run?.status ?? s.latest.status,
+                MediaItem.of(output: run?.output, runId: s.latest.runId))
     }
 
     /// Tap on a session: read its last exchange, then open the orb in it.
     func continueSession(_ s: SessionSummary) async {
         let last = await lastExchange(of: s)
-        resume(s, lastPrompt: last.prompt, lastAnswer: last.answer, runId: last.runId, status: last.status)
+        resume(s, lastPrompt: last.prompt, lastAnswer: last.answer, runId: last.runId, status: last.status, media: last.media)
     }
 
     /// "Continue": Ask talks in this session from now on, opening on its last exchange (`runId`:
     /// the exchange shown, when the caller read a fresher one than the listing's).
-    func resume(_ s: SessionSummary, lastPrompt: String, lastAnswer: String, runId: String? = nil, status: String? = nil) {
+    func resume(_ s: SessionSummary, lastPrompt: String, lastAnswer: String, runId: String? = nil, status: String? = nil,
+                media: [MediaItem] = []) {
         resuming = Resuming(sessionId: s.id, title: title(of: s) ?? "", prompt: lastPrompt, answer: lastAnswer,
-                            runId: runId ?? s.latest.runId, status: status ?? s.latest.status)
+                            runId: runId ?? s.latest.runId, status: status ?? s.latest.status, media: media)
         askSessionId = s.id
         UserDefaults.standard.set(askSessionId, forKey: "ask.session")
         setResponder(.assistant)
@@ -574,7 +696,9 @@ struct LaunchOptions {
         model.testListen = testListen
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
-        if args.contains("--reset-tools") { ToolPrefs.reset(); model.reloadToolPrefs() }
+        if args.contains("--reset-tools") {
+            ToolPrefs.reset(); WorkflowPrefs.reset(); model.reloadToolPrefs()
+        }
         if args.contains("--fresh-conversation") { model.useTestSession() }   // a test's own, empty conversation
         // `--test-session <id>`: opens that conversation as a tap on its row does (read-only).
         if let i = args.firstIndex(of: "--test-session"), i + 1 < args.count {

@@ -16,6 +16,8 @@ struct AskView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var listener = Listener()
     @StateObject private var speaker = Speaker()
+    /// The run working on the question: its steps under the orb, its pulses in the orb.
+    @StateObject private var activity = RunActivity()
     @AppStorage("ask.speak") private var speakAnswers = true
 
     @State private var phase: Phase
@@ -31,6 +33,8 @@ struct AskView: View {
     @State private var loadingOlder = false
     /// The history could not be read: the session and its newest run, for Retry.
     @State private var historyFailed: (id: String, run: String)?
+    /// The conversation's images and recordings could not be read (the text did): Retry reads them.
+    @State private var mediaFailed: String?
     @State private var runId: String?
     @State private var answerEntity: String?
     @State private var error: String?
@@ -67,7 +71,8 @@ struct AskView: View {
                     VStack(spacing: 6) {
                         // The orb fills the screen, centred in what is visible; everything else is below.
                         ScreenCentered(width: geo.size.width) { side in
-                            Orb(mode: orbMode, size: side, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook)
+                            Orb(mode: orbMode, size: side, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
+                                work: phase == .thinking && activity.isFollowing ? { activity.orb(at: $0) } : nil)
                                 .contentShape(BelowTopRow())
                                 .onTapGesture(perform: orbTapped)
                                 // Hold: talk now, even while it speaks or is paused (cut in).
@@ -98,6 +103,9 @@ struct AskView: View {
                         .overlay(alignment: .bottomTrailing) {
                             if controlsShown, model.responder == .assistant {
                                 toolsLink.padding(.trailing, 6).padding(.bottom, 60)
+                            } else if phase == .thinking, !model.sessionTrust.isEmpty {
+                                // While it works after an Accept all: one tap and its tools ask again.
+                                TrustShield().padding(.trailing, 6).padding(.bottom, 60)
                             }
                         }
                         .id("orb")
@@ -140,6 +148,8 @@ struct AskView: View {
         }
         // The run on screen (followed or answered) is never also posted as a notification while active.
         .onChange(of: runId) { _, id in AnswerNotifier.shared.setShowing(id) }
+        // Screen off or app not in front: the steps are not read (the answer still is).
+        .onChange(of: scenePhase) { _, p in activity.paused = p != .active }
     }
 
     /// Below the orb (scroll): what you said, the answer, the controls, who answers.
@@ -160,12 +170,28 @@ struct AskView: View {
     /// The message shown in full (the conversation's last), the one the voice button reads.
     private var selected: Exchange? { exchanges.last }
 
-    /// Reads one exchange's answer with the orb (the button, or a newly arrived answer).
+    /// Reads one exchange's answer with the orb (the button, or a newly arrived answer), then plays
+    /// the recordings it made.
     private func read(_ e: Exchange) {
         guard !e.answer.isEmpty, let scope = e.scope else { return }
         readingId = e.id
         if phase == .idle { phase = .answer }
-        speaker.read(e.answer, scope: scope, client: model.client)
+        speaker.read(e.answer, scope: scope, client: model.client, clips: e.media)
+    }
+
+    /// A recording's row on the orb page: it plays through the orb.
+    private func playClip(_ item: MediaItem) {
+        if phase == .listening || phase == .thinking { return }
+        // Its own row again: pause, or go on.
+        if readingId == "clip:" + item.id, speaker.isActive || speaker.isPaused {
+            if speaker.isActive { speaker.pause() } else { speaker.resume() }
+            WKInterfaceDevice.current().play(.click)
+            return
+        }
+        readingId = "clip:" + item.id
+        if phase == .idle { phase = .answer }
+        speaker.play(clips: [item], client: model.client)
+        WKInterfaceDevice.current().play(.click)
     }
 
     /// The earlier messages, newest first (as an automation's earlier runs).
@@ -181,8 +207,18 @@ struct AskView: View {
     /// answer), then the earlier messages as small cards (5, Show older for the rest); a card opens
     /// that message.
     @ViewBuilder private var belowContent: some View {
+        // While it works: its steps, live, in place of the conversation (which returns with the answer).
+        if phase == .thinking, activity.runId != nil, model.responder == .assistant {
+            ActivityPanel(activity: activity, prompt: prompt, openWait: pendingWait.map { w in { open(w) } })
+        } else {
+            conversation
+        }
+    }
+
+    @ViewBuilder private var conversation: some View {
         if let last = exchanges.last {
-            MessageCard(text: last.answer) { QuestionCaption(text: last.prompt) }
+            MessageCard(text: last.answer, media: last.media, play: playClip) { QuestionCaption(text: last.prompt) }
+            WorkLink(runId: last.id)
         }
         // The question being worked on (its answer joins the exchanges when it arrives).
         if phase == .thinking, !prompt.isEmpty, exchanges.last?.prompt != prompt || exchanges.last?.answer.isEmpty == false {
@@ -207,6 +243,9 @@ struct AskView: View {
                 .font(.rounded(.footnote)).foregroundStyle(Theme.muted).padding(.top, 6)
         } else if let session = historyFailed {
             Button("Couldn't load earlier messages. Retry") { Task { await loadHistory(session.id, latestRun: session.run) } }
+                .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
+        } else if let session = mediaFailed {
+            Button("Couldn't load images and recordings. Retry") { Task { await loadMedia(session) } }
                 .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
         }
     }
@@ -305,7 +344,7 @@ struct AskView: View {
         switch phase {
         case .idle: return "Tap to talk"
         case .listening: return "Listening…"
-        case .thinking: return pendingWait != nil ? "Needs you" : "Thinking…"
+        case .thinking: return pendingWait != nil ? "Needs you" : (activity.now.map { $0 + "…" } ?? "Thinking…")
         case .answer:
             switch speaker.state {
             case .preparing, .speaking: return ""
@@ -345,7 +384,7 @@ struct AskView: View {
         if !stillHere {
             // Leaving Ask (Back): nothing from this screen may keep running, speaking or pushing screens.
             turn += 1
-            listener.cancel(); speaker.stop(); AnswerNotifier.shared.setShowing(nil)
+            listener.cancel(); speaker.stop(); activity.reset(); AnswerNotifier.shared.setShowing(nil)
             RuntimeKeeper.shared.release("ask")
             return
         }
@@ -404,6 +443,7 @@ struct AskView: View {
         let mine = turn
         prompt = text; answer = ""; error = nil; note = nil; runId = nil; answerEntity = nil; pendingWait = nil
         phase = .thinking; transcribing = false
+        activity.reset()
         Task {
             do {
                 switch model.responder {
@@ -415,13 +455,17 @@ struct AskView: View {
                         if mine == turn { fail("Couldn't read your tools. Try again.") }
                         return
                     }
+                    // The conversation's workflow (the Assistant's also makes images and voice).
+                    let workflow = try await model.runWorkflow()
+                    guard mine == turn else { return }
                     let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: plan.policy,
-                                                                  tools: plan.offered)
+                                                                  tools: plan.offered, workflow: workflow)
                     guard mine == turn else {
                         // Cancelled (or left) while the run was starting: stop it on the gateway too.
                         try? await model.client.cancel(runId: id); return
                     }
                     runId = id
+                    activity.start(runId: id, client: model.client)
                     if !model.client.isMock { AnswerNotifier.shared.watch(runId: id, title: model.responder.title, prompt: text) }
                     try await follow(id, turn: mine)
                 case .entity(let name):
@@ -441,8 +485,18 @@ struct AskView: View {
         }
     }
 
+    /// The run ended: its steps close and are kept for its answer card.
+    private func keepWork(_ id: String, success: Bool) {
+        guard activity.runId == id else { return }
+        activity.stopLoop()
+        let client = model.client
+        Task { if let work = await activity.finish(success: success, client: client) { model.keep(work, for: id) } }
+    }
+
     /// A turn that ends without an answer: one short line in the status, the last answer kept.
     private func fail(_ message: String) {
+        // Following gave up (or the run ended without an answer): its steps are not read any more.
+        if activity.isFollowing { activity.reset() }
         error = message
         phase = answer.isEmpty ? .idle : .answer
         RuntimeKeeper.shared.release("ask")
@@ -468,8 +522,14 @@ struct AskView: View {
             guard mine == turn else { return }
             if run.status == "waiting" {
                 // The turn needs a person (approval/question) on this run or on the agent's child run.
+                // The Assistant's workflow starts the agent two runs down: walk to the run that waits.
                 var wait = run.personWait
-                if wait == nil, let child = run.waitingOnChild { wait = try? await model.client.run(id: child).personWait }
+                var next = run.waitingOnChild
+                var depth = 0
+                while wait == nil, let child = next, depth < 4 {
+                    guard let r = try? await model.client.run(id: child) else { break }
+                    wait = r.personWait; next = r.waitingOnChild; depth += 1
+                }
                 if let w = wait, !model.decidedWaits.contains(w.id) {
                     if model.autoApprovable(w), await model.answer(w, with: .approve) {
                         model.markDecided(w)                   // trusted session: the run goes on
@@ -483,7 +543,10 @@ struct AskView: View {
                 }
             }
             if run.isTerminal {
-                if let out = run.outputText, !out.isEmpty { show(out) }
+                keepWork(id, success: run.status == "completed")
+                let media = MediaItem.of(output: run.output, runId: id)
+                if let out = run.outputText, !out.isEmpty { show(out, media: media) }
+                else if !media.isEmpty { show("", media: media) }
                 else { fail(run.status == "cancelled" ? "Stopped" : "That didn't work. Try again."); return }
                 if scenePhase == .background {   // wrist down, app still in front: the orb speaks it
                     await AnswerNotifier.shared.deliver(key: id, title: model.responder.title, ref: AnswerRef(runId: id, prompt: prompt), answer: answer)
@@ -498,6 +561,7 @@ struct AskView: View {
         RuntimeKeeper.shared.hold("ask")
         let mine = turn
         phase = .thinking
+        if activity.runId != id { activity.start(runId: id, client: model.client) }
         Task {
             do { try await follow(id, turn: mine) }
             catch {
@@ -507,12 +571,12 @@ struct AskView: View {
         }
     }
 
-    /// The answer arrives: shown below the orb, spoken by it.
-    private func show(_ text: String) {
+    /// The answer arrives: shown below the orb, spoken by it (then its recordings play).
+    private func show(_ text: String, media: [MediaItem] = []) {
         answer = text; phase = .answer
         // A followed turn already listed (a resumed conversation) gets its answer; else it is new.
         let e = Exchange(id: runId ?? UUID().uuidString, prompt: prompt, answer: text,
-                         scope: answerEntity.map { SpeechScope.entity($0) } ?? runId.map { SpeechScope.run($0) })
+                         scope: answerEntity.map { SpeechScope.entity($0) } ?? runId.map { SpeechScope.run($0) }, media: media)
         if let i = exchanges.firstIndex(where: { $0.id == e.id }) { exchanges[i] = e } else { exchanges.append(e) }
         WKInterfaceDevice.current().play(.notification)
         speak()                                     // the speaker holds the app awake while it reads
@@ -523,8 +587,9 @@ struct AskView: View {
     }
 
     private func speak() {
-        guard speakAnswers, let e = exchanges.last, !e.answer.isEmpty else { return }
-        read(e)
+        guard speakAnswers, let e = exchanges.last else { return }
+        if !e.answer.isEmpty { read(e) }
+        else if let clip = e.media.first(where: { $0.kind == .audio }) { playClip(clip) }
     }
 
     private func cancel() {
@@ -534,6 +599,7 @@ struct AskView: View {
         }
         if phase == .thinking {
             turn += 1
+            activity.reset()
             if let id = runId, !transcribing { Task { try? await model.client.cancel(runId: id) } }
             transcribing = false; pendingWait = nil
             phase = .idle; note = "Cancelled"; prompt = ""
@@ -545,9 +611,9 @@ struct AskView: View {
     }
 
     private func clearConversation() {
-        speaker.stop(); listener.cancel(); turn += 1
+        speaker.stop(); listener.cancel(); activity.reset(); turn += 1
         prompt = ""; answer = ""; runId = nil; answerEntity = nil; note = nil; error = nil; pendingWait = nil
-        exchanges = []; readingId = nil; shownCount = 5; historyFailed = nil
+        exchanges = []; readingId = nil; shownCount = 5; historyFailed = nil; mediaFailed = nil
         phase = .idle
     }
 
@@ -559,7 +625,7 @@ struct AskView: View {
             model.resuming = nil
             prompt = r.prompt; answer = r.answer; runId = r.runId
             if !answer.isEmpty || !prompt.isEmpty { phase = .answer }
-            exchanges = [Exchange(id: r.runId, prompt: r.prompt, answer: r.answer, scope: .run(r.runId))]
+            exchanges = [Exchange(id: r.runId, prompt: r.prompt, answer: r.answer, scope: .run(r.runId), media: r.media)]
             // Its last turn is still working (or waits on an approval): follow it, as when asked here
             // (the status line then says what it does, not the title).
             if r.status == "running" || r.status == "waiting" { note = nil; resumeFollowing(r.runId) }
@@ -572,7 +638,8 @@ struct AskView: View {
             runId = ref.runId
             if let text = ref.text { show(text); return }
             if let id = ref.runId, let run = try? await model.client.run(id: id) {
-                if let out = run.outputText, !out.isEmpty { show(out) } else { error = "No answer." }
+                let media = MediaItem.of(output: run.output, runId: id)
+                if let out = run.outputText, !out.isEmpty { show(out, media: media) } else { error = "No answer." }
             }
             return
         }
@@ -594,7 +661,7 @@ struct AskView: View {
         guard model.askSessionId == s.id, phase == .idle, prompt.isEmpty, !(last.prompt.isEmpty && last.answer.isEmpty) else { return }
         prompt = last.prompt; answer = last.answer; runId = last.runId
         phase = .answer
-        exchanges = [Exchange(id: last.runId, prompt: last.prompt, answer: last.answer, scope: .run(last.runId))]
+        exchanges = [Exchange(id: last.runId, prompt: last.prompt, answer: last.answer, scope: .run(last.runId), media: last.media)]
         if last.status == "running" || last.status == "waiting" { note = nil; resumeFollowing(last.runId) }
         await loadHistory(s.id, latestRun: last.runId)
     }
@@ -605,6 +672,8 @@ struct AskView: View {
         loadingOlder = true
         historyFailed = nil
         defer { loadingOlder = false }
+        // The turns' media come from the session's artifacts (the replay's turns do not list them).
+        async let media = loadMedia(session)
         do {
             let turns = try await model.client.sessionHistory(latestRun: latestRun, limit: 1000)
             guard model.askSessionId == session else { return }
@@ -613,8 +682,30 @@ struct AskView: View {
             exchanges = turns.filter { !known.contains($0.runId) && ($0.prompt?.isEmpty == false || $0.answer?.isEmpty == false) }
                 .map { Exchange(id: $0.runId, prompt: $0.prompt ?? "", answer: $0.answer ?? "", scope: .run($0.runId)) } + exchanges
         } catch {
-            guard model.askSessionId == session else { return }
+            guard model.askSessionId == session else { _ = await media; return }
             historyFailed = (session, latestRun)
+        }
+        if let byRun = await media { attach(byRun) }
+    }
+
+    /// The conversation's media, by turn; nil when it could not be read (Retry offers it again).
+    @discardableResult private func loadMedia(_ session: String) async -> [String: [MediaItem]]? {
+        mediaFailed = nil
+        do {
+            let byRun = try await model.client.sessionMedia(sessionId: session)
+            guard model.askSessionId == session else { return nil }
+            attach(byRun)
+            return byRun
+        } catch {
+            if model.askSessionId == session { mediaFailed = session }
+            return nil
+        }
+    }
+
+    /// Each exchange shows what its turn made (a turn's own output, already shown, is kept).
+    private func attach(_ byRun: [String: [MediaItem]]) {
+        for i in exchanges.indices where exchanges[i].media.isEmpty {
+            if let m = byRun[exchanges[i].id], !m.isEmpty { exchanges[i].media = m }
         }
     }
 }
