@@ -1,8 +1,26 @@
 import SwiftUI
 import AssistantKit
 import AbstractGatewayClient
+import OSLog
 
 @main struct AbstractAssistantPhoneApp: App {
+    private static let prepareTemporaryStorage: Void = {
+        do { try PhoneTemporaryStorage().removeStaleFiles() }
+        catch { Logger(subsystem: "ai.abstractframework.assistant.iphone", category: "storage").error("Disposable file cleanup failed: \(error.localizedDescription, privacy: .public)") }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--storage-audit") {
+            do {
+                let stats = try FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory())
+                let values = ["volume_capacity_bytes": (stats[.systemSize] as? NSNumber)?.int64Value ?? -1,
+                              "volume_free_bytes": (stats[.systemFreeSize] as? NSNumber)?.int64Value ?? -1]
+                let root = PhoneTemporaryStorage().root
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                try JSONEncoder().encode(values).write(to: root.appending(path: "storage-audit.json"), options: .atomic)
+            } catch { Logger(subsystem: "ai.abstractframework.assistant.iphone", category: "storage").error("Storage audit failed: \(error.localizedDescription, privacy: .public)") }
+        }
+        #endif
+    }()
+    init() { _ = Self.prepareTemporaryStorage }
     var body: some Scene { WindowGroup { PhoneRoot() } }
 }
 

@@ -149,7 +149,13 @@ Uploads are stored by `POST /attachments/upload` with the current session ID. Re
 context/media fields, matching the tray. Session artifact listing includes files from child
 runs; the owner from each artifact is used for its download. IDs are validated before
 constructing a gateway route. Size checks cap imports and streamed downloads at 25 MB.
-Only app-owned local files reach QuickLook; account/session changes remove preview data.
+Only app-owned local files reach QuickLook. Dismissing or replacing the preview removes
+its local copy; account/session changes also remove preview data. Imports, recordings and
+previews live under `tmp/AbstractAssistant/{imports,voice,previews}`, in separate operation
+directories. Upload completion/failure/cancellation and transcription completion/cancellation
+discard their owned copies. Startup clears that temporary namespace and strict UUID-named
+legacy copies left by interrupted processes; originals and Documents are outside its scope.
+Creation and deletion reject namespace symlinks that could lead outside owned directories.
 Picker origin and task generations prevent stale files crossing accounts or conversations.
 
 Automation creation shares the Watch’s NewAutomation schema, eligible-workflow endpoint,

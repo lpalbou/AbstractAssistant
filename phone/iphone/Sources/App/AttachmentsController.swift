@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import UniformTypeIdentifiers
 import AbstractGatewayClient
+import AssistantKit
 
 @MainActor @Observable final class AttachmentsController {
     private(set) var pending: [PhoneArtifact] = []
@@ -9,19 +10,24 @@ import AbstractGatewayClient
     private(set) var busy = false
     private(set) var status = ""
     var error: String?
-    var preview: URL?
+    var preview: URL? { didSet { if preview == nil { clearPreviewFiles() } } }
     @ObservationIgnored var onUnauthorized: (() -> Void)?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var binding: String?
     @ObservationIgnored private var temporary: [URL] = []
+    @ObservationIgnored private let storage: PhoneTemporaryStorage
+    init(storage: PhoneTemporaryStorage = .init()) { self.storage = storage }
     deinit { for url in temporary { try? FileManager.default.removeItem(at: url) } }
+    private func clearPreviewFiles() {
+        for folder in temporary { try? storage.discard(folder) }; temporary = []
+    }
     func bind(_ key: String) { if binding != key { reset(); binding = key } }
     func remove(_ item: PhoneArtifact) { pending.removeAll { $0.id == item.id } }
     func sent() { pending = [] }
     func reset() {
         generation += 1; task?.cancel(); task = nil; busy = false; status = ""; pending = []; files = []; error = nil; preview = nil
-        for file in temporary { try? FileManager.default.removeItem(at: file) }; temporary = []
+        clearPreviewFiles()
     }
     func cancel() { generation += 1; task?.cancel(); task = nil; busy = false; status = "" }
     func importFile(_ url: URL, client: any GatewayClient, sessionId: String, owned: Bool = false) {
@@ -51,14 +57,16 @@ import AbstractGatewayClient
     }
     func open(_ file: PhoneArtifact, client: any GatewayClient) {
         guard !busy else { return }; let epoch = generation; busy = true; status = "Downloading attachment…"; error = nil
+        preview = nil
         task = Task {
             defer { if epoch == generation { busy = false; status = "" } }
             do {
                 let data = try await client.download(file); try Task.checkCancellation(); guard epoch == generation else { return }
-                let folder = FileManager.default.temporaryDirectory.appending(path: "phone-attachment-" + UUID().uuidString, directoryHint: .isDirectory)
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                temporary.append(folder)
-                let url = folder.appending(path: PhoneArtifact.safeFilename(file.filename)); try data.write(to: url, options: .atomic); preview = url
+                let folder = try storage.makeDirectory(for: .previews)
+                do {
+                    let url = folder.appending(path: PhoneArtifact.safeFilename(file.filename))
+                    try data.write(to: url, options: .atomic); temporary = [folder]; preview = url
+                } catch { try? storage.discard(folder); throw error }
             } catch { if epoch == generation && !(error is CancellationError) { self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { onUnauthorized?() } } }
         }
     }

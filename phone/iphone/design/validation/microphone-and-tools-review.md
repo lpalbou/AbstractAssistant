@@ -80,8 +80,9 @@ only and cannot change recording/send decisions.
 
 ## Device delivery
 
-The signed 0.6.2 (10) app passes strict code-signature verification. CoreDevice refused
-installation with POSIX error 28, No space left on device. A subsequent installed-app
-query confirmed 0.6.1 (9) remains installed. The new binary is ready in
-`build/DeviceDerivedData/Build/Products/Debug-iphoneos/AbstractAssistantPhone.app`;
-installation requires available iPhone storage. No existing app or user data was removed.
+The signed 0.6.2 (10) app passed strict code-signature verification. CoreDevice refused
+installation with POSIX error 28, No space left on device; the installed-app query then
+reported 0.6.1 (9). That error did not establish which storage volume was exhausted.
+Version 0.6.3 (11) was subsequently installed and launched successfully. The later
+[storage investigation](storage-review.md) measures the app container and corrects the
+earlier attribution to full iPhone storage. No existing app or user data was removed.

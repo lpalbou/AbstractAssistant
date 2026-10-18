@@ -80,7 +80,8 @@ private final class AudioSessionEvents: @unchecked Sendable {
     @ObservationIgnored private let recordingFactory: (URL) throws -> any VoiceRecording
     @ObservationIgnored private let configureAudio: Bool
     @ObservationIgnored private let isActive: () -> Bool
-    @ObservationIgnored private let file = FileManager.default.temporaryDirectory.appending(path: "iphone-voice-\(UUID().uuidString).wav")
+    @ObservationIgnored private var file: URL?
+    @ObservationIgnored private let storage = PhoneTemporaryStorage()
 
     init(now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          permission: @escaping () async -> Bool = { await AVAudioApplication.requestRecordPermission() },
@@ -117,6 +118,8 @@ private final class AudioSessionEvents: @unchecked Sendable {
                     let audio = AVAudioSession.sharedInstance()
                     try audio.setCategory(.record, mode: .measurement); try audio.setActive(true)
                 }
+                let folder = try storage.makeDirectory(for: .voice)
+                let file = folder.appending(path: "recording.wav"); self.file = file
                 let capture = try recordingFactory(file)
                 try capture.start(); recorder = capture; recordingStarted = now()
                 guard turn.recordingStarted(at: recordingStarted) else { stop(); return }
@@ -158,9 +161,9 @@ private final class AudioSessionEvents: @unchecked Sendable {
     }
 
     func finish(client: any GatewayClient, sessionID: String, model: TranscriptionChoice? = nil) async -> String? {
-        guard turn.claimForTranscription() else { return nil }
+        guard let file, turn.claimForTranscription() else { return nil }
         let epoch = generation; publishTurn(); stopSampling()
-        defer { if epoch == generation { turn.cancel(); publishTurn(); try? FileManager.default.removeItem(at: file); deactivateAudio() } }
+        defer { if epoch == generation { turn.cancel(); publishTurn(); try? storage.discard(file); self.file = nil; deactivateAudio() } }
         do {
             let data = try Data(contentsOf: file)
             try Task.checkCancellation(); guard epoch == generation else { return nil }
@@ -216,6 +219,6 @@ private final class AudioSessionEvents: @unchecked Sendable {
         captureTask?.cancel(); captureTask = nil; playback?.cancel(); playback = nil
         recorder?.stop(); recorder = nil; player?.stop(); player = nil
         speaking = false; preparing = false; paused = false
-        try? FileManager.default.removeItem(at: file); deactivateAudio()
+        if let file { try? storage.discard(file) }; file = nil; deactivateAudio()
     }
 }

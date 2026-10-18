@@ -1,5 +1,8 @@
 # Developer preview validation
 
+For **0.6.4 (12)** temporary-file cleanup and measured device storage, see the
+[storage investigation and evidence](../design/validation/storage-review.md).
+
 For **0.6.3 (11)** gateway compatibility and existing visit-route reuse, see the
 [contract review and evidence](../design/validation/tool-contract-review.md).
 

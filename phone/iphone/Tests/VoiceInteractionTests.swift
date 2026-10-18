@@ -27,7 +27,8 @@ private final class VoiceWire: URLProtocol, @unchecked Sendable {
 @MainActor private final class TestRecording: VoiceRecording {
     var powerDB: Float = -28
     var stopped = false
-    init(url: URL) throws { try SyntheticSpeech.wav(seconds: 0.5, seed: 1).write(to: url) }
+    let url: URL
+    init(url: URL) throws { self.url = url; try SyntheticSpeech.wav(seconds: 0.5, seed: 1).write(to: url) }
     func start() throws {}
     func stop() { stopped = true }
     func power() -> (average: Float, peak: Float) { (powerDB, powerDB + 6) }
@@ -67,6 +68,7 @@ final class VoiceInteractionTests: XCTestCase {
         advance(voice, clock: clock, to: 8)
         XCTAssertEqual(voice.inputPhase, .idle); XCTAssertTrue(recorder!.stopped)
         XCTAssertEqual(VoiceWire.log.count, 0); XCTAssertEqual(voice.meter.level, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: recorder!.url.deletingLastPathComponent().path))
     }
     @MainActor private func attachRecorderOrb(_ voice: VoiceController, name: String) throws {
         let renderer = ImageRenderer(content:
@@ -116,6 +118,7 @@ final class VoiceInteractionTests: XCTestCase {
         advance(voice, clock: clock, to: 3.3); XCTAssertEqual(voice.inputPhase, .ready); XCTAssertTrue(recorder!.stopped)
         let text = await voice.finish(client: client, sessionID: "test")
         XCTAssertEqual(text, "A voice turn"); XCTAssertEqual(VoiceWire.log.count, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: recorder!.url.deletingLastPathComponent().path))
         let duplicate = await voice.finish(client: client, sessionID: "test")
         XCTAssertNil(duplicate); XCTAssertEqual(VoiceWire.log.count, 2)
     }

@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.3 · iOS 26+**
+**Developer preview · 0.6.4 · iOS 26+**
 
 ## Three small spaces
 
@@ -69,6 +69,11 @@ a short video. Uploaded file chips remain until you send or remove them.
 Tap a file to download it privately and preview, play or share it with the native viewer.
 Attachments retain their gateway artifact and owning-run references. Credentials never
 travel in a share link or to an AI-provided URL.
+
+Local preview copies are removed when you dismiss the viewer or open another file.
+Imported copies are removed after upload; recordings are removed after transcription or
+cancellation. Disposable files left by an interrupted app are cleared on its next launch.
+Your original files and gateway attachments are preserved.
 
 Files are limited to **25 MB each** on the phone; the gateway may impose a smaller limit.
 Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts

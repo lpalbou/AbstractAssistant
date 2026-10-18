@@ -3,6 +3,7 @@ import PhotosUI
 import UniformTypeIdentifiers
 import CoreTransferable
 import AbstractGatewayClient
+import AssistantKit
 
 struct ImportedMedia: Transferable, Sendable {
     let url: URL
@@ -10,17 +11,15 @@ struct ImportedMedia: Transferable, Sendable {
         FileRepresentation(importedContentType: .data) { received in ImportedMedia(url: try copy(received.file)) }
     }
     static func remove(_ url: URL) {
-        let parent = url.deletingLastPathComponent()
-        if parent.lastPathComponent.hasPrefix("phone-import-") { try? FileManager.default.removeItem(at: parent) }
-        else { try? FileManager.default.removeItem(at: url) }
+        try? PhoneTemporaryStorage().discard(url)
     }
     static func copy(_ source: URL) throws -> URL {
-        let size = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max
-        guard size <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
-        let folder = FileManager.default.temporaryDirectory.appending(path: "phone-import-" + UUID().uuidString, directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let values = try source.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        guard values.isRegularFile == true, (values.fileSize ?? Int.max) <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
+        let folder = try PhoneTemporaryStorage().makeDirectory(for: .imports)
         let destination = folder.appending(path: PhoneArtifact.safeFilename(source.lastPathComponent))
-        try FileManager.default.copyItem(at: source, to: destination); return destination
+        do { try FileManager.default.copyItem(at: source, to: destination); return destination }
+        catch { try? PhoneTemporaryStorage().discard(folder); throw error }
     }
 }
 
@@ -46,7 +45,10 @@ struct CameraCapture: UIViewControllerRepresentable {
                 if let source = info[.mediaURL] as? URL { url = try ImportedMedia.copy(source) }
                 else if let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.85) {
                     guard data.count <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
-                    url = FileManager.default.temporaryDirectory.appending(path: "Photo-" + UUID().uuidString + ".jpg"); try data.write(to: url)
+                    let folder = try PhoneTemporaryStorage().makeDirectory(for: .imports)
+                    url = folder.appending(path: "Photo.jpg")
+                    do { try data.write(to: url) }
+                    catch { try? PhoneTemporaryStorage().discard(folder); throw error }
                 } else { throw GatewayError.invalidResponse }
                 parent.onResult(.success(url))
             } catch { parent.onResult(.failure(error)) }
