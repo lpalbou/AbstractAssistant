@@ -41,6 +41,13 @@ public protocol GatewayClient: Sendable {
     func sessionHistory(latestRun runId: String, limit: Int) async throws -> [SessionTurn]
     /// `GET /api/gateway/runs/{id}`
     func run(id: String) async throws -> RunSummary
+    /// `POST /api/gateway/sessions/{id}/archive` (or `/unarchive`): out of (or back in) the
+    /// conversations listing; nothing is deleted.
+    func setArchived(sessionId: String, _ archived: Bool) async throws
+    /// `GET /api/gateway/runs?archived_only=true&root_only=true`: the archived conversations' turns.
+    func archivedRuns(limit: Int) async throws -> [RunSummary]
+    /// `GET /api/gateway/sessions/search?q=…`: keyword search over the caller's conversations.
+    func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage
     /// `POST /api/gateway/runs/start`; returns the run id. `workflow` nil: the gateway's default agent.
     func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?, workflow: WorkflowChoice?) async throws -> String
     /// `GET /sessions/{id}/artifacts`: the media a conversation's turns made, by run.
@@ -122,7 +129,11 @@ public actor LiveGatewayClient: GatewayClient {
                          timeout: TimeInterval = 20) async throws -> Data {
         if lockedOut { throw GatewayError.unauthorized }
         var comps = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
-        if !query.isEmpty { comps.queryItems = query }
+        if !query.isEmpty {
+            comps.queryItems = query
+            // A "+" left as is reads as a space on the server ("C++" would arrive as "C").
+            comps.percentEncodedQuery = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        }
         var req = URLRequest(url: comps.url!)
         req.httpMethod = method
         req.timeoutInterval = timeout
@@ -194,6 +205,23 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func run(id: String) async throws -> RunSummary { try await get("api/gateway/runs/\(id)", as: RunSummary.self) }
+
+    public func setArchived(sessionId: String, _ archived: Bool) async throws {
+        guard MediaItem.safe(sessionId) else { throw GatewayError.invalidResponse }
+        _ = try await request("POST", "api/gateway/sessions/\(sessionId)/\(archived ? "archive" : "unarchive")")
+    }
+
+    public func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage {
+        try JSONDecoder().decode(SessionSearchPage.self, from: try await request(
+            "GET", "api/gateway/sessions/search", query: [.init(name: "q", value: query), .init(name: "limit", value: String(limit))], timeout: 30))
+    }
+
+    public func archivedRuns(limit: Int) async throws -> [RunSummary] {
+        try await get("api/gateway/runs", query: [.init(name: "archived_only", value: "true"), .init(name: "root_only", value: "true"),
+                                                   .init(name: "limit", value: String(limit)), .init(name: "include_metrics", value: "true"),
+                                                   .init(name: "session_kind", value: "chat,discussion")],
+                      as: RunsPage.self).items
+    }
 
     public func tools() async throws -> [ToolInfo] {
         try await get("api/gateway/discovery/tools", as: ToolsPage.self).items

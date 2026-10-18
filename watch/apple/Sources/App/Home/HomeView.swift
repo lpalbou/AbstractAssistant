@@ -28,14 +28,13 @@ struct HomeView: View {
                 // Only when something needs you: an empty "0 nothing waiting" card is noise.
                 if !model.waits.isEmpty { waitingCard }
                 NavigationLink(value: Route.sessions) {
-                    row("Sessions", symbol: "bubble.left.and.bubble.right",
-                        detail: model.sessions.isEmpty ? "None yet" : (model.sessions.first.flatMap { model.title(of: $0) } ?? ""),
-                        badge: nil, badgeColor: Theme.cyan, count: model.runningCount, countLabel: "working")
+                    row("Sessions", symbol: "bubble.left.and.bubble.right", detail: sessionsDetail,
+                        badge: nil, badgeColor: Theme.cyan, count: model.newSessionCount, countLabel: "new", total: model.sessions.count)
                 }
                 .buttonStyle(.plain)
                 NavigationLink(value: Route.automations) {
                     row("Automations", symbol: "clock.arrow.circlepath", detail: automationDetail,
-                        badge: nil, badgeColor: Theme.amber, count: unseenCount, countLabel: "new")
+                        badge: nil, badgeColor: Theme.amber, count: unseenCount, countLabel: "new", total: model.automations.count)
                 }
                 .buttonStyle(.plain)
                 .id("bottom")
@@ -93,7 +92,15 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
-    private func row(_ title: String, symbol: String, detail: String, badge: String?, badgeColor: Color, count: Int = 0, countLabel: String = "") -> some View {
+    /// Conversations working now come first ("2 working"), else the latest one.
+    private var sessionsDetail: String {
+        if model.sessions.isEmpty { return "None yet" }
+        if model.runningCount > 0 { return "\(model.runningCount) working" }
+        return model.sessions.first.flatMap { model.title(of: $0) } ?? ""
+    }
+
+    private func row(_ title: String, symbol: String, detail: String, badge: String?, badgeColor: Color, count: Int = 0, countLabel: String = "",
+                     total: Int? = nil) -> some View {
         Card {
             HStack(spacing: 8) {
                 Image(systemName: symbol).font(.rounded(.body)).foregroundStyle(Theme.cyan).frame(width: 22)
@@ -103,13 +110,19 @@ struct HomeView: View {
                 }
                 Spacer(minLength: 2)
                 if let badge { Pill(text: badge, color: badgeColor) }
-                // A count (new results, conversations working): just the number, in a round badge.
+                // What is new: the number in a filled badge; nothing new: how many there are, muted.
                 if count > 0 {
                     Text("\(count)").font(.rounded(.caption2, weight: .bold)).monospacedDigit()
                         .foregroundStyle(Theme.ground)
                         .frame(minWidth: 20, minHeight: 20).padding(.horizontal, count > 9 ? 3 : 0)
                         .background(badgeColor, in: Capsule())
                         .accessibilityLabel("\(count) \(countLabel)")
+                } else if let total, total > 0 {
+                    Text("\(total)").font(.rounded(.caption2, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(Theme.muted)
+                        .frame(minWidth: 20, minHeight: 20).padding(.horizontal, total > 9 ? 3 : 0)
+                        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                        .accessibilityLabel("\(total), nothing new")
                 }
             }
         }

@@ -56,3 +56,49 @@ import Testing
     #expect(turns[1].prompt == "In one sentence: what is the tallest mountain on Earth?")
     #expect(turns[1].answer == "Mount Everest.")
 }
+
+@Test func aSessionIsNewUntilItsLatestAnswerIsSeen() {
+    func run(_ id: String, _ status: String, minutesAgo: Double) -> RunSummary {
+        let at = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-minutesAgo * 60))
+        return RunSummary(runId: id, workflowId: nil, status: status, sessionId: "s", createdAt: at, updatedAt: at)
+    }
+    let since = Date().addingTimeInterval(-3600)
+    let answered = SessionSummary.group([run("r2", "completed", minutesAgo: 5), run("r1", "completed", minutesAgo: 30)])[0]
+    #expect(answered.isNew(seen: [:], since: since))
+    #expect(!answered.isNew(seen: ["s": "r2"], since: since))           // its latest answer was seen
+    #expect(answered.isNew(seen: ["s": "r1"], since: since))            // an older one was
+    #expect(!answered.isNew(seen: [:], since: Date()))                  // before this watch counted
+    #expect(!SessionSummary.group([run("r3", "running", minutesAgo: 1)])[0].isNew(seen: [:], since: since))   // still working
+}
+
+@Test func aSearchPageDecodesTheGatewaysShape() throws {
+    let json = #"""
+    {"query": "survival", "count": 1, "fuzzy": true, "indexing": {"complete": false, "pending_sessions": 3, "turns": 120},
+                 "items": [{"session_id": "s-km", "run_id": "r1", "prompt": "Compare overall survival", "snippet": "Compare overall survival by arm",
+                            "matched_in": "question", "highlights": [[16, 8]], "score": 3.2, "created_at": null, "updated_at": "2026-10-18T10:01:00+00:00",
+                            "session_kind": "chat", "archived": false, "fuzzy": false}]}
+    """#
+    let page = try JSONDecoder().decode(SessionSearchPage.self, from: Data(json.utf8))
+    #expect(page.items.map(\.sessionId) == ["s-km"] && page.items[0].highlights == [[16, 8]] && page.partial)
+}
+
+@Test func theMockFindsWordsInQuestionsAndAnswers() async throws {
+    let mock = MockGatewayClient()
+    #expect(try await mock.searchSessions("assay QC", limit: 10).items.map(\.sessionId) == ["s-qc"])
+    #expect(try await mock.searchSessions("arm B", limit: 10).items.first?.sessionId == "s-adtte")
+    #expect(try await mock.searchSessions("nothing like this", limit: 10).items.isEmpty)
+}
+
+@Test func aHitOnAnImageCarriesItAsMedia() throws {
+    let json = #"""
+    {"items": [{"session_id": "s", "run_id": "t1", "prompt": "Draw", "snippet": "A red apple", "matched_in": "artifact", "highlights": [[6, 5]],
+                "artifact": {"artifact_id": "d0c9a50ce4a51cb207e8c3e0a430cc06", "run_id": "t1", "kind": "image", "content_type": "image/png",
+                             "name": null, "prompt": "A red apple"}},
+               {"session_id": "s2", "run_id": "t2", "prompt": "Read", "snippet": "budget.pdf", "matched_in": "artifact", "highlights": [],
+                "artifact": {"artifact_id": "a2", "run_id": "session_memory_s2", "kind": "attachment", "content_type": "application/pdf", "name": "budget.pdf"}}],
+     "indexing": {"complete": true}}
+    """#
+    let page = try JSONDecoder().decode(SessionSearchPage.self, from: Data(json.utf8))
+    #expect(page.items[0].media?.kind == .image && page.items[0].media?.runId == "t1")
+    #expect(page.items[1].media == nil && page.items[1].artifactName == "budget.pdf")
+}

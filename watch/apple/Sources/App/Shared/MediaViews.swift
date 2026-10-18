@@ -141,18 +141,23 @@ extension MediaItem {
 /// An image under its answer, as wide as the card, shrunk on the watch.
 struct MediaThumbnail: View {
     let item: MediaItem
+    /// A small square (a search result's picture); nil: as wide as the card.
+    var side: CGFloat? = nil
     @EnvironmentObject private var model: AppModel
     @State private var image: UIImage?
     @State private var failed = false
 
     var body: some View {
         Group {
-            if let image {
+            if let image, let side {
+                Image(uiImage: image).resizable().scaledToFill().frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else if let image {
                 Image(uiImage: image).resizable().scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card)
-                    .frame(height: 96)
+                RoundedRectangle(cornerRadius: side == nil ? 12 : 8, style: .continuous).fill(Theme.card)
+                    .frame(width: side, height: side ?? 96)
                     .overlay {
                         if failed {
                             VStack(spacing: 4) {
@@ -165,7 +170,7 @@ struct MediaThumbnail: View {
                     }
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: side == nil ? .infinity : side)
         .task(id: item.id) {
             failed = false
             do { image = try await MediaStore.shared.image(item, client: model.client, maxPixel: 400) } catch { failed = true }

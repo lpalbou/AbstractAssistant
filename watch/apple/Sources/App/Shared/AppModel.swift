@@ -8,7 +8,7 @@ enum Route: Hashable {
     case occurrence(title: String, LastOccurrence)
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
-    case workflow(AppModel.ToolScope), media(MediaItem), activity(String)
+    case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String)
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -29,6 +29,55 @@ final class AppModel: ObservableObject {
     @Published var runs: [RunSummary] = []
     /// Conversations (turns grouped by session), newest activity first.
     var sessions: [SessionSummary] { SessionSummary.group(runs) }
+
+    // MARK: New answers
+
+    /// The latest turn seen of each conversation, on this watch (the gateway keeps no "seen" for
+    /// conversations; automations have their own on the gateway).
+    @Published private(set) var seenSessions: [String: String] = (UserDefaults.standard.dictionary(forKey: "sessions.seen") as? [String: String]) ?? [:]
+    /// Answers before this watch started counting are not new.
+    private var seenSince: Date = {
+        if let d = UserDefaults.standard.object(forKey: "sessions.seen.since") as? Date { return d }
+        let now = Date(); UserDefaults.standard.set(now, forKey: "sessions.seen.since"); return now
+    }()
+
+    func isNew(_ s: SessionSummary) -> Bool { s.isNew(seen: seenSessions, since: seenSince) }
+
+    #if DEBUG
+    /// `--reset-seen`: every answer counts as new (tests and screenshots).
+    func resetSeen() {
+        seenSessions = [:]; seenSince = .distantPast
+        UserDefaults.standard.removeObject(forKey: "sessions.seen"); UserDefaults.standard.set(Date.distantPast, forKey: "sessions.seen.since")
+    }
+    #endif
+    var newSessionCount: Int { sessions.filter(isNew).count }
+
+    /// This answer has been on screen (the orb showed it, or its conversation was opened).
+    func markSeen(session: String, run: String) {
+        guard seenSessions[session] != run else { return }
+        seenSessions[session] = run
+        if seenSessions.count > 400 {                    // the conversations still listed are kept
+            let listed = Set(sessions.map(\.id))
+            seenSessions = seenSessions.filter { listed.contains($0.key) }
+        }
+        UserDefaults.standard.set(seenSessions, forKey: "sessions.seen")
+    }
+
+    // MARK: Archive
+
+    /// Archives a conversation on the gateway (out of every device's list; nothing is deleted).
+    /// The conversation on the orb starts over when it is the one archived.
+    func archive(_ s: SessionSummary) async throws {
+        try await client.setArchived(sessionId: s.id, true)
+        runs.removeAll { ($0.sessionId ?? $0.runId) == s.id }
+        if s.id == askSessionId { newAskSession() }
+        await refresh()
+    }
+
+    func unarchive(_ sessionId: String) async throws {
+        try await client.setArchived(sessionId: sessionId, false)
+        await refresh()
+    }
     /// Each session's latest question, by its newest run id (the row's title).
     @Published private(set) var latestPrompts: [String: String] = [:]
     /// Latest runs whose question the gateway could not give (the row says so; nothing is made up).
@@ -538,6 +587,13 @@ final class AppModel: ObservableObject {
                 MediaItem.of(output: run?.output, runId: s.latest.runId))
     }
 
+    /// A conversation known by its id only (a search result): its turns, then as a tap on its row.
+    func openSession(id: String) async throws {
+        let rows = try await client.turns(ofSession: id, limit: 100)
+        guard let s = SessionSummary.group(rows).first else { throw GatewayError.http(status: 404, body: "") }
+        await continueSession(s)
+    }
+
     /// Tap on a session: read its last exchange, then open the orb in it.
     func continueSession(_ s: SessionSummary) async {
         let last = await lastExchange(of: s)
@@ -699,7 +755,8 @@ struct LaunchOptions {
         if args.contains("--reset-tools") {
             ToolPrefs.reset(); WorkflowPrefs.reset(); model.reloadToolPrefs()
         }
-        if args.contains("--fresh-conversation") { model.useTestSession() }   // a test's own, empty conversation
+        if args.contains("--fresh-conversation") { model.useTestSession() }
+        if args.contains("--reset-seen") { model.resetSeen() }   // a test's own, empty conversation
         // `--test-session <id>`: opens that conversation as a tap on its row does (read-only).
         if let i = args.firstIndex(of: "--test-session"), i + 1 < args.count {
             let sid = args[i + 1]
@@ -747,6 +804,8 @@ struct LaunchOptions {
         case "thinking": return [.ask(.thinking)]
         case "answer": return [.ask(.answer)]
         case "runs", "sessions": return [.sessions]
+        case "session-search": return [.sessions, .sessionSearch("assay QC")]
+        case "session-search-media": return [.sessions, .sessionSearch("survival curve")]
         case "session-long":
             let s = SessionSummary.group(MockGatewayClient.sampleRuns).first { $0.id == "s-qc" }!
             return [.sessions, .session(s)]

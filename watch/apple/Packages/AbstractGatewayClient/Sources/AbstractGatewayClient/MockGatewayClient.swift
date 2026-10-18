@@ -106,7 +106,38 @@ public actor MockGatewayClient: GatewayClient {
     public func health() async throws -> Bool { true }
     public func me() async throws -> Principal { Principal(userId: "albou", tenantId: "default", roles: ["admin"]) }
     public func waits() async throws -> [Wait] { pending }
-    public func recentRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns }
+    public func recentRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns.filter { !archived.contains($0.sessionId ?? "") } }
+    /// Archived conversations (`POST /sessions/{id}/archive`): out of the listing, nothing deleted.
+    private var archived: Set<String> = []
+    public func setArchived(sessionId: String, _ on: Bool) async throws {
+        try await Task.sleep(for: .milliseconds(300))
+        if on { archived.insert(sessionId) } else { archived.remove(sessionId) }
+    }
+    public func archivedRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns.filter { archived.contains($0.sessionId ?? "") } }
+    /// Words found in the sample conversations' questions and answers (every word, any case).
+    public func searchSessions(_ query: String, limit: Int) async throws -> SessionSearchPage {
+        try await Task.sleep(for: .milliseconds(400))
+        let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        var hits: [String: SessionHit] = [:]
+        for r in Self.sampleRuns where !archived.contains(r.sessionId ?? "") {
+            let prompt = (try await self.prompt(ofRun: r.runId)) ?? "", answer = r.outputText ?? ""
+            for (text, place) in [(prompt, "question"), (answer, "answer")] {
+                let low = text.lowercased()
+                guard !words.isEmpty, words.allSatisfy(low.contains), let sid = r.sessionId, hits[sid] == nil else { continue }
+                let marks = words.compactMap { w in low.range(of: w).map { [low.distance(from: low.startIndex, to: $0.lowerBound), w.count] } }
+                hits[sid] = SessionHit(sessionId: sid, runId: r.runId, prompt: prompt, snippet: text, matchedIn: place, highlights: marks, updatedAt: r.updatedAt)
+            }
+            // What the turn made: its media, by what each was made from.
+            for m in Self.sampleMedia[r.runId] ?? [] {
+                let made = Self.samplePrompts[m.artifactId] ?? "", low = made.lowercased()
+                guard !words.isEmpty, words.allSatisfy(low.contains), let sid = r.sessionId, hits[sid] == nil else { continue }
+                let marks = words.compactMap { w in low.range(of: w).map { [low.distance(from: low.startIndex, to: $0.lowerBound), w.count] } }
+                hits[sid] = SessionHit(sessionId: sid, runId: r.runId, prompt: prompt, snippet: made, matchedIn: "artifact", highlights: marks,
+                                       updatedAt: r.updatedAt, media: m, artifactKind: "image")
+            }
+        }
+        return SessionSearchPage(items: Array(hits.values.prefix(limit)))
+    }
     public func automations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
         for a in Self.sampleAutomations { out.append(try await automation(id: a.id)) }
@@ -150,6 +181,8 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     /// The media of the sample conversations: an image made in the ADTTE session's earlier turn.
+    /// What each sample artifact was made from (search finds them by it).
+    static let samplePrompts: [String: String] = ["img-km-curve": "Kaplan–Meier survival curve by treatment arm, two lines"]
     public static let sampleMedia: [String: [MediaItem]] = [
         "r1a9e0b2": [MediaItem(artifactId: "img-km-curve", runId: "r1a9e0b2", contentType: "image/png", kind: .image, sizeBytes: 40_000)],
     ]

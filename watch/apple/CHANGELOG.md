@@ -8,6 +8,19 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **What is new, at a glance.** Home's Sessions and Automations rows carry a count: what is new
+  (answers you have not seen, results of automations you have not opened) in a filled badge, else
+  how many there are, muted. In Sessions a conversation with an answer you have not seen is
+  outlined in cyan with a dot (seen on this watch: the gateway keeps no "seen" for conversations);
+  an automation with new results is outlined in amber.
+- **Archive a conversation.** Each conversation in Sessions has a red archive button: after a
+  confirmation it is archived on the gateway, out of Sessions on all your devices, nothing deleted.
+  **Archived**, at the bottom of Sessions, lists them, each with Restore.
+- **Search your conversations.** Sessions has a search field: the gateway's search finds the words
+  in every conversation's questions, answers and artifacts (an image by what it was made from, an
+  attachment by its name; parts of words too, accents ignored, a typo forgiven), the words marked
+  in each result, an image shown beside them; a result continues its conversation. A gateway
+  without search says so.
 - **Its work, live, under the orb.** While the Assistant works, what is below the orb shows its
   steps instead of the conversation, newest first on a thin rail: thinking (with its own words when
   it writes some), each tool with what it is about (the search, the page, the file, the command),

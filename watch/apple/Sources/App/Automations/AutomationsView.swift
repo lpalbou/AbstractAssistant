@@ -35,6 +35,8 @@ struct AutomationsView: View {
                     }
                     .padding(.vertical, 2)
                 }
+                // New results you have not seen: outlined, as a new answer in Sessions.
+                .listRowBackground(SessionRowGround(new: (a.attention?.unseenCount ?? 0) > 0, tint: Theme.amber))
             }
         }
         .navigationTitle("Automations")

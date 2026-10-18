@@ -9,7 +9,10 @@ final class SessionsUITests: XCTestCase {
         app.launch()
         // A row is titled by its latest question, as the gateway has it (never its first, never made up).
         let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Now split it by age group")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.buttons["sessions.search"].waitForExistence(timeout: 15), app.debugDescription)
+        // Below New conversation and Search: a list loads its rows as they come near the screen.
+        for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp(velocity: .slow); usleep(300_000) }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Compare overall survival")).firstMatch.exists,
                        "a row is titled by an older question:\n\(app.debugDescription)")
         row.tap()

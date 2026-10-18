@@ -578,6 +578,7 @@ struct AskView: View {
         let e = Exchange(id: runId ?? UUID().uuidString, prompt: prompt, answer: text,
                          scope: answerEntity.map { SpeechScope.entity($0) } ?? runId.map { SpeechScope.run($0) }, media: media)
         if let i = exchanges.firstIndex(where: { $0.id == e.id }) { exchanges[i] = e } else { exchanges.append(e) }
+        if answerEntity == nil, let id = runId { model.markSeen(session: model.askSessionId, run: id) }
         WKInterfaceDevice.current().play(.notification)
         speak()                                     // the speaker holds the app awake while it reads
         RuntimeKeeper.shared.release("ask")
@@ -626,6 +627,7 @@ struct AskView: View {
             prompt = r.prompt; answer = r.answer; runId = r.runId
             if !answer.isEmpty || !prompt.isEmpty { phase = .answer }
             exchanges = [Exchange(id: r.runId, prompt: r.prompt, answer: r.answer, scope: .run(r.runId), media: r.media)]
+            model.markSeen(session: r.sessionId, run: r.runId)
             // Its last turn is still working (or waits on an approval): follow it, as when asked here
             // (the status line then says what it does, not the title).
             if r.status == "running" || r.status == "waiting" { note = nil; resumeFollowing(r.runId) }
@@ -662,6 +664,7 @@ struct AskView: View {
         prompt = last.prompt; answer = last.answer; runId = last.runId
         phase = .answer
         exchanges = [Exchange(id: last.runId, prompt: last.prompt, answer: last.answer, scope: .run(last.runId), media: last.media)]
+        model.markSeen(session: s.id, run: last.runId)
         if last.status == "running" || last.status == "waiting" { note = nil; resumeFollowing(last.runId) }
         await loadHistory(s.id, latestRun: last.runId)
     }

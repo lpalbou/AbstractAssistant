@@ -1247,6 +1247,13 @@ public struct SessionSummary: Hashable, Sendable, Identifiable {
     public var isLive: Bool { latest.status == "running" || latest.status == "waiting" }
     public var needsPerson: Bool { latest.waitsOnPerson }
 
+    /// New to you: its newest turn has ended (an answer, or a failure) since `since`, and it is not
+    /// the turn you last saw of it (`seen`, by session).
+    public func isNew(seen: [String: String], since: Date) -> Bool {
+        guard latest.isTerminal, latest.status != "cancelled", seen[id] != latest.runId else { return false }
+        return (updatedAt ?? .distantPast) > since
+    }
+
     /// Groups root runs (newest first, as listed) into sessions, newest activity first.
     public static func group(_ runs: [RunSummary]) -> [SessionSummary] {
         var order: [String] = []
@@ -1334,4 +1341,69 @@ public struct EmailStatus: Decodable, Sendable, Equatable {
         agentToolsOn = agent?.on ?? false
         reason = agent?.reason
     }
+}
+
+
+// MARK: - Conversation search
+
+/// `GET /api/gateway/sessions/search?q=…`: the caller's conversations matching the words, one item
+/// per session (its best turn), with a snippet and where the words are in it.
+public struct SessionHit: Decodable, Hashable, Sendable, Identifiable {
+    public var sessionId: String
+    public var runId: String
+    public var prompt: String
+    public var snippet: String
+    /// "question" or "answer".
+    public var matchedIn: String
+    /// (start, length) of each match in `snippet`, in characters.
+    public var highlights: [[Int]]
+    public var updatedAt: String?
+    public var fuzzy: Bool
+    /// The artifact that matched (matched_in "artifact"), as media the watch can show.
+    public var media: MediaItem?
+    /// That artifact's kind and name ("image", "budget.pdf") when it is not shown as media.
+    public var artifactKind: String?
+    public var artifactName: String?
+    public var id: String { sessionId }
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id", runId = "run_id", prompt, snippet, matchedIn = "matched_in", highlights
+        case updatedAt = "updated_at", fuzzy, artifact
+    }
+    private struct Artifact: Decodable {
+        var artifactId: String; var runId: String?; var kind: String?; var contentType: String?; var name: String?
+        enum CodingKeys: String, CodingKey { case artifactId = "artifact_id", runId = "run_id", kind, contentType = "content_type", name }
+    }
+    public init(sessionId: String, runId: String, prompt: String, snippet: String, matchedIn: String, highlights: [[Int]] = [],
+                updatedAt: String? = nil, fuzzy: Bool = false, media: MediaItem? = nil, artifactKind: String? = nil, artifactName: String? = nil) {
+        self.sessionId = sessionId; self.runId = runId; self.prompt = prompt; self.snippet = snippet; self.matchedIn = matchedIn
+        self.highlights = highlights; self.updatedAt = updatedAt; self.fuzzy = fuzzy
+        self.media = media; self.artifactKind = artifactKind; self.artifactName = artifactName
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        runId = try c.decode(String.self, forKey: .runId)
+        prompt = (try? c.decode(String.self, forKey: .prompt)) ?? ""
+        snippet = (try? c.decode(String.self, forKey: .snippet)) ?? ""
+        matchedIn = (try? c.decode(String.self, forKey: .matchedIn)) ?? "question"
+        highlights = (try? c.decode([[Int]].self, forKey: .highlights)) ?? []
+        updatedAt = try? c.decode(String.self, forKey: .updatedAt)
+        fuzzy = (try? c.decode(Bool.self, forKey: .fuzzy)) ?? false
+        if let a = try? c.decode(Artifact.self, forKey: .artifact) {
+            artifactKind = a.kind; artifactName = a.name
+            if let type = a.contentType, let owner = a.runId, let kind = MediaItem.kind(of: type),
+               MediaItem.safe(a.artifactId), MediaItem.safe(owner) {
+                media = MediaItem(artifactId: a.artifactId, runId: owner, contentType: type, kind: kind)
+            }
+        }
+    }
+}
+
+public struct SessionSearchPage: Decodable, Sendable {
+    public struct Indexing: Decodable, Sendable { public var complete: Bool }
+    public var items: [SessionHit]
+    public var indexing: Indexing?
+    /// Older conversations are still being indexed: the list may grow on the next search.
+    public var partial: Bool { indexing?.complete == false }
+    public init(items: [SessionHit], complete: Bool = true) { self.items = items; self.indexing = Indexing(complete: complete) }
 }

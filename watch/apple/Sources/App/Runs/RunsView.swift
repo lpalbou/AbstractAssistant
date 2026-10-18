@@ -1,12 +1,17 @@
 import AbstractGatewayClient
 import SwiftUI
+import WatchKit
 
 /// Your conversations, newest first, grouped Today / Yesterday / Earlier. A tap continues one (the
-/// orb opens on its last exchange); swipe for its details. Titled by the first question.
+/// orb opens on its last exchange); swipe for its details. One with an answer you have not seen is
+/// outlined. The red button archives one on the gateway (after a confirmation); Archived, at the
+/// bottom, lists them and restores one.
 struct SessionsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var opening: String?
     @State private var loadingOlder = false
+    @State private var archiving: SessionSummary?
+    @State private var archiveError: String?
 
     var body: some View {
         List {
@@ -18,6 +23,14 @@ struct SessionsView: View {
                 Label("New conversation", systemImage: "plus")
                     .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
             }
+            // Search the questions and answers of every conversation (the gateway's index).
+            TextFieldLink(prompt: Text("Words to find")) {
+                Label("Search", systemImage: "magnifyingglass").font(.rounded(.footnote)).foregroundStyle(Theme.text2)
+            } onSubmit: { text in
+                let q = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))   // the gateway's limit
+                if !q.isEmpty { model.path.append(.sessionSearch(q)) }
+            }
+            .accessibilityIdentifier("sessions.search")
             if model.sessions.isEmpty {
                 if model.lastRefresh == nil && model.lastError == nil { ProgressView().frame(maxWidth: .infinity) }
                 else {
@@ -28,12 +41,32 @@ struct SessionsView: View {
             ForEach(groups, id: \.0) { label, items in
                 Section(label) {
                     ForEach(items) { s in
-                        Button { open(s) } label: {
-                            SessionRow(session: s, title: model.title(of: s),
-                                       unreadable: model.unreadablePrompts.contains(s.latest.runId),
-                                       opening: opening == s.id)
+                        let new = model.isNew(s)
+                        HStack(spacing: 6) {
+                            Button { open(s) } label: {
+                                SessionRow(session: s, title: model.title(of: s),
+                                           unreadable: model.unreadablePrompts.contains(s.latest.runId),
+                                           opening: opening == s.id, new: new)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(opening != nil && opening != s.id)   // one session opens at a time
+                            Button { archiving = s } label: {
+                                Image(systemName: "archivebox.fill").font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 30, height: 30)
+                                    .background(Theme.redButton, in: Circle())
+                                    .frame(width: 40, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(s.isLive)                              // a conversation at work is not archived
+                            .opacity(s.isLive ? 0.35 : 1)
+                            .accessibilityLabel("Archive")
+                            .accessibilityIdentifier("session.archive")
                         }
-                        .disabled(opening != nil && opening != s.id)   // one session opens at a time
+                        .listRowBackground(SessionRowGround(new: new))
                         .swipeActions {
                             Button { model.path.append(.session(s)) } label: { Label("Details", systemImage: "list.bullet") }
                                 .tint(Theme.indigoButton)
@@ -49,8 +82,26 @@ struct SessionsView: View {
                 .font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
                 .disabled(loadingOlder)
             }
+            NavigationLink(value: Route.archivedSessions) {
+                Label("Archived", systemImage: "archivebox").font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+            }
+            .accessibilityIdentifier("sessions.archived")
         }
         .navigationTitle("Sessions")
+        // Archiving asks first: the conversation leaves the list on every device (nothing is deleted).
+        .sheet(item: $archiving) { s in
+            ArchiveConfirm(title: model.title(of: s)) { confirmed in
+                archiving = nil
+                guard confirmed else { return }
+                Task {
+                    do { try await model.archive(s); WKInterfaceDevice.current().play(.success) }
+                    catch { archiveError = AppModel.say(error) }
+                }
+            }
+        }
+        .alert("Couldn't archive", isPresented: Binding(get: { archiveError != nil }, set: { if !$0 { archiveError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(archiveError ?? "") }
         .containerBackground(Theme.ground, for: .navigation)
         .refreshable { await model.refresh() }
     }
@@ -79,12 +130,15 @@ struct SessionRow: View {
     /// The gateway could not give the latest question.
     var unreadable = false
     var opening = false
+    /// Its latest answer has not been seen on this watch.
+    var new = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
                 if session.needsPerson { StatusDot(color: Theme.amber) }
                 else if session.isLive { StatusDot(color: Theme.cyan) }
+                else if new { Circle().fill(Theme.cyan).frame(width: 7, height: 7).accessibilityLabel("New answer") }
                 else if session.status == "failed" { StatusDot(color: Theme.red) }
                 if let title {
                     Text(title).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2)
@@ -187,7 +241,10 @@ struct SessionDetailView: View {
                 .tint(Theme.indigoButton)
             }
         }
-        .task { await load() }
+        .task {
+            if session.latest.isTerminal { model.markSeen(session: session.id, run: session.latest.runId) }
+            await load()
+        }
     }
 
     /// One exchange: a finished answer as the shared message card (the question as its caption);
@@ -265,5 +322,211 @@ struct SessionDetailView: View {
         guard let last = latest else { Task { await model.continueSession(session) }; return }
         model.resume(session, lastPrompt: prompts[last.runId] ?? "", lastAnswer: last.outputText ?? "",
                      runId: last.runId, status: last.status)
+    }
+}
+
+/// A conversation row's ground: outlined in cyan while its latest answer is new to you.
+struct SessionRowGround: View {
+    var new: Bool
+    var tint: Color = Theme.cyan
+    var body: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(new ? tint.opacity(0.10) : Theme.card)
+            .overlay {
+                if new { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(tint.opacity(0.75), lineWidth: 1.2) }
+            }
+    }
+}
+
+/// "Archive this conversation?" before it leaves the list.
+struct ArchiveConfirm: View {
+    let title: String?
+    let done: (Bool) -> Void
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                Image(systemName: "archivebox.fill").font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.red)
+                Text("Archive this conversation?").font(.rounded(.headline)).multilineTextAlignment(.center)
+                if let title { Text(title).font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(3).multilineTextAlignment(.center) }
+                Text("It leaves Sessions on all your devices. Nothing is deleted: Archived brings it back.")
+                    .font(.rounded(.caption2)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                Button("Archive") { done(true) }
+                    .buttonStyle(FilledButtonStyle(fill: Theme.redButton))
+                    .accessibilityIdentifier("archive.confirm")
+                Button("Cancel") { done(false) }
+                    .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton))
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
+
+/// Archived conversations (`GET /runs?archived_only=true`), each with Restore.
+struct ArchivedSessionsView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var sessions: [SessionSummary] = []
+    @State private var titles: [String: String] = [:]
+    @State private var loading = true
+    @State private var failed = false
+    @State private var restoring: String?
+
+    var body: some View {
+        List {
+            if loading && sessions.isEmpty { ProgressView().frame(maxWidth: .infinity) }
+            else if failed { Text("Couldn't load the archived conversations").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
+            else if sessions.isEmpty { Text("Nothing archived").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
+            ForEach(sessions) { s in
+                VStack(alignment: .leading, spacing: 4) {
+                    SessionRow(session: s, title: titles[s.latest.runId], unreadable: titles[s.latest.runId] == nil && !loading)
+                    Button(restoring == s.id ? "Restoring…" : "Restore") { restore(s) }
+                        .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton, font: .rounded(.footnote, weight: .semibold)))
+                        .disabled(restoring != nil)
+                        .accessibilityIdentifier("archived.restore")
+                }
+            }
+        }
+        .navigationTitle("Archived")
+        .containerBackground(Theme.ground, for: .navigation)
+        .task { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        guard let runs = try? await model.client.archivedRuns(limit: 200) else { failed = true; return }
+        failed = false
+        sessions = SessionSummary.group(runs)
+        let client = model.client
+        let ids = sessions.map(\.latest.runId)
+        let read: [(String, String?)] = await withTaskGroup(of: (String, String?).self) { group in
+            for id in ids { group.addTask { (id, (try? await client.prompt(ofRun: id)) ?? nil) } }
+            var out: [(String, String?)] = []
+            for await x in group { out.append(x) }
+            return out
+        }
+        for (id, p) in read { if let p { titles[id] = SessionSummary.title(fromPrompt: p) } }
+    }
+
+    private func restore(_ s: SessionSummary) {
+        restoring = s.id
+        Task {
+            do {
+                try await model.unarchive(s.id)
+                sessions.removeAll { $0.id == s.id }
+                WKInterfaceDevice.current().play(.success)
+            } catch { failed = true }
+            restoring = nil
+        }
+    }
+}
+
+/// The conversations whose questions or answers hold the words (the gateway's search: words and
+/// parts of words, accents ignored, a typo forgiven), best first; a tap continues one.
+struct SessionSearchView: View {
+    let query: String
+    @EnvironmentObject private var model: AppModel
+    @State private var page: SessionSearchPage?
+    @State private var problem: String?
+    @State private var opening: String?
+
+    var body: some View {
+        List {
+            Text("“\(query)”").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).lineLimit(2)
+                .listRowBackground(Color.clear)
+            if let problem {
+                Text(problem).font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+                Button("Retry") { Task { await load() } }
+            } else if let page {
+                if page.items.isEmpty { Text("No conversation has these words").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
+                ForEach(page.items) { hit in
+                    Button { open(hit) } label: { SessionHitRow(hit: hit, opening: opening == hit.sessionId) }
+                        .disabled(opening != nil)
+                        .accessibilityIdentifier("search.hit")
+                }
+                if page.partial {
+                    Text("Older conversations are still being indexed: search again in a moment for more.")
+                        .font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                }
+            } else {
+                ProgressView().frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle("Search")
+        .containerBackground(Theme.ground, for: .navigation)
+        .task { await load() }
+    }
+
+    private func load() async {
+        problem = nil
+        do { page = try await model.client.searchSessions(query, limit: 25) }
+        catch GatewayError.http(let status, _) where status == 404 {
+            problem = "Your gateway can't search conversations yet. Updating it adds search."
+        } catch { problem = AppModel.say(error) }
+    }
+
+    private func open(_ hit: SessionHit) {
+        opening = hit.sessionId
+        Task {
+            do { try await model.openSession(id: hit.sessionId) } catch { problem = AppModel.say(error) }
+            opening = nil
+        }
+    }
+}
+
+/// One result: the conversation's question, then the words in context, found words in bold.
+struct SessionHitRow: View {
+    let hit: SessionHit
+    var opening = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                // Found in the question itself: the title carries the marks.
+                Text(hit.snippet == hit.prompt && !hit.prompt.isEmpty ? Self.marked(hit, weight: .semibold, size: .footnote)
+                     : AttributedString(hit.prompt.isEmpty ? "Conversation" : hit.prompt))
+                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                Spacer(minLength: 2)
+                if opening { ProgressView().frame(width: 14) }
+            }
+            if hit.matchedIn == "artifact" {
+                // Found in what the turn made or was given: the picture, or the artifact's kind and name.
+                HStack(alignment: .top, spacing: 6) {
+                    if let media = hit.media, media.kind == .image { MediaThumbnail(item: media, side: 44) }
+                    else {
+                        Image(systemName: Self.symbol(hit)).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.cyan)
+                            .frame(width: 20)
+                    }
+                    Text(Self.marked(hit)).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(3)
+                }
+            } else if hit.matchedIn == "answer" || hit.snippet != hit.prompt {
+                Text(Self.marked(hit)).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(3)
+            }
+            if let at = hit.updatedAt.flatMap(ISO8601.date) {
+                SessionStat(symbol: hit.matchedIn == "answer" ? "text.bubble" : "questionmark.bubble", value: SessionRow.age(at))
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    static func symbol(_ hit: SessionHit) -> String {
+        switch hit.media?.kind {
+        case .image: return "photo"
+        case .audio: return "waveform"
+        case .video: return "film"
+        case nil: return hit.artifactKind == "attachment" ? "paperclip" : "doc"
+        }
+    }
+
+    /// The snippet with each found word in bold cyan (the gateway's places count Unicode scalars).
+    static func marked(_ hit: SessionHit, weight: Font.Weight = .bold, size: Font.TextStyle = .caption2) -> AttributedString {
+        var out = AttributedString(hit.snippet)
+        let scalars = hit.snippet.unicodeScalars.count
+        for h in hit.highlights where h.count == 2 && h[0] >= 0 && h[1] > 0 && h[0] + h[1] <= scalars {
+            let lo = out.unicodeScalars.index(out.startIndex, offsetBy: h[0])
+            let hi = out.unicodeScalars.index(lo, offsetBy: h[1])
+            out[lo..<hi].foregroundColor = Theme.cyan
+            out[lo..<hi].font = .rounded(size, weight: weight == .semibold ? .heavy : weight)
+        }
+        return out
     }
 }
