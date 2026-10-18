@@ -7,7 +7,7 @@ enum Route: Hashable {
     case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), newAutomation, message(title: String, Exchange), voiceSettings, settings
     case occurrence(title: String, LastOccurrence)
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
-    case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String)
+    case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -52,6 +52,8 @@ final class AppModel: ObservableObject {
     /// Tool choices (ToolPrefs): defaults for new conversations, and this conversation's changes.
     @Published private(set) var toolDefaults: [String: ToolMode] = ToolPrefs.defaults
     @Published private(set) var sessionTools: [String: ToolMode] = [:]
+    /// The tools of the automation being created (its changes on top of the defaults).
+    @Published private(set) var draftTools: [String: ToolMode] = [:]
     /// Waits answered from an approval or question screen (Back without deciding is not an answer).
     private(set) var decidedWaits: Set<String> = []
     /// When the last successful refresh happened; nil until the first one.
@@ -124,6 +126,7 @@ final class AppModel: ObservableObject {
         client = LiveGatewayClient(baseURL: signIn.gateway, credential: signIn.credential)
         gatewayHost = signIn.gateway.host() ?? signIn.gateway.absoluteString
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; seenWaitIDs = []; entities = []
+        forgetTools()                                    // each account has its own tools (email, …)
         needsSignIn = false; signInNotice = nil; path = []
         startPolling()
     }
@@ -134,6 +137,7 @@ final class AppModel: ObservableObject {
         stopPolling()
         client = MockGatewayClient(); gatewayHost = "—"
         waits = []; runs = []; automations = []; principal = nil; lastError = nil; seenWaitIDs = []; entities = []
+        forgetTools()
         path = []; signInNotice = notice; needsSignIn = true
     }
 
@@ -249,11 +253,16 @@ final class AppModel: ObservableObject {
 
     // MARK: Tools
 
-    /// Where a tool choice applies: the defaults for new conversations, or this conversation.
-    enum ToolScope: Hashable { case defaults, session }
+    /// Where a tool choice applies: the defaults, this conversation, or the automation being created.
+    enum ToolScope: Hashable { case defaults, session, draft }
+
+    /// The choices a scope adds on top of the defaults.
+    func toolChanges(_ scope: ToolScope) -> [String: ToolMode] {
+        switch scope { case .defaults: [:]; case .session: sessionTools; case .draft: draftTools }
+    }
 
     func toolMode(_ tool: ToolInfo, scope: ToolScope) -> ToolMode {
-        ToolChoices.mode(of: tool, defaults: toolDefaults, session: scope == .session ? sessionTools : [:])
+        ToolChoices.mode(of: tool, defaults: toolDefaults, session: toolChanges(scope))
     }
 
     /// Sets tools' modes in a scope, keeping only what differs from the level below (the gateway
@@ -265,14 +274,26 @@ final class AppModel: ObservableObject {
             for n in names { guard let t = tools[n] else { continue }; d[n] = mode == ToolChoices.gatewayDefault(t) ? nil : mode }
             toolDefaults = d
             ToolPrefs.defaults = d
-        case .session:
-            var m = sessionTools
+        case .session, .draft:
+            var m = toolChanges(scope)
             for n in names {
                 guard let t = tools[n] else { continue }
                 m[n] = mode == ToolChoices.mode(of: t, defaults: toolDefaults, session: [:]) ? nil : mode
             }
-            setSessionTools(m)
+            if scope == .session { setSessionTools(m) } else { draftTools = m }
         }
+    }
+
+    /// A new automation starts from the defaults.
+    func startDraftTools() { draftTools = [:] }
+    func resetTools(_ scope: ToolScope) {
+        switch scope { case .defaults: resetToolDefaults(); case .session: resetSessionTools(); case .draft: draftTools = [:] }
+    }
+
+    /// What a scope's runs receive (nil until the catalog is read).
+    func toolPlan(_ scope: ToolScope) -> ToolChoices.Plan? {
+        guard !tools.isEmpty else { return nil }
+        return ToolChoices.plan(Array(tools.values), defaults: toolDefaults, session: toolChanges(scope))
     }
 
     private func setSessionTools(_ modes: [String: ToolMode]) {
@@ -291,10 +312,7 @@ final class AppModel: ObservableObject {
     #endif
 
     /// What this conversation's next run receives (nil until the catalog is read).
-    var toolPlan: ToolChoices.Plan? {
-        guard !tools.isEmpty else { return nil }
-        return ToolChoices.plan(Array(tools.values), defaults: toolDefaults, session: sessionTools)
-    }
+    var toolPlan: ToolChoices.Plan? { toolPlan(.session) }
 
 
     /// The tool's risk tier from the gateway's inventory (the wait payload carries none).
@@ -342,6 +360,8 @@ final class AppModel: ObservableObject {
 
     /// When the tool catalog was read (a toolset the gateway's admin turns on or off shows up).
     private var toolsReadAt: Date?
+
+    private func forgetTools() { tools = [:]; toolsReadAt = nil }
 
 
     /// A conversation's label: its latest question, as the gateway has it (a watch conversation runs

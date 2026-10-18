@@ -134,7 +134,7 @@ public actor MockGatewayClient: GatewayClient {
     public func automationCommand(id: String, type: String) async throws {}
     public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {}
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
-        [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent"),
+        [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent", isDefault: true),
          WorkflowChoice(bundleId: "deep-research", bundleVersion: "0.1.8", flowId: "deep-research", name: "Deep research"),
          WorkflowChoice(bundleId: "memact-agent", bundleVersion: "0.1.0", flowId: "memact", name: "MemAct agent")]
     }
@@ -193,6 +193,10 @@ public actor MockGatewayClient: GatewayClient {
 
     /// Two short synthetic "sentences" (a voiced tone with a syllable envelope), so the read screen and
     /// the orb can be exercised without a gateway.
+    public func emailStatus() async throws -> EmailStatus {
+        EmailStatus(configured: false, address: nil, agentToolsOn: false, reason: "Connect a mailbox first.")
+    }
+
     public func voiceCatalog() async throws -> VoiceCatalog {
         try await Task.sleep(for: .seconds(4))   // like a slow gateway over a watch's radio
         return VoiceCatalog(voices: ["M1", "M2", "F1", "F2"].map { VoiceChoice(provider: "supertonic", model: "supertonic-3", voice: $0, label: "Supertonic \($0)",

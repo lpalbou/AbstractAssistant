@@ -3,22 +3,22 @@ import SwiftUI
 import WatchKit
 
 /// A new automation, as the console, the tray app and the terminal create one: the task, the
-/// workflow that runs it (the gateway's default first, then the workflows the gateway offers this
-/// account), when it runs (the shared presets, or daily at a time), whether each run builds on the
-/// earlier ones, and whether it asks before using tools. Create opens its page.
+/// workflow that runs it (the gateway's default, named, then the others it offers this account),
+/// the tools its runs may use (the Tools page, from the defaults), when it runs (the shared presets,
+/// or daily at a time) and whether each run builds on the earlier ones. Create opens its page.
 struct NewAutomationView: View {
     @EnvironmentObject private var model: AppModel
     @State private var task = ""
-    @State private var workflow: WorkflowChoice?          // nil: the gateway's default
+    @State private var workflow: WorkflowChoice?          // nil: the gateway's default (`@default`)
     @State private var workflows: [WorkflowChoice] = []
     @State private var loadingWorkflows = true
     @State private var when: NewAutomation.When = .every("24h")
     @State private var dailyAt = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var buildsOnEarlierRuns = false
-    @State private var askBeforeTools = false
     @State private var choosingWorkflow = false
     @State private var choosingWhen = false
     @State private var creating = false
+    @State private var started = false
     @State private var error: String?
 
     /// The agent interface the watch runs (its Ask uses the same).
@@ -33,12 +33,17 @@ struct NewAutomationView: View {
             VStack(spacing: 6) {
                 TextField("What should it do?", text: $task, axis: .vertical)
                     .lineLimit(1...6).font(.rounded(.footnote)).accessibilityIdentifier("new.task")
-                row(symbol: "square.stack.3d.up", text: workflow?.name ?? "Gateway default") { choosingWorkflow = true }
-                    .accessibilityLabel("Workflow: \(workflow?.name ?? "Gateway default")")
-                row(symbol: "clock", text: Self.label(when)) { choosingWhen = true }
+                Button { choosingWorkflow = true } label: { row("Workflow", symbol: "square.stack.3d.up", value: workflowLabel) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Workflow: \(workflowLabel)").accessibilityIdentifier("new.workflow")
+                // What the agent may do on each run: the Tools page, for this automation.
+                NavigationLink(value: Route.tools(.draft)) { row("Tools", symbol: "wrench.and.screwdriver", value: toolsLabel) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Tools: \(toolsLabel)").accessibilityIdentifier("new.tools")
+                Button { choosingWhen = true } label: { row("When", symbol: "clock", value: Self.label(when)) }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("When: \(Self.label(when))")
                 Card { Toggle("Builds on earlier runs", isOn: $buildsOnEarlierRuns).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton) }
-                Card { Toggle("Ask before using tools", isOn: $askBeforeTools).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton) }
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red).multilineTextAlignment(.center) }
                 Spacer(minLength: 8)
                 Button(creating ? "Creating…" : "Create") { Task { await create() } }
@@ -48,27 +53,53 @@ struct NewAutomationView: View {
         }
         .screen("New automation")
         .task { await loadWorkflows() }
+        .task { await model.ensureTools(maxAge: 600) }
+        // A new automation starts from the defaults (once: coming back from its Tools keeps them).
+        .onAppear { if !started { started = true; model.startDraftTools() } }
         .sheet(isPresented: $choosingWorkflow) { workflowList }
         .sheet(isPresented: $choosingWhen) { whenList }
     }
 
-    private func row(symbol: String, text: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Card {
-                HStack {
-                    Label(text, systemImage: symbol).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+    /// One choice: what it is (small), then what is chosen.
+    private func row(_ title: String, symbol: String, value: String) -> some View {
+        Card {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.cyan).frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                    Text(value).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .minimumScaleFactor(0.85)
                 }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
             }
         }
-        .buttonStyle(.plain)
     }
 
+    /// The gateway's default by its name (the workflow behind `@default`), or the one chosen.
+    private var defaultWorkflow: WorkflowChoice? { workflows.first(where: \.isDefault) }
+    private var workflowLabel: String {
+        if let w = workflow { return w.name }
+        if let d = defaultWorkflow { return "\(d.name) · default" }
+        return loadingWorkflows ? "Loading…" : "Default workflow"
+    }
+
+    private var toolsLabel: String {
+        guard model.toolPlan(.draft) != nil else { return "Loading…" }
+        let modes = model.tools.values.filter(\.offered).map { model.toolMode($0, scope: .draft) }
+        let summary = ToolGroup.counts(modes)
+        return model.draftTools.isEmpty ? summary : summary + " · changed"
+    }
+
+    /// The default first (choosing it follows the gateway's default), then the others.
     private var workflowList: some View {
         List {
-            choice("Gateway default", selected: workflow == nil) { workflow = nil }
-            ForEach(workflows) { w in choice(w.name, selected: workflow == w) { workflow = w } }
+            if let d = defaultWorkflow {
+                choice(d.name, detail: "Default", selected: workflow == nil) { workflow = nil }
+            } else if !loadingWorkflows {
+                choice("Default workflow", selected: workflow == nil) { workflow = nil }
+            }
+            ForEach(workflows.filter { !$0.isDefault }) { w in choice(w.name, selected: workflow == w) { workflow = w } }
             if loadingWorkflows { ProgressView().frame(maxWidth: .infinity) }
         }
     }
@@ -86,12 +117,15 @@ struct NewAutomationView: View {
         }
     }
 
-    private func choice(_ text: String, selected: Bool, pick: @escaping () -> Void) -> some View {
+    private func choice(_ text: String, detail: String? = nil, selected: Bool, pick: @escaping () -> Void) -> some View {
         Button {
             pick(); choosingWorkflow = false; choosingWhen = false
         } label: {
             HStack {
-                Text(text).font(.rounded(.footnote))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(text).font(.rounded(.footnote))
+                    if let detail { Text(detail).font(.rounded(.caption2)).foregroundStyle(Theme.muted) }
+                }
                 Spacer()
                 if selected { Image(systemName: "checkmark").foregroundStyle(Theme.cyan) }
             }
@@ -119,8 +153,14 @@ struct NewAutomationView: View {
             } else {
                 target = .gatewayDefault(interface: Self.interface)
             }
-            let new = NewAutomation(task: text, target: target, when: when,
-                                    buildsOnEarlierRuns: buildsOnEarlierRuns, askBeforeTools: askBeforeTools)
+            // Its tools, read fresh: without them it is not created (the workflow's own tools and the
+            // gateway's grant would ignore what was turned off).
+            await model.ensureTools(maxAge: 600)
+            guard let tools = model.toolPlan(.draft) else {
+                error = "Couldn't read your tools. Try again."
+                return
+            }
+            let new = NewAutomation(task: text, target: target, when: when, buildsOnEarlierRuns: buildsOnEarlierRuns, tools: tools)
             let created = try await model.client.createAutomation(new)
             WKInterfaceDevice.current().play(.success)
             await model.refresh()

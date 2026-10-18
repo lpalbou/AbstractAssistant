@@ -8,7 +8,7 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
-- **Tools you choose.** A tools icon on the orb page (bottom right, shown with the keyboard; for the
+- **Tools you choose.** A tools icon on the orb page (bottom right, as far from the bottom as the keyboard is from the top, shown with it; for the
   Assistant) opens this conversation's tools, by group (Files, Web, System, Email, …): each tool is
   Off (not offered), Auto (runs without asking) or Ask (asks first), with its risk (Reads only, Makes
   changes, Reaches outside, Destructive), what it can do, and More for the gateway's description. A
@@ -21,11 +21,17 @@ channel (TestFlight, then the App Store); the Python package's history is in
   the risk of the call approved; tools turned off stay off, and sends and tools whose destination
   the assistant picks keep asking. The watch answers a later approval itself only when every call in
   it is on Auto.
-- **New automation** (top of the Automations list): the task, the workflow that runs it ("Gateway
-  default" first, then the workflows the gateway offers your account), when it runs (every 5 min,
-  30 min, 1 h, 8 h, 24 h or 7 days, or daily at a time), whether each run builds on the earlier
-  ones, and whether it asks before using tools; Create opens its page. The request is the one the
-  console, the tray app and the terminal send.
+- **New automation** (top of the Automations list): the task, the workflow that runs it (the
+  gateway's default by its name, e.g. "Basic agent · default", then the workflows the gateway offers
+  your account), the tools it may use, when it runs (every 5 min, 30 min, 1 h, 8 h, 24 h or 7 days,
+  or daily at a time) and whether each run builds on the earlier ones; Create opens its page. The
+  request is the one the console, the tray app and the terminal send.
+- An automation's **Tools** use the same page as a conversation's, starting from your defaults: Off,
+  Auto or Ask per tool. A tool on Ask waits for you in Needs you when the automation runs.
+- **Settings → Connection** (first row): the gateway, its status, the account you are signed in as
+  and its role, its email, and how many tools are set up for that account, with "Sign in as someone
+  else". Email tools follow the account: one without a mailbox shows them as "Not connected for this
+  account", where another account on the same gateway has them.
 
 - **Share** a web page's link from the icon beside Back (Messages, Mail, …). The share icon is one
   reusable control for any text or link; the watch has no clipboard, so sharing is how a text

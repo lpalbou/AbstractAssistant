@@ -10,6 +10,19 @@ struct SettingsView: View {
     var body: some View {
         FitScroll {
             VStack(spacing: 6) {
+                NavigationLink(value: Route.connection) {
+                    Card {
+                        HStack {
+                            Text("Connection").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
+                            Spacer(minLength: 4)
+                            Text(model.principal?.userId ?? model.gatewayHost).font(.rounded(.footnote)).foregroundStyle(Theme.muted)
+                                .lineLimit(1).minimumScaleFactor(0.8)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.connection")
                 NavigationLink(value: Route.orbStyle) {
                     Card {
                         HStack {

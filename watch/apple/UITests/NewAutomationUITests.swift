@@ -11,7 +11,7 @@ final class NewAutomationUITests: XCTestCase {
 
     func testCreateWithSampleData() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "automation-new"]
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--reset-tools", "--screen", "automation-new"]
         app.launch()
         let task = app.descendants(matching: .any)["new.task"].firstMatch
         XCTAssertTrue(task.waitForExistence(timeout: 10))
@@ -22,7 +22,24 @@ final class NewAutomationUITests: XCTestCase {
         app.typeText("Summarise the overnight QC runs")
         app.buttons["Done"].firstMatch.tap()
         sleep(1)
-        app.buttons["Workflow: Gateway default"].firstMatch.tap()
+        // The default workflow by its name, never "Gateway default".
+        let workflow = app.buttons["Workflow: Basic agent · default"].firstMatch
+        XCTAssertTrue(workflow.waitForExistence(timeout: 10), app.debugDescription)
+        // Its tools: from the defaults, changed here for this automation only.
+        let tools = app.buttons["new.tools"].firstMatch
+        XCTAssertEqual(tools.label, "Tools: 5 auto · 4 ask")
+        tools.tap()
+        XCTAssertTrue(app.staticTexts["This automation"].waitForExistence(timeout: 10), app.debugDescription)
+        shot("n1b-tools")
+        app.descendants(matching: .any)["tools.group.web"].firstMatch.tap()
+        let off = app.descendants(matching: .any)["tools.all.web.off"].firstMatch
+        XCTAssertTrue(off.waitForExistence(timeout: 5))
+        off.tap()
+        app.buttons["Back"].firstMatch.tap()
+        app.buttons["Back"].firstMatch.tap()
+        XCTAssertTrue(tools.waitForExistence(timeout: 5))
+        XCTAssertEqual(tools.label, "Tools: 3 auto · 3 ask · 3 off · changed", "the automation keeps its tools")
+        workflow.tap()
         let deep = app.buttons["Deep research"].firstMatch
         XCTAssertTrue(deep.waitForExistence(timeout: 5))
         shot("n2-workflows")
@@ -49,11 +66,12 @@ final class NewAutomationUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--gateway", url, "--token", token, "--no-notification-prompt", "--screen", "automation-new"]
         app.launch()
-        let row = app.buttons["Workflow: Gateway default"].firstMatch
+        let row = app.buttons["new.workflow"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         sleep(6)                                   // the list loads while the form shows
+        XCTAssertTrue(row.label.hasSuffix("· default"), row.label)
         row.tap()
-        XCTAssertTrue(app.buttons["Basic agent"].waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Basic agent")).firstMatch.waitForExistence(timeout: 20), app.debugDescription)
         shot("n5-live-workflows")
     }
 }

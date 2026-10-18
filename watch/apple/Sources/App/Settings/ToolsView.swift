@@ -45,14 +45,12 @@ struct ToolsView: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                Text(scope == .session ? "This conversation" : "Defaults")
-                    .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
-                Text(scope == .session ? "Applies from your next question." : "Conversations use these unless changed from their tools icon.")
-                    .font(.rounded(.caption2)).foregroundStyle(Theme.muted)
+                Text(heading).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
+                Text(caption).font(.rounded(.caption2)).foregroundStyle(Theme.muted)
                 Text(summary).font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.text2)
                     .accessibilityIdentifier("tools.summary")
-                if scope == .session, !model.sessionTools.isEmpty {
-                    Button("Use my defaults") { model.resetSessionTools(); WKInterfaceDevice.current().play(.click) }
+                if scope != .defaults, !model.toolChanges(scope).isEmpty {
+                    Button("Use my defaults") { model.resetTools(scope); WKInterfaceDevice.current().play(.click) }
                         .buttonStyle(FilledButtonStyle(fill: Theme.neutralButton))
                 } else if scope == .defaults, !model.toolDefaults.isEmpty {
                     Button("Use the gateway's") { model.resetToolDefaults(); WKInterfaceDevice.current().play(.click) }
@@ -64,6 +62,17 @@ struct ToolsView: View {
                 }
             }
             .padding(.horizontal, 4)
+        }
+    }
+
+    private var heading: String {
+        switch scope { case .defaults: "Defaults"; case .session: "This conversation"; case .draft: "This automation" }
+    }
+    private var caption: String {
+        switch scope {
+        case .defaults: "Conversations and new automations use these unless changed."
+        case .session: "Applies from your next question."
+        case .draft: "It runs on its own: a tool on Ask waits for you in Needs you."
         }
     }
 
@@ -85,7 +94,7 @@ struct ToolsView: View {
                         Text("\(g.tools.count)").font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.muted)
                             .padding(.horizontal, 5).padding(.vertical, 1).background(Theme.line, in: Capsule())
                     }
-                    Text(g.usable ? ToolGroup.counts(g.tools.filter(\.offered).map { model.toolMode($0, scope: scope) }) : "Not set up")
+                    Text(g.usable ? ToolGroup.counts(g.tools.filter(\.offered).map { model.toolMode($0, scope: scope) }) : g.offLine)
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 2)
@@ -170,7 +179,7 @@ struct ToolGroupView: View {
         let title = ToolGroup.title(of: tool.name)
         let mode = model.toolMode(tool, scope: scope)
         let base = model.toolMode(tool, scope: .defaults)
-        let changed = scope == .session && mode != base
+        let changed = scope != .defaults && mode != base
         return Card {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -212,7 +221,7 @@ struct ToolGroupView: View {
     private func notSetUp(_ g: ToolGroup) -> some View {
         Card {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Not set up on your gateway").font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.muted)
+                Text(g.offTitle).font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.muted)
                 ForEach(g.tools, id: \.name) { t in
                     Text(ToolGroup.title(of: t.name)).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
@@ -274,6 +283,12 @@ struct ToolGroup: Identifiable {
     let id: String
     let tools: [ToolInfo]
     var usable: Bool { tools.contains(where: \.offered) }
+    /// Why its tools are off. Email is per account (the account's own mailbox); the others are
+    /// set up for the whole gateway.
+    var offLine: String { id == "comms.email" ? "Not connected for this account" : "Not set up" }
+    var offTitle: String {
+        id == "comms.email" ? "No mailbox connected for this account (gateway Settings → Email)" : "Not set up on your gateway"
+    }
 
     /// The groups, those that can be used first, each alphabetical.
     static func all(_ tools: [ToolInfo]) -> [ToolGroup] {

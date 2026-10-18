@@ -88,6 +88,8 @@ public protocol GatewayClient: Sendable {
     func transcribe(wav: Data, sessionId: String, model: TranscriptionChoice?) async throws -> String
     /// `GET /voice/voices` + `GET /audio/transcriptions/models`: what this watch may choose.
     func voiceCatalog() async throws -> VoiceCatalog
+    /// `GET /api/gateway/me/email`: this account's mailbox and whether its email tools are on.
+    func emailStatus() async throws -> EmailStatus
 }
 
 /// Live client over URLSession: `Authorization: Bearer <token>`, or a gateway session from an
@@ -234,7 +236,8 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
-        WorkflowChoice.choices(from: try await get("api/gateway/bundles", query: [.init(name: "executable_for", value: interface)], as: JSONValue.self))
+        WorkflowChoice.choices(from: try await get("api/gateway/bundles", query: [.init(name: "executable_for", value: interface)], as: JSONValue.self),
+                               interface: interface)
     }
 
     public func workflowInputs(_ w: WorkflowChoice) async throws -> WorkflowInputs {
@@ -286,6 +289,8 @@ public actor LiveGatewayClient: GatewayClient {
     public func markSeen(automationId: String, cursor: String) async throws {
         _ = try await request("POST", "api/gateway/automations/\(automationId)/seen", body: SeenRequest(attentionCursor: cursor))
     }
+
+    public func emailStatus() async throws -> EmailStatus { try await get("api/gateway/me/email", as: EmailStatus.self) }
 
     public func voiceCatalog() async throws -> VoiceCatalog {
         async let v = get("api/gateway/voice/voices", as: JSONValue.self)

@@ -30,7 +30,7 @@ final class ToolsUITests: XCTestCase {
         // A group the gateway has not set up is listed, and says so.
         let email = element("tools.group.comms.email")
         reveal(email)
-        XCTAssertTrue(email.label.contains("Not set up"), email.label)
+        XCTAssertTrue(email.label.contains("Not connected for this account"), email.label)
         shot("t3-groups-end")
         for _ in 0..<6 { app.swipeDown() }
         element("tools.group.files").tap()
@@ -90,5 +90,39 @@ final class ToolsUITests: XCTestCase {
         XCTAssertTrue(isSelected("tool.web_search.auto") && isSelected("tool.fetch_url.ask"), "All auto leaves fetch URL on Ask")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Tools that reach outside")).firstMatch.exists)
         shot("t9-web-all-auto")
+    }
+}
+
+/// The tools icon mirrors the keyboard: as far above the bottom of the screen as the keyboard is
+/// below its top.
+final class ToolsIconPlacementUITests: XCTestCase {
+    func testTheToolsIconMirrorsTheKeyboard() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--fresh-conversation", "--screen", "ask"]
+        app.launch()
+        let tools = app.buttons["ask.tools"], keyboard = app.descendants(matching: .any)["Type or dictate"].firstMatch
+        XCTAssertTrue(tools.waitForExistence(timeout: 20) && keyboard.waitForExistence(timeout: 5), app.debugDescription)
+        let top = keyboard.frame.minY, bottom = app.frame.maxY - tools.frame.maxY
+        print("placement: keyboard \(keyboard.frame) tools \(tools.frame) screen \(app.frame) top gap \(top) bottom gap \(bottom)")
+        XCTAssertEqual(top, bottom, accuracy: 2, "keyboard \(top) pt from the top, tools \(bottom) pt from the bottom")
+    }
+}
+
+/// Settings → Connection: the gateway and the account this watch is signed in as, with that
+/// account's email (sample data: no mailbox connected).
+final class ConnectionUITests: XCTestCase {
+    func testWhoAndWhere() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "settings"]
+        app.launch()
+        let row = app.descendants(matching: .any)["settings.connection"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.tap()
+        XCTAssertTrue(app.staticTexts["Gateway"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["No mailbox connected"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "set up for this account")).firstMatch.waitForExistence(timeout: 10))
+        if let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("c1-connection.png"))
+        }
     }
 }

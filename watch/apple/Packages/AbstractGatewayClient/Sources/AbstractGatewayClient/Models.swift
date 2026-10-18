@@ -487,20 +487,26 @@ public struct WorkflowChoice: Hashable, Sendable, Identifiable {
     public var bundleVersion: String
     public var flowId: String
     public var name: String
+    /// The gateway runs this one when a client asks for "the default" of the interface (`@default`).
+    public var isDefault: Bool
     public var id: String { "\(bundleId)@\(bundleVersion):\(flowId)" }
-    public init(bundleId: String, bundleVersion: String, flowId: String, name: String) {
+    public init(bundleId: String, bundleVersion: String, flowId: String, name: String, isDefault: Bool = false) {
         self.bundleId = bundleId; self.bundleVersion = bundleVersion; self.flowId = flowId; self.name = name
+        self.isDefault = isDefault
     }
 
-    /// The bundles page: one choice per entrypoint, in the gateway's order.
-    static func choices(from page: JSONValue) -> [WorkflowChoice] {
+    /// The bundles page: one choice per entrypoint, in the gateway's order; the interface's default
+    /// is the entrypoint the page names in `default_agent_workflows`.
+    static func choices(from page: JSONValue, interface: String) -> [WorkflowChoice] {
         guard case .array(let items)? = page["items"] else { return [] }
+        let defaultId = page["default_agent_workflows"]?[interface]?["workflow_id"]?.stringValue
         return items.flatMap { b -> [WorkflowChoice] in
             guard let id = b["bundle_id"]?.stringValue, let v = b["bundle_version"]?.stringValue,
                   case .array(let eps)? = b["entrypoints"] else { return [] }
             return eps.compactMap { e in
                 guard let f = e["flow_id"]?.stringValue else { return nil }
-                return WorkflowChoice(bundleId: id, bundleVersion: v, flowId: f, name: e["name"]?.stringValue ?? f)
+                return WorkflowChoice(bundleId: id, bundleVersion: v, flowId: f, name: e["name"]?.stringValue ?? f,
+                                      isDefault: defaultId == "\(id)@\(v):\(f)")
             }
         }
     }
@@ -561,10 +567,29 @@ public struct NewAutomation: Sendable {
     public var target: Target
     public var when: When
     public var buildsOnEarlierRuns: Bool
-    public var askBeforeTools: Bool
-    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool) {
+    /// The tools its runs may use and which ask first (nil: the workflow's own and the gateway's
+    /// grant for unattended runs).
+    public var tools: ToolChoices.Plan?
+    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, tools: ToolChoices.Plan?) {
         self.task = task; self.target = target; self.when = when
-        self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.askBeforeTools = askBeforeTools
+        self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.tools = tools
+    }
+
+    /// The tools in the target's inputs: `tools` and `_runtime.allowed_tools` (what is offered) and
+    /// `_runtime.tool_policy` (what runs unasked, what asks). The runtime keeps a target's own policy
+    /// for its occurrences: a tool on Ask waits for the person (Needs you).
+    func withTools(_ input: [String: JSONValue]) -> [String: JSONValue] {
+        guard let plan = tools else { return input }
+        var out = input
+        let names = JSONValue.array(plan.offered.map(JSONValue.string))
+        out["tools"] = names
+        var runtime: [String: JSONValue] = [:]
+        if case .object(let o)? = out["_runtime"] { runtime = o }
+        runtime["allowed_tools"] = names
+        runtime["tool_policy"] = .object(["auto_approve_tools": .array(plan.auto.map(JSONValue.string)),
+                                          "require_approval_tools": .array(plan.ask.map(JSONValue.string))])
+        out["_runtime"] = .object(runtime)
+        return out
     }
 
     /// The task's first line, at most 120 characters (the other clients' default title).
@@ -580,10 +605,10 @@ public struct NewAutomation: Sendable {
         switch self.target {
         case .gatewayDefault(let interface):
             target = .object(["flow_id": .string("@default"), "interface": .string(interface),
-                              "input_data": .object(["prompt": .string(t)])])
+                              "input_data": .object(withTools(["prompt": .string(t)]))])
         case .workflow(let w, let input):
             target = .object(["bundle_ref": .string("\(w.bundleId)@\(w.bundleVersion)"), "flow_id": .string(w.flowId),
-                              "input_data": .object(input)])
+                              "input_data": .object(withTools(input))])
         }
         let config: [String: JSONValue]
         switch when {
@@ -596,7 +621,8 @@ public struct NewAutomation: Sendable {
             "target": target,
             "trigger": .object(["source_id": .string("schedule"), "source_version": .number(2), "config": .object(config)]),
             "context": .object(["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]),
-            "policy": .object(["tool_approval": .string(askBeforeTools ? "ask" : "auto")]),
+            // With the tools chosen, their policy decides (the runtime keeps it); "ask" when one asks.
+            "policy": .object(["tool_approval": .string(tools.map { $0.ask.isEmpty ? "auto" : "ask" } ?? "auto")]),
         ])
     }
 }
@@ -1214,4 +1240,26 @@ public struct SessionTurn: Decodable, Sendable, Hashable {
 struct HistoryBundle: Decodable {
     struct Session: Decodable { var turns: [SessionTurn]? }
     var session: Session?
+}
+
+/// This account's email on the gateway (`GET /me/email`): the email tools are on only when the
+/// account has a mailbox connected and its agent tools on.
+public struct EmailStatus: Decodable, Sendable, Equatable {
+    public var configured: Bool
+    public var address: String?
+    public var agentToolsOn: Bool
+    public var reason: String?
+    public init(configured: Bool, address: String?, agentToolsOn: Bool, reason: String?) {
+        self.configured = configured; self.address = address; self.agentToolsOn = agentToolsOn; self.reason = reason
+    }
+    enum CodingKeys: String, CodingKey { case configured, address, agentTools = "agent_tools" }
+    struct Agent: Decodable { var on: Bool?; var reason: String? }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        configured = (try? c.decodeIfPresent(Bool.self, forKey: .configured)) ?? false
+        address = (try? c.decodeIfPresent(String.self, forKey: .address)).flatMap { $0?.isEmpty == false ? $0 : nil }
+        let agent = try? c.decodeIfPresent(Agent.self, forKey: .agentTools)
+        agentToolsOn = agent?.on ?? false
+        reason = agent?.reason
+    }
 }

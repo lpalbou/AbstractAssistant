@@ -57,6 +57,7 @@ struct AbstractAssistantWatchApp: App {
                         case .about: AboutView()
                         case .voiceSettings: VoiceSettingsView()
                         case .tools(let scope): ToolsView(scope: scope)
+                        case .connection: ConnectionView()
                         case .toolGroup(let scope, let id): ToolGroupView(scope: scope, groupId: id)
                         case .link(let url): LinkView(url: url)
                         case .answer(let ref): AskView(initialPhase: .idle, opening: ref)

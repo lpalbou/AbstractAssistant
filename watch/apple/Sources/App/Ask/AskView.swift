@@ -80,8 +80,7 @@ struct AskView: View {
                                 if controlsShown { responderSwitch }
                                 Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
                                     .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
-                                    // Clear of the tools icon at the bottom right when it shows.
-                                    .padding(.horizontal, controlsShown && model.responder == .assistant ? 40 : 0)
+
                                     .shadow(color: .black, radius: 3)
                             }
                             .padding(.bottom, 8)   // low, clear of the orb and the round corners
@@ -93,11 +92,12 @@ struct AskView: View {
                                 keyboardLink.buttonStyle(GlassPress()).padding(.trailing, 6).padding(.top, 2)
                             }
                         }
-                        // The tools of this conversation, bottom right: shown with the keyboard (the
-                        // Assistant's tools; an entity brings its own).
+                        // The tools of this conversation, bottom right, mirroring the keyboard (as far
+                        // above the bottom as the keyboard is below the top); shown with the keyboard
+                        // (the Assistant's tools; an entity brings its own).
                         .overlay(alignment: .bottomTrailing) {
                             if controlsShown, model.responder == .assistant {
-                                toolsLink.padding(.trailing, 6).padding(.bottom, 10)
+                                toolsLink.padding(.trailing, 6).padding(.bottom, 60)
                             }
                         }
                         .id("orb")
