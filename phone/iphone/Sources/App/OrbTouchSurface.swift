@@ -4,13 +4,16 @@ import SwiftUI
 struct OrbTouchSurface: UIViewRepresentable {
     var enabled: Bool
     var label: String
+    var working = false
     var cancelOnTouchDown: Bool
     var onTap: () -> Void
     var onCancel: () -> Void
     func makeUIView(context: Context) -> OrbTouchControl { OrbTouchControl() }
     func updateUIView(_ view: OrbTouchControl, context: Context) {
         view.isEnabled = enabled; view.accessibilityLabel = label; view.accessibilityIdentifier = "voice.orb"
-        view.accessibilityHint = "Tap to listen. After speaking, three seconds of silence sends your message. Tap again before sending to cancel."
+        view.accessibilityHint = working ? "Stops the current agent response." : "Tap to listen. After speaking, three seconds of silence sends your message. Tap again before sending to cancel."
+        view.accessibilityTraits = enabled ? [.button] : [.button, .notEnabled]
+        view.accessibilityCustomActions = !working && cancelOnTouchDown ? [UIAccessibilityCustomAction(name: "Cancel voice message", actionHandler: { [weak view] _ in view?.onCancel?(); return true })] : nil
         view.cancelOnTouchDown = cancelOnTouchDown; view.onTap = onTap; view.onCancel = onCancel
     }
 }
@@ -21,14 +24,14 @@ final class OrbTouchControl: UIControl {
     var cancelOnTouchDown = false
     private var ownsTouch = false
     private var consumed = false
+    private var lastCancellation: TimeInterval = -.infinity
     override init(frame: CGRect) {
         super.init(frame: frame); backgroundColor = .clear; isAccessibilityElement = true; accessibilityTraits = .button
-        accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Cancel voice message", actionHandler: { [weak self] _ in self?.onCancel?(); return true })]
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        guard isEnabled else { return false }; ownsTouch = true; consumed = cancelOnTouchDown
-        if consumed { onCancel?() }; return true
+        guard isEnabled, touch.timestamp - lastCancellation > 0.45 else { return false }; ownsTouch = true; consumed = cancelOnTouchDown
+        if consumed { lastCancellation = touch.timestamp; onCancel?() }; return true
     }
     override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         guard bounds.insetBy(dx: -18, dy: -18).contains(touch.location(in: self)) else { ownsTouch = false; return false }
@@ -40,7 +43,8 @@ final class OrbTouchControl: UIControl {
     }
     override func cancelTracking(with event: UIEvent?) { ownsTouch = false }
     override func accessibilityActivate() -> Bool {
-        guard isEnabled else { return false }
-        if cancelOnTouchDown { onCancel?() } else { onTap?() }; return true
+        let now = ProcessInfo.processInfo.systemUptime
+        guard isEnabled, now - lastCancellation > 0.45 else { return false }
+        if cancelOnTouchDown { lastCancellation = now; onCancel?() } else { onTap?() }; return true
     }
 }

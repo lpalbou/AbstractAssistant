@@ -41,9 +41,9 @@ struct ChatScreen: View {
                         if let message = voice.error { ErrorBanner(message: message, dismiss: { voice.error = nil }) }
                         if store.messages.isEmpty { emptyState }
                         ForEach(store.messages) { message in messageView(message) }
-                        if store.phase != .ready { workingState }
-                        if store.isRestoring || store.isOpening { ProgressView("Opening your conversation…").padding(.vertical, 28).frame(maxWidth: .infinity) }
-                        if let wait = store.waits.first {
+                        if store.phase != .ready || store.isStopping { workingState }
+                        else if store.isRestoring || store.isOpening { ProgressView("Opening your conversation…").padding(.vertical, 28).frame(maxWidth: .infinity) }
+                        if let wait = conversationWait {
                             Button { showWait = wait } label: {
                                 PhoneCard { HStack { Image(systemName: "hand.raised").foregroundStyle(PhoneTheme.amber); Text("Your assistant needs you").fontWeight(.medium); Spacer(); Image(systemName: "arrow.up.right") } }
                             }.buttonStyle(.plain)
@@ -111,6 +111,7 @@ struct ChatScreen: View {
             }.ignoresSafeArea() }
             .task(id: store.contextID.uuidString + store.sessionID) { attachments.bind(store.contextID.uuidString + store.sessionID); if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) } }
             .onChange(of: store.sessionID) { _, _ in typing = false; composing = false; cancelVoice(); cancelMedia() }
+            .onChange(of: store.phase) { _, phase in if phase != .ready { typing = false; composing = false } }
             .onChange(of: store.contextID) { _, _ in typing = false; composing = false; cancelVoice(); cancelMedia(); draft = "" }
             .onChange(of: store.completedReply?.id) { _, _ in
                 guard let reply = store.completedReply else { return }
@@ -173,10 +174,16 @@ struct ChatScreen: View {
             }
         }
     }
+    private var conversationWait: Wait? {
+        store.waits.first { wait in
+            wait.runId == store.activeRunID || wait.runId == store.activeEntityRunID ||
+                store.runs.contains { $0.runId == wait.runId && $0.sessionId == store.sessionID }
+        }
+    }
     private var workingState: some View {
         HStack(spacing: 12) {
             ProgressView().tint(PhoneTheme.mint)
-            Text(store.phase == .waiting ? "Waiting for your reply" : store.phase == .sending ? "Sending to your gateway…" : "Your assistant is working…").font(.footnote).foregroundStyle(PhoneTheme.secondary)
+            Text(store.isStopping ? "Stopping…" : store.phase == .waiting ? "Waiting for your reply" : store.phase == .sending ? "Sending to your gateway…" : "Your assistant is working…").font(.footnote).foregroundStyle(PhoneTheme.secondary)
             Spacer()
         }
     }
@@ -189,14 +196,6 @@ struct ChatScreen: View {
                 } } }
             }
             if store.selectedEntity != nil { Text("File attachments are available in Assistant conversations.").font(.caption2).foregroundStyle(PhoneTheme.secondary) }
-            if !store.canSend {
-                HStack(spacing: 12) {
-                    ProgressView().tint(PhoneTheme.mint)
-                    Text(store.isOpening || store.isRestoring ? "Opening conversation…" : store.phase == .waiting ? "Review the request above" : "Waiting for your assistant…").font(.subheadline).foregroundStyle(PhoneTheme.secondary)
-                    Spacer(minLength: 0)
-                    if store.activeRunID != nil || store.activeEntityRunID != nil { Button("Stop", role: .destructive) { Task { await store.stopRun() } }.font(.subheadline.weight(.medium)).frame(minHeight: 44) }
-                }
-            }
             HStack(alignment: .center, spacing: 12) {
                 attachmentMenu
                 Group {
@@ -238,7 +237,7 @@ struct ChatScreen: View {
                 .clipped()
                 if !composing {
                     Spacer(minLength: 0)
-                    VoicePresence(voice: voice, working: store.phase != .ready, enabled: store.canSend && !attachments.busy && !mediaLoading, onTap: beginVoice, onCancel: cancelVoice)
+                    VoicePresence(voice: voice, working: store.canStop, stopping: store.isStopping, enabled: store.canStop ? !store.isStopping : store.canSend && !attachments.busy && !mediaLoading, onTap: beginVoice, onCancel: cancelVoice, onStop: { voice.stop(); Task { await store.stopRun() } })
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
@@ -335,7 +334,7 @@ struct ConversationsSheet: View {
                             Text(store.titles[session.id] ?? "Conversation").foregroundStyle(PhoneTheme.ink).fontWeight(.medium)
                             HStack { Text("\(session.turns) \(session.turns == 1 ? "exchange" : "exchanges")"); if let date = session.updatedAt { Text("·"); Text(date, style: .relative) }; if !session.latest.isTerminal { Text("· " + session.latest.status).foregroundStyle(PhoneTheme.amber) } }.font(.caption).foregroundStyle(PhoneTheme.secondary)
                         }.padding(.vertical, 6)
-                    }.disabled(!store.canSend)
+                    }.disabled(!store.canOpenConversation)
                 }
                 if store.sessions.isEmpty { ContentUnavailableView("A fresh start", systemImage: "bubble.left.and.bubble.right", description: Text("Your gateway conversations will appear here.")) }
             }.scrollContentBackground(.hidden).background(PhoneTheme.ground)

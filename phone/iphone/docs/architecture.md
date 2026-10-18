@@ -38,7 +38,12 @@ is never retried automatically: the user checks Conversations before resending.
 
 Only a foreground task polls, with no overlapping refresh. Backgrounding stops the poll,
 microphone and playback; it does not cancel a durable run. Stop is an explicit gateway
-command. Tool approvals re-read the current run and wait key before sending a decision.
+command. Stop intent is recorded before awaiting the start response, so a late run ID is
+cancelled instead of abandoned. Root cancellation is sent once and the store follows the
+run until its terminal state. Entity visits retry closure while the gateway holds its
+writer lease. The square stays in its stopping state until confirmation; failures leave
+a retry action and conversation recovery available. Completed stopped turns cannot trigger
+automatic reading, and late send responses cannot restore the stopped visit. Tool approvals re-read the current run and wait key before sending a decision.
 
 ## Relationship to the Watch app
 
@@ -71,13 +76,21 @@ A voice turn sends separately from any typed draft, with currently staged attach
 
 `VoiceController` owns recorder/player lifetime and temporary-file cleanup. Chat owns the
 cancelable transcription task. A main-actor Task samples every 33 ms independently of run
-loop modes. Raw power drives silence detection; a separate fast-attack/slow-release
+loop modes. Raw power drives silence detection; a separate fast-attack envelope with a soft compression knee
 `AudioEnvelope` drives the orb from microphone or actual AVAudioPlayer power. Only the
 small `VoicePresence` subtree observes the envelope. Continuous phase survives state changes;
-idle rendering is slower and background rendering stops. Reduce Motion freezes geometry
+idle rendering is slower and background rendering stops. The soft knee preserves differences
+between loud syllables without saturating at ordinary playback levels. Energy changes
+the ribbons’ curvature, spacing, rotation and stroke, independently of the raw silence gate. Reduce Motion freezes geometry
 and rotation while retaining responsive light. The Debug-only
 `--demo --ui-test --voice-fixture` supplies speech followed by silence, isolated from live
 credentials and Release builds, to exercise tap/cancel/automatic send in native UI tests.
+
+During a gateway turn, the same orb contour morphs into a rounded square with a stable
+Stop glyph. Its surrounding ribbons continue moving; the hit target stays 84 × 80 points.
+The sole progress row belongs to the conversation. Touch-down consumes the Stop action,
+so releasing after cancellation cannot activate the microphone. Repeated touches within
+450 ms of cancellation are consumed. Reduce Motion keeps a static, recognizable square.
 
 The composer uses separate floating + and keyboard buttons on the left and the orb on the
 right, without a shared panel. The keyboard button cancels pending capture and expands

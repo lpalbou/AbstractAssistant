@@ -28,20 +28,30 @@ public final class AssistantStore {
     public private(set) var lastRefresh: Date?
     public private(set) var isRefreshing = false
     public private(set) var isOpening = false
+    public private(set) var isStopping = false
+    public var canStop: Bool { client != nil && (phase != .ready || isStopping) }
     public private(set) var deciding: Set<String> = []
     public private(set) var automationBusy: Set<String> = []
     public private(set) var titles: [String: String] = [:]
     public var isDemo: Bool { client?.isMock == true }
     public var isConnected: Bool { client != nil }
     public var sessions: [SessionSummary] { SessionSummary.group(runs) }
-    public var canSend: Bool { client != nil && phase == .ready && !isOpening && restorationID == nil }
+    public var canSend: Bool { client != nil && phase == .ready && !isOpening && !isStopping && !sendInFlight && restorationID == nil }
     public var isRestoring: Bool { restorationID != nil }
+    public var canOpenConversation: Bool { client != nil && !isOpening && !isStopping && (phase == .ready || (unknownStart && !sendInFlight)) }
     public var conversationTitle: String { selectedEntity.map { name in entities.first { $0.name == name }?.displayName ?? name.capitalized } ?? "Assistant" }
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var conversationGeneration = 0
     @ObservationIgnored private var foreground = false
     @ObservationIgnored private var poll: Task<Void, Never>?
     @ObservationIgnored private var turn: Task<Void, Never>?
+    @ObservationIgnored private var stopping: Task<Void, Never>?
+    @ObservationIgnored private var stopRequested = false
+    @ObservationIgnored private var stopVersion = 0
+    private var sendInFlight = false
+    @ObservationIgnored private var sendID: UUID?
+    @ObservationIgnored private var unknownStart = false
+    @ObservationIgnored private var cancelledRunID: String?
     @ObservationIgnored private var entityChatIDs: [String: String] = [:]
     @ObservationIgnored private var entityVisitIDs: [String: String] = [:]
     @ObservationIgnored private var quietEntityRestoreID: String?
@@ -72,7 +82,8 @@ public final class AssistantStore {
     public func disconnect() {
         contextID = UUID()
         generation += 1; conversationGeneration += 1
-        poll?.cancel(); poll = nil; turn?.cancel(); turn = nil
+        poll?.cancel(); poll = nil; turn?.cancel(); turn = nil; stopping?.cancel(); stopping = nil
+        isStopping = false; stopRequested = false; sendInFlight = false; sendID = nil; unknownStart = false; cancelledRunID = nil
         client = nil; connection = nil; principal = nil; messages = []; runs = []; waits = []; automations = []; entities = []
         titles = [:]; entityChatIDs = [:]; entityVisitIDs = [:]; toolSelections = [:]; measuredMessages = []; activeEntityRunID = nil; activeRunID = nil; selectedEntity = nil; restorationID = nil
         completedReply = nil; quietEntityRestoreID = nil
@@ -160,6 +171,7 @@ public final class AssistantStore {
     }
     private func resetConversation(entity: String?) {
         completedReply = nil; quietEntityRestoreID = nil; error = nil
+        stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
         conversationGeneration += 1; measuredMessages = []; messages = []; selectedEntity = entity; activeEntityRunID = nil; activeRunID = nil; restorationID = nil
         sessionID = "iphone-" + UUID().uuidString.lowercased(); persistSession()
     }
@@ -194,19 +206,23 @@ public final class AssistantStore {
         guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let client else { return }
         if selectedEntity != nil && !attachments.isEmpty { error = "Files can be sent to Assistant conversations. Entity file messages are not supported by this gateway interface."; return }
         let epoch = generation, view = conversationGeneration, session = sessionID, entity = selectedEntity
-        let tools = conversationTools
+        let tools = conversationTools, requestVersion = stopVersion, requestID = UUID()
+        stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil; completedReply = nil; sendInFlight = true; sendID = requestID
         messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")))); phase = .sending; error = nil
         turn = Task {
+            defer { if epoch == generation, view == conversationGeneration, sendID == requestID { sendInFlight = false; sendID = nil } }
             do {
+                guard requestVersion == stopVersion else { return }
                 if let entity {
                     let key = entity + ":" + session
                     if let existing = entityVisitIDs[key] {
                         activeEntityRunID = existing
                         try await client.setEntityTools(name: entity, runID: existing, tools: tools)
                         guard epoch == generation, view == conversationGeneration else { return }
-                        activeEntityRunID = existing
+                        guard requestVersion == stopVersion else { return }
                         _ = try await client.sendEntityTurn(name: entity, runID: existing, text: prompt)
                         guard epoch == generation, view == conversationGeneration else { return }
+                        guard requestVersion == stopVersion else { return }
                         activeEntityRunID = existing; phase = .working
                         await followEntitySession()
                     } else {
@@ -216,14 +232,19 @@ public final class AssistantStore {
                         do { _ = try await client.entityTools(name: entity); supported = true }
                         catch GatewayError.http(status: 404, body: _) { supported = false }
                         catch PhoneAttachmentError.unsupported { supported = false }
+                        guard requestVersion == stopVersion else { return }
                         if supported {
+                            unknownStart = true
                             let state = try await client.openEntitySession(name: entity, sessionID: session, tools: tools)
                             guard epoch == generation, view == conversationGeneration else { return }
+                            unknownStart = false
                             entityVisitIDs[key] = state.runID
                             if let connection { defaults.set(state.runID, forKey: "phone.visit." + connection.scope + "." + session) }
                             activeEntityRunID = state.runID
+                            guard requestVersion == stopVersion else { return }
                             _ = try await client.sendEntityTurn(name: entity, runID: state.runID, text: prompt)
                             guard epoch == generation, view == conversationGeneration else { return }
+                            guard requestVersion == stopVersion else { return }
                             activeEntityRunID = state.runID; phase = .working
                             await followEntitySession()
                         } else {
@@ -233,20 +254,31 @@ public final class AssistantStore {
                             else { chat = try await client.openEntityChat(name: entity) }
                             guard epoch == generation, view == conversationGeneration else { return }
                             entityChatIDs[entity] = chat
+                            guard requestVersion == stopVersion else { return }
                             let answer = try await client.entityChatTurn(name: entity, chatId: chat, text: prompt)
                             guard epoch == generation, view == conversationGeneration else { return }
+                            if requestVersion != stopVersion {
+                                messages.append(.init(role: .notice, text: "Reply dismissed. This gateway cannot stop entity work already sent."))
+                                finishStop(); return
+                            }
                             let reply = ConversationMessage(role: .assistant, text: answer)
                             messages.append(reply); completedReply = reply; phase = .ready
                         }
                     }
                 } else {
+                    unknownStart = true
                     let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref), tools: tools)
                     guard epoch == generation, view == conversationGeneration else { return }
-                    activeRunID = id; phase = .working
+                    unknownStart = false; activeRunID = id; phase = .working
                     if foreground { await followActiveRun() }
                 }
             } catch {
                 guard epoch == generation, view == conversationGeneration else { return }
+                if requestVersion != stopVersion {
+                    guard stopRequested else { return }
+                    self.error = "Stop is not yet confirmed. " + say(error)
+                    handle(error); return
+                }
                 phase = activeEntityRunID == nil ? .ready : .working
                 self.error = say(error) + " Check Conversations before resending: the gateway may already have received your request."
                 handle(error)
@@ -256,7 +288,7 @@ public final class AssistantStore {
     }
     public func followActiveRun() async {
         if activeEntityRunID != nil { await followEntitySession(); return }
-        guard foreground, let client, let id = activeRunID else { return }
+        guard foreground || isStopping, let client, let id = activeRunID else { return }
         let epoch = generation, view = conversationGeneration
         do {
             let run = try await client.run(id: id)
@@ -266,14 +298,25 @@ public final class AssistantStore {
                 else { messages.append(.init(id: "answer-" + id, role: .assistant, text: output, runID: id)) }
             }
             if run.isTerminal {
-                if run.status == "completed", let reply = messages.first(where: { $0.id == "answer-" + id }) { completedReply = reply }
+                if !stopRequested, run.status == "completed", let reply = messages.first(where: { $0.id == "answer-" + id }) { completedReply = reply }
                 if run.status == "failed" { error = run.error ?? "The run stopped. Open Conversations for details." }
                 if run.status == "cancelled" { messages.append(.init(role: .notice, text: "Run stopped.")) }
                 phase = .ready; activeRunID = nil
+                if stopRequested {
+                    if let current = try? await client.waits(), epoch == generation, view == conversationGeneration { waits = current }
+                    guard epoch == generation, view == conversationGeneration else { return }
+                    finishStop(); return
+                }
                 if preferences.showMessageStats { await loadMessageStats() }
             } else { phase = run.waitsOnPerson ? .waiting : .working }
-            if let wait = run.personWait, !waits.contains(where: { $0.id == wait.id }) { waits.insert(wait, at: 0) }
-        } catch { if epoch == generation, !(error is CancellationError) { self.error = say(error); handle(error) } }
+            if !stopRequested, let wait = run.personWait, !waits.contains(where: { $0.id == wait.id }) { waits.insert(wait, at: 0) }
+        } catch {
+            if epoch == generation, view == conversationGeneration, activeRunID == id, !(error is CancellationError) {
+                self.error = isStopping ? "Stop is not yet confirmed. Tap Stop to retry. " + say(error) : say(error)
+                if isStopping { isStopping = false }
+                handle(error)
+            }
+        }
     }
     private func followEntitySession() async {
         guard let client, let entity = selectedEntity, let id = activeEntityRunID else { return }
@@ -281,6 +324,8 @@ public final class AssistantStore {
         do {
             let state = try await client.entitySession(name: entity, runID: id)
             guard epoch == generation, view == conversationGeneration, activeEntityRunID == id else { return }
+            // The stop worker owns entity lifecycle until the server confirms closure.
+            guard !stopRequested else { return }
             if let wait = state.personWait {
                 waits.removeAll { $0.runId == id }; waits.insert(wait, at: 0); phase = .waiting
             } else if state.finishedTurn {
@@ -312,25 +357,76 @@ public final class AssistantStore {
         }
     }
     public func stopRun() async {
-        if let id = activeEntityRunID, let entity = selectedEntity, let client {
-            let epoch = generation, view = conversationGeneration
-            do {
-                try await client.endEntitySession(name: entity, runID: id)
-                guard epoch == generation, view == conversationGeneration else { return }
-                waits.removeAll { $0.runId == id }; entityVisitIDs.removeValue(forKey: entity + ":" + sessionID)
-                if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + sessionID) }
-                activeEntityRunID = nil; phase = .ready
-                messages.append(.init(role: .notice, text: "Conversation stopped."))
-            } catch { if epoch == generation { self.error = say(error); handle(error) } }
+        guard canStop else { return }
+        if let stopping {
+            await stopping.value
+            // A new turn can start as the prior stop worker unwinds. Its Stop tap
+            // must not disappear into the prior worker's completion.
+            if canStop && !stopRequested { await stopRun() }
             return
         }
-        guard let id = activeRunID, let client else { return }
-        let epoch = generation
-        do { try await client.cancel(runId: id); if epoch == generation { await followActiveRun() } }
-        catch { if epoch == generation { self.error = say(error); handle(error) } }
+        // Latch before awaiting: a late start/open response must still be stopped.
+        if !stopRequested { stopVersion += 1 }
+        stopRequested = true; isStopping = true; completedReply = nil; error = nil
+        let epoch = generation, view = conversationGeneration
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { if epoch == self.generation, view == self.conversationGeneration { self.stopping = nil } }
+            var conflicts = 0
+            while !Task.isCancelled, epoch == self.generation, view == self.conversationGeneration, self.stopRequested {
+                guard let client = self.client else { return }
+                do {
+                    if let id = self.activeEntityRunID, let entity = self.selectedEntity {
+                        do { try await client.endEntitySession(name: entity, runID: id) }
+                        catch GatewayError.http(status: 409, body: _) {
+                            // The home writer lease is held during inference. Retry closure
+                            // once it yields; never mark the visit stopped on this conflict.
+                            conflicts += 1
+                            try await Task.sleep(for: .milliseconds(min(2_000, 500 * conflicts))); continue
+                        }
+                        guard epoch == self.generation, view == self.conversationGeneration else { return }
+                        self.waits.removeAll { $0.runId == id }
+                        self.entityVisitIDs.removeValue(forKey: entity + ":" + self.sessionID)
+                        if let connection = self.connection { self.defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + self.sessionID) }
+                        self.activeEntityRunID = nil; self.quietEntityRestoreID = nil
+                        self.messages.append(.init(role: .notice, text: "Conversation stopped."))
+                        self.finishStop(); return
+                    }
+                    if let id = self.activeRunID {
+                        if self.cancelledRunID != id {
+                            try await client.cancel(runId: id)
+                            guard epoch == self.generation, view == self.conversationGeneration else { return }
+                            self.cancelledRunID = id
+                        }
+                        await self.followActiveRun()
+                        if !self.isStopping { return }
+                        if !self.stopRequested { return }
+                    } else if !self.sendInFlight {
+                        if self.unknownStart {
+                            self.isStopping = false
+                            self.error = "The gateway did not confirm the request. Check Conversations before sending again; stopping could not be confirmed."
+                        } else { self.finishStop() }
+                        return
+                    }
+                    try await Task.sleep(for: .milliseconds(200))
+                } catch {
+                    guard epoch == self.generation, view == self.conversationGeneration else { return }
+                    if error is CancellationError { return }
+                    self.isStopping = false
+                    self.error = "Stop is not yet confirmed. Tap Stop to retry. " + self.say(error)
+                    self.handle(error); return
+                }
+            }
+        }
+        stopping = task
+        await task.value
+    }
+    private func finishStop() {
+        stopRequested = false; isStopping = false; phase = .ready; cancelledRunID = nil
+        sendID = nil; sendInFlight = false; turn?.cancel(); turn = nil
     }
     public func openSession(_ session: SessionSummary) async {
-        guard phase == .ready, !isOpening, let client else { return }
+        guard canOpenConversation, let client else { return }
         let epoch = generation
         isOpening = true
         defer { if epoch == generation { isOpening = false } }
@@ -351,14 +447,15 @@ public final class AssistantStore {
                 if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + oldSession) }
             }
             activeEntityRunID = nil; quietEntityRestoreID = nil; completedReply = nil
+            stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
             conversationGeneration += 1; measuredMessages = []; messages = restored; selectedEntity = nil; sessionID = session.id
             activeRunID = session.latest.isTerminal ? nil : session.latest.runId
-            phase = activeRunID == nil ? .ready : .working; persistSession()
+            phase = activeRunID == nil ? .ready : .working; error = nil; persistSession()
             if preferences.showMessageStats { await loadMessageStats() }
         } catch { if epoch == generation { self.error = say(error); handle(error) } }
     }
     @discardableResult public func answer(_ wait: Wait, _ answer: WaitAnswer) async -> Bool {
-        guard let client, !deciding.contains(wait.id) else { return false }
+        guard let client, !stopRequested, !deciding.contains(wait.id) else { return false }
         let epoch = generation; deciding.insert(wait.id)
         defer { if epoch == generation { deciding.remove(wait.id) } }
         do {

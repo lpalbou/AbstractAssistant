@@ -1,5 +1,8 @@
 # Developer preview validation
 
+For the **0.6.1 (9)** orb/Stop refinement, see the [interaction review and evidence](../design/validation/orb-interaction-review.md).
+The feature validation below records the 0.6.0 baseline.
+
 Version **0.6.0 (8)** preserves the saved 0.5.0 baseline (`762b4a9`) and adds
 conversation tool modes, isolated answer playback, optional answer statistics and an
 automation history budget. The implementation stays within `phone/iphone`; the matching

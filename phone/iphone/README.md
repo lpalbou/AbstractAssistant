@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.0 · iOS 26+**
+**Developer preview · 0.6.1 · iOS 26+**
 
 ## Three small spaces
 
@@ -13,7 +13,9 @@ AbstractGateway, with the conversation at the center and the controls you need c
   keep the conversation open. The keyboard button expands the editor across the available
   width and hides the orb. Tap outside to dismiss the keyboard and restore the controls,
   preserving your draft. While listening, only a small Listening label appears above the orb.
-  The orb reacts to microphone and read-aloud playback levels.
+  The orb’s ribbons react to microphone and read-aloud playback levels. While the assistant
+  works, it becomes an animated square: tap it to stop the response. Progress appears once
+  in the conversation; the orb returns when the gateway confirms the run has ended.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.

@@ -73,9 +73,11 @@ public struct AudioEnvelope: Sendable {
     public init() {}
     @discardableResult public mutating func sample(averageDB: Float, peakDB: Float) -> Double {
         let db = max(Double(averageDB), Double(peakDB) - 7)
-        let normalized = db.isFinite ? max(0, min(1, (db + 60) / 48)) : 0
-        let target = pow(normalized, 1.4)
-        level += (target - level) * (target > level ? 0.85 : 0.24)
+        // A soft knee preserves loud syllables: a linear dB ramp saturated at -12 dB,
+        // making normalized TTS and nearby speech look almost constant.
+        let amplitude = db.isFinite ? pow(10, min(0, max(-160, db)) / 20) : 0
+        let target = pow(max(0, (amplitude - 0.001) / (amplitude + 0.08)), 0.6)
+        level += (target - level) * (target > level ? 0.9 : 0.4)
         return level
     }
     public mutating func reset() { level = 0 }

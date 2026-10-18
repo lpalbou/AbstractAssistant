@@ -10,7 +10,7 @@ final class PhoneUITests: XCTestCase {
         app.buttons["Find a little focus"].firstMatch.tap()
         app.buttons["Send message"].tap()
         XCTAssertTrue(app.buttons["Share answer"].firstMatch.waitForExistence(timeout: 30))
-        let finished = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Stop"].firstMatch)
+        let finished = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Tap to speak"), object: app.buttons["voice.orb"])
         XCTAssertEqual(XCTWaiter.wait(for: [finished], timeout: 30), .completed)
         XCTAssertTrue(app.buttons["voice.orb"].exists)
         XCTAssertTrue(app.buttons["View conversation files (1)"].exists)
@@ -23,6 +23,26 @@ final class PhoneUITests: XCTestCase {
         app.tabBars.buttons["Automations"].tap()
         XCTAssertTrue(app.staticTexts["Morning digest"].exists)
         capture(app, "Automations")
+    }
+    @MainActor func testWorkingOrbIsTheOnlyStopAndReturnsAfterCancellation() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        XCTAssertTrue(app.buttons["Find a little focus"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Find a little focus"].firstMatch.tap(); app.buttons["Send message"].tap()
+        let orb = app.buttons["voice.orb"]
+        let working = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@ AND enabled == true", "Stop assistant"), object: orb)
+        XCTAssertEqual(XCTWaiter.wait(for: [working], timeout: 10), .completed)
+        XCTAssertFalse(app.staticTexts["Waiting for your assistant…"].exists)
+        XCTAssertFalse(app.buttons["Stop"].exists)
+        XCTAssertFalse(app.staticTexts["Your assistant needs you"].exists) // Unrelated Inbox waits stay in Inbox.
+        XCTAssertEqual(app.staticTexts.matching(identifier: "Your assistant is working…").count, 1)
+        capture(app, "Working orb — single progress indicator")
+        orb.tap()
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@ AND enabled == true", "Tap to speak"), object: orb)
+        XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 10), .completed)
+        XCTAssertTrue(app.staticTexts["Run stopped."].exists)
+        XCTAssertTrue(app.buttons["composer.keyboard"].isEnabled)
+        XCTAssertFalse(app.staticTexts["Your assistant is working…"].exists)
+        capture(app, "Orb restored after stop")
     }
     @MainActor func testApprovalShowsActionAndReturnsToInbox() throws {
         let app = XCUIApplication()

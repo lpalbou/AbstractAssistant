@@ -97,6 +97,7 @@ public actor MockGatewayClient: GatewayClient {
     private var statuses: [String: String] = [:]
     private var pending: [Wait]
     private var started: [String: (Date, String)] = [:]
+    private var cancelledRunIDs: Set<String> = []
     private let wordInterval: TimeInterval
 
     public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false) {
@@ -214,7 +215,9 @@ public actor MockGatewayClient: GatewayClient {
         if runId == "occ-live" { let all = liveLedger(); return LedgerPage(items: Array(all.dropFirst(min(after, all.count))), nextAfter: all.count) }
         return LedgerPage(items: Array(Self.sampleLedger.dropFirst(min(after, Self.sampleLedger.count))), nextAfter: Self.sampleLedger.count)
     }
-    public func cancel(runId: String) async throws { started[runId] = nil }
+    public func cancel(runId: String) async throws {
+        cancelledRunIDs.insert(runId); started[runId] = nil; pending.removeAll { $0.runId == runId }
+    }
     public func occurrences(automationId: String, limit: Int) async throws -> [LastOccurrence] {
         guard let last = Self.sampleAutomations.first(where: { $0.id == automationId })?.lastOccurrence else { return [] }
         guard let top = last.index, top > 1 else { return [last] }
@@ -283,6 +286,7 @@ public actor MockGatewayClient: GatewayClient {
 
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
+        if cancelledRunIDs.contains(id) { return RunSummary(runId: id, workflowId: nil, status: "cancelled") }
         guard let (t0, text) = started[id] else {
             return Self.sampleRuns.first { $0.runId == id } ?? RunSummary(runId: id, workflowId: nil, status: "failed", error: "unknown run")
         }

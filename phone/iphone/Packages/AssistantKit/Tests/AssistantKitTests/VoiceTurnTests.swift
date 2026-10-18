@@ -96,3 +96,19 @@ private func quiet(_ turn: inout VoiceTurn, from: Double, to: Double) {
     turn.sample(at: 2, speech: false); turn.sample(at: 8, speech: false)
     #expect(!turn.heardSpeech && turn.phase == .idle)
 }
+
+@Test func loudSpeechAndPlaybackRetainSyllableDynamicsInsteadOfClipping() {
+    func steady(_ db: Float) -> Double {
+        var envelope = AudioEnvelope()
+        for _ in 0..<12 { envelope.sample(averageDB: db, peakDB: db + 6) }
+        return envelope.level
+    }
+    let quiet = steady(-42), normal = steady(-20), loud = steady(-6)
+    #expect(normal > quiet * 2)
+    #expect(loud > steady(-12) + 0.04)
+    #expect(steady(-2) > loud + 0.02)
+    var envelope = AudioEnvelope()
+    for _ in 0..<10 { envelope.sample(averageDB: -6, peakDB: 0) }
+    for _ in 0..<4 { envelope.sample(averageDB: -45, peakDB: -39) }
+    #expect(envelope.level < 0.3) // React within a syllable, rather than hanging near the peak.
+}
