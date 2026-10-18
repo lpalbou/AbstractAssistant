@@ -96,8 +96,10 @@ final class Speaker: NSObject, ObservableObject {
         stop()
         if let other = Self.current, other !== self { other.stop() }
         Self.current = self
-        let pieces = SpeechText.segments(markdown)
-        guard !pieces.isEmpty else { state = .failed("Nothing to read in this text."); return }
+        // The whole text in one request: the gateway's voice speaks it in whole sentences, made ahead
+        // of playback, in one language for the whole reply (abstractvoice 0.15.2).
+        let spoken = SpeechText.plain(markdown)
+        guard !spoken.isEmpty else { state = .failed("Nothing to read in this text."); return }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [])
@@ -112,15 +114,12 @@ final class Speaker: NSObject, ObservableObject {
         RuntimeKeeper.shared.hold(holder)
         task = Task { [weak self] in
             do {
-                // One request per piece, in order: piece n+1 is synthesized while piece n plays.
-                for piece in pieces {
-                    for try await wav in client.speech(text: piece, scope: scope, voice: VoicePrefs.voice(for: scope)) {
-                        let frames = await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: wav) }.value
-                        guard let self, !Task.isCancelled else { return }
-                        self.enqueue(wav, frames: frames)
-                    }
-                    guard !Task.isCancelled else { return }
+                for try await wav in client.speech(text: spoken, scope: scope, voice: VoicePrefs.voice(for: scope)) {
+                    let frames = await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: wav) }.value
+                    guard let self, !Task.isCancelled else { return }
+                    self.enqueue(wav, frames: frames)
                 }
+                guard !Task.isCancelled else { return }
                 self?.streamDone = true
                 self?.advanceIfIdle()
             } catch {

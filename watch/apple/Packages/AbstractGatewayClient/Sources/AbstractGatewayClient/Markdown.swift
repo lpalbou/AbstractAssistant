@@ -88,24 +88,6 @@ public enum MarkdownBlock: Equatable, Sendable {
 /// Markdown → prose a voice can read: headings and list items become their own sentences, code
 /// blocks are announced rather than spelled out, links read as their label, bare URLs are dropped.
 public enum SpeechText {
-    /// The text to speak in pieces that follow its markdown blocks: the first block alone (it is
-    /// synthesized first, so the voice starts fast), then blocks grouped up to about `target`
-    /// characters. Each piece is synthesized while the previous one plays, so a long answer has no
-    /// multi-second gap after its first sentence.
-    public static func segments(_ markdown: String, target: Int = 320) -> [String] {
-        var pieces: [String] = []
-        var current = ""
-        for block in MarkdownBlock.parse(markdown) {
-            let spoken = plain(blocks: [block])
-            guard !spoken.isEmpty else { continue }
-            if pieces.isEmpty && current.isEmpty { pieces.append(spoken); continue }
-            if !current.isEmpty && current.count + spoken.count > target { pieces.append(current); current = "" }
-            current = current.isEmpty ? spoken : current + " " + spoken
-        }
-        if !current.isEmpty { pieces.append(current) }
-        return pieces
-    }
-
     public static func plain(_ markdown: String) -> String { plain(blocks: MarkdownBlock.parse(markdown)) }
 
     static func plain(blocks: [MarkdownBlock]) -> String {

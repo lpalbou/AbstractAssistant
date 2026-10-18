@@ -77,6 +77,9 @@ channel (TestFlight, then the App Store); the Python package's history is in
   voice's own range (a syllable reaches full strength, a pause falls back) and its spectrum in 8
   bands from low to high pitches. Each orb style draws the spectrum (the Halo: each angle is a band,
   low pitches at the top). The orb reaches 8% less far at full voice; its size at rest is unchanged.
+- Read aloud sends the whole text in one request: the gateway's voice speaks it in whole sentences,
+  made ahead of playback, in one language for the whole reply (one request per paragraph added a
+  pause and a fresh short opening at every paragraph).
 - An automation's page shows its latest result in full once it is read, with a spinner meanwhile
   (never the shortened preview first), and says so with Retry if it cannot be read.
 
