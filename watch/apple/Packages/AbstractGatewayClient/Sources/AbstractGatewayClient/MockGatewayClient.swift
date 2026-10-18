@@ -246,8 +246,26 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func tools() async throws -> [ToolInfo] {
-        [ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1), ToolInfo(name: "fetch_url", riskTier: "act", riskRank: 2),
-         ToolInfo(name: "send_email", riskTier: "outreach", riskRank: 3), ToolInfo(name: "execute_command", riskTier: "destroy", riskRank: 4)]
+        // Shaped like a real gateway's catalog: files, web and system set up; email and agora not.
+        func t(_ name: String, _ tier: String, _ rank: Int, _ set: String, _ on: Bool, _ approval: String, _ about: String,
+               destination: Bool = false, refined: Bool = false) -> ToolInfo {
+            ToolInfo(name: name, riskTier: tier, riskRank: rank, enabled: on, description: about, toolset: set, approvalDefault: approval,
+                     modelControlledDestination: destination, refined: refined)
+        }
+        return [
+            t("list_files", "observe", 1, "files", true, "auto", "List files and folders by name or path."),
+            t("read_file", "observe", 1, "files", true, "auto", "Read a text file, or a range of its lines."),
+            t("search_files", "observe", 1, "files", true, "auto", "Search inside files for a pattern."),
+            t("write_file", "act", 2, "files", true, "ask", "Write a file in the workspace, creating its folders."),
+            t("edit_file", "act", 2, "files", true, "ask", "Change part of a file in the workspace."),
+            t("web_search", "observe", 1, "web", true, "auto", "Search the web and return the top results."),
+            t("fetch_url", "act", 2, "web", true, "ask", "Read a web page or a document from a URL.", destination: true),
+            t("skim_url", "observe", 1, "web", true, "auto", "Skim a page: its title and a short preview."),
+            t("execute_command", "destroy", 4, "system", true, "ask", "Run a command on the gateway's computer."),
+            t("list_email_accounts", "observe", 1, "comms.email", false, "ask", "Show the connected email account."),
+            t("send_email", "outreach", 3, "comms.email", false, "ask", "Send an email from the connected account.", refined: true),
+            t("agora_check_inbox", "destroy", 4, "agora", false, "ask", "Fetch unread messages from the agora hub."),
+        ]
     }
 
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?, tools: [String]?) async throws -> String {

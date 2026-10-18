@@ -63,11 +63,12 @@ import Testing
 }
 
 @Test func sessionTrustTravelsAsTheRunToolPolicy() throws {
-    let req = StartRunRequest(prompt: "hi", sessionId: "s1", toolPolicy: RunToolPolicy(autoApproveMaxRiskRank: 4, requireApprovalTools: ["send_email"]))
+    let req = StartRunRequest(prompt: "hi", sessionId: "s1", toolPolicy: RunToolPolicy(autoApproveTools: ["read_file"], requireApprovalTools: ["execute_command"]))
     let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(req)) as! [String: Any]
     let input = obj["input_data"] as! [String: Any]
     let policy = (input["_runtime"] as! [String: Any])["tool_policy"] as! [String: Any]
-    #expect(policy["auto_approve_max_risk_rank"] as? Int == 4 && policy["require_approval_tools"] as? [String] == ["send_email"])
+    #expect(policy["auto_approve_tools"] as? [String] == ["read_file"] && policy["require_approval_tools"] as? [String] == ["execute_command"])
+    #expect(policy["auto_approve_max_risk_rank"] == nil, "no risk ceiling: the names say it all")
     let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StartRunRequest(prompt: "hi", sessionId: nil))) as! [String: Any]
     #expect((plain["input_data"] as! [String: Any])["_runtime"] == nil)
     let tools = try JSONDecoder().decode(ToolsPage.self, from: Data(#"{"items":[{"name":"send_email","risk_tier":"outreach","risk_rank":3},{"name":"x","risk":{"tier":"act","rank":2}}]}"#.utf8))

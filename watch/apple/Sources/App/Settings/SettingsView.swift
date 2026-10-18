@@ -36,6 +36,18 @@ struct SettingsView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                NavigationLink(value: Route.tools(.defaults)) {
+                    Card {
+                        HStack {
+                            Text("Tools").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
+                            Spacer(minLength: 4)
+                            Text("Defaults").font(.rounded(.footnote)).foregroundStyle(Theme.muted).lineLimit(1)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.muted)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.tools")
                 NavigationLink(value: Route.about) {
                     Card {
                         HStack {

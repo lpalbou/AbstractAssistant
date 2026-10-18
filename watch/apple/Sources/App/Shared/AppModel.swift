@@ -7,6 +7,7 @@ enum Route: Hashable {
     case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), newAutomation, message(title: String, Exchange), voiceSettings, settings
     case occurrence(title: String, LastOccurrence)
     case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
+    case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String)
 }
 
 /// App state: one GatewayClient, foreground polling every 15 s for waits and runs.
@@ -48,15 +49,17 @@ final class AppModel: ObservableObject {
     @Published var entities: [EntitySummary] = []
     /// The gateway's tools by name, with their risk tier (observe · act · outreach · destroy).
     @Published var tools: [String: ToolInfo] = [:]
-    /// Ask sessions where the person allowed every tool (outreach still asks); kept per watch.
-    /// Oldest first; the newest 20 are kept.
-    @Published private(set) var trustedSessions: [String] = UserDefaults.standard.stringArray(forKey: "ask.trusted") ?? []
+    /// Tool choices (ToolPrefs): defaults for new conversations, and this conversation's changes.
+    @Published private(set) var toolDefaults: [String: ToolMode] = ToolPrefs.defaults
+    @Published private(set) var sessionTools: [String: ToolMode] = [:]
     /// Waits answered from an approval or question screen (Back without deciding is not an answer).
     private(set) var decidedWaits: Set<String> = []
     /// When the last successful refresh happened; nil until the first one.
     @Published var lastRefresh: Date?
     /// The Ask conversation: one gateway session per watch, kept until "New".
-    @Published var askSessionId: String = UserDefaults.standard.string(forKey: "ask.session") ?? AppModel.newSessionId()
+    @Published var askSessionId: String = UserDefaults.standard.string(forKey: "ask.session") ?? AppModel.newSessionId() {
+        didSet { sessionTools = ToolPrefs.session(askSessionId); ToolPrefs.touch(askSessionId) }
+    }
     /// Who answers an Ask; kept per watch in UserDefaults.
     @Published private(set) var responder = Responder(storageKey: UserDefaults.standard.string(forKey: "ask.responder"))
     /// Open entity conversations, one per home (`chat/open` is "one live session per home").
@@ -92,6 +95,8 @@ final class AppModel: ObservableObject {
     init(client: any GatewayClient, gatewayHost: String) {
         self.client = client; self.gatewayHost = gatewayHost
         if UserDefaults.standard.string(forKey: "ask.session") == nil { UserDefaults.standard.set(askSessionId, forKey: "ask.session") }
+        sessionTools = ToolPrefs.session(askSessionId)
+        UserDefaults.standard.removeObject(forKey: "ask.trusted")   // "Accept all" is now tool choices
     }
 
     var connected: Bool { principal != nil }
@@ -169,9 +174,7 @@ final class AppModel: ObservableObject {
             }
             #endif
             await loadTitles()
-            if tools.isEmpty, let list = try? await client.tools() {
-                tools = Dictionary(list.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-            }
+            await ensureTools(maxAge: 600)
             if entities.isEmpty, case .entity = responder { await loadEntities() }
             if let screen = pendingScreen, let first = waits.first {
                 pendingScreen = nil
@@ -220,32 +223,79 @@ final class AppModel: ObservableObject {
     var activeRunCount: Int { runs.filter { $0.status == "running" || $0.status == "waiting" }.count }
     var isAdmin: Bool { principal?.admin == true || (principal?.roles ?? []).contains("admin") }
     static func newSessionId() -> String { "watch-" + UUID().uuidString.lowercased() }
-    /// "Allow all in this session": the current Ask session runs every tool without asking,
-    /// except sends to someone else (outreach), which always ask.
-    var sessionTrusted: Bool { trustedSessions.contains(askSessionId) }
-
-    func trustSession() {
-        trustedSessions.removeAll { $0 == askSessionId }
-        trustedSessions.append(askSessionId)
-        trustedSessions = Array(trustedSessions.suffix(20))
-        UserDefaults.standard.set(trustedSessions, forKey: "ask.trusted")
+    /// An approval's "Accept all": in this conversation, the tools now on Ask stop asking, up to the
+    /// risk of the call just approved (at least "makes changes"). Tools that are Off stay off; sends
+    /// to someone else and tools whose destination the assistant picks keep asking. It is this
+    /// conversation's tool choices, so the tools page shows it and can change it.
+    func trustSession(approving wait: Wait) {
+        let approved = (wait.details ?? []).map { tools[$0.name]?.riskRank ?? 4 }.max() ?? 4
+        let ceiling = max(ToolChoices.allAutoMaxRank, approved)
+        let rise = tools.values.filter { t in
+            toolMode(t, scope: .session) == .ask && t.riskTier != "outreach" && t.modelControlledDestination != true
+                && (t.riskRank ?? 4) <= ceiling
+        }
+        setTools(rise.map(\.name), .auto, scope: .session)
     }
 
     func markDecided(_ wait: Wait) { decidedWaits.insert(wait.id) }
 
-    /// A trusted session approves a call itself only when its tier is KNOWN and is not a send:
-    /// with the inventory missing it asks, never the reverse.
+    /// The watch approves a call itself only when the tool is known and this conversation runs it
+    /// without asking (a run started before the choice still waits for it).
     func autoApprovable(_ wait: Wait) -> Bool {
-        guard sessionTrusted, wait.kind == .toolApproval, let tier = tools[wait.toolName]?.riskTier else { return false }
-        return tier != "outreach" && !wait.isOutreach
+        guard wait.kind == .toolApproval, let calls = wait.details, !calls.isEmpty else { return false }
+        // The runtime asks for a batch as a whole: every call in it must be on Auto.
+        return calls.allSatisfy { c in tools[c.name].map { toolMode($0, scope: .session) == .auto } ?? false }
     }
 
-    /// The run policy for a new Ask run in a trusted session: every tier runs, outreach tools ask.
-    var runToolPolicy: RunToolPolicy? {
-        guard sessionTrusted, !tools.isEmpty else { return nil }
-        let outreach = tools.values.filter { $0.riskTier == "outreach" }.map(\.name).sorted()
-        return RunToolPolicy(autoApproveMaxRiskRank: 4, requireApprovalTools: outreach)
+    // MARK: Tools
+
+    /// Where a tool choice applies: the defaults for new conversations, or this conversation.
+    enum ToolScope: Hashable { case defaults, session }
+
+    func toolMode(_ tool: ToolInfo, scope: ToolScope) -> ToolMode {
+        ToolChoices.mode(of: tool, defaults: toolDefaults, session: scope == .session ? sessionTools : [:])
     }
+
+    /// Sets tools' modes in a scope, keeping only what differs from the level below (the gateway
+    /// for defaults; the defaults for a conversation), so a later default still reaches them.
+    func setTools(_ names: [String], _ mode: ToolMode, scope: ToolScope) {
+        switch scope {
+        case .defaults:
+            var d = toolDefaults
+            for n in names { guard let t = tools[n] else { continue }; d[n] = mode == ToolChoices.gatewayDefault(t) ? nil : mode }
+            toolDefaults = d
+            ToolPrefs.defaults = d
+        case .session:
+            var m = sessionTools
+            for n in names {
+                guard let t = tools[n] else { continue }
+                m[n] = mode == ToolChoices.mode(of: t, defaults: toolDefaults, session: [:]) ? nil : mode
+            }
+            setSessionTools(m)
+        }
+    }
+
+    private func setSessionTools(_ modes: [String: ToolMode]) {
+        sessionTools = modes
+        ToolPrefs.setSession(askSessionId, modes)
+    }
+
+    /// This conversation uses the defaults again.
+    func resetSessionTools() { setSessionTools([:]) }
+
+    /// The defaults follow the gateway again.
+    func resetToolDefaults() { toolDefaults = [:]; ToolPrefs.defaults = [:] }
+
+    #if DEBUG
+    func reloadToolPrefs() { toolDefaults = ToolPrefs.defaults; sessionTools = ToolPrefs.session(askSessionId) }
+    #endif
+
+    /// What this conversation's next run receives (nil until the catalog is read).
+    var toolPlan: ToolChoices.Plan? {
+        guard !tools.isEmpty else { return nil }
+        return ToolChoices.plan(Array(tools.values), defaults: toolDefaults, session: sessionTools)
+    }
+
 
     /// The tool's risk tier from the gateway's inventory (the wait payload carries none).
     func tier(of wait: Wait) -> String? { tools[wait.toolName]?.riskTier ?? wait.riskTier }
@@ -283,17 +333,16 @@ final class AppModel: ObservableObject {
 
     /// Reads the gateway's tool catalog when it is not known yet (an Ask right after launch must not
     /// fall back to the workflow's 9 default tools).
-    func ensureTools() async {
-        guard tools.isEmpty, let list = try? await client.tools() else { return }
+    func ensureTools(maxAge: TimeInterval = .infinity) async {
+        if !tools.isEmpty, let read = toolsReadAt, Date().timeIntervalSince(read) < maxAge { return }
+        guard let list = try? await client.tools() else { return }
         tools = Dictionary(list.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        toolsReadAt = Date()
     }
 
-    /// The tools a run offers its agent, as the desktop assistant does: every tool the gateway has on
-    /// (nil until the catalog is read: the workflow's own default set then applies).
-    var offeredTools: [String]? {
-        guard !tools.isEmpty else { return nil }
-        return tools.values.filter(\.offered).map(\.name).sorted()
-    }
+    /// When the tool catalog was read (a toolset the gateway's admin turns on or off shows up).
+    private var toolsReadAt: Date?
+
 
     /// A conversation's label: its latest question, as the gateway has it (a watch conversation runs
     /// for days; its first question says little about it). Nil until read: never a made-up title.
@@ -505,6 +554,8 @@ struct LaunchOptions {
         model.testListen = testListen
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
+        if args.contains("--reset-tools") { ToolPrefs.reset(); model.reloadToolPrefs() }
+        if args.contains("--fresh-conversation") { model.useTestSession() }   // a test's own, empty conversation
         // `--test-session <id>`: opens that conversation as a tap on its row does (read-only).
         if let i = args.firstIndex(of: "--test-session"), i + 1 < args.count {
             let sid = args[i + 1]
@@ -521,6 +572,9 @@ struct LaunchOptions {
         #endif
         if testListen { return [.ask(.idle)] }
         if !useMock, testAsk != nil { return [.ask(.idle)] }
+        // `--screen tools` (defaults) or `--screen tools:<group>` (a group), live or sample data.
+        if screen == "tools" { return [.settings, .tools(.defaults)] }
+        if screen.hasPrefix("tools:") { return [.settings, .tools(.defaults), .toolGroup(.defaults, String(screen.dropFirst(6)))] }
         if !useMock, screen == "approval" || screen == "askuser" {
             model.pendingScreen = screen   // opened after the first poll with a real wait
             return []

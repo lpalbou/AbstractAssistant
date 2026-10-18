@@ -110,7 +110,7 @@ struct ApprovalView: View {
                 return
             }
             model.markDecided(wait)
-            if trustSession { model.trustSession() }
+            if trustSession { model.trustSession(approving: wait) }
             model.path.removeLast()   // back where it was opened: the orb, Home or the list
         }
     }

@@ -652,13 +652,15 @@ public struct ResumeCommand: Encodable, Sendable {
 /// `POST /api/gateway/runs/start` body for one chat turn.
 /// The run's own approval policy (`_runtime.tool_policy`, read by the runtime per run): tools at or
 /// below `autoApproveMaxRiskRank` run without asking; a name in `requireApprovalTools` always asks.
+/// A run's own tool approvals (`_runtime.tool_policy`): run without asking, or always ask
+/// (`requireApprovalTools` wins when a name is in both; a name in neither asks).
 public struct RunToolPolicy: Encodable, Sendable, Equatable {
-    public var autoApproveMaxRiskRank: Int?
+    public var autoApproveTools: [String]
     public var requireApprovalTools: [String]
-    public init(autoApproveMaxRiskRank: Int?, requireApprovalTools: [String]) {
-        self.autoApproveMaxRiskRank = autoApproveMaxRiskRank; self.requireApprovalTools = requireApprovalTools
+    public init(autoApproveTools: [String], requireApprovalTools: [String]) {
+        self.autoApproveTools = autoApproveTools; self.requireApprovalTools = requireApprovalTools
     }
-    enum CodingKeys: String, CodingKey { case autoApproveMaxRiskRank = "auto_approve_max_risk_rank", requireApprovalTools = "require_approval_tools" }
+    enum CodingKeys: String, CodingKey { case autoApproveTools = "auto_approve_tools", requireApprovalTools = "require_approval_tools" }
 }
 
 /// One tool of `GET /api/gateway/discovery/tools`, with the gateway's risk tier
@@ -670,11 +672,46 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
     /// Switched on by the gateway's admin (`enabled`) and usable on this host (`available`).
     public var enabled: Bool?
     public var available: Bool?
+    /// What it does, its group (`files`, `web`, `comms.email`, …) and whether the gateway asks
+    /// before running it by default (`ask` or `auto`).
+    public var description: String?
+    public var toolset: String?
+    public var approvalDefault: String?
+    /// The assistant chooses where its output goes (a URL, a recipient): the runtime asks for it
+    /// even under a risk ceiling, so "All auto" and "Accept all" leave it on Ask.
+    public var modelControlledDestination: Bool?
+    /// A per-call check may let one call run unasked (sending an email to yourself): kept out of
+    /// the run's always-ask list, which would switch that check off.
+    public var refined: Bool = false
+    /// What it can do, in the gateway's own facts.
+    public var mutating: Bool?, destructiveCapable: Bool?, commsSend: Bool?, remoteWriteCapable: Bool?, capturesEnvironment: Bool?
     /// The tool can be offered to a run (what the desktop assistant offers: every tool not off).
     public var offered: Bool { enabled != false && available != false }
-    enum CodingKeys: String, CodingKey { case name, riskTier = "risk_tier", riskRank = "risk_rank", risk, enabled, available }
+    enum CodingKeys: String, CodingKey {
+        case name, riskTier = "risk_tier", riskRank = "risk_rank", risk, enabled, available, description, toolset
+        case approvalDefault = "approval_default", modelControlledDestination = "model_controlled_destination"
+        case riskRefiner = "risk_refiner", mutating, destructiveCapable = "destructive_capable", commsSend = "comms_send"
+        case remoteWriteCapable = "remote_write_capable", capturesEnvironment = "captures_environment"
+    }
     struct Risk: Decodable { var rank: Int?; var tier: String? }
-    public init(name: String, riskTier: String?, riskRank: Int?) { self.name = name; self.riskTier = riskTier; self.riskRank = riskRank }
+    public init(name: String, riskTier: String?, riskRank: Int?, enabled: Bool? = nil, description: String? = nil,
+                toolset: String? = nil, approvalDefault: String? = nil, modelControlledDestination: Bool? = nil, refined: Bool = false) {
+        self.name = name; self.riskTier = riskTier; self.riskRank = riskRank; self.enabled = enabled
+        self.description = description; self.toolset = toolset; self.approvalDefault = approvalDefault
+        self.modelControlledDestination = modelControlledDestination; self.refined = refined
+    }
+
+    /// Plain facts about what it can do (as the desktop assistant words them).
+    public var facts: [String] {
+        var out: [String] = []
+        if destructiveCapable == true { out.append("can delete or overwrite") } else if mutating == true { out.append("changes files or state") }
+        if commsSend == true { out.append("sends messages for you") }
+        if remoteWriteCapable == true { out.append("reaches remote services") }
+        if capturesEnvironment == true { out.append("captures your camera, screen or surroundings") }
+        if modelControlledDestination == true { out.append("the assistant picks where it goes") }
+        if out.isEmpty, riskTier == "observe" { out.append("read-only") }
+        return out
+    }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -683,6 +720,63 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
         riskRank = (try? c.decodeIfPresent(Int.self, forKey: .riskRank)) ?? risk?.rank
         enabled = try? c.decodeIfPresent(Bool.self, forKey: .enabled)
         available = try? c.decodeIfPresent(Bool.self, forKey: .available)
+        description = try? c.decodeIfPresent(String.self, forKey: .description)
+        toolset = try? c.decodeIfPresent(String.self, forKey: .toolset)
+        approvalDefault = try? c.decodeIfPresent(String.self, forKey: .approvalDefault)
+        modelControlledDestination = try? c.decodeIfPresent(Bool.self, forKey: .modelControlledDestination)
+        refined = ((try? c.decodeNil(forKey: .riskRefiner)) == false) && c.contains(.riskRefiner)
+        mutating = try? c.decodeIfPresent(Bool.self, forKey: .mutating)
+        destructiveCapable = try? c.decodeIfPresent(Bool.self, forKey: .destructiveCapable)
+        commsSend = try? c.decodeIfPresent(Bool.self, forKey: .commsSend)
+        remoteWriteCapable = try? c.decodeIfPresent(Bool.self, forKey: .remoteWriteCapable)
+        capturesEnvironment = try? c.decodeIfPresent(Bool.self, forKey: .capturesEnvironment)
+    }
+}
+
+/// How a run may use one tool: not offered, offered and run without asking, offered and asked first.
+public enum ToolMode: String, Codable, CaseIterable, Sendable { case off, auto, ask }
+
+/// The tools of a run from the gateway's catalog and the person's choices: defaults for new
+/// conversations, then this conversation's changes on top. A tool the gateway has not set up is
+/// always off (no run can load it).
+public enum ToolChoices {
+    /// "All auto" reaches tools that read or make changes (rank 1-2) and whose destination the
+    /// assistant does not choose; the others are set to Auto one at a time (as in the desktop app).
+    public static let allAutoMaxRank = 2
+    public static func allAutoReaches(_ tool: ToolInfo) -> Bool {
+        tool.offered && (tool.riskRank ?? 4) <= allAutoMaxRank && tool.modelControlledDestination != true
+    }
+
+    /// The gateway's own default: off when not set up, else its approval default (ask unless auto).
+    public static func gatewayDefault(_ tool: ToolInfo) -> ToolMode {
+        guard tool.offered else { return .off }
+        return tool.approvalDefault == "auto" ? .auto : .ask
+    }
+
+    public static func mode(of tool: ToolInfo, defaults: [String: ToolMode], session: [String: ToolMode]) -> ToolMode {
+        guard tool.offered else { return .off }
+        return session[tool.name] ?? defaults[tool.name] ?? gatewayDefault(tool)
+    }
+
+    /// What a run receives: the tools it may call, those it runs without asking, those it asks for.
+    public struct Plan: Equatable, Sendable {
+        public var offered: [String]
+        public var auto: [String]
+        public var ask: [String]
+        public var policy: RunToolPolicy { RunToolPolicy(autoApproveTools: auto, requireApprovalTools: ask) }
+    }
+
+    public static func plan(_ tools: [ToolInfo], defaults: [String: ToolMode], session: [String: ToolMode]) -> Plan {
+        var auto: [String] = [], ask: [String] = []
+        for t in tools.sorted(by: { $0.name < $1.name }) {
+            switch mode(of: t, defaults: defaults, session: session) {
+            case .auto: auto.append(t.name)
+            case .ask: if !t.refined { ask.append(t.name) }   // offered, not auto: it asks (and its check applies)
+            case .off: break
+            }
+        }
+        let offered = tools.filter { mode(of: $0, defaults: defaults, session: session) != .off }.map(\.name).sorted()
+        return Plan(offered: offered, auto: auto, ask: ask)
     }
 }
 

@@ -80,6 +80,8 @@ struct AskView: View {
                                 if controlsShown { responderSwitch }
                                 Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
                                     .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
+                                    // Clear of the tools icon at the bottom right when it shows.
+                                    .padding(.horizontal, controlsShown && model.responder == .assistant ? 40 : 0)
                                     .shadow(color: .black, radius: 3)
                             }
                             .padding(.bottom, 8)   // low, clear of the orb and the round corners
@@ -89,6 +91,13 @@ struct AskView: View {
                         .overlay(alignment: .topTrailing) {
                             if controlsShown {
                                 keyboardLink.buttonStyle(GlassPress()).padding(.trailing, 6).padding(.top, 2)
+                            }
+                        }
+                        // The tools of this conversation, bottom right: shown with the keyboard (the
+                        // Assistant's tools; an entity brings its own).
+                        .overlay(alignment: .bottomTrailing) {
+                            if controlsShown, model.responder == .assistant {
+                                toolsLink.padding(.trailing, 6).padding(.bottom, 10)
                             }
                         }
                         .id("orb")
@@ -145,7 +154,7 @@ struct AskView: View {
     }
 
     private var hasBelow: Bool {
-        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking) || model.sessionTrusted
+        !exchanges.isEmpty || (!prompt.isEmpty && phase == .thinking)
     }
 
     /// The message shown in full (the conversation's last), the one the voice button reads.
@@ -200,11 +209,6 @@ struct AskView: View {
             Button("Couldn't load earlier messages. Retry") { Task { await loadHistory(session.id, latestRun: session.run) } }
                 .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
         }
-        if model.sessionTrusted {
-            Label("Tools allowed", systemImage: "checkmark.seal.fill")
-                .font(.rounded(.caption2)).foregroundStyle(Theme.green.opacity(0.85))
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
-        }
     }
 
     // MARK: - Pieces
@@ -223,6 +227,22 @@ struct AskView: View {
         .buttonStyle(.plain)
         .disabled(phase == .thinking || phase == .listening)
         .accessibilityLabel("Talking to \(model.responder.title). Choose who answers")
+    }
+
+    /// The tools this conversation may use (Off · Auto · Ask each); a dot when they differ from the
+    /// defaults of Settings → Tools.
+    private var toolsLink: some View {
+        NavigationLink(value: Route.tools(.session)) {
+            GlassIcon(symbol: "wrench.and.screwdriver")
+                .overlay(alignment: .topTrailing) {
+                    if !model.sessionTools.isEmpty {
+                        Circle().fill(Theme.amber).frame(width: 8, height: 8).offset(x: 1, y: -1)
+                    }
+                }
+        }
+        .buttonStyle(GlassPress())
+        .accessibilityLabel(model.sessionTools.isEmpty ? "Tools" : "Tools, changed for this conversation")
+        .accessibilityIdentifier("ask.tools")
     }
 
     /// The watch's text input (dictation, Scribble, keyboard) behind one keyboard icon.
@@ -388,9 +408,15 @@ struct AskView: View {
             do {
                 switch model.responder {
                 case .assistant:
-                    await model.ensureTools()
-                    let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: model.runToolPolicy,
-                                                                  tools: model.offeredTools)
+                    // The tools this conversation allows, read fresh; without them no question goes
+                    // out (the workflow's own defaults would ignore what was turned off).
+                    await model.ensureTools(maxAge: 600)
+                    guard let plan = model.toolPlan else {
+                        if mine == turn { fail("Couldn't read your tools. Try again.") }
+                        return
+                    }
+                    let id = try await model.client.startRun(prompt: text, sessionId: model.askSessionId, toolPolicy: plan.policy,
+                                                                  tools: plan.offered)
                     guard mine == turn else {
                         // Cancelled (or left) while the run was starting: stop it on the gateway too.
                         try? await model.client.cancel(runId: id); return

@@ -8,6 +8,19 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
+- **Tools you choose.** A tools icon on the orb page (bottom right, shown with the keyboard; for the
+  Assistant) opens this conversation's tools, by group (Files, Web, System, Email, …): each tool is
+  Off (not offered), Auto (runs without asking) or Ask (asks first), with its risk (Reads only, Makes
+  changes, Reaches outside, Destructive), what it can do, and More for the gateway's description. A
+  group's All sets its tools at once; All auto leaves the tools that reach outside, can destroy, or
+  go where the assistant picks on Ask. Tools the gateway has not set up are listed by name.
+  **Settings → Tools** sets the defaults; a conversation's changes sit on top of them (the icon shows
+  a dot, each changed tool its default, and "Use my defaults" undoes them). A question goes out only
+  with the tools read from the gateway (read again every 10 minutes and on each visit to Tools).
+- An approval's **Accept all** now sets this conversation's tools: those on Ask stop asking, up to
+  the risk of the call approved; tools turned off stay off, and sends and tools whose destination
+  the assistant picks keep asking. The watch answers a later approval itself only when every call in
+  it is on Auto.
 - **New automation** (top of the Automations list): the task, the workflow that runs it ("Gateway
   default" first, then the workflows the gateway offers your account), when it runs (every 5 min,
   30 min, 1 h, 8 h, 24 h or 7 days, or daily at a time), whether each run builds on the earlier
