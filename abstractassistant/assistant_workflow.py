@@ -28,7 +28,10 @@ MANAGED_ASSISTANT_WORKFLOW_MARKER = "managed-by=abstractassistant;scope=tenant-c
 #   4 = the router's typed `seconds` argument reaches the sound/music nodes (R10.1, 2026-10-04)
 #   5 = chat runs basic-agent as a subflow; media provider/model pins typed; every end
 #       carries meta (2026-10-11)
-MANAGED_ASSISTANT_WORKFLOW_REVISION = 5
+#   6 = a voice mode: spoken audio of words the router writes, through the gateway's
+#       voice engine (2026-10-18)
+#   7 = the router inherits the run text route, with explicit selections first
+MANAGED_ASSISTANT_WORKFLOW_REVISION = 7
 _REVISION_MARKER_PREFIX = "workflow-revision="
 
 
@@ -55,7 +58,10 @@ _ROUTER_SYSTEM_PROMPT = (
     "Choose the smallest correct execution mode. "
     "Return JSON only. "
     "Use mode=chat for ordinary answers, reasoning, browsing, tools, files, coding, or anything that should stay in the assistant agent. "
-    "Use image, edit_image, upscale_image, video, image_to_video, music, or sound only for explicit media generation or transformation requests. "
+    "Use image, edit_image, upscale_image, video, image_to_video, music, sound, or voice only for explicit media generation or transformation requests. "
+    "Use voice only when the user explicitly asks for a recording or a voice message, of words they give or of a short text the request fully "
+    "describes (a greeting, a short poem); media_prompt is then the exact words to speak, written out in full in the user's language, never a "
+    "description of them. Anything that needs facts, a search, files or tools (news, a summary, an answer to read aloud) is chat. "
     "If the request needs a source image for editing, upscaling, or image-to-video and no primary image is available, use mode=need_source_image. "
     "For chat, leave media_prompt empty and assistant_message empty. "
     "For media modes, assistant_message must be a short user-facing confirmation sentence and media_prompt must be the literal prompt to send to the media model. "
@@ -78,6 +84,7 @@ _ROUTER_SCHEMA: Dict[str, Any] = {
                 "image_to_video",
                 "music",
                 "sound",
+                "voice",
                 "need_source_image",
             ],
         },
@@ -348,6 +355,23 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         pin_defaults={"template": _ROUTER_TEMPLATE},
     )
 
+    # Read only routing identity, never expose the whole runtime namespace.
+    # A plain LLM node otherwise follows its pooled default while Agent nodes
+    # inherit the run's virtual endpoint and resolve it through the host.
+    router_runtime = _node(
+        "router_runtime", "get_vars", x=-720.0, y=-400.0,
+        label="Router Runtime Defaults", icon="", color="#3498DB",
+        outputs=[_pin("_runtime.provider", "provider", "string"),
+                 _pin("_runtime.model", "model", "string")],
+    )
+    router_selections = [
+        _node("router_" + key, "coalesce", x=-420.0, y=-400.0 + index * 120.0,
+              label="Router " + key.title(), icon="", color="#3498DB",
+              inputs=[_pin("a", "explicit", "any"), _pin("b", "default", "any")],
+              outputs=[_pin("result", "result", "any")])
+        for index, key in enumerate(("provider", "model"))
+    ]
+
     route_call = _node(
         "route_call",
         "llm_call",
@@ -445,6 +469,7 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
             _pin("case:image_to_video", "image_to_video", "execution"),
             _pin("case:music", "music", "execution"),
             _pin("case:sound", "sound", "execution"),
+            _pin("case:voice", "voice", "execution"),
             _pin("case:need_source_image", "need_source_image", "execution"),
             _pin("default", "default", "execution"),
         ],
@@ -458,6 +483,7 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
                 {"id": "image_to_video", "value": "image_to_video"},
                 {"id": "music", "value": "music"},
                 {"id": "sound", "value": "sound"},
+                {"id": "voice", "value": "voice"},
                 {"id": "need_source_image", "value": "need_source_image"},
             ]
         },
@@ -696,6 +722,32 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         pin_defaults={"key": "duration_s"},
     )
 
+    # Speech of the router's words. A bare spec: the runtime gives it the gateway's
+    # output.voice engine, the one that reads replies aloud.
+    voice = _node(
+        "generate_voice",
+        "generate_voice",
+        x=820.0,
+        y=1800.0,
+        label="Generate Voice",
+        icon="&#x1F5E3;",
+        color="#0EA5A4",
+        inputs=[
+            _pin("exec-in", "", "execution"),
+            _pin("text", "text", "string"),
+        ],
+        outputs=[
+            _pin("exec-out", "", "execution"),
+            _pin("audio_artifact", "audio_artifact", "artifact_audio"),
+            _pin("artifact_ref", "artifact_ref", "artifact"),
+            _pin("artifact_id", "artifact_id", "string"),
+            _pin("content_type", "content_type", "string"),
+            _pin("outputs", "outputs", "object"),
+            _pin("meta", "meta", "object"),
+            _pin("success", "success", "boolean"),
+        ],
+    )
+
     need_image_message = _node(
         "need_image_message",
         "string_template",
@@ -763,6 +815,7 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         ],
     )
     end_sound = _media_end("end_sound", 1320.0, [_pin("audio_artifact", "audio_artifact", "artifact_audio")])
+    end_voice = _media_end("end_voice", 1800.0, [_pin("audio_artifact", "audio_artifact", "artifact_audio")])
     end_need_image = _node(
         "end_need_image",
         "on_flow_end",
@@ -785,6 +838,8 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         start,
         route_vars,
         route_prompt,
+        router_runtime,
+        *router_selections,
         route_call,
         route_break,
         route_media_prompt,
@@ -798,6 +853,7 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         music,
         sound,
         sound_spec,
+        voice,
         need_image_message,
         end_chat,
         end_image,
@@ -807,10 +863,21 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         end_image_to_video,
         end_music,
         end_sound,
+        end_voice,
         end_need_image,
     ]
 
+    router_edges = [
+        edge
+        for key in ("provider", "model")
+        for edge in (
+            _edge("start-router-" + key, "start", key, "router_" + key, "a"),
+            _edge("runtime-router-" + key, "router_runtime", "_runtime." + key, "router_" + key, "b"),
+            _edge("selected-router-" + key, "router_" + key, "result", "route_call", key),
+        )
+    ]
     edges = [
+        *router_edges,
         _edge("start-route-vars-prompt", "start", "prompt", "route_vars", "prompt"),
         _edge("start-route-vars-image", "start", "has_primary_image_context", "route_vars", "has_primary_image_context"),
         _edge("route-vars-prompt-vars", "route_vars", "result", "route_prompt", "vars"),
@@ -935,6 +1002,17 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         _edge("sound-end-artifact-id", "generate_sound", "artifact_id", "end_sound", "artifact_id"),
         _edge("sound-end-outputs", "generate_sound", "outputs", "end_sound", "outputs"),
         _edge("sound-end-resources", "generate_sound", "resources", "end_sound", "resources"),
+        _edge("switch-voice", "route_switch", "case:voice", "generate_voice", "exec-in", animated=True),
+        _edge("route-break-voice-text", "route_media_prompt", "result", "generate_voice", "text"),
+        _edge("voice-end-exec", "generate_voice", "exec-out", "end_voice", "exec-in", animated=True),
+        _edge("route-break-voice-response", "route_break", "assistant_message", "end_voice", "response"),
+        _edge("voice-end-success", "generate_voice", "success", "end_voice", "success"),
+        _edge("voice-end-meta", "generate_voice", "meta", "end_voice", "meta"),
+        _edge("voice-end-artifact", "generate_voice", "artifact_ref", "end_voice", "artifact"),
+        _edge("voice-end-audio-artifact", "generate_voice", "audio_artifact", "end_voice", "audio_artifact"),
+        _edge("voice-end-artifact-id", "generate_voice", "artifact_id", "end_voice", "artifact_id"),
+        _edge("voice-end-content-type", "generate_voice", "content_type", "end_voice", "content_type"),
+        _edge("voice-end-outputs", "generate_voice", "outputs", "end_voice", "outputs"),
         _edge("switch-need-image-default", "route_switch", "case:need_source_image", "end_need_image", "exec-in", animated=True),
         _edge("need-image-message-end", "need_image_message", "result", "end_need_image", "response"),
         _edge("switch-default", "route_switch", "default", "assistant_agent", "exec-in", animated=True),

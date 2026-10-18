@@ -143,7 +143,7 @@ def test_every_end_carries_response_success_and_meta() -> None:
     branch and the 'need a source image' answer alike."""
     flow = managed_assistant_visualflow(agent_subflow())
     ends = [n for n in flow["nodes"] if n["data"]["nodeType"] == "on_flow_end"]
-    assert len(ends) == 9
+    assert len(ends) == 10
     for end in ends:
         assert {"response", "success", "meta"} <= {p["id"] for p in end["data"]["inputs"]}, end["id"]
 
