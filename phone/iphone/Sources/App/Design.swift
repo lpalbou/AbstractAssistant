@@ -55,11 +55,12 @@ struct AssistantOrb: View {
     var active = false
     var level: Double = 0
     var working = false
+    var listening = false
     var animationTime: TimeInterval? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        TimelineView(.animation(minimumInterval: active ? 1.0 / 30 : 1.0 / 12, paused: reduceMotion || scenePhase != .active)) { frame in
+        TimelineView(.animation(minimumInterval: active ? (working ? 1.0 / 30 : 1.0 / 60) : 1.0 / 12, paused: reduceMotion || scenePhase != .active)) { frame in
             let time = reduceMotion ? 0 : animationTime ?? frame.date.timeIntervalSinceReferenceDate
             let energy = level.isFinite ? min(1, max(0, level)) : 0
             let motionEnergy = reduceMotion ? 0 : energy
@@ -70,7 +71,7 @@ struct AssistantOrb: View {
                     .blur(radius: size * 0.14).padding(-size * (0.04 + energy * 0.09))
                 shape.fill(RadialGradient(colors: [PhoneTheme.mint.opacity(0.30 + energy * 0.35), PhoneTheme.lavender.opacity(0.28), PhoneTheme.ground], center: .init(x: 0.32, y: 0.28), startRadius: 1, endRadius: size * 0.67))
                 ForEach(0..<5) { index in
-                    OrbContour(squareness: working ? 1 : 0, energy: motionEnergy, phase: time * 3 + Double(index) * 1.7, ribbon: true)
+                    OrbContour(squareness: working ? 1 : 0, energy: motionEnergy, phase: time * 3 + Double(index) * 1.7 + (listening ? motionEnergy * 3 : 0), ribbon: true)
                         .stroke(AngularGradient(colors: [.clear, PhoneTheme.mint.opacity(0.8), PhoneTheme.lavender, PhoneTheme.mint.opacity(0.9), .clear], center: .center), lineWidth: (index == 2 ? 1.4 : 0.75) + energy * 1.9)
                         .frame(width: size * (0.53 + Double(index) * 0.055 + motionEnergy * 0.16), height: size * (0.39 + motionEnergy * 0.33))
                         .rotationEffect(.degrees(Double(index) * 34 + time * 9 + motionEnergy * Double(index - 2) * 28))
@@ -84,7 +85,7 @@ struct AssistantOrb: View {
             .frame(width: size, height: size)
             .scaleEffect((working ? 0.79 : 1) * (1 + breath + motionEnergy * 0.08))
             .shadow(color: PhoneTheme.mint.opacity(energy * 0.6), radius: 5 + energy * 14)
-            .animation(reduceMotion ? nil : .linear(duration: 0.055), value: energy)
+            .animation(reduceMotion ? nil : .linear(duration: 0.035), value: energy)
             .animation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.08), value: working)
         }.frame(width: size, height: size).accessibilityHidden(true)
     }
@@ -174,7 +175,7 @@ struct VoicePresence: View {
     }
     var body: some View {
         ZStack {
-            AssistantOrb(size: 68, active: voice.recording || voice.speaking || working, level: voice.meter.level, working: working)
+            AssistantOrb(size: 68, active: voice.recording || voice.speaking || working, level: voice.meter.level, working: working, listening: voice.recording)
             OrbTouchSurface(enabled: enabled, label: status, working: working, cancelOnTouchDown: voice.inputPending || working, onTap: onTap, onCancel: working ? onStop : onCancel)
                 .frame(width: 84, height: 80)
         }.frame(width: 84, height: 80)

@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import SwiftUI
 import AssistantKit
 import AbstractGatewayClient
 @testable import AbstractAssistantPhone
@@ -54,7 +55,10 @@ final class VoiceInteractionTests: XCTestCase {
         voice.activate(); try await waitUntilRecording(voice)
         recorder?.powerDB = -42; advance(voice, clock: clock, to: 0.3); let quiet = voice.meter.level
         recorder?.powerDB = -15; advance(voice, clock: clock, to: 0.6)
-        XCTAssertGreaterThan(voice.meter.level, quiet * 2)
+        // Microphone visualization uses its recent range, so quiet speech is already
+        // deliberately visible; it must not depend on playback-sized amplitudes.
+        XCTAssertGreaterThan(quiet, 0.6)
+        XCTAssertGreaterThan(voice.meter.level, 0.8)
         recorder?.powerDB = -90; advance(voice, clock: clock, to: 1.3)
         XCTAssertEqual(voice.inputPhase, .countdown); XCTAssertFalse(recorder!.stopped)
         let premature = await voice.finish(client: client, sessionID: "test")
@@ -63,6 +67,44 @@ final class VoiceInteractionTests: XCTestCase {
         advance(voice, clock: clock, to: 8)
         XCTAssertEqual(voice.inputPhase, .idle); XCTAssertTrue(recorder!.stopped)
         XCTAssertEqual(VoiceWire.log.count, 0); XCTAssertEqual(voice.meter.level, 0)
+    }
+    @MainActor private func attachRecorderOrb(_ voice: VoiceController, name: String) throws {
+        let renderer = ImageRenderer(content:
+            AssistantOrb(size: 136, active: true, level: voice.meter.level, listening: true, animationTime: 2)
+                .frame(width: 240, height: 240).background(PhoneTheme.ground)
+        )
+        renderer.scale = 3
+        let attachment = XCTAttachment(image: try XCTUnwrap(renderer.uiImage))
+        attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+    @MainActor func testQuietMicrophoneSpeechUsesTheVisibleRangeAndKeepsTheRawSilenceDeadline() async throws {
+        let clock = VoiceClock(); var recorder: TestRecording?
+        let voice = VoiceController(now: { clock.time }, permission: { true }, recordingFactory: { url in
+            let r = try TestRecording(url: url); r.powerDB = -70; recorder = r; return r
+        }, configureAudio: false)
+        defer { voice.stop() }; _ = client()
+        voice.activate(); try await waitUntilRecording(voice)
+        advance(voice, clock: clock, to: 0.3)
+        let roomLevel = voice.meter.level
+        XCTAssertLessThan(roomLevel, 0.02)
+        try attachRecorderOrb(voice, name: "Recorder fixture — room -70 dBFS")
+        recorder?.powerDB = -48; advance(voice, clock: clock, to: 0.6)
+        let speechLevel = voice.meter.level
+        XCTAssertGreaterThan(speechLevel, 0.7)
+        try attachRecorderOrb(voice, name: "Recorder fixture — quiet speech -48 dBFS")
+        XCTAssertEqual(voice.inputPhase, .recording)
+        recorder?.powerDB = -70; advance(voice, clock: clock, to: 1.1)
+        let pauseLevel = voice.meter.level
+        XCTAssertLessThan(pauseLevel, 0.05)
+        XCTAssertEqual(voice.inputPhase, .countdown)
+        advance(voice, clock: clock, to: 3.599)
+        XCTAssertEqual(voice.inputPhase, .countdown)
+        XCTAssertEqual(VoiceWire.log.count, 0)
+        advance(voice, clock: clock, to: 3.6)
+        XCTAssertEqual(voice.inputPhase, .ready)
+        XCTAssertEqual(VoiceWire.log.count, 0) // Visualization never uploads or sends by itself.
+        let samples = XCTAttachment(string: "Injected recorder, not a physical microphone measurement\ntime_seconds,input_dBFS,normalized_level\n0.3,-70,\(roomLevel)\n0.6,-48,\(speechLevel)\n1.1,-70,\(pauseLevel)")
+        samples.name = "Quiet microphone recorder wiring"; samples.lifetime = .keepAlways; add(samples)
     }
     @MainActor func testThreeQuietSecondsUploadAndTranscribeExactlyOnce() async throws {
         let clock = VoiceClock(); var recorder: TestRecording?

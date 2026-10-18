@@ -1,0 +1,5 @@
+Injected recorder, not a physical microphone measurement
+time_seconds,input_dBFS,normalized_level
+0.3,-70,0.0
+0.6,-48,0.9528304389082378
+1.1,-70,7.269519339815047e-06

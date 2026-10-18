@@ -274,8 +274,15 @@ public actor MockGatewayClient: GatewayClient {
         try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: tools?.policy)
     }
     public func tools() async throws -> [ToolInfo] {
-        [ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1), ToolInfo(name: "fetch_url", riskTier: "act", riskRank: 2),
-         ToolInfo(name: "send_email", riskTier: "outreach", riskRank: 3), ToolInfo(name: "execute_command", riskTier: "destroy", riskRank: 4)].map { row in var row = row; row.approvalDefault = row.riskRank == 1 ? "auto" : "ask"; return row }
+        var unavailable = ToolInfo(name: "capture_camera", riskTier: "outreach", riskRank: 3, toolset: "camera", description: "Capture a photo from the gateway’s camera.", approvalDefault: "ask", enabled: false)
+        unavailable.whyDisabled = "The gateway camera is not enabled."
+        return [
+            unavailable,
+            ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1, toolset: "files", description: "Read a file in your workspace.", approvalDefault: "auto"),
+            ToolInfo(name: "fetch_url", riskTier: "act", riskRank: 2, toolset: "web", description: "Read a web page from a URL.", approvalDefault: "ask"),
+            ToolInfo(name: "send_email", riskTier: "outreach", riskRank: 3, toolset: "comms", description: "Send an email from your connected account.", approvalDefault: "ask"),
+            ToolInfo(name: "execute_command", riskTier: "destroy", riskRank: 4, toolset: "system", description: "Execute a command in the gateway workspace.", approvalDefault: "ask")
+        ]
     }
 
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {

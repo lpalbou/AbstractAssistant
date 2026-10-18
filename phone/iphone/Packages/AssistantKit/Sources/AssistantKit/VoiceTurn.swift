@@ -67,7 +67,7 @@ public struct SpeechActivity: Sendable {
     }
 }
 
-/// A finite, fast-attack envelope shared by microphone and playback meters.
+/// A finite, fast-attack playback envelope that preserves loud syllable dynamics.
 public struct AudioEnvelope: Sendable {
     public private(set) var level: Double = 0
     public init() {}
@@ -81,4 +81,53 @@ public struct AudioEnvelope: Sendable {
         return level
     }
     public mutating func reset() { level = 0 }
+}
+
+/// Microphone dBFS occupies a much quieter range than mastered playback. Normalize its
+/// visible motion to recent speech above the room floor, without changing recorded audio
+/// or feeding the normalized value back into speech/silence detection.
+public struct MicrophoneEnvelope: Sendable {
+    public private(set) var level: Double = 0
+    private var noiseFloor: Double = -65
+    private var recentPeak: Double = -42
+    private var stationaryLow: Double = -160
+    private var stationaryHigh: Double = -160
+    private var stationarySamples = 0
+    public init() {}
+    @discardableResult public mutating func sample(averageDB: Float, peakDB: Float, speech: Bool) -> Double {
+        guard averageDB.isFinite else { return smooth(0) }
+        let average = min(0, max(-160, Double(averageDB)))
+        // A stable scalar signal can be room noise even when raw VAD calls it speech.
+        // After 1.5 s within 3 dB, let the DISPLAY baseline follow it independently.
+        // This may also soften a perfectly sustained vowel; no display adjustment
+        // ever feeds back into the recording or the three-second silence detector.
+        if stationarySamples == 0 || average < stationaryHigh - 3 || average > stationaryLow + 3 {
+            stationaryLow = average; stationaryHigh = average; stationarySamples = 1
+        } else {
+            stationaryLow = min(stationaryLow, average); stationaryHigh = max(stationaryHigh, average)
+            stationarySamples = min(45, stationarySamples + 1)
+        }
+        // The peak meter may retain a transient, so it cannot raise either the room
+        // floor or a quiet frame by more than 3 dB.
+        if !speech || stationarySamples >= 45 {
+            let room = min(-35, max(-80, average))
+            noiseFloor += (room - noiseFloor) * (room < noiseFloor ? 0.2 : 0.12)
+        }
+        let peak = peakDB.isFinite ? Double(peakDB) : average
+        let db = min(average + 3, max(average, peak - 9))
+        if db > recentPeak { recentPeak = db }
+        else { recentPeak += (db - recentPeak) * 0.016 }
+        // A minimum 18 dB span prevents tiny changes in steady room noise from
+        // filling the orb. The absolute lower gate keeps digital silence silent.
+        let floor = max(-80, noiseFloor + 3)
+        let span = max(18, recentPeak - floor)
+        let aboveRoom = max(0, average - floor)
+        let normalized = max(0, min(1, min(db - floor, aboveRoom + 3) / span))
+        return smooth(pow(normalized, 0.75))
+    }
+    @discardableResult private mutating func smooth(_ target: Double) -> Double {
+        level += (target - level) * (target > level ? 0.85 : 0.5)
+        return level
+    }
+    public mutating func reset() { self = MicrophoneEnvelope() }
 }

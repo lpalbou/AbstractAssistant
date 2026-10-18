@@ -112,3 +112,71 @@ private func quiet(_ turn: inout VoiceTurn, from: Double, to: Double) {
     for _ in 0..<4 { envelope.sample(averageDB: -45, peakDB: -39) }
     #expect(envelope.level < 0.3) // React within a syllable, rather than hanging near the peak.
 }
+
+@Test func quietMicrophoneSpeechUsesItsOwnRangeInsteadOfThePlaybackCurve() {
+    for db: Float in [-49, -45, -38] {
+        var microphone = MicrophoneEnvelope(), playback = AudioEnvelope()
+        for _ in 0..<15 { microphone.sample(averageDB: -70, peakDB: -64, speech: false) }
+        let pause = microphone.level
+        for _ in 0..<5 {
+            microphone.sample(averageDB: db, peakDB: db + 6, speech: true)
+            playback.sample(averageDB: db, peakDB: db + 6)
+        }
+        #expect(microphone.level > 0.65)
+        #expect(microphone.level > playback.level + 0.3)
+        #expect(pause < 0.01)
+    }
+}
+
+@Test func microphoneSyllablesMoveAcrossTheRangeAndPausesFallPromptly() {
+    var envelope = MicrophoneEnvelope()
+    for _ in 0..<8 { envelope.sample(averageDB: -30, peakDB: -24, speech: true) }
+    let strong = envelope.level
+    for _ in 0..<5 { envelope.sample(averageDB: -47, peakDB: -41, speech: true) }
+    let quiet = envelope.level
+    #expect(strong - quiet > 0.2 && quiet > 0.25)
+    for _ in 0..<8 { envelope.sample(averageDB: -80, peakDB: -74, speech: false) }
+    #expect(envelope.level < 0.01)
+}
+
+@Test func steadyInactiveRoomNoiseAndHeldPeaksDoNotBecomeFullVoiceMotion() {
+    for room: Float in [-75, -62, -55] {
+        var envelope = MicrophoneEnvelope()
+        for _ in 0..<90 { envelope.sample(averageDB: room, peakDB: room + 6, speech: false) }
+        #expect(envelope.level < 0.01)
+        // A retained peak must not make an otherwise silent frame look like speech.
+        for _ in 0..<20 { envelope.sample(averageDB: -90, peakDB: -10, speech: false) }
+        #expect(envelope.level < 0.01)
+    }
+}
+
+@Test func microphoneMeterInvalidValuesAndResetAreSafe() {
+    var envelope = MicrophoneEnvelope()
+    for value: Float in [.nan, .infinity, -.infinity, 10, -200] {
+        let level = envelope.sample(averageDB: value, peakDB: value, speech: true)
+        #expect(level.isFinite && (0...1).contains(level))
+    }
+    envelope.reset(); #expect(envelope.level == 0)
+    for _ in 0..<5 { envelope.sample(averageDB: -160, peakDB: -160, speech: false) }
+    #expect(envelope.level == 0)
+}
+
+@Test func microphoneDisplayLearnsSteadyRoomNoiseEvenWhenRawDetectorCallsItSpeech() {
+    var detector = SpeechActivity(), envelope = MicrophoneEnvelope()
+    for _ in 0..<150 {
+        let speech = detector.sample(averageDB: -48)
+        envelope.sample(averageDB: -48, peakDB: -42, speech: speech)
+    }
+    let stillSpeech = detector.sample(averageDB: -48)
+    #expect(stillSpeech) // Display normalization did not change VAD.
+    #expect(envelope.level < 0.01)
+    var levels: [Double] = []
+    for db: Float in [-40, -31, -45, -36, -47, -30] {
+        for _ in 0..<4 { envelope.sample(averageDB: db, peakDB: db + 6, speech: detector.sample(averageDB: db)) }
+        levels.append(envelope.level)
+    }
+    #expect((levels.max() ?? 0) > 0.7)
+    #expect((levels.max() ?? 0) - (levels.min() ?? 0) > 0.4)
+    for _ in 0..<15 { envelope.sample(averageDB: -90, peakDB: -84, speech: detector.sample(averageDB: -90)) }
+    #expect(envelope.level < 0.01)
+}

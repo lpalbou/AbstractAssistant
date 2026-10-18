@@ -76,10 +76,16 @@ A voice turn sends separately from any typed draft, with currently staged attach
 
 `VoiceController` owns recorder/player lifetime and temporary-file cleanup. Chat owns the
 cancelable transcription task. A main-actor Task samples every 33 ms independently of run
-loop modes. Raw power drives silence detection; a separate fast-attack envelope with a soft compression knee
-`AudioEnvelope` drives the orb from microphone or actual AVAudioPlayer power. Only the
+loop modes. Raw power drives silence detection; two separate fast-attack display envelopes
+drive the orb. `MicrophoneEnvelope` normalizes
+recorder power against a recent peak and room floor with an 18 dB minimum span; short
+syllables remain visible even when absolute microphone levels are much lower than mastered
+playback. A low-variance window can update the visual baseline after 45 stable samples
+without changing the raw speech decision. A perfectly sustained sound may therefore soften
+visually. `AudioEnvelope` retains the playback soft knee for actual AVAudioPlayer power. Only the
 small `VoicePresence` subtree observes the envelope. Continuous phase survives state changes;
-idle rendering is slower and background rendering stops. The soft knee preserves differences
+voice rendering requests up to 60 Hz, working-state rendering up to 30 Hz; idle rendering is slower
+and background rendering stops. The soft knee preserves differences
 between loud syllables without saturating at ordinary playback levels. Energy changes
 the ribbons’ curvature, spacing, rotation and stroke, independently of the raw silence gate. Reduce Motion freezes geometry
 and rotation while retaining responsive light. The Debug-only
@@ -182,3 +188,18 @@ cached as final measurements. Playback actions require both active playback and 
 Automation history budgets are sent as `context.growing.max_tokens` only for growing
 history with a custom positive value. Omission inherits the runtime default returned by
 `GET /automations/defaults`. The budget is part of the creation retry fingerprint.
+
+
+## Conversation tool categories
+
+The phone preserves the gateway inventory’s `toolset`, risk tier and enabled/available
+flags. Categories and tools sort by their declared names. Search matches category, tool
+name and description and reveals matching rows without changing saved disclosure choices.
+Rows disabled by the gateway retain its explanation and cannot be enabled by a session
+choice. Saving an explicit policy keeps those rows Off; gateway inheritance remains a
+separate mode. Draft changes require Save and are scoped to the original account and
+conversation. The search toolbar keeps Close and Save reachable while filtering.
+
+For older entity inventories, exact-name discovery metadata can supplement a missing
+category/risk classification. The entity’s availability and approval defaults remain its
+own. Unknown categories remain Other. The phone adds no category-wide approval shortcut.

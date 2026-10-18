@@ -247,30 +247,58 @@ final class PhoneUITests: XCTestCase {
         openTools(app)
         let defaults = app.switches["tools.defaults"]
         XCTAssertTrue(defaults.waitForExistence(timeout: 10)); XCTAssertEqual(defaults.value as? String, "1")
-        capture(app, "Inherited conversation tools")
+        XCTAssertTrue(app.buttons["tools.category.files"].exists)
+        XCTAssertFalse(app.segmentedControls["tool.read_file"].exists)
+        capture(app, "Grouped conversation tools")
         defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        searchTools(app, for: "read_file")
         let read = app.segmentedControls["tool.read_file"]
-        XCTAssertTrue(read.waitForExistence(timeout: 5))
-        read.buttons["Off"].tap()
-        app.segmentedControls["tool.fetch_url"].buttons["Auto"].tap()
-        app.segmentedControls["tool.execute_command"].buttons["Approve"].tap()
-        capture(app, "Conversation tools")
-        app.buttons["Save"].tap()
+        XCTAssertTrue(read.waitForExistence(timeout: 5)); read.buttons["Off"].tap()
+        searchTools(app, for: "fetch_url"); app.segmentedControls["tool.fetch_url"].buttons["Auto"].tap()
+        searchTools(app, for: "execute_command"); app.segmentedControls["tool.execute_command"].buttons["Approve"].tap()
+        XCTAssertTrue(app.buttons["tools.save"].isHittable)
+        capture(app, "Saving filtered tool choices")
+        app.buttons["tools.save"].tap()
         openTools(app)
         XCTAssertEqual(defaults.value as? String, "0")
-        XCTAssertTrue(read.buttons["Off"].isSelected)
-        XCTAssertTrue(app.segmentedControls["tool.fetch_url"].buttons["Auto"].isSelected)
-        XCTAssertTrue(app.segmentedControls["tool.execute_command"].buttons["Approve"].isSelected)
+        searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Off"].isSelected)
+        searchTools(app, for: "fetch_url"); XCTAssertTrue(app.segmentedControls["tool.fetch_url"].buttons["Auto"].isSelected)
+        searchTools(app, for: "execute_command"); XCTAssertTrue(app.segmentedControls["tool.execute_command"].buttons["Approve"].isSelected)
+        searchTools(app, for: "read_file")
         defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertTrue(read.buttons["Auto"].isSelected)
         defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertTrue(read.buttons["Off"].isSelected)
-        app.buttons["Close"].tap()
+        app.buttons["tools.close"].tap()
         app.buttons["More options"].tap(); app.buttons["New conversation"].tap()
         openTools(app)
         XCTAssertTrue(defaults.waitForExistence(timeout: 5)); XCTAssertEqual(defaults.value as? String, "1")
         defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
-        XCTAssertTrue(read.buttons["Auto"].isSelected)
+        searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Auto"].isSelected)
+    }
+    @MainActor func testToolCategoriesExpandSearchAndRespectGatewayDisabledTools() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch(); openTools(app)
+        let comms = app.buttons["tools.category.comms"]
+        XCTAssertTrue(comms.waitForExistence(timeout: 10)); XCTAssertEqual(comms.value as? String, "Collapsed")
+        comms.tap(); XCTAssertTrue(app.segmentedControls["tool.send_email"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Reaches outside"].exists)
+        app.switches["tools.defaults"].coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        XCTAssertTrue(app.segmentedControls["tool.send_email"].isEnabled)
+        capture(app, "Expanded communication tools")
+        comms.tap(); XCTAssertFalse(app.segmentedControls["tool.send_email"].exists)
+        searchTools(app, for: "camera")
+        let camera = app.segmentedControls["tool.capture_camera"]
+        XCTAssertTrue(camera.waitForExistence(timeout: 5)); XCTAssertFalse(camera.isEnabled)
+        XCTAssertTrue(camera.buttons["Off"].isSelected)
+        XCTAssertTrue(app.staticTexts["The gateway camera is not enabled."].exists)
+        capture(app, "Gateway-disabled tool")
+        searchTools(app, for: "No such tool"); XCTAssertTrue(app.staticTexts["No tools match your search."].waitForExistence(timeout: 5))
+    }
+    @MainActor private func searchTools(_ app: XCUIApplication, for text: String) {
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap()
+        if field.buttons["Clear text"].exists { field.buttons["Clear text"].tap() }
+        field.typeText(text)
     }
     @MainActor func testAnswerStatisticsAreOptionalAndCanBeHiddenAgain() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
@@ -355,7 +383,7 @@ final class PhoneUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Conversation tools'")).firstMatch.tap()
         XCTAssertTrue(app.switches["tools.defaults"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Assistant · This conversation"].exists)
-        app.buttons["Close"].tap()
+        app.buttons["tools.close"].tap()
         XCTAssertTrue(app.switches["settings.messageStats"].waitForExistence(timeout: 5))
     }
     @MainActor private func openTools(_ app: XCUIApplication) {

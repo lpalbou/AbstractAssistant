@@ -65,6 +65,7 @@ private final class AudioSessionEvents: @unchecked Sendable {
     @ObservationIgnored var onUnauthorized: (() -> Void)?
     @ObservationIgnored private var turn = VoiceTurn()
     @ObservationIgnored private var envelope = AudioEnvelope()
+    @ObservationIgnored private var microphoneEnvelope = MicrophoneEnvelope()
     @ObservationIgnored private var activity = SpeechActivity()
     @ObservationIgnored private var sampler: Task<Void, Never>?
     @ObservationIgnored private var captureTask: Task<Void, Never>?
@@ -137,8 +138,9 @@ private final class AudioSessionEvents: @unchecked Sendable {
                 stop(); error = "One-minute recording limit reached. Please try a shorter message."; return
             }
             let power = recorder.power()
-            meter.level = envelope.sample(averageDB: power.average, peakDB: power.peak)
-            turn.sample(at: now(), speech: power.average.isFinite ? activity.sample(averageDB: power.average) : nil)
+            let speech = power.average.isFinite ? activity.sample(averageDB: power.average) : nil
+            meter.level = microphoneEnvelope.sample(averageDB: power.average, peakDB: power.peak, speech: speech ?? false)
+            turn.sample(at: now(), speech: speech)
             if turn.phase == .idle {
                 stop(); error = "Nothing heard. Tap the orb to try again."; return
             }
@@ -206,7 +208,7 @@ private final class AudioSessionEvents: @unchecked Sendable {
             }
         }
     }
-    private func stopSampling() { sampler?.cancel(); sampler = nil; envelope.reset(); meter.level = 0; meter.graceProgress = 0 }
+    private func stopSampling() { sampler?.cancel(); sampler = nil; envelope.reset(); microphoneEnvelope.reset(); meter.level = 0; meter.graceProgress = 0 }
     private func deactivateAudio() { if configureAudio { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) } }
     func togglePause() { if paused { player?.play(); paused = false } else { player?.pause(); paused = true } }
     func stop() {

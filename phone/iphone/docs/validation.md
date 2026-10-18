@@ -1,5 +1,7 @@
 # Developer preview validation
 
+For **0.6.2 (10)** microphone normalization and grouped session tools, see the [review and evidence](../design/validation/microphone-and-tools-review.md).
+
 For the **0.6.1 (9)** orb/Stop refinement, see the [interaction review and evidence](../design/validation/orb-interaction-review.md).
 The feature validation below records the 0.6.0 baseline.
 

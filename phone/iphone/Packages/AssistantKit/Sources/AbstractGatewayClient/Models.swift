@@ -671,14 +671,31 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
     public var riskRank: Int?
     public var description: String? = nil
     public var approvalDefault: String? = nil
-    enum CodingKeys: String, CodingKey { case name, description, approvalDefault = "approval_default", riskTier = "risk_tier", riskRank = "risk_rank", risk }
+    public var toolset: String? = nil
+    public var enabled: Bool? = nil
+    public var available: Bool? = nil
+    public var whyDisabled: String? = nil
+    public var isAvailable: Bool { enabled != false && available != false }
+    public var categoryID: String {
+        let value = toolset?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? "other" : value
+    }
+    public var displayName: String { name.replacingOccurrences(of: "_", with: " ").capitalized }
+    enum CodingKeys: String, CodingKey { case name, description, toolset, enabled, available, whyDisabled = "why_disabled", approvalDefault = "approval_default", riskTier = "risk_tier", riskRank = "risk_rank", risk }
     struct Risk: Decodable { var rank: Int?; var tier: String? }
-    public init(name: String, riskTier: String?, riskRank: Int?) { self.name = name; self.riskTier = riskTier; self.riskRank = riskRank }
+    public init(name: String, riskTier: String?, riskRank: Int?, toolset: String? = nil, description: String? = nil, approvalDefault: String? = nil, enabled: Bool? = nil) {
+        self.name = name; self.riskTier = riskTier; self.riskRank = riskRank
+        self.toolset = toolset; self.description = description; self.approvalDefault = approvalDefault; self.enabled = enabled
+    }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
         description = try? c.decodeIfPresent(String.self, forKey: .description)
         approvalDefault = try? c.decodeIfPresent(String.self, forKey: .approvalDefault)
+        toolset = try? c.decodeIfPresent(String.self, forKey: .toolset)
+        enabled = try? c.decodeIfPresent(Bool.self, forKey: .enabled)
+        available = try? c.decodeIfPresent(Bool.self, forKey: .available)
+        whyDisabled = try? c.decodeIfPresent(String.self, forKey: .whyDisabled)
         let risk = try? c.decodeIfPresent(Risk.self, forKey: .risk)
         riskTier = (try? c.decodeIfPresent(String.self, forKey: .riskTier)) ?? risk?.tier
         riskRank = (try? c.decodeIfPresent(Int.self, forKey: .riskRank)) ?? risk?.rank
