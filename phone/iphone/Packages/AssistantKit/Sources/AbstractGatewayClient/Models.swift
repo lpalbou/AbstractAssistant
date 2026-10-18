@@ -187,6 +187,16 @@ public struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         return output.displayText
     }
 
+    /// Public conversation text only; arbitrary workflow JSON is not an assistant reply.
+    public var conversationText: String? {
+        guard let output else { return nil }
+        if let text = output.stringValue { return text }
+        for key in ["response", "answer", "text", "output"] {
+            if let text = output[key]?.stringValue { return text }
+        }
+        return nil
+    }
+
     /// True when the row's `waiting.reason` says a person must act (`user`). Rows waiting on a
     /// `subworkflow`, a timer (`until`), a `job` or an `event` are not shown to the person.
     public var waitsOnPerson: Bool { status == "waiting" && waiting?.reason == "user" }
@@ -460,8 +470,9 @@ public struct AutomationDefinition: Decodable, Sendable {
     public var revision: Int?
     public var title: String?
     public var target: [String: JSONValue]?
-    public init(revision: Int?, title: String?, target: [String: JSONValue]?) {
-        self.revision = revision; self.title = title; self.target = target
+    public var policy: [String: JSONValue]?
+    public init(revision: Int?, title: String?, target: [String: JSONValue]?, policy: [String: JSONValue]? = nil) {
+        self.revision = revision; self.title = title; self.target = target; self.policy = policy
     }
     public var prompt: String? { target?["input_data"]?["prompt"]?.stringValue }
     /// The title after the task is edited: an automation named by its task (the title is the task,
@@ -540,9 +551,10 @@ public struct WorkflowInputs: Sendable, Equatable {
 
     /// The new automation's `input_data`: the workflow's defaults and the task, or the inputs it
     /// still needs (a required one with no default and not the task).
-    public func inputData(task: String) -> Result<[String: JSONValue], WorkflowInputsMissing> {
+    public func inputData(task: String, tools: [String]? = nil) -> Result<[String: JSONValue], WorkflowInputsMissing> {
         var out = defaults
         out["prompt"] = .string(task)
+        if let tools { out["tools"] = .array(tools.map(JSONValue.string)) }
         let missing = required.filter { out[$0] == nil }
         return missing.isEmpty ? .success(out) : .failure(WorkflowInputsMissing(names: missing))
     }
@@ -568,9 +580,10 @@ public struct NewAutomation: Sendable {
     public var buildsOnEarlierRuns: Bool
     public var askBeforeTools: Bool
     public var growingMaxTokens: Int?
-    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool, growingMaxTokens: Int? = nil) {
+    public var tools: ConversationTools?
+    public init(task: String, target: Target, when: When, buildsOnEarlierRuns: Bool, askBeforeTools: Bool, growingMaxTokens: Int? = nil, tools: ConversationTools? = nil) {
         self.task = task; self.target = target; self.when = when
-        self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.askBeforeTools = askBeforeTools; self.growingMaxTokens = growingMaxTokens
+        self.buildsOnEarlierRuns = buildsOnEarlierRuns; self.askBeforeTools = askBeforeTools; self.growingMaxTokens = growingMaxTokens; self.tools = tools
     }
 
     /// The task's first line, at most 120 characters (the other clients' default title).
@@ -582,7 +595,7 @@ public struct NewAutomation: Sendable {
 
     public var body: JSONValue {
         let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        let target: JSONValue
+        var target: JSONValue
         switch self.target {
         case .gatewayDefault(let interface):
             target = .object(["flow_id": .string("@default"), "interface": .string(interface),
@@ -591,6 +604,12 @@ public struct NewAutomation: Sendable {
             target = .object(["bundle_ref": .string("\(w.bundleId)@\(w.bundleVersion)"), "flow_id": .string(w.flowId),
                               "input_data": .object(input)])
         }
+        if let tools, case .object(var object) = target {
+            let input = object["input_data"]?.objectValue ?? [:]
+            object["input_data"] = .object(tools.automationInput(input)); target = .object(object)
+        }
+        var policy: [String: JSONValue] = ["tool_approval": .string(askBeforeTools ? "ask" : "auto")]
+        if let tools { policy["tool_policy"] = tools.automationPolicy }
         let config: [String: JSONValue]
         switch when {
         case .every(let e): config = ["kind": .string("every"), "every": .string(e)]
@@ -602,7 +621,7 @@ public struct NewAutomation: Sendable {
             "target": target,
             "trigger": .object(["source_id": .string("schedule"), "source_version": .number(2), "config": .object(config)]),
             "context": .object(buildsOnEarlierRuns && (growingMaxTokens ?? 0) > 0 ? ["mode": .string("growing"), "growing": .object(["max_tokens": .number(Double(growingMaxTokens!))])] : ["mode": .string(buildsOnEarlierRuns ? "growing" : "independent")]),
-            "policy": .object(["tool_approval": .string(askBeforeTools ? "ask" : "auto")]),
+            "policy": .object(policy),
         ])
     }
 }

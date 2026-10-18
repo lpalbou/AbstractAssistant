@@ -16,8 +16,8 @@ struct SettingsScreen: View {
                     NavigationLink("Voice & reading") { VoiceSettingsScreen() }
                     NavigationLink("Workflow") { WorkflowSettingsScreen() }
                     Button { tools = true } label: {
-                        HStack { Text("Conversation tools"); Spacer(); Text(store.conversationTitle).foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption).foregroundStyle(PhoneTheme.secondary) }
-                    }.disabled(!store.canEditToolPreferences)
+                        HStack { Text("Default tools"); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(PhoneTheme.secondary) }
+                    }.disabled(!store.canEditToolPreferences).accessibilityIdentifier("settings.tools")
                 }
                 Section {
                     Toggle("Show answer statistics", isOn: $preferences.showMessageStats)
@@ -38,12 +38,12 @@ struct SettingsScreen: View {
                     Link("AbstractFramework", destination: URL(string: "https://abstractframework.ai")!)
                     Link("Source & community", destination: URL(string: "https://github.com/lpalbou/AbstractAssistant")!)
                     Link("Get in touch", destination: URL(string: "mailto:contact@abstractframework.ai")!)
-                    Text("Version 0.6.0 · iOS 26 or later").font(.caption).foregroundStyle(PhoneTheme.secondary)
+                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Preview") · iOS 26 or later").font(.caption).foregroundStyle(PhoneTheme.secondary)
                 }
                 Section { Button(store.isDemo ? "Leave demo" : "Disconnect this iPhone", role: .destructive) { confirm = true } }
             }.scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-                .sheet(isPresented: $tools) { ConversationToolsScreen() }
+                .sheet(isPresented: $tools) { ConversationToolsScreen(scope: .settings) }
                 .confirmationDialog(store.isDemo ? "Leave the demo?" : "Disconnect this iPhone?", isPresented: $confirm, titleVisibility: .visible) {
                     Button("Disconnect", role: .destructive, action: onDisconnect)
                 } message: { Text("Your gateway conversations and automations are kept.") }

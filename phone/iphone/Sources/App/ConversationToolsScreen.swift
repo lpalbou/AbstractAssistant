@@ -6,29 +6,37 @@ struct ConversationToolsScreen: View {
     @Environment(AssistantStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    enum Scope { case settings, conversation, automation }
+    var scope: Scope = .conversation
+    var automationSelection: ConversationTools?
+    var saveAutomation: ((ConversationTools?) async throws -> Void)?
     @State private var inventory: [ToolInfo] = []
-    private enum Scope: String, CaseIterable { case conversation = "This conversation", app = "iPhone defaults" }
-    private struct Draft { var inherit: Bool; var modes: [String: ToolMode]; var changed = false }
-    @State private var scope: Scope = .conversation
-    @State private var drafts: [Scope: Draft] = [:]
-    private var modes: [String: ToolMode] {
-        get { drafts[scope]?.modes ?? [:] }
-        nonmutating set { var draft = drafts[scope] ?? Draft(inherit: true, modes: [:]); draft.modes = newValue; draft.changed = true; drafts[scope] = draft }
+    @State private var modes: [String: ToolMode] = [:]
+    @State private var inherit = true
+    @State private var saving = false
+    private var inheritedModes: [String: ToolMode] {
+        let selection = scope == .settings ? nil : store.appTools
+        return ConversationTools.snapshot(selection, inventory: inventory).modes
     }
-    private var inherit: Bool {
-        get { drafts[scope]?.inherit ?? true }
-        nonmutating set {
-            var draft = drafts[scope] ?? Draft(inherit: true, modes: [:])
-            if draft.inherit && !newValue && !draft.changed { draft.modes = inheritedModes }
-            draft.inherit = newValue; draft.changed = true; drafts[scope] = draft
+    private var scopeTitle: String {
+        switch scope {
+        case .settings: "Defaults for sessions and automations"
+        case .conversation: store.conversationTitle + " · This session"
+        case .automation: "This automation"
         }
     }
-    private var inheritedModes: [String: ToolMode] {
-        let app = drafts[.app]
-        let selection = scope == .conversation && app?.inherit == false ? app?.modes : nil
-        return Dictionary(inventory.map { tool in
-            (tool.name, !tool.isAvailable ? .off : selection.map { $0[tool.name] ?? .off } ?? defaultMode(tool) ?? .approve)
-        }, uniquingKeysWith: { _, new in new })
+    private var scopeHelp: String {
+        switch scope {
+        case .settings: "Default tools for all sessions and new automations on this iPhone."
+        case .conversation: "Session choices override Settings and apply to your next message."
+        case .automation: "Settings defaults are saved with the automation unless you override them here."
+        }
+    }
+    private var validOrigin: Bool {
+        originContext == store.contextID && (scope != .conversation || origin == store.sessionID)
+    }
+    private var canSave: Bool {
+        validOrigin && store.client != nil && (scope == .automation || store.canEditToolPreferences) && !saving
     }
     @State private var expanded: Set<String> = []
     @State private var loading = true
@@ -42,23 +50,17 @@ struct ConversationToolsScreen: View {
         NavigationStack {
             List {
                 if loading { ProgressView("Loading available tools…").listRowBackground(PhoneTheme.surface) }
-                else if let error {
+                else if let error, inventory.isEmpty {
                     Section { Text(error).foregroundStyle(PhoneTheme.secondary); Button("Try again") { Task { await load() } } }
                         .listRowBackground(PhoneTheme.surface)
                 } else {
+                    if let error { Section { Text(error).foregroundStyle(PhoneTheme.amber) }.listRowBackground(PhoneTheme.surface) }
                     Section {
-                        Picker("Tool preference scope", selection: $scope) {
-                            ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                        }.pickerStyle(.segmented).accessibilityIdentifier("tools.scope")
-                        Toggle(scope == .app ? "Use gateway defaults" : "Use iPhone defaults", isOn: Binding(get: { inherit }, set: { inherit = $0 }))
+                        Toggle(scope == .settings ? "Use gateway defaults" : "Use Settings defaults", isOn: $inherit)
                             .tint(PhoneTheme.mint).accessibilityIdentifier("tools.defaults")
-                    } header: {
-                        Text(store.conversationTitle + " · " + scope.rawValue).textCase(nil)
-                    } footer: {
-                        Text(searching
-                             ? "Saved changes apply to your next message."
-                             : (scope == .app ? "Defaults for \(store.conversationTitle) conversations on this iPhone. " : "") + "Off blocks · Auto runs · Approve asks. Saved changes apply to your next message.")
-                    }.listRowBackground(PhoneTheme.surface)
+                    } header: { Text(scopeTitle).textCase(nil) }
+                    footer: { if !searching { Text(scopeHelp + " Off blocks · Auto runs · Approve asks.") } }
+                        .listRowBackground(PhoneTheme.surface)
                     ForEach(groups) { group in
                         Section {
                             categoryHeader(group)
@@ -79,20 +81,10 @@ struct ConversationToolsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() }.accessibilityLabel("Close tools").accessibilityIdentifier("tools.close") }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        guard origin == store.sessionID, originContext == store.contextID, store.canEditToolPreferences else { return }
-                        // Save both edited scopes together; switching tabs preserves unsaved choices.
-                        for target in [Scope.app, .conversation] {
-                            guard let draft = drafts[target], draft.changed else { continue }
-                            let selection = Dictionary(inventory.map { ($0.name, $0.isAvailable ? (draft.modes[$0.name] ?? .off) : .off) }, uniquingKeysWith: { _, new in new })
-                            let tools = draft.inherit ? nil : ConversationTools(modes: selection)
-                            if target == .app { store.setAppTools(tools) }
-                            else { store.setConversationTools(tools) }
-                        }
-                        dismiss()
-                    }.accessibilityIdentifier("tools.save").disabled(loading || error != nil || !store.canEditToolPreferences || origin != store.sessionID || originContext != store.contextID)
+                    Button(saving ? "Saving…" : "Save") { Task { await save() } }
+                        .accessibilityIdentifier("tools.save").disabled(loading || (error != nil && inventory.isEmpty) || !canSave)
                 }
-            }.task { await load() }
+            }.task { await load() }.interactiveDismissDisabled(saving)
         }
     }
     private func categoryHeader(_ group: ToolCatalogGroup) -> some View {
@@ -104,17 +96,21 @@ struct ConversationToolsScreen: View {
             }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: symbol(group.id)).font(.subheadline).foregroundStyle(PhoneTheme.lavender).frame(width: 22)
-                Text(group.title).font(.subheadline.weight(.semibold)).foregroundStyle(PhoneTheme.ink)
+                Image(systemName: symbol(group.id)).font(.subheadline).foregroundStyle(group.isAvailable ? PhoneTheme.mint : PhoneTheme.secondary).frame(width: 22)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(group.title).font(.subheadline.weight(.semibold)).foregroundStyle(group.isAvailable ? PhoneTheme.mint : PhoneTheme.secondary)
+                    Text(group.isAvailable ? "\(group.availableCount) available" : "Not set up on gateway")
+                        .font(.caption2).foregroundStyle(PhoneTheme.secondary)
+                }
                 Text(group.tools.count.formatted()).font(.caption.monospacedDigit()).foregroundStyle(PhoneTheme.secondary)
                     .padding(.horizontal, 8).padding(.vertical, 3).background(PhoneTheme.ground.opacity(0.7), in: Capsule())
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(PhoneTheme.secondary)
                     .rotationEffect(.degrees(open ? 90 : 0))
             }.frame(minHeight: 44).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(searching).accessibilityIdentifier("tools.category." + group.id)
+        }.buttonStyle(.plain).accessibilityIdentifier("tools.category." + group.id)
             .accessibilityLabel(group.title + ", " + group.tools.count.formatted() + (group.tools.count == 1 ? " tool" : " tools"))
-            .accessibilityValue(open ? "Expanded" : "Collapsed")
+            .accessibilityValue((open ? "Expanded" : "Collapsed") + (group.isAvailable ? ", Available" : ", Not set up"))
             .accessibilityHint(searching ? "Matching tools are shown while searching." : "Show or hide tools in this category.")
     }
     private func toolRow(_ tool: ToolInfo) -> some View {
@@ -158,8 +154,11 @@ struct ConversationToolsScreen: View {
             .padding(.horizontal, 8).padding(.vertical, 5).background(value.1.opacity(0.09), in: Capsule()).fixedSize()
     }
     private func symbol(_ category: String) -> String {
-        switch category.lowercased() {
-        case "comms", "email": "envelope"
+        if category.hasPrefix("mcp:") { return "puzzlepiece" }
+        return switch category.lowercased() {
+        case "comms", "email", "comms.email": "envelope"
+        case "comms.telegram": "paperplane"
+        case "comms.whatsapp": "message"
         case "files", "filesystem": "folder"
         case "web", "browser": "globe"
         case "camera": "camera"
@@ -169,17 +168,32 @@ struct ConversationToolsScreen: View {
         default: "square.grid.2x2"
         }
     }
-    private func defaultMode(_ tool: ToolInfo) -> ToolMode? {
-        switch tool.approvalDefault {
-        case "auto": .auto
-        case "ask", "approve": .approve
-        case "off": .off
-        default: nil
+    private func save() async {
+        guard canSave else { return }
+        saving = true; error = nil
+        defer { saving = false }
+        let selected = inherit ? nil : ConversationTools(modes: Dictionary(inventory.map {
+            ($0.name, $0.isAvailable ? (modes[$0.name] ?? .off) : .off)
+        }, uniquingKeysWith: { _, new in new }))
+        do {
+            switch scope {
+            case .settings: store.setAppTools(selected)
+            case .conversation: store.setConversationTools(selected)
+            case .automation:
+                guard let saveAutomation else { return }
+                try await saveAutomation(selected)
+            }
+            guard validOrigin else { return }
+            dismiss()
+        } catch {
+            guard validOrigin else { return }
+            self.error = error.localizedDescription
+            if error as? GatewayError == .unauthorized { store.authenticationExpired() }
         }
     }
     private func load() async {
         guard let client = store.client else { return }
-        let session = store.sessionID, context = store.contextID, entity = store.selectedEntity
+        let session = store.sessionID, context = store.contextID, entity = scope == .conversation ? store.selectedEntity : nil
         origin = session; originContext = context; loading = true; error = nil
         do {
             let rows: [ToolInfo]
@@ -196,15 +210,11 @@ struct ConversationToolsScreen: View {
             } else {
                 rows = try await client.tools()
             }
-            guard context == store.contextID, session == store.sessionID, !Task.isCancelled else { return }
+            guard context == store.contextID, (scope != .conversation || session == store.sessionID), !Task.isCancelled else { return }
             inventory = Array(Dictionary(rows.map { ($0.name, $0) }, uniquingKeysWith: { _, new in new }).values).sorted { $0.name < $1.name }
-            let gatewayModes = Dictionary(inventory.map { ($0.name, $0.isAvailable ? (defaultMode($0) ?? .approve) : .off) }, uniquingKeysWith: { _, new in new })
-            let app = store.appTools
-            let conversation = store.conversationTools
-            drafts = [
-                .app: Draft(inherit: app == nil, modes: app?.modes ?? gatewayModes),
-                .conversation: Draft(inherit: conversation == nil, modes: conversation?.modes ?? app?.modes ?? gatewayModes)
-            ]
+            let selected: ConversationTools?
+            switch scope { case .settings: selected = store.appTools; case .conversation: selected = store.conversationTools; case .automation: selected = automationSelection }
+            inherit = selected == nil; modes = selected?.modes ?? inheritedModes
         } catch {
             guard context == store.contextID, session == store.sessionID else { return }
             if entity != nil, case GatewayError.http(status: 404, body: _) = error { self.error = "This gateway does not support tools per entity conversation. Assistant conversation tools remain available." }

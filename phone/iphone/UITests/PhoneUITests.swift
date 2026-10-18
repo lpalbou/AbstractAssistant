@@ -133,7 +133,7 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
         let field = app.textFields["automation.task"].exists ? app.textFields["automation.task"] : app.textViews["automation.task"]
         XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText("My phone daily briefing")
-        app.buttons["Done"].firstMatch.tap()
+        app.staticTexts["What should it do?"].tap()
         capture(app, "New automation")
         let create = app.buttons["automation.create"]
         for _ in 0..<4 { if create.isHittable { break }; app.swipeUp() }
@@ -287,34 +287,83 @@ final class PhoneUITests: XCTestCase {
     @MainActor func testIPhoneToolDefaultsAreEditableWithoutUnlockingAndCarryToNewChats() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults"]; app.launch()
         XCTAssertTrue(app.buttons["chat.tools"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Choose who answers"].isHittable)
         capture(app, "Always-visible tools beside responder")
-        openTools(app)
-        app.segmentedControls["tools.scope"].buttons["iPhone defaults"].tap()
+        openSettings(app); app.buttons["settings.tools"].tap()
         searchTools(app, for: "read_file")
         let read = app.segmentedControls["tool.read_file"]
         XCTAssertTrue(read.waitForExistence(timeout: 5)); XCTAssertTrue(read.isEnabled)
-        read.buttons["Approve"].tap() // Direct override: no preceding defaults toggle.
+        read.buttons["Approve"].tap()
         XCTAssertEqual(app.switches["tools.defaults"].value as? String, "0")
-        capture(app, "Direct override of iPhone defaults")
+        capture(app, "Settings defaults for all sessions")
         app.buttons["tools.save"].tap()
+        app.buttons["Done"].tap()
         app.buttons["More options"].tap(); app.buttons["New conversation"].tap()
         openTools(app)
         XCTAssertEqual(app.switches["tools.defaults"].value as? String, "1")
         searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Approve"].isSelected)
         read.buttons["Off"].tap()
-        app.segmentedControls["tools.scope"].buttons["iPhone defaults"].tap()
-        XCTAssertTrue(read.buttons["Approve"].isSelected)
-        app.segmentedControls["tools.scope"].buttons["This conversation"].tap()
-        XCTAssertTrue(read.buttons["Off"].isSelected) // Scope switches keep unsaved edits.
-        capture(app, "Conversation override of iPhone defaults")
+        capture(app, "Session override of Settings defaults")
         app.buttons["tools.save"].tap()
         openTools(app); searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Off"].isSelected)
-        // Remove the app default; the explicit conversation choice stays Off.
-        app.segmentedControls["tools.scope"].buttons["iPhone defaults"].tap()
-        app.switches["tools.defaults"].coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        app.buttons["tools.close"].tap()
+        app.buttons["More options"].tap(); app.buttons["New conversation"].tap()
+        openTools(app); searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Approve"].isSelected)
+    }
+    @MainActor func testReloadRestoresAllAssistantRepliesWithoutSpeaking() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--history-fixture", "--screen", "history"]; app.launch()
+        XCTAssertTrue(app.staticTexts["Restored reply 3: your conversation is here."].waitForExistence(timeout: 10))
+        capture(app, "Restored latest reply above floating composer")
+        app.swipeDown(); app.swipeDown()
+        XCTAssertTrue(app.staticTexts["Restored reply 1: your conversation is here."].exists)
+        XCTAssertTrue(app.staticTexts["Restored reply 2: your conversation is here."].exists)
+        XCTAssertFalse(app.buttons["Stop reading"].exists)
+        capture(app, "Restored earlier assistant replies")
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.staticTexts["Restored reply 3: your conversation is here."].waitForExistence(timeout: 10))
+        app.swipeDown(); app.swipeDown()
+        XCTAssertTrue(app.staticTexts["Restored reply 1: your conversation is here."].exists)
+        XCTAssertTrue(app.staticTexts["Restored reply 2: your conversation is here."].exists)
+    }
+    @MainActor func testAutomationToolsCanOverrideSettingsAndPersistOnTheDefinition() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults", "--screen", "automations"]; app.launch()
+        XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
+        let task = app.textFields["automation.task"]; XCTAssertTrue(task.waitForExistence(timeout: 5)); task.tap(); task.typeText("Read my workspace every morning")
+        app.staticTexts["What should it do?"].tap()
+        app.swipeUp()
+        app.buttons["automation.tools"].tap()
+        searchTools(app, for: "read_file")
+        app.segmentedControls["tool.read_file"].buttons["Approve"].tap()
+        XCTAssertLessThan(app.segmentedControls["tool.read_file"].frame.maxY, app.keyboards.firstMatch.frame.minY)
+        capture(app, "Automation tool override")
         app.buttons["tools.save"].tap()
-        openTools(app); searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Off"].isSelected)
+        app.buttons["automation.create"].tap()
+        XCTAssertTrue(app.buttons["Run now"].waitForExistence(timeout: 12))
+        app.buttons["automation.tools"].tap(); searchTools(app, for: "read_file")
+        XCTAssertTrue(app.segmentedControls["tool.read_file"].buttons["Approve"].isSelected)
+        app.segmentedControls["tool.read_file"].buttons["Off"].tap(); app.buttons["tools.save"].tap()
+        XCTAssertTrue(app.buttons["Run now"].waitForExistence(timeout: 8))
+        app.buttons["automation.tools"].tap(); searchTools(app, for: "read_file")
+        XCTAssertTrue(app.segmentedControls["tool.read_file"].buttons["Off"].isSelected)
+        capture(app, "Persisted automation tool changes")
+    }
+    @MainActor func testAutomationInheritsSettingsInsteadOfCurrentSessionTools() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults"]; app.launch()
+        openSettings(app); app.buttons["settings.tools"].tap(); searchTools(app, for: "read_file")
+        app.segmentedControls["tool.read_file"].buttons["Approve"].tap(); app.buttons["tools.save"].tap(); app.buttons["Done"].tap()
+        openTools(app); searchTools(app, for: "read_file")
+        app.segmentedControls["tool.read_file"].buttons["Off"].tap(); app.buttons["tools.save"].tap()
+        app.tabBars.buttons["Automations"].tap()
+        app.buttons["New automation"].tap()
+        let task = app.textFields["automation.task"]; XCTAssertTrue(task.waitForExistence(timeout: 5))
+        task.tap(); task.typeText("Read a file on schedule"); app.staticTexts["What should it do?"].tap(); app.swipeUp()
+        app.buttons["automation.tools"].tap(); searchTools(app, for: "read_file")
+        XCTAssertEqual(app.switches["tools.defaults"].value as? String, "1")
+        XCTAssertTrue(app.segmentedControls["tool.read_file"].buttons["Approve"].isSelected)
+        app.buttons["tools.save"].tap(); app.buttons["automation.create"].tap()
+        XCTAssertTrue(app.buttons["Run now"].waitForExistence(timeout: 12))
+        app.buttons["automation.tools"].tap(); searchTools(app, for: "read_file")
+        XCTAssertTrue(app.segmentedControls["tool.read_file"].buttons["Approve"].isSelected)
+        capture(app, "Automation saved Settings grant independently of session override")
     }
     @MainActor func testToolsRemainVisibleAndEditableWhileAgentIsWorking() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=running", "--screen", "conversation"]; app.launch()
@@ -329,7 +378,7 @@ final class PhoneUITests: XCTestCase {
         capture(app, "Tools remain reachable during work")
     }
     @MainActor func testToolsSaveOnlyForTheCurrentConversation() throws {
-        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults"]; app.launch()
         openTools(app)
         let defaults = app.switches["tools.defaults"]
         XCTAssertTrue(defaults.waitForExistence(timeout: 10)); XCTAssertEqual(defaults.value as? String, "1")
@@ -363,9 +412,9 @@ final class PhoneUITests: XCTestCase {
         searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Auto"].isSelected)
     }
     @MainActor func testToolCategoriesExpandSearchAndRespectGatewayDisabledTools() throws {
-        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch(); openTools(app)
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults"]; app.launch(); openTools(app)
         let comms = app.buttons["tools.category.comms"]
-        XCTAssertTrue(comms.waitForExistence(timeout: 10)); XCTAssertEqual(comms.value as? String, "Collapsed")
+        XCTAssertTrue(comms.waitForExistence(timeout: 10)); XCTAssertEqual(comms.value as? String, "Collapsed, Available")
         comms.tap(); XCTAssertTrue(app.segmentedControls["tool.send_email"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Reaches outside"].exists)
         app.switches["tools.defaults"].coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
@@ -417,24 +466,24 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.buttons["New automation"].waitForExistence(timeout: 10)); app.buttons["New automation"].tap()
         let task = app.textFields["automation.task"]
         XCTAssertTrue(task.waitForExistence(timeout: 10)); task.tap(); task.typeText("My inherited history briefing")
-        app.buttons["Done"].firstMatch.tap()
+        app.staticTexts["What should it do?"].tap()
         let growing = app.switches["automation.growing"]
         let budget = app.textFields["automation.historyBudget"]
         XCTAssertFalse(budget.exists)
         growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertTrue(budget.waitForExistence(timeout: 5))
         XCTAssertTrue((budget.value as? String ?? "").contains("50,000"))
-        budget.tap(); budget.typeText("0"); app.buttons["Done"].firstMatch.tap()
+        budget.tap(); budget.typeText("0"); app.staticTexts["History token budget"].tap()
         let create = app.buttons["automation.create"]
         XCTAssertFalse(create.isEnabled)
-        budget.tap(); budget.typeText(XCUIKeyboardKey.delete.rawValue + "24000"); app.buttons["Done"].firstMatch.tap()
+        budget.tap(); budget.typeText(XCUIKeyboardKey.delete.rawValue + "24000"); app.staticTexts["History token budget"].tap()
         XCTAssertTrue(create.isEnabled)
         capture(app, "Custom history budget")
         growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertFalse(budget.exists)
         growing.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertEqual(budget.value as? String, "24000")
-        budget.tap(); budget.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5)); app.buttons["Done"].firstMatch.tap()
+        budget.tap(); budget.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5)); app.staticTexts["History token budget"].tap()
         XCTAssertTrue((budget.value as? String ?? "").contains("50,000"))
         XCTAssertTrue(create.isEnabled)
         capture(app, "Inherited history budget")
@@ -463,12 +512,12 @@ final class PhoneUITests: XCTestCase {
         app.buttons["Stop reading"].tap()
         XCTAssertEqual(app.buttons.matching(identifier: "Read answer aloud").count, 2)
     }
-    @MainActor func testSettingsAlsoOpensToolsForTheCurrentConversation() throws {
-        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
+    @MainActor func testSettingsOpensGlobalToolDefaults() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults"]; app.launch()
         openSettings(app)
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Conversation tools'")).firstMatch.tap()
+        app.buttons["settings.tools"].tap()
         XCTAssertTrue(app.switches["tools.defaults"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Assistant · This conversation"].exists)
+        XCTAssertTrue(app.staticTexts["Defaults for sessions and automations"].exists)
         app.buttons["tools.close"].tap()
         XCTAssertTrue(app.switches["settings.messageStats"].waitForExistence(timeout: 5))
     }

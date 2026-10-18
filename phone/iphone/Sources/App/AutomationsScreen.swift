@@ -52,6 +52,10 @@ struct AutomationDetailScreen: View {
     @State private var occurrences: [LastOccurrence] = []
     @State private var error: String?
     @State private var requestedRun = false
+    @State private var definition: AutomationDefinition?
+    @State private var showingTools = false
+    @State private var savingTools = false
+    @State private var launching = false
     private var row: AutomationSummary? { store.automations.first { $0.id == automationID } }
     var body: some View {
         ScrollView {
@@ -61,9 +65,13 @@ struct AutomationDetailScreen: View {
                     Text(a.name ?? "Automation").font(.system(.largeTitle, design: .rounded, weight: .semibold))
                     Text(a.scheduleText ?? a.rowDetail).foregroundStyle(PhoneTheme.secondary)
                     if a.status == "active" || a.status == "paused" { HStack {
-                        Button { Task { await store.automationAction(a, runNow: true); if store.error == nil { requestedRun = true }; await load() } } label: { Label("Run now", systemImage: "play.fill") }.buttonStyle(.borderedProminent)
+                        Button { Task { await runNow(a) } } label: { Label("Run now", systemImage: "play.fill") }.buttonStyle(.borderedProminent)
                         Button(a.status == "active" ? "Pause" : "Resume") { Task { await store.automationAction(a, runNow: false) } }.buttonStyle(.bordered)
-                    }.controlSize(.large).disabled(store.automationBusy.contains(a.id)) }
+                    }.controlSize(.large).disabled(store.automationBusy.contains(a.id) || savingTools || launching || definition == nil) }
+                    Button { showingTools = true } label: {
+                        HStack { Label("Tools", systemImage: "wrench.and.screwdriver"); Spacer(); Text(definition?.tools == nil ? "Settings defaults" : "Custom").foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption) }
+                            .font(.subheadline).padding(16).background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                    }.buttonStyle(.plain).disabled(definition == nil || savingTools || launching).accessibilityIdentifier("automation.tools")
                     if requestedRun { Label("Run requested. Pull down to check its result.", systemImage: "checkmark.circle").font(.footnote).foregroundStyle(PhoneTheme.mint) }
                     if let current = a.currentOccurrence { Label("Run \(current.index ?? 0) · \(current.status ?? "working")", systemImage: "circle.dotted").foregroundStyle(PhoneTheme.amber) }
                     if let error = error ?? store.error { ErrorBanner(message: error) }
@@ -76,10 +84,49 @@ struct AutomationDetailScreen: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PhoneTheme.ground).navigationBarTitleDisplayMode(.inline).task { await load() }.refreshable { await store.refresh(); await load() }
+        .sheet(isPresented: $showingTools) {
+            ConversationToolsScreen(scope: .automation, automationSelection: definition?.tools) { selected in try await saveTools(selected) }
+        }
     }
     private func load() async {
         guard let client = store.client else { return }
-        do { occurrences = try await client.occurrences(automationId: automationID, limit: 5); error = nil }
-        catch { self.error = error.localizedDescription }
+        let context = store.contextID
+        do {
+            let fetched = try await client.automationDefinition(id: automationID)
+            guard context == store.contextID else { return }
+            definition = fetched
+            let rows = try await client.occurrences(automationId: automationID, limit: 5)
+            guard context == store.contextID else { return }
+            occurrences = rows; error = nil
+        } catch { if context == store.contextID { self.error = error.localizedDescription } }
+    }
+    private func saveTools(_ selected: ConversationTools?) async throws {
+        guard let client = store.client, let definition else { throw GatewayError.invalidResponse }
+        let context = store.contextID
+        savingTools = true; defer { savingTools = false }
+        let inventory = try await client.tools()
+        guard context == store.contextID else { throw CancellationError() }
+        let snapshot = ConversationTools.snapshot(selected ?? store.appTools, inventory: inventory)
+        let committed = try await client.saveAutomationTools(id: automationID, definition: definition, tools: snapshot)
+        guard context == store.contextID else { throw CancellationError() }
+        self.definition = committed; error = nil
+    }
+    private func runNow(_ automation: AutomationSummary) async {
+        guard !launching else { return }
+        launching = true; defer { launching = false }
+        let context = store.contextID
+        do {
+            guard let client = store.client else { return }
+            let latest = try await client.automationDefinition(id: automationID)
+            guard context == store.contextID else { return }
+            definition = latest
+            // Legacy routines without an explicit grant resolve Settings before their first manual run.
+            if latest.tools == nil { try await saveTools(nil) }
+            guard context == store.contextID else { return }
+            await store.automationAction(automation, runNow: true)
+            guard context == store.contextID else { return }
+            if store.error == nil { requestedRun = true }
+            await load()
+        } catch { if context == store.contextID { self.error = error.localizedDescription } }
     }
 }

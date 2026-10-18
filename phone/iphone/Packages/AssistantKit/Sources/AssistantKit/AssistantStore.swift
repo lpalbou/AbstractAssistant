@@ -88,6 +88,7 @@ public final class AssistantStore {
         disconnect()
         self.connection = connection; self.client = client
         preferences = PhonePreferences(scope: connection?.scope ?? "demo", defaults: defaults)
+        migrateToolDefaults()
         if let connection {
             restorationID = defaults.string(forKey: "phone.session." + connection.scope)
             if let entity = defaults.string(forKey: "phone.entity." + connection.scope), let saved = restorationID {
@@ -199,8 +200,18 @@ public final class AssistantStore {
         sessionID = "iphone-" + UUID().uuidString.lowercased(); persistSession()
     }
     public var canEditToolPreferences: Bool { client != nil && !isOpening && !isRestoring && !isStopping && !sendInFlight }
-    private var appToolsKey: String { "phone.tools.defaults." + (connection?.scope ?? "demo") + "." + (selectedEntity ?? "assistant") }
+    private var appToolRevision = 0
+    private var appToolsKey: String { "phone.tools.defaults." + (connection?.scope ?? "demo") }
+    private func migrateToolDefaults() {
+        let marker = appToolsKey + ".global"
+        guard !defaults.bool(forKey: marker) else { return }
+        if defaults.data(forKey: appToolsKey) == nil, let legacy = defaults.data(forKey: appToolsKey + ".assistant") {
+            defaults.set(legacy, forKey: appToolsKey)
+        }
+        defaults.set(true, forKey: marker)
+    }
     public var appTools: ConversationTools? {
+        _ = appToolRevision
         guard let data = defaults.data(forKey: appToolsKey) else { return nil }
         return try? JSONDecoder().decode(ConversationTools.self, from: data)
     }
@@ -209,6 +220,7 @@ public final class AssistantStore {
         guard canEditToolPreferences else { return }
         if let tools, let data = try? JSONEncoder().encode(tools) { defaults.set(data, forKey: appToolsKey) }
         else { defaults.removeObject(forKey: appToolsKey) }
+        appToolRevision += 1
     }
     private var toolsKey: String { "phone.tools." + (connection?.scope ?? "demo") + "." + (selectedEntity ?? "assistant") + "." + sessionID }
     public var conversationTools: ConversationTools? {
@@ -348,7 +360,7 @@ public final class AssistantStore {
             waits.insert(contentsOf: activityWaits, at: 0)
             if !run.isTerminal { await applyConversationTrust(epoch: epoch) }
             guard epoch == activityEpoch, activeRunID == id else { return }
-            if let output = run.outputText, !output.isEmpty {
+            if let output = run.conversationText, !output.isEmpty {
                 if let index = messages.firstIndex(where: { $0.id == "answer-" + id }) { messages[index].text = output }
                 else { messages.append(.init(id: "answer-" + id, role: .assistant, text: output, runID: id)) }
             }
@@ -521,11 +533,36 @@ public final class AssistantStore {
         defer { if epoch == generation { isOpening = false } }
         do {
             let turns = try await client.turns(ofSession: session.id)
+            // Listings are summaries and can omit output. Hydrate every turn, with
+            // bounded concurrency, before replacing visible history atomically.
+            let listedIDs = Set(turns.map(\.runId))
+            let roots = turns.filter { $0.parentRunId.map { !listedIDs.contains($0) } ?? true }
+            let ordered = Array(roots.reversed())
+            struct RestoredTurn: Sendable { var index: Int; var run: RunSummary; var prompt: String? }
+            let hydrated = try await withThrowingTaskGroup(of: RestoredTurn.self) { group in
+                func add(_ index: Int) {
+                    let row = ordered[index]
+                    group.addTask {
+                        let detail = try await client.run(id: row.runId)
+                        let prompt = try await client.prompt(ofRun: row.runId)
+                        return RestoredTurn(index: index, run: detail, prompt: prompt)
+                    }
+                }
+                var next = min(4, ordered.count), result: [RestoredTurn] = []
+                for index in 0..<next { add(index) }
+                while let row = try await group.next() {
+                    guard epoch == generation else { group.cancelAll(); return [] as [RestoredTurn] }
+                    result.append(row)
+                    if next < ordered.count { add(next); next += 1 }
+                }
+                return result.sorted { $0.index < $1.index }
+            }
             var restored: [ConversationMessage] = []
-            for run in turns.reversed() {
-                let prompt = try await client.prompt(ofRun: run.runId)
-                if let prompt { restored.append(.init(id: "prompt-" + run.runId, role: .user, text: prompt, runID: run.runId)) }
-                if let answer = run.outputText { restored.append(.init(id: "answer-" + run.runId, role: .assistant, text: answer, runID: run.runId)) }
+            for turn in hydrated {
+                let id = turn.run.runId
+                if let prompt = turn.prompt { restored.append(.init(id: "prompt-" + id, role: .user, text: prompt, runID: id)) }
+                if let answer = turn.run.conversationText, !answer.isEmpty { restored.append(.init(id: "answer-" + id, role: .assistant, text: answer, runID: id)) }
+                else if turn.run.status == "failed" { restored.append(.init(id: "failed-" + id, role: .notice, text: turn.run.error ?? "This reply could not be completed.", runID: id)) }
             }
             guard epoch == generation else { return }
             if let entity = selectedEntity, let id = entityVisitIDs[entity + ":" + sessionID] {
@@ -539,13 +576,14 @@ public final class AssistantStore {
             activeEntityRunID = nil; quietEntityRestoreID = nil; completedReply = nil
             stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
             conversationGeneration += 1; measuredMessages = []; messages = restored; selectedEntity = nil; sessionID = session.id
-            activeRunID = session.latest.isTerminal ? nil : session.latest.runId
+            let newest = hydrated.last?.run ?? session.latest
+            activeRunID = newest.isTerminal ? nil : newest.runId
             phase = activeRunID == nil ? .ready : .working; error = nil; persistSession()
             if let id = activeRunID { beginActivity(id) }
             else {
                 // A reopened terminal turn keeps its diagnostics without reading history aloud.
-                activeRunID = session.latest.runId
-                beginActivity(session.latest.runId); quietActivityRootID = session.latest.runId
+                activeRunID = newest.runId
+                beginActivity(newest.runId); quietActivityRootID = newest.runId
                 await followActiveRun()
                 guard epoch == generation else { return }
             }

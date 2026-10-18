@@ -159,7 +159,7 @@ Creation and deletion reject namespace symlinks that could lead outside owned di
 Picker origin and task generations prevent stale files crossing accounts or conversations.
 
 Automation creation shares the Watch’s NewAutomation schema, eligible-workflow endpoint,
-input-schema preflight and schedule@2 presets. Ask-before-tools defaults on. Daily clock
+input-schema preflight and schedule@2 presets. Per-tool choices use a durable named snapshot. Daily clock
 times follow the account time zone reported by the gateway. A pending creation retains its
 request ID across retries, preventing uncertain responses from duplicating routines. The
 creation response is retained for navigation even if refreshing the list fails. Shared
@@ -207,7 +207,8 @@ history with a custom positive value. Omission inherits the runtime default retu
 ## Conversation tool categories
 
 The phone preserves the gateway inventory’s `toolset`, risk tier and enabled/available
-flags. Categories and tools sort by their declared names. Search matches category, tool
+flags. Available categories sort first and use the accent color; unavailable categories follow
+in muted styling. Tools within each category also sort available first, then by name. Search matches category, tool
 name and description and reveals matching rows without changing saved disclosure choices.
 Rows disabled by the gateway retain its explanation and cannot be enabled by a session
 choice. Saving an explicit policy keeps those rows Off; gateway inheritance remains a
@@ -267,3 +268,38 @@ defaults before edited conversation choices, while Close leaves persisted values
 The header's Tools control remains available during execution. Saving while a request is
 running updates preferences for the next message and does not resend or mutate that request.
 Gateway availability is still intersected with explicit tool choices at send time.
+
+
+## Shared tool editor and automation grants
+
+Settings defaults use a gateway/account key across responders. Existing Assistant defaults
+migrate once; session keys retain their explicit overrides. The same editor is presented
+in one context at a time: Settings, session, or automation. Session overrides win over
+Settings; automation overrides independently win over Settings and never inherit the
+currently open conversation's exception.
+
+Creation snapshots fresh inventory with the selected automation override or Settings
+fallback. `target.input_data.tools` and `_runtime.allowed_tools` carry identical enabled
+names, including explicit `[]`. Named Auto and Approve lists belong to
+`definition.policy.tool_policy`, compiled by AbstractRuntime at occurrence admission;
+caller-provided `_runtime.tool_policy` is removed. Custom workflow inputs and model choices
+are preserved. Gateway restrictions remain authoritative. This additive runtime contract
+is required for mixed per-tool approvals; an older runtime's 422 is surfaced with choices
+retained rather than retried without the policy.
+
+The existing revise route acknowledges queued work. The client waits for the committed
+revision, verifies the requested target and named policy, and rejects concurrent edits.
+Run Now is guarded against repeated taps and never follows an unconfirmed policy save.
+Existing definitions without a tool grant resolve Settings before their first manual run;
+scheduled definitions retain their saved grant until explicitly revised. Editing Settings
+does not silently rewrite existing server automations.
+
+## Restoring chat history
+
+Run list rows are index summaries and may omit output. Session history follows all list
+pages, deduplicates roots, and fetches every root's full run result and prompt, with at most
+four concurrent turn hydrations. The history replacement is atomic and ordered oldest
+first. Only recognized public response fields become assistant messages; reasoning and
+internal child outputs are not replayed. Restoring a terminal run keeps diagnostics quiet
+and does not trigger Read aloud. A failed hydration reports an error and preserves the
+current conversation instead of showing a partial reconstruction as complete.

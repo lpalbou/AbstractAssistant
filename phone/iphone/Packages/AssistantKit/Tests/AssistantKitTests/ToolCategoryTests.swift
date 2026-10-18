@@ -9,10 +9,10 @@ import AbstractGatewayClient
     #expect(!rows[1].isAvailable && rows[1].whyDisabled == "Camera is off")
     #expect(!rows[2].isAvailable && rows[3].categoryID == "other")
     let groups = ToolCatalogGroup.groups(rows)
-    #expect(groups.map(\.id) == ["camera", "comms", "other"])
-    #expect(groups[1].tools.map(\.name) == ["get_email_attachment", "send_telegram"])
+    #expect(groups.map(\.id) == ["comms", "other", "camera"])
+    #expect(groups[0].tools.map(\.name) == ["get_email_attachment", "send_telegram"])
     // An unrelated name never invents a category.
-    #expect(groups[2].tools.first?.categoryID == "other")
+    #expect(groups[1].tools.first?.categoryID == "other")
 }
 @Test func categorySearchShowsOnlyMatchingToolsWithoutDroppingTheirCategories() {
     let rows = [ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1, toolset: "files", description: "Read workspace text"),
@@ -30,4 +30,13 @@ import AbstractGatewayClient
     #expect(enriched.categoryID == "comms" && enriched.riskTier == "outreach")
     #expect(enriched.isAvailable && enriched.approvalDefault == "auto")
     #expect(ToolCatalogGroup.enriching([entity], from: []).first?.categoryID == "other")
+}
+
+@Test func searchingUnavailableRowPreservesItsCategoryAvailability() {
+    let rows = [ToolInfo(name: "a_disabled", riskTier: nil, riskRank: nil, toolset: "files", enabled: false),
+                ToolInfo(name: "z_available", riskTier: nil, riskRank: nil, toolset: "files", enabled: true)]
+    let category = ToolCatalogGroup.groups(rows, matching: "disabled").first
+    #expect(category?.isAvailable == true && category?.availableCount == 1)
+    #expect(category?.tools.first?.isAvailable == false)
+    #expect(ToolCatalogGroup.groups(rows).first?.tools.first?.name == "z_available")
 }

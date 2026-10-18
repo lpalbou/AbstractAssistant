@@ -24,14 +24,15 @@ import AbstractGatewayClient
         store.setAppTools(nil)
         #expect(store.effectiveTools == nil)
     }
-    @Test func defaultsPersistAndStayScopedToGatewayAccountAndResponder() async {
+    @Test func defaultsPersistAndStayScopedToGatewayAccountAcrossResponders() async {
         let defaults = UserDefaults(suiteName: "tool-defaults-\(UUID())")!
         let connection = SavedConnection(gateway: URL(string: "https://one.example")!, user: "alice", credential: .token("test"))
         let store = AssistantStore(defaults: defaults); store.connect(connection, client: MockGatewayClient())
         store.setAppTools(base); store.newConversation(entity: "castor")
-        #expect(store.appTools == nil)
-        store.setAppTools(.init(modes: [:])); store.newConversation()
         #expect(store.appTools == base)
+        store.setAppTools(.init(modes: [:])); store.newConversation()
+        #expect(store.appTools?.allowed == [])
+        store.setAppTools(base)
         store.disconnect()
         let restored = AssistantStore(defaults: defaults); restored.connect(connection, client: MockGatewayClient())
         #expect(restored.appTools == base)
@@ -39,6 +40,16 @@ import AbstractGatewayClient
         #expect(restored.appTools == nil)
         restored.connect(.init(gateway: URL(string: "https://two.example")!, user: "alice", credential: .token("test")), client: MockGatewayClient())
         #expect(restored.appTools == nil)
+    }
+    @Test func legacyAssistantDefaultMigratesOnceForEveryResponder() throws {
+        let defaults = UserDefaults(suiteName: "tool-migration-\(UUID())")!
+        defaults.set(try JSONEncoder().encode(base), forKey: "phone.tools.defaults.demo.assistant")
+        let first = store(defaults)
+        #expect(first.appTools == base)
+        first.newConversation(entity: "castor"); #expect(first.appTools == base)
+        first.setAppTools(nil); first.disconnect()
+        let reopened = store(defaults); #expect(reopened.appTools == nil)
+        reopened.disconnect()
     }
     @Test func effectiveDefaultsActuallyTravelOnTheNextAssistantRequest() async {
         let client = MockGatewayClient(), store = AssistantStore(defaults: UserDefaults(suiteName: "tool-defaults-\(UUID())")!)

@@ -17,7 +17,8 @@ struct NewAutomationScreen: View {
     @State private var historyBudget = ""
     @State private var gatewayHistoryBudget: Int?
     @FocusState private var editingBudget: Bool
-    @State private var ask = true
+    @State private var tools: ConversationTools?
+    @State private var showTools = false
     @State private var zone = "your account’s time zone"
     @State private var creating = false
     @State private var loading = true
@@ -27,7 +28,7 @@ struct NewAutomationScreen: View {
     private var customHistoryBudget: Int? { Int(budgetText).flatMap { $0 > 0 ? $0 : nil } }
     private var invalidHistoryBudget: Bool { growing && !budgetText.isEmpty && customHistoryBudget == nil }
     private var budgetPlaceholder: String { gatewayHistoryBudget.map { "Gateway default · " + $0.formatted() } ?? "Gateway default" }
-    private var fingerprint: String { [task, workflowID, frequency, String(hour), String(minute), String(growing), growing ? budgetText : "", String(ask)].joined(separator: "|") }
+    private var fingerprint: String { [task, workflowID, frequency, String(hour), String(minute), String(growing), growing ? budgetText : "", tools?.fingerprint ?? (store.appTools?.fingerprint ?? "gateway")].joined(separator: "|") }
     var body: some View {
         NavigationStack {
             Form {
@@ -70,14 +71,21 @@ struct NewAutomationScreen: View {
                     if growing { Text("Keeps history from earlier runs within this token budget. Leave blank to use the gateway default" + (gatewayHistoryBudget.map { " (" + $0.formatted() + " tokens)." } ?? "; the gateway sets the limit when created.")) }
                 }
                 Section {
-                    Toggle("Ask before using tools", isOn: $ask)
-                } footer: { Text(ask ? "Tool actions wait for your approval in Inbox." : "Runs may use tools automatically, including actions that change files or services. The gateway still applies its required approval rules.") }
+                    Button { editingTask = false; editingBudget = false; showTools = true } label: {
+                        HStack { Label("Tools", systemImage: "wrench.and.screwdriver"); Spacer(); Text(tools == nil ? "Settings defaults" : "Custom").foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption) }
+                    }.accessibilityIdentifier("automation.tools")
+                } footer: { Text("Tool permissions are saved with the automation so it can run while this iPhone is closed.") }
                 if let error { Section { ErrorBanner(message: error) } }
                 Section { Button(creating ? "Creating…" : pending == nil ? "Create automation" : "Retry creation") { Task { await create() } }.disabled(task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || invalidHistoryBudget || creating || loading).accessibilityIdentifier("automation.create") }
                 if loading { ProgressView("Loading workflows…") }
             }.disabled(creating).scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("New automation").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { editingTask = false; editingBudget = false } }; ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(creating) } }
+                .scrollDismissesKeyboard(.interactively)
+                .background(OutsideInputDismissal(focused: editingTask || editingBudget, dismiss: { editingTask = false; editingBudget = false }))
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(creating) } }
                 .interactiveDismissDisabled(creating).task { await load() }.onChange(of: fingerprint) { _, _ in pending = nil }
+                .sheet(isPresented: $showTools) {
+                    ConversationToolsScreen(scope: .automation, automationSelection: tools) { selection in tools = selection }
+                }
         }
     }
     private func load() async {
@@ -101,16 +109,19 @@ struct NewAutomationScreen: View {
         defer { creating = false }
         do {
             if pending == nil {
+                let inventory = try await client.tools()
+                guard context == store.contextID else { return }
+                let snapshot = ConversationTools.snapshot(tools ?? store.appTools, inventory: inventory)
                 let target: NewAutomation.Target
                 let text = task.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let w = workflows.first(where: { $0.id == workflowID }) {
-                    switch try await client.workflowInputs(w).inputData(task: text) {
+                    switch try await client.workflowInputs(w).inputData(task: text, tools: snapshot.allowed) {
                     case .success(let values): target = .workflow(w, inputData: values)
                     case .failure(let missing): error = "This workflow also requires: " + missing.names.joined(separator: ", ") + ". Choose another workflow or configure those inputs in the gateway console."; return
                     }
                 } else if workflowID.isEmpty { target = .gatewayDefault(interface: "abstractassistant.agent.v1") }
                 else { error = "Choose an available workflow."; return }
-                pending = NewAutomation(task: text, target: target, when: frequency == "daily" ? .daily(at: String(format: "%02d:%02d", hour, minute)) : .every(frequency), buildsOnEarlierRuns: growing, askBeforeTools: ask, growingMaxTokens: growing ? customHistoryBudget : nil)
+                pending = NewAutomation(task: text, target: target, when: frequency == "daily" ? .daily(at: String(format: "%02d:%02d", hour, minute)) : .every(frequency), buildsOnEarlierRuns: growing, askBeforeTools: true, growingMaxTokens: growing ? customHistoryBudget : nil, tools: snapshot)
             }
             guard context == store.contextID, let pending else { return }
             let created = try await client.createAutomation(pending); guard context == store.contextID else { return }

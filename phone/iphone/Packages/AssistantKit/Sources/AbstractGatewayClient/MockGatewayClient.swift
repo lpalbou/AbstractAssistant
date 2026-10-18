@@ -92,6 +92,7 @@ public actor MockGatewayClient: GatewayClient {
     private var createdEntities: [EntitySummary] = []
     private let emptyAutomations: Bool
     private var createdAutomations: [AutomationSummary] = []
+    private var definitions: [String: AutomationDefinition] = [:]
     public private(set) var assistantToolSelections: [ConversationTools?] = []
     private var chosenWorkflow: String?
     private var uploaded: [String: [(PhoneArtifact, Data)]] = [:]
@@ -100,10 +101,12 @@ public actor MockGatewayClient: GatewayClient {
     private var started: [String: (Date, String)] = [:]
     private var cancelledRunIDs: Set<String> = []
     private let wordInterval: TimeInterval
+    private let historyFixture: Bool
     private let activityScenario: String?
     private var activityResolved = false
 
-    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil) {
+    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false) {
+        self.historyFixture = historyFixture
         self.activityScenario = activityScenario
         self.pending = waits; self.wordInterval = wordInterval; self.emptyAutomations = emptyAutomations
     }
@@ -111,7 +114,16 @@ public actor MockGatewayClient: GatewayClient {
     public func health() async throws -> Bool { true }
     public func me() async throws -> Principal { Principal(userId: "albou", tenantId: "default", roles: ["admin"]) }
     public func waits() async throws -> [Wait] { pending }
-    public func recentRuns(limit: Int) async throws -> [RunSummary] { Self.sampleRuns }
+    public static var historyRuns: [RunSummary] {
+        (1...3).reversed().map { index in
+            RunSummary(runId: "history-" + String(index), workflowId: "basic-agent", status: "completed", sessionId: "restored-history",
+                createdAt: "2026-10-18T06:0" + String(index) + ":00Z", output: .object(["response": .string("Restored reply " + String(index) + ": your conversation is here.")]))
+        }
+    }
+    public func recentRuns(limit: Int) async throws -> [RunSummary] {
+        if historyFixture { return Self.historyRuns.map { var row = $0; row.output = nil; return row } }
+        return Self.sampleRuns
+    }
     public func automations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
         for a in (emptyAutomations ? [] : Self.sampleAutomations) + createdAutomations { out.append(try await automation(id: a.id)) }
@@ -140,7 +152,12 @@ public actor MockGatewayClient: GatewayClient {
         return out
     }
     public func automationCommand(id: String, type: String) async throws { statuses[id] = type == "automation.pause" ? "paused" : "active" }
-    public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {}
+    public func reviseAutomation(id: String, changes: [String: JSONValue], expectedRevision: Int?) async throws {
+        let old = try await automationDefinition(id: id)
+        guard expectedRevision == old.revision else { throw GatewayError.http(status: 409, body: "Revision changed") }
+        definitions[id] = AutomationDefinition(revision: (old.revision ?? 0) + 1, title: old.title,
+            target: changes["target"]?.objectValue ?? old.target, policy: changes["policy"]?.objectValue ?? old.policy)
+    }
     public func workflows(forInterface interface: String) async throws -> [WorkflowChoice] {
         [WorkflowChoice(bundleId: "basic-agent", bundleVersion: "0.0.5", flowId: "81795ea9", name: "Basic agent"),
          WorkflowChoice(bundleId: "deep-research", bundleVersion: "0.1.8", flowId: "deep-research", name: "Deep research"),
@@ -155,11 +172,16 @@ public actor MockGatewayClient: GatewayClient {
                                  triggerSource: "schedule", triggerConfig: { switch a.when {
                                      case .every(let e): ["kind": .string("every"), "every": .string(e)]
                                      case .daily(let at): ["kind": .string("daily"), "at": .string(at)] } }(), revision: 1)
-        if !createdAutomations.contains(where: { $0.id == row.id }) { createdAutomations.append(row) }
+        if !createdAutomations.contains(where: { $0.id == row.id }) {
+            createdAutomations.append(row)
+            definitions[row.id] = AutomationDefinition(revision: 1, title: a.title,
+                target: a.body["target"]?.objectValue, policy: a.body["policy"]?.objectValue)
+        }
         return row
     }
     public func automationDefinition(id: String) async throws -> AutomationDefinition {
-        AutomationDefinition(revision: 2, title: Self.sampleAutomations.first { $0.id == id }?.name, target: [
+        if let definition = definitions[id] { return definition }
+        return AutomationDefinition(revision: 2, title: Self.sampleAutomations.first { $0.id == id }?.name, target: [
             "bundle_ref": .string("basic-agent@0.0.5"), "flow_id": .string("81795ea9"),
             "input_data": .object(["prompt": .string("Summarise the overnight assay QC runs, new papers on my target, and dependency updates to pin."),
                                    "tools": .array([.string("web_search")])]),
@@ -267,13 +289,15 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func prompt(ofRun id: String) async throws -> String? {
-        ["94a436e1": "Clean the build folder and rebuild the app", "7c1e02aa": "What could I move out of the way?",
+        if historyFixture { return "Earlier question " + id.replacingOccurrences(of: "history-", with: "") }
+        return ["94a436e1": "Clean the build folder and rebuild the app", "7c1e02aa": "What could I move out of the way?",
          "r1a9e0b2": "Help me make room for focused work this week",
          "3e9a10c4": "Did the nightly assay QC pass?", "d0c5a971": "Summarise the open issues in the docs"][id]
     }
 
     public func turns(ofSession id: String) async throws -> [RunSummary] {
-        Self.sampleRuns.filter { ($0.sessionId ?? $0.runId) == id }
+        if historyFixture { return try await recentRuns(limit: 100) }
+        return Self.sampleRuns.filter { ($0.sessionId ?? $0.runId) == id }
     }
 
     public func automationDefaults() async throws -> Int? { 50_000 }
@@ -342,6 +366,7 @@ public actor MockGatewayClient: GatewayClient {
 
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
+        if historyFixture, let run = Self.historyRuns.first(where: { $0.runId == id }) { return run }
         if cancelledRunIDs.contains(id) { return RunSummary(runId: id, workflowId: nil, status: "cancelled") }
         if activityScenario != nil && id.hasPrefix("activity-") { return try await activityRun(id) }
         guard let (t0, text) = started[id] else {

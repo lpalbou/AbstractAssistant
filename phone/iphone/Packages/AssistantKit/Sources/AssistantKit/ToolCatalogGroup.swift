@@ -5,19 +5,29 @@ import AbstractGatewayClient
 public struct ToolCatalogGroup: Identifiable, Sendable {
     public let id: String
     public let tools: [ToolInfo]
-    public var title: String { id.replacingOccurrences(of: "_", with: " ").capitalized }
+    public let availableCount: Int
+    public var isAvailable: Bool { availableCount > 0 }
+    public var title: String {
+        if id.hasPrefix("mcp:") { return "MCP " + id.dropFirst(4) }
+        switch id {
+        case "comms.email": return "Email"
+        case "comms.telegram": return "Telegram"
+        case "comms.whatsapp": return "WhatsApp"
+        default: return id.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
     public static func groups(_ inventory: [ToolInfo], matching query: String = "") -> [Self] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let categories = Dictionary(grouping: inventory, by: \.categoryID)
         return categories.keys.sorted().compactMap { category in
-            let rows = (categories[category] ?? []).sorted { $0.name < $1.name }
+            let rows = (categories[category] ?? []).sorted { ($0.isAvailable ? 0 : 1, $0.name) < ($1.isAvailable ? 0 : 1, $1.name) }
             let matching = rows.filter {
                 query.isEmpty || category.localizedStandardContains(query) ||
                 $0.name.localizedStandardContains(query) || $0.displayName.localizedStandardContains(query) ||
                 ($0.description ?? "").localizedStandardContains(query)
             }
-            return matching.isEmpty ? nil : Self(id: category, tools: matching)
-        }
+            return matching.isEmpty ? nil : Self(id: category, tools: matching, availableCount: rows.filter(\.isAvailable).count)
+        }.sorted { ($0.isAvailable ? 0 : 1, $0.title) < ($1.isAvailable ? 0 : 1, $1.title) }
     }
     /// Entity inventories own availability/defaults. Discovery may supplement display metadata only.
     public static func enriching(_ tools: [ToolInfo], from discovery: [ToolInfo]) -> [ToolInfo] {

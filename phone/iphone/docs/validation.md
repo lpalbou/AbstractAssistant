@@ -1,5 +1,8 @@
 # Developer preview validation
 
+For **0.6.8 (16)** restored replies after reload and shared Settings/session/automation tool
+controls, see the [review and evidence](../design/validation/history-and-shared-tools-review.md).
+
 For **0.6.7 (15)** directly editable tool overrides and iPhone defaults, see the
 [tool defaults review and evidence](../design/validation/tool-defaults-review.md).
 

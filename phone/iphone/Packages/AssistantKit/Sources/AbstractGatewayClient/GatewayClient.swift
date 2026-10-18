@@ -181,9 +181,22 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func turns(ofSession id: String) async throws -> [RunSummary] {
-        try await get("api/gateway/runs", query: [.init(name: "session_id", value: id), .init(name: "root_only", value: "true"),
-                                                   .init(name: "limit", value: "30"), .init(name: "include_metrics", value: "true")],
-                      as: RunsPage.self).items
+        var offset = 0
+        var rows: [RunSummary] = []
+        var seen: Set<String> = []
+        while true {
+            let page = try await get("api/gateway/runs", query: [.init(name: "session_id", value: id), .init(name: "root_only", value: "true"),
+                .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset)), .init(name: "include_metrics", value: "true")], as: RunsPage.self)
+            let fresh = page.items.filter { seen.insert($0.runId).inserted }
+            // Retain legacy rows with absent session metadata, but reject explicit
+            // unrelated sessions and descendants if an old gateway ignores filters.
+            rows.append(contentsOf: fresh.filter {
+                ($0.sessionId == nil || $0.sessionId == id) && ($0.parentRunId == nil || $0.sessionKind == "occurrence")
+            })
+            guard page.hasMore ?? (page.items.count == 100) else { return rows }
+            guard !fresh.isEmpty else { throw GatewayError.invalidResponse }
+            offset += page.items.count
+        }
     }
 
     /// The conversations' turns (chats and discussions; automations have their own screen), with metrics.
@@ -259,8 +272,10 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func createAutomation(_ a: NewAutomation) async throws -> AutomationSummary {
-        let data = try await request("POST", "api/gateway/automations", body: a.body, timeout: 60)
-        return try JSONDecoder().decode(CreatedAutomation.self, from: data).summary
+        do {
+            let data = try await request("POST", "api/gateway/automations", body: a.body, timeout: 60)
+            return try JSONDecoder().decode(CreatedAutomation.self, from: data).summary
+        } catch GatewayError.http(let status, let body) where status == 422 && body.contains("tool_policy") { throw AutomationToolsError.unsupported }
     }
 
     public func automationDefinition(id: String) async throws -> AutomationDefinition {

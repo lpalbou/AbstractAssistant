@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.7 · iOS 26+**
+**Developer preview · 0.6.8 · iOS 26+**
 
 ## Three small spaces
 
@@ -20,7 +20,8 @@ AbstractGateway, with the conversation at the center and the controls you need c
   in the conversation. Connection loss is reported separately from run failure. The orb
   returns when the gateway confirms the run has ended.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
-  your phone, desktop, Watch or browser. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
+  your phone, desktop, Watch or browser. Reloading restores every turn’s public answer without
+  reading old replies aloud. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
   Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
   Voice sends separately from your typed draft. The **+** button serves text and voice.
 - **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
@@ -31,9 +32,10 @@ AbstractGateway, with the conversation at the center and the controls you need c
   made on another device cannot resume a different wait.
 - **Automations.** See your routines, their latest answers and five earlier runs. Run an
   active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: describe the task, choose a workflow and
-  interval or daily time, and decide whether it builds on earlier runs and asks before tools.
+  interval or daily time, choose its tools, and decide whether it builds on earlier runs.
   Daily times use your account’s time zone, which the creation screen displays. Editing
-  an existing routine’s definition remains in the gateway console.
+  an existing routine’s tools is available on its detail screen; other definition changes
+  remain in the gateway console.
 
 When creating an automation, **Build on earlier runs** reveals **History token budget**.
 Leave it blank to inherit the gateway’s default (50,000 tokens in the runtime shipped with
@@ -88,20 +90,30 @@ the latest 100 session artifacts; older files remain on the gateway.
 
 ## Conversation tools and answer statistics
 
-Tap the **Tools** icon beside the responder name in the conversation header, or open
-**Settings → Conversation tools**. Available tools are grouped into expandable categories;
-search by category, name or description. Tap a mode directly to create an override:
+Open **Settings → Default tools** to choose defaults for all sessions and new automations
+on this iPhone, scoped to your gateway and account. Tap the **Tools** icon beside the
+responder in a chat to override those defaults for that session. The same editor is
+available under **Tools** when creating an automation and on its detail screen.
+
+Available categories are highlighted and listed first. Categories needing gateway setup
+follow in muted styling. Expand a category or search by category, name or description.
+Tap a mode directly to create an override:
 
 - **Off:** the agent cannot use the tool.
 - **Auto:** approve automatically.
 - **Approve:** ask before running it.
 
-Choose **iPhone defaults** to save defaults for this responder's conversations on this
-phone, or **This conversation** to make an exception. A conversation override takes
-precedence over iPhone defaults, which take precedence over gateway defaults. Defaults
-are scoped to your gateway, account and responder. Reset either scope with its defaults
-switch. Switching scopes keeps unsaved edits; **Save** commits both edited scopes together.
-**Close** discards unsaved edits.
+Session choices take precedence over Settings. Automation choices also take precedence
+over Settings. Use the defaults switch to inherit again; **Save** commits the current
+context and **Close** discards unsaved edits. Existing Assistant defaults from earlier
+versions migrate to the shared Settings defaults.
+
+Automations save a snapshot of the resolved tools and approval choices, so they can run
+while the phone is closed. Later Settings changes apply to new automations; open an
+existing automation’s **Tools**, select **Use Settings defaults**, and save to update its
+snapshot. Automation saves wait for the gateway’s committed revision. This requires the
+runtime’s named automation tool-policy support; older gateways report the missing support
+without dropping your choices. Messaging and other gateway restrictions still apply.
 
 Tools stay reachable while the assistant works. Saved choices apply to the next message;
 they do not modify a request already running. Starting a new conversation inherits the
