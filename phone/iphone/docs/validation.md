@@ -1,5 +1,8 @@
 # Developer preview validation
 
+For **0.6.5 (13)** inherited tools reaching the agent's model request, see the
+[workflow regression and evidence](../design/validation/inherited-tools-review.md).
+
 For **0.6.4 (12)** temporary-file cleanup and measured device storage, see the
 [storage investigation and evidence](../design/validation/storage-review.md).
 

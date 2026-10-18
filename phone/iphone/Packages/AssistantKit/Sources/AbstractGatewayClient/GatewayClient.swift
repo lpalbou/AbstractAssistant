@@ -193,14 +193,15 @@ public actor LiveGatewayClient: GatewayClient {
     public func run(id: String) async throws -> RunSummary { try await get("api/gateway/runs/\(id)", as: RunSummary.self) }
 
     public func tools() async throws -> [ToolInfo] {
-        try await get("api/gateway/discovery/tools", as: ToolsPage.self).items
+        let page = try await get("api/gateway/discovery/tools", as: ToolsPage.self)
+        guard page.error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            throw GatewayError.http(status: 503, body: "{\"detail\":\"Your gateway’s tools could not be loaded. Try again before sending.\"}")
+        }
+        return page.items
     }
 
     public func startRun(prompt: String, sessionId: String?, toolPolicy: RunToolPolicy?) async throws -> String {
-        let preferences = try await get("api/gateway/accounts/me/preferences", as: JSONValue.self)
-        let body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, preferences: preferences)
-        let data = try await request("POST", "api/gateway/runs/start", body: body)
-        return try JSONDecoder().decode(StartRunResponse.self, from: data).runId
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: [], selection: nil, toolPolicy: toolPolicy)
     }
 
     /// Answers a wait. The run is re-read first: if it no longer waits on the same key, the wait
@@ -319,12 +320,7 @@ public actor LiveGatewayClient: GatewayClient {
         return try JSONDecoder().decode(JSONValue.self, from: data)
     }
     public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue]) async throws -> String {
-        var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: nil, preferences: try await accountPreferences())
-        if !attachments.isEmpty {
-            body.inputData.attachments = attachments
-            body.inputData.context = .object(["attachments": .array(attachments), "media": .array(attachments)])
-        }
-        return try JSONDecoder().decode(StartRunResponse.self, from: try await request("POST", "api/gateway/runs/start", body: body)).runId
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: nil, toolPolicy: nil)
     }
     public func automationDefaults() async throws -> Int? {
         struct Defaults: Decodable { var growing_max_tokens: Int }
@@ -377,12 +373,27 @@ public actor LiveGatewayClient: GatewayClient {
         return try JSONDecoder().decode(EntitySessionState.self, from: data)
     }
     public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String {
-        var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: tools?.policy, preferences: try await accountPreferences())
-        if let tools {
-            body.inputData.tools = tools.allowed
-            if body.inputData.runtime == nil { body.inputData.runtime = .init(toolPolicy: tools.policy) }
-            body.inputData.runtime?.allowedTools = tools.allowed
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: tools, toolPolicy: tools?.policy)
+    }
+    private func startAssistantRun(prompt: String, sessionId: String?, attachments: [JSONValue], selection: ConversationTools?, toolPolicy: RunToolPolicy?) async throws -> String {
+        var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, preferences: try await accountPreferences())
+        let inventory = try await tools()
+        let catalog = Dictionary(inventory.map { ($0.name, $0) }, uniquingKeysWith: { _, latest in latest })
+        let available = Set(catalog.values.filter(\.isAvailable).map(\.name))
+        let allowed: [String]
+        if let selection {
+            let current = ConversationTools(modes: selection.modes.filter { available.contains($0.key) })
+            allowed = current.allowed; body.inputData.runtime?.toolPolicy = current.policy
+        } else {
+            // Discovery approval defaults are not workflow Tools-pin defaults. Like the
+            // tray, supply the actual enabled list on every turn, including inheritance.
+            allowed = catalog.values.filter {
+                $0.isAvailable && !["off", "disabled"].contains($0.approvalDefault?.lowercased() ?? "")
+            }.map(\.name).sorted()
         }
+        body.inputData.tools = allowed
+        if body.inputData.runtime == nil { body.inputData.runtime = .init(toolPolicy: toolPolicy) }
+        body.inputData.runtime?.allowedTools = allowed
         if !attachments.isEmpty {
             body.inputData.attachments = attachments
             body.inputData.context = .object(["attachments": .array(attachments), "media": .array(attachments)])

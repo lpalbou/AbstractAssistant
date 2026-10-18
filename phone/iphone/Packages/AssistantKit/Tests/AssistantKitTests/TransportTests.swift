@@ -61,10 +61,13 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
     }
     @Test func attachmentsKeepOwnerAndReachTheAgentContext() async throws {
         let client = client()
-        WireStub.response = { request in request.httpMethod == "GET" ? (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#) : (200, #"{"run_id":"new-run"}"#) }
+        WireStub.response = { request in
+            if request.url!.path.hasSuffix("/discovery/tools") { return (200, #"{"items":[{"name":"read_file"}]}"#) }
+            return request.httpMethod == "GET" ? (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#) : (200, #"{"run_id":"new-run"}"#)
+        }
         let artifact = PhoneArtifact(artifactId: "photo", runId: "session_memory_original", filename: "photo.jpg", contentType: "image/jpeg")
         #expect(try await client.startRun(prompt: "Describe this", sessionId: "original", attachments: [artifact.ref]) == "new-run")
-        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[1])
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
         #expect(body["input_data"]?["attachments"] == .array([artifact.ref]))
         #expect(body["input_data"]?["context"]?["attachments"] == .array([artifact.ref]))
         #expect(body["input_data"]?["context"]?["media"] == .array([artifact.ref]))
@@ -109,6 +112,7 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
         let client = client()
         WireStub.response = { request in
             switch request.url!.path {
+            case "/api/gateway/discovery/tools": (200, #"{"items":[{"name":"read_file"},{"name":"send_email"},{"name":"execute_command"}]}"#)
             case "/api/gateway/accounts/me/preferences": (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#)
             case "/api/gateway/runs/start": (200, #"{"run_id":"new-run"}"#)
             default: (404, "{}")
@@ -117,14 +121,14 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
         let tools = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
         let file = PhoneArtifact(artifactId: "file", runId: "owner", filename: "a.txt", contentType: "text/plain")
         _ = try await client.startRun(prompt: "Review", sessionId: "s", attachments: [file.ref], tools: tools)
-        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[1])
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
         #expect(body["input_data"]?["tools"] == .array([.string("read_file"), .string("send_email")]))
         #expect(body["input_data"]?["_runtime"]?["allowed_tools"] == body["input_data"]?["tools"])
         #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["auto_approve_tools"] == .array([.string("read_file")]))
         #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["require_approval_tools"] == .array([.string("send_email")]))
         #expect(body["input_data"]?["attachments"] == .array([file.ref]))
         _ = try await client.startRun(prompt: "No tools", sessionId: "s", attachments: [], tools: .init(modes: [:]))
-        let empty = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[3])
+        let empty = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[5])
         #expect(empty["input_data"]?["tools"] == .array([]))
         #expect(empty["input_data"]?["_runtime"]?["allowed_tools"] == .array([]))
     }
@@ -168,24 +172,76 @@ private final class WireStub: URLProtocol, @unchecked Sendable {
         let client = client()
         WireStub.response = { request in
             switch request.url!.path {
-            case "/api/gateway/discovery/tools": (200, #"{"items":[{"name":"read_file","description":"Read a file","approval_default":"auto"}]}"#)
+            case "/api/gateway/discovery/tools": (200, #"{"items":[{"name":"read_file","description":"Read a file","approval_default":"auto"},{"name":"send_email","approval_default":"ask"}]}"#)
             case "/api/gateway/accounts/me/preferences": (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#)
             case "/api/gateway/runs/start": (200, #"{"run_id":"established-run"}"#)
             default: (404, "{}") // Includes the unnecessary capability probe.
             }
         }
-        #expect(try await client.tools().map(\.name) == ["read_file"])
+        #expect(try await client.tools().map(\.name) == ["read_file", "send_email"])
         let choices = ConversationTools(modes: ["read_file": .auto, "send_email": .approve, "execute_command": .off])
         #expect(try await client.startRun(prompt: "Hi", sessionId: "s", attachments: [], tools: choices) == "established-run")
-        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[3])
         #expect(body["input_data"]?["tools"] == .array([.string("read_file"), .string("send_email")]))
         #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["require_approval_tools"] == .array([.string("send_email")]))
-        #expect(WireStub.requests.map { $0.url!.path } == ["/api/gateway/discovery/tools", "/api/gateway/accounts/me/preferences", "/api/gateway/runs/start"])
+        #expect(WireStub.requests.map { $0.url!.path } == ["/api/gateway/discovery/tools", "/api/gateway/accounts/me/preferences", "/api/gateway/discovery/tools", "/api/gateway/runs/start"])
         _ = try await client.startRun(prompt: "Inherit", sessionId: "s", attachments: [], tools: nil)
-        let inherited = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[4])
-        #expect(inherited["input_data"]?["tools"] == nil)
-        #expect(inherited["input_data"]?["_runtime"]?["allowed_tools"] == nil)
+        let inherited = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[6])
+        #expect(inherited["input_data"]?["tools"] == .array([.string("read_file"), .string("send_email")]))
+        #expect(inherited["input_data"]?["_runtime"]?["allowed_tools"] == inherited["input_data"]?["tools"])
+        #expect(inherited["input_data"]?["_runtime"]?["tool_policy"] == nil)
     }
+    @Test(arguments: [0, 1, 2]) func everyAssistantStartSuppliesInheritedToolsWithoutChangingApprovalDefaults(overload: Int) async throws {
+        let client = client()
+        WireStub.response = { request in
+            switch request.url!.path {
+            case "/api/gateway/accounts/me/preferences": (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#)
+            case "/api/gateway/discovery/tools": (200, #"{"items":[{"name":"read_file","approval_default":"auto"},{"name":"send_email","approval_default":"ask"},{"name":"unknown_default"},{"name":"off_by_default","approval_default":"off"},{"name":"host_disabled","enabled":false},{"name":"unavailable","available":false}]}"#)
+            case "/api/gateway/runs/start": (200, #"{"run_id":"inherited"}"#)
+            default: (404, "{}")
+            }
+        }
+        switch overload {
+        case 0: _ = try await client.startRun(prompt: "Use tools", sessionId: "s", toolPolicy: nil)
+        case 1: _ = try await client.startRun(prompt: "Use tools", sessionId: "s", attachments: [])
+        default: _ = try await client.startRun(prompt: "Use tools", sessionId: "s", attachments: [], tools: nil)
+        }
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
+        let expected: JSONValue = .array([.string("read_file"), .string("send_email"), .string("unknown_default")])
+        #expect(body["input_data"]?["tools"] == expected)
+        #expect(body["input_data"]?["_runtime"]?["allowed_tools"] == expected)
+        #expect(body["input_data"]?["_runtime"]?["tool_policy"] == nil)
+        #expect(WireStub.requests.count == 3 && WireStub.requests.last?.httpMethod == "POST")
+    }
+
+    @Test func savedChoicesCannotOfferToolsThatTheGatewayDisabledSinceTheyWereSaved() async throws {
+        let client = client()
+        WireStub.response = { request in
+            switch request.url!.path {
+            case "/api/gateway/accounts/me/preferences": (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#)
+            case "/api/gateway/discovery/tools": (200, #"{"items":[{"name":"read_file"},{"name":"send_email","enabled":false},{"name":"execute_command"}]}"#)
+            case "/api/gateway/runs/start": (200, #"{"run_id":"restricted"}"#)
+            default: (404, "{}")
+            }
+        }
+        let saved = ConversationTools(modes: ["read_file": .approve, "send_email": .auto, "execute_command": .off, "removed_tool": .auto])
+        _ = try await client.startRun(prompt: "Use tools", sessionId: "s", attachments: [], tools: saved)
+        let body = try JSONDecoder().decode(JSONValue.self, from: WireStub.bodies[2])
+        #expect(body["input_data"]?["tools"] == .array([.string("read_file")]))
+        #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["auto_approve_tools"] == .array([]))
+        #expect(body["input_data"]?["_runtime"]?["tool_policy"]?["require_approval_tools"] == .array([.string("read_file")]))
+    }
+
+    @Test(arguments: [404, 403, 503, 200]) func failedDiscoveryNeverStartsAnApparentlyToolFreeAssistant(status: Int) async throws {
+        let client = client()
+        WireStub.response = { request in
+            if request.url!.path.hasSuffix("/preferences") { return (200, #"{"apps":[{"interface":"abstractassistant.agent.v1","value":null,"effective":{"available":true}}]}"#) }
+            return (status, #"{"items":[],"error":"tool registry unavailable"}"#)
+        }
+        await #expect(throws: GatewayError.self) { try await client.startRun(prompt: "Use tools", sessionId: "s", attachments: [], tools: nil) }
+        #expect(WireStub.requests.count == 2 && WireStub.requests.allSatisfy { $0.httpMethod == "GET" })
+    }
+
     @Test func entityToolDiscoveryFailureNeverSendsAPolicyThroughLegacyVisitOpen() async throws {
         for status in [404, 403] {
             let client = client(); WireStub.response = { _ in (status, "{}") }

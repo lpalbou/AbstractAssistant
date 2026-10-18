@@ -7,7 +7,9 @@ Assistant tool discovery and run submission use the established desktop contract
 The phone no longer calls or requires `/tool-policy/capabilities`.
 Explicit choices preserve enabled names in `tools` and `_runtime.allowed_tools`,
 and approval lists in `_runtime.tool_policy`. Empty enabled lists deny all tools;
-omission inherits defaults. Attachments remain in the same request.
+omission of approval policy inherits defaults. Version 0.6.5 additionally resolves
+the inherited enabled set from discovery; see the [workflow regression](inherited-tools-review.md).
+Attachments remain in the same request.
 
 Entity session-local approvals add behavior absent from the older entity APIs.
 Gateway commit `fd57f04e` exposes it through existing visit open/close routes.

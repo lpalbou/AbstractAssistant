@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.4 · iOS 26+**
+**Developer preview · 0.6.5 · iOS 26+**
 
 ## Three small spaces
 
@@ -82,8 +82,8 @@ the latest 100 session artifacts; older files remain on the gateway.
 
 ## Conversation tools and answer statistics
 
-Open **Settings → Conversation tools** or **More options (…) → Tools**. Gateway defaults are inherited
-until you choose explicit modes. Tools are grouped into expandable categories reported by
+Open **Settings → Conversation tools** or **More options (…) → Tools**. With gateway defaults,
+available gateway tools are enabled and approval follows the gateway's policy. Tools are grouped into expandable categories reported by
 your gateway. Search by category, tool name or description. Turn off **Use gateway defaults**
 to set each available tool:
 
@@ -95,6 +95,8 @@ Choices are saved on this iPhone for the signed-in gateway account, responder an
 to subsequent messages; starting a new conversation restores inheritance. A tool choice
 cannot grant a capability that the gateway or entity does not offer. Tools disabled by the
 gateway show its reason and remain Off. Unreported categories appear under **Other**.
+The app refreshes availability when sending, so disabled or removed tools are not offered
+to the agent. If tools cannot be loaded, the app reports the problem before starting the agent.
 
 In **Settings**, enable **Show answer statistics** for a small line below AI answers:
 elapsed wall time, input/output tokens and executed tool calls. It is off by default.

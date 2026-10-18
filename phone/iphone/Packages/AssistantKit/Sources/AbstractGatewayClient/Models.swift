@@ -702,7 +702,7 @@ public struct ToolInfo: Decodable, Sendable, Hashable {
     }
 }
 
-struct ToolsPage: Decodable { let items: [ToolInfo] }
+struct ToolsPage: Decodable { let items: [ToolInfo]; var error: String? = nil }
 
 public struct StartRunRequest: Encodable, Sendable {
     public struct InputData: Encodable, Sendable {

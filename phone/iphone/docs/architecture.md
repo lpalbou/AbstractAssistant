@@ -171,7 +171,11 @@ catalog workflows unsupported by automations v1 remain a gateway validation erro
 `ConversationTools` is an explicit whitelist with Off, Auto and Approve modes. Assistant
 turns carry the same enabled names in `input_data.tools` and `_runtime.allowed_tools`,
 plus named `auto_approve_tools` and `require_approval_tools` in `_runtime.tool_policy`.
-An empty list denies every tool; omitted policy inherits gateway defaults. Attachments and
+An empty list denies every tool. Inherited selection resolves enabled names from fresh gateway
+discovery on every Assistant send, matching the desktop client; it is independent of the selected
+workflow's Tools-pin defaults. The approval policy remains omitted when inheriting, leaving
+approval decisions to the gateway. Explicit choices are intersected with current availability,
+including their named approval lists. Discovery errors prevent run creation. Attachments and
 policy travel in the same start request. This is the established desktop Assistant contract;
 no additional tool-policy capability endpoint is required. Preferences use gateway/account,
 responder and session keys. A compatibility client cannot silently discard an explicit policy.
