@@ -56,8 +56,8 @@ struct Orb: View {
     var mode: Mode
     var size: CGFloat = 84
     var fps: Double = 30
-    /// Listening and speaking: the loudness now, 0…1.
-    var level: (@MainActor () -> Double)? = nil
+    /// Listening and speaking: the voice now (loudness in its own range, and its spectrum), at time t.
+    var voice: (@MainActor (Double) -> VoiceFeatures)? = nil
     /// Listening: 0…1 progress of the silence that sends.
     var countdown: (@MainActor () -> Double)? = nil
     var since: Date? = nil
@@ -74,7 +74,7 @@ struct Orb: View {
         TimelineView(.animation(minimumInterval: 1 / rate)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let voiced = mode == .listening || mode == .speaking
-            let _ = engine.step(t: t, level: voiced ? (level?() ?? 0) : 0, engaged: voiced, thinking: mode == .thinking)
+            let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking)
             OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0)
                 .frame(width: size, height: size)
         }
@@ -101,26 +101,33 @@ final class OrbEngine {
     private(set) var swirl: Double = 0
     private(set) var loud: Double = 0
     /// How strongly the voice pulls the cloud, 0…1: the engagement times a loudness that rises in
-    /// ~120 ms and falls over ~600 ms (so the drawn-in points do not flicker between syllables).
+    /// ~60 ms and falls over ~250 ms (it follows syllables without flickering within one).
     private(set) var signal: Double = 0
+    /// The voice's spectrum now (8 bands, 100 Hz–6 kHz), each smoothed over a syllable's attack.
+    private(set) var bands = [Double](repeating: 0, count: VoiceFeatures.bandCount)
     private var slow: Double = 0
     private var eLin: Double = 0
     private var tLin: Double = 0
     private var lastT: Double = 0
 
     @discardableResult
-    func step(t: Double, level: Double, engaged: Bool, thinking isThinking: Bool) -> Bool {
+    func step(t: Double, voice: VoiceFeatures, engaged: Bool, thinking isThinking: Bool) -> Bool {
         let dt = lastT == 0 ? 0 : min(0.2, max(0, t - lastT))
         lastT = t
-        let tau = level > loud ? 0.045 : 0.2
+        let level = voice.level
+        let tau = level > loud ? 0.025 : 0.09
         if dt > 0 { loud += (level - loud) * (1 - exp(-dt / tau)) } else { loud = level }
+        for i in bands.indices {
+            let v = i < voice.bands.count ? voice.bands[i] : 0
+            bands[i] += (v - bands[i]) * (dt > 0 ? 1 - exp(-dt / (v > bands[i] ? 0.03 : 0.12)) : 1)
+        }
         history.push(loud, at: t)
         eLin = min(1, max(0, eLin + (engaged ? dt / 0.6 : -dt / 1.0)))
         engagement = eLin * eLin * (3 - 2 * eLin)
         tLin = min(1, max(0, tLin + (isThinking ? dt / 0.5 : -dt / 0.8)))
         thinking = tLin * tLin * (3 - 2 * tLin)
-        if dt > 0 { slow += (loud - slow) * (1 - exp(-dt / (loud > slow ? 0.12 : 0.6))) } else { slow = loud }
-        signal = engagement * (0.12 + 0.88 * min(1, slow * 1.3))
+        if dt > 0 { slow += (loud - slow) * (1 - exp(-dt / (loud > slow ? 0.06 : 0.25))) } else { slow = loud }
+        signal = engagement * (0.12 + 0.88 * min(1, slow))
         swirl += dt * engagement * (0.2 + 1.4 * loud)
         return true
     }
@@ -154,6 +161,9 @@ struct OrbCanvas: View {
         let cx = Double(box.width) / 2, cy = Double(box.height) / 2
         let R = half * 0.46                    // the planet; at full voice the outer points reach the frame
         let e = engine.engagement, th = engine.thinking, hist = engine.history, now = engine.loud
+        let spectrum = VoiceFeatures(level: now, bands: engine.bands)
+        /// The voice's spectrum at 0…1 across its bands (low → high pitch).
+        func band(_ x: Double) -> Double { spectrum.band(at: x) }
         // The turn: the planet spins on a 23° tilted axis (one turn ≈ 50 s, 4× while thinking);
         // a kitty or a face turns its head gently instead; the wave is seen from a fixed pitch.
         let spinning = look.shape == .planet
@@ -201,18 +211,21 @@ struct OrbCanvas: View {
                     let r = max(1e-3, (sx * sx + sy * sy).squareRoot())
                     var tx = sx, ty = sy, glow = 0.0
                     switch design {
-                    case .a:   // Halo: a radial histogram, mirrored around the vertical (no seam)
-                        let lh = hist.value(secondsAgo: abs(atan2(sx, -sy)) / .pi * 1.0)
-                        let d = 0.35 + 1.0 * lh * (0.3 + 0.7 * p.reach)
-                        tx += sx / r * d; ty += sy / r * d; glow = 0.8 * lh
+                    case .a:   // Halo: the voice's spectrum around the circle (low pitches at the top),
+                               // mirrored around the vertical (no seam), with its last second as a trail
+                        let ang = abs(atan2(sx, -sy)) / .pi
+                        let lh = hist.value(secondsAgo: ang * 1.0)
+                        let v = min(1.2, 0.4 * lh + 0.8 * band(ang))
+                        let d = 0.35 + 1.0 * v * (0.3 + 0.7 * p.reach)
+                        tx += sx / r * d; ty += sy / r * d; glow = 0.8 * v
                     case .b:   // Vortex: arms leave the planet's edge; what reaches further trails further around
-                        let lh = hist.value(secondsAgo: (1 - min(1, r)) * 0.6)
+                        let lh = 0.5 * hist.value(secondsAgo: (1 - min(1, r)) * 0.6) + 0.6 * band(abs(atan2(sy, sx)) / .pi)
                         let ext = (0.25 + 0.9 * lh) * p.reach
                         let rr = 0.85 + 0.25 * r + ext
                         let na = atan2(sy, sx) + ext * 3.2 + swirlBase * 0.5 * p.reach
                         tx = cos(na) * rr; ty = sin(na) * rr; glow = 0.6 * lh
                     case .c:   // Nebula: breathes outward, turbulent with loudness
-                        let lh = hist.value(secondsAgo: 0.15 + 0.25 * p.reach)
+                        let lh = 0.5 * hist.value(secondsAgo: 0.15 + 0.25 * p.reach) + 0.6 * band(Double(p.band % 8) / 7)
                         let push = (0.35 + 0.9 * lh) * p.reach
                         let amp = 0.08 + 0.3 * now
                         tx += sx * push + amp * sin(p.x * 4.1 + t * 1.3 + p.phase)
@@ -220,7 +233,7 @@ struct OrbCanvas: View {
                         glow = 0.5 * lh
                     case .d:   // Rings: three tilted orbits that pulse
                         let ring = p.band % 3
-                        let lh = hist.value(secondsAgo: Double(ring) * 0.3)
+                        let lh = 0.5 * hist.value(secondsAgo: Double(ring) * 0.3) + 0.6 * band(Double(ring) / 2)
                         let rr = 1.15 + 0.15 * Double(ring) + 0.4 * lh + 0.05 * (p.dither - 0.5)
                         let a = p.phase + swirlBase * (0.8 + 0.3 * Double(ring)) * (ring == 1 ? -1 : 1) + t * 0.15
                         tx = cos(a) * rr; ty = sin(a) * rr * cos(Self.ringTilt[ring]) * 0.35 + 0.02 * (p.reach - 0.5)
@@ -229,12 +242,13 @@ struct OrbCanvas: View {
                         let a = atan2(sy, sx)
                         var wv = 0.0
                         for k in 1...3 {
-                            wv += hist.value(secondsAgo: Double(k) * 0.15) * sin(Double(k + 2) * a + Double(k) * t * 0.9) / Double(k)
+                            let amp = 0.4 * hist.value(secondsAgo: Double(k) * 0.15) + 0.8 * band(Double(k - 1) / 2)
+                            wv += amp * sin(Double(k + 2) * a + Double(k) * t * 0.9) / Double(k)
                         }
                         let d = 0.3 + 1.0 * wv * p.reach + 0.4 * now
                         tx += sx * d; ty += sy * d; glow = 0.6 * now
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
-                        let lh = hist.value(secondsAgo: 0.1 + 0.4 * p.reach)
+                        let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)
                         let v = (p.reach - 0.45) / 0.55                         // 0…1, the star's own chance
                         var gr: Double, ga: Double
                         if p.band == 0 {
@@ -274,8 +288,9 @@ struct OrbCanvas: View {
                 let a = (atan2(x, -y) + .pi) / (2 * .pi)
                 bright *= 1 - 0.8 * (1 - smoothstep(countdown - 0.03, countdown + 0.03, a)) * smoothstep(0.8, 1.0, r)
             }
-            // Never off screen: beyond 80% of the frame's half a point slows smoothly toward 97%.
-            let lim = half * 0.97 / R, knee = half * 0.8 / R
+            // Never off screen: beyond 74% of the frame's half a point slows smoothly toward 89%
+            // (the voice's reach, 8% under the frame's edge; the resting planet is unchanged).
+            let lim = half * 0.97 * 0.92 / R, knee = half * 0.8 * 0.92 / R
             let rr = (x * x + y * y).squareRoot()
             if rr > knee {
                 let soft = knee + (lim - knee) * (1 - exp(-(rr - knee) / (lim - knee)))

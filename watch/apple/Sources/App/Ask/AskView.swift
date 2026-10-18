@@ -67,7 +67,7 @@ struct AskView: View {
                     VStack(spacing: 6) {
                         // The orb fills the screen, centred in what is visible; everything else is below.
                         ScreenCentered(width: geo.size.width) { side in
-                            Orb(mode: orbMode, size: side, level: orbLevel, countdown: orbCountdown, since: listenSince, look: orbLook)
+                            Orb(mode: orbMode, size: side, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook)
                                 .contentShape(BelowTopRow())
                                 .onTapGesture(perform: orbTapped)
                                 // Hold: talk now, even while it speaks or is paused (cut in).
@@ -258,9 +258,9 @@ struct AskView: View {
         }
     }
 
-    private var orbLevel: (@MainActor () -> Double)? {
-        if phase == .listening, listener.isListening { return { listener.currentLevel() } }
-        if speaker.state == .speaking { return { speaker.level() } }
+    private var orbVoice: (@MainActor (Double) -> VoiceFeatures)? {
+        if phase == .listening, listener.isListening { return { listener.features(at: $0) } }
+        if speaker.state == .speaking { return { speaker.features(at: $0) } }
         return nil
     }
 

@@ -73,6 +73,13 @@ channel (TestFlight, then the App Store); the Python package's history is in
   top row never reaches the orb, even with the page scrolled (a tap just beside an icon used to
   start listening). At rest, the orb page says "Tap to talk" again.
 
+- **The orb follows the voice itself**, yours and the Assistant's: its loudness within the
+  voice's own range (a syllable reaches full strength, a pause falls back) and its spectrum in 8
+  bands from low to high pitches. Each orb style draws the spectrum (the Halo: each angle is a band,
+  low pitches at the top). The orb reaches 8% less far at full voice; its size at rest is unchanged.
+- An automation's page shows its latest result in full once it is read, with a spinner meanwhile
+  (never the shortened preview first), and says so with Retry if it cannot be read.
+
 ### Fixed
 
 - **The voice no longer stops after its first words.** The gateway sends the first two or three

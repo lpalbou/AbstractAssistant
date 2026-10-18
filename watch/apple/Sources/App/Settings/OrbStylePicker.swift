@@ -13,13 +13,13 @@ struct OrbStylePicker: View {
 
     var body: some View {
         let v = voice
-        let level: (@MainActor () -> Double)? = { @MainActor in v.level() }
+        let level: (@MainActor (Double) -> VoiceFeatures)? = { @MainActor _ in v.features() }
         TabView(selection: $page) {
             ForEach(OrbDesign.allCases) { d in
                 GeometryReader { geo in
                     // The orb takes the free space, its name under it; the choice is at the bottom.
                     VStack(spacing: 2) {
-                        Orb(mode: .listening, size: max(80, min(geo.size.width, geo.size.height - 66)), level: level, design: d)
+                        Orb(mode: .listening, size: max(80, min(geo.size.width, geo.size.height - 66)), voice: level, design: d)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         Text(d.name).font(.rounded(.headline, weight: .bold)).foregroundStyle(Theme.text)
                             .accessibilityHint(d.summary)
@@ -64,5 +64,17 @@ final class SyntheticVoice: @unchecked Sendable {
         let syllable = pow(max(0, sin(t * 2 * .pi * 4.4)), 0.7)
         let accent = 0.55 + 0.45 * sin(t * 1.7) * sin(t * 0.9 + 1)
         return max(0, min(1, envelope * syllable * accent))
+    }
+
+    /// The same speech with a spectrum: vowels move two formant peaks across the bands.
+    func features() -> VoiceFeatures {
+        let l = level()
+        let t = Date().timeIntervalSince(start)
+        let f1 = 1.5 + 1.2 * sin(t * 2.3), f2 = 4.5 + 1.5 * sin(t * 1.7 + 1)
+        let bands = (0..<VoiceFeatures.bandCount).map { i -> Double in
+            let x = Double(i)
+            return l * min(1, exp(-pow(x - f1, 2) / 1.2) + 0.7 * exp(-pow(x - f2, 2) / 1.5))
+        }
+        return VoiceFeatures(level: l, bands: bands)
     }
 }

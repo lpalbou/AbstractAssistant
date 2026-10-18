@@ -33,3 +33,28 @@ final class LiveHistoryUITests: XCTestCase {
         XCTAssertTrue(found, "the oldest question never showed (\(taps) Show older taps, \(swipes) swipes)")
     }
 }
+
+/// What a real conversation shows while it opens, frame by frame (screenshots every 0.5 s to
+/// SHOTS_DIR, plus the text of the last message each time): a message must appear once, whole.
+final class LiveOpeningUITests: XCTestCase {
+    func testWhatShowsWhileAConversationOpens() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let url = env["LIVE_GW_URL"], let token = env["LIVE_GW_TOKEN"], let session = env["LIVE_SESSION"],
+              let dir = env["SHOTS_DIR"] else { throw XCTSkip("live only") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--no-notification-prompt", "--gateway", url, "--token", token, "--test-session", session]
+        app.launch()
+        var log: [String] = []
+        let t0 = Date()
+        var swiped = false
+        while Date().timeIntervalSince(t0) < 20 {
+            let t = Date().timeIntervalSince(t0)
+            if !swiped && app.buttons["Share"].exists { app.swipeUp(); swiped = true }
+            let texts = app.staticTexts.allElementsBoundByIndex.prefix(12).map { "\($0.label.count):\($0.label.prefix(50))" }
+            log.append(String(format: "%.1f s ", t) + texts.joined(separator: " | "))
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(String(format: "open-%04.1f.png", t)))
+            usleep(500_000)
+        }
+        try? log.joined(separator: "\n").write(to: URL(fileURLWithPath: dir).appendingPathComponent("opening.txt"), atomically: true, encoding: .utf8)
+    }
+}

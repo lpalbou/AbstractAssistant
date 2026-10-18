@@ -2,9 +2,10 @@
 import SwiftUI
 import WatchKit
 
-/// The microphone, for Ask: records 16 kHz mono WAV with metering, tells speech from the room's
-/// noise floor, and ends by itself `silenceToSend` seconds after the person stops speaking (or after
-/// `waitForSpeech` seconds when nothing was ever heard).
+/// The microphone, for Ask: records 16 kHz mono WAV, analyses the voice as it comes (loudness and
+/// spectrum, for the orb), tells speech from the room's noise floor, and ends by itself
+/// `silenceToSend` seconds after the person stops speaking (or after `waitForSpeech` seconds when
+/// nothing was ever heard).
 @MainActor
 final class Listener: ObservableObject {
     enum Outcome { case speech(Data), nothingHeard, failed(String) }
@@ -18,10 +19,10 @@ final class Listener: ObservableObject {
     @Published private(set) var isListening = false
     @Published private(set) var heardSpeech = false
 
-    private var recorder: AVAudioRecorder?
+    private var tap: MicTap?
+    private let normalizer = VoiceNormalizer()
     private var loop: Task<Void, Never>?
     private var finish: ((Outcome) -> Void)?
-    private var level: Double = 0
     private var floorDB: Double = -50
     private var startedAt = Date()
     /// Bumped by every start/stop: a setup that finishes after Cancel or Back never records.
@@ -29,8 +30,18 @@ final class Listener: ObservableObject {
     private var lastSpeech = Date()
     private let url = FileManager.default.temporaryDirectory.appending(path: "ask.wav")
 
-    /// 0…1 loudness of what the microphone hears, smoothed; read by the orb every frame.
-    func currentLevel() -> Double { level }
+    /// What the orb follows: the microphone's latest frame, scaled to the voice's recent range.
+    func features(at t: Double) -> VoiceFeatures {
+        guard isListening, let frame = tap?.latest else { return normalizer.push(.silent, at: t) }
+        let f = normalizer.push(frame, at: t)
+        #if DEBUG
+        peakLevel = max(peakLevel, f.level)
+        #endif
+        return f
+    }
+    #if DEBUG
+    private var peakLevel = 0.0
+    #endif
 
     /// 0 while you speak, rising to 1 over the silence that sends (the orb draws it as a countdown).
     func sendProgress() -> Double {
@@ -54,14 +65,8 @@ final class Listener: ObservableObject {
                 let session = AVAudioSession.sharedInstance()
                 try session.setCategory(.record, mode: .default, options: [])
                 try session.setActive(true)
-                let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000,
-                                               AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
-                                               AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
-                let r = try AVAudioRecorder(url: url, settings: settings)
-                r.isMeteringEnabled = true
-                guard r.record() else { throw CocoaError(.fileWriteUnknown) }
-                recorder = r
-                isListening = true; heardSpeech = false; level = 0; floorDB = -50
+                tap = try MicTap(writingTo: url)
+                isListening = true; heardSpeech = false; floorDB = -50
                 RuntimeKeeper.shared.hold("listen")
                 WKInterfaceDevice.current().play(.start)       // the microphone is open
                 startedAt = Date(); lastSpeech = Date()
@@ -85,16 +90,13 @@ final class Listener: ObservableObject {
     func cancel() { stop(deliver: false) }
 
     private func tick() {
-        guard let recorder, recorder.isRecording else { return }
-        recorder.updateMeters()
-        let db = Double(recorder.averagePower(forChannel: 0))
+        guard let frame = tap?.latest else { return }
+        let db = Double(frame.db)
         let elapsed = Date().timeIntervalSince(startedAt)
         // The first half second sets the room's floor; it then follows the quietest moments slowly.
         if elapsed < 0.5 { floorDB = min(floorDB == -50 ? db : floorDB, db) }
         else if db < floorDB { floorDB = 0.9 * floorDB + 0.1 * db }
         let speaking = elapsed > 0.5 && db > max(floorDB + 12, -48)
-        let linear = max(0, min(1, (db - floorDB - 4) / 30))
-        level = linear > level ? 0.6 * linear + 0.4 * level : 0.3 * linear + 0.7 * level
         if speaking {
             if !heardSpeech { heardSpeech = true }
             lastSpeech = Date()
@@ -106,8 +108,11 @@ final class Listener: ObservableObject {
     private func end() {
         guard isListening else { return }
         let spoke = heardSpeech
-        recorder?.stop()
+        tap?.stop(); tap = nil                    // closes the file (its WAV header is written then)
         let data = spoke ? (try? Data(contentsOf: url)) : nil
+        #if DEBUG
+        print("listener: \(spoke ? "speech" : "nothing heard"), wav \(data?.count ?? 0) bytes, peak features level \(String(format: "%.2f", peakLevel))")
+        #endif
         stop(deliver: false, keepCallback: true)
         if let data, data.count > 44 { deliver(.speech(data)) } else { deliver(.nothingHeard) }
     }
@@ -115,9 +120,8 @@ final class Listener: ObservableObject {
     private func stop(deliver shouldDeliver: Bool, keepCallback: Bool = false) {
         generation += 1
         loop?.cancel(); loop = nil
-        recorder?.stop(); recorder = nil
+        tap?.stop(); tap = nil
         if isListening { isListening = false }
-        level = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         RuntimeKeeper.shared.release("listen")
         if !shouldDeliver && !keepCallback { finish = nil }
@@ -126,5 +130,61 @@ final class Listener: ObservableObject {
     private func deliver(_ outcome: Outcome) {
         let f = finish; finish = nil
         f?(outcome)
+    }
+}
+
+/// The microphone through AVAudioEngine: each buffer is analysed (the latest frame is kept for the
+/// listener's speech detection and the orb) and written as 16 kHz mono 16-bit WAV for transcription.
+/// The tap runs on the audio thread; `latest` is read from the main actor under a lock.
+final class MicTap: @unchecked Sendable {
+    private let engine = AVAudioEngine()
+    private var file: AVAudioFile?
+    private let converter: AVAudioConverter
+    private let outFormat: AVAudioFormat
+    private let analyzer: VoiceAnalyzer
+    private let lock = NSLock()
+    private var frame: VoiceFrame?
+
+    var latest: VoiceFrame? { lock.withLock { frame } }
+
+    init(writingTo url: URL) throws {
+        let input = engine.inputNode
+        let inFormat = input.outputFormat(forBus: 0)
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0,
+              let out = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true),
+              let conv = AVAudioConverter(from: inFormat, to: out) else { throw CocoaError(.fileWriteUnknown) }
+        outFormat = out
+        converter = conv
+        analyzer = VoiceAnalyzer(sampleRate: inFormat.sampleRate)
+        try? FileManager.default.removeItem(at: url)
+        file = try AVAudioFile(forWriting: url, settings: out.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(analyzer.size), format: inFormat) { [weak self] buffer, _ in
+            self?.take(buffer)
+        }
+        engine.prepare()
+        try engine.start()
+    }
+
+    private func take(_ buffer: AVAudioPCMBuffer) {
+        if let ch = buffer.floatChannelData?[0] {
+            let n = Int(buffer.frameLength)
+            let f = analyzer.analyze(Array(UnsafeBufferPointer(start: ch, count: n))[...])
+            lock.withLock { frame = f }
+        }
+        let ratio = outFormat.sampleRate / buffer.format.sampleRate
+        guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32) else { return }
+        var fed = false
+        var error: NSError?
+        converter.convert(to: out, error: &error) { _, status in
+            if fed { status.pointee = .noDataNow; return nil }
+            fed = true; status.pointee = .haveData; return buffer
+        }
+        if error == nil, out.frameLength > 0 { lock.withLock { try? file?.write(from: out) } }
+    }
+
+    func stop() {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        lock.withLock { file = nil }
     }
 }

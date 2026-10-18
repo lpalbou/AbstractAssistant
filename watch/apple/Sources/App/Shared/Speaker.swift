@@ -3,9 +3,12 @@ import AbstractGatewayClient
 import SwiftUI
 
 /// Reads a text aloud with the gateway's voice: the speech stream's WAV chunks play back to back
-/// through one AVAudioPlayer at a time, metered so the orb can follow the voice.
+/// through one AVAudioPlayer at a time; each chunk is analysed (loudness and spectrum) so the orb
+/// follows the voice exactly where it plays.
 @MainActor
 final class Speaker: NSObject, ObservableObject {
+    typealias Chunk = (data: Data, duration: Double, frames: [VoiceFrame])
+
     enum State: Equatable { case idle, preparing, speaking, paused, finished, failed(String) }
 
     @Published private(set) var state: State = .idle
@@ -13,7 +16,8 @@ final class Speaker: NSObject, ObservableObject {
     @Published private(set) var receivedSeconds: Double = 0
     @Published private(set) var playedSeconds: Double = 0
 
-    private var queue: [(data: Data, duration: Double)] = []
+    /// Chunks to play, each with its analysis for the orb (made when it arrives, off the main thread).
+    private var queue: [Chunk] = []
     /// Playback waits until this much speech is queued (or the stream is done): a gateway voice
     /// before abstractvoice 0.15.1 sends two words first (1.3 s, "Ah oui,") and the rest seconds
     /// later, so starting on that piece alone breaks the voice after it; from 0.15.1 the first piece
@@ -22,21 +26,22 @@ final class Speaker: NSObject, ObservableObject {
     private static let startBuffer = 1.5, refillBuffer = 2.0
     private var refilling = false
     /// Chunks already spoken, in order (rewind reaches back into them), and the one playing now.
-    private var history: [(data: Data, duration: Double)] = []
+    private var history: [Chunk] = []
     private var currentData: Data?
+    /// The chunk playing, analysed (60 frames per second of audio) for the orb.
+    private var frames: [VoiceFrame] = []
+    private let normalizer = VoiceNormalizer()
     /// Where the next chunk starts (a rewind into the middle of an earlier chunk).
     private var startAt: TimeInterval = 0
     private var player: AVAudioPlayer?
     private var streamDone = false
     private var task: Task<Void, Never>?
-    private var smoothed: Double = 0
     /// This speaker's keep-awake hold (one per speaker: two screens never release each other's).
     private let holder = "speak-" + UUID().uuidString
     /// The one voice playing: starting another stops it.
     private static weak var current: Speaker?
     /// The stream broke after some audio: once what arrived has played, the reading says so.
     private var streamError: String?
-    private var peak: Double = 0
 
     private func trace(_ s: String) {
         #if DEBUG
@@ -110,8 +115,9 @@ final class Speaker: NSObject, ObservableObject {
                 // One request per piece, in order: piece n+1 is synthesized while piece n plays.
                 for piece in pieces {
                     for try await wav in client.speech(text: piece, scope: scope, voice: VoicePrefs.voice(for: scope)) {
+                        let frames = await Task.detached(priority: .userInitiated) { VoiceAnalyzer.frames(ofWAV: wav) }.value
                         guard let self, !Task.isCancelled else { return }
-                        self.enqueue(wav)
+                        self.enqueue(wav, frames: frames)
                     }
                     guard !Task.isCancelled else { return }
                 }
@@ -152,7 +158,7 @@ final class Speaker: NSObject, ObservableObject {
             if p.currentTime >= back { p.currentTime -= back; trace("rewound within the chunk"); return }
             back -= p.currentTime
             p.stop(); player = nil
-            if let d = currentData { queue.insert((d, p.duration), at: 0) }
+            if let d = currentData { queue.insert((d, p.duration, frames), at: 0) }
         }
         currentData = nil
         var offset: Double = 0
@@ -188,20 +194,17 @@ final class Speaker: NSObject, ObservableObject {
     /// Seconds spoken so far, inside the current sentence too.
     func position() -> Double { playedSeconds + (player?.currentTime ?? 0) }
 
-    /// 0…1 loudness of what is playing now, smoothed; called by the orb every frame.
-    func level() -> Double {
-        guard let player, player.isPlaying else { smoothed *= 0.85; return smoothed }
-        player.updateMeters()
-        let db = Double(player.averagePower(forChannel: 0))          // -160…0 dBFS
-        let linear = max(0, min(1, (db + 42) / 38))
-        peak = max(peak, linear)
-        smoothed = linear > smoothed ? 0.55 * linear + 0.45 * smoothed : 0.25 * linear + 0.75 * smoothed
-        return smoothed
+    /// What the orb follows: the analysed frame of the chunk at the player's position (exact, at any
+    /// speed), scaled to the voice's recent range; silence while nothing plays.
+    func features(at t: Double) -> VoiceFeatures {
+        guard let player, player.isPlaying, !frames.isEmpty else { return normalizer.push(.silent, at: t) }
+        let i = max(0, min(frames.count - 1, Int(player.currentTime * 60)))
+        return normalizer.push(frames[i], at: t)
     }
 
-    private func enqueue(_ wav: Data) {
+    private func enqueue(_ wav: Data, frames: [VoiceFrame]) {
         let duration = (try? AVAudioPlayer(data: wav))?.duration ?? 0
-        queue.append((wav, duration))
+        queue.append((wav, duration, frames))
         receivedSeconds += duration
         trace("chunk \(wav.count) bytes, received \(String(format: "%.1f", receivedSeconds)) s")
         advanceIfIdle()
@@ -230,16 +233,17 @@ final class Speaker: NSObject, ObservableObject {
 
     /// The next chunk in the player (at `startAt`), playing or held for `resume()`.
     private func loadNext(play: Bool) {
-        let next = queue.removeFirst().data
+        let chunk = queue.removeFirst()
+        let next = chunk.data
         do {
             let p = try AVAudioPlayer(data: next)
-            p.isMeteringEnabled = true
             p.delegate = self
             p.enableRate = true                           // the speed chosen in Settings → Voice
             p.rate = Float(VoicePrefs.speed)
             p.prepareToPlay()
             if startAt > 0 { p.currentTime = min(startAt, max(0, p.duration - 0.05)); startAt = 0 }
             currentData = next
+            frames = chunk.frames
             player = p
             guard play else { return }
             guard p.play() else { throw GatewayError.invalidResponse }
@@ -254,10 +258,9 @@ final class Speaker: NSObject, ObservableObject {
     fileprivate func finishedChunk(_ p: AVAudioPlayer) {
         guard p === player else { return }
         playedSeconds += p.duration
-        if let d = currentData { history.append((d, p.duration)) }
+        if let d = currentData { history.append((d, p.duration, frames)) }
         currentData = nil
-        trace("finished chunk, played \(String(format: "%.1f", playedSeconds)) s, peak level \(String(format: "%.2f", peak))")
-        peak = 0
+        trace("finished chunk, played \(String(format: "%.1f", playedSeconds)) s")
         player = nil
         advanceIfIdle()
     }

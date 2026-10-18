@@ -19,10 +19,15 @@ struct AutomationDetailView: View {
     @State private var runId: String?
     @State private var watcher: Task<Void, Never>?
     @State private var error: String?
+    /// The results could not be read (said so, with Retry; never the cut preview instead).
+    @State private var readFailed = false
 
     private var current: AutomationSummary { model.automations.first { $0.id == automation.id } ?? automation }
     private var title: String { current.name ?? "Automation" }
-    private var last: LastOccurrence? { occurrences.first ?? current.lastOccurrence }
+    /// The latest result as read in full (the list's preview is a cut excerpt: never shown here).
+    private var last: LastOccurrence? { occurrences.first }
+    /// It has run, but its latest result is still being read.
+    private var readingLast: Bool { occurrences.isEmpty && current.lastOccurrence != nil }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -41,6 +46,12 @@ struct AutomationDetailView: View {
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red) }
                 if running { RunningCard(progress: progress) }
                 if let last { result(last) }
+                else if readingLast && readFailed {
+                    Button("Couldn't load the latest result. Retry") { Task { await load() } }
+                        .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber)
+                } else if readingLast {
+                    Card { ProgressView().frame(maxWidth: .infinity) }.accessibilityLabel("Loading the latest result")
+                }
                 if loading || occurrences.count > 1 {
                     HStack(spacing: 6) {
                         Text("Earlier runs").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2)
@@ -103,7 +114,12 @@ struct AutomationDetailView: View {
     private func load() async {
         loading = true
         defer { loading = false }
-        if let list = try? await model.client.occurrences(automationId: automation.id, limit: limit) { occurrences = list }
+        do {
+            occurrences = try await model.client.occurrences(automationId: automation.id, limit: limit)
+            readFailed = false
+        } catch {
+            readFailed = true
+        }
     }
 
     private func runNow() {

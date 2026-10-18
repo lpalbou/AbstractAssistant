@@ -25,7 +25,7 @@ struct ReadView: View {
                     // Like Ask: the orb fills the screen and is the control (tap: pause, resume, read
                     // again); the text is below, on scroll.
                     ScreenCentered(width: geo.size.width) { side in
-                        Orb(mode: orbMode, size: side, level: { speaker.level() }, look: lookOfVoice)
+                        Orb(mode: orbMode, size: side, voice: { speaker.features(at: $0) }, look: lookOfVoice)
                             .contentShape(BelowTopRow())
                             .onTapGesture(perform: orbTapped)
                             .accessibilityAddTraits(.isButton)
