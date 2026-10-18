@@ -120,6 +120,17 @@ def read_desktop_handover_file(path: str) -> "tuple[str, str, str, str]":
             + DesktopHandoverError.REMEDY
         )
 
+    if os.name == "nt":
+        # Windows has no O_NOFOLLOW: refuse a symbolic link or junction before opening.
+        try:
+            link_info = os.lstat(str(p))
+        except FileNotFoundError:
+            link_info = None
+        if link_info is not None and (
+            stat_mod.S_ISLNK(link_info.st_mode)
+            or getattr(link_info, "st_file_attributes", 0) & getattr(stat_mod, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise _refuse("cannot be opened as a plain file: it is a link")
     try:
         fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
@@ -136,7 +147,9 @@ def read_desktop_handover_file(path: str) -> "tuple[str, str, str, str]":
             raise _refuse("not a regular file")
         if hasattr(os, "getuid") and info.st_uid != os.getuid():
             raise _refuse("owned by another user")
-        if stat_mod.S_IMODE(info.st_mode) != 0o600:
+        # Windows reports every writable file as 0o666 (access is an ACL; the gateway writes
+        # the file in the user's own data folder), so the mode is a POSIX-only check.
+        if os.name != "nt" and stat_mod.S_IMODE(info.st_mode) != 0o600:
             raise _refuse(f"permissions are {oct(stat_mod.S_IMODE(info.st_mode))}, not 0o600")
         if info.st_size > _HANDOVER_MAX_BYTES:
             raise _refuse("too large to be a sign-in file")

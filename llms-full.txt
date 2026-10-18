@@ -2625,6 +2625,16 @@ SOFTWARE.
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## [0.14.1] - 2026-10-18
+
+### Fixed
+
+- **Opening the Assistant from the gateway console on Windows** signs it in. The one-time
+  sign-in file was refused ("permissions are 0o666, not 0o600"): Windows reports every writable
+  file as 0o666 and protects the file through the user folder's access rights instead, so the
+  mode check now applies on macOS and Linux only. On Windows a sign-in file that is a symbolic
+  link or junction is refused, as before.
+
 ## [0.14.0] - 2026-10-17
 
 ### Changed
@@ -3686,11 +3696,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 - The orb is centred on the screen on the orb and read-aloud screens; the page opens at the top
   and scrolls only when there is text below the orb.
 - Settings: **Read aloud** (was "Speak answers").
-- **Sessions open on the right conversation, and say which.** Opening a session shows its title on
-  the orb and its last exchange; a row shows the latest question under the title when the
-  conversation has moved on; titles are longer (60 characters), so conversations that start alike
-  stay apart; a conversation whose last turn is still working (or waits on an approval) shows it and
-  follows it; one session opens at a time; a session's newest turn is the one created last.
+- **Sessions open on the right conversation, and say which.** A row is titled by the
+  conversation's latest question, as the gateway has it (up to 60 characters): never its first
+  question, never a made-up name; while it is read the row shows a grey placeholder, and "Question
+  not available" if the gateway cannot give it. Opening a session shows its last exchange, then the whole conversation below it, read in one
+  request (the gateway's replay of the session, ~200 KB for 44 messages instead of ~850 KB in 88
+  requests that timed out over the watch's radio and silently cut the history short); Show older
+  pages through it; if it cannot be read, the page says so with Retry. A
+  conversation whose last turn is still working (or waits on an approval) shows it and follows it;
+  one session opens at a time; a session's newest turn is the one created last.
 - From Home, the orb opens on your current conversation's last exchange and its title.
 - **Share on the orb**: beside Back, share the conversation as markdown; while the orb speaks (and
   between its sentences), go back 10 seconds.
@@ -3709,13 +3723,18 @@ channel (TestFlight, then the App Store); the Python package's history is in
   gateway offers (its default first). A voice plays a short sample when chosen (a spinner on its row while the gateway makes it). The choices stay on
   this watch and ride each request; the gateway's defaults are not changed. The speaking voice is
   the Assistant's; an entity keeps its own.
+- **Settings → Voice → Speed**: Normal, 1.15×, 1.3× or 1.5×, played faster on the watch at the
+  same pitch (the sample plays at the speed chosen). It applies to every voice the watch reads.
 - **A conversation's page**: its last 5 exchanges in order, Show older for the rest, and Read aloud
   for the latest answer beside the title (as on an automation's page).
 - **One voice button beside Back** (the orb page and Read aloud): a tap plays the selected message
-  or pauses / resumes the one playing; holding it rewinds, about 4 seconds per second held at first
-  and faster the longer it is held. It shares the orb's state (a tap on the orb pauses it too) and
-  hides while the orb listens or works, or when there is nothing to read. It replaces the rewind
-  icon.
+  or pauses / resumes the one playing; holding it (longer than 0.65 s) rewinds, about 4 seconds per
+  second held at first and faster the longer it is held. While the voice is being made it shows a
+  spinner (a second tap waits too, instead of pausing a voice not yet heard). Its touch area
+  reaches past the drawn circle; a quick tap is never lost and a firm half-second tap is still a tap; a touch the watch takes away
+  (a notification, wrist down) never leaves it stuck rewinding. It shares the orb's state (a tap on
+  the orb pauses it too) and hides while the orb listens or works, or when there is nothing to read.
+  It replaces the rewind icon.
 - **The conversation under the orb**, as an automation's page: the last message in full (the one
   the voice button reads), then "Earlier messages" as cards, 5 at first and Show older for the
   rest; a card opens that message, with Read aloud.
@@ -3723,7 +3742,23 @@ channel (TestFlight, then the App Store); the Python package's history is in
   same cards (a caption line, then the text at the same size) and the same page for one message.
 - Round icons dip when pressed, so a tap visibly lands; text scrolled under the top row fades out.
 - The icon beside Back (share, rewind) and Back itself take a tap on a real watch; a tap in that
-  top row never reaches the orb.
+  top row never reaches the orb, even with the page scrolled (a tap just beside an icon used to
+  start listening). At rest, the orb page says "Tap to talk" again.
+
+- **The orb follows the voice itself**, yours and the Assistant's: its loudness within the
+  voice's own range (a syllable reaches full strength, a pause falls back) and its spectrum in 8
+  bands from low to high pitches. Each orb style draws the spectrum (the Halo: each angle is a band,
+  low pitches at the top). The orb reaches 8% less far at full voice; its size at rest is unchanged.
+- An automation's page shows its latest result in full once it is read, with a spinner meanwhile
+  (never the shortened preview first), and says so with Retry if it cannot be read.
+
+### Fixed
+
+- **The voice no longer stops after its first words.** The gateway sends the first two or three
+  words alone ("Ah oui,") and the rest of the sentence seconds later; the watch now waits for 1.5 s
+  of speech before it starts (2 s again if it ever runs dry), so it speaks without a break. The
+  first sound comes about 3 s later than before with today's gateway voice; a gateway on
+  abstractvoice 0.15.1 sends a whole clause first, which starts at once.
 
 ## [0.2.0] - 2026-10-17
 
@@ -3850,8 +3885,8 @@ in the same session pool as the desktop assistant's.
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules |
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
-| Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`) |
-| Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, titles from `GET /api/gateway/runs/{id}/input_data` |
+| Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); playback starts once 1.5 s of speech is queued (before abstractvoice 0.15.1 the first piece is two words) and plays at the speed chosen on the watch |
+| Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, a row's title is its latest run's prompt from `GET /api/gateway/runs/{id}/input_data` (none is made up); a conversation's history on the orb page: `GET /api/gateway/runs/{newest}/history_bundle?include_session=true&detail=replay` (one request) |
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
 | Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
 | Run now / stop / pause / resume | `POST /api/gateway/automations/{id}/commands` `{type: "automation.run_now" \| "automation.stop_current" \| "automation.pause" \| "automation.resume"}` |
@@ -3910,7 +3945,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abstractassistant"
-version = "0.14.0"
+version = "0.14.1"
 description = "A sleek (macOS) system tray application providing instant access to LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -5594,6 +5629,17 @@ def read_desktop_handover_file(path: str) -> "tuple[str, str, str, str]":
             + DesktopHandoverError.REMEDY
         )
 
+    if os.name == "nt":
+        # Windows has no O_NOFOLLOW: refuse a symbolic link or junction before opening.
+        try:
+            link_info = os.lstat(str(p))
+        except FileNotFoundError:
+            link_info = None
+        if link_info is not None and (
+            stat_mod.S_ISLNK(link_info.st_mode)
+            or getattr(link_info, "st_file_attributes", 0) & getattr(stat_mod, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise _refuse("cannot be opened as a plain file: it is a link")
     try:
         fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
@@ -5610,7 +5656,9 @@ def read_desktop_handover_file(path: str) -> "tuple[str, str, str, str]":
             raise _refuse("not a regular file")
         if hasattr(os, "getuid") and info.st_uid != os.getuid():
             raise _refuse("owned by another user")
-        if stat_mod.S_IMODE(info.st_mode) != 0o600:
+        # Windows reports every writable file as 0o666 (access is an ACL; the gateway writes
+        # the file in the user's own data folder), so the mode is a POSIX-only check.
+        if os.name != "nt" and stat_mod.S_IMODE(info.st_mode) != 0o600:
             raise _refuse(f"permissions are {oct(stat_mod.S_IMODE(info.st_mode))}, not 0o600")
         if info.st_size > _HANDOVER_MAX_BYTES:
             raise _refuse("too large to be a sign-in file")

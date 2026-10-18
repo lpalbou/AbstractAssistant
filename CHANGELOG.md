@@ -3,6 +3,16 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
+## [0.14.1] - 2026-10-18
+
+### Fixed
+
+- **Opening the Assistant from the gateway console on Windows** signs it in. The one-time
+  sign-in file was refused ("permissions are 0o666, not 0o600"): Windows reports every writable
+  file as 0o666 and protects the file through the user folder's access rights instead, so the
+  mode check now applies on macOS and Linux only. On Windows a sign-in file that is a symbolic
+  link or junction is refused, as before.
+
 ## [0.14.0] - 2026-10-17
 
 ### Changed

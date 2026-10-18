@@ -148,7 +148,8 @@ def test_controller_persists_the_redeemed_session(tmp_path: Path) -> None:
     assert stored["csrf_token"] == "csrf-456"
     assert stored["user_id"] == "laurent"
     assert stored["auth_token"] == ""
-    assert stat.S_IMODE(stored_path.stat().st_mode) == 0o600
+    if sys.platform != "win32":  # Windows: the user profile's ACL, every file reads 0o666
+        assert stat.S_IMODE(stored_path.stat().st_mode) == 0o600
     # The live client uses the session at once (no restart needed).
     assert controller.gateway.config.session_id == "sess-123"
     assert controller.gateway.config.auth_mode == "session"
@@ -246,6 +247,7 @@ def test_a_file_that_is_not_a_hand_over_is_refused_and_left_untouched(tmp_path: 
 
 
 @pytest.mark.basic
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes and symlinks (Windows: see the tests below)")
 def test_never_deletes_a_file_with_the_wrong_mode_a_symlink_or_a_directory(tmp_path: Path) -> None:
     from abstractassistant.controller import DesktopHandoverError, read_desktop_handover_file
 
@@ -436,3 +438,36 @@ def test_a_file_without_user_id_is_refused_as_malformed_and_left_untouched(tmp_p
     assert gw.requests == [] and gw.logged_out == []
     stored = json.loads((data_dir / "gateway_connection.json").read_text())
     assert stored["session_id"] == "sess-old"
+
+
+@pytest.mark.basic
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows reports every writable file as 0o666")
+def test_on_windows_the_gateways_file_is_accepted_whatever_its_mode_bits(tmp_path: Path) -> None:
+    from abstractassistant.controller import read_desktop_handover_file
+
+    path = _handover_file(tmp_path, code="c-1", base_url="http://127.0.0.1:8080", expires_at="2999-01-01T00:00:00Z")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o666  # what Windows reports, chmod or not
+    assert read_desktop_handover_file(str(path)) == ("c-1", "http://127.0.0.1:8080", "2999-01-01T00:00:00Z", "laurent")
+    assert not path.exists()
+
+
+@pytest.mark.basic
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows reparse points")
+def test_on_windows_a_link_is_refused_and_left_untouched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    from abstractassistant.controller import DesktopHandoverError, read_desktop_handover_file
+
+    path = _handover_file(tmp_path, code="c-2", base_url="http://127.0.0.1:8080", expires_at="2999-01-01T00:00:00Z")
+    real_lstat = os.lstat
+
+    class _Reparse:
+        def __init__(self, base):
+            self._base = base
+            self.st_mode = base.st_mode
+            self.st_file_attributes = getattr(base, "st_file_attributes", 0) | stat.FILE_ATTRIBUTE_REPARSE_POINT
+
+    monkeypatch.setattr(os, "lstat", lambda p, *a, **k: _Reparse(real_lstat(p, *a, **k)) if str(p) == str(path) else real_lstat(p, *a, **k))
+    with pytest.raises(DesktopHandoverError, match="left untouched"):
+        read_desktop_handover_file(str(path))
+    assert path.exists()
