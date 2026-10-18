@@ -743,7 +743,9 @@ public struct StartRunRequest: Encodable, Sendable {
         public var attachments: [JSONValue]?
         public var context: JSONValue?
         public var tools: [String]? = nil
-        enum CodingKeys: String, CodingKey { case prompt, attachments, context, tools, useSessionHistory = "use_session_history", system, runtime = "_runtime" }
+        public var primaryImageArtifact: JSONValue?
+        public var hasPrimaryImageContext = false
+        enum CodingKeys: String, CodingKey { case prompt, attachments, context, tools, useSessionHistory = "use_session_history", system, runtime = "_runtime", primaryImageArtifact = "primary_image_artifact", hasPrimaryImageContext = "has_primary_image_context" }
     }
     public var flowId = "@default"
     public var interface = "abstractassistant.agent.v1"

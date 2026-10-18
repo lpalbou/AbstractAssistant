@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -22,12 +23,13 @@ def other_builds(own=None, idle_watch_test=None):
         # Darwin truncates the comm column when args is also requested. argv[0] keeps
         # the full executable path (the Xcode command paths here contain no spaces).
         executable = Path(arguments.split(maxsplit=1)[0]).name
-        allowed_idle_test = (pid == idle_watch_test and executable == "xcodebuild" and cpu < 1.0
-                             and "AbstractAssistantWatchUITests" in arguments and "platform=watchOS Simulator" in arguments and " test " in (" " + arguments + " "))
+        allowed_idle_test = (pid == idle_watch_test and executable == "xcodebuild" and cpu < 5.0
+                             and "AbstractAssistantWatchUITests" in arguments and " test " in (" " + arguments + " ")
+                             and ("platform=watchOS" in arguments or "-destination id=" in arguments))
         if allowed_idle_test:
             continue
-        if idle_watch_test and "AbstractAssistantWatch" in executable and cpu > 3:
-            busy.append(pid)
+        # The explicitly allowed Watch test can keep its UI/voice animation running.
+        # Compilation and memory pressure still take priority over this nice(10) job.
         if (executable == "xcodebuild" and pid != own) or (executable in {"swift-frontend", "clang"} and "/watch/apple/" in arguments):
             busy.append(pid)
     if idle_watch_test:
@@ -41,44 +43,55 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--ui-test", metavar="SIMULATOR_ID", help="Run tests on this iPhone simulator")
+    mode.add_argument("--live-media-test", metavar="DEVICE_ID", help="Opt-in live gateway verification using credentials kept on this iPhone")
     mode.add_argument("--device", metavar="DEVICE_ID", help="Build for this physical iPhone")
     parser.add_argument("--only-testing", action="append", default=[], metavar="TARGET/CLASS/TEST", help="Run only the named native test (with --ui-test)")
     parser.add_argument("--allow-idle-watch-test", type=int, metavar="PID", help="Allow only this idle Watch UI-test process; yield to Watch activity or memory pressure")
     parser.add_argument("--team", help="Apple development team ID (required with --device)")
     options = parser.parse_args()
-    if bool(options.device) != bool(options.team):
-        parser.error("--device and --team must be supplied together")
+    if bool(options.device or options.live_media_test) != bool(options.team):
+        parser.error("--device/--live-media-test and --team must be supplied together")
     if other_builds(idle_watch_test=options.allow_idle_watch_test):
         print("Another Xcode build is active. Leaving it priority; iPhone build skipped.", flush=True)
         return 75
+    if options.live_media_test:
+        source = ROOT.parents[2] / "abstractgateway/flows/bundles/abstractassistant-orchestrator@0.0.13.flow"
+        destination = ROOT / "Tests/Resources/AssistantOrchestrator.flow"
+        destination.parent.mkdir(exist_ok=True)
+        shutil.copyfile(source, destination)
     subprocess.run(["xcodegen", "generate", "--spec", "project.yml"], cwd=ROOT, check=True)
-    log = ROOT / "build" / ("device-build.log" if options.device else "build.log")
+    log = ROOT / "build" / ("device-build.log" if options.device or options.live_media_test else "build.log")
     log.parent.mkdir(exist_ok=True)
-    testing = bool(options.ui_test)
+    testing = bool(options.ui_test or options.live_media_test)
+    device = options.device or options.live_media_test
     scheme = "AbstractAssistantPhoneUITests" if testing else "AbstractAssistantPhone"
-    destination = ("platform=iOS,id=" + options.device if options.device else
+    destination = ("platform=iOS,id=" + device if device else
                    "platform=iOS Simulator,id=" + options.ui_test if testing else "generic/platform=iOS Simulator")
-    derived = ROOT / "build" / ("DeviceDerivedData" if options.device else "DerivedData")
+    derived = ROOT / "build" / ("DeviceDerivedData" if device else "DerivedData")
     args = ["nice", "-n", "10", "xcodebuild", "-project", "AbstractAssistantPhone.xcodeproj", "-scheme", scheme,
             "-destination", destination, "-derivedDataPath", str(derived),
             "-jobs", "1", "test" if testing else "build", "CODE_SIGNING_ALLOWED=YES", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=YES", "-quiet"]
-    if options.device:
+    if device:
         args += ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration", "CODE_SIGN_STYLE=Automatic", "DEVELOPMENT_TEAM=" + options.team]
     else:
         args += ["CODE_SIGN_IDENTITY=-"]
+    if options.live_media_test:
+        args += ["OTHER_SWIFT_FLAGS=$(inherited) -D LIVE_MEDIA_VERIFICATION"]
     if testing:
         args += ["-collect-test-diagnostics", "never", "-parallel-testing-enabled", "NO", "-maximum-concurrent-test-simulator-destinations", "1",
                  "-resultBundlePath", str(ROOT / "build" / ("UITests-" + str(time.time_ns()) + ".xcresult"))]
     if options.only_testing and not testing:
-        parser.error("--only-testing requires --ui-test")
-    args += ["-only-testing:" + value for value in options.only_testing]
-    print("iPhone only, one job, isolated DerivedData. " + ("Testing only on the named iPhone simulator." if testing else "No simulator will be booted."), flush=True)
+        parser.error("--only-testing requires --ui-test or --live-media-test")
+    selected = options.only_testing or (["AbstractAssistantPhoneTests/LiveGatewayMediaTests"] if options.live_media_test else [])
+    args += ["-only-testing:" + value for value in selected]
+    print("iPhone only, one job, isolated DerivedData. " + ("Testing only on the named physical iPhone." if options.live_media_test else "Testing only on the named iPhone simulator." if testing else "No simulator will be booted."), flush=True)
     with log.open("w") as out:
         process = subprocess.Popen(args, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             while process.poll() is None:
-                if other_builds(process.pid, idle_watch_test=options.allow_idle_watch_test):
-                    print("Another Xcode build started. Stopping only our iPhone build to give it priority.", flush=True)
+                blockers = other_builds(process.pid, idle_watch_test=options.allow_idle_watch_test)
+                if blockers:
+                    print("Watch priority guard (process IDs " + str(blockers) + "). Stopping only our iPhone build.", flush=True)
                     os.killpg(process.pid, signal.SIGTERM)
                     process.wait(timeout=20)
                     return 75
@@ -89,7 +102,7 @@ def main():
             raise
     print(log.read_text()[-14000:], flush=True)
     if process.returncode == 0:
-        platform = "iphoneos" if options.device else "iphonesimulator"
+        platform = "iphoneos" if device else "iphonesimulator"
         print("Built: " + str(derived / "Build" / "Products" / ("Debug-" + platform) / "AbstractAssistantPhone.app"), flush=True)
     return process.returncode
 

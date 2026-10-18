@@ -1,6 +1,39 @@
 import XCTest
 
 final class PhoneUITests: XCTestCase {
+    @MainActor func testGeneratedImageAndVoiceAreInlineAndImageCanBeReused() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--media-fixture", "--screen", "media"]; app.launch()
+        let image = app.buttons["media.image.demo-image"]
+        XCTAssertTrue(image.waitForExistence(timeout: 15))
+        XCTAssertTrue(NSPredicate(format: "value == 'Ready'").evaluate(with: image) || XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'Ready'"), object: image)], timeout: 10) == .completed)
+        XCTAssertTrue(app.buttons["media.play.demo-voice"].exists)
+        capture(app, "Media — generated image and voice in the restored AI message")
+        app.buttons["media.reference.demo-image"].tap()
+        XCTAssertTrue(app.buttons["Remove Quiet horizon.png"].exists || app.staticTexts["Quiet horizon.png"].exists)
+        capture(app, "Media — generated image reused as a reference")
+    }
+    @MainActor func testGeneratedImageOpensNativePreview() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--media-fixture", "--screen", "media"]; app.launch()
+        let image = app.buttons["media.image.demo-image"]
+        XCTAssertTrue(image.waitForExistence(timeout: 15))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'Ready'"), object: image)], timeout: 10), .completed)
+        image.tap()
+        let close = app.buttons["media.preview.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.images["media.preview.image"].waitForExistence(timeout: 10))
+        capture(app, "Media — full screen native image preview")
+        close.tap()
+        XCTAssertTrue(image.waitForExistence(timeout: 5))
+    }
+    @MainActor func testGeneratedVoicePlaybackIsInlineAndStops() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--media-fixture", "--screen", "media"]; app.launch()
+        let play = app.buttons["media.play.demo-voice"]
+        XCTAssertTrue(play.waitForExistence(timeout: 15)); play.tap()
+        XCTAssertTrue(app.buttons["Stop audio"].waitForExistence(timeout: 5))
+        capture(app, "Media — voice playback with scrubber")
+        app.buttons["Stop audio"].tap()
+        XCTAssertFalse(app.buttons["Stop audio"].exists)
+    }
     @MainActor func testLiveActivityExpandsAndShowsToolResults() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=running", "--screen", "conversation"]; app.launch()
         let toggle = app.buttons["activity.toggle"]

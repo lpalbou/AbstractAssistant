@@ -24,6 +24,7 @@ import AssistantKit
     }
     func bind(_ key: String) { if binding != key { reset(); binding = key } }
     func remove(_ item: PhoneArtifact) { pending.removeAll { $0.id == item.id } }
+    func use(_ file: PhoneArtifact) { if !pending.contains(where: { $0.id == file.id }) { pending.append(file) } }
     func sent() { pending = [] }
     func reset() {
         generation += 1; task?.cancel(); task = nil; busy = false; status = ""; pending = []; files = []; error = nil; preview = nil
@@ -61,11 +62,12 @@ import AssistantKit
         task = Task {
             defer { if epoch == generation { busy = false; status = "" } }
             do {
-                let data = try await client.download(file); try Task.checkCancellation(); guard epoch == generation else { return }
                 let folder = try storage.makeDirectory(for: .previews)
                 do {
                     let url = folder.appending(path: PhoneArtifact.safeFilename(file.filename))
-                    try data.write(to: url, options: .atomic); temporary = [folder]; preview = url
+                    try await client.download(file, to: url)
+                    try Task.checkCancellation(); guard epoch == generation else { try? storage.discard(folder); return }
+                    temporary = [folder]; preview = url
                 } catch { try? storage.discard(folder); throw error }
             } catch { if epoch == generation && !(error is CancellationError) { self.error = error.localizedDescription; if error as? GatewayError == .unauthorized { onUnauthorized?() } } }
         }

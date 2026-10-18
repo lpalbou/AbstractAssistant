@@ -17,6 +17,7 @@ struct ChatScreen: View {
     @State private var voiceOrigin: (UUID, String)?
     @State private var voiceTask: Task<Void, Never>?
     @State private var attachments = AttachmentsController()
+    @State private var media = MessageMediaController()
     @State private var importing = false
     @State private var photoLibrary = false
     @State private var pickedMedia: PhotosPickerItem?
@@ -35,7 +36,7 @@ struct ChatScreen: View {
         NavigationStack {
             ScrollViewReader { scroll in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                    LazyVStack(alignment: .leading, spacing: 24) {
                         if let message = store.error, message != store.activityFailure, store.activityIssue?.contains(message) != true { ErrorBanner(message: message, dismiss: store.dismissError) }
                         if let message = attachments.error { ErrorBanner(message: message, dismiss: { attachments.error = nil }) }
                         if let message = voice.error { ErrorBanner(message: message, dismiss: { voice.error = nil }) }
@@ -50,6 +51,9 @@ struct ChatScreen: View {
                 .onChange(of: store.messages.last?.text) { _, _ in withAnimation(.easeOut(duration: 0.2)) { scroll.scrollTo("bottom", anchor: .bottom) } }
             }
             .background(PhoneTheme.ground)
+            .fullScreenCover(isPresented: Binding(get: { media.preview != nil }, set: { if !$0 { media.preview = nil } })) {
+                if let url = media.preview { ArtifactPreview(url: url) { media.preview = nil } }
+            }
             .sheet(isPresented: $showTools) { ConversationToolsScreen() }
             .task(id: store.preferences.showMessageStats) { await store.loadMessageStats() }
             .background(OutsideInputDismissal(focused: typing, dismiss: { typing = false; composing = false }))
@@ -110,20 +114,25 @@ struct ChatScreen: View {
             .fullScreenCover(item: $camera) { mode in CameraCapture(video: mode == .video) { result in
                 switch result { case .success(let url): stage(url, owned: true, origin: pickerOrigin); case .failure(let error): attachments.error = error.localizedDescription }
             }.ignoresSafeArea() }
-            .task(id: store.contextID.uuidString + store.sessionID) { attachments.bind(store.contextID.uuidString + store.sessionID); if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) } }
+            .task(id: store.contextID.uuidString + store.sessionID) {
+                let context = store.contextID
+                voice.onUnauthorized = { if context == store.contextID { store.authenticationExpired() } }
+                attachments.onUnauthorized = voice.onUnauthorized; media.onUnauthorized = voice.onUnauthorized
+                attachments.bind(context.uuidString + store.sessionID); media.bind(context.uuidString + store.sessionID)
+                if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) }
+            }
             .onChange(of: store.sessionID) { _, _ in typing = false; composing = false; cancelVoice(); cancelMedia() }
             .onChange(of: store.phase) { _, phase in if phase != .ready { typing = false; composing = false } }
             .onChange(of: store.contextID) { _, _ in typing = false; composing = false; cancelVoice(); cancelMedia(); draft = "" }
             .onChange(of: store.completedReply?.id) { _, _ in
                 guard let reply = store.completedReply else { return }
-                if store.preferences.readAloud && scenePhase == .active && !voice.inputPending { read(reply) }
+                if store.preferences.readAloud && !reply.text.isEmpty && !reply.artifacts.contains(where: \.isAudio) && scenePhase == .active && !voice.inputPending { media.stop(); read(reply) }
                 if let client = store.client { Task { await attachments.refresh(client: client, sessionId: store.sessionID) } }
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background || (phase == .inactive && voice.inputPhase != .authorizing) { cancelVoice() }
+                if phase == .background || (phase == .inactive && voice.inputPhase != .authorizing) { cancelVoice(); media.stop() }
             }
-            .onDisappear { composing = false; cancelVoice(); attachments.cancel(); cancelMedia() }
-            .onAppear { let context = store.contextID; voice.onUnauthorized = { if context == store.contextID { store.authenticationExpired() } }; attachments.onUnauthorized = voice.onUnauthorized }
+            .onDisappear { composing = false; cancelVoice(); if media.preview == nil { media.reset() } else { media.stop() }; attachments.cancel(); cancelMedia() }
             .onChange(of: voice.inputPhase) { _, phase in if phase == .ready { finishVoice() } }
             .onChange(of: typing) { _, focused in
                 if !focused { composing = false }
@@ -157,18 +166,23 @@ struct ChatScreen: View {
         case .assistant:
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) { Image(systemName: "sparkle").foregroundStyle(PhoneTheme.mint); QuietLabel(text: store.conversationTitle) }
-                PhoneMarkdown(text: message.text)
+                if !message.text.isEmpty { PhoneMarkdown(text: message.text) }
+                if let client = store.client {
+                    ForEach(message.artifacts) { file in
+                        MessageArtifactView(file: file, media: media, client: client, useImage: { attachments.use(file) }, beforePlayback: { cancelVoice() })
+                    }
+                }
                 if store.preferences.showMessageStats, let stats = message.stats {
                     MessageStatsView(wallTimeSeconds: stats.wallTimeSeconds, inputTokens: stats.inputTokens, outputTokens: stats.outputTokens, toolCalls: stats.toolCalls)
                 }
-                HStack(spacing: 22) {
+                if !message.text.isEmpty { HStack(spacing: 22) {
                     ShareLink(item: message.text) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share answer")
                     Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer")
                     if let client = store.client, let scope = store.selectedEntity.map({ SpeechScope.entity($0) }) ?? message.runID.map({ SpeechScope.run($0) }) {
-                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
+                        Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); media.stop(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
                     if voice.speaking && voice.readingID == message.id { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
-                }.font(.subheadline).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain).frame(minHeight: 44)
+                }.font(.subheadline).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain).frame(minHeight: 44) }
                 if message.id == store.messages.last(where: { $0.role == .assistant })?.id && !attachments.files.isEmpty {
                     Button { typing = false; composing = false; cancelVoice(); showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
                 }
@@ -225,7 +239,7 @@ struct ChatScreen: View {
                 .clipped()
                 if !composing {
                     Spacer(minLength: 0)
-                    VoicePresence(voice: voice, working: store.canStop, stopping: store.isStopping, enabled: store.canStop ? !store.isStopping : store.canSend && !attachments.busy && !mediaLoading, onTap: beginVoice, onCancel: cancelVoice, onStop: { voice.stop(); Task { await store.stopRun() } })
+                    VoicePresence(voice: voice, generatedMedia: media, working: store.canStop, stopping: store.isStopping, enabled: store.canStop ? !store.isStopping : store.canSend && !attachments.busy && !mediaLoading, onTap: beginVoice, onCancel: cancelVoice, onStop: { voice.stop(); Task { await store.stopRun() } })
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
@@ -259,7 +273,7 @@ struct ChatScreen: View {
     private func beginVoice() {
         if voice.inputPending { cancelVoice(); return }
         guard store.canSend, scenePhase == .active, !attachments.busy, !mediaLoading else { return }
-        typing = false; composing = false; voiceOrigin = (store.contextID, store.sessionID); voice.activate()
+        typing = false; composing = false; media.stop(); voiceOrigin = (store.contextID, store.sessionID); voice.activate()
     }
     private func cancelVoice() { voiceTask?.cancel(); voiceTask = nil; voiceOrigin = nil; voice.stop() }
     private func finishVoice() {
@@ -291,7 +305,7 @@ struct ChatScreen: View {
                 if attachments.files.isEmpty { ContentUnavailableView("No files yet", systemImage: "folder", description: Text("Files you attach and files returned by your assistant appear here.")) }
                 ForEach(attachments.files) { file in
                     Button { if let client = store.client { attachments.open(file, client: client) } } label: {
-                        HStack { Image(systemName: file.contentType.hasPrefix("image/") ? "photo" : file.contentType.hasPrefix("video/") ? "video" : "doc"); VStack(alignment: .leading) { Text(file.filename); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)).font(.caption).foregroundStyle(PhoneTheme.secondary) }; Spacer(); Image(systemName: "arrow.down.circle") }
+                        HStack { Image(systemName: file.symbol); VStack(alignment: .leading) { Text(file.filename); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)).font(.caption).foregroundStyle(PhoneTheme.secondary) }; Spacer(); Image(systemName: "arrow.down.circle") }
                     }.disabled(attachments.busy)
                 }
                 if attachments.busy { HStack { ProgressView(); Text(attachments.status); Button("Cancel") { attachments.cancel() } } }
@@ -299,7 +313,9 @@ struct ChatScreen: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showFiles = false } } }
                 .task { if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) } }
                 .refreshable { if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) } }
-                .quickLookPreview($attachments.preview)
+                .fullScreenCover(isPresented: Binding(get: { attachments.preview != nil }, set: { if !$0 { attachments.preview = nil } })) {
+                    if let url = attachments.preview { ArtifactPreview(url: url) { attachments.preview = nil } }
+                }
         }
     }
 

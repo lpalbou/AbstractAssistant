@@ -101,16 +101,24 @@ public actor MockGatewayClient: GatewayClient {
     private var started: [String: (Date, String)] = [:]
     private var cancelledRunIDs: Set<String> = []
     private let wordInterval: TimeInterval
+    private let mediaImage: Data?
+    private let mediaVoice: Data?
     private let historyFixture: Bool
     private let activityScenario: String?
     private var activityResolved = false
 
-    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false) {
+    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil) {
+        self.mediaImage = mediaImage; self.mediaVoice = mediaVoice
         self.historyFixture = historyFixture
         self.activityScenario = activityScenario
         self.pending = waits; self.wordInterval = wordInterval; self.emptyAutomations = emptyAutomations
     }
 
+    public static var mediaRun: RunSummary {
+        RunSummary(runId: "media-demo", workflowId: "abstractassistant-orchestrator", status: "completed", sessionId: "media-history",
+            output: .object(["response": .string("A quiet horizon, with a voice to match."), "image_artifact": .object(["$artifact": .string("demo-image"), "run_id": .string("media-demo"), "content_type": .string("image/png"), "filename": .string("Quiet horizon.png")]),
+                "audio_artifact": .object(["$artifact": .string("demo-voice"), "run_id": .string("media-demo"), "content_type": .string("audio/wav"), "filename": .string("A moment of calm.wav")])]))
+    }
     public func health() async throws -> Bool { true }
     public func me() async throws -> Principal { Principal(userId: "albou", tenantId: "default", roles: ["admin"]) }
     public func waits() async throws -> [Wait] { pending }
@@ -121,6 +129,7 @@ public actor MockGatewayClient: GatewayClient {
         }
     }
     public func recentRuns(limit: Int) async throws -> [RunSummary] {
+        if mediaImage != nil { return [Self.mediaRun] }
         if historyFixture { return Self.historyRuns.map { var row = $0; row.output = nil; return row } }
         return Self.sampleRuns
     }
@@ -205,10 +214,13 @@ public actor MockGatewayClient: GatewayClient {
         uploaded[sessionId, default: []].append((artifact, data)); return artifact
     }
     public func artifacts(sessionId: String) async throws -> [PhoneArtifact] {
+        if mediaImage != nil { return Self.mediaRun.mediaArtifacts }
         let sample = PhoneArtifact(artifactId: "demo-report", runId: "demo-run", filename: "A little focus.txt", contentType: "text/plain", size: Self.cannedAnswer.utf8.count)
         return [sample] + (uploaded[sessionId] ?? []).map { $0.0 }
     }
     public func download(_ artifact: PhoneArtifact) async throws -> Data {
+        if artifact.artifactId == "demo-image", let mediaImage { return mediaImage }
+        if artifact.artifactId == "demo-voice", let mediaVoice { return mediaVoice }
         if artifact.artifactId == "demo-report" { return Data(Self.cannedAnswer.utf8) }
         for rows in uploaded.values { if let row = rows.first(where: { $0.0.id == artifact.id }) { return row.1 } }
         throw GatewayError.invalidResponse
@@ -289,6 +301,7 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func prompt(ofRun id: String) async throws -> String? {
+        if id == "media-demo", mediaImage != nil { return "Imagine a quiet horizon, and give it a voice." }
         if historyFixture { return "Earlier question " + id.replacingOccurrences(of: "history-", with: "") }
         return ["94a436e1": "Clean the build folder and rebuild the app", "7c1e02aa": "What could I move out of the way?",
          "r1a9e0b2": "Help me make room for focused work this week",
@@ -296,6 +309,7 @@ public actor MockGatewayClient: GatewayClient {
     }
 
     public func turns(ofSession id: String) async throws -> [RunSummary] {
+        if mediaImage != nil, id == "media-history" { return [Self.mediaRun] }
         if historyFixture { return try await recentRuns(limit: 100) }
         return Self.sampleRuns.filter { ($0.sessionId ?? $0.runId) == id }
     }
@@ -366,6 +380,7 @@ public actor MockGatewayClient: GatewayClient {
 
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
+        if id == "media-demo", mediaImage != nil { return Self.mediaRun }
         if historyFixture, let run = Self.historyRuns.first(where: { $0.runId == id }) { return run }
         if cancelledRunIDs.contains(id) { return RunSummary(runId: id, workflowId: nil, status: "cancelled") }
         if activityScenario != nil && id.hasPrefix("activity-") { return try await activityRun(id) }

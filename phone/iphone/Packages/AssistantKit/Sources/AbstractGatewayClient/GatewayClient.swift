@@ -35,6 +35,8 @@ public protocol GatewayClient: Sendable {
     func setEntityTools(name: String, runID: String, tools: ConversationTools?) async throws
     func answerEntity(name: String, runID: String, waitKey: String, approved: Bool) async throws -> EntitySessionState
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String
+    func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String
+    func download(_ artifact: PhoneArtifact, to destination: URL) async throws
     /// `GET /api/gateway/me`
     func me() async throws -> Principal
     /// `GET /api/gateway/runs?status=waiting`, projected to waits on a person.
@@ -42,6 +44,7 @@ public protocol GatewayClient: Sendable {
     /// `GET /api/gateway/runs?root_only=true&limit=20`
     func recentRuns(limit: Int) async throws -> [RunSummary]
     /// `GET /api/gateway/runs/{id}/input_data`: what the person asked in that turn.
+    func input(ofRun id: String) async throws -> ConversationInput
     func prompt(ofRun id: String) async throws -> String?
     /// `GET /api/gateway/runs?session_id=…&root_only=true&include_metrics=true`: one session's turns, newest first.
     func turns(ofSession id: String) async throws -> [RunSummary]
@@ -176,8 +179,12 @@ public actor LiveGatewayClient: GatewayClient {
         }
     }
 
-    public func prompt(ofRun id: String) async throws -> String? {
-        try await get("api/gateway/runs/\(id)/input_data", as: RunInputData.self).inputData?.prompt
+    public func prompt(ofRun id: String) async throws -> String? { try await input(ofRun: id).prompt }
+    public func input(ofRun id: String) async throws -> ConversationInput {
+        let value = try await get("api/gateway/runs/\(id)/input_data", as: JSONValue.self)["input_data"]
+        let inputs = value?["attachments"] ?? value?["context"]?["attachments"] ?? .array([])
+        let refs = RunSummary(runId: id, workflowId: nil, status: "completed", output: .object(["artifacts": inputs])).mediaArtifacts
+        return ConversationInput(prompt: value?["prompt"]?.stringValue, attachments: refs)
     }
 
     public func turns(ofSession id: String) async throws -> [RunSummary] {
@@ -466,7 +473,13 @@ public actor LiveGatewayClient: GatewayClient {
     public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String {
         try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: tools, toolPolicy: tools?.policy)
     }
-    private func startAssistantRun(prompt: String, sessionId: String?, attachments: [JSONValue], selection: ConversationTools?, toolPolicy: RunToolPolicy?) async throws -> String {
+    public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String {
+        try await startAssistantRun(prompt: prompt, sessionId: sessionId, attachments: attachments, selection: tools, toolPolicy: tools?.policy, primaryImage: primaryImage)
+    }
+    public func startRun(_ body: StartRunRequest) async throws -> String {
+        try JSONDecoder().decode(StartRunResponse.self, from: await request("POST", "api/gateway/runs/start", body: body)).runId
+    }
+    private func startAssistantRun(prompt: String, sessionId: String?, attachments: [JSONValue], selection: ConversationTools?, toolPolicy: RunToolPolicy?, primaryImage: JSONValue? = nil) async throws -> String {
         var body = try AssistantWorkflow.request(prompt: prompt, sessionId: sessionId, toolPolicy: toolPolicy, preferences: try await accountPreferences())
         let inventory = try await tools()
         let catalog = Dictionary(inventory.map { ($0.name, $0) }, uniquingKeysWith: { _, latest in latest })
@@ -485,11 +498,17 @@ public actor LiveGatewayClient: GatewayClient {
         body.inputData.tools = allowed
         if body.inputData.runtime == nil { body.inputData.runtime = .init(toolPolicy: toolPolicy) }
         body.inputData.runtime?.allowedTools = allowed
+        var context: [String: JSONValue] = [:]
         if !attachments.isEmpty {
             body.inputData.attachments = attachments
-            body.inputData.context = .object(["attachments": .array(attachments), "media": .array(attachments)])
+            context = ["attachments": .array(attachments), "media": .array(attachments)]
         }
-        return try JSONDecoder().decode(StartRunResponse.self, from: try await request("POST", "api/gateway/runs/start", body: body)).runId
+        let image = attachments.first { $0["content_type"]?.stringValue?.lowercased().hasPrefix("image/") == true } ?? primaryImage
+        body.inputData.primaryImageArtifact = image
+        body.inputData.hasPrimaryImageContext = image != nil
+        if let image { context["primary_image_artifact"] = image }
+        if !context.isEmpty { body.inputData.context = .object(context) }
+        return try await startRun(body)
     }
     public func upload(data: Data, filename: String, contentType: String, sessionId: String) async throws -> PhoneArtifact {
         try requireSignIn()
@@ -518,21 +537,42 @@ public actor LiveGatewayClient: GatewayClient {
         return items.compactMap(PhoneArtifact.parse)
     }
     public func download(_ artifact: PhoneArtifact) async throws -> Data {
+        var data = Data()
+        try await readArtifact(artifact, limit: PhoneArtifact.byteLimit) { data.append($0) }
+        return data
+    }
+    public func download(_ artifact: PhoneArtifact, to destination: URL) async throws {
+        guard destination.isFileURL, !FileManager.default.fileExists(atPath: destination.path),
+              FileManager.default.createFile(atPath: destination.path, contents: nil) else { throw GatewayError.invalidResponse }
+        var handle: FileHandle?
+        do {
+            let opened = try FileHandle(forWritingTo: destination); handle = opened
+            try await readArtifact(artifact, limit: PhoneArtifact.previewByteLimit) { try opened.write(contentsOf: $0) }
+            try opened.close()
+        } catch {
+            try? handle?.close(); try? FileManager.default.removeItem(at: destination); throw error
+        }
+    }
+    private func readArtifact(_ artifact: PhoneArtifact, limit: Int, consume: (Data) throws -> Void) async throws {
         try requireSignIn()
         guard PhoneArtifact.validID(artifact.runId), PhoneArtifact.validID(artifact.artifactId) else { throw GatewayError.invalidResponse }
-        guard artifact.size <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
-        // Construct only a gateway-owned artifact route. Never follow an AI-provided URL with credentials.
+        guard artifact.size <= limit else { throw limit == PhoneArtifact.byteLimit ? PhoneAttachmentError.tooLarge : PhoneAttachmentError.previewTooLarge }
+        // Only Gateway-owned routes receive credentials. Stream large previews to disk in chunks.
         var req = URLRequest(url: baseURL.appending(path: "api/gateway/runs/\(artifact.runId)/artifacts/\(artifact.artifactId)/content")); req.timeoutInterval = 120
         credential.apply(to: &req, write: false)
-        let (bytes, response) = try await session.bytes(for: req)
+        let (bytes, response) = try await session.bytes(for: req, delegate: LedgerRedirectGuard())
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw GatewayError.invalidResponse }
         if http.statusCode == 401 { lockedOut = true; throw GatewayError.unauthorized }
         guard (200..<300).contains(http.statusCode) else { throw GatewayError.http(status: http.statusCode, body: "") }
-        guard response.expectedContentLength <= PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }
-        var out = Data()
-        for try await byte in bytes { try Task.checkCancellation(); guard out.count < PhoneArtifact.byteLimit else { throw PhoneAttachmentError.tooLarge }; out.append(byte) }
-        return out
+        guard response.expectedContentLength <= limit else { throw PhoneAttachmentError.previewTooLarge }
+        var count = 0, chunk = Data(); chunk.reserveCapacity(65_536)
+        for try await byte in bytes {
+            try Task.checkCancellation(); guard count < limit else { throw PhoneAttachmentError.previewTooLarge }
+            chunk.append(byte); count += 1
+            if chunk.count == 65_536 { try consume(chunk); chunk.removeAll(keepingCapacity: true) }
+        }
+        if !chunk.isEmpty { try consume(chunk) }
     }
 
     public func transcribe(wav: Data, sessionId: String) async throws -> String { try await transcribe(wav: wav, sessionId: sessionId, model: nil) }

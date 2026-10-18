@@ -2,9 +2,10 @@ import Foundation
 import CryptoKit
 
 public enum PhoneAttachmentError: Error, LocalizedError {
-    case tooLarge, unsupported
+    case tooLarge, previewTooLarge, unsupported
     public var errorDescription: String? { switch self {
     case .tooLarge: "Choose a file smaller than 25 MB."
+    case .previewTooLarge: "This file is larger than the 256 MB in-app preview limit."
     case .unsupported: "This connection does not support that action."
     } }
 }
@@ -16,10 +17,11 @@ public struct PhoneArtifact: Identifiable, Hashable, Sendable {
     public var filename: String
     public var contentType: String
     public var size: Int
+    public static let previewByteLimit = 256 * 1024 * 1024
     public var id: String { runId + ":" + artifactId }
     public var ref: JSONValue { .object(["$artifact": .string(artifactId), "run_id": .string(runId), "filename": .string(filename), "content_type": .string(contentType)]) }
     public init(artifactId: String, runId: String, filename: String, contentType: String, size: Int = 0) {
-        self.artifactId = artifactId; self.runId = runId; self.filename = Self.safeFilename(filename); self.contentType = contentType; self.size = size
+        self.artifactId = artifactId; self.runId = runId; self.filename = Self.previewFilename(filename, contentType: contentType); self.contentType = contentType; self.size = size
     }
     public static func safeFilename(_ value: String) -> String {
         let last = value.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init) ?? "Attachment"
@@ -31,8 +33,8 @@ public struct PhoneArtifact: Identifiable, Hashable, Sendable {
         guard let id = v["artifact_id"]?.stringValue ?? v["$artifact"]?.stringValue,
               let owner = v["run_id"]?.stringValue ?? v["ref"]?["run_id"]?.stringValue,
               validID(id), validID(owner) else { return nil }
-        let size: Int; if case .number(let n)? = v["size_bytes"] { size = n <= 0 ? 0 : (!n.isFinite || n > Double(Self.byteLimit) ? Self.byteLimit + 1 : Int(n)) } else { size = 0 }
-        return PhoneArtifact(artifactId: id, runId: owner, filename: v["filename"]?.stringValue ?? v["tags"]?["filename"]?.stringValue ?? "Attachment", contentType: v["content_type"]?.stringValue ?? "application/octet-stream", size: size)
+        let size: Int; if case .number(let n)? = v["size_bytes"] { size = n <= 0 ? 0 : (!n.isFinite || n >= Double(Int.max) ? Int.max : Int(n)) } else { size = 0 }
+        return PhoneArtifact(artifactId: id, runId: owner, filename: Self.previewFilename(v["filename"]?.stringValue ?? v["tags"]?["filename"]?.stringValue, contentType: v["content_type"]?.stringValue ?? "application/octet-stream", kind: v["semantic_kind"]?.stringValue), contentType: v["content_type"]?.stringValue ?? "application/octet-stream", size: size)
     }
     static func upload(_ v: JSONValue, filename: String, contentType: String, size: Int) -> PhoneArtifact? {
         let ref = v["artifact"] ?? v["attachment"]
@@ -43,6 +45,16 @@ public struct PhoneArtifact: Identifiable, Hashable, Sendable {
 
 // Older test clients may supply the original voice methods. Live implements all overrides.
 public extension GatewayClient {
+    func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String {
+        var refs = attachments
+        if let primaryImage, !refs.contains(primaryImage) { refs.append(primaryImage) }
+        return try await startRun(prompt: prompt, sessionId: sessionId, attachments: refs, tools: tools)
+    }
+    func download(_ artifact: PhoneArtifact, to destination: URL) async throws {
+        let data = try await download(artifact)
+        try data.write(to: destination, options: .withoutOverwriting)
+    }
+
     func voiceCatalog() async throws -> VoiceCatalog { throw PhoneAttachmentError.unsupported }
     func accountPreferences() async throws -> JSONValue { throw PhoneAttachmentError.unsupported }
     func setAssistantWorkflow(_ value: String?) async throws -> JSONValue { throw PhoneAttachmentError.unsupported }

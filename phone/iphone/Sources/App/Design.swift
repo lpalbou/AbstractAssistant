@@ -157,6 +157,7 @@ struct ErrorBanner: View {
 /// Only this small subtree observes the audio envelope, keeping message layout out of the meter loop.
 struct VoicePresence: View {
     let voice: VoiceController
+    var generatedMedia: MessageMediaController? = nil
     var working: Bool
     var stopping: Bool
     var enabled: Bool
@@ -175,7 +176,7 @@ struct VoicePresence: View {
     }
     var body: some View {
         ZStack {
-            AssistantOrb(size: 68, active: voice.recording || voice.speaking || working, level: voice.meter.level, working: working, listening: voice.recording)
+            AssistantOrb(size: 68, active: voice.recording || voice.speaking || working || (generatedMedia?.playingID != nil && generatedMedia?.paused == false), level: max(voice.meter.level, generatedMedia?.level ?? 0), working: working, listening: voice.recording)
             OrbTouchSurface(enabled: enabled, label: status, working: working, cancelOnTouchDown: voice.inputPending || working, onTap: onTap, onCancel: working ? onStop : onCancel)
                 .frame(width: 84, height: 80)
         }.frame(width: 84, height: 80)

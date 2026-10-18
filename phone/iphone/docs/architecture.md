@@ -9,6 +9,9 @@ flowchart LR
     Voice --> Client
     Views --> Files[Attachment import and authenticated preview]
     Files --> Client
+    Store --> Media[Per-message artifact references]
+    Media --> Preview[Bounded image and voice previews]
+    Preview --> Client
     Client --> Gateway[AbstractGateway]
     Gateway --> Runtime[AbstractRuntime / providers]
 ```
@@ -303,3 +306,30 @@ first. Only recognized public response fields become assistant messages; reasoni
 internal child outputs are not replayed. Restoring a terminal run keeps diagnostics quiet
 and does not trigger Read aloud. A failed hydration reports an error and preserves the
 current conversation instead of showing a partial reconstruction as complete.
+
+## Generated images and voice
+
+`RunSummary.mediaArtifacts` reads structured workflow output references, including nested
+`outputs` and typed image/audio aliases. It carries the artifact’s owning run, MIME type
+and safe filename into the corresponding conversation message. Repeated references merge
+without losing richer metadata. Model-provided URLs and prose are never treated as authenticated
+download destinations.
+
+Run input restoration reads the established `runs/{id}/input_data` route, preserving original
+uploads as well as generated outputs. The next turn uses its freshly attached image first,
+otherwise the latest image in that session. The orchestrator receives `primary_image_artifact`
+and `has_primary_image_context`, alongside the shared attachment/context fields used by desktop.
+Changing sessions clears the source through ordinary message restoration.
+
+`MessageMediaController` owns image thumbnails, Quick Look and independent generated-audio
+playback. Downloads use authenticated artifact-content routes with redirect refusal and a
+256 MB streaming limit. The disposable cache retains at most six files and 128 MB, excluding
+a file actively open/playing or the newest single-file download. Context changes cancel
+registered downloads and discard cached files. Audio pauses/stops per artifact and shares
+microphone/read-aloud exclusion, interruption handling and measured orb animation.
+
+Endpoint-backed image generation requires Runtime's media host to inherit the gateway's
+provider endpoint resolver. Runtime commit `80a1887` fixes creation, resolver rotation and
+media-host reconstruction. Without it, a healthy inventory and successful text routing can
+still precede `Unknown or disabled endpoint profile` in the image-generation node. The
+phone reports that run failure; it does not copy endpoint credentials or resolve profiles itself.

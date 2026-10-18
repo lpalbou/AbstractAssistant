@@ -73,7 +73,8 @@ public struct ConversationMessage: Identifiable, Equatable, Sendable {
     public var text: String
     public var runID: String?
     public var stats: MessageStats?
-    public init(id: String = UUID().uuidString, role: Role, text: String, runID: String? = nil, stats: MessageStats? = nil) {
-        self.id = id; self.role = role; self.text = text; self.runID = runID; self.stats = stats
+    public var artifacts: [PhoneArtifact]
+    public init(id: String = UUID().uuidString, role: Role, text: String, runID: String? = nil, stats: MessageStats? = nil, artifacts: [PhoneArtifact] = []) {
+        self.id = id; self.role = role; self.text = text; self.runID = runID; self.stats = stats; self.artifacts = artifacts
     }
 }

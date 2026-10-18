@@ -254,10 +254,11 @@ public final class AssistantStore {
         guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let client else { return }
         if selectedEntity != nil && !attachments.isEmpty { error = "Files can be sent to Assistant conversations. Entity file messages are not supported by this gateway interface."; return }
         let epoch = generation, view = conversationGeneration, session = sessionID, entity = selectedEntity
+        let primaryImage = attachments.first(where: \.isImage) ?? messages.reversed().flatMap(\.artifacts).first(where: \.isImage)
         let tools = effectiveTools, requestVersion = stopVersion, requestID = UUID()
         stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil; completedReply = nil; sendInFlight = true; sendID = requestID
         resetActivity(); activityState = .connecting
-        messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")))); phase = .sending; error = nil
+        messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")), artifacts: attachments)); phase = .sending; error = nil
         turn = Task {
             defer { if epoch == generation, view == conversationGeneration, sendID == requestID { sendInFlight = false; sendID = nil } }
             do {
@@ -319,7 +320,7 @@ public final class AssistantStore {
                     }
                 } else {
                     unknownStart = true
-                    let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref), tools: tools)
+                    let id = try await client.startRun(prompt: prompt.isEmpty ? "Please review the attached files." : prompt, sessionId: session, attachments: attachments.map(\.ref), tools: tools, primaryImage: primaryImage?.ref)
                     guard epoch == generation, view == conversationGeneration else { return }
                     unknownStart = false; activeRunID = id; phase = .working
                     beginActivity(id)
@@ -360,9 +361,10 @@ public final class AssistantStore {
             waits.insert(contentsOf: activityWaits, at: 0)
             if !run.isTerminal { await applyConversationTrust(epoch: epoch) }
             guard epoch == activityEpoch, activeRunID == id else { return }
-            if let output = run.conversationText, !output.isEmpty {
-                if let index = messages.firstIndex(where: { $0.id == "answer-" + id }) { messages[index].text = output }
-                else { messages.append(.init(id: "answer-" + id, role: .assistant, text: output, runID: id)) }
+            let output = run.conversationText ?? "", artifacts = run.mediaArtifacts
+            if !output.isEmpty || !artifacts.isEmpty {
+                if let index = messages.firstIndex(where: { $0.id == "answer-" + id }) { messages[index].text = output; messages[index].artifacts = artifacts }
+                else { messages.append(.init(id: "answer-" + id, role: .assistant, text: output, runID: id, artifacts: artifacts)) }
             }
             if run.isTerminal {
                 pauseActivityStreams()
@@ -538,14 +540,14 @@ public final class AssistantStore {
             let listedIDs = Set(turns.map(\.runId))
             let roots = turns.filter { $0.parentRunId.map { !listedIDs.contains($0) } ?? true }
             let ordered = Array(roots.reversed())
-            struct RestoredTurn: Sendable { var index: Int; var run: RunSummary; var prompt: String? }
+            struct RestoredTurn: Sendable { var index: Int; var run: RunSummary; var input: ConversationInput }
             let hydrated = try await withThrowingTaskGroup(of: RestoredTurn.self) { group in
                 func add(_ index: Int) {
                     let row = ordered[index]
                     group.addTask {
                         let detail = try await client.run(id: row.runId)
-                        let prompt = try await client.prompt(ofRun: row.runId)
-                        return RestoredTurn(index: index, run: detail, prompt: prompt)
+                        let input = try await client.input(ofRun: row.runId)
+                        return RestoredTurn(index: index, run: detail, input: input)
                     }
                 }
                 var next = min(4, ordered.count), result: [RestoredTurn] = []
@@ -560,8 +562,10 @@ public final class AssistantStore {
             var restored: [ConversationMessage] = []
             for turn in hydrated {
                 let id = turn.run.runId
-                if let prompt = turn.prompt { restored.append(.init(id: "prompt-" + id, role: .user, text: prompt, runID: id)) }
-                if let answer = turn.run.conversationText, !answer.isEmpty { restored.append(.init(id: "answer-" + id, role: .assistant, text: answer, runID: id)) }
+                if turn.input.prompt != nil || !turn.input.attachments.isEmpty { restored.append(.init(id: "prompt-" + id, role: .user, text: turn.input.prompt ?? "", runID: id, artifacts: turn.input.attachments)) }
+                if !(turn.run.conversationText ?? "").isEmpty || !turn.run.mediaArtifacts.isEmpty {
+                    restored.append(.init(id: "answer-" + id, role: .assistant, text: turn.run.conversationText ?? "", runID: id, artifacts: turn.run.mediaArtifacts))
+                }
                 else if turn.run.status == "failed" { restored.append(.init(id: "failed-" + id, role: .notice, text: turn.run.error ?? "This reply could not be completed.", runID: id)) }
             }
             guard epoch == generation else { return }

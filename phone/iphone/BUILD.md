@@ -77,7 +77,32 @@ python3 scripts/build.py --ui-test <your-own-iphone-simulator-id>
 Use `--only-testing Target/Class/testMethod` to rerun an affected native test. Test runs
 keep results and screenshots but disable the lengthy automatic simulator diagnostic pass.
 The optional `--allow-idle-watch-test <pid>` permits only a specifically identified idle
-Watch UI-test process; the helper still yields to Watch activity or compilation and memory
+Watch UI-test process (physical Watch or simulator); the helper still yields to Watch activity or compilation and memory
 pressure. Omit it for normal builds.
 
 App Store distribution, signing and upload are not configured by this preview.
+
+## Opt-in live media verification
+
+Use a development-signed iPhone with an existing gateway sign-in. The hosted test reads
+its Keychain credential in place; it never exports it. This starts real, potentially billed
+provider generations on that account and uploads the reviewed orchestrator bundle if absent.
+
+```sh
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testDiscoverSavedGateway
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testGenerateVoice
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testGenerateImageAndEdit
+```
+
+Image verification generates an image, then edits it using the stored primary-image
+reference. Voice verification is independent. Both download the authenticated artifacts,
+decode them on the iPhone and check that references survive reloading. Reports contain
+run/artifact IDs and byte counts under the app's `Documents/media-verification/`; no keys
+or endpoint secrets are stored. The tests resume their own saved runs after interruption;
+remove that test report before deliberately creating a new verification session.
+
+Normal tests skip these network actions. After live testing, use the normal device build
+and install commands above to replace the test host with the ordinary app.

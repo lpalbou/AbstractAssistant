@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.8 · iOS 26+**
+**Developer preview · 0.6.9 · iOS 26+**
 
 ## Three small spaces
 
@@ -78,12 +78,29 @@ Tap a file to download it privately and preview, play or share it with the nativ
 Attachments retain their gateway artifact and owning-run references. Credentials never
 travel in a share link or to an AI-provided URL.
 
-Local preview copies are removed when you dismiss the viewer or open another file.
-Imported copies are removed after upload; recordings are removed after transcription or
-cancellation. Disposable files left by an interrupted app are cleared on its next launch.
-Your original files and gateway attachments are preserved.
+Choose **Assistant orchestrator** in **Settings → Workflow** to generate images and voice
+through the gateway’s configured providers. Ask for an image, attach one and ask for an
+edit, or ask for a voice recording. Generated files belong to their AI message, including
+when you reopen the conversation. Images show an inline preview: tap to enlarge, share,
+or use the image as a reference for the next message. Voice files have their own play,
+pause, seek and stop controls. Playback also animates the orb. Generated audio stays quiet
+until you play it; automatic reading does not synthesize a second version of that reply.
+The gateway must offer the requested modality; generation errors appear in activity.
+For gateway endpoint profiles, image generation also requires the Runtime media-resolver
+fix from commit `80a1887` (or a release containing it). An older Runtime can list an image
+provider successfully but fail to resolve it during generation; update and restart that gateway.
 
-Files are limited to **25 MB each** on the phone; the gateway may impose a smaller limit.
+Local copies opened through Conversation files are removed when you dismiss the viewer or
+open another file. Inline previews use a disposable conversation cache, bounded to six files
+with a 128 MB eviction target. The current viewer, playing audio and newest download are
+protected from eviction, each subject to the 256 MB file limit. Switching
+accounts or conversations cancels pending downloads and clears the cache. Imported copies
+are removed after upload; recordings are removed after transcription or cancellation.
+Disposable files left by an interrupted app are cleared on its next launch. Your originals
+and gateway attachments are preserved.
+
+Uploads are limited to **25 MB each**; generated-media previews stream to disk with a
+**256 MB per-file limit**. The gateway may impose a smaller limit.
 Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts
 text only, so file messages are available in Assistant conversations. The files list shows
 the latest 100 session artifacts; older files remain on the gateway.

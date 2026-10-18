@@ -73,7 +73,8 @@ struct PhoneRoot: View {
         let activityScenario: String? = nil
         #endif
         store.connect(nil, client: MockGatewayClient(emptyAutomations: emptyAutomations, activityScenario: activityScenario,
-            historyFixture: ProcessInfo.processInfo.arguments.contains("--history-fixture")))
+            historyFixture: ProcessInfo.processInfo.arguments.contains("--history-fixture"),
+            mediaImage: MediaDesignFixture.enabled ? MediaDesignFixture.image : nil, mediaVoice: MediaDesignFixture.enabled ? SyntheticSpeech.wav(seconds: 12, seed: 2) : nil))
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--reset-tool-defaults") { store.setAppTools(nil) }
         if ProcessInfo.processInfo.arguments.contains("--ui-test") { store.preferences.readAloud = false; store.preferences.showMessageStats = false; store.preferences.voice = nil; store.preferences.speed = 1; store.preferences.transcription = nil }
@@ -83,6 +84,8 @@ struct PhoneRoot: View {
             switch ProcessInfo.processInfo.arguments[index + 1] {
             case "inbox": tab = 1
             case "automations": tab = 2
+            case "media":
+                if let session = SessionSummary.group([MockGatewayClient.mediaRun]).first { Task { await store.openSession(session) } }
             case "history":
                 if let session = SessionSummary.group(MockGatewayClient.historyRuns).first { Task { await store.openSession(session) } }
             case "conversation": store.send("Help me make room for focused work this week.")

@@ -19,6 +19,8 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
+- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to messages; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds
+
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
 - [docs/adr/0001_gateway_native_assistant_v2.md](docs/adr/0001_gateway_native_assistant_v2.md): the gateway-native boundary

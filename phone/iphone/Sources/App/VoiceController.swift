@@ -30,7 +30,7 @@ import AbstractGatewayClient
 }
 
 /// Deliberate cancellation for calls/Siri, lost headphones or a reset audio service.
-private final class AudioSessionEvents: @unchecked Sendable {
+final class AudioSessionEvents: @unchecked Sendable {
     private var tokens: [NSObjectProtocol] = []
     init(action: @escaping @MainActor @Sendable () -> Void) {
         let center = NotificationCenter.default

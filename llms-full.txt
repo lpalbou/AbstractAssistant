@@ -28,6 +28,9 @@ Included files (in order):
 - ACKNOWLEDGMENTS.md
 - LICENSE
 - CHANGELOG.md
+- phone/iphone/README.md
+- phone/iphone/docs/architecture.md
+- phone/iphone/BUILD.md
 - watch/apple/README.md
 - watch/apple/CHANGELOG.md
 - watch/apple/docs/architecture.md
@@ -72,6 +75,8 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/settings.md](docs/settings.md): every setting (the Workflow page with Open in AbstractFlow and the account Time zone, Stream replies, MTP depth, the account and chat workspaces, tool categories sorted and collapsed, the global shortcut's Accessibility state and Configure, appearance, About), its source (gateway default vs. this app) and its storage in preferences.json
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
+
+- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to messages; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -262,6 +267,8 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 - [settings.md](settings.md) — every setting, where its value comes from (gateway default vs. this app) and where it is stored, including the workflow choice, Stream replies, appearance and About
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 - [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
+
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, generated image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md) and [build guide](../phone/iphone/BUILD.md)
 
 ## Design records
 
@@ -3555,6 +3562,665 @@ abstractassistant --config custom.toml # Custom config
 - pystray for cross-platform system tray
 - TOML libraries for configuration management
 
+--- phone/iphone/README.md ---
+# AbstractAssistant for iPhone
+
+A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
+AbstractGateway, with the conversation at the center and the controls you need close by.
+
+**Developer preview · 0.6.9 · iOS 26+**
+
+## Three small spaces
+
+- **Assistant.** Type a message, or **tap the orb to listen**. After you speak, three seconds
+  of silence sends your voice message automatically. Speaking again restarts the countdown;
+  tap the orb before sending to cancel. Separate floating **+**, **keyboard** and orb controls
+  keep the conversation open. The keyboard button expands the editor across the available
+  width and hides the orb. Tap outside to dismiss the keyboard and restore the controls,
+  preserving your draft. While listening, only a small Listening label appears above the orb.
+  The orb’s ribbons react to microphone and read-aloud playback levels. While the assistant
+  works, it becomes an animated square: tap it to stop the response. Progress appears once
+  in a collapsible activity panel. It shows model cycles, tool calls, public results and
+  failures. When a tool needs approval, **Approval needed → Review tools** appears directly
+  in the conversation. Connection loss is reported separately from run failure. The orb
+  returns when the gateway confirms the run has ended.
+  Conversations are durable gateway sessions. Open the stack icon to continue one from
+  your phone, desktop, Watch or browser. Reloading restores every turn’s public answer without
+  reading old replies aloud. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
+  Share or copy an answer, or ask the gateway to read it aloud; pause, resume and stop playback.
+  Voice sends separately from your typed draft. The **+** button serves text and voice.
+- **Inbox.** Questions and tool approvals, followed by recent activity. Approvals show every
+  action and its complete arguments. **Approve** allows the pending request; **Deny** refuses
+  it. For the open conversation, **Approve all** also switches its currently enabled tools
+  to Auto. Off, unavailable and newly added tools remain outside that grant. Change the
+  choices in **Tools** to revoke it. Questions still require an answer. Decisions already
+  made on another device cannot resume a different wait.
+- **Automations.** See your routines, their latest answers and five earlier runs. Run an
+  active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: describe the task, choose a workflow and
+  interval or daily time, choose its tools, and decide whether it builds on earlier runs.
+  Daily times use your account’s time zone, which the creation screen displays. Editing
+  an existing routine’s tools is available on its detail screen; other definition changes
+  remain in the gateway console.
+
+When creating an automation, **Build on earlier runs** reveals **History token budget**.
+Leave it blank to inherit the gateway’s default (50,000 tokens in the runtime shipped with
+this feature), or enter a positive whole number. The displayed default comes from your
+gateway. The budget limits retained history rather than the length of an individual answer.
+
+The app uses your account’s Assistant workflow preference (`abstractassistant.agent.v1`), or
+the gateway’s Assistant default when you follow the default. If it is unavailable, choose an
+available workflow in **Settings → Workflow**. Saving changes the Assistant preference
+for your account across devices and applies to the next message, keeping your draft and history. The phone never switches
+to another agent interface or runs models locally.
+
+## Voice and files
+
+**Settings → Voice & reading** offers automatic reading of new replies, the gateway’s
+speaking voices and its transcription models. Voice choices stay on this iPhone, scoped
+to your account and gateway. **Gateway default** sends no override; entities retain their
+own speaking voice. Tap a voice to select and hear it automatically. Speed choices
+**1×, 1.15×, 1.3× and 1.5×** also play a sample and apply to all read-aloud playback.
+Restored history is never read automatically.
+
+**Tap → speak → three seconds of silence → send.** Capture stays on the iPhone until the
+silence countdown ends. Speaking again restarts that countdown. Tap the orb
+to discard pending voice without uploading it. A tap without confirmed speech times out
+after eight seconds, and the one-minute recording limit discards an unfinished message.
+Leaving chat, changing conversations, opening the keyboard, backgrounding or an audio
+interruption cancels pending capture. Once the countdown finishes, upload/transcription
+has begun; canceling then stops the pending turn but cannot retract audio already uploaded.
+The same tap interaction works with VoiceOver's double-tap activation.
+
+The orb uses measured microphone/playback energy for its silhouette, rings and light.
+Listening adapts to your microphone’s recent volume range; playback uses its own scale.
+Reduce Motion retains signal-driven light while freezing geometry and rotation. Silence
+detection uses local microphone power; room noise and very quiet speech can affect it.
+
+Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
+a short video. Uploaded file chips remain until you send or remove them.
+**More options (…) → Conversation files** opens your files, including files the assistant generates.
+Tap a file to download it privately and preview, play or share it with the native viewer.
+Attachments retain their gateway artifact and owning-run references. Credentials never
+travel in a share link or to an AI-provided URL.
+
+Choose **Assistant orchestrator** in **Settings → Workflow** to generate images and voice
+through the gateway’s configured providers. Ask for an image, attach one and ask for an
+edit, or ask for a voice recording. Generated files belong to their AI message, including
+when you reopen the conversation. Images show an inline preview: tap to enlarge, share,
+or use the image as a reference for the next message. Voice files have their own play,
+pause, seek and stop controls. Playback also animates the orb. Generated audio stays quiet
+until you play it; automatic reading does not synthesize a second version of that reply.
+The gateway must offer the requested modality; generation errors appear in activity.
+For gateway endpoint profiles, image generation also requires the Runtime media-resolver
+fix from commit `80a1887` (or a release containing it). An older Runtime can list an image
+provider successfully but fail to resolve it during generation; update and restart that gateway.
+
+Local copies opened through Conversation files are removed when you dismiss the viewer or
+open another file. Inline previews use a disposable conversation cache, bounded to six files
+with a 128 MB eviction target. The current viewer, playing audio and newest download are
+protected from eviction, each subject to the 256 MB file limit. Switching
+accounts or conversations cancels pending downloads and clears the cache. Imported copies
+are removed after upload; recordings are removed after transcription or cancellation.
+Disposable files left by an interrupted app are cleared on its next launch. Your originals
+and gateway attachments are preserved.
+
+Uploads are limited to **25 MB each**; generated-media previews stream to disk with a
+**256 MB per-file limit**. The gateway may impose a smaller limit.
+Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts
+text only, so file messages are available in Assistant conversations. The files list shows
+the latest 100 session artifacts; older files remain on the gateway.
+
+## Conversation tools and answer statistics
+
+Open **Settings → Default tools** to choose defaults for all sessions and new automations
+on this iPhone, scoped to your gateway and account. Tap the **Tools** icon beside the
+responder in a chat to override those defaults for that session. The same editor is
+available under **Tools** when creating an automation and on its detail screen.
+
+Available categories are highlighted and listed first. Categories needing gateway setup
+follow in muted styling. Expand a category or search by category, name or description.
+Tap a mode directly to create an override:
+
+- **Off:** the agent cannot use the tool.
+- **Auto:** approve automatically.
+- **Approve:** ask before running it.
+
+Session choices take precedence over Settings. Automation choices also take precedence
+over Settings. Use the defaults switch to inherit again; **Save** commits the current
+context and **Close** discards unsaved edits. Existing Assistant defaults from earlier
+versions migrate to the shared Settings defaults.
+
+Automations save a snapshot of the resolved tools and approval choices, so they can run
+while the phone is closed. Later Settings changes apply to new automations; open an
+existing automation’s **Tools**, select **Use Settings defaults**, and save to update its
+snapshot. Automation saves wait for the gateway’s committed revision. This requires the
+runtime’s named automation tool-policy support; older gateways report the missing support
+without dropping your choices. Messaging and other gateway restrictions still apply.
+
+Tools stay reachable while the assistant works. Saved choices apply to the next message;
+they do not modify a request already running. Starting a new conversation inherits the
+saved iPhone defaults. A tool choice cannot grant a capability that the gateway or entity
+does not offer; unavailable tools remain disabled.
+The app refreshes availability when sending, so disabled or removed tools are not offered
+to the agent. If tools cannot be loaded, the app reports the problem before starting the agent.
+
+In **Settings**, enable **Show answer statistics** for a small line below AI answers:
+elapsed wall time, input/output tokens and executed tool calls. It is off by default.
+Unavailable measurements stay absent. Reading controls belong to the answer being spoken;
+other answers retain their own Read action.
+
+Assistant conversation tools use the same discovery and run-start APIs as the desktop
+assistant; they do not require a gateway update for a capability probe. Entity conversation
+approvals require entity session-tool support. On gateways without that support, ordinary
+entity chat remains available and explicit entity tool choices stay unavailable. Detailed
+answer statistics appear only when the gateway supplies them.
+
+## Entities
+
+Tap the current name at the top of chat to open **Who answers**. Search the entities your
+account can access, select one, or choose **New entity**. Switching starts a new chat view
+and keeps your draft; an entity retains its ongoing memory. Send or remove staged files
+before switching. Entity loading has its own retry, independently of run history.
+
+Creation uses the gateway's default identity and models, after a name check. Entities are
+permanent and cannot be deleted; the form explains this before **Create entity**. Successful
+creation opens the entity. If the gateway reports incomplete setup, the entity remains
+created and its warnings are shown before continuing. Existing names are not replaced.
+Advanced entity configuration remains in the gateway console.
+
+## Connect
+
+Enter your own gateway’s address. There is no preselected public server.
+
+- **User name + account token:** the app verifies that the token belongs to that account.
+- **Registered email + one-time code:** request the code and enter it. Email sign-in must be
+  enabled on your gateway, with a mailbox connected for your account.
+
+Sign-in data lives in the iPhone Keychain (`WhenUnlockedThisDeviceOnly`), outside iCloud
+sync and ordinary preferences. HTTPS is required outside the local network. Local HTTP
+addresses are accepted for development. A phone’s `localhost` is the phone itself; use
+your Mac’s LAN address to reach a gateway running there.
+
+**Take a look around** opens a separate demo with sample data. Its navigation label stays visible;
+demo actions do not contact a gateway or overwrite an existing Keychain sign-in.
+
+## Build and try it
+
+See [BUILD.md](BUILD.md). The project has its own bundle ID, Xcode project, build directory
+and gateway-client snapshot. It neither embeds nor modifies the Watch application.
+
+## What to expect from this preview
+
+- Foreground updates only: active runs are checked every three seconds; the lists every
+  fifteen seconds. No push notifications or background polling. The gateway continues work
+  after you leave the app. Open it again to catch up.
+- Answers use the gateway’s run output; the phone does not implement token-by-token SSE.
+- The conversation picker shows the most recent 60 chat/discussion runs and opens up to
+  30 turns per conversation. Older history remains on the gateway.
+- Entity conversations use durable gateway visits when supported. Starting a new conversation
+  ends the previous owned visit; the entity retains its ongoing memory. Earlier gateways
+  use the home’s existing text-chat interface.
+- Voice capture is limited to one minute. Audio goes to your gateway, then the temporary
+  recording is removed. Transcription and speech use the gateway providers you select;
+  no model runs on the iPhone. The orb’s level response is local; the conversation still
+  proceeds through recording, transcription, a gateway run, then speech.
+- Chat model overrides, editing existing automation definitions, push, CarPlay and iPad
+  layouts remain outside this preview. The desktop and gateway console expose those controls.
+- Device microphone permissions, private-network reachability and real provider audio need
+  verification on your own iPhone and gateway before daily use.
+
+[Architecture](docs/architecture.md) · [Validation](docs/validation.md) ·
+[AbstractAssistant](../../README.md) · [AbstractFramework](https://abstractframework.ai)
+
+MIT License — see [the repository license](../../LICENSE).
+
+--- phone/iphone/docs/architecture.md ---
+# iPhone architecture
+
+```mermaid
+flowchart LR
+    Views[SwiftUI screens] --> Store[AssistantStore]
+    Views --> Voice[Microphone and playback]
+    Vault[iPhone Keychain] --> Store
+    Store --> Client[AbstractGatewayClient snapshot]
+    Voice --> Client
+    Views --> Files[Attachment import and authenticated preview]
+    Files --> Client
+    Store --> Media[Per-message artifact references]
+    Media --> Preview[Bounded image and voice previews]
+    Preview --> Client
+    Client --> Gateway[AbstractGateway]
+    Gateway --> Runtime[AbstractRuntime / providers]
+```
+
+`Sources/App` owns native views, Keychain access, recording and playback. The `AssistantKit`
+Swift package owns account-scoped state and URL validation. Its second target,
+`AbstractGatewayClient`, contains the HTTP wire types and protocol.
+
+The gateway remains the source of truth for session history, workflows, tools, approval
+policy, entities, model/voice defaults and automations. The app reads account preferences
+before starting a turn, chooses the explicit catalog workflow when set, otherwise uses
+`@default` with `abstractassistant.agent.v1`. A missing/broken choice fails visibly without
+switching interfaces. The workflow picker writes only the account’s Assistant interface preference. Operator
+defaults and other app preferences are never changed. Voice overrides, playback speed and read-aloud
+preferences are stored locally, scoped by gateway/tenant/account.
+
+The HTTP client uses an ephemeral URLSession, explicit bearer or session/CSRF headers,
+and refuses redirects. A 401 locks the client out; the store removes the sign-in and stops
+polling rather than repeatedly hitting the gateway’s failed-sign-in limit. Credentials are
+Keychain items, with device-only accessibility, and are never encoded in a URL or passed
+as launch arguments.
+
+Store generations separate account changes and conversation changes. Old refreshes and
+answers cannot repopulate a later account’s screen. Restoring a persisted session also
+restores its visible history before sending is enabled. A failed/uncertain run-start POST
+is never retried automatically: the user checks Conversations before resending.
+
+Only a foreground task polls, with no overlapping refresh. Backgrounding stops the poll,
+microphone and playback; it does not cancel a durable run. Stop is an explicit gateway
+command. Stop intent is recorded before awaiting the start response, so a late run ID is
+cancelled instead of abandoned. Root cancellation is sent once and the store follows the
+run until its terminal state. Entity visits retry closure while the gateway holds its
+writer lease. The square stays in its stopping state until confirmation; failures leave
+a retry action and conversation recovery available. Completed stopped turns cannot trigger
+automatic reading, and late send responses cannot restore the stopped visit. Tool approvals re-read the current run and wait key before sending a decision.
+
+## Relationship to the Watch app
+
+The initial client snapshot comes from `watch/apple/Packages/AbstractGatewayClient`.
+`Packages/AssistantKit/WATCH_SNAPSHOT.json` records the source-file hashes. This isolates
+the phone from ongoing Watch edits and avoids changing the Watch’s package or builds.
+Phone changes add account workflow preference resolution and selection, artifact upload
+and authenticated downloads, the Assistant interface/persona,
+HTTP diagnostics and phone-oriented demo prose. Credential persistence and UI are entirely
+separate. A shared package can be extracted after both clients’ APIs settle.
+
+## Voice lifecycle
+
+`VoiceTurn` is a local policy: authorizing → recording ↔ countdown → ready → transcribing.
+Only `claimForTranscription` permits a network handoff, once. A tap activates capture.
+`SpeechActivity` applies an adaptive raw-power gate with onset/offset hysteresis; confirmed
+speech requires 180 ms of observed activity. Three quiet seconds after speech permit the
+handoff. Resumed speech is processed before expiry and resets the quiet window. Recording
+continues during the countdown, so a second phrase stays in the same local WAV. Initial
+quiet/brief impulses never start a message; eight seconds without confirmed speech and
+60 seconds of total capture discard locally. The hard duration limit wins over commit.
+
+Touch-down while capture is pending cancels synchronously, even if the finger lifts after
+the old deadline. No upload/STT happens before ready. Unknown meter values and sample gaps
+over 250 ms reset the quiet/onset window; unobserved time is never inferred as silence.
+Camera/navigation/account/session/background/audio-interruption paths cancel pending voice.
+Permission completion checks current UIApplication state and generation before recording;
+it briefly waits for prompt dismissal to activate the app and otherwise requires a new tap.
+A voice turn sends separately from any typed draft, with currently staged attachments.
+
+`VoiceController` owns recorder/player lifetime and temporary-file cleanup. Chat owns the
+cancelable transcription task. A main-actor Task samples every 33 ms independently of run
+loop modes. Raw power drives silence detection; two separate fast-attack display envelopes
+drive the orb. `MicrophoneEnvelope` normalizes
+recorder power against a recent peak and room floor with an 18 dB minimum span; short
+syllables remain visible even when absolute microphone levels are much lower than mastered
+playback. A low-variance window can update the visual baseline after 45 stable samples
+without changing the raw speech decision. A perfectly sustained sound may therefore soften
+visually. `AudioEnvelope` retains the playback soft knee for actual AVAudioPlayer power. Only the
+small `VoicePresence` subtree observes the envelope. Continuous phase survives state changes;
+voice rendering requests up to 60 Hz, working-state rendering up to 30 Hz; idle rendering is slower
+and background rendering stops. The soft knee preserves differences
+between loud syllables without saturating at ordinary playback levels. Energy changes
+the ribbons’ curvature, spacing, rotation and stroke, independently of the raw silence gate. Reduce Motion freezes geometry
+and rotation while retaining responsive light. The Debug-only
+`--demo --ui-test --voice-fixture` supplies speech followed by silence, isolated from live
+credentials and Release builds, to exercise tap/cancel/automatic send in native UI tests.
+
+During a gateway turn, the same orb contour morphs into a rounded square with a stable
+Stop glyph. Its surrounding ribbons continue moving; the hit target stays 84 × 80 points.
+The sole progress row belongs to the conversation. Touch-down consumes the Stop action,
+so releasing after cancellation cannot activate the microphone. Repeated touches within
+450 ms of cancellation are consumed. Reduce Motion keeps a static, recognizable square.
+
+The composer uses separate floating + and keyboard buttons on the left and the orb on the
+right, without a shared panel. The keyboard button cancels pending capture and expands
+the editor into the available width while hiding the orb. A separate composing state
+mounts the editor before requesting keyboard focus; its cancelable task checks that the
+editor is still open before focusing. The field is removed while minimized, including
+from accessibility. The keyboard button's accessibility value reports a preserved draft.
+Outside taps dismiss editing and restore the floating controls. Only a small Listening
+label sits above the
+active orb; there is no visible voice Cancel/countdown or Done
+button in chat. `OutsideInputDismissal` installs a screen-owned UIKit recognizer rather
+than a window handler. It excludes text/caret/selection touches, allows simultaneous
+recognition, never cancels the outside control's event and defers focus changes until that
+action can finish. Native tests exercise field/caret taps, outside dismissal, Send, orb and
+opening the attachment menu with one tap while editing. Leaving the screen detaches it.
+
+`AssistantStore.completedReply` signals only a newly completed current turn. Automatic
+reading listens for this event while active, rather than message-list refreshes, so restored
+history and repeat polls remain silent. Entity speech retains its entity scope and voice.
+Per-request provider/model/voice overrides follow the newer Watch client contracts.
+
+## Voice settings and responder selection
+
+The Watch's pick-and-preview flow is preserved: selecting a voice immediately requests a
+short sample, and selecting a speed previews the current voice. Separate view-owned
+controllers stop old previews when navigating, backgrounding or changing account; recorder/
+player generations suppress obsolete completions. Speed is one of 1, 1.15, 1.3 or 1.5,
+stored per gateway/account and applied locally through AVAudioPlayer.enableRate/rate before
+playback. It applies to Assistant and entity speech while entity voice overrides remain
+entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
+
+The chat title is a labelled responder chooser. Files/settings move into one More menu,
+avoiding an adaptive toolbar that hides actions. Who answers lists Assistant and searchable
+entities with explicit loading/error/retry. Entity discovery can load independently of the
+store's run polling chain. Switching is blocked with a reason during an active run/import
+or staged files; drafts are preserved.
+
+Entity creation uses the existing principal-scoped gateway endpoints. A cancelable name
+check calls POST /entities/{slug}/validate before enabling the explicit Create action; the
+same trimmed name and default-framework body then goes to POST /entities. The form discloses
+permanence before mutation. No local model, spark or administrator permissions are invented.
+Creation decodes manifest.slug/name, created and all warnings, including skills/capability
+setup warnings. Partial/existing outcomes remain visible with an Open conversation action,
+rather than inviting another creation. Account generations reject obsolete completions.
+
+## Files and automations
+
+Uploads are stored by `POST /attachments/upload` with the current session ID. Returned
+`$artifact` plus `run_id` references are carried in both input attachments and the agent’s
+context/media fields, matching the tray. Session artifact listing includes files from child
+runs; the owner from each artifact is used for its download. IDs are validated before
+constructing a gateway route. Size checks cap imports and streamed downloads at 25 MB.
+Only app-owned local files reach QuickLook. Dismissing or replacing the preview removes
+its local copy; account/session changes also remove preview data. Imports, recordings and
+previews live under `tmp/AbstractAssistant/{imports,voice,previews}`, in separate operation
+directories. Upload completion/failure/cancellation and transcription completion/cancellation
+discard their owned copies. Startup clears that temporary namespace and strict UUID-named
+legacy copies left by interrupted processes; originals and Documents are outside its scope.
+Creation and deletion reject namespace symlinks that could lead outside owned directories.
+Picker origin and task generations prevent stale files crossing accounts or conversations.
+
+Automation creation shares the Watch’s NewAutomation schema, eligible-workflow endpoint,
+input-schema preflight and schedule@2 presets. Per-tool choices use a durable named snapshot. Daily clock
+times follow the account time zone reported by the gateway. A pending creation retains its
+request ID across retries, preventing uncertain responses from duplicating routines. The
+creation response is retained for navigation even if refreshing the list fails. Shared
+catalog workflows unsupported by automations v1 remain a gateway validation error.
+
+
+## Conversation tool scope and metrics
+
+`ConversationTools` is an explicit whitelist with Off, Auto and Approve modes. Assistant
+turns carry the same enabled names in `input_data.tools` and `_runtime.allowed_tools`,
+plus named `auto_approve_tools` and `require_approval_tools` in `_runtime.tool_policy`.
+An empty list denies every tool. Inherited selection resolves enabled names from fresh gateway
+discovery on every Assistant send, matching the desktop client; it is independent of the selected
+workflow's Tools-pin defaults. The approval policy remains omitted when inheriting, leaving
+approval decisions to the gateway. Explicit choices are intersected with current availability,
+including their named approval lists. Discovery errors prevent run creation. Attachments and
+policy travel in the same start request. This is the established desktop Assistant contract;
+no additional tool-policy capability endpoint is required. Preferences use gateway/account,
+responder and session keys. A compatibility client cannot silently discard an explicit policy.
+
+Entity discovery uses `GET /entities/{name}/session-tools`. When its `visit_routes` field
+is true, managed sessions open with the policy through the existing `visit/open` route,
+then end through `visit/{run_id}/close` with `closed_by: pause`. The policy is installed
+before the first tick. Gateways serving this inventory without `visit_routes` use the
+compatible `/sessions` and `/end` aliases. Entity policy/state/decision routes remain
+owner-bound. An approval is a persisted runtime wait; only its
+exact key and a strict boolean decision are sent. The server executes through the entity's
+own handler and rechecks its grant. Policy changes are accepted only between turns.
+The phone reuses its session/visit IDs after reconnect, while generations prevent late
+responses from crossing accounts or conversations. Legacy chat is used only when the
+entity session-tool inventory is unavailable and no explicit policy was requested.
+
+Message statistics are optional and answer-owned. Agent metrics fold the run's execution
+subtree; elapsed time is the root wall span, not the sum of overlapping child durations.
+Entity metrics cover only the latest completed turn between visitor-input parks, excluding
+visitor idle time. Missing token usage remains unknown. Active streaming answers are not
+cached as final measurements. Playback actions require both active playback and a matching
+`readingID`, so only the spoken answer can expose Pause and Stop.
+
+Automation history budgets are sent as `context.growing.max_tokens` only for growing
+history with a custom positive value. Omission inherits the runtime default returned by
+`GET /automations/defaults`. The budget is part of the creation retry fingerprint.
+
+
+## Conversation tool categories
+
+The phone preserves the gateway inventory’s `toolset`, risk tier and enabled/available
+flags. Available categories sort first and use the accent color; unavailable categories follow
+in muted styling. Tools within each category also sort available first, then by name. Search matches category, tool
+name and description and reveals matching rows without changing saved disclosure choices.
+Rows disabled by the gateway retain its explanation and cannot be enabled by a session
+choice. Saving an explicit policy keeps those rows Off; gateway inheritance remains a
+separate mode. Draft changes require Save and are scoped to the original account and
+conversation. The search toolbar keeps Close and Save reachable while filtering.
+
+For older entity inventories, exact-name discovery metadata can supplement a missing
+category/risk classification. The entity’s availability and approval defaults remain its
+own. Unknown categories remain Other. The phone adds no category-wide approval shortcut.
+
+
+## Live conversation activity
+
+`RunActivity` projects durable ledger records into model cycles, tool calls, public results,
+waits and failures. Model messages, prompts and reasoning deltas are excluded. Runtime call
+identities pair tool starts, approval resumes and results; cursors count consumed records
+independently for each run. Retained detail is bounded to 250 rows and 4,000 characters per
+result with visible truncation labels; counters include earlier events.
+
+`AssistantStore` keeps the parent run as the owner of cancellation and final replies while
+following its descendants for progress and person waits. Child sessions need not share the
+parent's session ID. Listing rows are hydrated through run detail before presenting a
+question or approval. The existing ledger SSE route provides live events, with polling on
+404/405. Four simultaneous streams leave HTTP capacity for status reads; additional children
+are polled. Reconnect resumes at the last applied cursor. Root completion drains all known
+child ledgers, including children no longer referenced by an older gateway. Traversal stops
+at 64 runs or depth 16 with an explicit coverage notice. Entity visits use their existing
+scoped ledger endpoint, polling while the visit is active. Their wrapped records are
+validated and adapted to the same projection.
+
+Connection problems remain separate from run failures. Terminal failures and the activity
+panel remain visible after refresh. Reopening a completed conversation loads its latest
+turn's activity without reading conversation history aloud. Backgrounding cancels streams;
+account and conversation changes invalidate pending responses.
+
+**Approve** and **Deny** send the existing exact-key decision. **Approve all** is scoped to
+the open conversation's currently enabled tool names, stored with its account, responder
+and session preferences. It sends the same ordinary approval for the current batch and
+uses named Auto policies for future turns. For an already running workflow, the client
+answers later qualifying approval waits only while connected and active. Every tool in a
+batch must still be available, covered by the grant and set to Auto; questions never qualify.
+Manually saving Tools revokes the grant. The action is unavailable for unrelated Inbox
+items, preventing a decision there from changing the open conversation's permissions.
+
+
+## iPhone tool defaults and conversation overrides
+
+The effective tool selection is the explicit conversation selection, then the iPhone default
+for the connected gateway/account/responder, then gateway inheritance. `send` captures that
+effective selection before dispatching either an Assistant request or an entity turn.
+A saved empty selection remains an explicit deny-all value. Existing conversation keys
+retain their meaning; app defaults use a separate namespace without session IDs.
+
+The Tools editor maintains separate drafts for iPhone defaults and this conversation.
+Changing any available mode creates an explicit override immediately. Save applies edited
+defaults before edited conversation choices, while Close leaves persisted values alone.
+The header's Tools control remains available during execution. Saving while a request is
+running updates preferences for the next message and does not resend or mutate that request.
+Gateway availability is still intersected with explicit tool choices at send time.
+
+
+## Shared tool editor and automation grants
+
+Settings defaults use a gateway/account key across responders. Existing Assistant defaults
+migrate once; session keys retain their explicit overrides. The same editor is presented
+in one context at a time: Settings, session, or automation. Session overrides win over
+Settings; automation overrides independently win over Settings and never inherit the
+currently open conversation's exception.
+
+Creation snapshots fresh inventory with the selected automation override or Settings
+fallback. `target.input_data.tools` and `_runtime.allowed_tools` carry identical enabled
+names, including explicit `[]`. Named Auto and Approve lists belong to
+`definition.policy.tool_policy`, compiled by AbstractRuntime at occurrence admission;
+caller-provided `_runtime.tool_policy` is removed. Custom workflow inputs and model choices
+are preserved. Gateway restrictions remain authoritative. This additive runtime contract
+is required for mixed per-tool approvals; an older runtime's 422 is surfaced with choices
+retained rather than retried without the policy.
+
+The existing revise route acknowledges queued work. The client waits for the committed
+revision, verifies the requested target and named policy, and rejects concurrent edits.
+Run Now is guarded against repeated taps and never follows an unconfirmed policy save.
+Existing definitions without a tool grant resolve Settings before their first manual run;
+scheduled definitions retain their saved grant until explicitly revised. Editing Settings
+does not silently rewrite existing server automations.
+
+## Restoring chat history
+
+Run list rows are index summaries and may omit output. Session history follows all list
+pages, deduplicates roots, and fetches every root's full run result and prompt, with at most
+four concurrent turn hydrations. The history replacement is atomic and ordered oldest
+first. Only recognized public response fields become assistant messages; reasoning and
+internal child outputs are not replayed. Restoring a terminal run keeps diagnostics quiet
+and does not trigger Read aloud. A failed hydration reports an error and preserves the
+current conversation instead of showing a partial reconstruction as complete.
+
+## Generated images and voice
+
+`RunSummary.mediaArtifacts` reads structured workflow output references, including nested
+`outputs` and typed image/audio aliases. It carries the artifact’s owning run, MIME type
+and safe filename into the corresponding conversation message. Repeated references merge
+without losing richer metadata. Model-provided URLs and prose are never treated as authenticated
+download destinations.
+
+Run input restoration reads the established `runs/{id}/input_data` route, preserving original
+uploads as well as generated outputs. The next turn uses its freshly attached image first,
+otherwise the latest image in that session. The orchestrator receives `primary_image_artifact`
+and `has_primary_image_context`, alongside the shared attachment/context fields used by desktop.
+Changing sessions clears the source through ordinary message restoration.
+
+`MessageMediaController` owns image thumbnails, Quick Look and independent generated-audio
+playback. Downloads use authenticated artifact-content routes with redirect refusal and a
+256 MB streaming limit. The disposable cache retains at most six files and 128 MB, excluding
+a file actively open/playing or the newest single-file download. Context changes cancel
+registered downloads and discard cached files. Audio pauses/stops per artifact and shares
+microphone/read-aloud exclusion, interruption handling and measured orb animation.
+
+Endpoint-backed image generation requires Runtime's media host to inherit the gateway's
+provider endpoint resolver. Runtime commit `80a1887` fixes creation, resolver rotation and
+media-host reconstruction. Without it, a healthy inventory and successful text routing can
+still precede `Unknown or disabled endpoint profile` in the image-generation node. The
+phone reports that run failure; it does not copy endpoint credentials or resolve profiles itself.
+
+--- phone/iphone/BUILD.md ---
+# Build the iPhone app
+
+Requirements: Xcode 27.1 (Swift 6.2 or later), an iOS 26+ SDK/runtime, and XcodeGen.
+The package tests run on macOS 14+ without a simulator or signing account.
+
+From `abstractassistant/phone/iphone/`:
+
+```sh
+swift test --package-path Packages/AssistantKit --scratch-path build/SwiftTests --jobs 1
+python3 scripts/build.py
+```
+
+The build script generates `AbstractAssistantPhone.xcodeproj`, builds with one job at lower
+CPU priority and keeps DerivedData in `build/DerivedData`. It does not boot, reset, shut down
+or change any simulator. If another command-line Xcode build starts, the script stops only
+its own build and exits with status 75 so the other development takes priority.
+The simulator app is signed locally with an ad-hoc identity so Keychain works; this needs
+no developer account and does not sign a physical-device build.
+
+Xcode’s GUI build service is shared: also check for other active builds before starting,
+particularly while the Watch client is being developed. Do not launch both apps’ build
+scripts together. A simulator is not required to compile the app.
+
+## Open in Xcode
+
+```sh
+xcodegen generate --spec project.yml
+open AbstractAssistantPhone.xcodeproj
+```
+
+Select **AbstractAssistantPhone**, an iPhone simulator, then Run. For a physical iPhone,
+select your developer team for this target. The phone’s bundle ID is
+`ai.abstractframework.assistant.iphone`, distinct from the Watch app and its App Store
+carrier. No signing team is pinned in the project.
+
+For a connected physical iPhone, the guarded command-line build accepts your device and
+development team IDs without saving either in the project:
+
+```sh
+python3 scripts/build.py --device <iphone-id> --team <development-team-id>
+xcrun devicectl device install app --device <iphone-id> \
+  build/DeviceDerivedData/Build/Products/Debug-iphoneos/AbstractAssistantPhone.app
+xcrun devicectl device process launch --device <iphone-id> ai.abstractframework.assistant.iphone
+```
+
+This uses Xcode's automatic development provisioning and may register the app identifier
+and device with your existing developer account. It does not upload or distribute the app.
+
+The project is generated; change `project.yml`, not the generated project. The checked-in
+app icon can be regenerated with `swift scripts/make-icon.swift`.
+
+## Demo
+
+Choose **Take a look around** on the welcome screen, or launch a Debug build with:
+
+```sh
+xcrun simctl launch <your-own-iphone-simulator-id> ai.abstractframework.assistant.iphone --demo
+```
+
+Use an explicit iPhone simulator ID. Do not use `booted`: another developer’s Watch
+simulator may also be running.
+
+Debug screenshot states: `--demo --screen conversation`, `--demo --screen inbox`,
+`--demo --screen automations`. Release builds ignore launch arguments; the visible demo
+entry is still available without credentials.
+
+## UI tests
+
+The separate **AbstractAssistantPhoneUITests** scheme drives the demo and runs the hosted
+Keychain test. When resources are available, use the guarded script against your own
+iPhone simulator with isolated DerivedData and one job:
+
+```sh
+python3 scripts/build.py --ui-test <your-own-iphone-simulator-id>
+```
+
+Use `--only-testing Target/Class/testMethod` to rerun an affected native test. Test runs
+keep results and screenshots but disable the lengthy automatic simulator diagnostic pass.
+The optional `--allow-idle-watch-test <pid>` permits only a specifically identified idle
+Watch UI-test process (physical Watch or simulator); the helper still yields to Watch activity or compilation and memory
+pressure. Omit it for normal builds.
+
+App Store distribution, signing and upload are not configured by this preview.
+
+## Opt-in live media verification
+
+Use a development-signed iPhone with an existing gateway sign-in. The hosted test reads
+its Keychain credential in place; it never exports it. This starts real, potentially billed
+provider generations on that account and uploads the reviewed orchestrator bundle if absent.
+
+```sh
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testDiscoverSavedGateway
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testGenerateVoice
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testGenerateImageAndEdit
+```
+
+Image verification generates an image, then edits it using the stored primary-image
+reference. Voice verification is independent. Both download the authenticated artifacts,
+decode them on the iPhone and check that references survive reloading. Reports contain
+run/artifact IDs and byte counts under the app's `Documents/media-verification/`; no keys
+or endpoint secrets are stored. The tests resume their own saved runs after interruption;
+remove that test report before deliberately creating a new verification session.
+
+Normal tests skip these network actions. After live testing, use the normal device build
+and install commands above to replace the test host with the ordinary app.
+
 --- watch/apple/README.md ---
 # AbstractAssistant for Apple Watch
 
@@ -3680,11 +4346,30 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
-- **New automation** (top of the Automations list): the task, the workflow that runs it ("Gateway
-  default" first, then the workflows the gateway offers your account), when it runs (every 5 min,
-  30 min, 1 h, 8 h, 24 h or 7 days, or daily at a time), whether each run builds on the earlier
-  ones, and whether it asks before using tools; Create opens its page. The request is the one the
-  console, the tray app and the terminal send.
+- **Tools you choose.** A tools icon on the orb page (bottom right, as far from the bottom as the keyboard is from the top, shown with it; for the
+  Assistant) opens this conversation's tools, by group (Files, Web, System, Email, …): each tool is
+  Off (not offered), Auto (runs without asking) or Ask (asks first), with its risk (Reads only, Makes
+  changes, Reaches outside, Destructive), what it can do, and More for the gateway's description. A
+  group's All sets its tools at once; All auto leaves the tools that reach outside, can destroy, or
+  go where the assistant picks on Ask. Tools the gateway has not set up are listed by name.
+  **Settings → Tools** sets the defaults; a conversation's changes sit on top of them (the icon shows
+  a dot, each changed tool its default, and "Use my defaults" undoes them). A question goes out only
+  with the tools read from the gateway (read again every 10 minutes and on each visit to Tools).
+- An approval's **Accept all** now sets this conversation's tools: those on Ask stop asking, up to
+  the risk of the call approved; tools turned off stay off, and sends and tools whose destination
+  the assistant picks keep asking. The watch answers a later approval itself only when every call in
+  it is on Auto.
+- **New automation** (top of the Automations list): the task, the workflow that runs it (the
+  gateway's default by its name, e.g. "Basic agent · default", then the workflows the gateway offers
+  your account), the tools it may use, when it runs (every 5 min, 30 min, 1 h, 8 h, 24 h or 7 days,
+  or daily at a time) and whether each run builds on the earlier ones; Create opens its page. The
+  request is the one the console, the tray app and the terminal send.
+- An automation's **Tools** use the same page as a conversation's, starting from your defaults: Off,
+  Auto or Ask per tool. A tool on Ask waits for you in Needs you when the automation runs.
+- **Settings → Connection** (first row): the gateway, its status, the account you are signed in as
+  and its role, its email, and how many tools are set up for that account, with "Sign in as someone
+  else". Email tools follow the account: one without a mailbox shows them as "Not connected for this
+  account", where another account on the same gateway has them.
 
 - **Share** a web page's link from the icon beside Back (Messages, Mail, …). The share icon is one
   reusable control for any text or link; the watch has no clipboard, so sharing is how a text
@@ -3749,6 +4434,9 @@ channel (TestFlight, then the App Store); the Python package's history is in
   voice's own range (a syllable reaches full strength, a pause falls back) and its spectrum in 8
   bands from low to high pitches. Each orb style draws the spectrum (the Halo: each angle is a band,
   low pitches at the top). The orb reaches 8% less far at full voice; its size at rest is unchanged.
+- Read aloud sends the whole text in one request: the gateway's voice speaks it in whole sentences,
+  made ahead of playback, in one language for the whole reply (one request per paragraph added a
+  pause and a fresh short opening at every paragraph).
 - An automation's page shows its latest result in full once it is read, with a spinner meanwhile
   (never the shortened preview first), and says so with Retry if it cannot be read.
 
@@ -3758,7 +4446,7 @@ channel (TestFlight, then the App Store); the Python package's history is in
   words alone ("Ah oui,") and the rest of the sentence seconds later; the watch now waits for 1.5 s
   of speech before it starts (2 s again if it ever runs dry), so it speaks without a break. The
   first sound comes about 3 s later than before with today's gateway voice; a gateway on
-  abstractvoice 0.15.1 sends a whole clause first, which starts at once.
+  abstractvoice 0.15.2 sends a whole clause first, which starts at once.
 
 ## [0.2.0] - 2026-10-17
 
@@ -3881,11 +4569,12 @@ in the same session pool as the desktop assistant's.
 | Sign in with an email | `POST /api/gateway/session/recovery/request`, then `POST /api/gateway/session/recovery/redeem` (`remember: true`); the session and CSRF values are sent as `X-AbstractGateway-Session` / `X-AbstractGateway-CSRF` |
 | Needs you | `GET /api/gateway/runs?status=waiting`, then `GET /api/gateway/runs/{id}` for each waiting row (the approval lives on the agent's child run) |
 | Allow / deny / answer | `POST /api/gateway/commands` `{type: "resume", payload: {wait_key, payload: {approved} or {response}}}`; the run is read again first, and a wait answered elsewhere is not answered twice |
-| Allow all tools in this session | later approvals of the conversation's runs are answered by the watch; new runs carry `_runtime.tool_policy {auto_approve_max_risk_rank: 4, require_approval_tools: <send tools>}`; risk levels from `GET /api/gateway/discovery/tools` |
+| Accept all (an approval) | this conversation's tools on Ask stop asking, up to the risk of the call approved (at least "makes changes"); Off tools stay off, sends and tools whose destination the assistant picks keep asking; the watch answers a later approval itself only when every call in it is on Auto |
 | Ask the Assistant | `POST /api/gateway/runs/start` `{flow_id: "@default", interface: "abstractcode.agent.v1", session_id, input_data: {prompt, use_session_history: true, system, tools, _runtime.allowed_tools}}`, then `GET /api/gateway/runs/{id}`; `tools` lists every tool `GET /api/gateway/discovery/tools` reports enabled and available (as the desktop assistant), and `system` is added after the agent's own loop and tool rules |
 | Ask an entity | `GET /api/gateway/entities`, `POST /api/gateway/entities/{name}/chat/open`, `POST .../chat/{id}/turn`; the entity row's `appearance` gives its orb |
 | Voice in | `POST /api/gateway/attachments/upload` (multipart, `session_id`), `POST /api/gateway/runs/{session owner}/audio/transcribe` |
-| Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); playback starts once 1.5 s of speech is queued (before abstractvoice 0.15.1 the first piece is two words) and plays at the speed chosen on the watch |
+| Voice out | `POST /api/gateway/runs/{id}/voice/tts/stream` (an entity: `POST /api/gateway/entities/{name}/voice/tts/stream`); the whole text in one request (the gateway speaks it in whole sentences); playback starts once 1.5 s of speech is queued and plays at the speed chosen on the watch |
+| Tools | `GET /api/gateway/discovery/tools` (group `toolset`, `description`, `risk_tier`, `enabled`, `approval_default`); each run sends the tools on Auto or Ask as `tools` and `_runtime.allowed_tools`, and `_runtime.tool_policy {auto_approve_tools, require_approval_tools}`; choices are kept on the watch (defaults, then each conversation's changes) |
 | Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, a row's title is its latest run's prompt from `GET /api/gateway/runs/{id}/input_data` (none is made up); a conversation's history on the orb page: `GET /api/gateway/runs/{newest}/history_bundle?include_session=true&detail=replay` (one request) |
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |
 | Automations | `GET /api/gateway/automations`; one automation `GET /api/gateway/automations/{id}` (`summary.current_occurrence` while it runs, `definition.target` for its task) |
@@ -18402,6 +19091,9 @@ INCLUDED_FILES: list[str] = [
     "ACKNOWLEDGMENTS.md",
     "LICENSE",
     "CHANGELOG.md",
+    "phone/iphone/README.md",
+    "phone/iphone/docs/architecture.md",
+    "phone/iphone/BUILD.md",
     "watch/apple/README.md",
     "watch/apple/CHANGELOG.md",
     "watch/apple/docs/architecture.md",

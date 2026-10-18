@@ -5,3 +5,4 @@ build/
 __pycache__/
 Packages/AssistantKit/.build/
 Packages/AssistantKit/.swiftpm/
+Tests/Resources/*.flow

@@ -4,7 +4,7 @@ import AssistantKit
 import AbstractGatewayClient
 
 @Test func malformedArtifactSizesCannotTrapAndPathsStayLocal() throws {
-    for (value, expected) in [(1e100, PhoneArtifact.byteLimit + 1), (-1e100, 0), (123.0, 123)] {
+    for (value, expected) in [(1e100, Int.max), (-1e100, 0), (123.0, 123)] {
         let row: JSONValue = .object(["artifact_id": .string("file1"), "run_id": .string("run1"), "size_bytes": .number(value), "filename": .string("../../report.pdf")])
         let file = try #require(PhoneArtifact.parse(row))
         #expect(file.size == expected && file.filename == "report.pdf")
