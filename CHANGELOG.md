@@ -3,7 +3,14 @@
 All notable changes to AbstractAssistant are documented in this file. Entries describe what
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
-## [Unreleased]
+## [0.14.3] - 2026-10-19
+
+### Changed
+
+- Built-in orchestrator, revision 8: the routing decision no longer reads or appends the
+  conversation's turns (it only decides where a message goes), and a request for a spoken reading of
+  a named passage or scene (a recitation, a dramatic reading) routes to the voice route, never to
+  audio generation. The desktop app republishes this revision on its next launch.
 
 ### iPhone
 
