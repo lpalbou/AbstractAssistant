@@ -19,8 +19,8 @@ final class Speaker: NSObject, ObservableObject {
     /// Chunks to play, each with its analysis for the orb (made when it arrives, off the main thread).
     private var queue: [Chunk] = []
     /// Playback waits until this much speech is queued (or the stream is done): a gateway voice
-    /// before abstractvoice 0.15.1 sends two words first (1.3 s, "Ah oui,") and the rest seconds
-    /// later, so starting on that piece alone breaks the voice after it; from 0.15.1 the first piece
+    /// before abstractvoice 0.15.2 sends two words first (1.3 s, "Ah oui,") and the rest seconds
+    /// later, so starting on that piece alone breaks the voice after it; from 0.15.2 the first piece
     /// is a whole clause (2 s or more) and starts at once. Set again when the queue runs dry.
     private var buffering = true
     private static let startBuffer = 1.5, refillBuffer = 2.0

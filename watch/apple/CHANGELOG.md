@@ -86,7 +86,7 @@ channel (TestFlight, then the App Store); the Python package's history is in
   words alone ("Ah oui,") and the rest of the sentence seconds later; the watch now waits for 1.5 s
   of speech before it starts (2 s again if it ever runs dry), so it speaks without a break. The
   first sound comes about 3 s later than before with today's gateway voice; a gateway on
-  abstractvoice 0.15.1 sends a whole clause first, which starts at once.
+  abstractvoice 0.15.2 sends a whole clause first, which starts at once.
 
 ## [0.2.0] - 2026-10-17
 
