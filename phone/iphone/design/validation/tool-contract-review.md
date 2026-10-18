@@ -53,11 +53,12 @@ Logs: `/tmp/gateway-tool-contract-local-tests.log`,
 - Fallback Reason: none.
 - Contract Degradation: none; the user explicitly requested one adversarial subagent.
 - Observed Evidence: real source diffs and test logs listed above.
-- Inference Or Unverified Claims: live remote gateway behavior and physical delivery
-  are not established by source/package tests.
+- Inference Or Unverified Claims: live remote gateway behavior is not established
+  by source/package tests. Physical installation is verified below; the actual
+  signed-in Tools flow still requires device interaction.
 - Reviewer Verdicts: framework Approved; phone Approved at source/package-test level.
-- Open Questions Or Missing Evidence: live remote gateway and physical delivery
-  have not been exercised for this version.
+- Open Questions Or Missing Evidence: live remote gateway and signed-in physical
+  Tools interaction have not been exercised for this version.
 - Residual Risk: gateways without entity session approvals retain legacy chat and
   cannot enforce visitor-specific entity approval choices.
 - Final Verdict: Approved for the inspected implementation and native UI scope;
@@ -65,9 +66,13 @@ Logs: `/tmp/gateway-tool-contract-local-tests.log`,
 
 ## Device delivery
 
-The guarded signed-device build exited with status 75 after another Xcode build
-started; only this iPhone build was stopped to preserve Watch priority. No 0.6.3
-installation was attempted from that interrupted build. A CoreDevice installed-app
-query confirmed 0.6.1 (9) is still installed. The earlier 0.6.2 installation had
-failed because the iPhone had no free storage; no app or user data was removed.
-Log: `/tmp/phone-tool-contract-device.log`.
+The first guarded signed-device build yielded to another Xcode build with status
+75. A subsequent guarded build completed after Xcode became available. Strict
+code-signature verification passed, and the binary contains no obsolete
+"Update this gateway to configure tools per conversation." message.
+
+CoreDevice successfully installed 0.6.3 (11), independently reported that exact
+installed version, and successfully launched the app. Binary SHA-256:
+`ab96915df735f9826b848ce0e3fdd463c9359ebd6a592f4f7264eff4740a0dbe`.
+No existing app or user data was removed. Build logs:
+`/tmp/phone-tool-contract-device.log`, `/tmp/phone-tool-contract-device-retry.log`.
