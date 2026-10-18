@@ -284,6 +284,50 @@ final class PhoneUITests: XCTestCase {
         chooser.tap(); XCTAssertTrue(app.buttons["Talk with Atlas One"].waitForExistence(timeout: 5))
         capture(app, "Created entity")
     }
+    @MainActor func testIPhoneToolDefaultsAreEditableWithoutUnlockingAndCarryToNewChats() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults"]; app.launch()
+        XCTAssertTrue(app.buttons["chat.tools"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Choose who answers"].isHittable)
+        capture(app, "Always-visible tools beside responder")
+        openTools(app)
+        app.segmentedControls["tools.scope"].buttons["iPhone defaults"].tap()
+        searchTools(app, for: "read_file")
+        let read = app.segmentedControls["tool.read_file"]
+        XCTAssertTrue(read.waitForExistence(timeout: 5)); XCTAssertTrue(read.isEnabled)
+        read.buttons["Approve"].tap() // Direct override: no preceding defaults toggle.
+        XCTAssertEqual(app.switches["tools.defaults"].value as? String, "0")
+        capture(app, "Direct override of iPhone defaults")
+        app.buttons["tools.save"].tap()
+        app.buttons["More options"].tap(); app.buttons["New conversation"].tap()
+        openTools(app)
+        XCTAssertEqual(app.switches["tools.defaults"].value as? String, "1")
+        searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Approve"].isSelected)
+        read.buttons["Off"].tap()
+        app.segmentedControls["tools.scope"].buttons["iPhone defaults"].tap()
+        XCTAssertTrue(read.buttons["Approve"].isSelected)
+        app.segmentedControls["tools.scope"].buttons["This conversation"].tap()
+        XCTAssertTrue(read.buttons["Off"].isSelected) // Scope switches keep unsaved edits.
+        capture(app, "Conversation override of iPhone defaults")
+        app.buttons["tools.save"].tap()
+        openTools(app); searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Off"].isSelected)
+        // Remove the app default; the explicit conversation choice stays Off.
+        app.segmentedControls["tools.scope"].buttons["iPhone defaults"].tap()
+        app.switches["tools.defaults"].coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
+        app.buttons["tools.save"].tap()
+        openTools(app); searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Off"].isSelected)
+    }
+    @MainActor func testToolsRemainVisibleAndEditableWhileAgentIsWorking() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=running", "--screen", "conversation"]; app.launch()
+        XCTAssertTrue(app.buttons["activity.toggle"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["chat.tools"].isEnabled); openTools(app)
+        searchTools(app, for: "read_file")
+        XCTAssertTrue(app.segmentedControls["tool.read_file"].isEnabled)
+        app.segmentedControls["tool.read_file"].buttons["Off"].tap()
+        XCTAssertTrue(app.buttons["tools.save"].isEnabled); app.buttons["tools.save"].tap()
+        XCTAssertTrue(app.buttons["voice.orb"].exists)
+        XCTAssertTrue(app.buttons["chat.tools"].exists)
+        capture(app, "Tools remain reachable during work")
+    }
     @MainActor func testToolsSaveOnlyForTheCurrentConversation() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test"]; app.launch()
         openTools(app)
@@ -429,8 +473,7 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(app.switches["settings.messageStats"].waitForExistence(timeout: 5))
     }
     @MainActor private func openTools(_ app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 10)); app.buttons["More options"].tap()
-        app.buttons["Tools"].tap()
+        XCTAssertTrue(app.buttons["chat.tools"].waitForExistence(timeout: 10)); app.buttons["chat.tools"].tap()
     }
     @MainActor private func openSettings(_ app: XCUIApplication) {
         XCTAssertTrue(app.buttons["More options"].waitForExistence(timeout: 10)); app.buttons["More options"].tap()

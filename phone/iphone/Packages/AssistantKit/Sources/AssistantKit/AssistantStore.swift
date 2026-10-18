@@ -198,6 +198,18 @@ public final class AssistantStore {
         conversationGeneration += 1; measuredMessages = []; messages = []; selectedEntity = entity; activeEntityRunID = nil; activeRunID = nil; restorationID = nil
         sessionID = "iphone-" + UUID().uuidString.lowercased(); persistSession()
     }
+    public var canEditToolPreferences: Bool { client != nil && !isOpening && !isRestoring && !isStopping && !sendInFlight }
+    private var appToolsKey: String { "phone.tools.defaults." + (connection?.scope ?? "demo") + "." + (selectedEntity ?? "assistant") }
+    public var appTools: ConversationTools? {
+        guard let data = defaults.data(forKey: appToolsKey) else { return nil }
+        return try? JSONDecoder().decode(ConversationTools.self, from: data)
+    }
+    public var effectiveTools: ConversationTools? { conversationTools ?? appTools }
+    public func setAppTools(_ tools: ConversationTools?) {
+        guard canEditToolPreferences else { return }
+        if let tools, let data = try? JSONEncoder().encode(tools) { defaults.set(data, forKey: appToolsKey) }
+        else { defaults.removeObject(forKey: appToolsKey) }
+    }
     private var toolsKey: String { "phone.tools." + (connection?.scope ?? "demo") + "." + (selectedEntity ?? "assistant") + "." + sessionID }
     public var conversationTools: ConversationTools? {
         if let selection = toolSelections[toolsKey] { return selection }
@@ -205,7 +217,7 @@ public final class AssistantStore {
         return try? JSONDecoder().decode(ConversationTools.self, from: data)
     }
     public func setConversationTools(_ tools: ConversationTools?) {
-        guard canSend else { return }
+        guard canEditToolPreferences else { return }
         defaults.removeObject(forKey: toolsKey + ".grant")
         toolSelections[toolsKey] = tools
         if let tools, let data = try? JSONEncoder().encode(tools) { defaults.set(data, forKey: toolsKey) }
@@ -230,7 +242,7 @@ public final class AssistantStore {
         guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let client else { return }
         if selectedEntity != nil && !attachments.isEmpty { error = "Files can be sent to Assistant conversations. Entity file messages are not supported by this gateway interface."; return }
         let epoch = generation, view = conversationGeneration, session = sessionID, entity = selectedEntity
-        let tools = conversationTools, requestVersion = stopVersion, requestID = UUID()
+        let tools = effectiveTools, requestVersion = stopVersion, requestID = UUID()
         stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil; completedReply = nil; sendInFlight = true; sendID = requestID
         resetActivity(); activityState = .connecting
         messages.append(.init(role: .user, text: prompt + (attachments.isEmpty ? "" : "\n" + attachments.map { "📎 " + $0.filename }.joined(separator: "\n")))); phase = .sending; error = nil
@@ -570,7 +582,7 @@ public final class AssistantStore {
         guard canApproveAll(wait), !approvingAll.contains(wait.id), let client else { return false }
         approvingAll.insert(wait.id)
         defer { approvingAll.remove(wait.id) }
-        let epoch = activityEpoch, key = toolsKey, selected = conversationTools
+        let epoch = activityEpoch, key = toolsKey, selected = effectiveTools
         do {
             let inventory: [ToolInfo]
             if let entity = selectedEntity { inventory = try await client.entityTools(name: entity) }

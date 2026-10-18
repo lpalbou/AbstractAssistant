@@ -17,7 +17,7 @@ struct SettingsScreen: View {
                     NavigationLink("Workflow") { WorkflowSettingsScreen() }
                     Button { tools = true } label: {
                         HStack { Text("Conversation tools"); Spacer(); Text(store.conversationTitle).foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption).foregroundStyle(PhoneTheme.secondary) }
-                    }.disabled(!store.canSend)
+                    }.disabled(!store.canEditToolPreferences)
                 }
                 Section {
                     Toggle("Show answer statistics", isOn: $preferences.showMessageStats)

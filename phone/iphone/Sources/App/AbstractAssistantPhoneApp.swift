@@ -74,6 +74,7 @@ struct PhoneRoot: View {
         #endif
         store.connect(nil, client: MockGatewayClient(emptyAutomations: emptyAutomations, activityScenario: activityScenario))
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--reset-tool-defaults") { store.setAppTools(nil) }
         if ProcessInfo.processInfo.arguments.contains("--ui-test") { store.preferences.readAloud = false; store.preferences.showMessageStats = false; store.preferences.voice = nil; store.preferences.speed = 1; store.preferences.transcription = nil }
         #endif
         #if DEBUG

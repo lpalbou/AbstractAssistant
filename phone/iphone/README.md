@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.6 · iOS 26+**
+**Developer preview · 0.6.7 · iOS 26+**
 
 ## Three small spaces
 
@@ -88,19 +88,25 @@ the latest 100 session artifacts; older files remain on the gateway.
 
 ## Conversation tools and answer statistics
 
-Open **Settings → Conversation tools** or **More options (…) → Tools**. With gateway defaults,
-available gateway tools are enabled and approval follows the gateway's policy. Tools are grouped into expandable categories reported by
-your gateway. Search by category, tool name or description. Turn off **Use gateway defaults**
-to set each available tool:
+Tap the **Tools** icon beside the responder name in the conversation header, or open
+**Settings → Conversation tools**. Available tools are grouped into expandable categories;
+search by category, name or description. Tap a mode directly to create an override:
 
-- **Off** blocks it for this conversation.
-- **Auto** allows execution without asking.
-- **Approve** waits for your decision before execution. Review and allow or deny in chat or Inbox.
+- **Off:** the agent cannot use the tool.
+- **Auto:** approve automatically.
+- **Approve:** ask before running it.
 
-Choices are saved on this iPhone for the signed-in gateway account, responder and conversation. They apply
-to subsequent messages; starting a new conversation restores inheritance. A tool choice
-cannot grant a capability that the gateway or entity does not offer. Tools disabled by the
-gateway show its reason and remain Off. Unreported categories appear under **Other**.
+Choose **iPhone defaults** to save defaults for this responder's conversations on this
+phone, or **This conversation** to make an exception. A conversation override takes
+precedence over iPhone defaults, which take precedence over gateway defaults. Defaults
+are scoped to your gateway, account and responder. Reset either scope with its defaults
+switch. Switching scopes keeps unsaved edits; **Save** commits both edited scopes together.
+**Close** discards unsaved edits.
+
+Tools stay reachable while the assistant works. Saved choices apply to the next message;
+they do not modify a request already running. Starting a new conversation inherits the
+saved iPhone defaults. A tool choice cannot grant a capability that the gateway or entity
+does not offer; unavailable tools remain disabled.
 The app refreshes availability when sending, so disabled or removed tools are not offered
 to the agent. If tools cannot be loaded, the app reports the problem before starting the agent.
 

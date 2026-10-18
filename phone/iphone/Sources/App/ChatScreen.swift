@@ -56,14 +56,20 @@ struct ChatScreen: View {
             .navigationTitle(store.conversationTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Button { typing = false; composing = false; cancelVoice(); choosingEntity = true } label: {
-                        HStack(spacing: 6) { NavigationCaption(title: store.conversationTitle, demo: store.isDemo); Image(systemName: "chevron.down").font(.caption2.weight(.semibold)) }
-                    }.accessibilityLabel("Choose who answers").accessibilityValue(store.conversationTitle)
+                    HStack(spacing: 8) {
+                        Button { typing = false; composing = false; cancelVoice(); choosingEntity = true } label: {
+                            HStack(spacing: 6) { NavigationCaption(title: store.conversationTitle, demo: store.isDemo); Image(systemName: "chevron.down").font(.caption2.weight(.semibold)) }
+                                .lineLimit(1)
+                        }.accessibilityLabel("Choose who answers").accessibilityValue(store.conversationTitle)
+                        Button { typing = false; composing = false; cancelVoice(); showTools = true } label: {
+                            Image(systemName: "wrench.and.screwdriver").font(.subheadline)
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.accessibilityLabel("Tools").accessibilityIdentifier("chat.tools")
+                    }
                 }
                 ToolbarItem(placement: .topBarLeading) { Button { typing = false; composing = false; cancelVoice(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Tools", systemImage: "wrench.and.screwdriver") { typing = false; composing = false; cancelVoice(); showTools = true }.disabled(!store.canSend)
                         Button("Conversation files", systemImage: "folder") { typing = false; composing = false; cancelVoice(); showFiles = true }
                         Button("New conversation", systemImage: "square.and.pencil") { typing = false; composing = false; cancelVoice(); store.newConversation(entity: store.selectedEntity) }.disabled(!store.canSend || attachments.busy || mediaLoading || !attachments.pending.isEmpty)
                         Button("Settings", systemImage: "slider.horizontal.3") { typing = false; composing = false; cancelVoice(); openSettings() }.disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)

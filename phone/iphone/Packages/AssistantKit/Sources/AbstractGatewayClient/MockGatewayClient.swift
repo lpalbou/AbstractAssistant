@@ -92,6 +92,7 @@ public actor MockGatewayClient: GatewayClient {
     private var createdEntities: [EntitySummary] = []
     private let emptyAutomations: Bool
     private var createdAutomations: [AutomationSummary] = []
+    public private(set) var assistantToolSelections: [ConversationTools?] = []
     private var chosenWorkflow: String?
     private var uploaded: [String: [(PhoneArtifact, Data)]] = [:]
     private var statuses: [String: String] = [:]
@@ -280,7 +281,8 @@ public actor MockGatewayClient: GatewayClient {
         .init(wallTimeSeconds: 4.8, inputTokens: 1234, outputTokens: 245, toolCalls: 2)
     }
     public func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String {
-        try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: tools?.policy)
+        assistantToolSelections.append(tools)
+        return try await startRun(prompt: prompt, sessionId: sessionId, toolPolicy: tools?.policy)
     }
     public func tools() async throws -> [ToolInfo] {
         var unavailable = ToolInfo(name: "capture_camera", riskTier: "outreach", riskRank: 3, toolset: "camera", description: "Capture a photo from the gateway’s camera.", approvalDefault: "ask", enabled: false)

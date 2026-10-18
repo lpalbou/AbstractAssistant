@@ -1,5 +1,8 @@
 # Developer preview validation
 
+For **0.6.7 (15)** directly editable tool overrides and iPhone defaults, see the
+[tool defaults review and evidence](../design/validation/tool-defaults-review.md).
+
 For **0.6.6 (14)** live activity, visible child approvals and conversation trust, see the
 [activity review and evidence](../design/validation/activity-review.md).
 

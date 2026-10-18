@@ -7,8 +7,8 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "0.6.6"
-    CURRENT_PROJECT_VERSION: "14"
+    MARKETING_VERSION: "0.6.7"
+    CURRENT_PROJECT_VERSION: "15"
 packages:
   AssistantKit:
     path: Packages/AssistantKit

@@ -251,3 +251,19 @@ answers later qualifying approval waits only while connected and active. Every t
 batch must still be available, covered by the grant and set to Auto; questions never qualify.
 Manually saving Tools revokes the grant. The action is unavailable for unrelated Inbox
 items, preventing a decision there from changing the open conversation's permissions.
+
+
+## iPhone tool defaults and conversation overrides
+
+The effective tool selection is the explicit conversation selection, then the iPhone default
+for the connected gateway/account/responder, then gateway inheritance. `send` captures that
+effective selection before dispatching either an Assistant request or an entity turn.
+A saved empty selection remains an explicit deny-all value. Existing conversation keys
+retain their meaning; app defaults use a separate namespace without session IDs.
+
+The Tools editor maintains separate drafts for iPhone defaults and this conversation.
+Changing any available mode creates an explicit override immediately. Save applies edited
+defaults before edited conversation choices, while Close leaves persisted values alone.
+The header's Tools control remains available during execution. Saving while a request is
+running updates preferences for the next message and does not resend or mutate that request.
+Gateway availability is still intersected with explicit tool choices at send time.
