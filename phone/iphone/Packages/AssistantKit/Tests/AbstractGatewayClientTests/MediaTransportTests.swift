@@ -79,7 +79,7 @@ private final class MediaWireStub: URLProtocol, @unchecked Sendable {
         let input = try await client.input(ofRun: "turn")
         #expect(input.prompt == "Describe this")
         #expect(input.attachments.map(\.id) == ["session_memory_history:upload"])
-        #expect(input.attachments.first?.filename == "Image.png")
+        #expect(input.attachments.first?.filename == "Image-upload.png")
         #expect(MediaWireStub.requests.first?.url?.path == "/api/gateway/runs/turn/input_data")
     }
 

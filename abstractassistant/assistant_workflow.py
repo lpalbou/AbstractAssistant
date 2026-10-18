@@ -31,7 +31,8 @@ MANAGED_ASSISTANT_WORKFLOW_MARKER = "managed-by=abstractassistant;scope=tenant-c
 #   6 = a voice mode: spoken audio of words the router writes, through the gateway's
 #       voice engine (2026-10-18)
 #   7 = the router inherits the run text route, with explicit selections first
-MANAGED_ASSISTANT_WORKFLOW_REVISION = 7
+#   8 = isolate router context; explicit literary recitations use the voice route
+MANAGED_ASSISTANT_WORKFLOW_REVISION = 8
 _REVISION_MARKER_PREFIX = "workflow-revision="
 
 
@@ -60,7 +61,11 @@ _ROUTER_SYSTEM_PROMPT = (
     "Use mode=chat for ordinary answers, reasoning, browsing, tools, files, coding, or anything that should stay in the assistant agent. "
     "Use image, edit_image, upscale_image, video, image_to_video, music, sound, or voice only for explicit media generation or transformation requests. "
     "Use voice only when the user explicitly asks for a recording or a voice message, of words they give or of a short text the request fully "
-    "describes (a greeting, a short poem); media_prompt is then the exact words to speak, written out in full in the user's language, never a "
+    "describes (a greeting, a short poem), or a named public-domain literary passage or dramatic scene "
+    "(for example a voice recording reciting Hamlet's To be, or not to be soliloquy). "
+    "A request to generate spoken audio, a dramatic reading, or a recitation is voice, not chat, even if it names the passage "
+    "instead of quoting every word. Use mode=voice, never mode=audio. "
+    "media_prompt is then the exact words to speak, written out in full in the user's language, never a "
     "description of them. Anything that needs facts, a search, files or tools (news, a summary, an answer to read aloud) is chat. "
     "If the request needs a source image for editing, upscaling, or image-to-video and no primary image is available, use mode=need_source_image. "
     "For chat, leave media_prompt empty and assistant_message empty. "
@@ -397,6 +402,10 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
             # declared pin's default outranks the inherited key.
             _pin("tools", "tools", "tools"),
             _pin("temperature", "temperature", "number"),
+            # This internal decision neither reads nor appends conversation turns.
+            # Start carries use_context=True for the agent; this explicit pin
+            # overrides that ambient value in the compiled LLM handler.
+            _pin("include_context", "include_context", "boolean"),
         ],
         outputs=[
             _pin("exec-out", "", "execution"),
@@ -408,6 +417,7 @@ def managed_assistant_visualflow(agent_flow: AgentSubflow) -> Dict[str, Any]:
         pin_defaults={
             "system": _ROUTER_SYSTEM_PROMPT,
             "resp_schema": _ROUTER_SCHEMA,
+            "include_context": False,
             "tools": [],
             "temperature": 0.0,
         },

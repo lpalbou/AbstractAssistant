@@ -55,7 +55,7 @@ def main():
         print("Another Xcode build is active. Leaving it priority; iPhone build skipped.", flush=True)
         return 75
     if options.live_media_test:
-        source = ROOT.parents[2] / "abstractgateway/flows/bundles/abstractassistant-orchestrator@0.0.13.flow"
+        source = ROOT.parents[2] / "abstractgateway/flows/bundles/abstractassistant-orchestrator@0.0.15.flow"
         destination = ROOT / "Tests/Resources/AssistantOrchestrator.flow"
         destination.parent.mkdir(exist_ok=True)
         shutil.copyfile(source, destination)

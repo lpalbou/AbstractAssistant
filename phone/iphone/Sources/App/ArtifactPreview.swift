@@ -8,6 +8,8 @@ struct ArtifactPreview: View {
     var close: () -> Void
     @State private var previewImage: UIImage?
     @State private var loading = true
+    @State private var documentText: String?
+    @State private var textLimited = false
     private func decodeImage() -> UIImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -19,6 +21,16 @@ struct ArtifactPreview: View {
             Group {
                 if loading { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else if let image = previewImage { ZoomableImage(image: image) }
+                else if let text = documentText {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(url.lastPathComponent).font(.headline).foregroundStyle(PhoneTheme.secondary)
+                            if ["md", "markdown"].contains(url.pathExtension.lowercased()) { PhoneMarkdown(text: text) }
+                            else { Text(text).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                            if textLimited { Text("Preview shows the first 200,000 characters. Share the file to open its full contents.").font(.caption).foregroundStyle(PhoneTheme.amber) }
+                        }.padding(22).padding(.top, 120).padding(.bottom, 40)
+                    }.background(PhoneTheme.ground).accessibilityIdentifier("files.text.preview")
+                }
                 else { QuickLookSurface(url: url) }
             }.frame(maxWidth: .infinity, maxHeight: .infinity).ignoresSafeArea()
             HStack {
@@ -33,7 +45,17 @@ struct ArtifactPreview: View {
             .padding(.horizontal, 16).padding(.top, 8)
         }
         .background(.black).preferredColorScheme(.dark)
-        .task(id: url) { previewImage = decodeImage(); loading = false }
+        .task(id: url) {
+            previewImage = decodeImage()
+            if previewImage == nil, (url.pathExtension.isEmpty || ["md", "markdown", "txt", "json", "csv", "yaml", "yml", "log", "py", "swift", "js", "ts", "html", "xml"].contains(url.pathExtension.lowercased())),
+               let handle = try? FileHandle(forReadingFrom: url) {
+                defer { try? handle.close() }
+                if let data = try? handle.read(upToCount: 1_048_576), let text = String(data: data, encoding: .utf8), !text.contains("\0"), !text.hasPrefix("%PDF-") {
+                    documentText = String(text.prefix(200_000)); textLimited = text.count > 200_000 || ((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > data.count
+                }
+            }
+            loading = false
+        }
     }
 }
 

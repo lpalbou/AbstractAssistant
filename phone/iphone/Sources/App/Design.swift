@@ -9,15 +9,18 @@ enum PhoneTheme {
     static let lavender = Color(red: 0.68, green: 0.65, blue: 1)
     static let mint = Color(red: 0.42, green: 0.89, blue: 0.80)
     static let amber = Color(red: 1, green: 0.77, blue: 0.43)
+    static let tool = lavender
+    static let approval = amber
     static var stroke: Color { .white.opacity(0.09) }
 }
 
 struct NavigationCaption: View {
     let title: String
     var demo: Bool
+    var titleWidth: CGFloat? = nil
     var body: some View {
         VStack(spacing: 1) {
-            Text(title).font(.headline)
+            Text(title).font(.headline).lineLimit(1).truncationMode(.tail).frame(width: titleWidth)
             if demo { Text("DEMO").font(.system(size: 9, weight: .semibold, design: .rounded)).tracking(2).foregroundStyle(PhoneTheme.secondary) }
         }
     }

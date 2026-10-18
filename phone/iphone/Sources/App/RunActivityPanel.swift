@@ -56,7 +56,7 @@ struct RunActivityPanel: View {
                     }
                     ForEach(store.activity.items) { item in ActivityEventRow(item: item) }
                     if store.activity.wasTrimmed {
-                        Text("Showing the latest 250 events. Counts include earlier events.").font(.caption).foregroundStyle(PhoneTheme.secondary).padding(.top, 10)
+                        Text("Showing up to 250 retained events. Counts include earlier events.").font(.caption).foregroundStyle(PhoneTheme.secondary).padding(.top, 10)
                     }
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         VStack(alignment: .leading, spacing: 4) {
@@ -66,7 +66,7 @@ struct RunActivityPanel: View {
                             if let checked = store.activityCheckedAt { Text("Status checked \(checked, style: .relative) ago") }
                         }.font(.caption2).foregroundStyle(PhoneTheme.secondary).padding(.top, 12)
                     }
-                }.accessibilityIdentifier("activity.events")
+                }
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 11)
@@ -114,36 +114,103 @@ struct RunActivityPanel: View {
     }
 }
 
-private struct ActivityEventRow: View {
+struct ActivityEventRow: View {
     let item: RunActivityItem
+    var titleOverride: String? = nil
+    var ordinal: Int? = nil
     @State private var opened = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if item.detail.isEmpty { label }
-            else {
-                DisclosureGroup(isExpanded: $opened) {
-                    Text(item.detail).font(.footnote).foregroundStyle(PhoneTheme.secondary)
-                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 27).padding(.top, 6)
-                        .accessibilityIdentifier("activity.result")
-                } label: { label }.tint(PhoneTheme.secondary)
-            }
-        }.padding(.vertical, 9)
+        DisclosureGroup(isExpanded: $opened) {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 7) {
+                    if let at = item.startedAt { field("Started", at.formatted(date: .abbreviated, time: .standard)) }
+                    if let at = item.endedAt { field("Finished", at.formatted(date: .omitted, time: .standard)) }
+                    if let duration = item.duration { field("Elapsed", ActivityTime.duration(duration)) }
+                    if item.startedAt == nil && item.endedAt == nil { field("Time", "Not recorded by this gateway") }
+                    if let provider = item.provider, !provider.isEmpty { field("Provider", provider) }
+                    if let model = item.model, !model.isEmpty { field("Model", model) }
+                    if item.inputTokens != nil || item.outputTokens != nil {
+                        field("Tokens", "\(item.inputTokens.map(String.init) ?? "—") in · \(item.outputTokens.map(String.init) ?? "—") out")
+                    }
+                    if let reason = item.finishReason { field("Finish reason", reason.replacingOccurrences(of: "_", with: " ")) }
+                }
+                if item.kind == .tool {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Input").font(.caption.weight(.medium)).foregroundStyle(PhoneTheme.tool)
+                        Text(item.inputText ?? "Input is unavailable in this record.")
+                            .font(.system(.footnote, design: .monospaced)).foregroundStyle(PhoneTheme.secondary)
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("activity.input")
+                    }
+                }
+                if !item.detail.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item.kind == .tool ? "Output" : item.outputLabel).font(.caption.weight(.medium)).foregroundStyle(PhoneTheme.ink)
+                        Text(item.detail).font(.footnote).foregroundStyle(PhoneTheme.secondary)
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("activity.result")
+                    }
+                } else {
+                    Text(item.status == .running ? "Waiting for the gateway’s result…" : "This gateway did not record a public result for this step.")
+                        .font(.footnote).foregroundStyle(PhoneTheme.secondary)
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    if let node = item.nodeID { field("Step", node) }
+                    field("Run", item.runID)
+                }.font(.caption2)
+            }.padding(.leading, 27).padding(.vertical, 10)
+        } label: { label }
+            .tint(PhoneTheme.secondary).padding(.vertical, 10)
+            .accessibilityIdentifier("activity.step." + item.id)
+            .overlay(alignment: .bottom) { Rectangle().fill(PhoneTheme.stroke.opacity(0.5)).frame(height: 0.5) }
+    }
+    private func field(_ name: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(name).foregroundStyle(PhoneTheme.secondary)
+            Spacer(minLength: 4)
+            Text(value).foregroundStyle(PhoneTheme.ink).multilineTextAlignment(.trailing).textSelection(.enabled)
+        }.font(.caption).frame(maxWidth: .infinity)
     }
     private var label: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 9) {
-            Image(systemName: symbol).font(.caption).foregroundStyle(color).frame(width: 18)
-            Text(item.title).font(.footnote.weight(.medium)).foregroundStyle(PhoneTheme.ink)
-            Spacer(minLength: 8)
-            Text(status).font(.caption2).foregroundStyle(color)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol).font(.subheadline).foregroundStyle(iconColor).frame(width: 18).padding(.top, 2)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(titleOverride ?? item.title).font(.footnote.weight(.medium)).foregroundStyle(PhoneTheme.ink)
+                HStack(spacing: 7) {
+                    if let ordinal { Text("Call \(ordinal)") }
+                    if let at = item.startedAt ?? item.timestamp {
+                        Text(at, format: .dateTime.hour().minute().second())
+                    } else { Text("Time unavailable") }
+                    if let duration = item.duration { Text("· " + ActivityTime.duration(duration)) }
+                }.font(.caption2).monospacedDigit().foregroundStyle(PhoneTheme.secondary)
+            }
+            Spacer(minLength: 4)
+            Text(status).font(.caption2).foregroundStyle(color).padding(.top, 2)
         }.accessibilityElement(children: .combine)
     }
     private var status: String {
         switch item.status { case .running: "Running"; case .completed: "Done"; case .waiting: "Waiting"; case .failed: "Failed"; case .cancelled: "Stopped" }
     }
     private var symbol: String {
-        if item.status == .failed { return "exclamationmark.circle" }
-        switch item.kind { case .model: return "sparkle"; case .tool: return "wrench.and.screwdriver"; case .wait: return "hand.raised"; case .failure: return "exclamationmark.circle"; case .result: return "text.alignleft" }
+        switch item.kind { case .model: return "sparkle"; case .tool: return "wrench.and.screwdriver"; case .wait: return "hand.raised"; case .failure: return "exclamationmark.circle"; case .result: return "text.alignleft"; case .workflow: return "arrow.triangle.branch" }
+    }
+    private var iconColor: Color {
+        switch item.kind {
+        case .wait: PhoneTheme.approval
+        case .tool: PhoneTheme.tool
+        case .failure: .red.opacity(0.85)
+        case .model: PhoneTheme.mint
+        default: PhoneTheme.secondary
+        }
     }
     private var color: Color { item.status == .failed ? .red.opacity(0.85) : item.status == .waiting ? PhoneTheme.amber : item.status == .completed ? PhoneTheme.mint : PhoneTheme.secondary }
+}
+
+enum ActivityTime {
+    static func duration(_ seconds: TimeInterval) -> String {
+        if seconds < 1 { return String(format: "%.0f ms", seconds * 1000) }
+        if seconds < 60 { return String(format: "%.1f s", seconds) }
+        if seconds < 3600 { return "\(Int(seconds) / 60)m \(Int(seconds) % 60)s" }
+        return "\(Int(seconds) / 3600)h \(Int(seconds) % 3600 / 60)m"
+    }
 }

@@ -17,6 +17,15 @@ public struct PhoneArtifact: Identifiable, Hashable, Sendable {
     public var filename: String
     public var contentType: String
     public var size: Int
+    /// Logical gateway path, independent of the safe local preview basename.
+    public var sourcePath: String? = nil
+    public var purpose: String? = nil
+    public var producer: JSONValue? = nil
+    public var sourceRefs: [JSONValue] = []
+    public var semanticKind: String? = nil
+    public var sourceOrigin: String? = nil
+    public var isConversationVoice: Bool = false
+    public var inferredConversationVoice: Bool = false
     public static let previewByteLimit = 256 * 1024 * 1024
     public var id: String { runId + ":" + artifactId }
     public var ref: JSONValue { .object(["$artifact": .string(artifactId), "run_id": .string(runId), "filename": .string(filename), "content_type": .string(contentType)]) }
@@ -34,7 +43,26 @@ public struct PhoneArtifact: Identifiable, Hashable, Sendable {
               let owner = v["run_id"]?.stringValue ?? v["ref"]?["run_id"]?.stringValue,
               validID(id), validID(owner) else { return nil }
         let size: Int; if case .number(let n)? = v["size_bytes"] { size = n <= 0 ? 0 : (!n.isFinite || n >= Double(Int.max) ? Int.max : Int(n)) } else { size = 0 }
-        return PhoneArtifact(artifactId: id, runId: owner, filename: Self.previewFilename(v["filename"]?.stringValue ?? v["tags"]?["filename"]?.stringValue, contentType: v["content_type"]?.stringValue ?? "application/octet-stream", kind: v["semantic_kind"]?.stringValue), contentType: v["content_type"]?.stringValue ?? "application/octet-stream", size: size)
+        let mime = v["content_type"]?.stringValue ?? "application/octet-stream"
+        let path = v["source_path"]?.stringValue ?? v["tags"]?["source_path"]?.stringValue ?? v["tags"]?["path"]?.stringValue
+        let named = [v["filename"]?.stringValue, v["tags"]?["filename"]?.stringValue, path?.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init)]
+            .compactMap { $0 }.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let kind = v["semantic_kind"]?.stringValue
+        let label = mime.hasPrefix("image/") ? "Image" : mime.hasPrefix("audio/") ? "Audio" : mime.hasPrefix("video/") ? "Video" : mime.hasPrefix("text/") ? "Document" : "File"
+        let fallback = label + "-" + String(id.prefix(8)) + (mime.hasPrefix("text/markdown") ? ".md" : mime.hasPrefix("text/plain") ? ".txt" : "")
+        var artifact = PhoneArtifact(artifactId: id, runId: owner, filename: Self.previewFilename(named ?? fallback, contentType: mime, kind: kind), contentType: mime, size: size)
+        artifact.sourcePath = path
+        artifact.purpose = v["tags"]?["purpose"]?.stringValue ?? v["purpose"]?.stringValue
+        artifact.producer = v["producer"] ?? v["descriptor"]?["producer"]
+        if case .array(let refs)? = v["source_refs"] ?? v["descriptor"]?["source_refs"] { artifact.sourceRefs = refs }
+        artifact.semanticKind = kind
+        artifact.sourceOrigin = v["tags"]?["source"]?.stringValue ?? v["source"]?.stringValue
+        let legacyStream = v["metadata"]?["capability_metadata"]?["stream"]?["chunk_format"]?.stringValue
+            ?? v["raw_metadata"]?["capability_metadata"]?["stream"]?["chunk_format"]?.stringValue
+        let legacyPlayback = v["tags"]?["kind"]?.stringValue == "generated_media"
+            && v["tags"]?["modality"]?.stringValue == "voice" && v["tags"]?["task"]?.stringValue == "tts" && legacyStream == "wav-segment"
+        artifact.isConversationVoice = artifact.purpose == "voice_playback" || legacyPlayback || artifact.isDictationSource
+        return artifact
     }
     static func upload(_ v: JSONValue, filename: String, contentType: String, size: Int) -> PhoneArtifact? {
         let ref = v["artifact"] ?? v["attachment"]

@@ -229,6 +229,94 @@ import AbstractGatewayClient
         #expect(store.conversationWait == nil && store.activeRunID == nil)
         store.disconnect()
     }
+    @Test func liveCompletionWinsOverAnOlderPendingHistoryReplay() async throws {
+        let client = try await nestedClient(), store = AssistantStore()
+        store.connect(nil, client: client)
+        await client.replaceRecords("root", [.init(stepId: "old", nodeId: "reason", status: "completed", effect: .object(["type": .string("llm_call")]))])
+        await client.gateNextLedger(1)
+        let old = Task { await store.loadAnswerActivity(runID: "root") }
+        await waitForGate(1, client: client)
+        await client.replaceRecords("root", [])
+        store.send("Inspect environment")
+        for _ in 0..<2000 { if store.activeRunID != nil { break }; await Task.yield() }
+        await store.followActiveRun()
+        let wait = try #require(store.conversationWait)
+        #expect(await store.answer(wait, .approve))
+        #expect(store.answerActivities["root"]?.activity.modelCalls == 1)
+        await client.releaseLedger(1); await old.value
+        // Old root+child replay would count two calls and replace live completion.
+        #expect(store.answerActivities["root"]?.activity.modelCalls == 1)
+        store.disconnect()
+    }
+    private func historyClient() async -> ActivityClient {
+        let client = ActivityClient()
+        await client.configure([.init(runId: "history", workflowId: "assistant", status: "completed")], records: ["history": [.init(stepId: "one", nodeId: "reason", status: "completed", effect: .object(["type": .string("llm_call")]))]])
+        return client
+    }
+    private func waitForGate(_ n: Int, client: ActivityClient) async {
+        for _ in 0..<2000 { if await client.hasGate(n) { return }; await Task.yield() }
+        Issue.record("History request did not reach controlled gate")
+    }
+    @Test func cancelledOverlappingHistoryRowsStillShareAndPublishOneLoad() async {
+        let client = await historyClient(), store = AssistantStore()
+        store.connect(nil, client: client)
+        await client.gateNextLedger(1)
+        let first = Task { await store.loadAnswerActivity(runID: "history") }
+        await waitForGate(1, client: client)
+        let second = Task { await store.loadAnswerActivity(runID: "history") }
+        first.cancel(); second.cancel()
+        await client.releaseLedger(1)
+        await first.value; await second.value
+        #expect(store.answerActivities["history"]?.activity.modelCalls == 1)
+        #expect(await client.ledgerReads.count == 1)
+        store.disconnect()
+    }
+    @Test func oldUncooperativeHistoryCannotReplaceOrClearReopenedSessionLoad() async {
+        let client = await historyClient(), store = AssistantStore()
+        store.connect(nil, client: client)
+        await client.gateNextLedger(1)
+        let old = Task { await store.loadAnswerActivity(runID: "history") }
+        await waitForGate(1, client: client)
+        store.disconnect(); store.connect(nil, client: client)
+        await client.replaceRecords("history", [.init(stepId: "new", nodeId: "reason", status: "completed", effect: .object(["type": .string("llm_call")])), .init(stepId: "new2", nodeId: "reason", status: "completed", effect: .object(["type": .string("llm_call")]))])
+        await client.gateNextLedger(2)
+        let new = Task { await store.loadAnswerActivity(runID: "history") }
+        await waitForGate(2, client: client)
+        await client.releaseLedger(1); await old.value
+        #expect(store.answerActivities["history"] == nil)
+        let overlapping = Task { await store.loadAnswerActivity(runID: "history") }
+        await Task.yield()
+        await client.releaseLedger(2); await new.value; await overlapping.value
+        #expect(await client.ledgerReads.count == 2)
+        #expect(store.answerActivities["history"]?.activity.modelCalls == 2)
+        store.disconnect()
+    }
+    @Test func incompleteHistoryHasAnExplicitRetryWithoutGlobalChatError() async {
+        let client = await historyClient(), store = AssistantStore()
+        store.connect(nil, client: client)
+        await client.failNextLedger(.http(status: 503, body: ""))
+        await store.loadAnswerActivity(runID: "history")
+        #expect(store.answerActivities["history"]?.issues.isEmpty == false)
+        #expect(store.error == nil)
+        await store.loadAnswerActivity(runID: "history")
+        #expect(await client.ledgerReads.count == 1)
+        await store.loadAnswerActivity(runID: "history", retry: true)
+        #expect(store.answerActivities["history"]?.issues.isEmpty == true)
+        #expect(store.answerActivities["history"]?.activity.modelCalls == 1)
+        store.disconnect()
+    }
+    @Test func staleHistoryAuthenticationFailureCannotDisconnectNewConnection() async {
+        let client = await historyClient(), store = AssistantStore()
+        store.connect(nil, client: client)
+        await client.failNextLedger(.unauthorized); await client.gateNextLedger(1)
+        let old = Task { await store.loadAnswerActivity(runID: "history") }
+        await waitForGate(1, client: client)
+        store.disconnect(); store.connect(nil, client: MockGatewayClient())
+        await client.releaseLedger(1); await old.value
+        #expect(store.client != nil && store.error == nil && store.answerActivities.isEmpty)
+        store.disconnect()
+    }
+
 }
 
 private actor ActivityClient: GatewayClient {
@@ -239,6 +327,15 @@ private actor ActivityClient: GatewayClient {
     var states: [String: RunSummary] = [:]
     var records: [String: [LedgerRecord]] = [:]
     var ledgerReads: [(String, Int)] = []
+    private var pendingLedgerGates: [Int] = []
+    private var ledgerGates: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var ledgerError: GatewayError?
+    func gateNextLedger(_ id: Int) { pendingLedgerGates.append(id) }
+    func hasGate(_ id: Int) -> Bool { ledgerGates[id] != nil }
+    func releaseLedger(_ id: Int) { ledgerGates.removeValue(forKey: id)?.resume() }
+    func failNextLedger(_ error: GatewayError) { ledgerError = error }
+    func replaceRecords(_ id: String, _ rows: [LedgerRecord]) { records[id] = rows }
+
     var answered: [String] = []
     var answers: [WaitAnswer] = []
     var finishOnAnswer = true
@@ -327,6 +424,13 @@ private actor ActivityClient: GatewayClient {
         var page = try JSONDecoder().decode(LedgerPage.self, from: Data(#"{"items":[],"next_after":0}"#.utf8))
         page.items = Array((records[runId] ?? []).dropFirst(after).prefix(200))
         page.nextAfter = after + page.items.count
+        let error = ledgerError; ledgerError = nil
+        if !pendingLedgerGates.isEmpty {
+            let id = pendingLedgerGates.removeFirst()
+            // Deliberately ignore cancellation: old transports may finish late.
+            await withCheckedContinuation { ledgerGates[id] = $0 }
+        }
+        if let error { throw error }
         return page
     }
     func cancel(runId: String) async throws { try await mock.cancel(runId: runId) }

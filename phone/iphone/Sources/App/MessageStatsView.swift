@@ -23,7 +23,7 @@ struct MessageStatsView: View {
         if input != nil || output != nil {
             values.append(.init(icon: "number", value: [input.map { compact($0) + " in" }, output.map { compact($0) + " out" }].compactMap { $0 }.joined(separator: " / ")))
         } else if let total = count(totalTokens) { values.append(.init(icon: "number", value: compact(total) + " tokens")) }
-        if let tools = count(toolCalls) { values.append(.init(icon: "wrench.and.screwdriver", value: "\(tools) " + (tools == 1 ? "call" : "calls"))) }
+        if let tools = count(toolCalls), tools > 0 { values.append(.init(icon: "wrench.and.screwdriver", value: "\(tools) " + (tools == 1 ? "call" : "calls"))) }
         return values
     }
     private var spoken: String {
@@ -52,7 +52,7 @@ struct MessageStatsView: View {
     }
     private func metricView(_ metric: Metric) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Image(systemName: metric.icon)
+            Image(systemName: metric.icon).foregroundStyle(metric.icon == "wrench.and.screwdriver" ? PhoneTheme.tool : PhoneTheme.secondary)
             Text(metric.value).fixedSize(horizontal: false, vertical: true)
         }
     }

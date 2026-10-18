@@ -7,6 +7,49 @@ public final class AssistantStore {
     public enum Phase: String { case ready, sending, working, waiting }
     public enum ActivityState: String { case idle, connecting, running, waiting, completed, failed, cancelled }
     public private(set) var activity = RunActivity()
+    public private(set) var answerActivities: [String: AnswerActivity] = [:]
+    private struct ActivityLoad { var id: UUID; var task: Task<Void, Never> }
+    @ObservationIgnored private var answerActivityLoads: [String: ActivityLoad] = [:]
+    @ObservationIgnored private var answerActivityEpoch = UUID()
+    public func loadAnswerActivity(runID: String, retry: Bool = false) async {
+        guard let client else { return }
+        if let load = answerActivityLoads[runID] { await load.task.value; return }
+        guard retry || answerActivities[runID] == nil else { return }
+        let context = contextID, session = sessionID, epoch = answerActivityEpoch, token = UUID()
+        // A history row's lifetime does not own its network request. All callers await
+        // the same task; scrolling/cancelling any waiter cannot discard its result.
+        let task = Task { [weak self] in
+            defer {
+                if let self, epoch == self.answerActivityEpoch, self.answerActivityLoads[runID]?.id == token {
+                    self.answerActivityLoads[runID] = nil
+                }
+            }
+            do {
+                let value = try await AnswerActivity.load(runID: runID, client: client)
+                guard let self, context == self.contextID, session == self.sessionID,
+                      epoch == self.answerActivityEpoch, self.answerActivityLoads[runID]?.id == token,
+                      !Task.isCancelled else { return }
+                self.answerActivities[runID] = value
+            } catch {
+                guard let self, context == self.contextID, session == self.sessionID,
+                      epoch == self.answerActivityEpoch, self.answerActivityLoads[runID]?.id == token,
+                      !(error is CancellationError), !Task.isCancelled else { return }
+                self.answerActivities[runID] = .init(activity: RunActivity(), issues: [error.localizedDescription])
+                if case GatewayError.unauthorized = error { self.handle(error) }
+            }
+        }
+        answerActivityLoads[runID] = ActivityLoad(id: token, task: task)
+        await task.value
+    }
+    private func clearAnswerActivities() {
+        answerActivityEpoch = UUID()
+        for load in answerActivityLoads.values { load.task.cancel() }
+        answerActivityLoads = [:]; answerActivities = [:]
+    }
+    private func cacheCompletedActivity(_ value: AnswerActivity, runID: String) {
+        answerActivityLoads.removeValue(forKey: runID)?.task.cancel()
+        answerActivities[runID] = value
+    }
     public private(set) var activityRootID: String?
     public private(set) var activityState: ActivityState = .idle
     public private(set) var activityFailure: String?
@@ -19,6 +62,7 @@ public final class AssistantStore {
     @ObservationIgnored private var activityWaitSteps: [String: String] = [:]
     @ObservationIgnored private var activityRunIDs: Set<String> = []
     @ObservationIgnored private var activityCursors: [String: Int] = [:]
+    @ObservationIgnored private var entityActivityCursors: [String: Int] = [:]
     @ObservationIgnored private var activityStreams: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var activityFinishedStreams: Set<String> = []
     @ObservationIgnored private var activityEpoch = UUID()
@@ -34,6 +78,13 @@ public final class AssistantStore {
     public private(set) var phase: Phase = .ready
     public private(set) var messages: [ConversationMessage] = []
     public private(set) var runs: [RunSummary] = []
+    public private(set) var archivedRuns: [RunSummary] = []
+    public private(set) var recentHistoryMayBePartial = false
+    public private(set) var loadingArchived = false
+    public private(set) var sessionArchiveBusy: Set<String> = []
+    public private(set) var historyError: String?
+    @ObservationIgnored private var historyRevision = 0
+
     public private(set) var waits: [Wait] = []
     public private(set) var automations: [AutomationSummary] = []
     public private(set) var entitiesError: String?
@@ -57,9 +108,9 @@ public final class AssistantStore {
     public var isDemo: Bool { client?.isMock == true }
     public var isConnected: Bool { client != nil }
     public var sessions: [SessionSummary] { SessionSummary.group(runs) }
-    public var canSend: Bool { client != nil && phase == .ready && !isOpening && !isStopping && !sendInFlight && restorationID == nil }
+    public var canSend: Bool { client != nil && sessionArchiveBusy.isEmpty && phase == .ready && !isOpening && !isStopping && !sendInFlight && restorationID == nil }
     public var isRestoring: Bool { restorationID != nil }
-    public var canOpenConversation: Bool { client != nil && !isOpening && !isStopping && (phase == .ready || (unknownStart && !sendInFlight)) }
+    public var canOpenConversation: Bool { client != nil && sessionArchiveBusy.isEmpty && !isOpening && !isStopping && (phase == .ready || (unknownStart && !sendInFlight)) }
     public var conversationTitle: String { selectedEntity.map { name in entities.first { $0.name == name }?.displayName ?? name.capitalized } ?? "Assistant" }
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var conversationGeneration = 0
@@ -102,7 +153,10 @@ public final class AssistantStore {
         if foreground { startPolling() }
     }
     public func disconnect() {
+        clearAnswerActivities(); entityActivityCursors = [:]
         resetActivity()
+        recentHistoryMayBePartial = false
+        archivedRuns = []; loadingArchived = false; sessionArchiveBusy = []; historyError = nil; historyRevision += 1
         contextID = UUID()
         generation += 1; conversationGeneration += 1
         poll?.cancel(); poll = nil; turn?.cancel(); turn = nil; stopping?.cancel(); stopping = nil
@@ -131,7 +185,7 @@ public final class AssistantStore {
     }
     public func refresh() async {
         guard let client, !isRefreshing else { return }
-        let epoch = generation
+        let epoch = generation, historyVersion = historyRevision
         isRefreshing = true
         defer { if epoch == generation { isRefreshing = false } }
         do {
@@ -140,7 +194,7 @@ public final class AssistantStore {
             let newWaits = try await client.waits()
             guard epoch == generation else { return }; waits = newWaits + waits.filter { $0.runId == activeEntityRunID }
             let newRuns = try await client.recentRuns(limit: 60)
-            guard epoch == generation else { return }; runs = newRuns
+            guard epoch == generation else { return }; if historyVersion == historyRevision { runs = newRuns; recentHistoryMayBePartial = newRuns.count >= 60 }
             if let saved = restorationID {
                 restorationID = nil
                 if let previous = sessions.first(where: { $0.id == saved }) {
@@ -161,10 +215,71 @@ public final class AssistantStore {
             for session in sessions.prefix(8) where titles[session.id] == nil {
                 guard epoch == generation, !Task.isCancelled else { return }
                 if let prompt = try? await client.prompt(ofRun: session.firstRunId), epoch == generation {
-                    titles[session.id] = SessionSummary.title(fromPrompt: prompt, limit: 70)
+                    titles[session.id] = SessionSummary.title(fromPrompt: prompt, limit: 180)
                 }
             }
         } catch { if epoch == generation, !(error is CancellationError) { self.error = say(error); handle(error) } }
+    }
+    public var archivedSessions: [SessionSummary] { SessionSummary.group(archivedRuns) }
+    public func canArchive(_ session: SessionSummary) -> Bool {
+        client != nil && !session.isLive && sessionArchiveBusy.isEmpty && !isOpening &&
+            (session.id != sessionID || canSend)
+    }
+    public func clearHistoryError() { historyError = nil }
+    public func loadHistoryTitle(_ session: SessionSummary) async {
+        guard titles[session.id] == nil, let client else { return }
+        let epoch = generation
+        do {
+            if let prompt = try await client.prompt(ofRun: session.firstRunId), epoch == generation, !Task.isCancelled {
+                titles[session.id] = SessionSummary.title(fromPrompt: prompt, limit: 180)
+            }
+        } catch { if epoch == generation, error as? GatewayError == .unauthorized { handle(error) } }
+    }
+    public func loadArchivedConversations() async {
+        guard let client, !loadingArchived else { return }
+        let epoch = generation, revision = historyRevision
+        loadingArchived = true; historyError = nil
+        defer { if epoch == generation { loadingArchived = false } }
+        do {
+            let rows = try await client.archivedRuns(limit: 200)
+            guard epoch == generation, revision == historyRevision, !Task.isCancelled else { return }
+            archivedRuns = rows
+        } catch {
+            guard epoch == generation, revision == historyRevision, !(error is CancellationError) else { return }
+            historyError = say(error); handle(error)
+        }
+    }
+    @discardableResult public func setArchived(_ session: SessionSummary, _ archived: Bool) async -> Bool {
+        guard let client, sessionArchiveBusy.isEmpty, !isOpening,
+              !archived || canArchive(session) else { return false }
+        let epoch = generation
+        sessionArchiveBusy.insert(session.id); historyRevision += 1; historyError = nil
+        defer { if epoch == generation { sessionArchiveBusy.remove(session.id) } }
+        do {
+            // Recheck the gateway before archiving a session that may be working on another device.
+            let current = try await client.turns(ofSession: session.id)
+            guard epoch == generation, !Task.isCancelled else { return false }
+            if archived && current.contains(where: { !$0.isTerminal }) {
+                historyError = "This conversation is working. Wait for it to finish before archiving."
+                return false
+            }
+            try await client.setArchived(sessionId: session.id, archived)
+            guard epoch == generation else { return false }
+            historyRevision += 1
+            if archived {
+                runs.removeAll { ($0.sessionId ?? $0.runId) == session.id }
+                archivedRuns.removeAll { ($0.sessionId ?? $0.runId) == session.id }; archivedRuns += current
+                if session.id == sessionID { newConversation(entity: selectedEntity) }
+            } else {
+                archivedRuns.removeAll { ($0.sessionId ?? $0.runId) == session.id }
+                runs.removeAll { ($0.sessionId ?? $0.runId) == session.id }; runs += current
+                runs.sort { ($0.updatedAt ?? $0.createdAt ?? "") > ($1.updatedAt ?? $1.createdAt ?? "") }
+            }
+            return true
+        } catch {
+            guard epoch == generation, !(error is CancellationError) else { return false }
+            historyError = say(error); handle(error); return false
+        }
     }
     public func loadEntities() async {
         guard let client, !loadingEntities else { return }
@@ -193,6 +308,7 @@ public final class AssistantStore {
         } else { resetConversation(entity: entity) }
     }
     private func resetConversation(entity: String?) {
+        clearAnswerActivities(); entityActivityCursors = [:]
         resetActivity()
         completedReply = nil; quietEntityRestoreID = nil; error = nil
         stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
@@ -374,6 +490,7 @@ public final class AssistantStore {
                 activityFailure = run.status == "failed" ? (run.error ?? "The workflow failed without an error description.") : nil
                 activitySummary = nil
                 activity.finish(status: run.status)
+                cacheCompletedActivity(.init(activity: activity, issues: activityIssue.map { [$0] } ?? []), runID: id)
                 activityWaits = []; waits.removeAll { activityRunIDs.contains($0.runId) }
                 if !stopRequested, quietActivityRootID != id, run.status == "completed", let reply = messages.first(where: { $0.id == "answer-" + id }) { completedReply = reply }
                 if run.status == "failed" { error = activityFailure }
@@ -433,6 +550,7 @@ public final class AssistantStore {
                 waits.removeAll { $0.runId == id }
                 if let text = state.reply, !text.isEmpty {
                     let messageID = id + "-turn-" + String(state.turn)
+                    cacheCompletedActivity(.init(activity: activity, issues: activityIssue.map { [$0] } ?? [], scopeTitle: quietEntityRestoreID == id ? "Visit activity" : "Answer activity"), runID: messageID)
                     let reply = ConversationMessage(id: messageID, role: .assistant, text: text, stats: state.stats)
                     if let index = messages.firstIndex(where: { $0.id == messageID }) { messages[index] = reply }
                     else { messages.append(reply) }
@@ -576,7 +694,7 @@ public final class AssistantStore {
                 entityVisitIDs.removeValue(forKey: entity + ":" + oldSession)
                 if let connection { defaults.removeObject(forKey: "phone.visit." + connection.scope + "." + oldSession) }
             }
-            resetActivity()
+            resetActivity(); clearAnswerActivities(); entityActivityCursors = [:]
             activeEntityRunID = nil; quietEntityRestoreID = nil; completedReply = nil
             stopRequested = false; isStopping = false; unknownStart = false; cancelledRunID = nil
             conversationGeneration += 1; measuredMessages = []; messages = restored; selectedEntity = nil; sessionID = session.id
@@ -805,7 +923,7 @@ public final class AssistantStore {
         do {
             // Each page cursor is a consumed record count, independent of step IDs.
             while epoch == activityEpoch, !Task.isCancelled {
-                let cursor = activityCursors[runID] ?? 0
+                let cursor = activityCursors[runID] ?? (entity != nil ? entityActivityCursors[runID] ?? 0 : 0)
                 let page: LedgerPage
                 if let entity { page = try await client.entityLedger(name: entity, runID: runID, after: cursor) }
                 else { page = try await client.ledger(runId: runID, after: cursor) }
@@ -813,6 +931,7 @@ public final class AssistantStore {
                 let next = page.nextAfter ?? cursor + page.items.count
                 guard next == cursor + page.items.count else { throw LedgerStreamError.invalidCursor }
                 for (index, record) in page.items.enumerated() { ingestActivity(record, runID: runID, cursor: cursor + index + 1) }
+                if entity != nil { entityActivityCursors[runID] = next }
                 setActivityProblem("drain:" + runID, nil); setActivityProblem("stream:" + runID, nil)
                 if page.items.count < 200 { break }
             }

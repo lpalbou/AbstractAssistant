@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.9 · iOS 26+**
+**Developer preview · 0.6.19 · iOS 26+**
 
 ## Three small spaces
 
@@ -18,7 +18,12 @@ AbstractGateway, with the conversation at the center and the controls you need c
   in a collapsible activity panel. It shows model cycles, tool calls, public results and
   failures. When a tool needs approval, **Approval needed → Review tools** appears directly
   in the conversation. Connection loss is reported separately from run failure. The orb
-  returns when the gateway confirms the run has ended.
+  returns when the gateway confirms the run has ended. Completed activity moves into cycle
+  and tool-count buttons beside the answer’s speaker. Cycles opens a connected progression
+  per agent, with expandable model details and approval context. Tools opens the individual
+  calls with recorded input, output and timing, plus search.
+  Positive-only file, email and web actions open compact source collections; file views
+  also open the conversation’s workspace browser.
   Conversations are durable gateway sessions. Open the stack icon to continue one from
   your phone, desktop, Watch or browser. Reloading restores every turn’s public answer without
   reading old replies aloud. Tap the current name and chevron to choose **Assistant** or an entity, or create an entity.
@@ -73,8 +78,18 @@ detection uses local microphone power; room noise and very quiet speech can affe
 
 Use **+** beside the composer to attach a file, choose a photo/video, take a photo or record
 a short video. Uploaded file chips remain until you send or remove them.
-**More options (…) → Conversation files** opens your files, including files the assistant generates.
-Tap a file to download it privately and preview, play or share it with the native viewer.
+**Conversation files**, from **More options (…)** or **Browse session files** inside file
+activity, includes actual workspace files and stored attachments. Open a folder to follow its
+hierarchy; tap a Markdown document to read it, or preview/play/share other files. Separate
+workspaces are shown when the session’s runs use different folders. Files are fetched afresh
+when opened, so an edited workspace document does not show an old cached copy.
+
+**Conversation audio** is off by default. Turn it on to see dictation, its transcripts and
+read-aloud recordings. Explicit user attachments and voice files returned by the assistant
+remain visible. New dictation has explicit provenance. For older recordings the app first
+checks every turn’s input/output references, then uses linked upload/transcription and TTS
+metadata; the modal identifies this as inference. If history cannot be fully checked, older
+ambiguous files stay visible. This filtering never deletes anything.
 Attachments retain their gateway artifact and owning-run references. Credentials never
 travel in a share link or to an AI-provided URL.
 
@@ -103,7 +118,11 @@ Uploads are limited to **25 MB each**; generated-media previews stream to disk w
 **256 MB per-file limit**. The gateway may impose a smaller limit.
 Camera videos are capped at 30 seconds. Entity chat’s current gateway interface accepts
 text only, so file messages are available in Assistant conversations. The files list shows
-the latest 100 session artifacts; older files remain on the gateway.
+attachments in pages of 500 with **Load more attachments**. Workspace summaries inspect up
+to 1,000 entries per workspace; a **+** count signals more or incomplete results. Folder
+browsing offers **Load entire folder** when its listing is limited. Workspace discovery and
+activity history each inspect up to 64 runs and disclose limits. Text previews show up to
+200,000 characters; sharing retains the complete downloaded file.
 
 ## Conversation tools and answer statistics
 
@@ -208,3 +227,76 @@ and gateway-client snapshot. It neither embeds nor modifies the Watch applicatio
 [AbstractAssistant](../../README.md) · [AbstractFramework](https://abstractframework.ai)
 
 MIT License — see [the repository license](../../LICENSE).
+
+Email activity uses two directional envelope counts beside the answer’s other actions:
+incoming for messages read, outgoing for messages sent. Each appears only when that direction has
+confirmed activity. Repeated reads of the same message
+are counted once; inbox listings/searches are not counted as reads.
+
+Tap either count for a compact searchable message list, then open any message to inspect
+sender, To/Cc/Bcc, subject, body, recorded action time, original message date and attachment
+names where available. Several long messages stay easy to browse without scrolling through
+all their bodies. Replies appear in Sent emails. Partial recipient refusals and headers-only
+reads are explicit. Send receipts confirm mail-server submission rather than delivery;
+read activity does not change mailbox read/unread flags. Missing old history fields are
+identified. HTML-only messages expose inert source without loading remote resources.
+
+The answer action row also shows optional counts for files read, files written/modified,
+web searches, and web pages fetched. Tap for searchable source lists and recorded excerpts,
+results or change receipts. Repeated reads/edits of a file are grouped, with individual
+operations in its detail; skim/full modes and request methods remain visible. Searches
+count query operations, not every returned link; pages count successfully fetched URLs.
+File sources are distinct per run to preserve separate workspaces. Only confirmed tool
+results count: failed skims, preview/no-op edits and opaque shell side effects stay in
+full activity. Zero actions are hidden. Complex strips scroll horizontally.
+
+File receipt views offer Browse session files for current workspace document previews.
+The session-wide browser is also always available from the toolbar’s folder button; its total
+is no longer presented as if it were an answer's file activity.
+
+
+Activity steps expand to show their recorded public output, model/provider, token usage,
+finish reason and run/step identity. Start times and elapsed durations sit under each step;
+history is ordered oldest first across parent and child runs, using this iPhone’s time zone.
+Routing decisions are labeled Choose response type, so they are distinct from agent cycles
+and media generation. Missing legacy fields are shown as unavailable, never estimated.
+Private reasoning, system prompts and raw provider traces stay out of this view.
+
+
+The chat toolbar has three islands: Conversations on the left, conversation Share/Files/Tools
+in the middle, and Settings on the right. Open Conversations to start a new conversation;
+it keeps the selected responder. The responder chooser sits directly below the toolbar.
+New conversation is highlighted in mint above the conversation history. History groups into
+Today, Yesterday and Earlier, with two-line titles, exchange/tool counts, last-activity ages and
+Working/Needs you/Failed indicators. A “+” marks counts from the bounded recent history.
+Use the archive icon to hide a finished conversation across devices; Archived offers Restore.
+Archiving preserves messages and files, and working conversations cannot be archived.
+Share conversation opens the native share sheet with formatted messages currently loaded,
+in order with speaker labels, plus their original attachments and recorded generated files.
+Images appear beside their messages in the rich transcript; other files have a caption at
+the relevant answer and accompany the share as originals. Mail and Notes receive rich-text
+alternatives; each receiving app controls the final formatting and inline placement.
+Conversation recordings and read-aloud audio are excluded. Workspace files use their current
+saved version. Sharing supports up to 100 original files and 200 MB combined, with inline
+previews for the first 12 images. If a required file cannot be retrieved, retry or share
+individual files from Conversation files. Temporary export copies are removed after sharing.
+Copy and speech controls remain under individual answers.
+Answer action counts appear only when positive.
+An unnumbered Activity icon opens missing or unavailable history, with retry when needed.
+Activity requests survive scrolling away and are shared across rows; changing accounts or
+conversations invalidates them so late results cannot replace the current view.
+
+Approval hands stay amber after resolution. Tool icons use lavender throughout the app;
+status labels identify failures separately. The cycle graph groups tools and approvals under
+their preceding cycle within the same agent run. Separate agent runs have separate lanes.
+Tool inputs redact credential fields and omit private control fields; missing inputs are
+marked unavailable. Long inputs and public outputs disclose display truncation. Credential
+redaction is based on field names and does not inspect secrets embedded inside ordinary
+command, URL or document text.
+
+
+Each Tools category has an Off / Auto / Approve selector, available even while collapsed.
+A category with mixed choices shows “Mixed” with no selected segment. Choosing a mode updates all available
+tools in that category, including those hidden by search, while preserving other categories.
+It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
+category controls apply in Settings, a session, and an automation.

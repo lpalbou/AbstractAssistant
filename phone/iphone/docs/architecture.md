@@ -131,11 +131,32 @@ stored per gateway/account and applied locally through AVAudioPlayer.enableRate/
 playback. It applies to Assistant and entity speech while entity voice overrides remain
 entity-owned. Invalid persisted speeds restore to 1. No speed is sent to TTS providers.
 
-The chat title is a labelled responder chooser. Files/settings move into one More menu,
-avoiding an adaptive toolbar that hides actions. Who answers lists Assistant and searchable
+The labelled responder chooser sits below the chat toolbar. Its bounded width lets long names
+truncate while retaining their full accessible value. Who answers lists Assistant and searchable
 entities with explicit loading/error/retry. Entity discovery can load independently of the
 store's run polling chain. Switching is blocked with a reason during an active run/import
 or staged files; drafts are preserved.
+
+The toolbar has three separate glass islands: Conversations, Share/Files/Tools, and Settings.
+New conversation lives in Conversations, has a mint accent, and preserves the selected responder.
+Sharing captures loaded user/assistant messages, their original media references, cached activity
+and account/session identity at tap time. `ConversationExportBuilder` downloads explicit media
+and files from confirmed write/edit records through existing artifact and workspace routes.
+Unrelated workspace contents, notices, stats, runtime records and pending drafts are excluded.
+Conversation voice recordings/read-aloud files are excluded; generated voice remains shareable.
+Workspace bytes reflect the current saved file rather than a historical revision. Files are
+deduplicated by original name and content hash, with collision-safe local names. Missing files,
+incomplete activity or the 100-file/200-MB limits fail the entire preparation with a retryable error.
+
+`RichConversation` renders public Markdown into attributed text, self-contained HTML and flat
+RTFD alternatives on one transcript provider. The first 12 image previews are downsampled and
+bounded to 320 points, placed after their message text; original files have separate typed file
+providers. Attributed message-body metadata supports rich Mail/Notes handoff; receiving apps
+control final layout. A prepared-share lease keeps owned copies available until activity
+completion/cancellation, then removes them. Context checks before and after awaits prevent stale
+exports and old unauthorized responses from affecting a newer account. Sharing is disabled for
+empty/loading history or an active run. Per-answer Copy and speech controls remain; conversation
+sharing owns the navbar action. Existing attachment/import navigation guards remain in place.
 
 Entity creation uses the existing principal-scoped gateway endpoints. A cancelable name
 check calls POST /entities/{slug}/validate before enabling the explicit Create action; the
@@ -154,7 +175,7 @@ runs; the owner from each artifact is used for its download. IDs are validated b
 constructing a gateway route. Size checks cap imports and streamed downloads at 25 MB.
 Only app-owned local files reach QuickLook. Dismissing or replacing the preview removes
 its local copy; account/session changes also remove preview data. Imports, recordings and
-previews live under `tmp/AbstractAssistant/{imports,voice,previews}`, in separate operation
+previews and export copies live under `tmp/AbstractAssistant/{imports,voice,previews,exports}`, in separate operation
 directories. Upload completion/failure/cancellation and transcription completion/cancellation
 discard their owned copies. Startup clears that temporary namespace and strict UUID-named
 legacy copies left by interrupted processes; originals and Documents are outside its scope.
@@ -333,3 +354,181 @@ provider endpoint resolver. Runtime commit `80a1887` fixes creation, resolver ro
 media-host reconstruction. Without it, a healthy inventory and successful text routing can
 still precede `Unknown or disabled endpoint profile` in the image-generation node. The
 phone reports that run failure; it does not copy endpoint credentials or resolve profiles itself.
+
+## Session files and completed answer activity
+
+The action row owns share/copy/speech and cycle/tool buttons per answer, plus positive-only
+email/file/web source counters. The session file browser remains in More and file source
+sheets, rather than as a session-wide count beside an individual answer. Live/wait/error
+activity retains its existing panel.
+Terminal Assistant activity snapshots are keyed by root run ID. Older answers reconstruct
+root/descendant ledgers independently; no latest-run state is attached to another answer.
+Entity turns use their entity ledger and per-visit cursor boundaries. A restored entity
+visit without a known boundary is labeled Visit activity rather than per-answer counts.
+
+SessionFilesController combines paged session artifacts with existing authorized run
+workspace metadata/list/content routes. It discovers roots and descendants, deduplicates
+workspace roots, preserves relative directory paths, and fetches mutable file bytes anew
+for each preview. It avoids admin host-file APIs. Bound account/session operations reject
+late refresh/download results; cancellations delete owned partial/local files. Downloads
+share the authenticated streaming size limit, redirect refusal and 401 lockout.
+
+The artifact classifier retains logical paths, semantic type, producer and source refs.
+Explicit voice_playback metadata and reserved dictation paths identify conversational
+files. Legacy inference requires successful full session input/output hydration (four
+concurrent reads, at most 64 turns) and preserves explicit user/AI file references. Older
+ask.wav is inferred only through a same-owner session-memory source_audio link from an
+audio.transcribe transcript to an uploaded client:ask.wav attachment. Older unreferenced
+voice/tts artifacts from llm_call are inferred read-aloud files. The toggle discloses
+inference; history failure retains ambiguous files. All paging is reversible display
+filtering; no remote artifacts or originals are modified. Partial counts use + or an
+unknown indicator, and ignored offset pagination is refused rather than looping.
+
+Markdown/text previews render locally without executing embedded HTML. They read at most
+1 MiB and display at most 200,000 characters with an explicit truncation note; Share uses
+the complete local download. Image zoom and native audio/document preview remain available.
+
+### Read and sent email collections
+
+`RunActivity` projects confirmed `send_email`/`reply_email` tool results into `SentEmail`.
+It joins results by runtime identity (or an unambiguous legacy match), requires explicit
+inner success plus a message ID or accepted recipients, and deduplicates message IDs.
+Only a whitelist of mail fields is retained from arguments; headers/credentials are not
+copied. Bodies stay outside the generic 4,000-character activity summary. Existing
+per-answer replay/snapshot/account-reset ownership also owns receipts; no mail endpoint
+or mailbox reads are introduced. `EmailActivityView` shows separate read/sent searchable collections from directional
+envelope counts, with compact rows and individual detail navigation. Message body rendering is plain text; HTML is optional source, never active content.
+
+The latest 100 receipts are retained with a cumulative count and a visible limit notice.
+Each text/HTML body is capped at 50,000 characters with an explicit truncation marker.
+Send time comes from the completed ledger record and is not a delivery timestamp. Missing
+fields and refused recipients are explicit. Read-only physical verification replays the
+saved conversation and exports completeness/counts only, never the emails themselves.
+
+`ReadEmail` projects successful `read_email` results; listing/search tools do not count.
+Identity uses account + mailbox + UIDVALIDITY + UID (message ID only when no UID exists),
+so replay/repeated reads do not inflate the count, and mailbox/UID namespace collisions
+stay distinct. A later full-body read improves a headers-only receipt without a second
+count. The action timestamp and original message Date header remain distinct; `body_skipped`
+is surfaced as headers only. `RunActivity` retains the latest 100 read messages with a
+cumulative count and visible limit; bodies/HTML share the 50,000-character display cap.
+
+Each optional direction appears only for a positive confirmed count. The answer action strip scrolls horizontally if large text/counts need
+more space. No mail is read or sent to populate these views: they replay authorized ledger
+results, preserving existing answer/account/session ownership.
+
+### Condensed file and web source receipts
+
+`RunActivity.access` projects eight recognized Core tool contracts using `AccessActivity`:
+read_file/skim_files, write_file/edit_file, web_search/skim_websearch, skim_url/fetch_url.
+File headers/success prefixes and structured web success are required in addition to
+outer execution state. Per-file skim errors, HTTP403 textual skims, edit previews/no-ops
+are excluded. Skim URL metadata is parsed only before Content-Type, so page text cannot
+spoof redirects. Returned file paths define run-scoped source identity; requested aliases
+are retained separately. Relative/absolute aliases with the same returned path group, but
+separate child workspaces do not conflate. Mail, discovery lists, search hits and opaque
+shell commands are never misclassified as file/page reads.
+
+File counts are unique run-scoped sources per category; repeated actions retain distinct
+runtime identities and modes under each source. Web searches count successful query
+operations, including empty results; discovered links are not fetched pages. Pages group
+returned URLs and preserve requested URLs, HTTP methods and skim/fetch modes. The receipt
+projection retains only whitelisted path/query/mode fields, never write content, HTTP request
+headers or request bodies. File excerpts/change receipts and web previews remain recorded
+data; no file/site is automatically opened. User-initiated links accept only HTTP(S)
+without URL credentials. File sheets hand off on dismissal to the existing session browser.
+
+`AccessActivityView` uses compact searchable lists and independent source details. Each
+category retains 100 sources, each source's latest five operations, with cumulative counts
+and visible limit notices. Excerpts cap at 8,000 characters with explicit truncation;
+search links cap at 30. Positive-only actions replace the old session-wide folder count
+in answer rows; More → Conversation files still exposes the complete workspace browser.
+Partial ledger histories keep existing warning/count conventions. These receipts cover
+recognized tools, not every OS operation inside shell/browser subprocesses.
+
+
+## Timed expandable activity
+
+`RunActivityItem` keeps start/end timestamps separately from its latest event timestamp.
+Paired starts/completions preserve the earliest recorded start; durations use actual end
+minus start, with unknown or invalid dates remaining absent. Cross-run replay sorts by
+start (or the available event timestamp), then stable identity; undated rows preserve their
+ledger order. Subworkflow resumes close existing boundary rows rather than adding internal
+resume steps. Resolved waits are labeled Approval resolved/Wait ended, without inferring
+an allow/deny decision from mere resumption.
+
+Every live/history row expands, including model steps with no recorded public content.
+Model details whitelist explicit result content/data, served provider/model, usage and finish
+reason. They never stringify effect payloads, provider metadata, system/messages, raw
+responses or reasoning. Existing receipt projections retain their separate field contracts.
+Result text remains bounded to 4,000 characters with visible truncation. Times are local;
+rows state missing evidence. Child boundaries expose their owning run/step identifiers.
+
+The orchestrator revision 8 isolates route_call with declared include_context=false:
+routing neither reads conversation history nor appends its control prompt/plan to it.
+Spoken literary recitations use voice generation. Existing corrupted historical assistant
+replies are preserved as history; they are not silently rewritten. The immutable corrected
+bundle is abstractassistant-orchestrator@0.0.15, tested through the saved iPhone connection.
+
+
+## Historical activity task ownership
+
+AssistantStore owns coalesced per-run tasks rather than borrowing a lazy history row’s task.
+Each caller awaits the same task; cancelling one or all view callers does not cancel public
+ledger loading/publication. An activity-cache epoch and per-load UUID guard publication and
+deferred cleanup. All account/conversation/session resets cancel/clear tasks and advance the
+epoch. Terminal live snapshots invalidate pending historical replay before publication, so an
+older replay cannot replace fresher completed counts. Unavailable history caches explicit
+issues, with retry on opening the activity sheet; transient metrics failures do not replace
+the conversation with a global chat error. Current-account authentication failures retain
+the existing sign-in flow; stale failures cannot invalidate a newer connection.
+
+Compact cycle/model/tool/email/file/web counts are positive-only. Unknown or all-zero history
+retains one accessible unnumbered Activity action; partial positive counts retain their +
+coverage marker. No unresolved ellipsis or invented zero is presented as a count.
+
+## Cycle graph and tool call details
+
+Cycle and tool actions select distinct sheet modes. The cycle graph groups recorded `reason`
+model steps by run, preserves their per-run ordinal numbers and connects consecutive retained
+cycles only within that run. Tools and explicit tool-approval waits attach to the preceding
+reason observed in the same ledger. This is presentation grouping, not a runtime causal ID.
+Late tool completions preserve their first association; evicted or unassociated steps appear
+outside recorded cycles. Routing and generation steps have their own expandable section.
+
+The tool sheet includes only tool calls, with search over names, displayed input and public
+output. Call numbering stays stable when filtering. `ToolCallInput` accepts structured JSON
+arguments, recursively hides credential keys and excludes private/control fields before
+formatting; malformed raw strings remain unavailable. Display is bounded to 4,000 characters
+with a visible truncation marker. This field-name redaction does not inspect embedded secrets
+inside command, URL or document strings. Inputs and outputs use separate headings, with
+unknown fields kept explicit. Run-scoped tool identities and cursor deduplication are shared
+with live and historical projections.
+
+Approval icons use amber even after resolution; tool icons use lavender across activity,
+answer actions and tool configuration entry points. Failure status remains independently red.
+Retained-event notices state the bound because waits and failures can outlive other rows.
+
+
+## Conversation history and category controls
+
+The iPhone uses the Watch's existing session archive contract: POST
+`/api/gateway/sessions/{id}/archive` and `/unarchive`; archived roots come from
+`GET /api/gateway/runs?archived_only=true&root_only=true&include_metrics=true`.
+Archive listing follows all pages with cancellation and repeated-page protection. Recent
+history remains bounded to 60 root runs, so its exchange/tool counts display “+” at that
+boundary. Rows group by the iPhone's local calendar day and show explicit last-activity ages.
+Archive confirmation explains the cross-device effect and recovery through Archived.
+
+AssistantStore blocks archive of sessions with any loaded nonterminal root and rechecks their
+turns before the write. The server remains authoritative for races after that check. A current
+session can be archived only while idle; successful archive starts a new conversation without
+changing the responder. Mutations block local send/open transitions until resolved. Account
+generations and history revisions reject old list/mutation results and errors. Failed writes
+retain the original rows. Restore removes the archived row and returns its roots to recent history.
+
+Category controls materialize the inherited effective selection before applying a change.
+They use the complete gateway inventory for that category, independently of search-filtered
+rows. A mixed group has no selected segment; unavailable tools stay Off, and unrelated
+categories preserve their modes. Existing Settings/session/automation save paths and grant
+precedence are unchanged.

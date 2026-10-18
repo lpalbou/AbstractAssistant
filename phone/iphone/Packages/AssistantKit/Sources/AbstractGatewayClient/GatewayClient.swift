@@ -37,12 +37,18 @@ public protocol GatewayClient: Sendable {
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?) async throws -> String
     func startRun(prompt: String, sessionId: String?, attachments: [JSONValue], tools: ConversationTools?, primaryImage: JSONValue?) async throws -> String
     func download(_ artifact: PhoneArtifact, to destination: URL) async throws
+    func artifactPage(sessionID: String, offset: Int, includeVoice: Bool) async throws -> SessionArtifactPage
+    func workspace(runID: String) async throws -> RunWorkspace
+    func workspaceFiles(runID: String, path: String, recursive: Bool, limit: Int?) async throws -> WorkspaceListing
+    func downloadWorkspaceFile(runID: String, entry: WorkspaceEntry, to destination: URL) async throws
     /// `GET /api/gateway/me`
     func me() async throws -> Principal
     /// `GET /api/gateway/runs?status=waiting`, projected to waits on a person.
     func waits() async throws -> [Wait]
     /// `GET /api/gateway/runs?root_only=true&limit=20`
     func recentRuns(limit: Int) async throws -> [RunSummary]
+    func archivedRuns(limit: Int) async throws -> [RunSummary]
+    func setArchived(sessionId: String, _ archived: Bool) async throws
     /// `GET /api/gateway/runs/{id}/input_data`: what the person asked in that turn.
     func input(ofRun id: String) async throws -> ConversationInput
     func prompt(ofRun id: String) async throws -> String?
@@ -211,6 +217,25 @@ public actor LiveGatewayClient: GatewayClient {
         try await get("api/gateway/runs", query: [.init(name: "root_only", value: "true"), .init(name: "limit", value: String(limit)),
                                                    .init(name: "include_metrics", value: "true"), .init(name: "session_kind", value: "chat,discussion")],
                       as: RunsPage.self).items
+    }
+
+    public func setArchived(sessionId: String, _ archived: Bool) async throws {
+        guard PhoneArtifact.validID(sessionId) else { throw GatewayError.invalidResponse }
+        _ = try await request("POST", "api/gateway/sessions/\(sessionId)/\(archived ? "archive" : "unarchive")")
+    }
+    public func archivedRuns(limit: Int) async throws -> [RunSummary] {
+        let pageSize = max(1, min(limit, 100))
+        var rows: [RunSummary] = [], seen: Set<String> = [], offset = 0
+        while true {
+            try Task.checkCancellation()
+            let page = try await get("api/gateway/runs", query: [.init(name: "archived_only", value: "true"), .init(name: "root_only", value: "true"),
+                .init(name: "limit", value: String(pageSize)), .init(name: "offset", value: String(offset)),
+                .init(name: "include_metrics", value: "true"), .init(name: "session_kind", value: "chat,discussion")], as: RunsPage.self)
+            let fresh = page.items.filter { seen.insert($0.runId).inserted }; rows += fresh
+            guard page.hasMore ?? (page.items.count == pageSize) else { return rows }
+            guard !fresh.isEmpty else { throw GatewayError.invalidResponse }
+            offset += page.items.count
+        }
     }
 
     public func run(id: String) async throws -> RunSummary { try await get("api/gateway/runs/\(id)", as: RunSummary.self) }
@@ -532,9 +557,34 @@ public actor LiveGatewayClient: GatewayClient {
         return artifact
     }
     public func artifacts(sessionId: String) async throws -> [PhoneArtifact] {
-        let v = try await get("api/gateway/sessions/\(sessionId)/artifacts", query: [.init(name: "limit", value: "100")], as: JSONValue.self)
+        try await artifactPage(sessionID: sessionId, offset: 0, includeVoice: true).items
+    }
+    public func artifactPage(sessionID: String, offset: Int, includeVoice: Bool) async throws -> SessionArtifactPage {
+        let v = try await get("api/gateway/sessions/\(sessionID)/artifacts", query: [.init(name: "limit", value: "500"), .init(name: "offset", value: String(offset)), .init(name: "include_voice", value: includeVoice ? "true" : "false")], as: JSONValue.self)
         guard case .array(let items)? = v["items"] else { throw GatewayError.invalidResponse }
-        return items.compactMap(PhoneArtifact.parse)
+        let total: Int; if case .number(let n)? = v["total"], n >= 0, n < Double(Int.max) { total = Int(n) } else { total = items.count }
+        return .init(items: items.compactMap(PhoneArtifact.parse), total: total, hasMore: v["has_more"] == .bool(true), nextOffset: offset + items.count,
+            warnings: { if case .array(let rows)? = v["warnings"] { return rows.compactMap(\.stringValue) }; return [] }())
+    }
+    public func workspace(runID: String) async throws -> RunWorkspace {
+        guard PhoneArtifact.validID(runID) else { throw GatewayError.invalidResponse }
+        return try await get("api/gateway/runs/\(runID)/workspace", as: RunWorkspace.self)
+    }
+    public func workspaceFiles(runID: String, path: String, recursive: Bool, limit: Int?) async throws -> WorkspaceListing {
+        guard PhoneArtifact.validID(runID), WorkspaceEntry.validPath(path) else { throw GatewayError.invalidResponse }
+        var query = [URLQueryItem(name: "path", value: path), .init(name: "recursive", value: recursive ? "true" : "false")]
+        if let limit { query.append(.init(name: "limit", value: String(limit))) }
+        return try await get("api/gateway/runs/\(runID)/workspace/files", query: query, as: WorkspaceListing.self)
+    }
+    public func downloadWorkspaceFile(runID: String, entry: WorkspaceEntry, to destination: URL) async throws {
+        guard PhoneArtifact.validID(runID), WorkspaceEntry.validPath(entry.path), !entry.isDirectory else { throw GatewayError.invalidResponse }
+        guard (entry.size ?? 0) <= PhoneArtifact.previewByteLimit else { throw PhoneAttachmentError.previewTooLarge }
+        var parts = URLComponents(url: baseURL.appending(path: "api/gateway/runs/\(runID)/workspace/content"), resolvingAgainstBaseURL: false)!
+        parts.queryItems = [.init(name: "path", value: entry.path)]
+        guard let url = parts.url else { throw GatewayError.invalidResponse }
+        try await writeDownload(to: destination) { handle in
+            try await self.readFile(url: url, limit: PhoneArtifact.previewByteLimit) { try handle.write(contentsOf: $0) }
+        }
     }
     public func download(_ artifact: PhoneArtifact) async throws -> Data {
         var data = Data()
@@ -542,13 +592,17 @@ public actor LiveGatewayClient: GatewayClient {
         return data
     }
     public func download(_ artifact: PhoneArtifact, to destination: URL) async throws {
+        try await writeDownload(to: destination) { handle in
+            try await self.readArtifact(artifact, limit: PhoneArtifact.previewByteLimit) { try handle.write(contentsOf: $0) }
+        }
+    }
+    private func writeDownload(to destination: URL, operation: (FileHandle) async throws -> Void) async throws {
         guard destination.isFileURL, !FileManager.default.fileExists(atPath: destination.path),
               FileManager.default.createFile(atPath: destination.path, contents: nil) else { throw GatewayError.invalidResponse }
         var handle: FileHandle?
         do {
             let opened = try FileHandle(forWritingTo: destination); handle = opened
-            try await readArtifact(artifact, limit: PhoneArtifact.previewByteLimit) { try opened.write(contentsOf: $0) }
-            try opened.close()
+            try await operation(opened); try opened.close()
         } catch {
             try? handle?.close(); try? FileManager.default.removeItem(at: destination); throw error
         }
@@ -558,7 +612,11 @@ public actor LiveGatewayClient: GatewayClient {
         guard PhoneArtifact.validID(artifact.runId), PhoneArtifact.validID(artifact.artifactId) else { throw GatewayError.invalidResponse }
         guard artifact.size <= limit else { throw limit == PhoneArtifact.byteLimit ? PhoneAttachmentError.tooLarge : PhoneAttachmentError.previewTooLarge }
         // Only Gateway-owned routes receive credentials. Stream large previews to disk in chunks.
-        var req = URLRequest(url: baseURL.appending(path: "api/gateway/runs/\(artifact.runId)/artifacts/\(artifact.artifactId)/content")); req.timeoutInterval = 120
+        try await readFile(url: baseURL.appending(path: "api/gateway/runs/\(artifact.runId)/artifacts/\(artifact.artifactId)/content"), limit: limit, consume: consume)
+    }
+    private func readFile(url: URL, limit: Int, consume: (Data) throws -> Void) async throws {
+        try requireSignIn()
+        var req = URLRequest(url: url); req.timeoutInterval = 120
         credential.apply(to: &req, write: false)
         let (bytes, response) = try await session.bytes(for: req, delegate: LedgerRedirectGuard())
         defer { bytes.task.cancel() }
@@ -583,7 +641,7 @@ public actor LiveGatewayClient: GatewayClient {
         func field(_ name: String, _ value: String) {
             body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
         }
-        field("session_id", sessionId); field("content_type", "audio/wav"); field("filename", "ask.wav")
+        field("session_id", sessionId); field("content_type", "audio/wav"); field("filename", "ask.wav"); field("source_path", "voice/dictation/" + UUID().uuidString.lowercased() + ".wav")
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"ask.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8))
         body.append(wav)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))

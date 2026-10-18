@@ -1104,7 +1104,10 @@ public struct SessionSummary: Hashable, Sendable, Identifiable {
     public var updatedAt: Date?
 
     public var status: String { latest.status }
-    public var needsPerson: Bool { latest.waitsOnPerson }
+    public var needsPerson: Bool { latest.waitsOnPerson || hasPersonWait }
+    public var isLive: Bool { hasActiveRuns }
+    private var hasActiveRuns: Bool
+    private var hasPersonWait: Bool
 
     /// Groups root runs (newest first, as listed) into sessions, newest activity first.
     public static func group(_ runs: [RunSummary]) -> [SessionSummary] {
@@ -1120,7 +1123,8 @@ public struct SessionSummary: Hashable, Sendable, Identifiable {
             return SessionSummary(id: key, firstRunId: oldest.runId, latest: newest, turns: rows.count,
                                   toolCalls: rows.compactMap(\.toolCalls).reduce(0, +), llmCalls: rows.compactMap(\.llmCalls).reduce(0, +),
                                   kind: newest.sessionKind,
-                                  updatedAt: (newest.updatedAt ?? newest.createdAt).flatMap(ISO8601.date))
+                                  updatedAt: (newest.updatedAt ?? newest.createdAt).flatMap(ISO8601.date),
+                                  hasActiveRuns: rows.contains { !$0.isTerminal }, hasPersonWait: rows.contains(where: \.waitsOnPerson))
         }
     }
 

@@ -72,7 +72,7 @@ struct NewAutomationScreen: View {
                 }
                 Section {
                     Button { editingTask = false; editingBudget = false; showTools = true } label: {
-                        HStack { Label("Tools", systemImage: "wrench.and.screwdriver"); Spacer(); Text(tools == nil ? "Settings defaults" : "Custom").foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption) }
+                        HStack { Label("Tools", systemImage: "wrench.and.screwdriver").foregroundStyle(PhoneTheme.tool); Spacer(); Text(tools == nil ? "Settings defaults" : "Custom").foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption) }
                     }.accessibilityIdentifier("automation.tools")
                 } footer: { Text("Tool permissions are saved with the automation so it can run while this iPhone is closed.") }
                 if let error { Section { ErrorBanner(message: error) } }

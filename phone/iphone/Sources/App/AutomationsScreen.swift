@@ -69,7 +69,7 @@ struct AutomationDetailScreen: View {
                         Button(a.status == "active" ? "Pause" : "Resume") { Task { await store.automationAction(a, runNow: false) } }.buttonStyle(.bordered)
                     }.controlSize(.large).disabled(store.automationBusy.contains(a.id) || savingTools || launching || definition == nil) }
                     Button { showingTools = true } label: {
-                        HStack { Label("Tools", systemImage: "wrench.and.screwdriver"); Spacer(); Text(definition?.tools == nil ? "Settings defaults" : "Custom").foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption) }
+                        HStack { Label("Tools", systemImage: "wrench.and.screwdriver").foregroundStyle(PhoneTheme.tool); Spacer(); Text(definition?.tools == nil ? "Settings defaults" : "Custom").foregroundStyle(PhoneTheme.secondary); Image(systemName: "chevron.right").font(.caption) }
                             .font(.subheadline).padding(16).background(PhoneTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                     }.buttonStyle(.plain).disabled(definition == nil || savingTools || launching).accessibilityIdentifier("automation.tools")
                     if requestedRun { Label("Run requested. Pull down to check its result.", systemImage: "checkmark.circle").font(.footnote).foregroundStyle(PhoneTheme.mint) }

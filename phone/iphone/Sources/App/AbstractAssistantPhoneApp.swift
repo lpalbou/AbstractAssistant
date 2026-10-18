@@ -74,6 +74,10 @@ struct PhoneRoot: View {
         #endif
         store.connect(nil, client: MockGatewayClient(emptyAutomations: emptyAutomations, activityScenario: activityScenario,
             historyFixture: ProcessInfo.processInfo.arguments.contains("--history-fixture"),
+            conversationListFixture: ProcessInfo.processInfo.arguments.contains("--conversation-list-fixture"),
+            categoryFixture: ProcessInfo.processInfo.arguments.contains("--category-fixture"),
+            emailFixture: ProcessInfo.processInfo.arguments.contains("--email-fixture"),
+            accessFixture: ProcessInfo.processInfo.arguments.contains("--access-fixture"),
             mediaImage: MediaDesignFixture.enabled ? MediaDesignFixture.image : nil, mediaVoice: MediaDesignFixture.enabled ? SyntheticSpeech.wav(seconds: 12, seed: 2) : nil))
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--reset-tool-defaults") { store.setAppTools(nil) }

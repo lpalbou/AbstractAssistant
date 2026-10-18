@@ -40,12 +40,231 @@ final class LiveGatewayMediaTests: XCTestCase {
         #endif
     }
 
+    @MainActor func testInspectSavedVoiceIncident() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let turns = try await client.turns(ofSession: session)
+        var target: String?
+        for turn in turns.reversed().prefix(32) {
+            let input = try await client.input(ofRun: turn.runId)
+            if input.prompt?.lowercased().contains("hamlet") == true { target = turn.runId; break }
+        }
+        let root = try XCTUnwrap(target, "No saved Hamlet request found in the active conversation.")
+        func publicValue(_ value: JSONValue?) -> JSONValue {
+            guard let value else { return .null }
+            if let text = value.stringValue { return .string(String(text.prefix(1200))) }
+            let fields: Set<String> = ["mode", "seconds", "assistant_message", "media_prompt", "prompt", "response", "artifact", "audio_artifact", "image_artifact", "modality", "task", "content_type", "$artifact", "run_id"]
+            if case .object(let object) = value { return .object(object.filter { fields.contains($0.key) }.mapValues { publicValue($0) }) }
+            return .null
+        }
+        var queue = [root], seen: Set<String> = [], traces: [JSONValue] = []
+        while !queue.isEmpty && seen.count < 32 {
+            let id = queue.removeFirst(); guard seen.insert(id).inserted else { continue }
+            let run = try await client.run(id: id)
+            let input = try await raw(connection, path: "api/gateway/runs/" + id + "/input_data")
+            let selection = input["workflow_selection"] ?? input["input_data"]?["workflow_selection"]
+            let fields = ["bundle_id", "bundle_version", "flow_id", "source", "registry_scope", "requested_flow_id", "resolved_bundle_id", "resolved_bundle_version", "resolved_flow_id"]
+            var events: [JSONValue] = [], cursor = 0
+            for _ in 0..<5 {
+                let page = try await client.ledger(runId: id, after: cursor)
+                for r in page.items {
+                    let payload = r.effect?["payload"], result = r.result
+                    let params = payload?["params"]
+                    var item: [String: JSONValue] = ["node": .string(r.nodeId ?? ""), "step": .string(r.stepId ?? ""), "type": .string(r.effectType ?? ""), "status": .string(r.status ?? ""), "started_at": .string(r.startedAt ?? ""), "ended_at": .string(r.endedAt ?? ""), "result_keys": .array((result?.objectValue?.keys.sorted() ?? []).map(JSONValue.string)), "content": publicValue(result?["content"]), "data": publicValue(result?["data"]), "output": publicValue(result?["output"])]
+                    if let error = r.error { item["error"] = .string(String(error.prefix(500))) }
+                    item["provider"] = result?["route"]?["provider"] ?? payload?["provider"] ?? .null
+                    item["model"] = result?["route"]?["served_model"] ?? result?["model"] ?? payload?["model"] ?? .null
+                    item["requested_output"] = publicValue(payload?["output"] ?? params?["output"])
+                    events.append(.object(item))
+                }
+                cursor += page.items.count; if page.items.count < 200 { break }
+            }
+            let children = try await client.childRuns(ofRunID: id)
+            queue += children.filter { $0.parentRunId == id }.map(\.runId)
+            traces.append(.object(["run_id": .string(id), "workflow_id": .string(run.workflowId ?? ""), "status": .string(run.status), "selection": .object(Dictionary(uniqueKeysWithValues: fields.compactMap { key in selection?[key].map { (key, $0) } })), "output": publicValue(run.output), "events": .array(events), "children": .array(children.map { .string($0.runId) })]))
+        }
+        try write(["root": .string(root), "traces": .array(traces), "outcome": .string("inspected")], name: "voice-incident.json")
+        #else
+        throw XCTSkip("Read-only voice incident inspection is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testConversationArchiveInventoryReadOnly() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let recent = try await client.recentRuns(limit: 60)
+        let archived = try await client.archivedRuns(limit: 200)
+        let inventory = try await client.tools()
+        let selection = ConversationTools.snapshot(nil, inventory: inventory)
+        for category in ToolCatalogGroup.groups(inventory) {
+            let allAuto = selection.settingCategory(category.id, to: .auto, inventory: inventory)
+            XCTAssertTrue(inventory.filter { $0.categoryID == category.id && !$0.isAvailable }.allSatisfy { allAuto.modes[$0.name] == .off })
+        }
+        try write(["outcome": .string("passed"), "recent_sessions": .number(Double(SessionSummary.group(recent).count)), "recent_roots": .number(Double(recent.count)), "archived_sessions": .number(Double(SessionSummary.group(archived).count)), "archived_roots": .number(Double(archived.count)), "categories": .number(Double(ToolCatalogGroup.groups(inventory).count)), "disabled_tools": .number(Double(inventory.filter { !$0.isAvailable }.count))], name: "conversation-history-inventory.json")
+        #else
+        throw XCTSkip("Read-only conversation inventory verification is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testSavedRichConversationExport() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let turns = try await client.turns(ofSession: session)
+        var messages: [ConversationMessage] = []
+        for turn in turns.prefix(64) {
+            let input = try await client.input(ofRun: turn.runId), run = try await client.run(id: turn.runId)
+            messages.append(.init(role: .user, text: input.prompt ?? "", artifacts: input.attachments))
+            messages.append(.init(role: .assistant, text: run.outputText ?? "", runID: run.runId, artifacts: run.mediaArtifacts))
+        }
+        let export = try await ConversationExportBuilder().prepare(messages: messages, responder: "Assistant", client: client)
+        defer { try? PhoneTemporaryStorage().discard(export.folder) }
+        let rich = try RichConversation(export: export)
+        let imageCount = export.files.filter { $0.contentType.hasPrefix("image/") }.count
+        let documents = export.files.filter { ["md", "txt", "pdf"].contains($0.url.pathExtension.lowercased()) }.count
+        XCTAssertFalse(export.turns.isEmpty); XCTAssertFalse(rich.rtfd.isEmpty)
+        XCTAssertGreaterThan(export.files.count, 0)
+        XCTAssertEqual(rich.configuration(export: export).itemProvidersForActivityItemsConfiguration.count, export.files.count + 1)
+        let lease = PreparedConversationShare(export: export, rich: rich); lease.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: export.folder.path))
+        try write(["messages": .number(Double(export.turns.count)), "files": .number(Double(export.files.count)), "images": .number(Double(imageCount)), "documents": .number(Double(documents)), "html_bytes": .number(Double(rich.html.count)), "rtfd_bytes": .number(Double(rich.rtfd.count)), "cleanup": .bool(true), "outcome": .string("passed")], name: "rich-share-history.json")
+        #else
+        throw XCTSkip("Read-only saved conversation export verification is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testSavedCycleGraphAndToolInputs() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let savedSession = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let turns = try await client.turns(ofSession: savedSession)
+        var cycles = 0, tools = 0, inputs = 0, approvals = 0, issues = 0
+        for turn in turns.prefix(64) {
+            let summary = try await AnswerActivity.load(runID: turn.runId, client: client)
+            cycles += summary.activity.cycleCount; tools += summary.activity.toolCalls; issues += summary.issues.count
+            for lane in summary.activity.cycleLanes {
+                for cycle in lane.cycles { XCTAssertTrue(cycle.tools.allSatisfy { $0.runID == lane.runID && $0.cycleID == cycle.id }) }
+            }
+            inputs += summary.activity.items.filter { $0.kind == .tool && $0.inputText != nil }.count
+            approvals += summary.activity.items.filter(\.isToolApproval).count
+        }
+        XCTAssertGreaterThan(cycles, 0); XCTAssertGreaterThan(tools, 0); XCTAssertGreaterThan(inputs, 0); XCTAssertGreaterThan(approvals, 0); XCTAssertEqual(issues, 0)
+        try write(["cycles": .number(Double(cycles)), "tool_calls": .number(Double(tools)), "calls_with_input": .number(Double(inputs)), "approvals": .number(Double(approvals)), "issues": .number(Double(issues)), "outcome": .string("passed")], name: "cycle-tools-history.json")
+        #else
+        throw XCTSkip("Read-only cycle and tool history inspection is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testReloadSavedAnswerCountsAfterRowCancellation() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let savedSession = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let turns = try await client.turns(ofSession: savedSession)
+        let store = AssistantStore(); store.connect(connection, client: client)
+        defer { store.disconnect() }
+        var sent = 0, changed = 0, resolved = 0, issues = 0
+        for turn in turns.prefix(64) {
+            let row = Task { await store.loadAnswerActivity(runID: turn.runId) }
+            row.cancel() // A disappearing lazy row must not own the shared request.
+            await row.value
+            let summary = try XCTUnwrap(store.answerActivities[turn.runId])
+            sent += summary.activity.sentEmailCount; changed += summary.activity.access.count(.filesChanged)
+            resolved += 1; issues += summary.issues.count
+        }
+        try write(["resolved_answers": .number(Double(resolved)), "sent_emails": .number(Double(sent)), "changed_files": .number(Double(changed)), "issues": .number(Double(issues)), "outcome": .string("passed")], name: "history-counts.json")
+        XCTAssertGreaterThan(resolved, 0); XCTAssertGreaterThan(sent, 0); XCTAssertGreaterThan(changed, 0); XCTAssertEqual(issues, 0)
+        #else
+        throw XCTSkip("Read-only saved history verification is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testReplaySavedSentEmailReceipts() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let turns = try await client.turns(ofSession: session)
+        var count = 0, complete = 0, reads = 0, issues = 0
+        var sourceCounts: [String: Int] = [:]
+        for turn in turns.prefix(64) {
+            let summary = try await AnswerActivity.load(runID: turn.runId, client: client)
+            count += summary.activity.sentEmailCount; reads += summary.activity.readEmailCount; issues += summary.issues.count
+            for kind in AccessKind.allCases { sourceCounts[kind.rawValue, default: 0] += summary.activity.access.count(kind) }
+            for mail in summary.activity.sentEmails {
+                if !mail.sender.isEmpty && !(mail.to + mail.cc + mail.bcc).isEmpty && !mail.subject.isEmpty && !mail.body.isEmpty && mail.sentAt != nil { complete += 1 }
+            }
+        }
+        // Store counts only: no body, subject, recipient, credential or message ID is exported.
+        try write(["source_counts": .object(sourceCounts.mapValues { .number(Double($0)) }), "confirmed_reads": .number(Double(reads)), "confirmed_sends": .number(Double(count)), "complete_receipts": .number(Double(complete)), "issues": .number(Double(issues)), "outcome": .string(count > 0 && complete > 0 ? "passed" : "missing_receipt")], name: "sent-email-receipts.json")
+        XCTAssertGreaterThan(count, 0, "The saved conversation should contain its previously confirmed send.")
+        XCTAssertGreaterThan(complete, 0, "At least one receipt must include sender, recipients, subject, body and recorded time.")
+        #else
+        throw XCTSkip("Read-only sent-email verification is opt-in and device-only.")
+        #endif
+    }
+
+    @MainActor func testBrowseSavedConversationWorkspace() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let session = try XCTUnwrap(UserDefaults.standard.string(forKey: "phone.session." + connection.scope))
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me()
+        let turns = try await client.turns(ofSession: session)
+        let files = SessionFilesController(); files.bind(connection.scope + session)
+        var explicitFiles: Set<String> = []
+        for turn in turns {
+            let detail = try await client.run(id: turn.runId), input = try await client.input(ofRun: turn.runId)
+            explicitFiles.formUnion((detail.mediaArtifacts + input.attachments).map(\.artifactId))
+        }
+        await files.refresh(client: client, sessionID: session, runIDs: turns.map(\.runId), explicitFileIDs: explicitFiles)
+        let match = files.workspaces.compactMap { root in root.inventory.entries.first(where: { $0.name == "discussion-summary.md" }).map { (root.workspace, $0) } }.first
+        var report: [String: JSONValue] = ["outcome": .string("workspace_listed"), "session_id": .string(session), "workspaces": .number(Double(files.workspaces.count)), "visible_attachments": .number(Double(files.visibleArtifacts.count)), "hidden_conversation_audio": .number(Double(files.artifacts.count - files.visibleArtifacts.count)), "issues": .array(files.issues.map(JSONValue.string))]
+        defer { try? write(report, name: "session-files.json") }
+        let inventory = try await raw(connection, path: "api/gateway/sessions/" + session + "/artifacts")
+        if case .array(let rows)? = inventory["items"] {
+            func safe(_ value: JSONValue, depth: Int = 0) -> JSONValue {
+                guard depth < 8 else { return .null }
+                if case .array(let items) = value { return .array(items.map { safe($0, depth: depth + 1) }) }
+                guard case .object(let row) = value else { return value }
+                let allowed: Set<String> = ["artifact_id", "run_id", "filename", "content_type", "semantic_kind", "render_kind", "source_path", "kind", "modality", "task", "purpose", "path", "artifact_space", "source", "capability_route", "role", "chunk_format", "tags", "producer", "source_refs", "descriptor", "metadata", "raw_metadata", "capability_metadata", "stream", "artifact_envelope_v1"]
+                return .object(row.filter { allowed.contains($0.key) }.mapValues { safe($0, depth: depth + 1) })
+            }
+            try write(["artifacts": .array(rows.map { safe($0) })], name: "session-artifact-provenance.json")
+        }
+        let (workspace, entry) = try XCTUnwrap(match, "The conversation's discussion-summary.md must be discoverable through a run workspace.")
+        files.open(entry, workspace: workspace, client: client)
+        for _ in 0..<600 where files.downloading { try await Task.sleep(for: .milliseconds(100)) }
+        let url = try XCTUnwrap(files.preview, files.error ?? "No file preview")
+        let bytes = try Data(contentsOf: url)
+        XCTAssertNotNil(String(data: bytes, encoding: .utf8)); XCTAssertGreaterThan(bytes.count, 0)
+        report["outcome"] = .string("passed"); report["file"] = .string(entry.path); report["bytes"] = .number(Double(bytes.count)); report["run_id"] = .string(workspace.runID)
+        files.preview = nil
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        #else
+        throw XCTSkip("Read-only live workspace verification is opt-in and device-only.")
+        #endif
+    }
+
     @MainActor func testGenerateImageAndEdit() async throws { try await verifyMedia(voiceOnly: false) }
     @MainActor func testGenerateVoice() async throws { try await verifyMedia(voiceOnly: true) }
 
-    @MainActor private func verifyMedia(voiceOnly: Bool) async throws {
+    @MainActor func testGenerateHamletVoice() async throws { try await verifyMedia(voiceOnly: true, hamlet: true) }
+
+    @MainActor private func verifyMedia(voiceOnly: Bool, hamlet: Bool = false) async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
-        let reportName = voiceOnly ? "voice-generation.json" : "generation.json"
+        let reportName = hamlet ? "hamlet-voice-generation.json" : voiceOnly ? "voice-generation.json" : "generation.json"
         var report: [String: JSONValue] = ["stage": .string(voiceOnly ? "voice" : "images")]
         defer { try? write(report, name: reportName) }
         let connection = try XCTUnwrap(ConnectionVault.read())
@@ -55,17 +274,23 @@ final class LiveGatewayMediaTests: XCTestCase {
         do {
             _ = try await client.me() // One auth failure stops here; never retry credentials.
             var choices = try await client.workflows(forInterface: "abstractassistant.agent.v1")
-            if !choices.contains(where: { $0.bundleId == "abstractassistant-orchestrator" && $0.bundleVersion == "0.0.13" }) {
+            if !choices.contains(where: { $0.bundleId == "abstractassistant-orchestrator" && $0.bundleVersion == "0.0.15" }) {
                 let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "AssistantOrchestrator", withExtension: "flow"))
                 let boundary = "media-proof-" + UUID().uuidString
-                var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\nfalse\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"reload\"\r\n\r\ntrue\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"abstractassistant-orchestrator@0.0.13.flow\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8)
+                var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\nfalse\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"reload\"\r\n\r\ntrue\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"abstractassistant-orchestrator@0.0.15.flow\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8)
                 body.append(try Data(contentsOf: url)); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
                 let result = try await raw(connection, path: "api/gateway/bundles/upload", method: "POST", data: body, contentType: "multipart/form-data; boundary=\(boundary)")
                 report["bundle_uploaded"] = .bool(true)
                 report["gateway_reloaded"] = result["gateway_reloaded"]
                 choices = try await client.workflows(forInterface: "abstractassistant.agent.v1")
             }
-            let choice = try XCTUnwrap(choices.first { $0.bundleId == "abstractassistant-orchestrator" && $0.bundleVersion == "0.0.13" && $0.flowId == "c53b1579" })
+            let choice = try XCTUnwrap(choices.first { $0.bundleId == "abstractassistant-orchestrator" && $0.bundleVersion == "0.0.15" && $0.flowId == "c53b1579" })
+            func assistantPreference(_ preferences: JSONValue) -> JSONValue? {
+                guard case .array(let apps)? = preferences["apps"] else { return nil }
+                return apps.first { $0["interface"]?.stringValue == "abstractassistant.agent.v1" }
+            }
+            let initialPreference = hamlet ? assistantPreference(try await client.accountPreferences()) : nil
+
             if let saved = try? Data(contentsOf: evidenceDirectory().appending(path: reportName)),
                let previous = try? JSONDecoder().decode([String: JSONValue].self, from: saved),
                previous["gateway"]?.stringValue == connection.gateway.absoluteString,
@@ -109,9 +334,21 @@ final class LiveGatewayMediaTests: XCTestCase {
                 try await client.download(file, to: url)
                 let bytes = try Data(contentsOf: url)
                 if file.isImage { XCTAssertNotNil(UIImage(data: bytes), "Generated image must decode on iPhone") }
-                else { XCTAssertGreaterThan(try AVAudioPlayer(contentsOf: url).duration, 0.1) }
+                else {
+                    let duration = try await Task.detached(priority: .utility) { try AVAudioPlayer(contentsOf: url).duration }.value
+                    XCTAssertGreaterThan(duration, 0.1)
+                }
                 // Keep only our own test image for visual inspection; voice is checked then discarded.
                 if file.isImage { try bytes.write(to: evidenceDirectory().appending(path: name + ".png"), options: .atomic) }
+                if hamlet {
+                    let activity = try await AnswerActivity.load(runID: id, client: client)
+                    XCTAssertTrue(activity.issues.isEmpty)
+                    XCTAssertTrue(activity.activity.items.contains { $0.nodeID == "generate_voice" })
+                    XCTAssertTrue(activity.activity.items.contains { $0.nodeID == "route_call" && $0.detail.contains("voice") })
+                    XCTAssertFalse(activity.activity.items.contains { $0.nodeID == "reason" }, "Explicit recording must reach generation, not chat")
+                    report["timed_steps"] = .number(Double(activity.activity.items.filter { $0.duration != nil }.count))
+                    report["public_model_details"] = .number(Double(activity.activity.items.filter { !$0.detail.isEmpty }.count))
+                }
                 let restored = try await client.run(id: id)
                 XCTAssertEqual(restored.mediaArtifacts, final.mediaArtifacts)
                 let sessionFiles = try await client.artifacts(sessionId: session)
@@ -121,10 +358,33 @@ final class LiveGatewayMediaTests: XCTestCase {
                 return file
             }
             if voiceOnly {
-                _ = try await generate("voice", "Generate a voice audio file speaking exactly these words: Hello Laurent. Images and voice are ready in your assistant.")
+                _ = try await generate("voice", hamlet ? "generate a voice reciting a scene of hamlet" : "Generate a voice audio file speaking exactly these words: Hello Laurent. Images and voice are ready in your assistant.")
             } else {
                 let image = try await generate("image", "Generate an image: a minimalist indigo and mint landscape with one coral sun. No text. Wide composition.")
                 _ = try await generate("edit", "Edit the attached image: make the sun bright gold and add a second small moon. Preserve the landscape.", source: image)
+            }
+            if hamlet, let initialPreference {
+                let beforeWrite = assistantPreference(try await client.accountPreferences())
+                if beforeWrite?["value"] == initialPreference["value"], beforeWrite?["effective"] == initialPreference["effective"],
+                   beforeWrite?["effective"]?["bundle_id"]?.stringValue == choice.bundleId,
+                   ["0.0.13", "0.0.15"].contains(beforeWrite?["effective"]?["bundle_version"]?.stringValue ?? "") {
+                    // Repair this account's existing orchestrator selection after proving audio.
+                    // Other app keys are merged/preserved by the existing preferences endpoint.
+                    let confirmed = try await client.setAssistantWorkflow(choice.id)
+                    let effective = assistantPreference(confirmed)?["effective"]
+                    XCTAssertEqual(effective?["bundle_version"]?.stringValue, choice.bundleVersion)
+                    XCTAssertEqual(effective?["registry_scope"]?.stringValue, "private")
+                    report["account_workflow"] = effective?["value"]
+                    let regularID = try await client.startRun(prompt: "Reply exactly: Ready.", sessionId: session + "-account-selection", attachments: [], tools: ConversationTools(modes: [:]))
+                    let deadline = Date().addingTimeInterval(120)
+                    var state = try await client.run(id: regularID)
+                    while !state.isTerminal && Date() < deadline { try await Task.sleep(for: .seconds(1)); state = try await client.run(id: regularID) }
+                    XCTAssertEqual(state.status, "completed")
+                    XCTAssertEqual(state.workflowId, choice.id)
+                    let input = try await raw(connection, path: "api/gateway/runs/" + regularID + "/input_data")
+                    let selection = input["workflow_selection"] ?? input["input_data"]?["workflow_selection"]
+                    report["regular_start"] = .object(["run_id": .string(regularID), "workflow_id": .string(state.workflowId ?? ""), "source": selection?["source"] ?? .null, "bundle_version": selection?["bundle_version"] ?? .null, "status": .string(state.status)])
+                } else { report["account_selection"] = .string("preserved_intervening_or_different_workflow_selection") }
             }
             report["outcome"] = .string("passed")
         } catch { report["outcome"] = .string("failed"); report["error"] = .string(error.localizedDescription); throw error }

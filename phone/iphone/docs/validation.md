@@ -1,5 +1,29 @@
 # Developer preview validation
 
+For **0.6.19 (27)** category controls and grouped history with archive/restore, see package
+backlog **1038** and `docs/backlog/evidence/1038`. Validation covers mixed/inherited bulk
+choices, disabled tools, calendar boundaries, existing archive routes and paginated history,
+active-session checks, failure/context guards, and inspected native journeys.
+
+For **0.6.18 (26)** rich conversation sharing with original files and the accented New action,
+see framework backlog **1037** and `docs/backlog/evidence/1037` in the framework checkout.
+Coverage includes file provenance, collision/deduplication, cancellation and context changes,
+native rich-text/image rendering, exact provider bytes, share lifetime and cleanup. Actual
+Mail/Notes destination rendering requires validation with those receiving apps.
+
+For **0.6.17 (25)** three-island navigation and conversation-text sharing, see framework backlog
+**1036** and `docs/backlog/evidence/1036` in the framework checkout. Validation covers transcript
+scope, empty history, long entity names, native sharing and preserved responder selection.
+
+For **0.6.16 (24)** separate cycle graphs and tool input/output details, see framework backlog
+**1035** and `docs/backlog/evidence/1035` in the framework checkout. Coverage includes repeated
+calls, parallel runs, late results, retained cycle ordinals, structured credential redaction,
+native navigation and the saved gateway’s read-only activity history.
+
+For **0.6.14 (22)** expandable timed activity, public routing/model/media results and the
+real Hamlet voice repair, see framework backlog **1032 / 1033** and their evidence folders
+(`docs/backlog/evidence/1032`, `docs/backlog/evidence/1033` in the framework checkout).
+
 For **0.6.8 (16)** restored replies after reload and shared Settings/session/automation tool
 controls, see the [review and evidence](../design/validation/history-and-shared-tools-review.md).
 

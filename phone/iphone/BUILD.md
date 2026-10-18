@@ -106,3 +106,14 @@ remove that test report before deliberately creating a new verification session.
 
 Normal tests skip these network actions. After live testing, use the normal device build
 and install commands above to replace the test host with the ordinary app.
+
+Read-only live file verification (no generations or messages) uses the saved conversation:
+
+```sh
+python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-id> \
+  --only-testing AbstractAssistantPhoneTests/LiveGatewayMediaTests/testBrowseSavedConversationWorkspace
+```
+
+This regression expects the reported discussion-summary.md in that conversation. It browses
+root/child workspaces, downloads/decodes the document, checks cleanup and records only
+relative names, counts, run IDs and filtered provenance; document contents are not exported.

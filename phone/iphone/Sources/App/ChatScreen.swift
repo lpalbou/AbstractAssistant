@@ -23,7 +23,9 @@ struct ChatScreen: View {
     @State private var pickedMedia: PhotosPickerItem?
     @State private var camera: CaptureMode?
     @State private var showFiles = false
+    @State private var sessionFiles = SessionFilesController()
     @State private var showTools = false
+    @State private var sharedConversation: ConversationShareSnapshot?
     @State private var mediaTask: Task<Void, Never>?
     @State private var mediaLoading = false
     @State private var mediaGeneration = UUID()
@@ -42,7 +44,7 @@ struct ChatScreen: View {
                         if let message = voice.error { ErrorBanner(message: message, dismiss: { voice.error = nil }) }
                         if store.messages.isEmpty { emptyState }
                         ForEach(store.messages) { message in messageView(message) }
-                        if store.activityState != .idle || store.phase != .ready || store.isStopping { RunActivityPanel { showWait = $0 } }
+                        if (store.activityState != .idle && store.activityState != .completed) || store.phase != .ready || store.isStopping || (store.selectedEntity != nil && store.activityIssue != nil) { RunActivityPanel { showWait = $0 } }
                         else if store.isRestoring || store.isOpening { ProgressView("Opening your conversation…").padding(.vertical, 28).frame(maxWidth: .infinity) }
                         Color.clear.frame(height: 1).id("bottom")
                     }.padding(22)
@@ -59,27 +61,47 @@ struct ChatScreen: View {
             .background(OutsideInputDismissal(focused: typing, dismiss: { typing = false; composing = false }))
             .navigationTitle(store.conversationTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 8) {
-                        Button { typing = false; composing = false; cancelVoice(); choosingEntity = true } label: {
-                            HStack(spacing: 6) { NavigationCaption(title: store.conversationTitle, demo: store.isDemo); Image(systemName: "chevron.down").font(.caption2.weight(.semibold)) }
-                                .lineLimit(1)
-                        }.accessibilityLabel("Choose who answers").accessibilityValue(store.conversationTitle)
-                        Button { typing = false; composing = false; cancelVoice(); showTools = true } label: {
-                            Image(systemName: "wrench.and.screwdriver").font(.subheadline)
-                                .frame(width: 44, height: 44).contentShape(Rectangle())
-                        }.accessibilityLabel("Tools").accessibilityIdentifier("chat.tools")
-                    }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { prepareNavigation(); history = true } label: { Image(systemName: "rectangle.stack") }
+                        .accessibilityLabel("Conversations").accessibilityIdentifier("chat.conversations")
+                        .disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
                 }
-                ToolbarItem(placement: .topBarLeading) { Button { typing = false; composing = false; cancelVoice(); history = true } label: { Image(systemName: "rectangle.stack") }.accessibilityLabel("Conversations").disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty) }
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 0) {
+                        Button {
+                            prepareNavigation()
+                            if let client = store.client, ConversationTranscript.hasContent(store.messages) {
+                                sharedConversation = ConversationShareSnapshot(messages: store.messages, responder: store.conversationTitle, client: client, activities: store.answerActivities, contextID: store.contextID, sessionID: store.sessionID)
+                            }
+                        } label: { Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44) }
+                            .accessibilityLabel("Share conversation").accessibilityIdentifier("chat.share")
+                            .disabled(!store.canSend || store.isOpening || store.isRestoring || !ConversationTranscript.hasContent(store.messages))
+                        Button { prepareNavigation(); showFiles = true } label: {
+                            Image(systemName: "folder").frame(width: 44, height: 44)
+                        }.accessibilityLabel("Conversation files").accessibilityIdentifier("chat.files")
+                        Button { prepareNavigation(); showTools = true } label: {
+                            Image(systemName: "wrench.and.screwdriver").foregroundStyle(PhoneTheme.tool).frame(width: 44, height: 44)
+                        }.accessibilityLabel("Tools").accessibilityIdentifier("chat.tools")
+                    }.font(.body).buttonStyle(.plain).padding(.horizontal, 6)
+                        .glassEffect(.regular, in: Capsule())
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Conversation files", systemImage: "folder") { typing = false; composing = false; cancelVoice(); showFiles = true }
-                        Button("New conversation", systemImage: "square.and.pencil") { typing = false; composing = false; cancelVoice(); store.newConversation(entity: store.selectedEntity) }.disabled(!store.canSend || attachments.busy || mediaLoading || !attachments.pending.isEmpty)
-                        Button("Settings", systemImage: "slider.horizontal.3") { typing = false; composing = false; cancelVoice(); openSettings() }.disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
-                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("More options")
+                    Button { prepareNavigation(); openSettings() } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings").accessibilityIdentifier("chat.settings")
+                        .disabled(attachments.busy || mediaLoading || !attachments.pending.isEmpty)
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Button { prepareNavigation(); choosingEntity = true } label: {
+                    HStack(spacing: 6) {
+                        NavigationCaption(title: store.conversationTitle, demo: store.isDemo)
+                        Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                    }.lineLimit(1).padding(.horizontal, 20).frame(maxWidth: 280, minHeight: 44)
+                }.buttonStyle(.plain).accessibilityLabel("Choose who answers").accessibilityValue(store.conversationTitle)
+                    .frame(maxWidth: .infinity).background(PhoneTheme.ground.opacity(0.96))
+            }
+            .sheet(item: $sharedConversation) { ConversationSharePreparation(snapshot: $0) }
+            .onChange(of: store.contextID) { _, _ in sharedConversation = nil }
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
             .sheet(isPresented: $choosingEntity) {
                 EntityPickerScreen(canSwitch: store.canSend && !attachments.busy && !mediaLoading && attachments.pending.isEmpty,
@@ -117,9 +139,14 @@ struct ChatScreen: View {
             .task(id: store.contextID.uuidString + store.sessionID) {
                 let context = store.contextID
                 voice.onUnauthorized = { if context == store.contextID { store.authenticationExpired() } }
-                attachments.onUnauthorized = voice.onUnauthorized; media.onUnauthorized = voice.onUnauthorized
-                attachments.bind(context.uuidString + store.sessionID); media.bind(context.uuidString + store.sessionID)
-                if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) }
+                attachments.onUnauthorized = voice.onUnauthorized; media.onUnauthorized = voice.onUnauthorized; sessionFiles.onUnauthorized = voice.onUnauthorized
+                attachments.bind(context.uuidString + store.sessionID); media.bind(context.uuidString + store.sessionID); sessionFiles.bind(context.uuidString + store.sessionID)
+                let session = store.sessionID, ids = sessionRunIDs, explicitFiles = Set(store.messages.flatMap(\.artifacts).map(\.artifactId))
+                if let client = store.client {
+                    await attachments.refresh(client: client, sessionId: session)
+                    guard context == store.contextID, session == store.sessionID, !Task.isCancelled else { return }
+                    await sessionFiles.refresh(client: client, sessionID: session, runIDs: ids, explicitFileIDs: explicitFiles)
+                }
             }
             .onChange(of: store.sessionID) { _, _ in typing = false; composing = false; cancelVoice(); cancelMedia() }
             .onChange(of: store.phase) { _, phase in if phase != .ready { typing = false; composing = false } }
@@ -127,7 +154,14 @@ struct ChatScreen: View {
             .onChange(of: store.completedReply?.id) { _, _ in
                 guard let reply = store.completedReply else { return }
                 if store.preferences.readAloud && !reply.text.isEmpty && !reply.artifacts.contains(where: \.isAudio) && scenePhase == .active && !voice.inputPending { media.stop(); read(reply) }
-                if let client = store.client { Task { await attachments.refresh(client: client, sessionId: store.sessionID) } }
+                if let client = store.client {
+                    let context = store.contextID, session = store.sessionID, ids = sessionRunIDs, explicitFiles = Set(store.messages.flatMap(\.artifacts).map(\.artifactId))
+                    Task {
+                        await attachments.refresh(client: client, sessionId: session)
+                        guard context == store.contextID, session == store.sessionID, !Task.isCancelled else { return }
+                        await sessionFiles.refresh(client: client, sessionID: session, runIDs: ids, explicitFileIDs: explicitFiles)
+                    }
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background || (phase == .inactive && voice.inputPhase != .authorizing) { cancelVoice(); media.stop() }
@@ -175,17 +209,20 @@ struct ChatScreen: View {
                 if store.preferences.showMessageStats, let stats = message.stats {
                     MessageStatsView(wallTimeSeconds: stats.wallTimeSeconds, inputTokens: stats.inputTokens, outputTokens: stats.outputTokens, toolCalls: stats.toolCalls)
                 }
-                if !message.text.isEmpty { HStack(spacing: 22) {
-                    ShareLink(item: message.text) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share answer")
+                ScrollView(.horizontal) {
+                HStack(spacing: 16) {
+                    if !message.text.isEmpty {
                     Button { UIPasteboard.general.string = message.text } label: { Image(systemName: "document.on.document") }.accessibilityLabel("Copy answer")
                     if let client = store.client, let scope = store.selectedEntity.map({ SpeechScope.entity($0) }) ?? message.runID.map({ SpeechScope.run($0) }) {
                         Button { if voice.speaking && voice.readingID == message.id { voice.togglePause() } else { cancelVoice(); media.stop(); voice.read(message.text, client: client, scope: scope, choice: store.preferences.voice, speed: store.preferences.speed, messageID: message.id) } } label: { Image(systemName: voice.speaking && voice.readingID == message.id ? (voice.paused ? "play.fill" : "pause.fill") : "speaker.wave.2") }.accessibilityLabel(voice.speaking && voice.readingID == message.id ? "Pause or resume reading" : "Read answer aloud")
                     }
                     if voice.speaking && voice.readingID == message.id { Button { cancelVoice() } label: { Image(systemName: "stop.fill") }.accessibilityLabel("Stop reading") }
-                }.font(.subheadline).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain).frame(minHeight: 44) }
-                if message.id == store.messages.last(where: { $0.role == .assistant })?.id && !attachments.files.isEmpty {
-                    Button { typing = false; composing = false; cancelVoice(); showFiles = true } label: { Label("View conversation files (\(attachments.files.count))", systemImage: "paperclip") }.font(.footnote).foregroundStyle(PhoneTheme.mint)
-                }
+                    }
+                    if let id = message.runID { AnswerActivityButtons(runID: id, browseFiles: { typing = false; composing = false; cancelVoice(); showFiles = true }) }
+                    else if store.answerActivities[message.id] != nil { AnswerActivityButtons(runID: message.id, cachedOnly: true, browseFiles: { typing = false; composing = false; cancelVoice(); showFiles = true }) }
+
+                }.font(.caption).foregroundStyle(PhoneTheme.secondary).buttonStyle(.plain)
+                }.scrollIndicators(.hidden).frame(height: 44).accessibilityIdentifier("answer.actions." + (message.runID ?? message.id))
             }
         }
     }
@@ -298,53 +335,11 @@ struct ChatScreen: View {
         guard let client = store.client, store.canSend, store.selectedEntity == nil else { if owned { ImportedMedia.remove(url) }; return }
         attachments.importFile(url, client: client, sessionId: store.sessionID, owned: owned)
     }
-    private var filesSheet: some View {
-        NavigationStack {
-            List {
-                if let error = attachments.error { ErrorBanner(message: error) }
-                if attachments.files.isEmpty { ContentUnavailableView("No files yet", systemImage: "folder", description: Text("Files you attach and files returned by your assistant appear here.")) }
-                ForEach(attachments.files) { file in
-                    Button { if let client = store.client { attachments.open(file, client: client) } } label: {
-                        HStack { Image(systemName: file.symbol); VStack(alignment: .leading) { Text(file.filename); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)).font(.caption).foregroundStyle(PhoneTheme.secondary) }; Spacer(); Image(systemName: "arrow.down.circle") }
-                    }.disabled(attachments.busy)
-                }
-                if attachments.busy { HStack { ProgressView(); Text(attachments.status); Button("Cancel") { attachments.cancel() } } }
-            }.scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("Conversation files").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showFiles = false } } }
-                .task { if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) } }
-                .refreshable { if let client = store.client { await attachments.refresh(client: client, sessionId: store.sessionID) } }
-                .fullScreenCover(isPresented: Binding(get: { attachments.preview != nil }, set: { if !$0 { attachments.preview = nil } })) {
-                    if let url = attachments.preview { ArtifactPreview(url: url) { attachments.preview = nil } }
-                }
-        }
+    private func prepareNavigation() { typing = false; composing = false; cancelVoice() }
+    private var sessionRunIDs: [String] {
+        var seen: Set<String> = []
+        return (store.messages.compactMap(\.runID) + [store.activeRunID].compactMap { $0 }).filter { seen.insert($0).inserted }
     }
+    private var filesSheet: some View { SessionFilesScreen(files: sessionFiles, runIDs: sessionRunIDs) }
 
-}
-
-struct ConversationsSheet: View {
-    var onOpen: () -> Void
-    @Environment(AssistantStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-    @State private var search = ""
-    var body: some View {
-        NavigationStack {
-            List {
-                Button { store.newConversation(); onOpen() } label: { Label("New conversation", systemImage: "square.and.pencil").padding(.vertical, 7) }.disabled(!store.canSend)
-                ForEach(store.sessions.filter { search.isEmpty || (store.titles[$0.id] ?? "Conversation").localizedCaseInsensitiveContains(search) }) { session in
-                    Button {
-                        Task { await store.openSession(session); if store.error == nil { onOpen() } }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(store.titles[session.id] ?? "Conversation").foregroundStyle(PhoneTheme.ink).fontWeight(.medium)
-                            HStack { Text("\(session.turns) \(session.turns == 1 ? "exchange" : "exchanges")"); if let date = session.updatedAt { Text("·"); Text(date, style: .relative) }; if !session.latest.isTerminal { Text("· " + session.latest.status).foregroundStyle(PhoneTheme.amber) } }.font(.caption).foregroundStyle(PhoneTheme.secondary)
-                        }.padding(.vertical, 6)
-                    }.disabled(!store.canOpenConversation)
-                }
-                if store.sessions.isEmpty { ContentUnavailableView("A fresh start", systemImage: "bubble.left.and.bubble.right", description: Text("Your gateway conversations will appear here.")) }
-            }.scrollContentBackground(.hidden).background(PhoneTheme.ground)
-                .searchable(text: $search, prompt: "Find a conversation")
-                .navigationTitle("Conversations").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
-                .refreshable { await store.refresh() }
-        }
-    }
 }

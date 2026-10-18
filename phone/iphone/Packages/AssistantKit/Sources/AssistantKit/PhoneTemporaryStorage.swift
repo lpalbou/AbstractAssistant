@@ -2,7 +2,7 @@ import Foundation
 
 /// Disposable app-owned copies only. Originals and gateway artifacts are never removed.
 public struct PhoneTemporaryStorage: Sendable {
-    public enum Kind: String, CaseIterable, Sendable { case voice, imports, previews }
+    public enum Kind: String, CaseIterable, Sendable { case voice, imports, previews, exports }
     public let temporaryDirectory: URL
     public var root: URL { temporaryDirectory.appending(path: "AbstractAssistant", directoryHint: .isDirectory) }
 

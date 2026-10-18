@@ -64,6 +64,11 @@ struct ConversationToolsScreen: View {
                     ForEach(groups) { group in
                         Section {
                             categoryHeader(group)
+                            categoryPicker(group)
+                            if searching {
+                                Text("All \(inventory.filter { $0.categoryID == group.id }.count) \(group.title) tools")
+                                    .font(.caption2).foregroundStyle(PhoneTheme.secondary)
+                            }
                             if searching || expanded.contains(group.id) {
                                 ForEach(group.tools, id: \.name) { tool in toolRow(tool) }
                             }
@@ -104,6 +109,9 @@ struct ConversationToolsScreen: View {
                 }
                 Text(group.tools.count.formatted()).font(.caption.monospacedDigit()).foregroundStyle(PhoneTheme.secondary)
                     .padding(.horizontal, 8).padding(.vertical, 3).background(PhoneTheme.ground.opacity(0.7), in: Capsule())
+                if group.isAvailable && ConversationTools(modes: inherit ? inheritedModes : modes).categoryMode(group.id, inventory: inventory) == nil {
+                    Text("Mixed").font(.caption2).foregroundStyle(PhoneTheme.secondary)
+                }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(PhoneTheme.secondary)
                     .rotationEffect(.degrees(open ? 90 : 0))
@@ -112,6 +120,22 @@ struct ConversationToolsScreen: View {
             .accessibilityLabel(group.title + ", " + group.tools.count.formatted() + (group.tools.count == 1 ? " tool" : " tools"))
             .accessibilityValue((open ? "Expanded" : "Collapsed") + (group.isAvailable ? ", Available" : ", Not set up"))
             .accessibilityHint(searching ? "Matching tools are shown while searching." : "Show or hide tools in this category.")
+    }
+    private func categoryPicker(_ group: ToolCatalogGroup) -> some View {
+        let effective = ConversationTools(modes: inherit ? inheritedModes : modes)
+        return Picker(group.title + " tools", selection: Binding<ToolMode?>(get: {
+            effective.categoryMode(group.id, inventory: inventory)
+        }, set: { mode in
+            guard let mode else { return }
+            modes = effective.settingCategory(group.id, to: mode, inventory: inventory).modes
+            inherit = false
+        })) {
+            ForEach(ToolMode.allCases, id: \.self) { Text($0.label).tag(Optional($0)) }
+        }.pickerStyle(.segmented).disabled(!group.isAvailable || saving)
+            .accessibilityIdentifier("tools.categoryMode." + group.id)
+            .accessibilityValue(effective.categoryMode(group.id, inventory: inventory)?.label ?? "Mixed")
+            .accessibilityHint("Sets all available tools in this category, including tools hidden by search.")
+            .padding(.bottom, 6)
     }
     private func toolRow(_ tool: ToolInfo) -> some View {
         VStack(alignment: .leading, spacing: 10) {

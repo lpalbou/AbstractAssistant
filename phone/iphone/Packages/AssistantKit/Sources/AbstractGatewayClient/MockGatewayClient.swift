@@ -104,12 +104,17 @@ public actor MockGatewayClient: GatewayClient {
     private let mediaImage: Data?
     private let mediaVoice: Data?
     private let historyFixture: Bool
+    private let conversationListFixture: Bool
+    private let categoryFixture: Bool
+    private let emailFixture: Bool
+    private let accessFixture: Bool
     private let activityScenario: String?
     private var activityResolved = false
 
-    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil) {
+    public init(waits: [Wait] = MockGatewayClient.sampleWaits, wordInterval: TimeInterval = 0.12, emptyAutomations: Bool = false, activityScenario: String? = nil, historyFixture: Bool = false, conversationListFixture: Bool = false, categoryFixture: Bool = false, emailFixture: Bool = false, accessFixture: Bool = false, mediaImage: Data? = nil, mediaVoice: Data? = nil) {
         self.mediaImage = mediaImage; self.mediaVoice = mediaVoice
-        self.historyFixture = historyFixture
+        self.conversationListFixture = conversationListFixture; self.categoryFixture = categoryFixture
+        self.historyFixture = historyFixture; self.emailFixture = emailFixture; self.accessFixture = accessFixture
         self.activityScenario = activityScenario
         self.pending = waits; self.wordInterval = wordInterval; self.emptyAutomations = emptyAutomations
     }
@@ -128,10 +133,29 @@ public actor MockGatewayClient: GatewayClient {
                 createdAt: "2026-10-18T06:0" + String(index) + ":00Z", output: .object(["response": .string("Restored reply " + String(index) + ": your conversation is here.")]))
         }
     }
-    public func recentRuns(limit: Int) async throws -> [RunSummary] {
+    private var archivedSessions: Set<String> = []
+    private var historySource: [RunSummary] {
         if mediaImage != nil { return [Self.mediaRun] }
         if historyFixture { return Self.historyRuns.map { var row = $0; row.output = nil; return row } }
+        if conversationListFixture {
+            return Self.sampleRuns.map { original in
+                var row = original
+                if row.runId == "d0c5a971" { row.updatedAt = ISO8601DateFormatter().string(from: Calendar.current.date(byAdding: .day, value: -1, to: Date())!) }
+                if row.runId == "3e9a10c4" { row.updatedAt = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-4 * 86400)) }
+                if row.status == "waiting" { row.waiting = try? JSONDecoder().decode(RunWaiting.self, from: Data(#"{"reason":"user","wait_key":"tool_approval:1"}"#.utf8)) }
+                return row
+            }
+        }
         return Self.sampleRuns
+    }
+    public func recentRuns(limit: Int) async throws -> [RunSummary] {
+        Array(historySource.filter { !archivedSessions.contains($0.sessionId ?? $0.runId) }.prefix(limit))
+    }
+    public func archivedRuns(limit: Int) async throws -> [RunSummary] {
+        Array(historySource.filter { archivedSessions.contains($0.sessionId ?? $0.runId) }.prefix(limit))
+    }
+    public func setArchived(sessionId: String, _ archived: Bool) async throws {
+        if archived { archivedSessions.insert(sessionId) } else { archivedSessions.remove(sessionId) }
     }
     public func automations() async throws -> [AutomationSummary] {
         var out: [AutomationSummary] = []
@@ -214,13 +238,29 @@ public actor MockGatewayClient: GatewayClient {
         uploaded[sessionId, default: []].append((artifact, data)); return artifact
     }
     public func artifacts(sessionId: String) async throws -> [PhoneArtifact] {
-        if mediaImage != nil { return Self.mediaRun.mediaArtifacts }
+        if mediaImage != nil {
+            var playback = PhoneArtifact(artifactId: "demo-playback", runId: "media-demo", filename: "Read-aloud recording.wav", contentType: "audio/wav", size: 100)
+            playback.purpose = "voice_playback"; playback.isConversationVoice = true
+            return Self.mediaRun.mediaArtifacts + [playback]
+        }
         let sample = PhoneArtifact(artifactId: "demo-report", runId: "demo-run", filename: "A little focus.txt", contentType: "text/plain", size: Self.cannedAnswer.utf8.count)
         return [sample] + (uploaded[sessionId] ?? []).map { $0.0 }
     }
+    public func workspace(runID: String) async throws -> RunWorkspace { .init(runID: runID, root: "/demo/session", kind: "session") }
+    public func workspaceFiles(runID: String, path: String, recursive: Bool, limit: Int?) async throws -> WorkspaceListing {
+        let entries: [WorkspaceEntry] = [
+            .init(name: "discussion-summary.md", path: "discussion-summary.md", size: 180),
+            .init(name: "Research", path: "Research", type: "dir"),
+            .init(name: "notes.md", path: "Research/notes.md", size: 64)]
+        return .init(path: path, entries: entries.filter { recursive || ($0.path as NSString).deletingLastPathComponent == path })
+    }
+    public func downloadWorkspaceFile(runID: String, entry: WorkspaceEntry, to destination: URL) async throws {
+        let text = entry.path == "discussion-summary.md" ? "# Discussion summary\n\nWe explored the environment and saved a useful summary.\n\n## Next steps\n\n- Review the findings.\n- Keep the conversation going." : "# Research notes\n\nA note in a nested folder."
+        try Data(text.utf8).write(to: destination, options: .withoutOverwriting)
+    }
     public func download(_ artifact: PhoneArtifact) async throws -> Data {
         if artifact.artifactId == "demo-image", let mediaImage { return mediaImage }
-        if artifact.artifactId == "demo-voice", let mediaVoice { return mediaVoice }
+        if ["demo-voice", "demo-playback"].contains(artifact.artifactId), let mediaVoice { return mediaVoice }
         if artifact.artifactId == "demo-report" { return Data(Self.cannedAnswer.utf8) }
         for rows in uploaded.values { if let row = rows.first(where: { $0.0.id == artifact.id }) { return row.1 } }
         throw GatewayError.invalidResponse
@@ -250,6 +290,39 @@ public actor MockGatewayClient: GatewayClient {
         LedgerRecord(nodeId: "review", status: "started", effect: .object(["type": .string("llm_call")])),
     ]
     public func ledger(runId: String, after: Int) async throws -> LedgerPage {
+        if activityScenario == "cycle-detail", runId == "media-demo" {
+            func model(_ id: String, _ second: String, _ content: String) -> LedgerRecord {
+                .init(stepId: id, nodeId: "reason", status: "completed", effect: .object(["type": .string("llm_call")]), result: .object(["content": .string(content), "model": .string("assistant-model")]), startedAt: "2026-10-18T17:20:" + second + "Z", endedAt: "2026-10-18T17:20:" + second + ".800Z")
+            }
+            let read: JSONValue = .object(["name": .string("read_file"), "runtime_call_id": .string("read-notes"), "arguments": .object(["file_path": .string("notes.md"), "apiKey": .string("fixture-private-key")])])
+            let write: JSONValue = .object(["name": .string("write_file"), "runtime_call_id": .string("write-summary"), "arguments": .object(["file_path": .string("summary.md"), "content": .string("# Summary\nA clear plan for tomorrow.")])])
+            func tool(_ id: String, _ call: JSONValue, _ output: String) -> LedgerRecord {
+                .init(stepId: id, nodeId: "act", status: "completed", effect: .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array([call])])]), result: .object(["results": .array([.object(["runtime_call_id": call["runtime_call_id"]!, "success": .bool(true), "output": .string(output)])])]), startedAt: id == "write" ? "2026-10-18T17:20:04Z" : "2026-10-18T17:20:02Z", endedAt: id == "write" ? "2026-10-18T17:20:05Z" : "2026-10-18T17:20:02.800Z")
+            }
+            let rows = [model("cycle-1", "00", "I’ll read the notes and save a short summary."), tool("read", read, "These notes describe the next design review."),
+                LedgerRecord(stepId: "approval", nodeId: "act", status: "waiting", result: .object(["wait": .object(["reason": .string("user"), "wait_key": .string("tool_approval:summary"), "prompt": .string("Save summary.md?")])]), startedAt: "2026-10-18T17:20:03Z", endedAt: "2026-10-18T17:20:03Z"),
+                tool("write", write, "Successfully written summary.md (45 bytes)."),
+                LedgerRecord(stepId: "fetch", nodeId: "act", status: "completed", effect: .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array([.object(["name": .string("fetch_url"), "runtime_call_id": .string("fetch-timeout"), "arguments": .object(["url": .string("https://example.com/notes")])])])])]), result: .object(["results": .array([.object(["runtime_call_id": .string("fetch-timeout"), "success": .bool(false), "error": .string("The server timed out.")])])]), startedAt: "2026-10-18T17:20:05Z", endedAt: "2026-10-18T17:20:05.8Z"), model("cycle-2", "06", "The summary is saved and ready to review.")]
+            return LedgerPage(items: Array(rows.dropFirst(after)), nextAfter: rows.count)
+        }
+        if activityScenario == "empty-history", runId == "media-demo" { return LedgerPage(items: [], nextAfter: 0) }
+        if activityScenario == "timed-history", runId == "media-demo" {
+            let rows: [LedgerRecord] = [
+                .init(stepId: "route", nodeId: "route_call", status: "completed", effect: .object(["type": .string("llm_call")]),
+                    result: .object(["data": .object(["mode": .string("image"), "assistant_message": .string("Here is your landscape."), "media_prompt": .string("An indigo landscape with a coral sun")]), "model": .string("router-model"), "route": .object(["provider": .string("gateway")]), "usage": .object(["input_tokens": .number(428), "output_tokens": .number(41)]), "finish_reason": .string("stop")]), startedAt: "2026-10-18T17:24:54Z", endedAt: "2026-10-18T17:24:56.4Z"),
+                .init(stepId: "image", nodeId: "generate_image", status: "completed", effect: .object(["type": .string("llm_call"), "payload": .object(["output": .object(["modality": .string("image"), "task": .string("text_to_image")])])]),
+                    result: Self.mediaRun.output, startedAt: "2026-10-18T17:24:56.5Z", endedAt: "2026-10-18T17:25:14Z")
+            ]
+            return LedgerPage(items: Array(rows.dropFirst(after)), nextAfter: rows.count)
+        }
+        if emailFixture || accessFixture, runId == "media-demo" {
+            let mail = emailFixture ? Self.emailRecords.filter { row in
+                let reading = row.effect?["payload"]?["tool_calls"].flatMap { if case .array(let calls) = $0 { calls.first?["name"]?.stringValue == "read_email" } else { false } } ?? false
+                return activityScenario == "mail-sent" ? !reading : activityScenario == "mail-read" ? reading : true
+            } : []
+            let rows = mail + (accessFixture ? Self.accessRecords : [])
+            return LedgerPage(items: Array(rows.dropFirst(after).prefix(200)), nextAfter: min(rows.count, after + 200))
+        }
         if activityScenario != nil && runId.hasPrefix("activity-") {
             if activityScenario == "offline" { throw GatewayError.http(status: 503, body: "Gateway unavailable") }
             let all = runId == "activity-root" ? [] : activityRecords()
@@ -310,7 +383,7 @@ public actor MockGatewayClient: GatewayClient {
 
     public func turns(ofSession id: String) async throws -> [RunSummary] {
         if mediaImage != nil, id == "media-history" { return [Self.mediaRun] }
-        if historyFixture { return try await recentRuns(limit: 100) }
+        if historyFixture { return Self.historyRuns.filter { ($0.sessionId ?? $0.runId) == id } }
         return Self.sampleRuns.filter { ($0.sessionId ?? $0.runId) == id }
     }
 
@@ -325,7 +398,11 @@ public actor MockGatewayClient: GatewayClient {
     public func tools() async throws -> [ToolInfo] {
         var unavailable = ToolInfo(name: "capture_camera", riskTier: "outreach", riskRank: 3, toolset: "camera", description: "Capture a photo from the gateway’s camera.", approvalDefault: "ask", enabled: false)
         unavailable.whyDisabled = "The gateway camera is not enabled."
-        return [
+        let extras: [ToolInfo] = categoryFixture ? [
+            ToolInfo(name: "write_file", riskTier: "act", riskRank: 2, toolset: "files", description: "Save a document in your workspace.", approvalDefault: "ask"),
+            ToolInfo(name: "blocked_file", riskTier: nil, riskRank: nil, toolset: "files", enabled: false)
+        ] : []
+        return extras + [
             unavailable,
             ToolInfo(name: "read_file", riskTier: "observe", riskRank: 1, toolset: "files", description: "Read a file in your workspace.", approvalDefault: "auto"),
             ToolInfo(name: "fetch_url", riskTier: "act", riskRank: 2, toolset: "web", description: "Read a web page from a URL.", approvalDefault: "ask"),
@@ -361,12 +438,15 @@ public actor MockGatewayClient: GatewayClient {
         return RunSummary(runId: id, workflowId: "assistant", status: waiting == nil ? "running" : "waiting", waiting: waiting, parentRunId: "activity-root")
     }
     private func activityRecords() -> [LedgerRecord] {
-        let now = ISO8601DateFormatter().string(from: Date())
+        let clock = ISO8601DateFormatter()
+        let start = clock.string(from: Date().addingTimeInterval(-8))
+        let now = clock.string(from: Date().addingTimeInterval(-5))
         let model = JSONValue.object(["type": .string("llm_call")])
-        let call: JSONValue = .object(["name": .string("read_file"), "runtime_call_id": .string("host-read")])
+        let call: JSONValue = .object(["name": .string("read_file"), "runtime_call_id": .string("host-read"), "arguments": .object(["file_path": .string("notes/system.md")])])
         let tool: JSONValue = .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array([call])])])
-        var rows = [LedgerRecord(stepId: "cycle-1", nodeId: "reason", status: "started", effect: model, startedAt: now),
-                    LedgerRecord(stepId: "cycle-1", nodeId: "reason", status: "completed", effect: model, endedAt: now),
+        var rows = [LedgerRecord(stepId: "cycle-1", nodeId: "reason", status: "started", effect: model, startedAt: start),
+                    LedgerRecord(stepId: "cycle-1", nodeId: "reason", status: "completed", effect: model,
+                        result: .object(["content": .string("I’ll inspect the host’s operating system and architecture."), "model": .string("assistant-model"), "route": .object(["provider": .string("gateway")]), "usage": .object(["input_tokens": .number(1254), "output_tokens": .number(32)]), "finish_reason": .string("tool_calls")]), startedAt: start, endedAt: now),
                     LedgerRecord(stepId: "read", nodeId: "act", status: "completed", effect: tool, result: .object(["results": .array([.object(["runtime_call_id": .string("host-read"), "success": .bool(true), "output": .string("Operating system: Linux. Architecture: arm64.")])])]), endedAt: now)]
         if activityScenario == "approval" {
             let effect: JSONValue = .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array([.object(["name": .string("execute_command"), "runtime_call_id": .string("host-command")])])])])
@@ -394,5 +474,49 @@ public actor MockGatewayClient: GatewayClient {
         let done = n >= words.count
         return RunSummary(runId: id, workflowId: "@default", status: done ? "completed" : "running",
                           output: n == 0 ? nil : .string(words.prefix(n).joined(separator: " ")))
+    }
+}
+
+extension MockGatewayClient {
+    private static var emailRecords: [LedgerRecord] {
+        func record(_ id: String, name: String, args: JSONValue, output: JSONValue) -> LedgerRecord {
+            let call: JSONValue = .object(["name": .string(name), "runtime_call_id": .string(id), "arguments": args])
+            return LedgerRecord(stepId: id, nodeId: "act", status: "completed", effect: .object(["type": .string("tool_calls"), "payload": .object(["tool_calls": .array([call])])]), result: .object(["results": .array([.object(["runtime_call_id": .string(id), "success": .bool(true), "output": output])])]), endedAt: "2026-10-18T16:05:00Z")
+        }
+        func sent(_ id: String, subject: String, reply: Bool = false, many: Bool = false) -> LedgerRecord {
+            let recipients: JSONValue = .array((many ? ["alex@example.com", "sam@example.com", "design-team@example.com"] : ["alex@example.com"]).map(JSONValue.string))
+            let args: JSONValue = .object(["to": recipients, "subject": .string(subject), "body_text": .string(reply ? "Thanks, Alex. The summary is ready to review." : "Hi Alex,\n\nHere is a short summary of our discussion.\n\nWe reviewed the workspace, explored the available tools, and saved our next steps.\n\nBest,\nYour assistant")])
+            let output: JSONValue = .object(["success": .bool(true), "message_id": .string("<" + id + "@example.com>"), "from": .string("you@example.com"), "to": recipients, "cc": .array([]), "bcc": .array([]), "subject": .string(subject), "accepted": recipients, "refused": .object([:])])
+            return record(id, name: reply ? "reply_email" : "send_email", args: args, output: output)
+        }
+        func read(_ uid: String, subject: String, sender: String, htmlOnly: Bool = false, skipped: Bool = false) -> LedgerRecord {
+            var output: [String: JSONValue] = ["success": .bool(true), "uid": .string(uid), "uidvalidity": .number(100), "account": .string("default"), "mailbox": .string("INBOX"), "message_id": .string("<read-" + uid + "@example.com>"), "from": .string(sender), "to": .array([.string("you@example.com")]), "cc": .array([]), "subject": .string(subject), "date": .string("Sun, 18 Oct 2026 14:00:00 +0000"), "body_text": .string(htmlOnly || skipped ? "" : "Hi,\n\nThe project notes are ready. Please review the attached summary before our next meeting.\n\nThank you."), "body_html": .string(htmlOnly ? "<p>The design review is ready.</p>" : ""), "attachments": .array([.object(["filename": .string("project-summary.pdf")])])]
+            if skipped { output["body_skipped"] = .object(["cause": .string("Message exceeds the reading limit.")]) }
+            return record("read-" + uid, name: "read_email", args: .object(["uid": .string(uid)]), output: .object(output))
+        }
+        return [sent("email-first", subject: "Our discussion"), sent("email-reply", subject: "Re: Our discussion", reply: true),
+            sent("email-team", subject: "Project handoff — a longer subject about the next design review and decisions for the whole team", many: true),
+            read("1", subject: "Project notes", sender: "Alex <alex@example.com>"),
+            read("2", subject: "Design review — updated images and a longer summary of our decisions", sender: "Sam <sam@example.com>", htmlOnly: true),
+            read("3", subject: "Large message", sender: "Team <team@example.com>", skipped: true)]
+    }
+}
+
+extension MockGatewayClient {
+    private static var accessRecords: [LedgerRecord] {
+        func row(_ id: String, _ name: String, _ args: [String:JSONValue], _ output: JSONValue) -> LedgerRecord {
+            .init(stepId:id,nodeId:"act",status:"completed",effect:.object(["type":.string("tool_calls"),"payload":.object(["tool_calls":.array([.object(["name":.string(name),"runtime_call_id":.string(id),"arguments":.object(args)])])])]),result:.object(["results":.array([.object(["runtime_call_id":.string(id),"success":.bool(true),"output":output])])]),endedAt:"2026-10-18T16:05:00Z")
+        }
+        return [
+            row("read-notes","read_file",["file_path":.string("Research/notes.md")],.string("File: Research/notes.md (2 lines)\n\n1: Research notes\n2: Review the available evidence.")),
+            row("skim-notes","skim_files",[:],.string("File: Research/notes.md (2 lines) — skim 1 lines (target 8%)\n\n1: Research notes\n\n---\n\nFile: missing.md\n\nError: File does not exist")),
+            row("read-plan","read_file",["file_path":.string("plan.md")],.string("File: plan.md (1 lines)\n\n1: Prepare the project handoff.")),
+            row("write-summary","write_file",["file_path":.string("discussion-summary.md")],.string("✅ Successfully written to 'discussion-summary.md' (180 bytes, 8 lines)")),
+            row("edit-summary","edit_file",["file_path":.string("discussion-summary.md")],.string("Edited discussion-summary.md (+1 -1)\n-1 | Draft\n+1 | Discussion summary")),
+            row("search-full","web_search",[:],.string(#"{"success":true,"query":"Swift UI accessibility","results":[{"title":"Accessibility guide","url":"https://example.com/accessibility","snippet":"Design for accessible interactions."}]}"#)),
+            row("search-skim","skim_websearch",[:],.string(#"{"success":true,"query":"Swift file previews","results":[]}"#)),
+            row("page-skim","skim_url",["url":.string("https://example.com/accessibility")],.string("🌐 URL Skim\nURL: https://example.com/accessibility\nStatus: 200 OK\nContent-Type: text/html\n📄 Preview:\nAccessible interface guidelines.")),
+            row("page-full","fetch_url",["url":.string("https://example.com/previews")],.object(["success":.bool(true),"final_url":.string("https://example.com/guide/previews"),"content":.string("A preview lets people inspect a document without leaving their conversation.")]))
+        ]
     }
 }

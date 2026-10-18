@@ -13,7 +13,7 @@ import AssistantKit
         activity.ingest(item, runID: "visit", cursor: 1)
         #expect(activity.cycleCount == 1 && activity.modelCalls == 1)
         #expect(activity.items.first?.title == "Agent cycle")
-        #expect(activity.items.first?.detail.isEmpty == true)
+        #expect(activity.items.first?.detail == "not rendered")
     }
     @Test func modelCyclesCountOnceAndNeverExposePromptsOrReasoning() throws {
         var activity = RunActivity()
@@ -24,7 +24,7 @@ import AssistantKit
         activity.ingest(finished, runID: "child", cursor: 1)
         #expect(activity.modelCalls == 1 && activity.cycleCount == 1)
         #expect(activity.items.count == 1 && activity.items[0].status == .completed)
-        #expect(activity.items[0].detail.isEmpty && activity.lastEventAt != nil)
+        #expect(activity.items[0].detail == "model content" && activity.lastEventAt != nil)
         activity.ingest(started, runID: "another-child", cursor: 0)
         #expect(activity.modelCalls == 2)
     }
@@ -73,4 +73,69 @@ import AssistantKit
         #expect(activity.items.last?.detail.count == 4000)
         #expect(activity.items.last?.detail.hasSuffix("[Truncated for display]") == true)
     }
+    @Test func timedPublicModelDetailsAreWhitelistedAndSortedByStartAcrossRuns() throws {
+        var activity = RunActivity()
+        let route = try record(#"{"step_id":"router","node_id":"route_call","status":"completed","started_at":"2026-10-18T17:24:54.351569+00:00","ended_at":"2026-10-18T17:24:56.730989+00:00","effect":{"type":"llm_call","payload":{"provider":"endpoint:shared","model":"requested","system":"PRIVATE SYSTEM","messages":[{"content":"PRIVATE MESSAGE"}]}},"result":{"data":{"mode":"chat","reasoning":"PRIVATE THOUGHT"},"model":"served","route":{"provider":"openai","served_model":"gpt-example","base_url":"PRIVATE URL"},"usage":{"input_tokens":120,"output_tokens":13},"finish_reason":"stop","metadata":{"llm_generate_kwargs":{"api_key":"PRIVATE KEY"}},"raw_response":"PRIVATE RAW"}}"#)
+        let child = try record(#"{"step_id":"cycle","node_id":"reason","status":"completed","started_at":"2026-10-18T17:24:57Z","ended_at":"2026-10-18T17:25:00Z","effect":{"type":"llm_call"},"result":{"content":"Public answer","usage":{"prompt_tokens":9,"completion_tokens":5}}}"#)
+        // Parent-first BFS must not override chronological order.
+        activity.ingest(child, runID: "child", cursor: 1)
+        activity.ingest(route, runID: "parent", cursor: 1)
+        #expect(activity.items.map(\.title) == ["Choose response type", "Agent cycle"])
+        let item = activity.items[0]
+        #expect(item.duration != nil && abs(item.duration! - 2.37942) < 0.001)
+        #expect(item.provider == "openai" && item.model == "gpt-example")
+        #expect(item.inputTokens == 120 && item.outputTokens == 13 && item.finishReason == "stop")
+        #expect(item.outputLabel == "Routing decision" && item.detail.contains("chat"))
+        #expect(!item.detail.contains("PRIVATE"))
+        #expect(activity.items[1].inputTokens == 9 && activity.items[1].outputTokens == 5)
+    }
+    @Test func updatesKeepOriginalStartAndApprovalHistoryIsPastTense() throws {
+        var activity = RunActivity()
+        activity.ingest(try record(#"{"step_id":"s","node_id":"reason","status":"started","started_at":"2026-10-18T12:00:00Z","effect":{"type":"llm_call"}}"#), runID: "r", cursor: 1)
+        activity.ingest(try record(#"{"step_id":"s","node_id":"reason","status":"completed","ended_at":"2026-10-18T12:00:03Z","effect":{"type":"llm_call"},"result":{"content":"Done"}}"#), runID: "r", cursor: 2)
+        #expect(activity.items.count == 1 && activity.items[0].duration == 3)
+        activity.ingest(try record(#"{"step_id":"w","node_id":"act","status":"waiting","started_at":"2026-10-18T12:00:03Z","result":{"wait":{"reason":"user","wait_key":"tool_approval:r","prompt":"Allow?"}}}"#), runID: "r", cursor: 3)
+        activity.ingest(try record(#"{"step_id":"next","node_id":"reason","status":"started","started_at":"2026-10-18T12:00:13Z","effect":{"type":"llm_call"}}"#), runID: "r", cursor: 4)
+        let approval = try #require(activity.items.first { $0.kind == .wait })
+        #expect(approval.title == "Approval resolved" && approval.status == .completed && approval.duration == 10)
+    }
+    @Test func workflowResumeClosesBoundaryWithoutFakeResumeStep() throws {
+        var activity = RunActivity()
+        activity.ingest(try record(#"{"step_id":"child","node_id":"assistant_agent","status":"waiting","started_at":"2026-10-18T12:00:00Z","ended_at":"2026-10-18T12:00:00.100Z","effect":{"type":"start_subworkflow"},"result":{"wait":{"reason":"subworkflow"}}}"#), runID: "r", cursor: 1)
+        activity.ingest(try record(#"{"step_id":"resume","node_id":"assistant_agent","status":"completed","started_at":"2026-10-18T12:00:03Z","ended_at":"2026-10-18T12:00:03Z","effect":{"type":"resume"},"result":{"resumed":true}}"#), runID: "r", cursor: 2)
+        #expect(activity.items.count == 1 && activity.items[0].kind == .workflow)
+        #expect(activity.items[0].status == .completed && activity.items[0].duration == 3)
+        #expect(activity.items[0].nodeID == "assistant_agent")
+    }
+    @Test func missingAndInvalidTimesRemainUnknownAndCancellationIsNotFailure() throws {
+        var activity = RunActivity()
+        activity.ingest(try record(#"{"step_id":"a","status":"cancelled","effect":{"type":"llm_call"},"started_at":"bad","ended_at":"bad"}"#), runID: "r", cursor: 1)
+        #expect(activity.items[0].status == .cancelled && activity.items[0].duration == nil)
+        #expect(activity.items[0].startedAt == nil && activity.items[0].timestamp == nil)
+    }
+
+    @Test func approvalTimingStartsAtRequestAndEndsAtResumeNotNextStep() throws {
+        var activity = RunActivity()
+        activity.ingest(try record(#"{"step_id":"w","node_id":"act","status":"waiting","started_at":"2026-10-18T12:00:00Z","ended_at":"2026-10-18T12:00:05Z","result":{"wait":{"reason":"user","wait_key":"tool_approval:r"}}}"#), runID: "r", cursor: 1)
+        activity.ingest(try record(#"{"step_id":"resume","node_id":"act","status":"completed","started_at":"2026-10-18T12:00:15Z","ended_at":"2026-10-18T12:00:15Z","effect":{"type":"resume"},"result":{"resumed":true}}"#), runID: "r", cursor: 2)
+        activity.ingest(try record(#"{"step_id":"next","node_id":"reason","status":"started","started_at":"2026-10-18T12:00:30Z","effect":{"type":"llm_call"}}"#), runID: "r", cursor: 3)
+        let wait = try #require(activity.items.first { $0.kind == .wait })
+        #expect(wait.duration == 10 && wait.title == "Approval resolved")
+    }
+    @Test func canonicalMediaRequestIsVisibleWithoutInventingAnAttachment() throws {
+        var activity = RunActivity()
+        activity.ingest(try record(#"{"step_id":"v","node_id":"generate_voice","status":"completed","effect":{"type":"llm_call","payload":{"output":{"modality":"voice","task":"tts"},"params":{}}},"result":{"content":"","data":null}}"#), runID: "r", cursor: 1)
+        #expect(activity.items[0].title == "Generate voice")
+        #expect(activity.items[0].detail.contains("Requested output: voice · tts"))
+        #expect(activity.items[0].detail.contains("No stored media attachment"))
+    }
+
+    @Test func structuredMediaRetainsModalityAndStoredArtifactEvidence() throws {
+        var activity = RunActivity()
+        activity.ingest(try record(#"{"step_id":"v","node_id":"generate_voice","status":"completed","effect":{"type":"llm_call","payload":{"output":{"modality":"voice","task":"tts"}}},"result":{"data":{"caption":"Here is the recording"},"outputs":{"voice":[{"artifact_id":"voice-public","run_id":"r","filename":"Scene.wav","content_type":"audio/wav"}]}}}"#), runID: "r", cursor: 1)
+        #expect(activity.items[0].detail.contains("Requested output: voice · tts"))
+        #expect(activity.items[0].detail.contains("Here is the recording"))
+        #expect(activity.items[0].detail.contains("Stored media: Scene.wav"))
+    }
+
 }
