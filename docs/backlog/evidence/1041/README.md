@@ -152,3 +152,10 @@ First real upload remains an operator action: create the iOS App Store Connect a
 request upload on main, inspect the successful full-suite candidate and approve the protected
 app-store deployment. Apple signing/upload and processing have not been exercised with real
 credentials. Store metadata, App Review submission and manual public release follow beta testing.
+
+## First real release request
+
+[first-release-request.json](first-release-request.json) records manual upload run 39190954901,
+its source and flags, local credential-format checks and the unchanged protected environment.
+No private key material or authentication tokens are recorded. Apple signing and upload are
+pending the first real run and its human approval gate.

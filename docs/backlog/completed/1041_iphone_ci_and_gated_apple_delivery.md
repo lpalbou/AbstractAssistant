@@ -108,3 +108,17 @@ to verify real sampling gaps are never counted as silence. Rerun full native sui
   Existing audio-session runtime diagnostics are retained for app-performance investigation;
   they do not fail CI. Separate staging bundle/server accounts are not created by this item.
   These are documented distribution/setup boundaries, not unfinished CI implementation.
+
+## Post-completion first release request — 2026-10-19
+
+The operator requested a real iPhone release and supplied two local ASC key files and Apple
+certificate files. Triggered main workflow [39190954901](https://github.com/lpalbou/AbstractAssistant/actions/runs/39190954901)
+with upload=true and full_ui_suite=true on 73cd2fe. Existing app-store secrets and reviewer gate
+remain unchanged. Both local key files parse; both certificates match the configured team.
+A read-only individual-key authentication probe returns 401, which does not establish whether
+these files are valid team keys (the issuer ID is not present locally). Existing protected secrets
+previously passed Apple's API and Watch upload in run 39100823978. No credentials are committed.
+
+CI execution is pending. The iPhone app record and actual signing/upload are unverified until
+Apple can be queried behind the protected job. Public App Store review/release remains manual
+under ADR0002. [Release-request receipt](../evidence/1041/first-release-request.json).

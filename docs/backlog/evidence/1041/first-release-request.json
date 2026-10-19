@@ -1,0 +1,41 @@
+{
+  "checked_at_utc": "2026-10-19T02:41:31.353270+00:00",
+  "request": {
+    "upload": true,
+    "full_ui_suite": true,
+    "ref": "main"
+  },
+  "run": {
+    "createdAt": "2026-10-19T02:38:57Z",
+    "databaseId": 39190954901,
+    "event": "workflow_dispatch",
+    "headSha": "73cd2fe0cf971172a8f3e282fd02ad277210b1f3",
+    "status": "in_progress",
+    "url": "https://github.com/lpalbou/AbstractAssistant/actions/runs/39190954901"
+  },
+  "local_credential_check": {
+    "both_provided_p8_files": "openssl pkey -noout succeeded; no key content output or copied",
+    "certificates": "Apple Development and Apple Distribution certificates match team K3R4D6HP2A and expire 2027-10-16",
+    "private_distribution_identity_in_local_keychain": false,
+    "individual_key_api_probe": "401 for both files; this does not verify validity as team API keys",
+    "issuer_id_available_locally": false
+  },
+  "existing_github_environment": {
+    "name": "app-store",
+    "required_human_reviewer": "lpalbou",
+    "deployment_branch": "main",
+    "secret_names": [
+      "ASC_KEY_ID",
+      "ASC_ISSUER_ID",
+      "ASC_KEY_P8"
+    ],
+    "modified": false,
+    "prior_watch_upload_success_run": "https://github.com/lpalbou/AbstractAssistant/actions/runs/39100823978"
+  },
+  "apple_status": {
+    "iphone_app_record": "not independently verified before protected job",
+    "signing": "not yet run",
+    "upload": "not yet run",
+    "public_release": "not requested by workflow"
+  }
+}
