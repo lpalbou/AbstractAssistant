@@ -46,12 +46,34 @@ final class OrbRenderingTests: XCTestCase {
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previous?.makeKey() }
         try await Task.sleep(for: .milliseconds(150))
-        func capture(_ name: String) -> UIImage {
+        func snapshot() -> UIImage {
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
             }
+            return image
+        }
+        func record(_ image: UIImage, _ name: String) {
             let attachment = XCTAttachment(image: image)
             attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+        func capture(_ name: String) -> UIImage {
+            let image = snapshot()
+            record(image, name)
+            return image
+        }
+        @MainActor func changedFrame(from baseline: UIImage, name: String) async throws -> UIImage {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            var image = baseline
+            repeat {
+                try await Task.sleep(for: .milliseconds(20))
+                image = snapshot()
+                if try pixelDifference(baseline, image) > 0.05 {
+                    record(image, name)
+                    return image
+                }
+            } while ContinuousClock.now < deadline
+            XCTFail("The orb did not present a changed animation frame within three seconds")
+            record(image, name)
             return image
         }
         let sphere = capture("Morph 00 — sphere")
@@ -67,9 +89,10 @@ final class OrbRenderingTests: XCTestCase {
         XCTAssertGreaterThan(try pixelDifference(sphere, entering), 0.05)
         XCTAssertGreaterThan(try pixelDifference(entering, stop), 0.05)
         state.working = false
-        try await Task.sleep(for: .milliseconds(140))
-        let leaving = capture("Morph 04 — returning to sphere")
+        // Simulator scheduling can defer the first presentation beyond a fixed wall-clock sleep.
+        let leaving = try await changedFrame(from: stop, name: "Morph 04 — returning to sphere")
         XCTAssertGreaterThan(try pixelDifference(stop, leaving), 0.05)
+        XCTAssertGreaterThan(try pixelDifference(sphere, leaving), 0.05)
         // Interrupt the return: the same presentation must reverse without swapping identity.
         state.working = true
         try await Task.sleep(for: .milliseconds(150))

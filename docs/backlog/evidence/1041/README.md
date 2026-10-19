@@ -84,3 +84,9 @@ classification difference (Button on26.5, Link on27.0). Preserve both label and 
 requirements with a Button-or-Link predicate. `local-focused-first-native-summary.json` records
 the first focused result. A subsequent local build yielded to Watch priority (exit75). The
 complete hosted native suite is rerun after the compatibility adjustment.
+
+A later standard CI run (39182836287) passed34/35 native tests; the actual orb-return snapshot
+was unchanged at the test's fixed140ms sleep. Replace that fixed-delay assertion with bounded
+observation of a changed rendered frame, retaining the threshold and adding a check that the
+frame differs from the final sphere before mid-flight reversal. All rendering and reversal
+checks remain required. `ci-critical-second-native-summary.json` preserves the failure.

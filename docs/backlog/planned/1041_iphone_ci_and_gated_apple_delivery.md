@@ -62,3 +62,9 @@ Focused iOS26.5 rerun passed four affected journeys and exposed an OS-specific a
 classification: the same SwiftUI search-result Link appears as Button on26.5 and Link on27.0.
 Retain the link label and actionable-type assertions while accepting either native type. A
 second local attempt yielded to a newly active Watch build (exit75), without interrupting Watch.
+
+A later standard CI run (39182836287) passed34/35 native tests; the actual orb-return snapshot
+was unchanged at the test's fixed140ms sleep. Replace that fixed-delay assertion with bounded
+observation of a changed rendered frame, retaining the threshold and adding a check that the
+frame differs from the final sphere before mid-flight reversal. All rendering and reversal
+checks remain required. `ci-critical-second-native-summary.json` preserves the failure.
