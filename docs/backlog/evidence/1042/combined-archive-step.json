@@ -1,0 +1,55 @@
+{
+  "checked_at_utc": "2026-10-19T04:45:31.509785+00:00",
+  "run": {
+    "databaseId": 39200275528,
+    "event": "workflow_dispatch",
+    "headSha": "cd6bbf3ac737a7d48d11a9407291096b308a2398",
+    "status": "in_progress",
+    "url": "https://github.com/lpalbou/AbstractAssistant/actions/runs/39200275528"
+  },
+  "jobs": [
+    {
+      "name": "Release contract checks",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": []
+    },
+    {
+      "name": "Watch package and companion build",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Watch package tests",
+          "conclusion": "success",
+          "completed_at": "2026-10-19T04:37:13Z"
+        },
+        {
+          "name": "Build independent Watch companion",
+          "conclusion": "success",
+          "completed_at": "2026-10-19T04:38:36Z"
+        }
+      ]
+    },
+    {
+      "name": "Test and archive combined candidate",
+      "status": "in_progress",
+      "conclusion": "",
+      "steps": [
+        {
+          "name": "Package tests",
+          "conclusion": "success",
+          "completed_at": "2026-10-19T04:40:07Z"
+        },
+        {
+          "name": "Archive Release candidate without Apple credentials",
+          "conclusion": "success",
+          "completed_at": "2026-10-19T04:43:36Z"
+        }
+      ]
+    }
+  ],
+  "archive_inspection": "Real generic iOS archive passed release.py inspect after xcodebuild; native suite still pending.",
+  "native_suite": "pending/in progress; not claimed complete",
+  "apple_upload": "not yet run"
+}

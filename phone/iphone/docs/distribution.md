@@ -8,12 +8,12 @@ Use the existing **AbstractAssistant** app record; no second iPhone listing is n
 
 ```mermaid
 flowchart TD
-    Change[iPhone or Watch source change] --> Tests[Credential-free checks for both clients]
-    Manual[Manual combined upload request on main] --> Full[Watch checks and full iPhone native suite]
-    Tests --> Archive[One iPhone archive containing Watch app]
-    Full --> Archive
-    Archive --> Intent{Manual upload requested?}
-    Intent -->|No| Candidate[Retained candidate and source manifest]
+    Change[iPhone or Watch source change] --> Build[Both package suites, Watch build and unsigned combined archive]
+    Manual[Manual upload request on main] --> Build
+    Build --> Native[Native tests; full suite for uploads]
+    Native --> Candidate[Checked archive and source manifest]
+    Candidate --> Intent{Manual upload requested?}
+    Intent -->|No| Retain[Retained candidate only]
     Intent -->|Yes| Human[Required human app-store approval]
     Human --> Verify[Verify both apps and sign checked archive]
     Verify --> ASC[Existing AbstractAssistant listing]

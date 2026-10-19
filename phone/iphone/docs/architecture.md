@@ -535,7 +535,7 @@ precedence are unchanged.
 
 ## CI and distribution boundary
 
-The iPhone workflow builds and tests without Apple credentials, retaining a Release archive
+The combined Apple workflow builds and tests without Apple credentials, retaining a Release archive
 with source/version/build/checksum provenance. Manual main-only upload requests require full
 native checks and a protected app-store human approval. The upload job verifies and signs
 that archive without rebuilding; keys remain in a private temporary directory. TestFlight
@@ -544,6 +544,7 @@ validation and manual same-build App Store submission/release are separate stage
 
 Store projects compose both canonical client specs without rewriting developer projects. The
 iPhone Store target uses `ai.abstractframework.assistant` and embeds the independent Watch
-companion. Both package suites, the Watch companion build and iPhone native tests precede the
-combined archive and approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
+companion. Both package suites and the Watch companion build precede device archiving.
+Archive inspection runs before the iPhone native suite; successful tests then permit packaging
+the candidate and entering the approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
 records identity, module composition and shared release ownership.

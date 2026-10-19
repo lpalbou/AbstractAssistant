@@ -1,0 +1,39 @@
+{
+  "run": "https://github.com/lpalbou/AbstractAssistant/actions/runs/39200274109",
+  "manifest": {
+    "schema": 2,
+    "source_sha": "cd6bbf3ac737a7d48d11a9407291096b308a2398",
+    "bundle_id": "ai.abstractframework.assistant",
+    "watch_bundle_id": "ai.abstractframework.assistant.watch",
+    "version": "0.6.21",
+    "build": "118.1",
+    "native_test_suite": "critical",
+    "archive_sha256": "1f4474bef62478b15aac5e19276e28099301ee12ab77b1e845d5c2871511d251"
+  },
+  "archive_digest_verified": true,
+  "actual_bundle_metadata": [
+    {
+      "CFBundleIdentifier": "ai.abstractframework.assistant",
+      "CFBundleExecutable": "AbstractAssistantPhone",
+      "CFBundleShortVersionString": "0.6.21",
+      "CFBundleVersion": "118.1",
+      "DTPlatformName": "iphoneos",
+      "WKCompanionAppBundleIdentifier": null,
+      "WKRunsIndependentlyOfCompanionApp": null,
+      "WKWatchOnly": null,
+      "executable_size": 3920736
+    },
+    {
+      "CFBundleIdentifier": "ai.abstractframework.assistant.watch",
+      "CFBundleExecutable": "AbstractAssistantWatch",
+      "CFBundleShortVersionString": "0.6.21",
+      "CFBundleVersion": "118.1",
+      "DTPlatformName": "watchos",
+      "WKCompanionAppBundleIdentifier": "ai.abstractframework.assistant",
+      "WKRunsIndependentlyOfCompanionApp": true,
+      "WKWatchOnly": null,
+      "executable_size": 6766436
+    }
+  ],
+  "upload": "Skipped; critical suite does not authorize upload"
+}

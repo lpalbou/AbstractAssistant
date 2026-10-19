@@ -1,0 +1,9 @@
+[
+  {
+    "destination": "16",
+    "path": "$(CONTENTS_FOLDER_PATH)/Watch",
+    "files": [
+      "AbstractAssistantWatch.app"
+    ]
+  }
+]

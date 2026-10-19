@@ -3916,9 +3916,14 @@ demo actions do not contact a gateway or overwrite an existing Keychain sign-in.
 ## Build and try it
 
 See [BUILD.md](BUILD.md). The project has its own bundle ID, Xcode project, build directory
-and gateway-client snapshot. It neither embeds nor modifies the Watch application.
+and gateway-client snapshot. Local developer builds do not modify the Watch application;
+Store builds embed the independent Watch companion as described below.
 
 ## Testing and distribution
+
+Store releases package iPhone and the independent Watch companion in the existing
+AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; standalone Watch checks
+do not upload. Local developer iPhone installs retain their separate identity.
 
 [Testing and distribution](docs/distribution.md) explains the CI checks and protected upload.
 Pushes and pull requests test the client without Apple credentials. A manual upload request
@@ -4024,10 +4029,6 @@ A category with mixed choices shows “Mixed” with no selected segment. Choosi
 tools in that category, including those hidden by search, while preserving other categories.
 It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
 category controls apply in Settings, a session, and an automation.
-
-Store releases include the independent Watch companion in one archive for the existing
-AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; standalone Watch
-checks do not upload. Local developer iPhone installs retain their separate identity.
 
 --- phone/iphone/CHANGELOG.md ---
 # iPhone release history
@@ -4610,7 +4611,7 @@ precedence are unchanged.
 
 ## CI and distribution boundary
 
-The iPhone workflow builds and tests without Apple credentials, retaining a Release archive
+The combined Apple workflow builds and tests without Apple credentials, retaining a Release archive
 with source/version/build/checksum provenance. Manual main-only upload requests require full
 native checks and a protected app-store human approval. The upload job verifies and signs
 that archive without rebuilding; keys remain in a private temporary directory. TestFlight
@@ -4619,8 +4620,9 @@ validation and manual same-build App Store submission/release are separate stage
 
 Store projects compose both canonical client specs without rewriting developer projects. The
 iPhone Store target uses `ai.abstractframework.assistant` and embeds the independent Watch
-companion. Both package suites, the Watch companion build and iPhone native tests precede the
-combined archive and approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
+companion. Both package suites and the Watch companion build precede device archiving.
+Archive inspection runs before the iPhone native suite; successful tests then permit packaging
+the candidate and entering the approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
 records identity, module composition and shared release ownership.
 
 --- phone/iphone/docs/distribution.md ---
@@ -4634,12 +4636,12 @@ Use the existing **AbstractAssistant** app record; no second iPhone listing is n
 
 ```mermaid
 flowchart TD
-    Change[iPhone or Watch source change] --> Tests[Credential-free checks for both clients]
-    Manual[Manual combined upload request on main] --> Full[Watch checks and full iPhone native suite]
-    Tests --> Archive[One iPhone archive containing Watch app]
-    Full --> Archive
-    Archive --> Intent{Manual upload requested?}
-    Intent -->|No| Candidate[Retained candidate and source manifest]
+    Change[iPhone or Watch source change] --> Build[Both package suites, Watch build and unsigned combined archive]
+    Manual[Manual upload request on main] --> Build
+    Build --> Native[Native tests; full suite for uploads]
+    Native --> Candidate[Checked archive and source manifest]
+    Candidate --> Intent{Manual upload requested?}
+    Intent -->|No| Retain[Retained candidate only]
     Intent -->|Yes| Human[Required human app-store approval]
     Human --> Verify[Verify both apps and sign checked archive]
     Verify --> ASC[Existing AbstractAssistant listing]

@@ -128,3 +128,17 @@ pass. Inspecting the generated iPhone PBX copy phase before archiving found Xcod
 cross-project app dependency to Resources. Specify the standard products-directory copy into
 $(CONTENTS_FOLDER_PATH)/Watch explicitly, with linking disabled; assert that destination in the
 composition contract. The actual combined-archive inspector remains the final embedding gate.
+
+## Verified automatic lane and real combined archive
+
+Automatic run 39200274109 is green on cd6bbf3: contracts14, Watch package73, iPhone package246,
+Watch companion simulator build, device Release archive and critical native35/35 with no failures
+or skips. Downloaded candidate 0.6.21 (118.1) has matching archive digest and two real executables:
+AbstractAssistantPhone under the existing Store root and AbstractAssistantWatch under root.watch,
+with matching versions, companion identity and independent operation. Upload was correctly skipped
+for this automatic/critical lane. Full/manual run 39200275528 (119.1) has passed archive inspection
+and is executing all79 native checks before the unchanged human upload gate.
+
+Coredoc guide refinements distinguish local developer projects from Store composition and show
+the actual archive-before-native-checks order. Canonical-only aggregation preserves the other
+writer's staged/working Watch documentation changes without committing them.

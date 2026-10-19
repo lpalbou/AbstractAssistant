@@ -207,9 +207,14 @@ demo actions do not contact a gateway or overwrite an existing Keychain sign-in.
 ## Build and try it
 
 See [BUILD.md](BUILD.md). The project has its own bundle ID, Xcode project, build directory
-and gateway-client snapshot. It neither embeds nor modifies the Watch application.
+and gateway-client snapshot. Local developer builds do not modify the Watch application;
+Store builds embed the independent Watch companion as described below.
 
 ## Testing and distribution
+
+Store releases package iPhone and the independent Watch companion in the existing
+AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; standalone Watch checks
+do not upload. Local developer iPhone installs retain their separate identity.
 
 [Testing and distribution](docs/distribution.md) explains the CI checks and protected upload.
 Pushes and pull requests test the client without Apple credentials. A manual upload request
@@ -315,7 +320,3 @@ A category with mixed choices shows “Mixed” with no selected segment. Choosi
 tools in that category, including those hidden by search, while preserving other categories.
 It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
 category controls apply in Settings, a session, and an automation.
-
-Store releases include the independent Watch companion in one archive for the existing
-AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; standalone Watch
-checks do not upload. Local developer iPhone installs retain their separate identity.
