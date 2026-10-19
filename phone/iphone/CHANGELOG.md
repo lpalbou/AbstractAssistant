@@ -26,7 +26,7 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 - Failed automation occurrences retain the gateway’s failure details, including provider
   credential errors. Empty answers no longer leave blank result headings or status-only cards.
-- Latest runs are shown once, and Run now cannot queue another occurrence while one is active.
+- Latest runs and retry attempts stay grouped as one occurrence, and Run now cannot queue another occurrence while one is active.
 
 ## [0.6.21] — 2026-10-18
 

@@ -43,5 +43,5 @@ require updating the composition or choosing an explicit shared-module migration
 
 - [Distribution guide](../../phone/iphone/docs/distribution.md)
 - [ADR0002](0002_iphone_release_stages.md)
-- [Backlog 1042](../backlog/planned/1042_unified_iphone_and_watch_store_delivery.md)
+- [Backlog 1042](../backlog/completed/1042_unified_iphone_and_watch_store_delivery.md)
 - [Apple TN3157](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)

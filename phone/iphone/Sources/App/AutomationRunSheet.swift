@@ -74,11 +74,13 @@ struct AutomationRunSheet: View {
         do {
             let history = try await client.occurrences(automationId: automationID, limit: 20)
             guard context == store.contextID && !Task.isCancelled else { return }
-            if let current = history.first(where: { $0.stableID == occurrence.stableID }) { occurrence = current }
+            let current = history.first(where: { $0.occurrenceKey == occurrence.occurrenceKey })
+            if let current { occurrence = current }
             if let id = occurrence.runId {
                 let run = try await client.run(id: id)
                 guard context == store.contextID && !Task.isCancelled else { return }
                 runError = run.error
+                if current == nil && run.isTerminal { occurrence.status = run.status; occurrence.finishedAt = occurrence.finishedAt ?? run.updatedAt }
                 // Occurrence status projects waits in descendants; retain it instead of the root's subworkflow wait.
                 await store.loadAnswerActivity(runID: id, retry: true)
             }

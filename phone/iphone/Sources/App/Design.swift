@@ -60,13 +60,14 @@ struct AssistantOrb: View {
     var working = false
     var listening = false
     var animationTime: TimeInterval? = nil
+    var morphDuration: TimeInterval = 0.65
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         OrbArtwork(size: size, stopProgress: working ? 1 : 0, active: active, level: level,
                    listening: listening, animationTime: animationTime, reduceMotion: reduceMotion,
                    paused: scenePhase != .active)
-            .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: 0.65), value: working)
+            .animation(reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: morphDuration), value: working)
             .frame(width: size, height: size).accessibilityHidden(true)
     }
 }

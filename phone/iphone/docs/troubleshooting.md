@@ -12,11 +12,11 @@ for an administrator. **Refresh details** retries a failed detail fetch without 
 Missing activity or an unavailable explanation is stated explicitly; it is not evidence that the
 run succeeded.
 
-While the detail screen is open and the app is active, it checks the gateway every five seconds.
+While the automation’s main page is open and the app is active, it checks the gateway every five seconds.
 **Run now** first sends a request; the gateway then admits and executes the occurrence. Its state
 and result update without pull-to-refresh. Run now is unavailable while an occurrence is active.
 A **Needs you** result directs you to **Inbox** to answer a question or approve tools.
-The scheduled task continues on the gateway when the app closes.
+The run modal refreshes on opening and with **Refresh details**. The scheduled task continues on the gateway when the app closes.
 
 A failed run and an unavailable connection are different problems:
 

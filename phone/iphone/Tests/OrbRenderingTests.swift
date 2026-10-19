@@ -80,27 +80,47 @@ final class OrbRenderingTests: XCTestCase {
         state.working = true
         try await Task.sleep(for: .milliseconds(40))
         _ = capture("Morph 00b — sphere starts opening")
-        try await Task.sleep(for: .milliseconds(80))
-        let entering = capture("Morph 01 — entering stop")
+        let entering = try await changedFrame(from: sphere, name: "Morph 01 — entering stop")
         try await Task.sleep(for: .milliseconds(180))
         _ = capture("Morph 02 — rounded square")
-        try await Task.sleep(for: .milliseconds(500))
+        try await Task.sleep(for: .milliseconds(2200))
         let stop = capture("Morph 03 — stop")
+        XCTAssertGreaterThan(try pixelDifference(sphere, stop), 0.05)
         XCTAssertGreaterThan(try pixelDifference(sphere, entering), 0.05)
         XCTAssertGreaterThan(try pixelDifference(entering, stop), 0.05)
+        // Snapshot scheduling may skip intermediate native frames on a busy simulator.
+        // Sample the production artwork directly to prove its middle and reverse trajectory.
+        func artwork(_ progress: Double) throws -> UIImage {
+            let renderer = ImageRenderer(content: HStack(spacing: 46) {
+                OrbArtwork(size: 68, stopProgress: progress, active: true, animationTime: 2, paused: true)
+                OrbArtwork(size: 136, stopProgress: progress, active: true, animationTime: 2, paused: true)
+            }.frame(width: 390, height: 260).background(PhoneTheme.ground))
+            renderer.scale = 2
+            return try XCTUnwrap(renderer.uiImage)
+        }
+        let start = try artwork(0), end = try artwork(1)
+        var previousFrame = start
+        for (index, progress) in [0.7, 0.35, 0.65].enumerated() {
+            let frame = try artwork(progress)
+            XCTAssertGreaterThan(try pixelDifference(start, frame), 0.05)
+            XCTAssertGreaterThan(try pixelDifference(end, frame), 0.05)
+            XCTAssertGreaterThan(try pixelDifference(previousFrame, frame), 0.05)
+            record(frame, "Sampled morph reversal \(index) — progress \(progress)")
+            previousFrame = frame
+        }
         state.working = false
         // Simulator scheduling can defer the first presentation beyond a fixed wall-clock sleep.
         let leaving = try await changedFrame(from: stop, name: "Morph 04 — returning to sphere")
         XCTAssertGreaterThan(try pixelDifference(stop, leaving), 0.05)
         XCTAssertGreaterThan(try pixelDifference(sphere, leaving), 0.05)
-        // Interrupt the return: the same presentation must reverse without swapping identity.
+        // Interrupt the return on the same view identity, before its two-second test animation ends.
         state.working = true
         try await Task.sleep(for: .milliseconds(150))
         _ = capture("Morph 05 — interrupted return")
-        try await Task.sleep(for: .milliseconds(650))
+        try await Task.sleep(for: .milliseconds(2200))
         _ = capture("Morph 06 — stop restored")
         state.working = false
-        try await Task.sleep(for: .milliseconds(800))
+        try await Task.sleep(for: .milliseconds(2200))
         let restored = capture("Morph 07 — sphere restored")
         // GPU gradient rasterization can differ slightly; compare pixels, not PNG compression.
         XCTAssertLessThan(try pixelDifference(sphere, restored), 0.5)
@@ -114,13 +134,16 @@ final class OrbRenderingTests: XCTestCase {
     private func pixelDifference(_ lhs: UIImage, _ rhs: UIImage) throws -> Double {
         func pixels(_ image: UIImage) throws -> [UInt8] {
             let image = try XCTUnwrap(image.cgImage)
-            var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            // A view-sized comparison retains visual differences without millions of
+            // unoptimized byte operations blocking the UI thread between animation frames.
+            let width = min(390, image.width), height = image.height * width / image.width
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
             let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
             try bytes.withUnsafeMutableBytes { buffer in
-                let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
-                                                      bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: width, height: height,
+                                                      bitsPerComponent: 8, bytesPerRow: width * 4,
                                                       space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-                context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             }
             return bytes
         }
@@ -151,8 +174,8 @@ private struct OrbMorphHarness: View {
     var state: OrbMorphState
     var body: some View {
         HStack(spacing: 46) {
-            AssistantOrb(size: 68, active: true, level: state.level, working: state.working, animationTime: 2)
-            AssistantOrb(size: 136, active: true, level: state.level, working: state.working, animationTime: 2)
+            AssistantOrb(size: 68, active: true, level: state.level, working: state.working, animationTime: 2, morphDuration: 2)
+            AssistantOrb(size: 136, active: true, level: state.level, working: state.working, animationTime: 2, morphDuration: 2)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PhoneTheme.ground)
     }
 }

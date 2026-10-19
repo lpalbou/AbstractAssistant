@@ -54,3 +54,12 @@ import AbstractGatewayClient
     #expect(AppUpdateInfo(version: "1", build: "2", channel: .appStore).destination == AppUpdateInfo.appStoreHelp)
     #expect(AppUpdateInfo(version: "1", build: "2").channelTitle == "Not verified")
 }
+
+@Test func retryAttemptsRemainOneOccurrenceAcrossRunIDs() {
+    let first = LastOccurrence(status: "backoff", excerpt: nil, runId: "attempt-1", index: 4)
+    let next = LastOccurrence(status: "running", excerpt: nil, runId: "attempt-2", index: 4)
+    let later = LastOccurrence(status: "failed", excerpt: nil, runId: "attempt-3", index: 5)
+    #expect(first.stableID != next.stableID)
+    #expect(first.occurrenceKey == next.occurrenceKey)
+    #expect(first.occurrenceKey != later.occurrenceKey)
+}

@@ -39,3 +39,11 @@ Package250, contracts14, targeted native4 and physical read-only1 all pass; scre
 Public troubleshooting guide and iPhone changelog updated. Evidence: ../evidence/1043/README.md.
 No new ADR: existing thin-client and human-gated delivery boundaries apply. Original planned
 path moved to completed with the same filename. No unrelated follow-up added.
+
+## Post-completion hardening — 2026-10-19
+
+Full hosted feature checks passed in the80/81 run; the unrelated orb timing assertion is
+tracked by1045. Retry runs are now grouped and refreshed by occurrence index even when the
+attempt run ID changes. If a row has left the20-run history page, terminal root state still
+updates its detail snapshot. The modal uses explicit Refresh details; automatic polling belongs
+to the automation’s main page. New identity regression makes package total251.

@@ -39,7 +39,7 @@ public struct AutomationRunExplanation: Sendable {
             message = switch status {
             case "waiting": "This run is waiting for a response or tool approval."
             case "backoff": "The gateway will retry this occurrence."
-            case "running", "admitted": "The gateway is processing this task. Results update while this screen is open."
+            case "running", "admitted": "The gateway is processing this task."
             case "cancelled": "This run was stopped before it finished."
             case "completed": Self.nonempty(occurrence.answer) == nil && Self.nonempty(occurrence.excerpt) == nil ? "The run completed without a text answer. Its activity may contain files or tool results." : "This run completed."
             default: "Open the recorded activity for more information."
@@ -57,5 +57,6 @@ extension LastOccurrence {
     public var displayAnswer: String? { AutomationRunExplanation.nonempty(answer) ?? AutomationRunExplanation.nonempty(excerpt) }
     public var attemptCount: Int? { attempts ?? failure?.attempts }
     public var isActive: Bool { ["admitted", "running", "waiting", "backoff"].contains(status ?? "") }
+    public var occurrenceKey: String { index.map { "occurrence-\($0)" } ?? stableID }
     public var stableID: String { runId ?? "occurrence-\(index.map(String.init) ?? firedAt ?? "unknown")" }
 }

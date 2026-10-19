@@ -64,12 +64,12 @@ struct AutomationDetailScreen: View {
     private var row: AutomationSummary? { freshRow ?? store.automations.first { $0.id == automationID } }
     private var runs: [LastOccurrence] {
         var values = occurrences
-        if let last = row?.lastOccurrence, !values.contains(where: { $0.stableID == last.stableID }) { values.insert(last, at: 0) }
+        if let last = row?.lastOccurrence, !values.contains(where: { $0.occurrenceKey == last.occurrenceKey }) { values.insert(last, at: 0) }
         if let current = row?.currentOccurrence, !values.contains(where: { $0.runId == current.runId }) {
             values.insert(LastOccurrence(status: current.status, excerpt: nil, runId: current.runId, index: current.index, attempts: current.attempt), at: 0)
         }
         var seen: Set<String> = []
-        return values.filter { seen.insert($0.stableID).inserted }
+        return values.filter { seen.insert($0.occurrenceKey).inserted }
     }
     var body: some View {
         ScrollView {

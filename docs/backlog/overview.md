@@ -7,7 +7,7 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 7
+- Planned: 8
 - Proposed: 17
 - Completed: 10
 
@@ -41,6 +41,7 @@ Counts recomputed from disk on 2026-10-19 after closing verified Apple delivery1
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1045](planned/1045_orb_animation_ci_presentation_sampling.md) | Reliable orb CI presentation checks | Planned | Release124.1 blocked by one wall-clock animation assertion;80/81 native passed, including new feature UI. |
 | [0009](planned/0009_shared_code_and_markdown_rendering.md) | # Planned: Share code and markdown rendering with abstractuic | Planned | Existing rich Markdown client work; retained in counts. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |
