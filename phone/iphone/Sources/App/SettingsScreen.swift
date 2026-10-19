@@ -34,11 +34,14 @@ struct SettingsScreen: View {
                         if let url = store.connection?.gateway.appending(path: "console") { Link("Open gateway console", destination: url) }
                     }
                 }
-                Section("AbstractAssistant · iPhone preview") {
+                Section("App") {
+                    LabeledContent("Version", value: InstalledPhoneApp.metadata.installedVersion).accessibilityIdentifier("settings.version")
+                    NavigationLink { AppUpdatesScreen() } label: { Label("Version & updates", systemImage: "arrow.down.circle") }.accessibilityIdentifier("settings.updates")
+                }
+                Section("AbstractAssistant") {
                     Link("AbstractFramework", destination: URL(string: "https://abstractframework.ai")!)
                     Link("Source & community", destination: URL(string: "https://github.com/lpalbou/AbstractAssistant")!)
                     Link("Get in touch", destination: URL(string: "mailto:contact@abstractframework.ai")!)
-                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Preview") · iOS 26 or later").font(.caption).foregroundStyle(PhoneTheme.secondary)
                 }
                 Section { Button(store.isDemo ? "Leave demo" : "Disconnect this iPhone", role: .destructive) { confirm = true } }
             }.scrollContentBackground(.hidden).background(PhoneTheme.ground).navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)

@@ -8,6 +8,33 @@ import AbstractGatewayClient
 /// Explicit device-only verification. It uses the host app's keychain in place;
 /// credentials are never exported, logged, passed through launch arguments or stored in a report.
 final class LiveGatewayMediaTests: XCTestCase {
+    /// Read-only investigation: no commands, email content, generation or credential export.
+    @MainActor func testInspectFailedAutomationsReadOnly() async throws {
+        #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
+        let connection = try XCTUnwrap(ConnectionVault.read())
+        let client = LiveGatewayClient(baseURL: connection.gateway, credential: connection.credential, session: PhoneTransport.makeSession())
+        _ = try await client.me() // Stop on the first authentication failure.
+        let rows = try await client.automations()
+        var findings: [JSONValue] = []
+        for automation in rows.prefix(20) {
+            let page = try await raw(connection, path: "api/gateway/automations/\(automation.id)/occurrences")
+            guard case .array(let occurrences)? = page["items"] else { continue }
+            for row in occurrences where row["status"]?.stringValue == "failed" {
+                var finding: [String: JSONValue] = [:]
+                for key in ["run_id", "index", "status", "fired_at", "finished_at", "attempts", "failure"] { finding[key] = row[key] }
+                if let id = row["run_id"]?.stringValue {
+                    let run = try await client.run(id: id)
+                    finding["run_error"] = run.error.map(JSONValue.string)
+                }
+                findings.append(.object(finding))
+            }
+        }
+        try write(["read_only": .bool(true), "beta_update_app_available": .bool(UIApplication.shared.canOpenURL(URL(string: "itms-beta://")!)), "failed_occurrences": .array(findings)], name: "automation-failures.json")
+        #else
+        throw XCTSkip("Read-only automation investigation is opt-in and device-only.")
+        #endif
+    }
+
     @MainActor func testDiscoverSavedGateway() async throws {
         #if LIVE_MEDIA_VERIFICATION && !targetEnvironment(simulator)
         var report: [String: JSONValue] = ["stage": .string("discovery")]

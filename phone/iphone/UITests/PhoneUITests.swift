@@ -1,6 +1,36 @@
 import XCTest
 
 final class PhoneUITests: XCTestCase {
+    @MainActor func testAutomationFailureShowsCauseAttemptsTimesAndExpandableActivity() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--screen", "automations"]; app.launch()
+        app.buttons["automation.open.auto-morning"].tap()
+        let failed = app.buttons["automation.run.occ-39"]
+        for _ in 0..<6 where !failed.isHittable { app.swipeUp() }
+        XCTAssertTrue(failed.waitForExistence(timeout: 12)); XCTAssertTrue(failed.isHittable)
+        capture(app, "Automation — dated runs with failure explanations")
+        failed.tap()
+        XCTAssertTrue(app.navigationBars["Automation run"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["automation.run.explanation"].label.contains("Your iPhone is connected"))
+        XCTAssertTrue(app.descendants(matching: .any)["automation.run.attempts"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["automation.run.started"].exists && app.descendants(matching: .any)["automation.run.finished"].exists)
+        app.buttons["automation.run.error"].tap()
+        XCTAssertTrue(app.staticTexts["OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token."].waitForExistence(timeout: 5))
+        capture(app, "Automation failure — explanation, next step and recorded error")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["automation.run.occ-39"].waitForExistence(timeout: 5))
+    }
+    @MainActor func testSettingsShowsBuildAndTestFlightUpdateInstructions() throws {
+        let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--updates=testflight"]; app.launch(); openSettings(app)
+        let updates = app.buttons["settings.updates"]
+        for _ in 0..<4 where !updates.isHittable { app.swipeUp() }
+        XCTAssertTrue(updates.waitForExistence(timeout: 5)); updates.tap()
+        XCTAssertTrue(app.navigationBars["Version & updates"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["updates.check"].label.contains("TestFlight"))
+        XCTAssertTrue(app.staticTexts["updates.automatic"].label.contains("Automatic Updates"))
+        XCTAssertTrue(app.staticTexts["Installed version"].exists)
+        XCTAssertFalse(app.switches["Automatic Updates"].exists)
+        capture(app, "Version and updates — installed build and Apple-managed beta updates")
+    }
     @MainActor func testCategoryBulkControlsRespectHiddenAndDisabledTools() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--reset-tool-defaults", "--category-fixture"]; app.launch(); openTools(app)
         let category = app.segmentedControls["tools.categoryMode.files"]

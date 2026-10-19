@@ -130,6 +130,6 @@ Export then failed (exit70): no App Store Connect record for ai.abstractframewor
 No iPhone build was uploaded. The operator confirmed that iPhone and Watch must share the existing
 AbstractAssistant listing; the separate Store identity assumed in 1041 is therefore incorrect for
 the intended product. Do not create another app record as a workaround. Shared packaging and
-release ownership are tracked in [1042](../planned/1042_unified_iphone_and_watch_store_delivery.md).
+release ownership are tracked in [1042](1042_unified_iphone_and_watch_store_delivery.md).
 [Full job/outcome receipt](../evidence/1041/first-release-outcome.json) records the actual failure;
 previous green CI/archive claims do not constitute successful Apple delivery.

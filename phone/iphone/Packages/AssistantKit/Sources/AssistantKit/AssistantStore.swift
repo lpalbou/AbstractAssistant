@@ -802,6 +802,7 @@ public final class AssistantStore {
     }
     public func automationAction(_ automation: AutomationSummary, runNow: Bool) async {
         guard let client, !automationBusy.contains(automation.id) else { return }
+        error = nil
         let epoch = generation; automationBusy.insert(automation.id)
         defer { if epoch == generation { automationBusy.remove(automation.id) } }
         do {

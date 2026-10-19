@@ -548,3 +548,18 @@ companion. Both package suites and the Watch companion build precede device arch
 Archive inspection runs before the iPhone native suite; successful tests then permit packaging
 the candidate and entering the approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
 records identity, module composition and shared release ownership.
+
+## Automation diagnostics and update boundaries
+
+`LastOccurrence` preserves the Gateway occurrence failure, attempt, task and trigger fields.
+`AutomationRunExplanation` distinguishes a provider credential failure from phone authentication
+and keeps the recorded error available separately. `AutomationDetailScreen` reads the definition,
+summary and 20 newest occurrences while visible; run details load the existing run and
+`AnswerActivity` hierarchy. Authentication failures stop through the store’s expiry handler.
+No diagnostic action launches tools or retries a failed task automatically.
+
+`AppUpdateInfo` owns version/build and update destinations. `InstalledPhoneApp` verifies StoreKit
+`AppTransaction` environment for Store builds; local `.iphone` installs remain development copies.
+An unavailable transaction is reported as unverified. Apple manages binary updates and automatic
+update permissions. The app opens TestFlight/App Store, never embeds App Store Connect credentials
+or downloads executable updates. See [troubleshooting](troubleshooting.md).

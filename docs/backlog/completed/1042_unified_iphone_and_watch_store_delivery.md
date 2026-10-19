@@ -3,8 +3,8 @@
 > Package: abstractassistant
 > Type: task
 > Created: 2026-10-19
-> Status: Planned
-> Completed: N/A
+> Status: Completed
+> Completed: 2026-10-19
 > Priority: P1
 > Labels: iphone, watch, release, app-store
 
@@ -162,3 +162,18 @@ Evidence: [full native summary](../evidence/1042/full-native-summary.json),
 [real artifact verification](../evidence/1042/full-candidate.json),
 [CI/gate state](../evidence/1042/full-ci-state.json). Both automatic and manual lanes now pass;
 actual Apple delivery remains the explicit human-gated next step.
+
+## Completion report — 2026-10-19
+
+Run39200275528 completed successfully after human approval. Apple export logs report
+`Progress 100%: Upload succeeded.` at05:27:40 UTC followed by `EXPORT SUCCEEDED`.
+The operator subsequently installed the combined app through TestFlight and provided a
+screenshot of its Automations screen. This supplies the missing real delivery evidence;
+public App Store review/publication is still a separate manual decision.
+
+The checked119.1 candidate remains pinned tocd6bbf3. Later source and version0.6.22 work is
+not part of that binary. Existing full79 native checks, package319 checks, archive inspection
+and actual upload passed. No new ADR needed; ADR0003 records the accepted product boundary.
+Original path: planned/1042_unified_iphone_and_watch_store_delivery.md. Final path:
+completed/1042_unified_iphone_and_watch_store_delivery.md. Follow-up iPhone runtime diagnostics
+and app update controls are tracked separately in1043 and1044.

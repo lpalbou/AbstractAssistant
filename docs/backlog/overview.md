@@ -7,12 +7,11 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 8
+- Planned: 7
 - Proposed: 17
-- Completed: 7
+- Completed: 10
 
-Counts recomputed from disk on 2026-10-19 after adding combined Apple delivery item 1042 (topic tracks included).
-0009 is on disk under planned/ and still has no row in the Planned table.
+Counts recomputed from disk on 2026-10-19 after closing verified Apple delivery1042 and iPhone reliability items1043/1044 (topic tracks included).
 - Deprecated: 0
 - Recurrent: 0
 
@@ -42,8 +41,7 @@ Counts recomputed from disk on 2026-10-19 after adding combined Apple delivery i
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| [1042](planned/1042_unified_iphone_and_watch_store_delivery.md) | Unified iPhone and Watch Store delivery | Planned | One existing listing and combined archive implemented. Contracts14, Watch73, iPhone246, native79/79; actual119.1 candidate verified. Human approval and Apple signing/upload validation pending. |
-| [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Completed (0.7.0, 2026-09-27) | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
+| [0009](planned/0009_shared_code_and_markdown_rendering.md) | # Planned: Share code and markdown rendering with abstractuic | Planned | Existing rich Markdown client work; retained in counts. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |
 | [0002](planned/0002_gateway_native_assistant_v2_rollout.md) | Gateway-native assistant v2 rollout | Planned | Broader rollout and legacy de-emphasis after the single-path contract cleanup. |
@@ -66,6 +64,10 @@ Counts recomputed from disk on 2026-10-19 after adding combined Apple delivery i
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1043](completed/1043_automation_run_diagnostics.md) | Automation run explanations and live results | Completed 2026-10-19 | Planned→completed; package250, native4 and physical read-only1; evidence and screenshots under1043. |
+| [1044](completed/1044_iphone_version_and_updates.md) | Installed version and supported app updates | Completed 2026-10-19 | Planned→completed; package250, native4 and physical read-only1; evidence and screenshots under1043. |
+| [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Completed (0.7.0, 2026-09-27) | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
+| [1042](completed/1042_unified_iphone_and_watch_store_delivery.md) | Unified iPhone and Watch Store delivery | Completed 2026-10-19 | Planned→completed; full79 native, combined119.1 archive, human-approved Apple upload succeeded; operator installed through TestFlight. [Evidence](evidence/1042/apple-delivery.json). |
 | [1041](completed/1041_iphone_ci_and_gated_apple_delivery.md) | iPhone CI and gated Apple delivery | Completed 2026-10-19 | Created/completed 2026-10-19; planned→completed. Automatic CI plus manual main-only human-approved ASC upload; ADR0002 and distribution guide. Contracts10/10, package246/246, native79/79; real full archive verified. First approved upload failed: no separate iPhone app record; unified product correction tracked in 1042. [Evidence](evidence/1041/README.md). |
 | [1040](completed/1040_iphone_restored_image_previews.md) | iPhone restored image previews | Completed 2026-10-18 | Created/completed 2026-10-18; planned→completed. Conversation-owned shared downloads, inline decoding and retry; native 7/7, inspected cold-relaunch screenshots; normal 0.6.21 (29) installed (phone locked for launch). |
 | [1039](completed/1039_iphone_stop_orb_morph_and_contrast.md) | iPhone stop orb morph and contrast | Completed 2026-10-18 | Created/completed 2026-10-18; moved planned→completed. Checkpoint 7c5d9ec, bright stop control, two-way interrupted morph; native 5/5 and inspected frames; normal 0.6.20 (28) installed/launched. |

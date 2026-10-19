@@ -34,6 +34,7 @@ Included files (in order):
 - phone/iphone/CHANGELOG.md
 - phone/iphone/docs/architecture.md
 - phone/iphone/docs/distribution.md
+- phone/iphone/docs/troubleshooting.md
 - phone/iphone/BUILD.md
 - watch/apple/README.md
 - watch/apple/CHANGELOG.md
@@ -81,6 +82,8 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
 - [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
+
+- [phone/iphone/docs/troubleshooting.md](phone/iphone/docs/troubleshooting.md): dated automation runs, failure explanations, provider versus phone authentication, installed version/build and Apple-managed updates
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -273,7 +276,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 - [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
 
-- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [run troubleshooting and app updates](../phone/iphone/docs/troubleshooting.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
 
 ## Design records
 
@@ -3712,7 +3715,7 @@ abstractassistant --config custom.toml # Custom config
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.21 · iOS 26+**
+**iPhone · 0.6.22 · iOS 26+**
 
 ## Three small spaces
 
@@ -3746,7 +3749,7 @@ AbstractGateway, with the conversation at the center and the controls you need c
   to Auto. Off, unavailable and newly added tools remain outside that grant. Change the
   choices in **Tools** to revoke it. Questions still require an answer. Decisions already
   made on another device cannot resume a different wait.
-- **Automations.** See your routines, their latest answers and five earlier runs. Run an
+- **Automations.** See your routines and the latest 20 runs. Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Run an
   active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: describe the task, choose a workflow and
   interval or daily time, choose its tools, and decide whether it builds on earlier runs.
   Daily times use your account’s time zone, which the creation screen displays. Editing
@@ -4030,6 +4033,8 @@ tools in that category, including those hidden by search, while preserving other
 It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
 category controls apply in Settings, a session, and an automation.
 
+**Version & updates** in Settings shows the installed version/build and opens the appropriate Apple update flow. Enable beta automatic updates in TestFlight. See [run troubleshooting and updates](docs/troubleshooting.md).
+
 --- phone/iphone/CHANGELOG.md ---
 # iPhone release history
 
@@ -4045,6 +4050,21 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 - iPhone CI runs package and native tests and retains an unsigned Release candidate. Manual
   App Store Connect uploads require full native tests and human approval. TestFlight builds
   remain eligible for manual same-build App Store promotion.
+
+## [0.6.22] — 2026-10-19
+
+### Added
+
+- Dated, tappable automation runs with explanations, attempt counts, recorded errors,
+  task/trigger details and expandable activity. Results refresh while the screen is active.
+- Settings shows the installed version/build, installation channel, Apple update controls,
+  automatic-update instructions and the native version history.
+
+### Fixed
+
+- Failed automation occurrences retain the gateway’s failure details, including provider
+  credential errors. Empty answers no longer leave blank result headings or status-only cards.
+- Latest runs are shown once, and Run now cannot queue another occurrence while one is active.
 
 ## [0.6.21] — 2026-10-18
 
@@ -4625,6 +4645,21 @@ Archive inspection runs before the iPhone native suite; successful tests then pe
 the candidate and entering the approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
 records identity, module composition and shared release ownership.
 
+## Automation diagnostics and update boundaries
+
+`LastOccurrence` preserves the Gateway occurrence failure, attempt, task and trigger fields.
+`AutomationRunExplanation` distinguishes a provider credential failure from phone authentication
+and keeps the recorded error available separately. `AutomationDetailScreen` reads the definition,
+summary and 20 newest occurrences while visible; run details load the existing run and
+`AnswerActivity` hierarchy. Authentication failures stop through the store’s expiry handler.
+No diagnostic action launches tools or retries a failed task automatically.
+
+`AppUpdateInfo` owns version/build and update destinations. `InstalledPhoneApp` verifies StoreKit
+`AppTransaction` environment for Store builds; local `.iphone` installs remain development copies.
+An unavailable transaction is reported as unverified. Apple manages binary updates and automatic
+update permissions. The app opens TestFlight/App Store, never embeds App Store Connect credentials
+or downloads executable updates. See [troubleshooting](troubleshooting.md).
+
 --- phone/iphone/docs/distribution.md ---
 # Apple testing and distribution
 
@@ -4727,6 +4762,76 @@ for local developer installs.
 - [GitHub deployment reviews](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments)
 - [Apple: adding an iPhone companion](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)
 - [Apple: upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds)
+
+--- phone/iphone/docs/troubleshooting.md ---
+# Runs, failures and app updates
+
+## Understand an automation run
+
+Open **Automations**, select a routine, then tap a run card. The latest run appears first;
+the screen retains the latest 20 occurrences. Each card shows its state, local start time,
+attempt count when recorded, and either its answer or an explanation.
+
+**Automation run** shows the outcome, next step, start/finish times, attempts, recorded error,
+task/trigger and expandable activity. **Support details** exposes the run ID and failure code
+for an administrator. **Refresh details** retries a failed detail fetch without starting a task.
+Missing activity or an unavailable explanation is stated explicitly; it is not evidence that the
+run succeeded.
+
+While the detail screen is open and the app is active, it checks the gateway every five seconds.
+**Run now** first sends a request; the gateway then admits and executes the occurrence. Its state
+and result update without pull-to-refresh. Run now is unavailable while an occurrence is active.
+A **Needs you** result directs you to **Inbox** to answer a question or approve tools.
+The scheduled task continues on the gateway when the app closes.
+
+A failed run and an unavailable connection are different problems:
+
+- **The model provider rejected the gateway’s sign-in:** the phone reached the gateway, but
+  the provider rejected its credential. Ask the gateway administrator to check that endpoint’s
+  API credential. Changing phone tool permissions or signing in again on the phone does not
+  repair the provider credential.
+- **A service did not respond:** check gateway/provider connectivity, then review the recorded
+  error before starting another run.
+- **Provider request limit:** check quota or wait before trying again.
+- **Please sign in again:** the gateway rejected this phone’s sign-in. Reconnect this iPhone.
+
+Read the error before retrying a task that can make changes. Earlier tools might have completed
+before a later step failed. Refreshing details only reads existing records.
+
+## Find the installed version
+
+Open the **Settings** wheel. **App → Version** shows the installed marketing version and build,
+for example `0.6.22 (120.1)`. CI build numbers differ from local developer builds. The gateway and
+desktop Python package have separate versions.
+
+Open **Version & updates** for the installation channel, update controls and release history.
+The channel uses Apple-verified app transaction information where available. If it cannot be
+verified, the screen says so and offers the TestFlight and App Store instructions.
+
+## Update a TestFlight copy
+
+Choose **Check for updates in TestFlight**, select **AbstractAssistant**, and tap **Update** if a
+newer build is available to your tester account. The button opens TestFlight; the iPhone app does
+not query private App Store Connect credentials or claim that an uploaded build is available to you.
+
+For automatic beta updates, open **TestFlight → AbstractAssistant → App Information → Automatic
+Updates**. Enable it there. Apple owns this setting and installation; AbstractAssistant cannot read
+or change the switch. See [Apple’s TestFlight instructions](https://testflight.apple.com/).
+
+A new source commit is not an installed update. Our pipeline tests and archives the combined
+phone/Watch candidate, then requires human approval before upload. Apple processing and tester
+availability follow. See [testing and distribution](distribution.md).
+
+## Update an App Store or development copy
+
+For an App Store installation, **Check for updates in App Store** opens the app’s Apple-verified
+listing when its app ID is available. Manage automatic updates under **iPhone Settings → Apps →
+App Store → App Updates**. See [Apple’s update guide](https://support.apple.com/en-us/102629).
+
+A development copy uses the [build guide](../BUILD.md) or an existing TestFlight invitation.
+The app cannot install a replacement binary itself. **Release notes → iPhone version history**
+opens the [native changelog](../CHANGELOG.md); it documents changes and is not an update-availability
+service.
 
 --- phone/iphone/BUILD.md ---
 # Build the iPhone app
@@ -19834,6 +19939,7 @@ INCLUDED_FILES: list[str] = [
     "phone/iphone/CHANGELOG.md",
     "phone/iphone/docs/architecture.md",
     "phone/iphone/docs/distribution.md",
+    "phone/iphone/docs/troubleshooting.md",
     "phone/iphone/BUILD.md",
     "watch/apple/README.md",
     "watch/apple/CHANGELOG.md",

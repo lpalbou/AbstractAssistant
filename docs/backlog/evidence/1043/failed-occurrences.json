@@ -1,0 +1,34 @@
+{
+  "beta_update_app_available": true,
+  "failed_occurrences": [
+    {
+      "attempts": 3,
+      "failure": {
+        "attempts": 3,
+        "message": "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token.",
+        "reason_code": "occurrence_failed"
+      },
+      "finished_at": "2026-10-19T11:39:33.137919+00:00",
+      "fired_at": "2026-10-19T11:38:02.719423+00:00",
+      "index": 4,
+      "run_error": "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token.",
+      "run_id": "9f42432d-c4f6-5c16-be26-e57370baf1f7",
+      "status": "failed"
+    },
+    {
+      "attempts": 3,
+      "failure": {
+        "attempts": 3,
+        "message": "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token.",
+        "reason_code": "occurrence_failed"
+      },
+      "finished_at": "2026-10-19T05:58:15.211950+00:00",
+      "fired_at": "2026-10-19T05:56:44.933235+00:00",
+      "index": 3,
+      "run_error": "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token.",
+      "run_id": "1ed3d7f3-4371-5629-815c-3fd95d0c5572",
+      "status": "failed"
+    }
+  ],
+  "read_only": true
+}

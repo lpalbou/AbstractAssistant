@@ -287,6 +287,16 @@ public struct Principal: Codable, Hashable, Sendable {
     }
 }
 
+public struct OccurrenceFailure: Codable, Hashable, Sendable {
+    public var reasonCode: String?
+    public var message: String?
+    public var attempts: Int?
+    public init(reasonCode: String? = nil, message: String? = nil, attempts: Int? = nil) {
+        self.reasonCode = reasonCode; self.message = message; self.attempts = attempts
+    }
+    enum CodingKeys: String, CodingKey { case reasonCode = "reason_code", message, attempts }
+}
+
 /// `last_occurrence` of an automation row, and the rows of `GET /automations/{id}/occurrences`.
 public struct LastOccurrence: Codable, Hashable, Sendable {
     public var status: String?
@@ -297,12 +307,17 @@ public struct LastOccurrence: Codable, Hashable, Sendable {
     public var finishedAt: String?
     public var answer: String?
     public var triggerSummary: String?
+    public var failure: OccurrenceFailure?
+    public var attempts: Int?
+    public var userTurn: String?
     public init(status: String?, excerpt: String?, runId: String? = nil, index: Int? = nil, firedAt: String? = nil,
-                finishedAt: String? = nil, answer: String? = nil, triggerSummary: String? = nil) {
+                finishedAt: String? = nil, answer: String? = nil, triggerSummary: String? = nil,
+                failure: OccurrenceFailure? = nil, attempts: Int? = nil, userTurn: String? = nil) {
         self.status = status; self.excerpt = excerpt; self.runId = runId; self.index = index
         self.firedAt = firedAt; self.finishedAt = finishedAt; self.answer = answer; self.triggerSummary = triggerSummary
+        self.failure = failure; self.attempts = attempts; self.userTurn = userTurn
     }
-    enum CodingKeys: String, CodingKey { case status, excerpt, runId = "run_id", index, firedAt = "fired_at", finishedAt = "finished_at", answer, trigger }
+    enum CodingKeys: String, CodingKey { case status, excerpt, runId = "run_id", index, firedAt = "fired_at", finishedAt = "finished_at", answer, trigger, failure, attempts, userTurn = "user_turn" }
     enum TriggerKeys: String, CodingKey { case summary }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -313,11 +328,17 @@ public struct LastOccurrence: Codable, Hashable, Sendable {
         firedAt = try c.decodeIfPresent(String.self, forKey: .firedAt)
         finishedAt = try c.decodeIfPresent(String.self, forKey: .finishedAt)
         answer = try c.decodeIfPresent(String.self, forKey: .answer)
+        failure = try c.decodeIfPresent(OccurrenceFailure.self, forKey: .failure)
+        attempts = try c.decodeIfPresent(Int.self, forKey: .attempts)
+        userTurn = try c.decodeIfPresent(String.self, forKey: .userTurn)
         if let t = try? c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger) { triggerSummary = try t.decodeIfPresent(String.self, forKey: .summary) }
     }
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(status, forKey: .status); try c.encodeIfPresent(excerpt, forKey: .excerpt); try c.encodeIfPresent(runId, forKey: .runId)
+        try c.encodeIfPresent(failure, forKey: .failure); try c.encodeIfPresent(attempts, forKey: .attempts)
+        try c.encodeIfPresent(userTurn, forKey: .userTurn)
+        if let triggerSummary { var t = c.nestedContainer(keyedBy: TriggerKeys.self, forKey: .trigger); try t.encode(triggerSummary, forKey: .summary) }
         try c.encodeIfPresent(index, forKey: .index); try c.encodeIfPresent(firedAt, forKey: .firedAt); try c.encodeIfPresent(finishedAt, forKey: .finishedAt); try c.encodeIfPresent(answer, forKey: .answer)
     }
 }

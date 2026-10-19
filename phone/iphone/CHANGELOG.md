@@ -13,6 +13,21 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
   App Store Connect uploads require full native tests and human approval. TestFlight builds
   remain eligible for manual same-build App Store promotion.
 
+## [0.6.22] — 2026-10-19
+
+### Added
+
+- Dated, tappable automation runs with explanations, attempt counts, recorded errors,
+  task/trigger details and expandable activity. Results refresh while the screen is active.
+- Settings shows the installed version/build, installation channel, Apple update controls,
+  automatic-update instructions and the native version history.
+
+### Fixed
+
+- Failed automation occurrences retain the gateway’s failure details, including provider
+  credential errors. Empty answers no longer leave blank result headings or status-only cards.
+- Latest runs are shown once, and Run now cannot queue another occurrence while one is active.
+
 ## [0.6.21] — 2026-10-18
 
 ### Fixed

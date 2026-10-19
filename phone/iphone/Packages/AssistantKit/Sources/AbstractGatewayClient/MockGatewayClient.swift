@@ -343,8 +343,9 @@ public actor MockGatewayClient: GatewayClient {
             let day = Date(timeIntervalSince1970: 1_792_213_440 - Double(top - i) * 86_400)
             let failed = i == top - 2
             return LastOccurrence(status: failed ? "failed" : "completed", excerpt: nil, runId: "occ-\(i)", index: i,
-                                  firedAt: ISO8601DateFormatter().string(from: day),
-                                  answer: failed ? "The run stopped: the model was not reachable." : "Digest \(i): the assay QC run passed; nothing new to pin.")
+                                  firedAt: ISO8601DateFormatter().string(from: day), finishedAt: ISO8601DateFormatter().string(from: day.addingTimeInterval(90)),
+                                  answer: failed ? "" : "Digest \(i): the assay QC run passed; nothing new to pin.",
+                                  failure: failed ? .init(reasonCode: "occurrence_failed", message: "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token.", attempts: 3) : nil, attempts: failed ? 3 : 1, userTurn: "Check my emails for important updates.")
         }
         return [last] + older
     }
@@ -460,6 +461,10 @@ public actor MockGatewayClient: GatewayClient {
 
     /// A started mock run "streams": each poll reveals the words due by now, then completes.
     public func run(id: String) async throws -> RunSummary {
+        if id.hasPrefix("occ-") || id == "b81f3302" {
+            return RunSummary(runId: id, workflowId: "@default", status: id == "occ-39" ? "failed" : id == "occ-live" ? "running" : "completed",
+                              error: id == "occ-39" ? "OpenAI-compatible server API error (401): Missing or invalid AIRelays bearer token." : nil)
+        }
         if id == "media-demo", mediaImage != nil { return Self.mediaRun }
         if historyFixture, let run = Self.historyRuns.first(where: { $0.runId == id }) { return run }
         if cancelledRunIDs.contains(id) { return RunSummary(runId: id, workflowId: nil, status: "cancelled") }

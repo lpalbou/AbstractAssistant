@@ -3,7 +3,7 @@
 A quiet place to think, ask, and pick things up again. A native SwiftUI client for your
 AbstractGateway, with the conversation at the center and the controls you need close by.
 
-**Developer preview · 0.6.21 · iOS 26+**
+**iPhone · 0.6.22 · iOS 26+**
 
 ## Three small spaces
 
@@ -37,7 +37,7 @@ AbstractGateway, with the conversation at the center and the controls you need c
   to Auto. Off, unavailable and newly added tools remain outside that grant. Change the
   choices in **Tools** to revoke it. Questions still require an answer. Decisions already
   made on another device cannot resume a different wait.
-- **Automations.** See your routines, their latest answers and five earlier runs. Run an
+- **Automations.** See your routines and the latest 20 runs. Tap a dated run card for its explanation, attempts, recorded error and expandable activity; results refresh while the detail screen is open. Run an
   active or paused routine now, pause it, or resume it. Tap **New automation** (or **+** above an existing list) to create a routine: describe the task, choose a workflow and
   interval or daily time, choose its tools, and decide whether it builds on earlier runs.
   Daily times use your account’s time zone, which the creation screen displays. Editing
@@ -320,3 +320,5 @@ A category with mixed choices shows “Mixed” with no selected segment. Choosi
 tools in that category, including those hidden by search, while preserving other categories.
 It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
 category controls apply in Settings, a session, and an automation.
+
+**Version & updates** in Settings shows the installed version/build and opens the appropriate Apple update flow. Enable beta automatic updates in TestFlight. See [run troubleshooting and updates](docs/troubleshooting.md).
