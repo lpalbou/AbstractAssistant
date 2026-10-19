@@ -25,6 +25,8 @@ class StoreProjectTests(unittest.TestCase):
         p, w = store.compose(phone, watch, Path('/repo'), Path('/generated'))
         self.assertEqual((phone, watch), originals)
         self.assertEqual(p['targets']['AbstractAssistantPhone']['settings']['base']['PRODUCT_BUNDLE_IDENTIFIER'], store.STORE_ID)
+        watch_copy = p['targets']['AbstractAssistantPhone']['dependencies'][-1]['copy']
+        self.assertEqual(watch_copy, {'destination': 'productsDirectory', 'subpath': '$(CONTENTS_FOLDER_PATH)/Watch'})
         props = w['targets']['AbstractAssistantWatch']['info']['properties']
         self.assertNotIn('WKWatchOnly', props)
         self.assertEqual(props['WKCompanionAppBundleIdentifier'], store.STORE_ID)

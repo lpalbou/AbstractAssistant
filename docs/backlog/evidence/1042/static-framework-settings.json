@@ -1,0 +1,10 @@
+[
+  {
+    "PRODUCT_NAME": "AbstractGatewayClient",
+    "PRODUCT_MODULE_NAME": "AbstractGatewayClient",
+    "FULL_PRODUCT_NAME": "AbstractGatewayClient.framework",
+    "MACH_O_TYPE": "staticlib",
+    "SKIP_INSTALL": "YES",
+    "WATCHOS_DEPLOYMENT_TARGET": "26.0"
+  }
+]

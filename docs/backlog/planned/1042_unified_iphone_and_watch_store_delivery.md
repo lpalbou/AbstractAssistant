@@ -122,3 +122,9 @@ reference, while inherited PRODUCT_NAME still expanded to the build-target name.
 explicitly to AbstractGatewayClient and assert product/module/build-name agreement before the
 next real compiler pass. This was caught by inspecting generated PBX settings, independently of
 unit assertions.
+
+Watch companion simulator compilation now passes (run39199862597) and all 73 Watch package tests
+pass. Inspecting the generated iPhone PBX copy phase before archiving found XcodeGen defaults a
+cross-project app dependency to Resources. Specify the standard products-directory copy into
+$(CONTENTS_FOLDER_PATH)/Watch explicitly, with linking disabled; assert that destination in the
+composition contract. The actual combined-archive inspector remains the final embedding gate.

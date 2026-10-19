@@ -80,5 +80,5 @@ jobs:
       - name: Store release entrypoint
         run: |
           echo '## Store delivery' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Use [Apple app (iPhone + Watch)](../../workflows/iphone.yml) → Run workflow → upload.' >> "$GITHUB_STEP_SUMMARY"
+          echo "Use [Apple app (iPhone + Watch)]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/iphone.yml) → Run workflow → upload." >> "$GITHUB_STEP_SUMMARY"
           echo 'Both apps ship in the existing AbstractAssistant listing, after human app-store approval.' >> "$GITHUB_STEP_SUMMARY"

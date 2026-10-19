@@ -60,7 +60,8 @@ def compose(phone: dict, watch: dict, root: Path, output: Path) -> tuple[dict, d
             package["path"] = str((phone_base / package["path"]).resolve())
     app = p["targets"]["AbstractAssistantPhone"]
     app["settings"]["base"]["PRODUCT_BUNDLE_IDENTIFIER"] = STORE_ID
-    app.setdefault("dependencies", []).append({"target": "StoreWatch/AbstractAssistantWatch", "embed": True})
+    app.setdefault("dependencies", []).append({"target": "StoreWatch/AbstractAssistantWatch", "embed": True,
+        "link": False, "copy": {"destination": "productsDirectory", "subpath": "$(CONTENTS_FOLDER_PATH)/Watch"}})
     p["projectReferences"] = {"StoreWatch": {"path": str(output / "StoreWatch.xcodeproj")}}
 
     w = {"name": "StoreWatch", "options": copy.deepcopy(watch["options"]),
