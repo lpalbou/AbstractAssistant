@@ -82,7 +82,7 @@ def compose(phone: dict, watch: dict, root: Path, output: Path) -> tuple[dict, d
         "type": "framework", "platform": "watchOS", "productName": "AbstractGatewayClient",
         "sources": [str(watch_base / "Packages/AbstractGatewayClient/Sources/AbstractGatewayClient")],
         "settings": {"base": {"PRODUCT_BUNDLE_IDENTIFIER": WATCH_ID + ".client",
-            "PRODUCT_MODULE_NAME": "AbstractGatewayClient", "MACH_O_TYPE": "staticlib",
+            "PRODUCT_NAME": "AbstractGatewayClient", "PRODUCT_MODULE_NAME": "AbstractGatewayClient", "MACH_O_TYPE": "staticlib",
             "SKIP_INSTALL": True, "GENERATE_INFOPLIST_FILE": True,
             "SWIFT_STRICT_CONCURRENCY": "complete"}}}
     return p, w

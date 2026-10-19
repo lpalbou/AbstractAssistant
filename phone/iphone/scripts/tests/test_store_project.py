@@ -36,6 +36,7 @@ class StoreProjectTests(unittest.TestCase):
         # Swift framework imports resolve the product folder before its .swiftmodule.
         client = w['targets']['WatchGatewayClient']
         self.assertEqual(client['productName'], client['settings']['base']['PRODUCT_MODULE_NAME'])
+        self.assertEqual(client['productName'], client['settings']['base']['PRODUCT_NAME'])
 
     def test_watch_package_cannot_silently_lose_swiftpm_build_behavior(self):
         package = {'targets': [{'name': 'AbstractGatewayClient', 'type': 'regular'}]}

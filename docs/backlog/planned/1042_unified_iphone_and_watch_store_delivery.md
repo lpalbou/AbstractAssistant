@@ -116,3 +116,9 @@ simulator build could not import AbstractGatewayClient. The generated static fra
 folder was named WatchGatewayClient.framework while its module/import was AbstractGatewayClient.
 Align productName with the module name; retain the distinct build-target name. Add a composition
 assertion for that contract and rerun the real companion build. Upload remained blocked/skipped.
+
+Generated-project inspection also showed XcodeGen productName controls the project product
+reference, while inherited PRODUCT_NAME still expanded to the build-target name. Set both
+explicitly to AbstractGatewayClient and assert product/module/build-name agreement before the
+next real compiler pass. This was caught by inspecting generated PBX settings, independently of
+unit assertions.
