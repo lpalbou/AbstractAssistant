@@ -1,0 +1,208 @@
+name: iPhone app
+
+on:
+  push:
+    branches: [main]
+    paths: ["phone/iphone/**", ".github/workflows/iphone.yml", ".github/actionlint.yaml"]
+  pull_request:
+    paths: ["phone/iphone/**", ".github/workflows/iphone.yml", ".github/actionlint.yaml"]
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Request human approval to upload this candidate to App Store Connect / TestFlight"
+        type: boolean
+        default: false
+      full_ui_suite:
+        description: "Run the full native UI suite (always enabled for uploads)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iphone-${{ github.event_name }}-${{ github.ref }}-${{ inputs.upload && github.run_id || 'checks' }}
+  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.upload) }}
+
+env:
+  XCODE_MAJOR: "27"
+  PROJECT_DIR: phone/iphone
+  TEAM_ID: K3R4D6HP2A
+
+jobs:
+  contracts:
+    name: Release contract checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Release provenance and failure cases
+        run: python3 -m unittest discover -s phone/iphone/scripts/tests -v
+      - name: Validate workflow
+        run: |
+          curl -fsSL --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck= .github/workflows/iphone.yml
+      - name: Shell syntax
+        run: bash -n phone/iphone/scripts/select-xcode.sh phone/iphone/scripts/upload-candidate.sh
+
+  build:
+    name: Test and archive candidate
+    needs: contracts
+    runs-on: xcode-27
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Select released Xcode
+        run: bash phone/iphone/scripts/select-xcode.sh
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+      - name: Version and unique build number
+        id: version
+        run: |
+          python3 phone/iphone/scripts/release.py metadata --project phone/iphone/project.yml \
+            --run-number "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Package tests
+        run: swift test --package-path phone/iphone/Packages/AssistantKit --scratch-path "$RUNNER_TEMP/SwiftTests" --jobs 1
+      - name: Generate project
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: xcodegen generate --spec project.yml
+      - name: Create isolated iPhone simulator
+        run: |
+          runtime=$(xcrun simctl list runtimes available -j | python3 -c '
+          import json,sys
+          rows=[r for r in json.load(sys.stdin)["runtimes"] if ".iOS-" in r["identifier"] and int(r["version"].split(".")[0]) >= 26]
+          if not rows: raise SystemExit("No available iOS26+ runtime")
+          print(max(rows,key=lambda r: tuple(map(int,r["version"].split("."))))["identifier"])')
+          simulator=$(xcrun simctl create "Assistant CI $GITHUB_RUN_ID" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro "$runtime")
+          echo "IPHONE_CI_SIMULATOR=$simulator" >> "$GITHUB_ENV"
+          xcrun simctl boot "$simulator"
+          xcrun simctl bootstatus "$simulator" -b
+      - name: Native tests
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          FULL_UI: ${{ inputs.upload || inputs.full_ui_suite }}
+        run: |
+          selectors=(-only-testing:AbstractAssistantPhoneTests)
+          suite=critical
+          if [[ "$FULL_UI" == true ]]; then
+            suite=full
+            selectors+=(-only-testing:AbstractAssistantPhoneUITests)
+          else
+            for test in testWorkingOrbIsTheOnlyStopAndReturnsAfterCancellation \
+              testRestoredImageSurvivesColdRelaunchPreviewAndTabChanges \
+              testCategoryBulkControlsRespectHiddenAndDisabledTools \
+              testGroupedHistoryArchivesAndRestoresUsingExistingActions; do
+              selectors+=("-only-testing:AbstractAssistantPhoneUITests/PhoneUITests/$test")
+            done
+          fi
+          xcodebuild test -project AbstractAssistantPhone.xcodeproj -scheme AbstractAssistantPhoneUITests \
+            -destination "platform=iOS Simulator,id=$IPHONE_CI_SIMULATOR" \
+            -derivedDataPath "$RUNNER_TEMP/PhoneTests" -resultBundlePath "$RUNNER_TEMP/iPhoneTests.xcresult" \
+            -jobs 1 -parallel-testing-enabled NO -collect-test-diagnostics never \
+            "${selectors[@]}" -skip-testing:AbstractAssistantPhoneTests/LiveGatewayMediaTests \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
+          echo "NATIVE_SUITE=$suite" >> "$GITHUB_ENV"
+      - name: Check archive signing requirements
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          xcodebuild -project AbstractAssistantPhone.xcodeproj -scheme AbstractAssistantPhone \
+            -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -showBuildSettings -json > "$RUNNER_TEMP/settings.json"
+          python3 scripts/release.py settings "$RUNNER_TEMP/settings.json"
+      - name: Archive Release candidate without Apple credentials
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build }}
+        run: |
+          xcodebuild archive -project AbstractAssistantPhone.xcodeproj -scheme AbstractAssistantPhone \
+            -destination 'generic/platform=iOS' -configuration Release -jobs 1 \
+            -derivedDataPath "$RUNNER_TEMP/PhoneArchive" -archivePath "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO -quiet
+          python3 scripts/release.py candidate --archive "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
+            --output "$RUNNER_TEMP/iphone-candidate" --sha "$GITHUB_SHA" \
+            --version "$VERSION" --build "$BUILD_NUMBER" --test-suite "$NATIVE_SUITE"
+      - name: Candidate summary
+        run: |
+          {
+            echo '## iPhone release candidate'
+            echo "Commit: \`$GITHUB_SHA\`"
+            echo "Native checks: $NATIVE_SUITE suite; live gateway tests excluded"
+            echo '```json'
+            cat "$RUNNER_TEMP/iphone-candidate/candidate.json"
+            echo '```'
+            echo 'Pushes and PRs do not upload. A manual upload request waits for human app-store approval.'
+            echo 'Upload makes the build available for TestFlight after Apple processing. Store submission/release remain manual.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iphone-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iphone-candidate/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Preserve native test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iPhoneTests.xcresult
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Remove owned simulator
+        if: always()
+        run: |
+          if [[ -n "${IPHONE_CI_SIMULATOR:-}" ]]; then
+            xcrun simctl delete "$IPHONE_CI_SIMULATOR"
+          fi
+
+  upload:
+    name: Approve App Store Connect upload
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.upload && github.ref == 'refs/heads/main'
+    runs-on: xcode-27
+    timeout-minutes: 45
+    environment:
+      name: app-store
+      url: https://appstoreconnect.apple.com/apps
+    concurrency:
+      group: iphone-app-store-upload
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Select released Xcode
+        run: bash phone/iphone/scripts/select-xcode.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: iphone-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/iphone-candidate
+      - name: Verify, sign and upload the checked archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: bash phone/iphone/scripts/upload-candidate.sh "$RUNNER_TEMP/iphone-candidate"
+      - name: Upload receipt
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          BUILD_NUMBER: ${{ needs.build.outputs.build }}
+        run: |
+          {
+            echo "## Uploaded iPhone $VERSION ($BUILD_NUMBER)"
+            echo "Source: \`$GITHUB_SHA\`"
+            echo 'Apple must process the upload before it appears in TestFlight.'
+            echo 'This does not submit App Review or release the app publicly.'
+            echo 'After beta validation, select this exact build in App Store Connect and choose manual release.'
+          } >> "$GITHUB_STEP_SUMMARY"

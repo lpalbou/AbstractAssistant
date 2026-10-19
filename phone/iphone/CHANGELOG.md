@@ -3,6 +3,14 @@
 The native iPhone client has its own version and build number. Desktop package releases are
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- iPhone CI runs package and native tests and retains an unsigned Release candidate. Manual
+  App Store Connect uploads require full native tests and human approval. TestFlight builds
+  remain eligible for manual same-build App Store promotion.
+
 ## [0.6.21] — 2026-10-18
 
 ### Fixed

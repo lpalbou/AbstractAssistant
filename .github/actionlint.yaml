@@ -1,0 +1,4 @@
+# GitHub's documented Xcode27 hosted preview label is newer than actionlint's built-in list.
+# This field is actionlint's additional runner-label allowlist; it does not select self-hosting.
+self-hosted-runner:
+  labels: [xcode-27]

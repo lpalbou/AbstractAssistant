@@ -80,7 +80,13 @@ The optional `--allow-idle-watch-test <pid>` permits only a specifically identif
 Watch UI-test process (physical Watch or simulator); the helper still yields to Watch activity or compilation and memory
 pressure. Omit it for normal builds.
 
-App Store distribution, signing and upload are not configured by this preview.
+## CI and App Store Connect
+
+The [iPhone workflow](../../.github/workflows/iphone.yml) runs credential-free checks and creates
+an unsigned Release candidate. Manual upload requests on main require the full native suite
+and approval of the protected **app-store** environment before signing/upload. See
+[Testing and distribution](docs/distribution.md) for first-time setup, TestFlight delivery and
+manual promotion of the same build to the public App Store.
 
 ## Opt-in live media verification
 

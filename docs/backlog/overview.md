@@ -7,11 +7,11 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 7
+- Planned: 8
 - Proposed: 17
 - Completed: 6
 
-Counts recomputed from disk on 2026-10-18 for iPhone item 1040 (topic tracks included).
+Counts recomputed from disk on 2026-10-18 for iPhone item 1041 (topic tracks included).
 0009 is on disk under planned/ and still has no row in the Planned table.
 - Deprecated: 0
 - Recurrent: 0
@@ -42,6 +42,7 @@ Counts recomputed from disk on 2026-10-18 for iPhone item 1040 (topic tracks inc
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1041](planned/1041_iphone_ci_and_gated_apple_delivery.md) | iPhone CI and gated Apple delivery | Planned | Credential-free checks and candidate archive; manual main-only human-approved ASC upload; TestFlight then same-build manual Store promotion. ADR0002. |
 | [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Completed (0.7.0, 2026-09-27) | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |

@@ -532,3 +532,12 @@ They use the complete gateway inventory for that category, independently of sear
 rows. A mixed group has no selected segment; unavailable tools stay Off, and unrelated
 categories preserve their modes. Existing Settings/session/automation save paths and grant
 precedence are unchanged.
+
+## CI and distribution boundary
+
+The iPhone workflow builds and tests without Apple credentials, retaining a Release archive
+with source/version/build/checksum provenance. Manual main-only upload requests require full
+native checks and a protected app-store human approval. The upload job verifies and signs
+that archive without rebuilding; keys remain in a private temporary directory. TestFlight
+validation and manual same-build App Store submission/release are separate stages. See
+[distribution](distribution.md) and [ADR 0002](../../../docs/adr/0002_iphone_release_stages.md).

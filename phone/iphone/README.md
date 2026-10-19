@@ -209,6 +209,15 @@ demo actions do not contact a gateway or overwrite an existing Keychain sign-in.
 See [BUILD.md](BUILD.md). The project has its own bundle ID, Xcode project, build directory
 and gateway-client snapshot. It neither embeds nor modifies the Watch application.
 
+## Testing and distribution
+
+[Testing and distribution](docs/distribution.md) explains the CI checks and protected upload.
+Pushes and pull requests test the client without Apple credentials. A manual upload request
+on main runs the full native suite and waits for a human reviewer before sending the Release
+candidate to App Store Connect. Test the processed build in TestFlight, then select that same
+build for manual App Review submission and public release. The workflow never publishes to
+the public App Store automatically.
+
 ## What to expect from this preview
 
 - Foreground updates only: active runs are checked every three seconds; the lists every

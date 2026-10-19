@@ -7,6 +7,9 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ### iPhone
 
+- Credential-free iPhone CI and manually requested, human-approved App Store Connect uploads,
+  with candidate provenance and separate TestFlight/manual App Store release stages.
+
 - Native iPhone **0.6.21** keeps generated image previews visible when you reopen conversations
   or restart the app, shares downloads across message views and offers retry for failed images.
   See the [iPhone release history](phone/iphone/CHANGELOG.md) for native client versions.

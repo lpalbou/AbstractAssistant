@@ -18,7 +18,7 @@ Start with [getting-started.md](getting-started.md), then use the pages below as
 - [voice.md](voice.md) — speaking replies, dictation, and the hands-free voice conversation loop
 - [automations.md](automations.md) — scheduled tasks on the gateway: the Sessions | Automations tabs, Schedule this conversation, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and the two polls, the capability gate, offline behavior, limits
 
-- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md) and [build guide](../phone/iphone/BUILD.md)
+- [../phone/iphone/README.md](../phone/iphone/README.md) — AbstractAssistant for iPhone: conversations, scoped tools, automations, restorable image previews and voice playback; [architecture](../phone/iphone/docs/architecture.md), [release history](../phone/iphone/CHANGELOG.md), [testing/distribution](../phone/iphone/docs/distribution.md) and [build guide](../phone/iphone/BUILD.md)
 
 ## Design records
 
