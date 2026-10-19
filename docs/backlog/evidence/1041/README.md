@@ -90,3 +90,24 @@ was unchanged at the test's fixed140ms sleep. Replace that fixed-delay assertion
 observation of a changed rendered frame, retaining the threshold and adding a check that the
 frame differs from the final sphere before mid-flight reversal. All rendering and reversal
 checks remain required. `ci-critical-second-native-summary.json` preserves the failure.
+
+## Final standard CI receipt
+
+[Run39184707211](https://github.com/lpalbou/AbstractAssistant/actions/runs/39184707211)
+succeeded on514d041 after the rendering-test refinement: release contracts,246 package tests,
+35 native tests, unsigned Release archive and artifact retention. Apple upload was skipped.
+`ci-final-critical-*.json` preserve the run, artifact metadata, native summary and candidate.
+The candidate checksum matches its archive. The full UI run uses80e6f1f; the only subsequent
+change is the native orb test, exercised here. Application and release-workflow sources match
+between these validation commits. `orb-stop.png` and `orb-restored-sphere.png` were visually
+inspected from the earlier fixed-delay failure; both endpoints render correctly.
+
+Full run39182853154 passed78/79, resolving all five earlier UI failures. The remaining voice
+fixture stayed Listening instead of auto-sending after silence. Failure hierarchy confirms
+the controller remained recording. VoiceTurn intentionally resets silence on unobserved
+sample gaps over250ms; main-thread CI stalls made the wall-clock synthetic recorder
+non-deterministic. Give the DEBUG-only, --demo/--ui-test/--voice-fixture recorder an observed-
+sample clock, so fixture frames and controller timestamps advance together. Production
+recorder, strict silence policy and real monotonic clock remain unchanged. Allow30s for the
+UI's transcription/answer observation under a throttled runner. Native policy tests continue
+to verify real sampling gaps are never counted as silence. Rerun full native suite.

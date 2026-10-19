@@ -612,7 +612,7 @@ final class PhoneUITests: XCTestCase {
         orb.tap()
         XCTAssertTrue(countdown.waitForExistence(timeout: 6))
         capture(app, "Voice listening")
-        XCTAssertTrue(app.staticTexts["Help me make room for focused work this week"].firstMatch.waitForExistence(timeout: 12))
+        XCTAssertTrue(app.staticTexts["Help me make room for focused work this week"].firstMatch.waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["Copy answer"].firstMatch.waitForExistence(timeout: 30))
         XCTAssertTrue(orb.exists)
         // A partial answer appears before the gateway run completes; editing requires ready.
