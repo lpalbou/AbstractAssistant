@@ -108,3 +108,11 @@ cleanup. Both workflows pass actionlint1.7.12. Composed package graph resolves a
 Watch client module. Local device-archive work yielded to concurrent Watch UI work/memory pressure;
 real hosted combined archive and native CI are required next. No combined Apple upload claimed.
 Public docs and ADR0003 describe the unified product and sandbox implications.
+
+## First combined CI finding
+
+Run 39199477853 passed 14 contracts and the Watch Swift package suite, then the companion
+simulator build could not import AbstractGatewayClient. The generated static framework's product
+folder was named WatchGatewayClient.framework while its module/import was AbstractGatewayClient.
+Align productName with the module name; retain the distinct build-target name. Add a composition
+assertion for that contract and rerun the real companion build. Upload remained blocked/skipped.

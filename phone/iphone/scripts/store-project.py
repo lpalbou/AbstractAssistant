@@ -79,7 +79,7 @@ def compose(phone: dict, watch: dict, root: Path, output: Path) -> tuple[dict, d
     w["targets"]["AbstractAssistantWatch"] = target
     # Avoid SwiftPM's duplicate-product collision while compiling the same Watch sources.
     w["targets"]["WatchGatewayClient"] = {
-        "type": "framework", "platform": "watchOS",
+        "type": "framework", "platform": "watchOS", "productName": "AbstractGatewayClient",
         "sources": [str(watch_base / "Packages/AbstractGatewayClient/Sources/AbstractGatewayClient")],
         "settings": {"base": {"PRODUCT_BUNDLE_IDENTIFIER": WATCH_ID + ".client",
             "PRODUCT_MODULE_NAME": "AbstractGatewayClient", "MACH_O_TYPE": "staticlib",

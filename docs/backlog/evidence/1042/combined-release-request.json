@@ -1,0 +1,19 @@
+{
+  "checked_at_utc": "2026-10-19T04:27:11.354734+00:00",
+  "run": {
+    "createdAt": "2026-10-19T04:26:30Z",
+    "databaseId": 39199477853,
+    "event": "workflow_dispatch",
+    "headSha": "5614b256ef8ec399c65392a6f068fdaf17e24c21",
+    "status": "in_progress",
+    "url": "https://github.com/lpalbou/AbstractAssistant/actions/runs/39199477853"
+  },
+  "upload_requested": true,
+  "full_ui_suite_requested": true,
+  "cancelled_legacy_watch_only_runs": [
+    39181516347,
+    39104390056
+  ],
+  "duplicate_automatic_iphone_run_cancelled": 39199477004,
+  "human_environment_gate": "unchanged; required before Apple keys/upload"
+}

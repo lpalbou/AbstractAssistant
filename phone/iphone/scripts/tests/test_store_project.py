@@ -33,6 +33,9 @@ class StoreProjectTests(unittest.TestCase):
         self.assertEqual(p['targets']['AbstractAssistantPhone']['sources'][1]['excludes'], ['Info.plist'])
         self.assertEqual(w['targets']['AbstractAssistantWatch']['info']['path'], '/generated/Watch.info.plist')
         self.assertNotIn('AbstractAssistant', w['targets'])
+        # Swift framework imports resolve the product folder before its .swiftmodule.
+        client = w['targets']['WatchGatewayClient']
+        self.assertEqual(client['productName'], client['settings']['base']['PRODUCT_MODULE_NAME'])
 
     def test_watch_package_cannot_silently_lose_swiftpm_build_behavior(self):
         package = {'targets': [{'name': 'AbstractGatewayClient', 'type': 'regular'}]}
