@@ -6,22 +6,8 @@ import SwiftUI
 // eclipse), Synapse (a network of nodes) and Drop (a drop of light). Units as the planet (1 = its
 // radius, y down).
 
-/// How much of each state is happening now (they sum to 1): the weights each point's place in each
-/// state's shape is blended with.
-private struct StateMix {
-    let rest: Double, listen: Double, think: Double, work: Double, speak: Double
-    init(_ e: OrbEngine) {
-        var speak = e.engagement * e.talking
-        var listen = e.engagement * (1 - e.talking)
-        let busy = (1 - e.engagement) * e.thinking
-        var work = busy * e.working
-        var think = busy * (1 - e.working)
-        let sum = speak + listen + work + think
-        if sum > 1 { speak /= sum; listen /= sum; work /= sum; think /= sum }
-        self.speak = speak; self.listen = listen; self.work = work; self.think = think
-        rest = max(0, 1 - speak - listen - work - think)
-    }
-}
+/// Each point's place in each phase's shape is blended with the phases' weights.
+private typealias StateMix = OrbPhases
 
 /// A point in space and its light, summed over the states' shapes.
 private struct Blend {
@@ -96,11 +82,10 @@ extension OrbCanvas {
                     let reach = 0.55 + 0.45 * OrbPoints.hash(br, 7)
                     let tipX = reach * 1.05 * cos(ab), tipZ = reach * 1.05 * sin(ab), tipY = base.y - 1.15 * reach
                     if abs(v) > 0.78 {
-                        let q = (abs(v) - 0.78) / 0.22 * 4
-                        let side = 0.06
-                        let sx = q < 1 ? -side + 2 * side * q : (q < 2 ? side : (q < 3 ? side - 2 * side * (q - 2) : -side))
-                        let sy = q < 1 ? -side : (q < 2 ? -side + 2 * side * (q - 1) : (q < 3 ? side : side - 2 * side * (q - 3)))
-                        bl.add(m.work, tipX + sx, tipY + sy, tipZ, 0.95)
+                        // A node at the tip: a small glowing disc, pulsing as the signal arrives.
+                        let q = 2 * Double.pi * (abs(v) - 0.78) / 0.22, r = 0.045 * (0.4 + 0.6 * OrbPoints.hash(i, 8))
+                        let arrive = pow(max(0, sin((1 - t * 0.9) * 2 * .pi)), 4)
+                        bl.add(m.work, tipX + r * cos(q), tipY + r * sin(q), tipZ, 0.7 + 0.5 * arrive)
                     } else {
                         let f = u
                         let x = tipX * f * f, z = tipZ * f * f, y = base.y + (tipY - base.y) * f
@@ -166,11 +151,12 @@ extension OrbCanvas {
                 let corner = (u < 0.06 || u > 0.94) ? 0.4 : 0
                 let restS = 0.5 * (1 + 0.15 * level * m.listen)
                 bl.add(m.rest + m.listen, ex * restS, ey * restS, ez * restS, 0.45 + corner + 0.5 * m.listen * level)
-                // Thinking: half the edges form a second crystal turned a quarter turn (a compound).
-                if i % 2 == 1 {
-                    bl.add(m.think, ez * 0.88, ey * 0.88, -ex * 0.88, 0.5 + corner)
+                // Thinking: the crystal grows and a second one turns inside it, the other way.
+                if (i / edges.count) % 3 == 0 {                                  // every edge has points in both
+                    let a = -2.4 * t, c = cos(a), s = sin(a)
+                    bl.add(m.think, (ex * c + ez * s) * 0.36, ey * 0.36, (-ex * s + ez * c) * 0.36, 0.75 + corner)
                 } else {
-                    bl.add(m.think, ex * 0.88, ey * 0.88, ez * 0.88, 0.55 + corner)
+                    bl.add(m.think, ex * 0.85, ey * 0.85, ez * 0.85, 0.5 + corner)
                 }
                 bl.add(m.work, ex * 0.58, ey * 0.58, ez * 0.58, 0.55 + corner)
                 let sp = 0.6 * (1 + 0.12 * loud)
@@ -397,7 +383,7 @@ extension OrbCanvas {
             cores[min(4, max(0, Int(b * 4)))].addEllipse(in: CGRect(x: cxp - core, y: cyp - core, width: 2 * core, height: 2 * core))
         }
         drawWaves(&gc, cx: d.cx, cy: d.cy, R: d.R, pal: pal)
-        for b in 0..<5 { gc.fill(d.paths[b], with: .color(pal[b])) }
+        paintDots(&gc, d.paths, pal, px: d.px)
         for b in 0..<5 { gc.fill(cores[b], with: .color(pal[min(4, b + 1)])) }
         drawSatellites(&gc, cx: d.cx, cy: d.cy, R: d.R, px: d.px, pal: pal)
     }

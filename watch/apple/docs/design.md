@@ -28,7 +28,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Screen | Purpose | Actions |
 |---|---|---|
 | Sign in | First launch, after Sign out, or when the gateway ends the session: the AbstractFramework mark, one field "Sign in with user or email" with the send arrow inside it, the server below (tap to change). A user name then asks for its token; an email gets an 8-digit code. | send · change · resend the code |
-| Choose your orb | First launch: the twenty-two orb styles, one per page, each shown speaking, "Use this" at the bottom. | swipe · Use this |
+| Choose your orb | First launch (and Settings → Orb style): the twenty-two styles in four families (Orbs, Forms, Faces, Machines), each row a small live orb speaking, its name and a few words; a row opens its preview, which goes through listening, thinking, working and speaking (tap a phase to hold it), "Use this" at the bottom. | scroll · open · Use this |
 | Home | The orb (one tap to talk), what needs you (only when something does), Sessions and Automations with a count: what is new in a filled badge, else how many, a spinner until they are read; "Connecting…" while the first tries are retried, and the gateway said unreachable only after 3 failed tries over 20 s; the gear opens Settings. | talk · open |
 | Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers), the keyboard icon top right and the tools icon bottom right (as far from the bottom as the keyboard from the top); while it listens, works or speaks, they hide. While it works: its steps live below the orb, a pulse per tool call, a satellite per tool running, and the amber shield (bottom right) after an Accept all. Beside Back: share the conversation, and the voice button (play, pause, hold to rewind). The answer appears below with its images and recordings, spoken by the orb; "N steps · time" opens how it worked. | tap · hold · keyboard · tools · shield · share · voice button · choose who answers |
 | Tools | A conversation's tools (or the defaults, from Settings): its Workflow row, then the groups (Files, Web, System, Email, …) with their counts; after an Accept all, "Allowed for now" with Ask again. A group lists each tool with its risk, what it can do and Off · Auto · Ask, and All for the group. | choose · Use my defaults · Ask again |
@@ -101,7 +101,17 @@ signal (rising in about 120 ms, falling in about 600 ms). A weak voice moves onl
 stronger one draws in more and more points; one point in six follows at most 15%, so the shape
 breathes yet stays. Moving points light up as they travel, and no point leaves the screen.
 
-Twenty-two styles, chosen at first launch and in Settings → Orb style. Five planets whose points answer
+Every style draws the same five phases from one interface (`OrbPhases`: how much of each phase is
+happening, summing to 1, and the voice now): at rest; listening (you speak); thinking; working
+(tools running, while it thinks); speaking. Each phase has its own motif in every style, and the
+change between two phases is a blend, never a cut. The points glow (a soft bloom under the
+brightest), surfaces are sampled evenly (no grain) and lit from the upper left; the voice's shapes
+stay inside the orb's circle.
+
+Twenty-two styles, chosen at first launch and in Settings → Orb style, in four families: **Orbs**
+(Halo, Vortex, Nebula, Rings, Liquid, Galaxy), **Forms** (Lotus, Crystal, Eclipse, Synapse, Drop,
+Ocean), **Faces** (Face, Imprint, Hologram, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco,
+Rover). Five planets whose points answer
 the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a breathing cloud), Liquid
 (surface waves), Galaxy (a dense spiral with stars everywhere). Seventeen scenes of their own
 (`OrbScenes`, `OrbConcepts`, `OrbAvatars`, `OrbRobots`):
@@ -130,12 +140,13 @@ the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a brea
   voice (low pitches the first, high the last): it swings about its own diameter and its beads spin,
   faster and wider as its band is louder; silence lets the structure settle back. Thinking spins it
   up like a gyroscope.
-- **Face**: a head-and-shoulders portrait in points (smiling eyes with a catchlight, a soft
-  smile, rosy cheeks). It blinks every few seconds, breathes and turns its head a little. Its lips
-  have thickness and follow its own voice: open with loudness (the jaw following, the teeth showing),
-  rounded when the low bands lead (o, u), wide when the high ones do (e, i), closed in the pauses.
-  While you speak it turns its head and cups a hand behind its ear; your voice reaches it as arcs
-  flowing into the hand's cone. While it thinks it looks up and aside.
+- **Face**: a sculpted bust in light: the face's real relief (brows, nose, lips, chin, the eyes
+  in their sockets) sampled evenly and lit from the upper left as it turns, glowing eyes, short
+  hair, neck and shoulders. It blinks, breathes and moves its head a little. Its lips follow its own
+  voice: open with loudness (the jaw following, the opening dark), rounded when the low bands lead,
+  wide when the high ones do, closed in the pauses. Listening, it turns its head and cups a hand
+  behind its ear, your voice arriving as arcs in the hand's cone; thinking, it looks up and aside;
+  working, it reads (quick glances) while a fine scan line passes down its face.
 - **Imprint**: the face zoomed in and pressed against a pane of glass: only what touches the pane
   is drawn, flattened, with a bright rim. At rest most of the face touches it (forehead, brows,
   nose, cheeks, lips, chin), the eyes, nostrils and the line between the lips left open. Its voice

@@ -14,10 +14,9 @@ channel (TestFlight, then the App Store); the Python package's history is in
     tools, speaking), morphing from one to the next: **Lotus** (a bud that blooms), **Crystal** (a
     crystal that grows wings), **Eclipse** (a golden eclipse), **Synapse** (a network that bursts
     into a star) and **Drop** (a drop of light that pours out as a horn).
-  - **Face**: a friendly portrait in points, with smiling eyes, a soft smile and rosy cheeks. It
+  - **Face**: a sculpted bust in light (the face's real relief lit as it turns, glowing eyes). It
     blinks, breathes and moves its head a little. Its lips follow its own voice like speech: open
-    on loud sounds with the teeth showing, rounded on dark vowels, wide on bright ones, closed in
-    the pauses. While you speak it turns its head and cups a hand behind its ear, your voice
+    on loud sounds, rounded on dark vowels, wide on bright ones, closed in the pauses. While you speak it turns its head and cups a hand behind its ear, your voice
     arriving as arcs in the hand's cone; it looks up and aside while it thinks.
   - **Imprint**: the face, zoomed in, pressed against a pane of glass: only what touches the pane
     shows, most of the face at rest with its eyes and mouth open. It presses in and opens its mouth
@@ -40,8 +39,18 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Every orb, refined and speaking the same phases.** All twenty-two styles show the same five
+  phases (at rest, listening, thinking, working with tools, speaking), each with its own motif, and
+  blend from one to the next: the planets' thinking sweeps bands across them and their working
+  gathers points into a streaming ring; Face is a sculpted bust in light that reads while it works;
+  Rings run a wave across their rings; Hologram and Imprint scan; Eye reads (quick fixations);
+  Ocean's lighthouse sweeps the water. The points glow, surfaces are sampled evenly and lit, the
+  voice's shapes stay inside the orb, and the ring a tool call sends out is a fine line.
+- **The orb styles by family.** Settings → Orb style (and the first-launch question) lists the
+  styles in four families (Orbs, Forms, Faces, Machines), each with a small live orb and a few words;
+  a style opens a live preview that goes through the phases, with "Use this".
+
 - Home's orb is 20% larger; the orb on the talk and Read aloud pages is 10% smaller.
-- The style picker shows each orb speaking.
 - The orb's line no longer keeps "I didn't hear anything" (or an earlier error) once the orb
   speaks.
 - **Rings** is a geodesic structure of six rigid rings: each ring turns with its own part of the

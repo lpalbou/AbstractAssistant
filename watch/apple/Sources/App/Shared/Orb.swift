@@ -63,10 +63,70 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .h: "a sea at night whose waves rise with the voice; rain falls while it thinks"
         }
     }
+    /// The family it belongs to (the picker's sections).
+    var family: OrbFamily {
+        switch self {
+        case .a, .b, .c, .d, .e, .f: .orbs
+        case .r, .s, .u, .v, .w, .h: .forms
+        case .g, .i, .j, .k: .faces
+        case .l, .m, .n, .o, .p, .q: .machines
+        }
+    }
+    /// What it is, in a few words (the picker's rows).
+    var tagline: String {
+        switch self {
+        case .a: "Rays of voice"
+        case .b: "Swirling arms"
+        case .c: "A breathing cloud"
+        case .d: "Geodesic rings"
+        case .e: "A rippling surface"
+        case .f: "A spiral galaxy"
+        case .r: "A bud that blooms"
+        case .s: "A crystal that spreads wings"
+        case .u: "A golden eclipse"
+        case .v: "A network of nodes"
+        case .w: "A drop of light"
+        case .h: "A sea at night"
+        case .g: "A sculpted face"
+        case .i: "A face pressed on glass"
+        case .j: "A head of light"
+        case .k: "One watchful eye"
+        case .l: "A red camera eye"
+        case .m: "A dome-headed droid"
+        case .n: "A gilded humanoid"
+        case .o: "A fifties robot"
+        case .p: "An art-deco machine"
+        case .q: "Binocular eyes on tracks"
+        }
+    }
     static let storageKey = "orb.design"
     /// Set once the person has chosen (the first-launch question is asked only once).
     static let chosenKey = "orb.chosen"
     static var current: OrbDesign { OrbDesign(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .a }
+}
+
+/// The picker's sections: the styles grouped by what they are.
+enum OrbFamily: String, CaseIterable, Identifiable {
+    case orbs, forms, faces, machines
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .orbs: "Orbs"
+        case .forms: "Forms"
+        case .faces: "Faces"
+        case .machines: "Machines"
+        }
+    }
+    /// One line under the section's title.
+    var note: String {
+        switch self {
+        case .orbs: "A sphere of light that answers the voice"
+        case .forms: "A shape for each phase, morphing from one to the next"
+        case .faces: "A face that listens, thinks and talks"
+        case .machines: "Classic talking machines"
+        }
+    }
+    var designs: [OrbDesign] { OrbDesign.allCases.filter { $0.family == self } }
 }
 
 /// The silhouette the points draw (an entity's choice, `appearance.shape` on the gateway).
@@ -139,6 +199,28 @@ struct Orb: View {
     }
 }
 
+/// The assistant's phase now, the one interface every orb style draws from: how much of each phase
+/// is happening (they sum to 1) and the voice now. At rest; listening (you speak); thinking; working
+/// (tools running, while it thinks); speaking.
+struct OrbPhases {
+    let rest: Double, listen: Double, think: Double, work: Double, speak: Double
+    /// The voice: smoothed loudness, its value a moment ago, the pull it has on the shape, its bands.
+    let loud: Double, level: Double, signal: Double, spectrum: VoiceFeatures
+    init(_ e: OrbEngine) {
+        var speak = e.engagement * e.talking
+        var listen = e.engagement * (1 - e.talking)
+        let busy = (1 - e.engagement) * e.thinking
+        var work = busy * e.working
+        var think = busy * (1 - e.working)
+        let sum = speak + listen + work + think
+        if sum > 1 { speak /= sum; listen /= sum; work /= sum; think /= sum }
+        self.speak = speak; self.listen = listen; self.work = work; self.think = think
+        rest = max(0, 1 - speak - listen - work - think)
+        loud = e.loud; level = e.history.value(secondsAgo: 0.05); signal = e.signal
+        spectrum = VoiceFeatures(level: e.loud, bands: e.bands)
+    }
+}
+
 /// Frame-to-frame state, all frame-rate independent: a smoothed loudness (rises in ~45 ms, falls
 /// in ~200 ms) and its 1.2 s history, how engaged the cloud is (a smoothstep over 0.6 s in, 1 s
 /// out), how much it is thinking, and an accumulated swirl phase (never `engagement × time`).
@@ -207,6 +289,14 @@ final class OrbEngine {
     }
 }
 
+/// The j-th point of an even two-dimensional sequence (Roberts' R2): spread without clumps or gaps,
+/// so a sampled surface reads clean instead of grainy.
+@inline(__always) func evenPoint(_ j: Int) -> (Double, Double) {
+    let a = Double(j)
+    let u = 0.5 + a * 0.7548776662466927, v = 0.5 + a * 0.5698402909980532
+    return (u - u.rounded(.down), v - v.rounded(.down))
+}
+
 @inline(__always) func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
     let u = min(1, max(0, (x - a) / (b - a)))
     return u * u * (3 - 2 * u)
@@ -273,6 +363,7 @@ struct OrbCanvas: View {
         let sun = (x: -0.55, y: -0.35, z: 0.76)
         let px = max(0.55, half / 95)
         let contract = 1 - 0.08 * th
+        let phases = OrbPhases(engine)
         let swirlBase = engine.swirl
         var moving = [Path](repeating: Path(), count: 5)
 
@@ -381,7 +472,10 @@ struct OrbCanvas: View {
                         tx = cos(ga) * gr
                         ty = sin(ga) * gr * 0.6 + 0.03 * (p.dither - 0.5)      // seen at a slant, a thin disc
                     }
-                    x += (tx - x) * w; y += (ty - y) * w
+                    // The clouds' voice shapes held close to the orb (a defined shape, not a fog); the
+                    // structured ones (arms, rings, a galaxy) keep their reach.
+                    let hold = design == .a || design == .c || design == .e ? 0.6 : 1.0
+                    x += (tx - x) * w * hold; y += (ty - y) * w * hold
                     // A moving point lights up as it travels (wherever it came from, even the night
                     // side), so the shape the voice draws is clearly lit.
                     let voiceLight = (0.55 + 0.45 * glow) * (0.75 + 0.25 * p.lum)
@@ -394,9 +488,28 @@ struct OrbCanvas: View {
                 let a = (atan2(x, -y) + .pi) / (2 * .pi)
                 bright *= 1 - 0.8 * (1 - smoothstep(countdown - 0.03, countdown + 0.03, a)) * smoothstep(0.8, 1.0, r)
             }
-            // Never off screen: beyond 74% of the frame's half a point slows smoothly toward 89%
-            // (the voice's reach, 8% under the frame's edge; the resting planet is unchanged).
-            let lim = half * 0.97 * 0.92 / R, knee = half * 0.8 * 0.92 / R
+            // Thinking: two bright bands sweep across the turning planet, pole to pole (a scan).
+            if phases.think > 0.01 && !p.anchored {
+                let sweep = 0.95 * sin(t * 1.1), sweep2 = -0.95 * sin(t * 1.1 + 1.3)
+                bright += phases.think * 1.3 * (exp(-pow((y - sweep) / 0.11, 2)) + 0.7 * exp(-pow((y - sweep2) / 0.09, 2))) * (0.5 + 0.5 * p.lum)
+            }
+            // Working: a quarter of the points leave for a tilted ring around the planet, light
+            // streaming along it (the tools at work); the rest keep turning.
+            if phases.work > 0.01 && p.band % 4 == 0 {
+                let a = p.phase + t * 0.9
+                let rr = 1.42 + 0.05 * (p.dither - 0.5)
+                let rx = rr * cos(a), ry = rr * sin(a) * 0.26
+                let tilt = -0.32
+                let tx = rx * cos(tilt) - ry * sin(tilt), ty = rx * sin(tilt) + ry * cos(tilt)
+                let wk = phases.work * phases.work * (3 - 2 * phases.work)
+                x += (tx - x) * wk; y += (ty - y) * wk
+                let stream = pow(max(0, sin(4 * a - t * 5)), 6)
+                let behind = sin(a) < -0.1 ? 0.35 : 1.0
+                bright += (max(bright, (0.35 + 0.9 * stream) * behind) - bright) * wk
+            }
+            // Never off screen: the voice's reach stays inside the orb's circle (beyond 70% of the
+            // frame's half a point slows smoothly toward 84%; the resting planet is unchanged).
+            let lim = half * 0.84 / R, knee = half * 0.7 / R
             let rr = (x * x + y * y).squareRoot()
             if rr > knee {
                 let soft = knee + (lim - knee) * (1 - exp(-(rr - knee) / (lim - knee)))
@@ -408,7 +521,7 @@ struct OrbCanvas: View {
         }
         let pal = OrbPalette.colors(for: look.color)
         drawWaves(&gc, cx: cx, cy: cy, R: R, pal: pal)
-        for b in 0..<5 { gc.fill(moving[b], with: .color(pal[b])) }
+        paintDots(&gc, moving, pal, px: px)
         drawSatellites(&gc, cx: cx, cy: cy, R: R, px: px, pal: pal)
     }
 
@@ -424,17 +537,17 @@ struct OrbCanvas: View {
             switch pulse.tone {
             case .failure:
                 let k = pulse.strength * fade * fade
-                x += 0.035 * k * sin(t * 55 + phase); y += 0.035 * k * cos(t * 47 + phase * 1.3)
-                light += 0.3 * k
+                x += 0.025 * k * sin(t * 55 + phase); y += 0.025 * k * cos(t * 47 + phase * 1.3)
+                light += 0.2 * k
             default:
                 let speed = pulse.tone == .media ? 0.85 : (pulse.tone == .thinking ? 1.0 : 1.5)
                 let width = pulse.tone == .media ? 0.24 : (pulse.tone == .thinking ? 0.2 : 0.13)
                 let ring = (r0 - pulse.age * speed) / width
                 let k = exp(-ring * ring) * pulse.strength * fade
-                push += k; light += k
+                push += k; light += 0.45 * k
             }
         }
-        if r0 > 1e-3 { x += x / r0 * 0.12 * push; y += y / r0 * 0.12 * push }
+        if r0 > 1e-3 { x += x / r0 * 0.05 * push; y += y / r0 * 0.05 * push }
         return light
     }
 
@@ -446,26 +559,34 @@ struct OrbCanvas: View {
         return 1 - 0.8 * (1 - smoothstep(countdown - 0.03, countdown + 0.03, a)) * smoothstep(0.8, 1.0, r)
     }
 
-    /// Under the points: each wave's soft ring of light, travelling out with it and fading.
+    /// Under the points: each step's ring of light travelling out and fading: a fine line with a
+    /// faint halo (a fog over the shape would blur it).
     func drawWaves(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, pal: [Color]) {
         let waves = work.pulses.filter { $0.tone != .failure }
         guard !waves.isEmpty else { return }
-        // A soft ring as a radial gradient (no blur pass: it is drawn every frame).
         let glow = OrbPalette.glow(pal)
+        let line = max(0.6, R / 70)
         for w in waves {
             let speed = w.tone == .media ? 0.85 : (w.tone == .thinking ? 1.0 : 1.5)
             let r = w.age * speed * 0.92 * R
             guard r > 2 else { continue }
             let fade = max(0, 1 - w.age / 1.6)
-            let width = (w.tone == .media ? 0.34 : 0.2) * R
-            let alpha = min(0.55, 0.42 * w.strength * fade * (w.tone == .thinking ? 0.5 : 1))
-            let outer = r + width
-            let inner = max(0, r - width) / outer, mid = r / outer
-            let g = Gradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: inner),
-                                     .init(color: glow.opacity(alpha), location: mid), .init(color: .clear, location: 1)])
-            gc.fill(Path(ellipseIn: CGRect(x: cx - outer, y: cy - outer, width: 2 * outer, height: 2 * outer)),
-                    with: .radialGradient(g, center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: outer))
+            let alpha = min(0.7, 0.6 * w.strength * fade * (w.tone == .thinking ? 0.5 : 1))
+            let ring = Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+            gc.stroke(ring, with: .color(glow.opacity(alpha * 0.25)), lineWidth: line * 5)
+            gc.stroke(ring, with: .color(glow.opacity(alpha)), lineWidth: line)
         }
+    }
+
+    /// The points, level by level, with a soft bloom under the brightest two levels (light that
+    /// glows, not pixels that sit on the ground).
+    func paintDots(_ gc: inout GraphicsContext, _ paths: [Path], _ pal: [Color], px: Double) {
+        gc.drawLayer { layer in
+            layer.addFilter(.blur(radius: px * 2.4))
+            layer.fill(paths[3], with: .color(pal[3].opacity(0.55)))
+            layer.fill(paths[4], with: .color(pal[4].opacity(0.75)))
+        }
+        for b in 0..<5 { gc.fill(paths[b], with: .color(pal[b])) }
     }
 
     /// Each tool running now circles the planet on a tilted orbit, a bright point with a fading
@@ -667,34 +788,37 @@ enum OrbIcon {
         print("orb work rendered: \(dir.path)")
     }
 
-    /// `--render-orb-scenes` (simulator): the scene styles (Rings, Face, Imprint, Hologram, Eye, Ocean) at rest, speaking (loud and soft), listening
-    /// and thinking, into Documents/orb-<style>-<state>.png.
+    /// `--render-orb-scenes` (simulator): every style in each phase (rest, listening, thinking,
+    /// working, speaking) into Documents/orb-<style>-<phase>.png; `--render-only Lotus,Face` renders
+    /// those styles only.
     @MainActor static func renderScenes() {
         guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         func voice(_ level: Double, _ low: Double, _ high: Double) -> VoiceFeatures {
             VoiceFeatures(level: level, bands: (0..<VoiceFeatures.bandCount).map { i in
                 level * (low * exp(-pow(Double(i) - 1.5, 2) / 1.5) + high * exp(-pow(Double(i) - 5.5, 2) / 1.5)) })
         }
-        let states: [(String, VoiceFeatures, Bool, Bool, Bool, Double)] = [
-            ("rest", .silent, false, false, false, 1000.3),
-            ("speak-loud", voice(0.9, 1, 0.4), true, true, false, 1000.3),
-            ("speak-soft", voice(0.35, 0.6, 0.8), true, true, false, 1000.6),
-            ("listen", voice(0.7, 0.8, 0.6), true, false, false, 1001.2),
-            ("think", .silent, false, false, true, 1003.0),
-            ("think-later", .silent, false, false, true, 1003.55),
-            ("blink", .silent, false, false, false, 5.3 * 189 + 0.15),   // mid-blink
-            ("work", .silent, false, false, true, 1004.2),             // thinking, with tools running
+        let args = ProcessInfo.processInfo.arguments
+        let only = args.firstIndex(of: "--render-only").flatMap { i in i + 1 < args.count ? Set(args[i + 1].split(separator: ",").map(String.init)) : nil }
+        // (phase, voice, engaged, speaking, thinking, working, time)
+        let phases: [(String, VoiceFeatures, Bool, Bool, Bool, Bool, Double)] = [
+            ("rest", .silent, false, false, false, false, 1000.3),
+            ("listen", voice(0.7, 0.8, 0.6), true, false, false, false, 1001.2),
+            ("think", .silent, false, false, true, false, 1003.0),
+            ("work", .silent, false, false, true, true, 1004.2),
+            ("speak", voice(0.8, 1, 0.5), true, true, false, false, 1000.3),
         ]
-        for design in [OrbDesign.d, .r, .s, .u, .v, .w, .g, .i, .j, .k, .l, .m, .n, .o, .p, .q, .h] {
-            for (name, v, engaged, speaking, thinking, t) in states {
+        for design in OrbDesign.allCases where only?.contains(design.name) ?? true {
+            for (name, v, engaged, speaking, thinking, working, t) in phases {
                 let engine = OrbEngine()
-                for k in 0..<45 { engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking, working: name == "work") }
+                for k in 0..<45 {
+                    engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking, working: working)
+                }
                 // The sea as on the talk page: the screen's width over 90% of it (208 × 187 pt).
                 let w: CGFloat = design == .h ? 440 : 396
                 let art = ZStack {
-                    Color(hex: 0x0a0a12)
+                    Color(hex: 0x000000)
                     OrbCanvas(t: t, engine: engine, design: design, look: .assistant,
-                              work: name == "work" ? OrbWork(pulses: [.init(age: 0.4, strength: 1, tone: .tool)], satellites: 2) : .none)
+                              work: working ? OrbWork(pulses: [.init(age: 0.4, strength: 1, tone: .tool)], satellites: 2) : .none)
                         .frame(width: w, height: 396)
                 }
                 .frame(width: w, height: 396)

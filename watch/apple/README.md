@@ -51,7 +51,7 @@ approval can be allowed or denied from the notification itself.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (twenty-two orbs: Halo, Vortex, Nebula, Rings, Liquid, Galaxy; the state shapes Lotus, Crystal, Eclipse, Synapse, Drop; the avatars Face, Imprint, Hologram, Eye; the robots Lens, Dome, Valet, Retro, Deco, Rover; and Ocean) and About.
+aloud, Orb style (twenty-two styles in four families: Orbs, Forms, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
 

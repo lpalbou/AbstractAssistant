@@ -15,15 +15,16 @@ extension OrbCanvas {
     /// its depth.
     func drawImprint(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = dotCanvas(box)
-        let th = engine.thinking, talk = engine.talking, e = engine.engagement
-        let listen = e * (1 - talk)
+        let ph = OrbPhases(engine)
+        let th = ph.think, talk = engine.talking, e = engine.engagement, listen = ph.listen
         let mouth = MouthShape(engine: engine, smileBase: 1 + 0.2 * listen)
         let yaw = 0.12 * sin(t * 0.27) - 0.62 * listen + 0.1 * th
         let pitch = 0.04 * sin(t * 0.19) - 0.05 * th
         let roll = 0.03 * sin(t * 0.23) + 0.05 * listen
         let pose = HeadPose(yaw: yaw, pitch: pitch, roll: roll, pivotY: 0, lift: 0)
         let press = 0.03 * talk * e * min(1, 1.6 * engine.loud) + 0.012 * listen + 0.005 * sin(t * 0.9) - 0.05 * th
-        let plane = ImprintGeometry.plane + 0.05 * th * sin(t * 1.3)
+        // Thinking: the pane drifts slowly through its depth; working: it flickers through it quickly.
+        let plane = ImprintGeometry.plane + 0.05 * th * sin(t * 1.3) + ph.work * (0.035 * sin(t * 5.3) - 0.02)
         let band = ImprintGeometry.band
         let my = FaceGeometry.mouthY
         let scale = 1.78, shift = 0.08
@@ -67,8 +68,9 @@ extension OrbCanvas {
     /// the lines ripple with your voice; thinking, a bright scan band sweeps down the head.
     func drawHologram(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = dotCanvas(box)
-        let th = engine.thinking, talk = engine.talking, e = engine.engagement, hist = engine.history
-        let listen = e * (1 - talk)
+        let ph = OrbPhases(engine)
+        let th = ph.think, talk = engine.talking, e = engine.engagement, hist = engine.history, listen = ph.listen
+        let busy = ph.work
         let mouth = MouthShape(engine: engine, smileBase: 1 + 0.3 * listen - 0.2 * th)
         let yaw = 0.38 * sin(t * 0.2) * (1 - 0.7 * listen) + 0.15 * th * sin(t * 0.9)
         let pitch = 0.04 * sin(t * 0.27) - 0.05 * th + 0.03 * mouth.open * sin(t * 6.1)
@@ -94,6 +96,16 @@ extension OrbCanvas {
             bright += talk * e * 0.85 * words * (r.z > 0 ? 1 : 0.3)
             let scan: Double = exp(-pow((p.y - scanY) / 0.05, 2))
             bright += th * 1.1 * scan
+            if busy > 0.01 {
+                // Working: three fast bands and a flicker along each line, as data runs through it.
+                var bands = 0.0
+                for k in 0..<3 {
+                    let by = -1.0 + 1.9 * ((t * 1.3 + Double(k) / 3).truncatingRemainder(dividingBy: 1))
+                    bands += exp(-pow((p.y - by) / 0.035, 2))
+                }
+                let flicker = OrbPoints.hash(Int(p.y * 200) * 31 + Int(t * 12), 3) < 0.25 ? 0.35 : 0
+                bright += busy * (0.7 * bands + flicker)
+            }
             bright += 0.1 * engine.signal
             let sx = r.x * scale, sy = r.y * scale + shift
             let rr = (sx * sx + sy * sy).squareRoot()
@@ -133,8 +145,9 @@ extension OrbCanvas {
     /// its lids lower a little and its iris turns slowly. It blinks every few seconds.
     func drawEye(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = dotCanvas(box)
-        let th = engine.thinking, talk = engine.talking, e = engine.engagement, hist = engine.history, loud = engine.loud
-        let listen = e * (1 - talk), speak = e * talk
+        let ph = OrbPhases(engine)
+        let th = ph.think, hist = engine.history, loud = engine.loud
+        let listen = ph.listen, speak = ph.speak, busy = ph.work
         let spectrum = VoiceFeatures(level: loud, bands: engine.bands)
         let blink = FaceGeometry.blink(t)
         let open = (0.82 + 0.18 * listen - 0.22 * th) * blink
@@ -144,10 +157,13 @@ extension OrbCanvas {
         func upper(_ x: Double) -> Double { -hu * pow(max(0, 1 - pow(x / W, 2)), 0.75) }
         func lower(_ x: Double) -> Double { hl * pow(max(0, 1 - pow(x / W, 2)), 0.9) - 0.5 * smile * max(0, 1 - pow(x / W, 2)) * 0.2 }
         func inside(_ x: Double, _ y: Double) -> Bool { abs(x) < W && y > upper(x) && y < lower(x) }
-        let gx = (0.1 * sin(t * 0.4) + 0.05 * sin(t * 0.13)) * (1 - listen) * (1 - th) + th * (-0.26 + 0.07 * sin(t * 0.7))
-        let gy = 0.03 * sin(t * 0.33) * (1 - th) - 0.17 * th
+        // Working: the gaze jumps from point to point (reading), each fixation a moment long.
+        let fix = Int(t * 2.2)
+        let jumpX = (OrbPoints.hash(fix, 81) - 0.5) * 0.5, jumpY = (OrbPoints.hash(fix, 82) - 0.5) * 0.18
+        let gx = (0.1 * sin(t * 0.4) + 0.05 * sin(t * 0.13)) * (1 - listen) * (1 - th) * (1 - busy) + th * (-0.26 + 0.07 * sin(t * 0.7)) + busy * jumpX
+        let gy = 0.03 * sin(t * 0.33) * (1 - th) * (1 - busy) - 0.17 * th + busy * jumpY
         let iris = EyeGeometry.irisRadius
-        let pupil = 0.16 + 0.07 * listen - 0.05 * speak * min(1, 1.5 * loud) - 0.02 * th
+        let pupil = 0.16 + 0.07 * listen - 0.05 * speak * min(1, 1.5 * loud) - 0.02 * th - 0.04 * busy
         let turn = 0.12 * engine.ringTurn                                // the iris turns while it thinks
         let scale = 1.42, shift = 0.08
         func put(_ x: Double, _ y: Double, _ b: Double, _ dither: Double, _ phase: Double, lum: Double = 0.7) {

@@ -1,57 +1,128 @@
 import SwiftUI
+import WatchKit
 
-/// Choose the orb's style: one page per style (Digital Crown to scroll), each a live orb answering a
-/// speech rhythm, its name, one line and "Use this". In Settings → Orb style, and once at first
-/// launch (`onboarding`), after sign-in.
+/// Choose the orb's style: the styles by family (Orbs, Forms, Faces, Machines), each row a live
+/// small orb, its name and what it does; a row opens its preview. In Settings → Orb style, and once
+/// at first launch (`onboarding`), after sign-in.
 struct OrbStylePicker: View {
     var onboarding = false
     @AppStorage(OrbDesign.storageKey) private var stored = OrbDesign.a.rawValue
     @AppStorage(OrbDesign.chosenKey) private var chosen = false
-    @State private var page = OrbDesign.current
     @State private var voice = SyntheticVoice()
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let v = voice
-        let level: (@MainActor (Double) -> VoiceFeatures)? = { @MainActor _ in v.features() }
-        TabView(selection: $page) {
-            ForEach(OrbDesign.allCases) { d in
-                GeometryReader { geo in
-                    // The orb takes the free space, its name under it; the choice is at the bottom.
-                    VStack(spacing: 2) {
-                        Orb(mode: .speaking, size: max(80, min(geo.size.width, geo.size.height - 66)), voice: level, design: d)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        Text(d.name).font(.rounded(.headline, weight: .bold)).foregroundStyle(Theme.text)
-                            .accessibilityHint(d.summary)
-                        Button(stored == d.rawValue && chosen ? "In use" : "Use this") { choose(d) }
-                            .buttonStyle(FilledButtonStyle(fill: stored == d.rawValue && chosen ? Theme.neutralButton : Theme.indigoButton))
-                            .disabled(stored == d.rawValue && chosen)
-                            .padding(.horizontal, 6)
+        List {
+            ForEach(OrbFamily.allCases) { family in
+                Section {
+                    ForEach(family.designs) { d in
+                        NavigationLink(value: Route.orbStylePreview(d.rawValue)) { row(d) }
+                            .accessibilityIdentifier("orb.\(d.name)")
                     }
-                    .frame(width: geo.size.width, height: geo.size.height)
+                } header: {
+                    Text(family.title).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).textCase(nil)
+                        .accessibilityHint(family.note)
+                        .accessibilityIdentifier("family.\(family.title)")
                 }
-                // The button sits at the screen's bottom edge, as on the system's own pages.
-                .ignoresSafeArea(edges: .bottom)
-                .tag(d)
             }
         }
-        .tabViewStyle(.verticalPage)
         .navigationTitle(onboarding ? "Choose your orb" : "Orb style")
         .navigationBarTitleDisplayMode(.inline)
         .containerBackground(Theme.ground, for: .navigation)
     }
 
-    private func choose(_ d: OrbDesign) {
-        stored = d.rawValue
-        let first = !chosen
-        chosen = true
-        WKInterfaceDeviceHaptic.success()
-        if !onboarding && !first { dismiss() }
+    private func row(_ d: OrbDesign) -> some View {
+        HStack(spacing: 8) {
+            // Speaking to a sample voice (at rest the planets all look alike), drawn larger than its
+            // frame so the shape fills it.
+            let v = voice
+            Orb(mode: .speaking, size: 72, fps: 12, voice: { @MainActor _ in v.features() }, design: d)
+                .frame(width: 44, height: 44)
+                .clipShape(Circle())
+                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(d.name).font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text)
+                Text(d.tagline).font(.rounded(.caption2)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            Spacer(minLength: 2)
+            if stored == d.rawValue && chosen {
+                Image(systemName: "checkmark").font(.caption2.weight(.semibold)).foregroundStyle(Theme.cyan).accessibilityLabel("In use")
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
-import WatchKit
-private enum WKInterfaceDeviceHaptic { @MainActor static func success() { WKInterfaceDevice.current().play(.success) } }
+/// One style, live: it goes through the assistant's phases in turn (listening, thinking, working,
+/// speaking), the phase named under it (tap a phase to hold it), and "Use this" at the bottom.
+struct OrbStylePreview: View {
+    let design: OrbDesign
+    var onboarding = false
+    @EnvironmentObject private var model: AppModel
+    @AppStorage(OrbDesign.storageKey) private var stored = OrbDesign.a.rawValue
+    @AppStorage(OrbDesign.chosenKey) private var chosen = false
+    @State private var voice = SyntheticVoice()
+    @State private var phase = 0
+    @State private var held = false
+
+    private static let phases: [(name: String, symbol: String)] = [
+        ("Listening", "ear"), ("Thinking", "ellipsis"), ("Working", "gearshape.2"), ("Speaking", "waveform"),
+    ]
+
+    var body: some View {
+        let v = voice
+        let level: (@MainActor (Double) -> VoiceFeatures)? = { @MainActor _ in v.features() }
+        let mode: Orb.Mode = phase == 0 ? .listening : (phase == 3 ? .speaking : .thinking)
+        let work: (@MainActor (Double) -> OrbWork)? = phase == 2
+            ? { @MainActor t in OrbWork(pulses: [.init(age: t.truncatingRemainder(dividingBy: 1.1), strength: 1, tone: .tool)], satellites: 2) }
+            : nil
+        GeometryReader { geo in
+            VStack(spacing: 4) {
+                Orb(mode: mode, size: max(80, min(geo.size.width, geo.size.height - 92)), voice: level, design: design, work: work)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("orb.preview")
+                HStack(spacing: 6) {
+                    ForEach(Self.phases.indices, id: \.self) { i in
+                        Button { phase = i; held = true } label: {
+                            Image(systemName: Self.phases[i].symbol)
+                                .font(.system(size: 11, weight: .semibold))
+                                .frame(width: 28, height: 22)
+                                .foregroundStyle(i == phase ? Theme.text : Theme.muted)
+                                .background(i == phase ? Theme.neutralButton : .clear, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Self.phases[i].name)
+                    }
+                }
+                Text(Self.phases[phase].name).font(.rounded(.caption2)).foregroundStyle(Theme.text2)
+                    .accessibilityIdentifier("orb.phase")
+                Button(stored == design.rawValue && chosen ? "In use" : "Use this") { choose() }
+                    .buttonStyle(FilledButtonStyle(fill: stored == design.rawValue && chosen ? Theme.neutralButton : Theme.indigoButton))
+                    .disabled(stored == design.rawValue && chosen)
+                    .padding(.horizontal, 6)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .navigationTitle(design.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .containerBackground(Theme.ground, for: .navigation)
+        .task {
+            // The phases in turn, 3.5 s each, until one is held.
+            while !Task.isCancelled && !held {
+                try? await Task.sleep(for: .seconds(3.5))
+                if !held { phase = (phase + 1) % Self.phases.count }
+            }
+        }
+    }
+
+    private func choose() {
+        stored = design.rawValue
+        chosen = true
+        WKInterfaceDevice.current().play(.success)
+        // From Settings: back to Settings (past the list).
+        if !onboarding, model.path.count >= 2, case .orbStylePreview = model.path.last { model.path.removeLast(2) }
+    }
+}
 
 /// A speech-like loudness for previews: syllables at ~4.5 Hz inside phrases of 2–3 s, with pauses.
 final class SyntheticVoice: @unchecked Sendable {

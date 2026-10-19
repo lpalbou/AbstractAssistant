@@ -34,7 +34,7 @@ extension OrbCanvas {
     func finish(_ gc: inout GraphicsContext, _ d: DotCanvas, tint: Color? = nil, palette: [Color]? = nil) {
         let pal = look.color == nil ? (palette ?? OrbPalette.colors(for: tint)) : OrbPalette.colors(for: look.color)
         drawWaves(&gc, cx: d.cx, cy: d.cy, R: d.R, pal: pal)
-        for b in 0..<5 { gc.fill(d.paths[b], with: .color(pal[b])) }
+        paintDots(&gc, d.paths, pal, px: d.px)
         drawSatellites(&gc, cx: d.cx, cy: d.cy, R: d.R, px: d.px, pal: pal)
     }
 
@@ -43,7 +43,7 @@ extension OrbCanvas {
                lum: Double = 0.7, edge: Double = 1.6, size: Double = 1) {
         var sx = x, sy = y
         let light = workEffect(&sx, &sy, phase: phase)
-        let b = (bright + 1.4 * light * (0.45 + 0.55 * lum)) * countdownDim(sx / edge, sy / edge)
+        let b = (bright + 0.8 * light * (0.45 + 0.55 * lum)) * countdownDim(sx / edge, sy / edge)
         d.dot(sx, sy, b, dither, size: size)
     }
 
@@ -56,7 +56,8 @@ extension OrbCanvas {
     /// back. Thinking spins it up like a gyroscope.
     func drawRings(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = dotCanvas(box)
-        let th = engine.thinking
+        let ph = OrbPhases(engine)
+        let th = ph.think, busy = ph.work
         let yaw = engine.ringTurn, tilt = 0.42 + 0.1 * sin(t * 0.21)
         let cY = cos(yaw), sY = sin(yaw), cT = cos(tilt), sT = sin(tilt)
         let per = max(30, pointBudget(box) / OrbEngine.ringCount)
@@ -64,7 +65,9 @@ extension OrbCanvas {
             let ring = RingGeometry.rings[i]
             let swing = engine.ringSwing[i]
             // The swing about the ring's own diameter `u`: small at rest, wide with its band.
+            // Working: a wave runs across the rings in turn (a machine running), the beads racing.
             let theta = (0.04 + 0.6 * swing) * sin(engine.ringPhase[i]) + 0.3 * th * sin(t * 1.4 + Double(i))
+                + 0.45 * busy * sin(t * 3 - Double(i) * .pi / 3)
             let ct = cos(theta), st = sin(theta)
             let vx = ring.v.0 * ct + ring.n.0 * st, vy = ring.v.1 * ct + ring.n.1 * st, vz = ring.v.2 * ct + ring.n.2 * st
             let radius = 1.0 + 0.05 * swing
@@ -79,10 +82,10 @@ extension OrbCanvas {
                 let bx = x * cY + z * sY, bz = -x * sY + z * cY
                 x = bx; let y1 = y * cT - bz * sT; z = y * sT + bz * cT; y = y1
                 // Five beads run around each ring at its own speed: its rotation reads.
-                let bead = pow(max(0, cos(5 * (s - spin))), 10)
+                let bead = pow(max(0, cos(5 * (s - spin - 3 * busy * t))), 10)
                 let depth = smoothstep(-1.1, 1.0, z)
                 let lum = 0.4 + 0.6 * bead
-                let bright = lum * (0.3 + 0.7 * depth) * (0.75 + 0.5 * swing) + 0.25 * th * bead
+                let bright = lum * (0.3 + 0.7 * depth) * (0.75 + 0.5 * swing) + 0.25 * th * bead + 0.45 * busy * bead
                 place(&d, x, y, bright, OrbPoints.hash(i * 4096 + k, 14), phase: s, lum: lum, edge: 1.1)
             }
         }
@@ -91,70 +94,100 @@ extension OrbCanvas {
 
     // MARK: Face
 
-    /// A head-and-shoulders portrait in points, seen from the front: smiling eyes with a catchlight,
-    /// a soft smile, rosy cheeks. It blinks, breathes and moves its head a little. Its lips follow
-    /// its own voice like speech: open on loud sounds, rounded on dark vowels (o, u), wide on bright
-    /// ones (e, i), closed in the pauses, the jaw following and the teeth showing when open. While
-    /// you speak it turns its head and cups a hand behind its ear, and your voice reaches it as arcs
-    /// flowing into the hand's cone. Thinking, it looks up and aside.
+    /// A portrait in light: a sculpted head and shoulders, the face's real relief (brows, nose, lips,
+    /// chin, the eyes set in their sockets) lit from the upper left as it turns, soft glowing eyes,
+    /// short hair. It blinks, breathes and moves its head a little. Listening, it turns to offer its
+    /// ear and cups a hand behind it, your voice arriving as arcs in the hand's cone; thinking, it looks
+    /// up and aside; working, it reads (quick glances down and aside) while a fine scan line passes
+    /// down its face; speaking, its lips follow its voice like speech, the jaw following.
     func drawFace(_ gc: inout GraphicsContext, _ box: CGSize) {
         var d = dotCanvas(box)
-        let th = engine.thinking, talk = engine.talking, loud = engine.loud
-        let listen = engine.engagement * (1 - talk)
-        let mouth = MouthShape(engine: engine, smileBase: 1 + 0.3 * listen - 0.3 * th)
-        // The head: a slow drift; turned to offer its ear while listening; looking up and aside to
-        // think; a small nod with its speech.
-        let yaw = 0.1 * sin(t * 0.29) + 0.05 * sin(t * 0.71) + 0.12 * th - 0.42 * listen
-        let pitch = 0.035 * sin(t * 0.23) - 0.07 * th + 0.035 * mouth.open * sin(t * 6.1)
-        let roll = 0.035 * sin(t * 0.19) + 0.06 * listen - 0.05 * th
+        let ph = OrbPhases(engine)
+        let th = ph.think, listen = ph.listen, busy = ph.work
+        let mouth = MouthShape(engine: engine, smileBase: 1 + 0.15 * listen - 0.2 * th - 0.1 * busy)
+        let glance = busy * (0.5 + 0.5 * sin(t * 2.3)) * (Int(t * 1.6) % 2 == 0 ? 1 : -0.6)
+        let scanY = -1.0 + 1.75 * (t * 0.55).truncatingRemainder(dividingBy: 1)
+        let yaw = 0.1 * sin(t * 0.29) + 0.05 * sin(t * 0.71) + 0.14 * th - 0.42 * listen
+        let pitch = 0.035 * sin(t * 0.23) - 0.08 * th + 0.06 * busy + 0.035 * mouth.open * sin(t * 6.1)
+        let roll = 0.03 * sin(t * 0.19) + 0.06 * listen - 0.04 * th
         let blink = FaceGeometry.blink(t)
-        let gazeX = (0.018 * sin(t * 0.37) + 0.03 * th) * (1 - listen) - 0.03 * listen
-        let gazeY = -0.03 * th
-        let browUp = 0.03 * listen * (0.4 + 0.6 * min(1, engine.signal * 1.5)) + 0.012 * talk * loud
         let breathe = 0.012 * sin(t * 1.25)
         let pose = HeadPose(yaw: yaw, pitch: pitch, roll: roll, pivotY: FaceGeometry.neckY, lift: breathe * 0.5)
         let scale = 1.32, shift = -0.02
-        for p in FaceGeometry.points(count: pointBudget(box)) {
-            var x = p.x, y = p.y, z = p.z
-            var lum = p.lum
-            switch p.kind {
-            case .lidUpper, .lidLower:
-                y = FaceGeometry.eyeY + (y - FaceGeometry.eyeY) * blink
-                if p.kind == .lidLower { y -= 0.012 * (mouth.smile - 1) }
-            case .iris, .glint:
-                if blink < 0.4 { continue }
-                x += gazeX; y = FaceGeometry.eyeY + (y - FaceGeometry.eyeY + gazeY) * blink
-            case .brow:
-                y -= browUp + (p.side > 0 ? 0.02 * th : 0)
-            case .lipUpper, .lipLower, .teeth:
-                guard let m = mouth.place(p) else { continue }
-                x = m.x; y = m.y; lum = m.lum
-                z = (FaceGeometry.surfaceZ(x, y) ?? 0.45) + 0.03
-            case .skin:
-                y += mouth.jaw(x, y)
-            case .ear:
-                lum += 0.45 * listen * (p.side > 0 ? 1 : 0)
-            case .cheek:
-                lum *= 1 + 0.25 * (mouth.smile - 1)
-            default: break
-            }
-            if p.kind.isHead {
-                let r = pose.apply(x, y, z)
-                x = r.x; y = r.y; z = r.z
-                let facing = z / FaceGeometry.depth
-                if p.kind.isFeature && facing < 0.15 { continue }
-                lum *= 0.35 + 0.65 * smoothstep(-0.35, 0.85, facing)
-            } else {
-                y += breathe
-            }
-            lum += 0.12 * engine.signal
+        let my = FaceGeometry.mouthY
+        func put(_ x: Double, _ y: Double, _ b: Double, _ dither: Double, _ phase: Double, size: Double = 1) {
             let sx = x * scale, sy = y * scale + shift
             let rr = (sx * sx + sy * sy).squareRoot()
-            if rr > 1.98 { continue }
-            place(&d, sx, sy, lum * (1 - smoothstep(1.6, 1.98, rr)), p.dither, phase: p.phase, lum: p.lum)
+            guard rr < 1.98 else { return }
+            place(&d, sx, sy, b * (1 - smoothstep(1.6, 1.98, rr)), dither, phase: phase, lum: 0.7, size: size)
+        }
+        for p in FaceSculpt.points(count: Int(Double(pointBudget(box)) * 1.4)) {
+            var x = p.x, y = p.y, z = p.z
+            if p.part == .face {
+                // The mouth: the jaw drops below it, the opening between the lips goes dark.
+                y += mouth.jaw(x, y)
+                if mouth.open > 0.06 {
+                    let gap = 0.07 * mouth.open
+                    let inside = exp(-pow(x / (0.17 * mouth.width), 2) - pow((y - my - gap * 0.6) / (gap + 0.004), 2))
+                    if inside > 0.5 { continue }
+                }
+            }
+            var bright: Double
+            if p.part == .body {
+                y += breathe
+                bright = p.tone * skin(p.nx, p.ny, p.nz)
+                put(x, y, bright * (1 - smoothstep(1.2, 1.6, y)), p.dither, p.phase, size: 0.9)
+                continue
+            }
+            let r = pose.apply(x, y, z)
+            let n = pose.apply(p.nx, p.ny + FaceGeometry.neckY, p.nz)            // a direction: turn only
+            let nn = (x: n.x, y: n.y - FaceGeometry.neckY - pose.lift, z: n.z)
+            guard nn.z > -0.05 else { continue }
+            bright = p.tone * skin(nn.x, nn.y, nn.z)
+            if busy > 0.01 { bright += busy * 0.5 * exp(-pow((y - scanY) / 0.022, 2)) }
+            bright += 0.08 * engine.signal
+            x = r.x; y = r.y; z = r.z
+            put(x, y, bright, p.dither, p.phase, size: 0.8 + 0.4 * smoothstep(-0.3, 0.6, z))
+        }
+        // The eyes: an iris ring with a soft glow and a glint, the gaze moving; the lids close in a blink.
+        let gazeX = (0.015 * sin(t * 0.37) + 0.03 * th) * (1 - listen) - 0.03 * listen + 0.035 * glance
+        let gazeY = -0.03 * th + 0.022 * busy
+        if blink > 0.35 {
+            for side in [-1.0, 1.0] {
+                let ex = side * FaceGeometry.eyeX + gazeX, ey = FaceGeometry.eyeY + gazeY
+                for j in 0..<36 {
+                    let a = 2 * Double.pi * Double(j) / 36
+                    let rr = 0.036
+                    let px = ex + rr * cos(a), py = FaceGeometry.eyeY + (ey - FaceGeometry.eyeY + rr * sin(a)) * blink
+                    let q = pose.apply(px, py, (ImprintGeometry.relief(px, py) ?? 0.5) + 0.03)
+                    guard q.z > 0.15 else { continue }
+                    put(q.x, q.y, 0.75 + 0.25 * ph.speak * ph.loud, OrbPoints.hash(j, side), a)
+                }
+                for j in 0..<6 {
+                    let q = pose.apply(ex - 0.012 + 0.006 * Double(j % 3), FaceGeometry.eyeY + (ey - FaceGeometry.eyeY - 0.014 + 0.006 * Double(j / 3)) * blink,
+                                       (ImprintGeometry.relief(ex, ey) ?? 0.5) + 0.04)
+                    guard q.z > 0.15 else { continue }
+                    put(q.x, q.y, 1.2, 0.5, 0)
+                }
+            }
+        }
+        // The lips: a soft line where they meet, and their edges as they part with the words.
+        for p in FaceGeometry.points(count: pointBudget(box)) where p.kind == .lipUpper || p.kind == .lipLower {
+            guard p.v < 0.12 || p.v > 0.9, let m = mouth.place(p) else { continue }
+            let q = pose.apply(m.x, m.y, (ImprintGeometry.relief(m.x, m.y) ?? 0.5) + 0.02)
+            guard q.z > 0.2 else { continue }
+            put(q.x, q.y, 0.45 + 0.35 * mouth.open, p.dither, p.phase)
         }
         if listen > 0.02 { drawListeningHand(&d, pose: pose, listen: listen, scale: scale, shift: shift) }
         finish(&gc, d)
+    }
+
+    /// Skin lit from the upper left in front: soft, a gentle sheen.
+    private func skin(_ nx: Double, _ ny: Double, _ nz: Double) -> Double {
+        let l = (x: -0.45, y: -0.5, z: 0.74)
+        let diffuse = max(0, nx * l.x + ny * l.y + nz * l.z)
+        let rim = pow(1 - max(0, nz), 3) * 0.35
+        return 0.1 + 0.75 * diffuse + 0.2 * pow(diffuse, 8) + rim
     }
 
     /// The hand cupped behind the ear it offers, its forearm from below, and the voice it listens to
@@ -208,7 +241,10 @@ extension OrbCanvas {
         // (`ax`: the frame's width over its height; the sea can be wider than tall).
         var d = DotCanvas(cx: Double(box.width) / 2, cy: Double(box.height) / 2, R: Double(box.height) / 2, px: max(0.55, half / 105))
         let ax = Double(box.width) / Double(box.height)
-        let e = engine.engagement, th = engine.thinking, talk = engine.talking, hist = engine.history
+        let ph = OrbPhases(engine)
+        let e = engine.engagement, th = ph.think, talk = engine.talking, hist = engine.history, busy = ph.work
+        // Working: a lighthouse on the horizon at the left, its beam sweeping the water (searching).
+        let beamA = 0.45 + 0.25 * sin(t * 0.9), lightX = -0.82
         let hz = OceanGeometry.horizon, F = OceanGeometry.focal
         let toward = 2 * talk - 1                                       // +1: the waves come toward you
         let calm = 1 - 0.65 * th
@@ -234,7 +270,7 @@ extension OrbCanvas {
             var sx = p.sx, sy = p.sy
             switch p.kind {
             case .moon:
-                bright = p.lum * moonGlow
+                bright = p.lum * moonGlow * (1 - 0.3 * busy)
             case .star:
                 bright = p.lum * (0.6 + 0.4 * sin(t * 1.3 + p.phase)) * (1 - 0.5 * th)
             case .water:
@@ -281,6 +317,11 @@ extension OrbCanvas {
                     let ddx = X - drop.x, ddd = D - drop.d
                     bright += 2.5 * exp(-(ddx * ddx + ddd * ddd) / 0.006) * drop.fade             // the splash
                 }
+                if busy > 0.01 {
+                    let a = atan2(p.sy - hz, p.sx - lightX)
+                    let inBeam = exp(-pow((a - beamA) / 0.12, 2)) * (1 - smoothstep(0.9, 3.0, hypot(p.sx - lightX, p.sy - hz)))
+                    bright += busy * 1.8 * inBeam * (0.5 + 0.5 * max(0, sin(13 * X + 7 * D - 3 * t)))
+                }
                 bright *= p.lum
             case .rain:
                 guard th > 0.01 else { continue }
@@ -291,10 +332,17 @@ extension OrbCanvas {
             }
             // The frame's edges dissolve into the night.
             let edge = (1 - smoothstep(0.96, 1.02, abs(sx))) * (1 - smoothstep(0.92, 1.0, sy)) * (1 - smoothstep(0.88, 1.0, -sy))
-            var px0 = sx * ax, py0 = sy
-            let light = workEffect(&px0, &py0, phase: p.phase)
-            bright = (bright + 1.2 * light) * edge * countdownDim(px0 / 0.75, py0 / 0.75)
+            // The sea's work is its lighthouse: no ring pushes the water.
+            let px0 = sx * ax, py0 = sy
+            bright = bright * edge * countdownDim(px0 / 0.75, py0 / 0.75)
             d.dot(px0, py0, bright, p.dither)
+        }
+        // The lighthouse's lamp, on the horizon, while it works.
+        if busy > 0.01 {
+            for k in 0..<10 {
+                let a = 2 * Double.pi * Double(k) / 10
+                d.dot((lightX + 0.012 * cos(a)) * ax, hz - 0.02 + 0.012 * sin(a), 1.3 * busy, 0.5)
+            }
         }
         let pal = OrbPalette.colors(for: look.color)
         // The moon's halo under it.
@@ -302,9 +350,7 @@ extension OrbCanvas {
         gc.fill(Path(ellipseIn: CGRect(x: mx - halo, y: my - halo, width: 2 * halo, height: 2 * halo)),
                 with: .radialGradient(Gradient(colors: [OrbPalette.glow(pal).opacity(0.22 * moonGlow), .clear]),
                                       center: CGPoint(x: mx, y: my), startRadius: 0, endRadius: halo))
-        drawWaves(&gc, cx: d.cx, cy: d.cy, R: d.R * 0.46, pal: pal)
-        for b in 0..<5 { gc.fill(d.paths[b], with: .color(pal[b])) }
-        drawSatellites(&gc, cx: d.cx, cy: d.cy, R: d.R * 0.46, px: d.px, pal: pal)
+        paintDots(&gc, d.paths, pal, px: d.px)
     }
 }
 
@@ -356,7 +402,7 @@ struct MouthShape {
     func place(_ p: FaceGeometry.P) -> (x: Double, y: Double, lum: Double)? {
         let my = FaceGeometry.mouthY, u = p.u, v = p.v
         let along = max(0, 1 - u * u)
-        let corner = -0.045 * smile * u * u
+        let corner = -0.028 * smile * u * u
         let w = 0.19 * width
         let thick = 1 + 0.35 * pout
         let upperInner = my - 0.018 * open * along
@@ -364,14 +410,14 @@ struct MouthShape {
         switch p.kind {
         case .lipUpper:
             let outer = upperInner - (0.022 * along.squareRoot() - 0.007 * exp(-pow(u / 0.12, 2))) * thick - 0.003
-            return (w * u, outer + (upperInner - outer) * v + corner, v < 0.2 || v > 0.85 ? 1 : 0.42)
+            return (w * u, outer + (upperInner - outer) * v + corner, v < 0.2 || v > 0.85 ? 0.8 : 0.3)
         case .lipLower:
             let outer = lowerInner + (0.03 * along.squareRoot() + 0.003) * thick
-            return (w * u * (1 - 0.05 * open), lowerInner + (outer - lowerInner) * v + corner, v < 0.15 || v > 0.8 ? 0.95 : 0.42)
+            return (w * u * (1 - 0.05 * open), lowerInner + (outer - lowerInner) * v + corner, v < 0.15 || v > 0.8 ? 0.75 : 0.3)
         case .teeth:
             guard open > 0.12, abs(u) < 0.7 else { return nil }
             let y = upperInner + 0.006 + 0.022 * v
-            return (w * 0.92 * u, y + corner * 0.8, 0.55 * min(1, (open - 0.12) * 5))
+            return (w * 0.92 * u, y + corner * 0.8, 0.32 * min(1, (open - 0.12) * 5))
         default:
             return nil
         }
@@ -454,7 +500,7 @@ enum FaceGeometry {
             }
             for _ in 0..<share(0.014, min: 5) {
                 k += 1; let a = 2 * Double.pi * h(1), r = 0.1 * h(2)
-                add(.cheek, side * 0.33 + r * cos(a), 0.12 + 0.7 * r * sin(a), side: side, lum: 0.55 - 1.5 * r)
+                add(.cheek, side * 0.33 + r * cos(a), 0.12 + 0.7 * r * sin(a), side: side, lum: 0.2 - 0.6 * r)
             }
             for _ in 0..<share(0.016, min: 5) {
                 k += 1; let v = h(1)
@@ -503,13 +549,13 @@ enum FaceGeometry {
                 let strand = 0.5 + 0.5 * sin(22 * x + 9 * y + 3 * sin(4 * x))
                 let lift = 1.07 + 0.06 * max(0, -syu)
                 out.append(P(kind: .hair, x: x * lift, y: headY + (y - headY) * lift, z: depth * szu * lift, u: 0, v: 0, side: 0,
-                             lum: 0.38 + 0.5 * strand * strand, dither: h(14), phase: 2 * .pi * h(12)))
+                             lum: 0.28 + 0.38 * strand * strand, dither: h(14), phase: 2 * .pi * h(12)))
             } else {
                 if szu < 0 { continue }
                 let inEye = pow((abs(x) - eyeX) / 0.13, 2) + pow((y - eyeY) / 0.075, 2) < 1
                 let inMouth = pow(x / 0.23, 2) + pow((y - mouthY - 0.03) / 0.09, 2) < 1
-                if inEye || inMouth || h(4) < 0.25 { continue }
-                out.append(P(kind: .skin, x: x, y: y, z: depth * szu, u: 0, v: 0, side: 0, lum: 0.26 + 0.12 * h(3),
+                if inEye || inMouth || h(4) < 0.35 { continue }
+                out.append(P(kind: .skin, x: x, y: y, z: depth * szu, u: 0, v: 0, side: 0, lum: 0.2 + 0.1 * h(3),
                              dither: h(14), phase: 2 * .pi * h(12)))
             }
         }
@@ -566,6 +612,77 @@ enum FaceGeometry {
         }
         return out
     }()
+}
+
+/// The sculpted head's points: the face's relief (`ImprintGeometry.relief`) sampled evenly over its
+/// front, the sides and back of the head, short hair, the neck and the shoulders; each with its
+/// surface normal (for the light) and its tone.
+enum FaceSculpt {
+    enum Part { case face, head, hair, body }
+    struct P {
+        let part: Part; let x: Double; let y: Double; let z: Double
+        let nx: Double; let ny: Double; let nz: Double; let tone: Double; let dither: Double; let phase: Double
+    }
+
+    @MainActor private static var cache: [Int: [P]] = [:]
+
+    @MainActor static func points(count n: Int) -> [P] {
+        if let c = cache[n] { return c }
+        var out: [P] = []
+        out.reserveCapacity(n)
+        let hy = FaceGeometry.headY, hh = FaceGeometry.halfHeight, hw = FaceGeometry.halfWidth, dp = FaceGeometry.depth
+        func hairline(_ x: Double) -> Double { -0.52 + 0.08 * sin(2.4 * x + 0.8) + 0.24 * pow(x / hw, 2) }
+        // The face: an even grid over the front, through the relief; normals by finite differences.
+        var j = 0, made = 0
+        let faceShare = Int(Double(n) * 0.55)
+        while made < faceShare && j < faceShare * 3 {
+            j += 1
+            let (u, v) = evenPoint(j)
+            let x = (u - 0.5) * 1.24, y = -0.98 + 1.6 * v
+            guard y > hairline(x) - 0.02, let z = ImprintGeometry.relief(x, y) else { continue }
+            let e = 0.01
+            let zx = ((ImprintGeometry.relief(x + e, y) ?? z) - (ImprintGeometry.relief(x - e, y) ?? z)) / (2 * e)
+            let zy = ((ImprintGeometry.relief(x, y + e) ?? z) - (ImprintGeometry.relief(x, y - e) ?? z)) / (2 * e)
+            let l = (zx * zx + zy * zy + 1).squareRoot()
+            out.append(P(part: .face, x: x, y: y, z: z, nx: -zx / l, ny: -zy / l, nz: 1 / l, tone: 0.78 * (0.55 + 0.45 * smoothstep(hairline(x) - 0.02, hairline(x) + 0.12, y)),
+                         dither: OrbPoints.hash(j, 14), phase: OrbPoints.hash(j, 12) * 6.3))
+            made += 1
+        }
+        // The sides and back of the head, and the hair over the top and back.
+        let headShare = Int(Double(n) * 0.25)
+        for k in 0..<headShare {
+            let (u, v) = evenPoint(k + 50_000)
+            let zz = 1 - 2 * u, r = max(0, 1 - zz * zz).squareRoot(), a = 2 * Double.pi * v
+            let nx = r * cos(a), ny = zz, nz = r * sin(a)
+            let w = ny > 0 ? 1 - 0.2 * ny : 1
+            let x = hw * nx * w, y = hy + hh * ny, z = dp * nz
+            let isHair = y < hairline(x) || nz < -0.1 || (abs(nx) > 0.82 && y < -0.05)
+            if !isHair && nz > 0.35 { continue }                                 // the front is the relief's
+            let strand = 0.5 + 0.5 * sin(26 * x + 11 * y + 4 * sin(5 * x))
+            let lift = isHair ? 1.045 : 1
+            out.append(P(part: isHair ? .hair : .head, x: x * lift, y: hy + (y - hy) * lift, z: z * lift, nx: nx, ny: ny, nz: nz,
+                         tone: isHair ? 0.4 + 0.3 * strand : 0.72, dither: OrbPoints.hash(k, 15), phase: OrbPoints.hash(k, 13) * 6.3))
+        }
+        // The neck and the shoulders.
+        for k in 0..<Int(Double(n) * 0.2) {
+            let (u, v) = evenPoint(k + 90_000)
+            if u < 0.25 {
+                let a = Double.pi * (v - 0.5) * 1.6, y = FaceGeometry.neckY - 0.1 + 0.36 * (u / 0.25)
+                out.append(P(part: .body, x: 0.2 * sin(a), y: y, z: 0.2 * cos(a), nx: sin(a), ny: 0, nz: cos(a), tone: 0.75,
+                             dither: OrbPoints.hash(k, 16), phase: OrbPoints.hash(k, 17) * 6.3))
+            } else {
+                let x = (v - 0.5) * 3.1
+                let top = 0.9 + 0.32 * pow(max(0, abs(x) - 0.22) / 1.33, 1.5)
+                let dy = pow((u - 0.25) / 0.75, 1.4) * 0.9
+                let slope = 0.32 * 1.5 * pow(max(0, abs(x) - 0.22) / 1.33, 0.5) / 1.33 * (x > 0 ? 1 : -1)
+                let l = (slope * slope + 1 + 0.36).squareRoot()
+                out.append(P(part: .body, x: x, y: top + dy, z: 0, nx: slope / l * (dy < 0.05 ? 1 : 0.4), ny: -1 / l * (dy < 0.05 ? 1 : 0.3), nz: 0.6 / l + (dy < 0.05 ? 0 : 0.6),
+                             tone: 0.7 * (1 - 0.5 * dy), dither: OrbPoints.hash(k, 18), phase: OrbPoints.hash(k, 19) * 6.3))
+            }
+        }
+        cache[n] = out
+        return out
+    }
 }
 
 /// The rings' fixed frames: the six great circles normal to an icosahedron's six axes through

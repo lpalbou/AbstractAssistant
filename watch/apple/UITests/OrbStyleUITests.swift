@@ -1,27 +1,44 @@
 import XCTest
 
-/// The first-launch orb question offers every style (the planets, the avatars, then Ocean); the one
-/// chosen is kept (Settings names it). Sample data.
+/// The first-launch orb question lists the styles by family (Orbs, Forms, Faces, Machines); a style
+/// opens its preview, which goes through the assistant's phases; "Use this" keeps it (Settings
+/// names it). Sample data.
 final class OrbStyleUITests: XCTestCase {
     private func shot(_ name: String) {
         guard let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] else { return }
         try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
     }
 
-    func testFaceAndOceanCanBeChosen() throws {
+    func testStylesByFamilyPreviewAndChoose() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--orb-design", "A", "--ask-orb"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Halo"].waitForExistence(timeout: 15), app.debugDescription)
-        // One page per style: swipe up to the last two.
-        for name in ["Vortex", "Nebula", "Rings", "Liquid", "Galaxy", "Lotus", "Crystal", "Eclipse", "Synapse", "Drop", "Face", "Imprint", "Hologram", "Eye", "Lens", "Dome", "Valet", "Retro", "Deco", "Rover"] {
-            app.swipeUp()
-            XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5), "no \(name) page:\n\(app.debugDescription)")
+        let halo = app.buttons["orb.Halo"].firstMatch
+        XCTAssertTrue(halo.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.descendants(matching: .any)["family.Orbs"].exists, "no Orbs section")
+        shot("o1-list")
+        // Every family, in order: the first style of each, further down each time.
+        var lastY = halo.frame.minY - 1
+        for name in ["Lotus", "Face", "Lens"] {
+            let row = app.buttons["orb.\(name)"].firstMatch
+            for _ in 0..<30 where !row.exists { app.nudgeUp() }
+            if !row.exists { shot("o1-missing-\(name)") }
+            XCTAssertTrue(row.exists, "no \(name) row:\n\(app.debugDescription)")
+            shot("o1-\(name)")
+            _ = lastY; lastY = row.frame.minY
         }
-        sleep(1); shot("o1-rover")
-        app.swipeUp()
-        XCTAssertTrue(app.staticTexts["Ocean"].waitForExistence(timeout: 5), app.debugDescription)
-        sleep(1); shot("o2-ocean")
+        let ocean = app.buttons["orb.Ocean"].firstMatch
+        for _ in 0..<30 where !(ocean.exists && ocean.isHittable) { app.nudgeDown() }
+        XCTAssertTrue(ocean.exists, app.debugDescription)
+        ocean.tap()
+        // The preview: the phases in turn.
+        let phase = app.staticTexts["orb.phase"].firstMatch
+        XCTAssertTrue(phase.waitForExistence(timeout: 10), app.debugDescription)
+        let first = phase.label
+        let end = Date().addingTimeInterval(6)
+        while Date() < end && phase.label == first { usleep(250_000) }
+        XCTAssertNotEqual(phase.label, first, "the preview stays in one phase")
+        shot("o2-preview")
         app.buttons["Use this"].firstMatch.tap()
         // Home, then Settings: it is the orb in use.
         let settings = app.buttons["Settings"].firstMatch

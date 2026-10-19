@@ -32,7 +32,12 @@ struct AbstractAssistantWatchApp: App {
                 SignInView()
             } else if !orbChosen {
                 // First launch, after sign-in: the orb is the assistant, so its look is the first choice.
-                NavigationStack { OrbStylePicker(onboarding: true) }
+                NavigationStack {
+                    OrbStylePicker(onboarding: true)
+                        .navigationDestination(for: Route.self) { route in
+                            if case .orbStylePreview(let raw) = route, let d = OrbDesign(rawValue: raw) { OrbStylePreview(design: d, onboarding: true) }
+                        }
+                }
             } else {
             NavigationStack(path: $model.path) {
                 HomeView()
@@ -68,6 +73,7 @@ struct AbstractAssistantWatchApp: App {
                         case .link(let url): LinkView(url: url)
                         case .answer(let ref): AskView(initialPhase: .idle, opening: ref)
                         case .orbStyle: OrbStylePicker()
+                        case .orbStylePreview(let raw): OrbStylePreview(design: OrbDesign(rawValue: raw) ?? .a)
                         }
                     }
             }

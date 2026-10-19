@@ -6,7 +6,7 @@ enum Route: Hashable {
     case approval(Wait), askUser(Wait), draft(Wait), waits
     case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), newAutomation, message(title: String, Exchange), voiceSettings, settings
     case occurrence(title: String, LastOccurrence)
-    case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, about
+    case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, orbStylePreview(String), about
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
     case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations
 }
