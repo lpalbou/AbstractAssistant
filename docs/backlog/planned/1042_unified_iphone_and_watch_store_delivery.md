@@ -142,3 +142,23 @@ and is executing all79 native checks before the unchanged human upload gate.
 Coredoc guide refinements distinguish local developer projects from Store composition and show
 the actual archive-before-native-checks order. Canonical-only aggregation preserves the other
 writer's staged/working Watch documentation changes without committing them.
+
+## Full release candidate verified — 2026-10-19
+
+Manual run 39200275528 on cd6bbf3 passes all14 release contracts, 73 Watch and246 iPhone package
+tests, Watch companion compilation, the combined device archive and full native79/79 (zero
+failed or skipped). The actual downloaded candidate0.6.21 (119.1) passes the real verifier:
+full-suite flag, exact commit, schema2, both Store identities, SHA256, safe extraction and both
+actual device applications with matching versions and independent Watch configuration.
+Archive SHA256: b3b79ca8f2e4d0430491330f980133f5ef85e96b906e02404d815fd11e46d282.
+
+The upload job is waiting for the required human app-store approval. Apple signing, upload and
+processing remain unverified for the combined product, so this item remains Planned until that
+release validation is recorded. The existing protections and secrets are unchanged. This candidate
+is immutable on cd6bbf3; subsequent Watch feature commit015c9da and documentation-only ea08e53 are
+not part of that binary. New source changes need their own checked release candidate.
+
+Evidence: [full native summary](../evidence/1042/full-native-summary.json),
+[real artifact verification](../evidence/1042/full-candidate.json),
+[CI/gate state](../evidence/1042/full-ci-state.json). Both automatic and manual lanes now pass;
+actual Apple delivery remains the explicit human-gated next step.

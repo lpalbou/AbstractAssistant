@@ -1,0 +1,209 @@
+{
+  "devicesAndConfigurations": [
+    {
+      "device": {
+        "architecture": "arm64",
+        "deviceId": "8AAB2C9C-0FEC-4C01-9E80-05ECA632D75D",
+        "deviceName": "Assistant CI 39200275528",
+        "modelName": "iPhone 17 Pro",
+        "osBuildNumber": "24A434",
+        "osVersion": "27.0",
+        "platform": "iOS Simulator"
+      },
+      "expectedFailures": 0,
+      "failedTests": 0,
+      "passedTests": 79,
+      "skippedTests": 0,
+      "testPlanConfiguration": {
+        "configurationId": "1",
+        "configurationName": "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription": "AbstractAssistantPhoneUITests \u00b7 Built with macOS 27.0.1",
+  "expectedFailures": 0,
+  "failedTests": 0,
+  "finishTime": 1792387063.548,
+  "passedTests": 79,
+  "result": "Passed",
+  "runtimeWarnings": [
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
+      "sourceURL": "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/MessageMediaTests.swift"
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "           SessionCore.mm:631   This method can lead to UI unresponsiveness if called on the main thread while the audio session is active.",
+      "sourceURL": "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/MessageMediaTests.swift"
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
+      "sourceURL": "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/VoiceInteractionTests.swift"
+    },
+    {
+      "issueType": "Runtime Warning",
+      "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
+      "sourceURL": "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/VoiceInteractionTests.swift"
+    }
+  ],
+  "skippedTests": 0,
+  "startTime": 1792385267.32,
+  "statistics": [],
+  "testFailures": [],
+  "title": "Test - AbstractAssistantPhoneUITests",
+  "topInsights": [
+    {
+      "category": "Longest Test Runs",
+      "impact": "6% of duration",
+      "text": "1 longest test run with outlier durations exceeding 72.48s (three standard deviations)"
+    },
+    {
+      "category": "Longest Test Runs",
+      "impact": "49% of duration",
+      "text": "1 longest test run with outlier durations exceeding 7.24s (three standard deviations)"
+    }
+  ],
+  "totalTestCount": 79
+}

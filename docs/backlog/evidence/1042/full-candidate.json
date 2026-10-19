@@ -1,0 +1,35 @@
+{
+  "run": "https://github.com/lpalbou/AbstractAssistant/actions/runs/39200275528",
+  "manifest": {
+    "schema": 2,
+    "source_sha": "cd6bbf3ac737a7d48d11a9407291096b308a2398",
+    "bundle_id": "ai.abstractframework.assistant",
+    "watch_bundle_id": "ai.abstractframework.assistant.watch",
+    "version": "0.6.21",
+    "build": "119.1",
+    "native_test_suite": "full",
+    "archive_sha256": "b3b79ca8f2e4d0430491330f980133f5ef85e96b906e02404d815fd11e46d282"
+  },
+  "real_verifier_result": "Passed full-suite/source/identity/digest/safe-extraction and actual device-app checks",
+  "actual_apps": [
+    {
+      "CFBundleIdentifier": "ai.abstractframework.assistant",
+      "CFBundleShortVersionString": "0.6.21",
+      "CFBundleVersion": "119.1",
+      "DTPlatformName": "iphoneos",
+      "WKCompanionAppBundleIdentifier": null,
+      "WKRunsIndependentlyOfCompanionApp": null,
+      "WKWatchOnly": null
+    },
+    {
+      "CFBundleIdentifier": "ai.abstractframework.assistant.watch",
+      "CFBundleShortVersionString": "0.6.21",
+      "CFBundleVersion": "119.1",
+      "DTPlatformName": "watchos",
+      "WKCompanionAppBundleIdentifier": "ai.abstractframework.assistant",
+      "WKRunsIndependentlyOfCompanionApp": true,
+      "WKWatchOnly": null
+    }
+  ],
+  "apple_upload": "Pending human gate at time of verification"
+}
