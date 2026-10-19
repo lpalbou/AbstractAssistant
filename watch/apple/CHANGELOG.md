@@ -8,19 +8,45 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Added
 
-- **Two new orb styles, Face and Ocean** (first launch and Settings → Orb style).
+- **New orb styles: five state shapes, Face, Imprint, Hologram, Eye, six robots and Ocean** (first launch and Settings →
+  Orb style).
+  - **State shapes**: five orbs with one shape per state (listening, thinking, working with its
+    tools, speaking), morphing from one to the next: **Lotus** (a bud that blooms), **Crystal** (a
+    crystal that grows wings), **Eclipse** (a golden eclipse), **Synapse** (a network that bursts
+    into a star) and **Drop** (a drop of light that pours out as a horn).
   - **Face**: a friendly portrait in points, with smiling eyes, a soft smile and rosy cheeks. It
-    blinks, breathes and moves its head a little. Its mouth moves with its own voice; it tilts its
-    head and raises its brows while you speak; it looks up and aside while it thinks.
-  - **Ocean**: a round window onto a sea at night, a moon and its glade on the water. The swell is
-    small at rest. A voice raises the waves (low pitches the long swell, high pitches the chop),
-    coming toward you while it speaks and going away while you speak. While it thinks the sea calms
-    and rain falls, each drop sending out rings.
+    blinks, breathes and moves its head a little. Its lips follow its own voice like speech: open
+    on loud sounds with the teeth showing, rounded on dark vowels, wide on bright ones, closed in
+    the pauses. While you speak it turns its head and cups a hand behind its ear, your voice
+    arriving as arcs in the hand's cone; it looks up and aside while it thinks.
+  - **Imprint**: the face, zoomed in, pressed against a pane of glass: only what touches the pane
+    shows, most of the face at rest with its eyes and mouth open. It presses in and opens its mouth
+    as it speaks, lays its cheek on the pane while you speak, and draws back while it thinks.
+  - **Hologram**: the head as glowing scan lines, its eyes and smile over them: light pulses along
+    the lines from its mouth as it speaks, they ripple while you speak, and a scan sweeps down the
+    head while it thinks.
+  - **Eye**: one large, friendly eye: its iris glows with its voice and it smiles as it speaks; it
+    opens wide, pupil widening, while you speak; it looks up and aside while it thinks.
+  - **Robots**, each in its own colour and showing every state (rest, listening, speaking,
+    thinking, working): **Lens** (a glowing red camera eye), **Dome** (a dome-headed
+    droid that turns to face you and chatters with its lights), **Valet** (a gilded humanoid head that
+    talks with its whole head), **Retro** (a glass-domed robot whose grille of lights follows its
+    voice), **Deco** (an art-deco machine woman with rings of light passing around her) and **Rover**
+    (binocular eyes on a neck that lean in to listen).
+  - **Ocean**: a sea at night across the screen's whole width, with a moon and its glade. Its waves are shaped
+    and lit like real ones (sharp crests, the moon reflected off each wave, foam on steep crests);
+    a voice raises them, toward you while it speaks and away while you speak; while it thinks the
+    sea calms and rain falls.
 
 ### Changed
 
 - Home's orb is 20% larger; the orb on the talk and Read aloud pages is 10% smaller.
 - The style picker shows each orb speaking.
+- The orb's line no longer keeps "I didn't hear anything" (or an earlier error) once the orb
+  speaks.
+- **Rings** is a geodesic structure of six rigid rings: each ring turns with its own part of the
+  voice (low to high pitches), so the structure comes alive as you speak and settles back in the
+  pauses; it spins up while it thinks.
 
 ## [0.3.0] - 2026-10-18
 

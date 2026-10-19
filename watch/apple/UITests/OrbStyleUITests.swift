@@ -1,7 +1,7 @@
 import XCTest
 
-/// The first-launch orb question offers every style, Face and Ocean last; the one chosen is kept
-/// (Settings names it). Sample data.
+/// The first-launch orb question offers every style (the planets, the avatars, then Ocean); the one
+/// chosen is kept (Settings names it). Sample data.
 final class OrbStyleUITests: XCTestCase {
     private func shot(_ name: String) {
         guard let dir = ProcessInfo.processInfo.environment["SHOTS_DIR"] else { return }
@@ -14,11 +14,11 @@ final class OrbStyleUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["Halo"].waitForExistence(timeout: 15), app.debugDescription)
         // One page per style: swipe up to the last two.
-        for name in ["Vortex", "Nebula", "Rings", "Liquid", "Galaxy", "Face"] {
+        for name in ["Vortex", "Nebula", "Rings", "Liquid", "Galaxy", "Lotus", "Crystal", "Eclipse", "Synapse", "Drop", "Face", "Imprint", "Hologram", "Eye", "Lens", "Dome", "Valet", "Retro", "Deco", "Rover"] {
             app.swipeUp()
             XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5), "no \(name) page:\n\(app.debugDescription)")
         }
-        sleep(1); shot("o1-face")
+        sleep(1); shot("o1-rover")
         app.swipeUp()
         XCTAssertTrue(app.staticTexts["Ocean"].waitForExistence(timeout: 5), app.debugDescription)
         sleep(1); shot("o2-ocean")

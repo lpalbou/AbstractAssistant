@@ -1,9 +1,15 @@
 import SwiftUI
+import WatchKit
 
 /// The orb's style: how its points answer a voice (Settings → Orb style, and asked once at first
 /// launch). Stored by letter so a choice survives renames.
 enum OrbDesign: String, CaseIterable, Identifiable {
-    case a = "A", b = "B", c = "C", d = "D", e = "E", f = "F", g = "G", h = "H"
+    // The picker's order: the planets, the state shapes, the avatars, the robots, then the sea
+    // (letters stay stable).
+    case a = "A", b = "B", c = "C", d = "D", e = "E", f = "F"
+    case r = "R", s = "S", u = "U", v = "V", w = "W"
+    case g = "G", i = "I", j = "J", k = "K"
+    case l = "L", m = "M", n = "N", o = "O", p = "P", q = "Q", h = "H"
     var id: String { rawValue }
     var name: String {
         switch self {
@@ -13,7 +19,21 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .d: "Rings"
         case .e: "Liquid"
         case .f: "Galaxy"
+        case .r: "Lotus"
+        case .s: "Crystal"
+        case .u: "Eclipse"
+        case .v: "Synapse"
+        case .w: "Drop"
         case .g: "Face"
+        case .i: "Imprint"
+        case .j: "Hologram"
+        case .k: "Eye"
+        case .l: "Lens"
+        case .m: "Dome"
+        case .n: "Valet"
+        case .o: "Retro"
+        case .p: "Deco"
+        case .q: "Rover"
         case .h: "Ocean"
         }
     }
@@ -22,10 +42,24 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .a: "rays of light around it, as long as your voice is loud"
         case .b: "the points swirl out into arms that reach with the voice"
         case .c: "a cloud that breathes outward with the voice"
-        case .d: "the points gather on three orbits that pulse with the voice"
+        case .d: "a geodesic structure of rigid rings, each turning with its own part of the voice"
         case .e: "its surface ripples in waves with the voice"
         case .f: "a spiral galaxy that turns and spreads its arms with the voice"
-        case .g: "a friendly face that talks with its voice and listens to yours"
+        case .r: "a bud that listens, opens to think, branches out to work, blooms to speak"
+        case .s: "a crystal that grows to think, gathers orbits to work, spreads wings to speak"
+        case .u: "a golden eclipse: a corona to listen, orbits to think, a shutter to work, bars to speak"
+        case .v: "a network of nodes: tangled to think, orbiting to work, a starburst to speak"
+        case .w: "a drop of light: a vortex to think, fibres to work, a horn of particles to speak"
+        case .g: "a friendly face whose lips follow its voice; it cups its ear to listen"
+        case .i: "a face seen only where it touches a pane of glass; it presses in as it speaks"
+        case .j: "a head of light in scan lines: its words pulse along them, a scan sweeps it as it thinks"
+        case .k: "one friendly eye: its iris glows with its voice, it opens wide to listen"
+        case .l: "a glowing red camera eye; its core flares as it speaks"
+        case .m: "a dome-headed droid: it turns to face you, chatters with its lights, spins to think"
+        case .n: "a gilded robot head: glowing eyes, it talks with its whole head"
+        case .o: "a glass-domed robot of the fifties: its grille of lights follows its voice"
+        case .p: "an art-deco machine woman with rings of light passing around her"
+        case .q: "a little rover with binocular eyes that lean in to listen"
         case .h: "a sea at night whose waves rise with the voice; rain falls while it thinks"
         }
     }
@@ -80,12 +114,19 @@ struct Orb: View {
         TimelineView(.animation(minimumInterval: 1 / rate)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let voiced = mode == .listening || mode == .speaking
+            let doing = work?(t)
             let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking,
-                                speaking: mode == .speaking)
+                                speaking: mode == .speaking, working: (doing?.satellites ?? 0) > 0)
             OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0, work: work?(t) ?? .none)
-                .frame(width: size, height: size)
+                .frame(width: fillsWidth(chosen) ? WKInterfaceDevice.current().screenBounds.width : size, height: size)
         }
         .accessibilityLabel(label)
+    }
+
+    /// The sea takes the screen's whole width where the orb is the page (the talk and Read pages),
+    /// not on Home or in a small tile.
+    private func fillsWidth(_ d: OrbDesign) -> Bool {
+        d == .h && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
     }
 
     private var label: String {
@@ -116,13 +157,24 @@ final class OrbEngine {
     /// voice, the ocean's waves come toward you when it speaks and go away when you do.
     private(set) var talking: Double = 0
     private var kLin: Double = 0
+    /// Rings: each ring's swing (its band's energy, rising in ~0.15 s, settling in ~0.8 s), the
+    /// phase of that swing and its spin, advanced by its band (one ring per band, low to high).
+    static let ringCount = 6
+    private(set) var ringSwing = [Double](repeating: 0, count: OrbEngine.ringCount)
+    private(set) var ringPhase = [Double](repeating: 0, count: OrbEngine.ringCount)
+    private(set) var ringSpin = [Double](repeating: 0, count: OrbEngine.ringCount)
+    /// The structure's turn: slow at rest, faster while it thinks (a gyroscope spinning up).
+    private(set) var ringTurn: Double = 0
+    /// 0…1: tools are running (eased over 0.5 s; a tool call between two thoughts does not flicker).
+    private(set) var working: Double = 0
+    private var wLin: Double = 0
     private var slow: Double = 0
     private var eLin: Double = 0
     private var tLin: Double = 0
     private var lastT: Double = 0
 
     @discardableResult
-    func step(t: Double, voice: VoiceFeatures, engaged: Bool, thinking isThinking: Bool, speaking: Bool = false) -> Bool {
+    func step(t: Double, voice: VoiceFeatures, engaged: Bool, thinking isThinking: Bool, speaking: Bool = false, working isWorking: Bool = false) -> Bool {
         let dt = lastT == 0 ? 0 : min(0.2, max(0, t - lastT))
         lastT = t
         let level = voice.level
@@ -139,6 +191,15 @@ final class OrbEngine {
         thinking = tLin * tLin * (3 - 2 * tLin)
         kLin = min(1, max(0, kLin + (speaking ? dt / 0.4 : -dt / 0.4)))
         talking = kLin * kLin * (3 - 2 * kLin)
+        wLin = min(1, max(0, wLin + (isWorking ? dt / 0.5 : -dt / 0.9)))
+        working = wLin * wLin * (3 - 2 * wLin)
+        for i in 0..<Self.ringCount {
+            let b = engagement * min(1, 1.4 * bands[min(bands.count - 1, i + 1)] + 0.3 * loud)
+            ringSwing[i] += (b - ringSwing[i]) * (dt > 0 ? 1 - exp(-dt / (b > ringSwing[i] ? 0.15 : 0.8)) : 1)
+            ringPhase[i] += dt * (0.4 + 0.15 * Double(i) + 3.5 * ringSwing[i])
+            ringSpin[i] += dt * (0.1 + 0.05 * Double(i) + 2.8 * ringSwing[i] + 1.5 * thinking) * (i % 2 == 0 ? 1 : -1)
+        }
+        ringTurn += dt * (0.12 + 1.1 * thinking)
         if dt > 0 { slow += (loud - slow) * (1 - exp(-dt / (loud > slow ? 0.06 : 0.25))) } else { slow = loud }
         signal = engagement * (0.12 + 0.88 * min(1, slow))
         swirl += dt * engagement * (0.2 + 1.4 * loud)
@@ -173,9 +234,29 @@ struct OrbCanvas: View {
     private func draw(_ gc: inout GraphicsContext, _ box: CGSize) {
         gc.blendMode = .plusLighter
         // The Assistant's own scenes (an entity keeps its shape, with Nebula's answer to the voice).
-        if look.shape == .planet && design == .g { drawFace(&gc, box); return }
-        if look.shape == .planet && design == .h { drawOcean(&gc, box); return }
-        let design = (design == .g || design == .h) ? OrbDesign.c : design
+        if look.shape == .planet {
+            switch design {
+            case .d: drawRings(&gc, box); return
+            case .g: drawFace(&gc, box); return
+            case .h: drawOcean(&gc, box); return
+            case .i: drawImprint(&gc, box); return
+            case .j: drawHologram(&gc, box); return
+            case .k: drawEye(&gc, box); return
+            case .l: drawLens(&gc, box); return
+            case .m: drawDome(&gc, box); return
+            case .n: drawValet(&gc, box); return
+            case .o: drawRetro(&gc, box); return
+            case .p: drawDeco(&gc, box); return
+            case .q: drawRover(&gc, box); return
+            case .r: drawLotus(&gc, box); return
+            case .s: drawCrystal(&gc, box); return
+            case .u: drawEclipse(&gc, box); return
+            case .v: drawSynapse(&gc, box); return
+            case .w: drawDrop(&gc, box); return
+            default: break
+            }
+        }
+        let design = [.a, .b, .c, .d, .e, .f].contains(design) ? design : OrbDesign.c
         let half = Double(min(box.width, box.height)) / 2
         let cx = Double(box.width) / 2, cy = Double(box.height) / 2
         let R = half * 0.46                    // the planet; at full voice the outer points reach the frame
@@ -270,7 +351,7 @@ struct OrbCanvas: View {
                         }
                         let d = 0.3 + 1.0 * wv * p.reach + 0.4 * now
                         tx += sx * d; ty += sy * d; glow = 0.6 * now
-                    case .g, .h:   // drawn as scenes of their own (OrbScenes.swift)
+                    case .g, .h, .i, .j, .k, .l, .m, .n, .o, .p, .q, .r, .s, .u, .v, .w:   // scenes of their own
                         break
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
                         let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)
@@ -586,7 +667,7 @@ enum OrbIcon {
         print("orb work rendered: \(dir.path)")
     }
 
-    /// `--render-orb-scenes` (simulator): Face and Ocean at rest, speaking (loud and soft), listening
+    /// `--render-orb-scenes` (simulator): the scene styles (Rings, Face, Imprint, Hologram, Eye, Ocean) at rest, speaking (loud and soft), listening
     /// and thinking, into Documents/orb-<style>-<state>.png.
     @MainActor static func renderScenes() {
         guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
@@ -602,16 +683,21 @@ enum OrbIcon {
             ("think", .silent, false, false, true, 1003.0),
             ("think-later", .silent, false, false, true, 1003.55),
             ("blink", .silent, false, false, false, 5.3 * 189 + 0.15),   // mid-blink
+            ("work", .silent, false, false, true, 1004.2),             // thinking, with tools running
         ]
-        for design in [OrbDesign.g, .h] {
+        for design in [OrbDesign.d, .r, .s, .u, .v, .w, .g, .i, .j, .k, .l, .m, .n, .o, .p, .q, .h] {
             for (name, v, engaged, speaking, thinking, t) in states {
                 let engine = OrbEngine()
-                for k in 0..<45 { engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking) }
+                for k in 0..<45 { engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking, working: name == "work") }
+                // The sea as on the talk page: the screen's width over 90% of it (208 × 187 pt).
+                let w: CGFloat = design == .h ? 440 : 396
                 let art = ZStack {
                     Color(hex: 0x0a0a12)
-                    OrbCanvas(t: t, engine: engine, design: design, look: .assistant).frame(width: 396, height: 396)
+                    OrbCanvas(t: t, engine: engine, design: design, look: .assistant,
+                              work: name == "work" ? OrbWork(pulses: [.init(age: 0.4, strength: 1, tone: .tool)], satellites: 2) : .none)
+                        .frame(width: w, height: 396)
                 }
-                .frame(width: 396, height: 396)
+                .frame(width: w, height: 396)
                 let renderer = ImageRenderer(content: art)
                 renderer.scale = 2
                 if let data = renderer.uiImage?.pngData() { try? data.write(to: dir.appending(path: "orb-\(design.name)-\(name).png")) }

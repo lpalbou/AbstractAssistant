@@ -1,6 +1,6 @@
 #!/bin/zsh
 # deploy-watch.sh [--env FILE] [--screen NAME] [--forget] [--no-build] [--shoot NAME [--wait S]]
-# Signed Debug build for the paired physical watch, install over CoreDevice, launch with the pairing
+# Signed Debug build for the paired physical watch (--no-build: the last one), install over CoreDevice, launch with the pairing
 # from FILE (GW_URL + GW_TOKEN, or GW_WATCH_TOKEN) saved on the watch. No --env keeps the pairing
 # already on the watch; --forget clears it (the app falls back to the Pair screen's values).
 # Needs: the watch paired for development (docs/pairing.md) and its CoreDevice id in
@@ -26,8 +26,9 @@ if [ $BUILD = 1 ]; then
   [ project.yml -nt AbstractAssistantWatch.xcodeproj/project.pbxproj ] && xcodegen generate --spec project.yml
   xcodebuild -project AbstractAssistantWatch.xcodeproj -scheme AbstractAssistantWatch -destination 'generic/platform=watchOS' \
     -configuration Debug -derivedDataPath build/DerivedData -allowProvisioningUpdates -quiet build
-  xcrun devicectl device install app --device "$DEVICE" build/DerivedData/Build/Products/Debug-watchos/AbstractAssistantWatch.app --timeout 180 >/dev/null
 fi
+# Always install (--no-build installs the last build: a retry after the watch was out of reach).
+xcrun devicectl device install app --device "$DEVICE" build/DerivedData/Build/Products/Debug-watchos/AbstractAssistantWatch.app --timeout 180 >/dev/null
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing --timeout 60 ai.abstractframework.assistant.watch "${ARGS[@]}" >/dev/null
 echo "launched${GW_URL:+ against $GW_URL}${SCREEN:+ at $SCREEN}"
 if [ -n "$SHOOT" ]; then

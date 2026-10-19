@@ -85,6 +85,7 @@ struct AskView: View {
                                 if controlsShown { responderSwitch }
                                 Text(status).font(.rounded(.footnote)).foregroundStyle(statusColor)
                                     .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.85)
+                                    .accessibilityIdentifier("ask.status")
 
                                     .shadow(color: .black, radius: 3)
                             }
@@ -175,6 +176,7 @@ struct AskView: View {
     private func read(_ e: Exchange) {
         guard !e.answer.isEmpty, let scope = e.scope else { return }
         readingId = e.id
+        note = nil; error = nil                             // a note on the last listening ends as it speaks
         if phase == .idle { phase = .answer }
         speaker.read(e.answer, scope: scope, client: model.client, clips: e.media)
     }
@@ -189,6 +191,7 @@ struct AskView: View {
             return
         }
         readingId = "clip:" + item.id
+        note = nil; error = nil
         if phase == .idle { phase = .answer }
         speaker.play(clips: [item], client: model.client)
         WKInterfaceDevice.current().play(.click)
@@ -339,6 +342,8 @@ struct AskView: View {
     }
 
     private var status: String {
+        // While the orb speaks its line is empty: nothing said before (a note, an error) shows over it.
+        if phase == .answer, speaker.isActive { return "" }
         if let error { return error }
         if let note { return note }
         switch phase {

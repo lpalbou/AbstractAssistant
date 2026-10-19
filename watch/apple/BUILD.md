@@ -62,7 +62,7 @@ nothing). The app's own scheme, CI and the release archive do not build the UI t
 | `--screen <name>` | opens a screen at launch: `home` `signin` `approval` `approval-ask` `email` `draft` `askuser` `waits` `ask` `ask-entity` `picker` `listening` `thinking` `answer` `sessions` `session` `automations` `automation` `automation-new` `automation-edit` `occurrence` `settings` `orbstyle` `about` `read` `link` `tools` `tools:<group>` `session-search` `session-search-media` |
 | `--gateway <url> --token <token> [--user <id>]` | signs in with that gateway and token and keeps the sign-in, so one launch provisions a simulator or a watch |
 | `--forget-gateway` | forgets the saved sign-in (the sign-in screen shows) |
-| `--orb-design <A–H>` | chooses the orb style (G Face, H Ocean); `--ask-orb` asks the first-launch question again |
+| `--orb-design <letter>` | chooses the orb style (R Lotus, S Crystal, U Eclipse, V Synapse, W Drop, G Face, I Imprint, J Hologram, K Eye, L Lens, M Dome, N Valet, O Retro, P Deco, Q Rover, H Ocean); `--ask-orb` asks the first-launch question again |
 | `--no-notification-prompt` | never shows the one-time notification question (screenshot runs) |
 
 Debug builds also accept test hooks that answer, ask or navigate without a tap: `--test-identify`
@@ -70,7 +70,7 @@ Debug builds also accept test hooks that answer, ask or navigate without a tap: 
 `--test-ask "<prompt>"`, `--test-read "<markdown>"`, `--test-open <url>`, `--test-listen`,
 `--test-pause`, `--test-rewind` (with `--rewind-1`), `--open-automation <n>`, `--run-now`,
 `--run-first`, `--scroll-bottom`, `--scroll-end-now`, `--home-bottom`, `--render-icon`,
-`--render-orb-work` (the orb at work, frame by frame, into Documents), `--render-orb-scenes` (Face and Ocean at rest, speaking, listening and thinking, into Documents), `--reset-tools` (tool and
+`--render-orb-work` (the orb at work, frame by frame, into Documents), `--render-orb-scenes` (the scene styles, robots included, at rest, speaking, listening, thinking and working, into Documents), `--reset-tools` (tool and
 workflow choices back to the gateway's), `--reset-seen` (every answer counts as new),
 `--fresh-conversation` and `--test-session <id>` (open a conversation), `--slow-automations`
 (sample automations answer 6 s late, as on a public gateway). Release builds ignore them.
@@ -87,7 +87,7 @@ writes `screenshots/live/<screen>.png`.
 
 ```sh
 scripts/deploy-watch.sh --env <file with GW_URL and GW_TOKEN>   # signed build, install, launch signed in
-scripts/deploy-watch.sh --no-build --screen picker --shoot picker  # relaunch at a screen, screenshot
+scripts/deploy-watch.sh --no-build --screen picker --shoot picker  # install the last build, open a screen, screenshot
 scripts/deploy-watch.sh --no-build --forget                       # clear the sign-in on the watch
 ```
 

@@ -55,7 +55,7 @@ passing the gateway URL and token as launch arguments so nothing is typed on the
 
 ```sh
 scripts/deploy-watch.sh --env <file with GW_URL and GW_TOKEN>
-scripts/deploy-watch.sh --no-build --screen settings --shoot settings                # relaunch + screenshot
+scripts/deploy-watch.sh --no-build --screen settings --shoot settings                # install the last build, open it + screenshot
 scripts/deploy-watch.sh --no-build --forget                                          # clear the saved pairing
 ```
 
