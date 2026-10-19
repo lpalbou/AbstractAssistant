@@ -7,11 +7,11 @@ workflow, not a hybrid of workflow, private-bundle, and direct-chat paths.
 
 ## Current Counts
 
-- Planned: 8
+- Planned: 7
 - Proposed: 17
-- Completed: 6
+- Completed: 7
 
-Counts recomputed from disk on 2026-10-18 for iPhone item 1041 (topic tracks included).
+Counts recomputed from disk on 2026-10-19 after completing iPhone item 1041 (topic tracks included).
 0009 is on disk under planned/ and still has no row in the Planned table.
 - Deprecated: 0
 - Recurrent: 0
@@ -42,7 +42,6 @@ Counts recomputed from disk on 2026-10-18 for iPhone item 1041 (topic tracks inc
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| [1041](planned/1041_iphone_ci_and_gated_apple_delivery.md) | iPhone CI and gated Apple delivery | Planned | Credential-free checks and candidate archive; manual main-only human-approved ASC upload; TestFlight then same-build manual Store promotion. ADR0002. |
 | [0853](completed/0853_sessions_are_gateway_first.md) | Sessions are gateway-first: the local session index is a rebuildable cache | Completed (0.7.0, 2026-09-27) | Operator finding 2026-09-27 (purge + reinstall still listed old sessions): the list, titles and transcripts come from `~/.abstractassistant`, never the gateway, with no reconciliation. List = `/runs?root_only=true` folded by `session_id` as in AbstractCode; titles and transcripts from gateway history; local files a deletable cache; one-time migration. Prerequisite for 0852. |
 | [0851](planned/0851_settings_reads_the_gateway_on_the_gui_thread.md) | Settings reads the gateway on the GUI thread | Planned | Opening Settings blocks the event loop on synchronous 30 s HTTP — measured 61 s against a black-hole host, ~210 s worst case. The 2026-09-18 wave cut the Models page from 7 round trips to 2; threading and a short settings timeout remain. |
 | [0850](planned/0850_transcript_refresh_cost_and_answer_link_follow_ups.md) | Transcript refresh cost and clickable-link follow-ups | Planned | Rebuild-everything on each run event now carries per-card filesystem work; spoken paths; fenced-path edge. Follows the 2026-09-17 links/tool-identity wave. |
@@ -66,6 +65,7 @@ Counts recomputed from disk on 2026-10-18 for iPhone item 1041 (topic tracks inc
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
+| [1041](completed/1041_iphone_ci_and_gated_apple_delivery.md) | iPhone CI and gated Apple delivery | Completed 2026-10-19 | Created/completed 2026-10-19; planned→completed. Automatic CI plus manual main-only human-approved ASC upload; ADR0002 and distribution guide. Contracts10/10, package246/246, native79/79; real full archive verified, upload skipped. [Evidence](evidence/1041/README.md). |
 | [1040](completed/1040_iphone_restored_image_previews.md) | iPhone restored image previews | Completed 2026-10-18 | Created/completed 2026-10-18; planned→completed. Conversation-owned shared downloads, inline decoding and retry; native 7/7, inspected cold-relaunch screenshots; normal 0.6.21 (29) installed (phone locked for launch). |
 | [1039](completed/1039_iphone_stop_orb_morph_and_contrast.md) | iPhone stop orb morph and contrast | Completed 2026-10-18 | Created/completed 2026-10-18; moved planned→completed. Checkpoint 7c5d9ec, bright stop control, two-way interrupted morph; native 5/5 and inspected frames; normal 0.6.20 (28) installed/launched. |
 | [1038](completed/1038_iphone_category_tool_controls_and_conversation_archiving.md) | iPhone category controls and actionable conversations | Completed 2026-10-18 | Created/completed 2026-10-18; moved planned→completed. Category Off/Auto/Approve; grouped history, compact stats/status and existing gateway archive/restore. 246 package + two native + one read-only device test passed, screenshots/adversary approved; normal 0.6.19 (27) installed/launched. iPhone only, uncommitted. [Evidence](evidence/1038/README.md). |

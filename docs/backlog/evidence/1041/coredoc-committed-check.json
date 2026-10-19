@@ -1,0 +1,6 @@
+{
+  "commit": "b555e638b128b93c1392a0757fc04a891b291a27",
+  "scope": "Committed documentation; unrelated Watch working-tree docs are being edited concurrently.",
+  "exit_code": 0,
+  "output": "llms-full.txt is up to date.\n"
+}

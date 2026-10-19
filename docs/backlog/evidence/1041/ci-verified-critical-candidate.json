@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "source_sha": "b555e638b128b93c1392a0757fc04a891b291a27",
+  "bundle_id": "ai.abstractframework.assistant.iphone",
+  "version": "0.6.21",
+  "build": "108.1",
+  "native_test_suite": "critical",
+  "archive_sha256": "65d12a85c44ec3bb52d3c642289b33fd4c869cfe28a4582bd382b73883c34b0f"
+}

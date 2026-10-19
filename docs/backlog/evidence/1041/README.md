@@ -55,7 +55,7 @@ upload was **skipped**. Machine-readable receipts are `ci-critical-run.json` and
 `ci-critical-artifacts.json`.
 
 `ci-critical-package-summary.txt`: 170 + 76 = **246 package tests passed**.
-`ci-critical-native-summary.json`: **35 passed, 0 failed, 0 skipped** on iPhone17Pro/iOS27.0;
+`ci-critical-native-summary.json`: **35 passed, 0 failed, 0 skipped** on iPhone17Pro/iOS 27.0;
 31 hosted tests and four critical UI journeys. The report retains eight existing audio-session
 main-thread runtime warnings. Xcode also printed Swift optional-promotion warnings and a
 non-fatal compiler diagnostic with exit code0; the native test report, archive and job all succeeded.
@@ -79,35 +79,76 @@ the test tapped Stop. Update these existing journeys without removing tests: use
 wait for share dismissal, query Link and stop samples before capturing, then verify stop cleanup.
 A complete native rerun is required before closing this item.
 
-Focused local rerun on iOS26.5: four fixes pass; the web-link assertion identifies a native
-classification difference (Button on26.5, Link on27.0). Preserve both label and actionable-type
+Focused local rerun on iOS 26.5: four fixes pass; the web-link assertion identifies a native
+classification difference (Button on 26.5, Link on 27.0). Preserve both label and actionable-type
 requirements with a Button-or-Link predicate. `local-focused-first-native-summary.json` records
 the first focused result. A subsequent local build yielded to Watch priority (exit75). The
 complete hosted native suite is rerun after the compatibility adjustment.
 
-A later standard CI run (39182836287) passed34/35 native tests; the actual orb-return snapshot
-was unchanged at the test's fixed140ms sleep. Replace that fixed-delay assertion with bounded
+A later standard CI run (39182836287) passed 34/35 native tests; the actual orb-return snapshot
+was unchanged at the test's fixed 140 ms sleep. Replace that fixed-delay assertion with bounded
 observation of a changed rendered frame, retaining the threshold and adding a check that the
 frame differs from the final sphere before mid-flight reversal. All rendering and reversal
 checks remain required. `ci-critical-second-native-summary.json` preserves the failure.
 
-## Final standard CI receipt
+## Rendering follow-up standard CI receipt
 
-[Run39184707211](https://github.com/lpalbou/AbstractAssistant/actions/runs/39184707211)
-succeeded on514d041 after the rendering-test refinement: release contracts,246 package tests,
+[Run 39184707211](https://github.com/lpalbou/AbstractAssistant/actions/runs/39184707211)
+succeeded on 514d041 after the rendering-test refinement: release contracts,246 package tests,
 35 native tests, unsigned Release archive and artifact retention. Apple upload was skipped.
 `ci-final-critical-*.json` preserve the run, artifact metadata, native summary and candidate.
-The candidate checksum matches its archive. The full UI run uses80e6f1f; the only subsequent
+The candidate checksum matches its archive. The full UI run uses 80e6f1f; the only subsequent
 change is the native orb test, exercised here. Application and release-workflow sources match
 between these validation commits. `orb-stop.png` and `orb-restored-sphere.png` were visually
 inspected from the earlier fixed-delay failure; both endpoints render correctly.
 
-Full run39182853154 passed78/79, resolving all five earlier UI failures. The remaining voice
+Full run 39182853154 passed 78/79, resolving all five earlier UI failures. The remaining voice
 fixture stayed Listening instead of auto-sending after silence. Failure hierarchy confirms
 the controller remained recording. VoiceTurn intentionally resets silence on unobserved
-sample gaps over250ms; main-thread CI stalls made the wall-clock synthetic recorder
+sample gaps over 250 ms; main-thread CI stalls made the wall-clock synthetic recorder
 non-deterministic. Give the DEBUG-only, --demo/--ui-test/--voice-fixture recorder an observed-
 sample clock, so fixture frames and controller timestamps advance together. Production
-recorder, strict silence policy and real monotonic clock remain unchanged. Allow30s for the
+recorder, strict silence policy and real monotonic clock remain unchanged. Allow 30 s for the
 UI's transcription/answer observation under a throttled runner. Native policy tests continue
 to verify real sampling gaps are never counted as silence. Rerun full native suite.
+
+Final focused iOS 26.5 checks passed 3/3: observed orb return/reversal, sample-clock-based voice
+silence/cancel/automatic send with the typed draft preserved, and the Button-or-Link web
+source assertion. `local-final-focused-native-summary.json` records the result. No runtime
+warnings. The guarded local run completed without interrupting Watch. Bundle:
+phone/iphone/build/UITests-1792374369552111000.xcresult (ignored). Full CI on the same b555e63
+revision is required before closure.
+
+## Verified completion — 2026-10-19
+
+Both lanes succeeded on **b555e638b128b93c1392a0757fc04a891b291a27**:
+
+- [Standard run 39186943700](https://github.com/lpalbou/AbstractAssistant/actions/runs/39186943700):
+  release contracts, 246 package tests, 35 native tests and unsigned candidate **0.6.21 (108.1)**.
+- [Full run 39186968522](https://github.com/lpalbou/AbstractAssistant/actions/runs/39186968522):
+  release contracts, 246 package tests, **79 native tests passed, 0 failed, 0 skipped**
+  (31 hosted tests + all 48 UI journeys), and unsigned candidate **0.6.21 (109.1)**.
+- Apple upload is **skipped** in both successful runs. Manual full-suite testing did not request
+  deployment approval or expose Apple credentials. The existing human/main-only gate was audited.
+
+`ci-verified-*.json` and `ci-verified-package-summary.txt` retain these receipts. The actual full
+candidate was downloaded and passed the real `release.py verify` path, including its source,
+iPhone bundle ID, version/build, full native coverage, archive checksum, safe extraction, device
+executable and absence of test plugins. Its SHA256 is
+`7da53b4f7c5a2c1f7bbe56072ea22a83c4ed922d3994a832de34a7ec44a83190`.
+The archive is retained by Actions for 30 days; complete native results for 14 days.
+
+The full native report retains 39 existing audio-session main-thread runtime warnings. Those
+are diagnostics rather than failed tests and remain visible in the receipt. Production voice
+policy and recording clocks were not relaxed: the clock adjustment applies only to the synthetic
+DEBUG UI fixture. There is no actual Apple signing, processing or public Store release claim.
+
+`coredoc-committed-check.json` verifies the committed documentation and LLM aggregate are fresh.
+Concurrent Watch documentation edits make the shared working-tree aggregate temporarily stale;
+those unrelated changes were left to their owner. The final changes affect backlog evidence only,
+which is outside the public LLM aggregation inputs.
+
+First real upload remains an operator action: create the iOS App Store Connect app record,
+request upload on main, inspect the successful full-suite candidate and approve the protected
+app-store deployment. Apple signing/upload and processing have not been exercised with real
+credentials. Store metadata, App Review submission and manual public release follow beta testing.
