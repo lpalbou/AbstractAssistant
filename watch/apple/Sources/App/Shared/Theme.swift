@@ -186,10 +186,28 @@ struct GlassPress: ButtonStyle {
 struct GlassIcon: View {
     let symbol: String
     var size: CGFloat = 35
+    /// The glyphs drawn in a round icon (measured by `--render-icons`).
+    /// A glyph's optical centring in its circle: SF Symbols centre their bounding box, and a glyph
+    /// whose weight sits off it (the share box below its arrow, a chevron's point) looks off by a
+    /// point or two. Measured with `--render-icons` (in points for a 35 pt circle).
+    static func optical(_ symbol: String, size: CGFloat = 35) -> CGSize {
+        let k = size / 35
+        switch symbol {
+        case "square.and.arrow.up": return CGSize(width: 0, height: -1.0 * k)
+        case "chevron.left": return CGSize(width: 0.85 * k, height: 0)
+        case "speaker.wave.2.fill": return CGSize(width: 0.6 * k, height: 0)
+        case "checkmark.shield.fill": return CGSize(width: 0, height: 0.3 * k)
+        case "play.fill": return CGSize(width: 0.3 * k, height: 0)
+        default: return .zero
+        }
+    }
+    static let symbols = ["chevron.left", "square.and.arrow.up", "stop.fill", "play.fill", "pause.fill", "backward.fill",
+                          "keyboard", "wrench.and.screwdriver", "pencil", "speaker.wave.2.fill", "checkmark.shield.fill"]
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: size * 0.45, weight: .semibold))
             .foregroundStyle(Theme.text)
+            .offset(Self.optical(symbol, size: size))
             .frame(width: size, height: size)
             .background(Color(red: 28 / 255, green: 28 / 255, blue: 38 / 255), in: Circle())   // the Back button's fill
             .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))

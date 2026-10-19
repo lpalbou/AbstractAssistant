@@ -430,7 +430,11 @@ final class AppModel: ObservableObject {
             toolMode(t, scope: .session) == .ask && t.riskTier != "outreach" && t.modelControlledDestination != true
                 && (t.riskRank ?? 4) <= ceiling
         }
-        sessionTrust.formUnion(rise.map(\.name))
+        // The tools of the call approved are allowed too, whatever they are, but sends to other
+        // people: the person saw them and chose to allow them all (a web page that keeps asking
+        // after Accept all on a web page reads as a broken button).
+        let shown = (wait.details ?? []).compactMap { tools[$0.name] }.filter { $0.riskTier != "outreach" }
+        sessionTrust.formUnion(rise.map(\.name) + shown.map(\.name))
         ToolPrefs.setTrust(askSessionId, sessionTrust)
     }
 

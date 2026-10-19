@@ -72,7 +72,7 @@ final class MediaStore {
 
     private struct Picture: @unchecked Sendable { let image: CGImage?; init(_ i: CGImage?) { image = i } }
 
-    nonisolated private static func downsample(_ data: Data, maxPixel: Int) -> CGImage? {
+    nonisolated static func downsample(_ data: Data, maxPixel: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
         return CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,

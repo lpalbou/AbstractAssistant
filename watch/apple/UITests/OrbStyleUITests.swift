@@ -27,10 +27,12 @@ final class OrbStyleUITests: XCTestCase {
             shot("o1-\(name)")
             _ = lastY; lastY = row.frame.minY
         }
-        let ocean = app.buttons["orb.Ocean"].firstMatch
-        for _ in 0..<30 where !(ocean.exists && ocean.isHittable) { app.nudgeDown() }
-        XCTAssertTrue(ocean.exists, app.debugDescription)
-        ocean.tap()
+        // The last style, on screen at the end of the list: its preview.
+        let rover = app.buttons["orb.Rover"].firstMatch
+        for _ in 0..<8 where !rover.exists { app.nudgeUp() }
+        for _ in 0..<3 where !rover.isHittable { app.nudgeUp() }
+        XCTAssertTrue(rover.exists, app.debugDescription)
+        rover.tap()
         // The preview: the phases in turn.
         let phase = app.staticTexts["orb.phase"].firstMatch
         XCTAssertTrue(phase.waitForExistence(timeout: 10), app.debugDescription)
@@ -44,7 +46,7 @@ final class OrbStyleUITests: XCTestCase {
         let settings = app.buttons["Settings"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 10), app.debugDescription)
         settings.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb style' AND label CONTAINS 'Ocean'")).firstMatch
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Orb style' AND label CONTAINS 'Rover'")).firstMatch
             .waitForExistence(timeout: 10), app.debugDescription)
         shot("o3-settings")
     }

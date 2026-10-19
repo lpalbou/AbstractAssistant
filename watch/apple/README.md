@@ -17,7 +17,9 @@ for 3 seconds, to send. The keyboard icon lets you type, dictate or scribble ins
 assistant works, the space below the orb shows its steps live (thinking, each tool with what it is
 about, an image being made) and the orb pulses with each tool call, a satellite circling it for
 each tool running. The answer appears in markdown and the orb speaks it, following its voice; the
-voice button beside Back plays, pauses and rewinds.
+voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or resumes it; Stop
+(beside Back while it listens, works or speaks) or a 1.5 s hold on the orb stops what it is doing,
+and at rest the same hold reads the last answer aloud.
 
 **Choose who answers and with what.** "Assistant ⌄" below the orb switches between the
 **Assistant** (it works with its tools and answers) and your **entities** (someone you keep talking
@@ -51,7 +53,7 @@ approval can be allowed or denied from the notification itself.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (twenty-two styles in four families: Orbs, Forms, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
+aloud, Orb style (twenty-three styles in four families: Orbs, Forms, Faces and Machines, each previewed live through listening, thinking, working and speaking) and About.
 
 ## Sign in
 

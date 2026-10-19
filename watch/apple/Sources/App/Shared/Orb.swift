@@ -7,7 +7,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
     // The picker's order: the planets, the state shapes, the avatars, the robots, then the sea
     // (letters stay stable).
     case a = "A", b = "B", c = "C", d = "D", e = "E", f = "F"
-    case r = "R", s = "S", u = "U", v = "V", w = "W"
+    case r = "R", s = "S", u = "U", v = "V", w = "W", x = "X"
     case g = "G", i = "I", j = "J", k = "K"
     case l = "L", m = "M", n = "N", o = "O", p = "P", q = "Q", h = "H"
     var id: String { rawValue }
@@ -24,6 +24,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .u: "Eclipse"
         case .v: "Synapse"
         case .w: "Drop"
+        case .x: "Wave"
         case .g: "Face"
         case .i: "Imprint"
         case .j: "Hologram"
@@ -50,6 +51,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .u: "a golden eclipse: a corona to listen, orbits to think, a shutter to work, bars to speak"
         case .v: "a network of nodes: tangled to think, orbiting to work, a starburst to speak"
         case .w: "a drop of light: a vortex to think, fibres to work, a horn of particles to speak"
+        case .x: "ribbons of light, each a harmonic of the voice; they wind into a swirl to work"
         case .g: "a friendly face whose lips follow its voice; it cups its ear to listen"
         case .i: "a face seen only where it touches a pane of glass; it presses in as it speaks"
         case .j: "a head of light in scan lines: its words pulse along them, a scan sweeps it as it thinks"
@@ -67,7 +69,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
     var family: OrbFamily {
         switch self {
         case .a, .b, .c, .d, .e, .f: .orbs
-        case .r, .s, .u, .v, .w, .h: .forms
+        case .r, .s, .u, .v, .w, .x, .h: .forms
         case .g, .i, .j, .k: .faces
         case .l, .m, .n, .o, .p, .q: .machines
         }
@@ -86,6 +88,7 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .u: "A golden eclipse"
         case .v: "A network of nodes"
         case .w: "A drop of light"
+        case .x: "Ribbons of voice"
         case .h: "A sea at night"
         case .g: "A sculpted face"
         case .i: "A face pressed on glass"
@@ -186,7 +189,7 @@ struct Orb: View {
     /// The sea takes the screen's whole width where the orb is the page (the talk and Read pages),
     /// not on Home or in a small tile.
     private func fillsWidth(_ d: OrbDesign) -> Bool {
-        d == .h && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
+        (d == .h || d == .x) && look.shape == .planet && size > 0.6 * WKInterfaceDevice.current().screenBounds.width
     }
 
     private var label: String {
@@ -276,8 +279,9 @@ final class OrbEngine {
         wLin = min(1, max(0, wLin + (isWorking ? dt / 0.5 : -dt / 0.9)))
         working = wLin * wLin * (3 - 2 * wLin)
         for i in 0..<Self.ringCount {
-            let b = engagement * min(1, 1.4 * bands[min(bands.count - 1, i + 1)] + 0.3 * loud)
-            ringSwing[i] += (b - ringSwing[i]) * (dt > 0 ? 1 - exp(-dt / (b > ringSwing[i] ? 0.15 : 0.8)) : 1)
+            // Each ring follows its own band (its harmonic), not the overall loudness.
+            let b = engagement * min(1, 1.6 * bands[min(bands.count - 1, i + 1)] + 0.08 * loud)
+            ringSwing[i] += (b - ringSwing[i]) * (dt > 0 ? 1 - exp(-dt / (b > ringSwing[i] ? 0.08 : 0.35)) : 1)
             ringPhase[i] += dt * (0.4 + 0.15 * Double(i) + 3.5 * ringSwing[i])
             ringSpin[i] += dt * (0.1 + 0.05 * Double(i) + 2.8 * ringSwing[i] + 1.5 * thinking) * (i % 2 == 0 ? 1 : -1)
         }
@@ -343,6 +347,7 @@ struct OrbCanvas: View {
             case .u: drawEclipse(&gc, box); return
             case .v: drawSynapse(&gc, box); return
             case .w: drawDrop(&gc, box); return
+            case .x: drawWave(&gc, box); return
             default: break
             }
         }
@@ -442,7 +447,7 @@ struct OrbCanvas: View {
                         }
                         let d = 0.3 + 1.0 * wv * p.reach + 0.4 * now
                         tx += sx * d; ty += sy * d; glow = 0.6 * now
-                    case .g, .h, .i, .j, .k, .l, .m, .n, .o, .p, .q, .r, .s, .u, .v, .w:   // scenes of their own
+                    case .g, .h, .i, .j, .k, .l, .m, .n, .o, .p, .q, .r, .s, .u, .v, .w, .x:   // scenes of their own
                         break
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
                         let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)
@@ -488,24 +493,15 @@ struct OrbCanvas: View {
                 let a = (atan2(x, -y) + .pi) / (2 * .pi)
                 bright *= 1 - 0.8 * (1 - smoothstep(countdown - 0.03, countdown + 0.03, a)) * smoothstep(0.8, 1.0, r)
             }
-            // Thinking: two bright bands sweep across the turning planet, pole to pole (a scan).
-            if phases.think > 0.01 && !p.anchored {
-                let sweep = 0.95 * sin(t * 1.1), sweep2 = -0.95 * sin(t * 1.1 + 1.3)
-                bright += phases.think * 1.3 * (exp(-pow((y - sweep) / 0.11, 2)) + 0.7 * exp(-pow((y - sweep2) / 0.09, 2))) * (0.5 + 0.5 * p.lum)
-            }
-            // Working: a quarter of the points leave for a tilted ring around the planet, light
-            // streaming along it (the tools at work); the rest keep turning.
-            if phases.work > 0.01 && p.band % 4 == 0 {
-                let a = p.phase + t * 0.9
-                let rr = 1.42 + 0.05 * (p.dither - 0.5)
-                let rx = rr * cos(a), ry = rr * sin(a) * 0.26
-                let tilt = -0.32
-                let tx = rx * cos(tilt) - ry * sin(tilt), ty = rx * sin(tilt) + ry * cos(tilt)
-                let wk = phases.work * phases.work * (3 - 2 * phases.work)
-                x += (tx - x) * wk; y += (ty - y) * wk
-                let stream = pow(max(0, sin(4 * a - t * 5)), 6)
-                let behind = sin(a) < -0.1 ? 0.35 : 1.0
-                bright += (max(bright, (0.35 + 0.9 * stream) * behind) - bright) * wk
+            // Thinking and working: each style's own motif (a crown of rays, a whirlpool, a forming
+            // cloud, a lava lamp, a galaxy; and its work), the points blending into it.
+            if (phases.think > 0.01 || phases.work > 0.01) && !p.anchored {
+                for (weight, working) in [(phases.think, false), (phases.work, true)] where weight > 0.01 {
+                    let m = planetMotif(design, p, x, y, working: working)
+                    let w = weight * weight * (3 - 2 * weight)
+                    x += (m.x - x) * w; y += (m.y - y) * w
+                    bright += (m.b - bright) * w
+                }
             }
             // Never off screen: the voice's reach stays inside the orb's circle (beyond 70% of the
             // frame's half a point slows smoothly toward 84%; the resting planet is unchanged).
@@ -525,7 +521,90 @@ struct OrbCanvas: View {
         drawSatellites(&gc, cx: cx, cy: cy, R: R, px: px, pal: pal)
     }
 
-    /// Its work on one point: each step's ring of light pushes it out a little as it passes, a
+    /// Where a planet's point goes while it thinks or works, and its light: each style's own motif.
+    /// Units of the planet's radius, on screen.
+    private func planetMotif(_ design: OrbDesign, _ p: OrbPoints.P, _ x: Double, _ y: Double, working: Bool) -> (x: Double, y: Double, b: Double) {
+        let f = p.dither, tau = 2 * Double.pi
+        func wrap(_ v: Double, _ n: Double) -> Double { let m = v.truncatingRemainder(dividingBy: n); return m < 0 ? m + n : m }
+        switch design {
+        case .a:   // Halo
+            let rays = 36.0, k = (p.phase / tau * rays).rounded(.down)
+            if !working {
+                // A crown of rays turning slowly, lit one after another round the circle.
+                let a = tau * k / rays + 0.25 * t
+                let r = 1.02 + 0.42 * f
+                let d = wrap(k - t * 9, rays)
+                let lit = exp(-d / 5)
+                return (r * cos(a), r * sin(a), 0.25 + 0.95 * lit * (1 - 0.5 * f))
+            }
+            // Light flowing outward along every ray, each ray at its own pace.
+            let a = tau * k / rays
+            let s = wrap(f + t * (0.9 + 0.8 * OrbPoints.hash(Int(k), 41)), 1)
+            let r = 0.98 + 0.62 * s
+            return (r * cos(a), r * sin(a), 0.2 + 0.95 * (1 - s) * (1 - s))
+        case .b:   // Vortex
+            if !working {
+                // A whirlpool: three arms winding inward, the points drawn down its throat.
+                let s = wrap(f + t * 0.18, 1), r = 1.45 * pow(1 - s, 1.25) + 0.04
+                let arm = Double(p.band % 3)
+                let a = arm * tau / 3 + 2.8 * log(r + 0.1) + t * 0.9 + 0.3 * (p.reach - 0.72)
+                return (r * cos(a), r * sin(a) * 0.92, 0.22 + 0.85 * (1 - r / 1.5))
+            }
+            // Four arms flinging light outward, fast.
+            let s = wrap(f + t * 0.6, 1), r = 0.08 + 1.42 * s
+            let arm = Double(p.band % 4)
+            let a = arm * tau / 4 - 2.1 * log(r + 0.1) - t * 2.2 + 0.2 * (p.reach - 0.72)
+            return (r * cos(a), r * sin(a), 0.25 + 0.9 * (1 - s))
+        case .c:   // Nebula
+            if !working {
+                // The cloud condenses into a soft core, stars igniting in it here and there.
+                let r0 = max(1e-3, (x * x + y * y).squareRoot())
+                let rad = 0.62 * pow(f, 0.6) * (1 + 0.08 * sin(t * 0.9 + p.phase))
+                let drift = 0.06 * sin(t * 0.7 + p.phase * 3)
+                let star = p.band == 0 ? pow(max(0, sin(t * 2.6 + p.phase * 7)), 10) : 0
+                return (x / r0 * rad + drift, y / r0 * rad - drift, 0.22 + 0.5 * (1 - f) + 1.1 * star)
+            }
+            // Four clumps (stars forming) orbiting the core, each trailing a tail.
+            let c = Double(p.band % 4)
+            let ca = c * tau / 4 + t * 0.75, cr = 0.78
+            let tail = p.reach * 0.55
+            let a = ca - tail, r = cr + 0.12 * cos(p.phase) * f
+            let spread = 0.14 * pow(f, 0.7) * (1 - 0.5 * tail)
+            return (r * cos(a) + spread * cos(p.phase), r * sin(a) + spread * sin(p.phase), 0.3 + 0.8 * (1 - tail) * (1 - f))
+        case .e:   // Liquid
+            let r0 = max(1e-3, (x * x + y * y).squareRoot()), a0 = atan2(y, x)
+            if !working {
+                // A slow lava lamp: three lobes rolling round the blob.
+                let k = 1 + 0.2 * sin(3 * a0 + t * 0.8) + 0.1 * sin(5 * a0 - t * 1.3)
+                return (x * k, y * k, 0.2 + 0.7 * smoothstep(0.6, 1.1, r0 * k))
+            }
+            // Droplets thrown off the surface, arcing and falling back; the rest rippling.
+            if p.band < 3 {
+                let s = wrap(f + t * 0.7, 1)
+                let da = p.phase
+                let lx = cos(da) * (1 + 0.9 * s), ly = sin(da) * (1 + 0.9 * s) + 1.1 * s * s - 0.6 * s
+                return (lx, ly, 0.9 * (1 - s) + 0.15)
+            }
+            let ripple = 1 + 0.06 * sin(9 * r0 - t * 6)
+            return (x * ripple, y * ripple, 0.25 + 0.5 * max(0, sin(9 * r0 - t * 6)))
+        default:   // Galaxy
+            let gr = min(1.55, -0.5 * log(1 - 0.96 * f)) + 0.06
+            let arm = Double(p.band % 2)
+            let off = (p.reach - 0.72) * 0.5
+            if !working {
+                // The disc forms, its arms tightening as it turns, the core pulsing.
+                let ga = arm * .pi + 2.6 * log(gr + 0.08) + off - t * (0.7 / (0.3 + gr))
+                let core = 0.6 + 0.4 * sin(t * 2.2)
+                return (gr * cos(ga), gr * sin(ga) * 0.6, gr < 0.25 ? 0.6 + 0.6 * core : 0.25 + 0.5 * (1 - gr / 1.6))
+            }
+            // Light flowing out along the arms in pulses.
+            let ga = arm * .pi + 2.3 * log(gr + 0.08) + off - t * 0.35
+            let pulse = pow(max(0, sin((gr - t * 0.9) * 7)), 6)
+            return (gr * cos(ga), gr * sin(ga) * 0.6, 0.22 + 0.4 * (1 - gr / 1.6) + 0.9 * pulse)
+        }
+    }
+
+    /// Its work on one point: each step's ring of light pushes it out a little as it passes, a    /// Its work on one point: each step's ring of light pushes it out a little as it passes, a
     /// failed tool shivers it. Returns the light it gains.
     func workEffect(_ x: inout Double, _ y: inout Double, phase: Double) -> Double {
         guard !work.pulses.isEmpty else { return 0 }
@@ -788,6 +867,19 @@ enum OrbIcon {
         print("orb work rendered: \(dir.path)")
     }
 
+    /// `--render-icons` (simulator): each round icon alone, 8× its size, into Documents/icon-<symbol>.png
+    /// (to measure how far each glyph sits from the circle's centre).
+    @MainActor static func renderIcons() {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        for symbol in GlassIcon.symbols {
+            let art = Image(systemName: symbol).font(.system(size: 35 * 0.45, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 35, height: 35).background(Color.black)
+            let r = ImageRenderer(content: art); r.scale = 8
+            if let data = r.uiImage?.pngData() { try? data.write(to: dir.appending(path: "icon-\(symbol).png")) }
+        }
+        print("icons rendered: \(dir.path)")
+    }
+
     /// `--render-orb-scenes` (simulator): every style in each phase (rest, listening, thinking,
     /// working, speaking) into Documents/orb-<style>-<phase>.png; `--render-only Lotus,Face` renders
     /// those styles only.
@@ -814,7 +906,7 @@ enum OrbIcon {
                     engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking, working: working)
                 }
                 // The sea as on the talk page: the screen's width over 90% of it (208 × 187 pt).
-                let w: CGFloat = design == .h ? 440 : 396
+                let w: CGFloat = design == .h || design == .x ? 440 : 396
                 let art = ZStack {
                     Color(hex: 0x000000)
                     OrbCanvas(t: t, engine: engine, design: design, look: .assistant,

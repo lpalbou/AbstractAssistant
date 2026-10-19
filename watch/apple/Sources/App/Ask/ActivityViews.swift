@@ -153,6 +153,7 @@ struct TrustShield: View {
             Image(systemName: "checkmark.shield.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Theme.amber)
+                .offset(GlassIcon.optical("checkmark.shield.fill"))
                 .frame(width: 35, height: 35)
                 .background(Theme.amber.opacity(0.18), in: Circle())
                 .overlay(Circle().strokeBorder(Theme.amber.opacity(0.6), lineWidth: 1))

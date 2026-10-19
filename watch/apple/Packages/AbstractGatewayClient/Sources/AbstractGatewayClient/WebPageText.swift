@@ -5,13 +5,16 @@ import Foundation
 public struct WebPageText: Sendable {
     public var title: String?
     public var paragraphs: [String]
+    /// The page's lead image (the one it gives for link previews: `og:image`, else `twitter:image`),
+    /// resolved against the page's address.
+    public var image: URL?
 
     public var text: String { paragraphs.joined(separator: "\n\n") }
     public var markdown: String { text }
 
     public init(title: String?, paragraphs: [String]) { self.title = title; self.paragraphs = paragraphs }
 
-    public init(html: String) {
+    public init(html: String, base: URL? = nil) {
         var s = html
         func strip(_ pattern: String, _ with: String = " ") {
             guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { return }
@@ -24,6 +27,11 @@ public struct WebPageText: Sendable {
             return String(s[r])
         }
         let rawTitle = first(#"<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)"#) ?? first(#"<title[^>]*>(.*?)</title>"#)
+        let rawImage = first(#"<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)"#)
+            ?? first(#"<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']"#)
+            ?? first(#"<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)"#)
+        self.image = rawImage.flatMap { URL(string: Self.decode($0).trimmingCharacters(in: .whitespaces), relativeTo: base)?.absoluteURL }
+            .flatMap { $0.scheme == "https" || $0.scheme == "http" ? $0 : nil }
         strip(#"<(script|style|noscript|svg|nav|header|footer|form|aside|template)\b.*?</\1>"#)
         strip(#"<!--.*?-->"#)
         strip(#"<h[1-3][^>]*>"#, "\n\n## ")

@@ -68,6 +68,7 @@ struct HomeView: View {
             if ProcessInfo.processInfo.arguments.contains("--render-icon") { OrbIcon.render() }
             if ProcessInfo.processInfo.arguments.contains("--render-orb-work") { OrbIcon.renderWork() }
             if ProcessInfo.processInfo.arguments.contains("--render-orb-scenes") { OrbIcon.renderScenes() }
+            if ProcessInfo.processInfo.arguments.contains("--render-icons") { OrbIcon.renderIcons() }
             #endif
         }
     }

@@ -28,9 +28,9 @@ Orb styles: `../design/anim/orb-designs/`.
 | Screen | Purpose | Actions |
 |---|---|---|
 | Sign in | First launch, after Sign out, or when the gateway ends the session: the AbstractFramework mark, one field "Sign in with user or email" with the send arrow inside it, the server below (tap to change). A user name then asks for its token; an email gets an 8-digit code. | send · change · resend the code |
-| Choose your orb | First launch (and Settings → Orb style): the twenty-two styles in four families (Orbs, Forms, Faces, Machines), each row a small live orb speaking, its name and a few words; a row opens its preview, which goes through listening, thinking, working and speaking (tap a phase to hold it), "Use this" at the bottom. | scroll · open · Use this |
+| Choose your orb | First launch (and Settings → Orb style): the twenty-three styles in four families (Orbs, Forms, Faces, Machines), each row a small live orb speaking, its name and a few words; a row opens its preview, which goes through listening, thinking, working and speaking (tap a phase to hold it), "Use this" at the bottom. | scroll · open · Use this |
 | Home | The orb (one tap to talk), what needs you (only when something does), Sessions and Automations with a count: what is new in a filled badge, else how many, a spinner until they are read; "Connecting…" while the first tries are retried, and the gateway said unreachable only after 3 failed tries over 20 s; the gear opens Settings. | talk · open |
-| Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers), the keyboard icon top right and the tools icon bottom right (as far from the bottom as the keyboard from the top); while it listens, works or speaks, they hide. While it works: its steps live below the orb, a pulse per tool call, a satellite per tool running, and the amber shield (bottom right) after an Accept all. Beside Back: share the conversation, and the voice button (play, pause, hold to rewind). The answer appears below with its images and recordings, spoken by the orb; "N steps · time" opens how it worked. | tap · hold · keyboard · tools · shield · share · voice button · choose who answers |
+| Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers), the keyboard icon top right and the tools icon bottom right (as far from the bottom as the keyboard from the top); while it listens, works or speaks, they hide. While it works: its steps live below the orb, a pulse per tool call, a satellite per tool running. Beside Back, the row follows what it does: Stop while it is busy (listening, thinking or working, speaking or paused), Share at rest; while it works after an Accept all, the amber shield beside it takes the permission back; the voice button (play, pause, hold to rewind) once there is an answer. A tap on the orb listens, sends, or pauses and resumes its voice; a 1.5 s hold on the orb (a ring closes round it) does what Stop does, and at rest reads the last answer aloud; let go before, nothing happens. The answer appears below with its images and recordings, spoken by the orb; "N steps · time" opens how it worked. | tap · hold to stop · stop · keyboard · tools · shield · share · voice button · choose who answers |
 | Tools | A conversation's tools (or the defaults, from Settings): its Workflow row, then the groups (Files, Web, System, Email, …) with their counts; after an Accept all, "Allowed for now" with Ask again. A group lists each tool with its risk, what it can do and Off · Auto · Ask, and All for the group. | choose · Use my defaults · Ask again |
 | Workflow | The gateway's default agent first, then the Assistant's workflows ("Also makes images and other media"), then the other agents. | choose |
 | Image | An answer's image full screen: the Digital Crown zooms, a drag looks around, a double tap fits it; share beside Back. | zoom · share |
@@ -108,9 +108,9 @@ change between two phases is a blend, never a cut. The points glow (a soft bloom
 brightest), surfaces are sampled evenly (no grain) and lit from the upper left; the voice's shapes
 stay inside the orb's circle.
 
-Twenty-two styles, chosen at first launch and in Settings → Orb style, in four families: **Orbs**
+Twenty-three styles, chosen at first launch and in Settings → Orb style, in four families: **Orbs**
 (Halo, Vortex, Nebula, Rings, Liquid, Galaxy), **Forms** (Lotus, Crystal, Eclipse, Synapse, Drop,
-Ocean), **Faces** (Face, Imprint, Hologram, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco,
+Wave, Ocean), **Faces** (Face, Imprint, Hologram, Eye) and **Machines** (Lens, Dome, Valet, Retro, Deco,
 Rover). Five planets whose points answer
 the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a breathing cloud), Liquid
 (surface waves), Galaxy (a dense spiral with stars everywhere). Seventeen scenes of their own
@@ -135,21 +135,32 @@ the voice: Halo (a radial voice histogram), Vortex (spiral arms), Nebula (a brea
   - **Drop**: a drop of light wobbling over rings that ripple out with your voice; a vortex of three
     arms; fibres fanning out to nodes; a horn of streamlines opening like a bell, wider with the
     voice.
+- **Thinking and working on the planets**, each its own: Halo, a crown of rays turning, lit one
+  after another / light flowing out along every ray; Vortex, a whirlpool winding inward / four arms
+  flinging light outward; Nebula, the cloud condensing, stars igniting / four clumps orbiting with
+  tails; Liquid, a slow lava lamp / droplets thrown off and falling back; Galaxy, the disc forming,
+  arms tightening / light flowing out along the arms in pulses.
+- **Wave**: ribbons of light across the screen, each a band of the voice (its harmonic), coloured
+  blue to violet, rose, amber and green, overlapping in light. A gentle swell at rest; the waves
+  come in from the edges as you speak and travel out from the centre as it speaks; slow crossing
+  undulations while it thinks; the ribbons wind into a turning swirl while it works.
 - **Rings**: a geodesic structure of six rigid rings on the great circles that cross at the corners
   of an icosidodecahedron, turning slowly as one body. Each ring is driven by its own band of the
-  voice (low pitches the first, high the last): it swings about its own diameter and its beads spin,
-  faster and wider as its band is louder; silence lets the structure settle back. Thinking spins it
-  up like a gyroscope.
-- **Face**: a sculpted bust in light: the face's real relief (brows, nose, lips, chin, the eyes
-  in their sockets) sampled evenly and lit from the upper left as it turns, glowing eyes, short
-  hair, neck and shoulders. It blinks, breathes and moves its head a little. Its lips follow its own
-  voice: open with loudness (the jaw following, the opening dark), rounded when the low bands lead,
+  voice (low pitches the first, high the last): its size follows that band (a quiet harmonic draws
+  its ring in, a loud one pushes it out, so the voice's harmonics show as rings of different sizes),
+  it sways about its own diameter and its beads spin faster; silence lets the structure settle back.
+  Thinking spins it up like a gyroscope; working runs a wave across the rings, the beads racing.
+- **Face**: a sculpted bust in light: the face's real relief (brows, nose, lips, full cheeks, chin)
+  sampled evenly under a soft frontal light, friendly eyes (a soft white, an iris, a dark pupil, a
+  catchlight, gently raised brows), a calm smile, hair flowing from a side part, neck and
+  shoulders. It blinks, breathes and moves its head a little. Its lips follow its own
+  voice: parting with loudness, wider than tall (the jaw following), rounded when the low bands lead,
   wide when the high ones do, closed in the pauses. Listening, it turns its head and cups a hand
   behind its ear, your voice arriving as arcs in the hand's cone; thinking, it looks up and aside;
   working, it reads (quick glances) while a fine scan line passes down its face.
 - **Imprint**: the face zoomed in and pressed against a pane of glass: only what touches the pane
-  is drawn, flattened, with a bright rim. At rest most of the face touches it (forehead, brows,
-  nose, cheeks, lips, chin), the eyes, nostrils and the line between the lips left open. Its voice
+  is drawn, lit by its own surface so its features read, with a bright rim. At rest most of the face
+  touches it, its eyes closed and serene and a calm smile on its lips. Its voice
   presses it in and opens its mouth with the words; while you speak it turns to lay its cheek on the
   pane; thinking, it draws back so less of it touches.
 - **Hologram**: the head as glowing horizontal scan lines that wrap around it (its relief bends

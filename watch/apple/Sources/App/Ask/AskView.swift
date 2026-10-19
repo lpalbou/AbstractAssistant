@@ -39,6 +39,11 @@ struct AskView: View {
     @State private var answerEntity: String?
     @State private var error: String?
     @State private var note: String?
+    /// A hold on the orb under way, and how far its ring has closed.
+    @State private var holding = false
+    @State private var holdProgress: CGFloat = 0
+    /// When the finger landed on the orb: a press longer than a tap is a hold, even let go early.
+    @State private var pressedAt: Date?
     @State private var transcribing = false
     @State private var listenSince: Date?
     /// An approval or question opened from here and not yet decided (Back keeps it pending).
@@ -75,10 +80,14 @@ struct AskView: View {
                                 work: phase == .thinking && activity.isFollowing ? { activity.orb(at: $0) } : nil)
                                 .contentShape(BelowTopRow())
                                 .onTapGesture(perform: orbTapped)
-                                // Hold: talk now, even while it speaks or is paused (cut in).
-                                .onLongPressGesture(minimumDuration: 0.5) { if phase == .answer { startListening() } }
+                                // Hold: a ring closes round the orb in 1.5 s, then it stops what it is
+                                // doing (listening, working, speaking), or at rest reads the last
+                                // answer aloud (let go before: nothing happens).
+                                .onLongPressGesture(minimumDuration: Self.holdToToggle, perform: holdDone, onPressingChanged: holdChanged)
+                                .overlay { if holding { HoldRing(progress: holdProgress).frame(width: side * 0.8, height: side * 0.8) } }
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel(orbHint)
+                                .accessibilityAction(named: busy ? "Stop" : "Read aloud") { holdDone() }
                         } bottom: {
                             VStack(spacing: 4) {
                                 // Who answers, below the orb: only while the orb is at rest.
@@ -104,9 +113,6 @@ struct AskView: View {
                         .overlay(alignment: .bottomTrailing) {
                             if controlsShown, model.responder == .assistant {
                                 toolsLink.padding(.trailing, 6).padding(.bottom, 60)
-                            } else if phase == .thinking, !model.sessionTrust.isEmpty {
-                                // While it works after an Accept all: one tap and its tools ask again.
-                                TrustShield().padding(.trailing, 6).padding(.bottom, 60)
                             }
                         }
                         .id("orb")
@@ -129,11 +135,27 @@ struct AskView: View {
             }
         }
         #endif
-        // Beside Back: share the conversation, and the voice button (play / pause the selected
-        // message, hold to rewind), hidden while the orb listens or works, or with nothing to read.
+        // Beside Back, following what it does: Stop while it is busy, Share at rest; the shield while
+        // it works after an Accept all; the voice button (play / pause the selected message, hold to
+        // rewind), hidden while the orb listens or works, or with nothing to read.
         .besideBack {
-            if !exchanges.isEmpty {
-                ShareIcon(item: transcript, subject: model.responder.title)
+            // The first slot follows what it does: Stop while it is busy (listening, working, speaking),
+            // Share at rest. While it works after an Accept all, the shield beside it takes it back.
+            ZStack {
+                if busy {
+                    Button(action: stopBusy) { GlassIcon(symbol: "stop.fill").rowReach() }
+                        .buttonStyle(GlassPress())
+                        .accessibilityLabel(phase == .listening ? "Stop listening" : "Stop")
+                        .accessibilityIdentifier("ask.stop")
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                } else if !exchanges.isEmpty {
+                    ShareIcon(item: transcript, subject: model.responder.title)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: busy)
+            if phase == .thinking, !model.sessionTrust.isEmpty {
+                TrustShield().transition(.scale(scale: 0.6).combined(with: .opacity))
             }
             if phase != .listening, phase != .thinking, let e = selected, !e.answer.isEmpty, e.scope != nil {
                 VoiceButton(speaker: speaker, isCurrent: readingId == e.id) { read(e) }
@@ -304,6 +326,59 @@ struct AskView: View {
 
     /// The keyboard and who answers show together, only while the orb is at rest: not listening,
     /// not working, not speaking (a paused or finished answer is at rest).
+    /// The voice is engaged: it speaks, or is paused (a tap pauses or resumes; Stop ends it, and the
+    /// next tap listens).
+    private var voiceEngaged: Bool { phase == .answer && (speaker.isActive || speaker.isPaused) }
+
+    /// How long a hold on the orb takes to toggle between listening and reading.
+    static let holdToToggle: Double = 1.5
+
+    /// At rest with an answer to read: a hold reads it aloud (the last one).
+    private var canReadLast: Bool {
+        guard phase == .idle || phase == .answer, !voiceEngaged, let e = selected else { return false }
+        return !e.answer.isEmpty && e.scope != nil
+    }
+
+    /// Busy: it listens, works (thinking, tools) or its voice is engaged; Stop (and a hold) ends it.
+    private var busy: Bool { phase == .listening || phase == .thinking || voiceEngaged }
+
+    /// Ends what it is doing: the voice; or the listening or the work (the run is cancelled). The
+    /// next tap listens.
+    private func stopBusy() {
+        holding = false; holdProgress = 0
+        if voiceEngaged { stopVoice() } else { cancel() }
+    }
+
+    /// The hold: busy, it stops (the next tap listens); at rest, it reads the last answer aloud.
+    private func holdDone() {
+        if busy { stopBusy(); return }
+        holding = false; holdProgress = 0
+        guard canReadLast, let e = selected else { return }
+        WKInterfaceDevice.current().play(.start)
+        read(e)
+    }
+
+    /// Ends the voice: the orb is at rest on its answer, and the next tap listens.
+    private func stopVoice() {
+        holding = false; holdProgress = 0
+        guard voiceEngaged else { return }
+        speaker.stop()
+        WKInterfaceDevice.current().play(.stop)
+    }
+
+    /// The hold's ring: it starts closing a moment after the finger lands (a tap shows nothing) and
+    /// is full when the hold stops the voice; let go before, it goes away.
+    private func holdChanged(_ pressing: Bool) {
+        if pressing { pressedAt = Date() }
+        guard pressing, busy || canReadLast else {
+            withAnimation(.easeOut(duration: 0.15)) { holdProgress = 0 }
+            holding = false
+            return
+        }
+        holding = true; holdProgress = 0
+        withAnimation(.linear(duration: Self.holdToToggle - 0.2).delay(0.2)) { holdProgress = 1 }
+    }
+
     private var controlsShown: Bool { phase == .idle || (phase == .answer && !speaker.isActive) }
 
     private var orbMode: Orb.Mode {
@@ -373,6 +448,9 @@ struct AskView: View {
     // MARK: - Actions
 
     private func orbTapped() {
+        // A hold let go before the ring closed is not a tap: nothing happens.
+        defer { pressedAt = nil }
+        if let at = pressedAt, Date().timeIntervalSince(at) > 0.35 { return }
         switch phase {
         case .answer where speaker.isActive: speaker.pause(); WKInterfaceDevice.current().play(.click)
         case .answer where speaker.isPaused: speaker.resume(); WKInterfaceDevice.current().play(.click)
@@ -715,5 +793,20 @@ struct AskView: View {
         for i in exchanges.indices where exchanges[i].media.isEmpty {
             if let m = byRun[exchanges[i].id], !m.isEmpty { exchanges[i].media = m }
         }
+    }
+}
+
+/// The ring a hold on the orb closes: a faint track and the arc drawn from the top, clockwise.
+struct HoldRing: View {
+    let progress: CGFloat
+    var body: some View {
+        ZStack {
+            Circle().stroke(Theme.text.opacity(0.12), lineWidth: 3)
+            Circle().trim(from: 0, to: progress)
+                .stroke(Theme.text.opacity(0.85), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

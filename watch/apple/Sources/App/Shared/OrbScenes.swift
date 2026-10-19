@@ -66,11 +66,12 @@ extension OrbCanvas {
             let swing = engine.ringSwing[i]
             // The swing about the ring's own diameter `u`: small at rest, wide with its band.
             // Working: a wave runs across the rings in turn (a machine running), the beads racing.
-            let theta = (0.04 + 0.6 * swing) * sin(engine.ringPhase[i]) + 0.3 * th * sin(t * 1.4 + Double(i))
+            let theta = (0.04 + 0.22 * swing) * sin(engine.ringPhase[i]) + 0.3 * th * sin(t * 1.4 + Double(i))
                 + 0.45 * busy * sin(t * 3 - Double(i) * .pi / 3)
             let ct = cos(theta), st = sin(theta)
             let vx = ring.v.0 * ct + ring.n.0 * st, vy = ring.v.1 * ct + ring.n.1 * st, vz = ring.v.2 * ct + ring.n.2 * st
-            let radius = 1.0 + 0.05 * swing
+            // Its size is its harmonic: a quiet band draws its ring in, a loud one pushes it out.
+            let radius = 0.97 + engine.engagement * (0.62 * swing - 0.22)
             let spin = engine.ringSpin[i]
             for k in 0..<per {
                 let s = 2 * Double.pi * Double(k) / Double(per)
@@ -85,7 +86,7 @@ extension OrbCanvas {
                 let bead = pow(max(0, cos(5 * (s - spin - 3 * busy * t))), 10)
                 let depth = smoothstep(-1.1, 1.0, z)
                 let lum = 0.4 + 0.6 * bead
-                let bright = lum * (0.3 + 0.7 * depth) * (0.75 + 0.5 * swing) + 0.25 * th * bead + 0.45 * busy * bead
+                let bright = lum * (0.3 + 0.7 * depth) * (0.7 + 0.8 * swing) + 0.25 * th * bead + 0.45 * busy * bead
                 place(&d, x, y, bright, OrbPoints.hash(i * 4096 + k, 14), phase: s, lum: lum, edge: 1.1)
             }
         }
@@ -104,7 +105,7 @@ extension OrbCanvas {
         var d = dotCanvas(box)
         let ph = OrbPhases(engine)
         let th = ph.think, listen = ph.listen, busy = ph.work
-        let mouth = MouthShape(engine: engine, smileBase: 1 + 0.15 * listen - 0.2 * th - 0.1 * busy)
+        let mouth = MouthShape(engine: engine, smileBase: 1.5 + 0.2 * listen - 0.2 * th - 0.1 * busy)
         let glance = busy * (0.5 + 0.5 * sin(t * 2.3)) * (Int(t * 1.6) % 2 == 0 ? 1 : -0.6)
         let scanY = -1.0 + 1.75 * (t * 0.55).truncatingRemainder(dividingBy: 1)
         let yaw = 0.1 * sin(t * 0.29) + 0.05 * sin(t * 0.71) + 0.14 * th - 0.42 * listen
@@ -115,6 +116,8 @@ extension OrbCanvas {
         let pose = HeadPose(yaw: yaw, pitch: pitch, roll: roll, pivotY: FaceGeometry.neckY, lift: breathe * 0.5)
         let scale = 1.32, shift = -0.02
         let my = FaceGeometry.mouthY
+        let faceGazeX = (0.015 * sin(t * 0.37) + 0.03 * th) * (1 - listen) - 0.03 * listen + 0.035 * glance
+        let faceGazeY = -0.03 * th + 0.022 * busy
         func put(_ x: Double, _ y: Double, _ b: Double, _ dither: Double, _ phase: Double, size: Double = 1) {
             let sx = x * scale, sy = y * scale + shift
             let rr = (sx * sx + sy * sy).squareRoot()
@@ -127,9 +130,10 @@ extension OrbCanvas {
                 // The mouth: the jaw drops below it, the opening between the lips goes dark.
                 y += mouth.jaw(x, y)
                 if mouth.open > 0.06 {
-                    let gap = 0.07 * mouth.open
-                    let inside = exp(-pow(x / (0.17 * mouth.width), 2) - pow((y - my - gap * 0.6) / (gap + 0.004), 2))
-                    if inside > 0.5 { continue }
+                    // The mouth opens wider than tall, its inside soft dark (never a hole).
+                    let gap = 0.04 * mouth.open
+                    let inside = exp(-pow(x / (0.16 * mouth.width), 2) - pow((y - my - gap * 0.5 + 0.02 * pow(x / 0.17, 2)) / (gap + 0.004), 2))
+                    if inside > 0.5 && OrbPoints.hash(Int(x * 1000 + y * 7000), 5) < 0.75 { continue }
                 }
             }
             var bright: Double
@@ -144,39 +148,66 @@ extension OrbCanvas {
             let nn = (x: n.x, y: n.y - FaceGeometry.neckY - pose.lift, z: n.z)
             guard nn.z > -0.05 else { continue }
             bright = p.tone * skin(nn.x, nn.y, nn.z)
+            // The eyes' whites: soft, even, a little brighter than the skin; the pupil left dark.
+            let ex = (abs(p.x) - FaceGeometry.eyeX) / 0.085, ey = (p.y - FaceGeometry.eyeY) / 0.04
+            if ex * ex + ey * ey < 1 {
+                let gx = p.x - (p.x > 0 ? 1 : -1) * FaceGeometry.eyeX - faceGazeX, gy = p.y - FaceGeometry.eyeY - faceGazeY
+                let r = (gx * gx + gy * gy).squareRoot()
+                if r < 0.014 && blink > 0.35 { continue }
+                bright = r < 0.03 && blink > 0.35 ? 0.3 : 0.5
+            }
             if busy > 0.01 { bright += busy * 0.5 * exp(-pow((y - scanY) / 0.022, 2)) }
             bright += 0.08 * engine.signal
             x = r.x; y = r.y; z = r.z
             put(x, y, bright, p.dither, p.phase, size: 0.8 + 0.4 * smoothstep(-0.3, 0.6, z))
         }
-        // The eyes: an iris ring with a soft glow and a glint, the gaze moving; the lids close in a blink.
+        // Friendly eyes: an almond outline (the upper lid stronger, the lower one lifted a little
+        // by the smile), an iris with a dark pupil and a catchlight, a gently raised brow. The gaze
+        // moves; the lids close in a blink.
         let gazeX = (0.015 * sin(t * 0.37) + 0.03 * th) * (1 - listen) - 0.03 * listen + 0.035 * glance
         let gazeY = -0.03 * th + 0.022 * busy
-        if blink > 0.35 {
-            for side in [-1.0, 1.0] {
-                let ex = side * FaceGeometry.eyeX + gazeX, ey = FaceGeometry.eyeY + gazeY
-                for j in 0..<36 {
-                    let a = 2 * Double.pi * Double(j) / 36
-                    let rr = 0.036
-                    let px = ex + rr * cos(a), py = FaceGeometry.eyeY + (ey - FaceGeometry.eyeY + rr * sin(a)) * blink
-                    let q = pose.apply(px, py, (ImprintGeometry.relief(px, py) ?? 0.5) + 0.03)
-                    guard q.z > 0.15 else { continue }
-                    put(q.x, q.y, 0.75 + 0.25 * ph.speak * ph.loud, OrbPoints.hash(j, side), a)
-                }
-                for j in 0..<6 {
-                    let q = pose.apply(ex - 0.012 + 0.006 * Double(j % 3), FaceGeometry.eyeY + (ey - FaceGeometry.eyeY - 0.014 + 0.006 * Double(j / 3)) * blink,
-                                       (ImprintGeometry.relief(ex, ey) ?? 0.5) + 0.04)
-                    guard q.z > 0.15 else { continue }
-                    put(q.x, q.y, 1.2, 0.5, 0)
-                }
+        let warm = 1 + 0.15 * ph.speak + 0.1 * listen                       // the eyes smile as it talks
+        func eyePoint(_ x: Double, _ y: Double, _ b: Double, _ dither: Double, lift: Double = 0.02) {
+            let q = pose.apply(x, y, (ImprintGeometry.relief(x, y) ?? 0.5) + lift)
+            guard q.z > 0.15 else { return }
+            put(q.x, q.y, b, dither, x * 9)
+        }
+        for side in [-1.0, 1.0] {
+            let cx = side * FaceGeometry.eyeX, cy = FaceGeometry.eyeY
+            for j in 0..<26 {                                                // the lids
+                let u = 2 * Double(j) / 25 - 1
+                let upper = cy - 0.042 * (1 - u * u) * blink - 0.004
+                let lower = cy + (0.024 - 0.008 * (warm - 1) * 4) * (1 - u * u) * blink + 0.004
+                eyePoint(cx + 0.085 * u, upper, 0.45 * (0.6 + 0.4 * (1 - u * u)), OrbPoints.hash(j, side))
+                if j % 2 == 0 { eyePoint(cx + 0.075 * u, lower, 0.22, OrbPoints.hash(j, side + 2)) }
+                // The brow: a soft arc, raised a little (more as it listens).
+                let by = cy - 0.12 - 0.03 * (1 - u * u) - 0.015 * listen - 0.01 * th * (side > 0 ? 1 : 0)
+                if j % 2 == 1 { eyePoint(cx + 0.1 * u + 0.012 * side, by, 0.4 * (1 - 0.6 * u * u), OrbPoints.hash(j, side + 4)) }
+            }
+            guard blink > 0.35 else { continue }
+            let ix = cx + gazeX, iy = cy + gazeY * blink
+            for j in 0..<24 {                                                // the iris ring
+                let a = 2 * Double.pi * Double(j) / 24
+                let ring = j % 2 == 0 ? 0.03 : 0.022
+                let py = iy + ring * sin(a) * blink
+                guard py > cy - 0.04 * blink else { continue }               // under the upper lid
+                eyePoint(ix + ring * cos(a), py, ring > 0.025 ? 0.42 : 0.3, OrbPoints.hash(j, side + 6), lift: 0.03)
+            }
+            for j in 0..<2 {                                                 // the catchlight
+                eyePoint(ix - 0.01 + 0.006 * Double(j), iy - 0.011, 0.95, 0.5, lift: 0.04)
             }
         }
-        // The lips: a soft line where they meet, and their edges as they part with the words.
-        for p in FaceGeometry.points(count: pointBudget(box)) where p.kind == .lipUpper || p.kind == .lipLower {
-            guard p.v < 0.12 || p.v > 0.9, let m = mouth.place(p) else { continue }
-            let q = pose.apply(m.x, m.y, (ImprintGeometry.relief(m.x, m.y) ?? 0.5) + 0.02)
-            guard q.z > 0.2 else { continue }
-            put(q.x, q.y, 0.45 + 0.35 * mouth.open, p.dither, p.phase)
+        // The lips: a gentle upturned line where they meet; as it talks they part, wider than tall.
+        let smile = 0.032 + 0.01 * listen - 0.012 * th
+        for j in 0..<48 {
+            let u = 2 * Double(j) / 47 - 1
+            let xu = 0.17 * mouth.width * u
+            let base = my - smile * u * u
+            let upper = base - 0.008 * mouth.open * (1 - u * u)
+            let lower = base + 0.05 * mouth.open * (1 - u * u)
+            let fade = 1 - 0.5 * u * u
+            eyePoint(xu, upper, 0.55 * fade, OrbPoints.hash(j, 71))
+            if mouth.open > 0.05 && j % 2 == 0 { eyePoint(xu, lower, 0.45 * fade, OrbPoints.hash(j, 72)) }
         }
         if listen > 0.02 { drawListeningHand(&d, pose: pose, listen: listen, scale: scale, shift: shift) }
         finish(&gc, d)
@@ -184,10 +215,12 @@ extension OrbCanvas {
 
     /// Skin lit from the upper left in front: soft, a gentle sheen.
     private func skin(_ nx: Double, _ ny: Double, _ nz: Double) -> Double {
-        let l = (x: -0.45, y: -0.5, z: 0.74)
+        // Soft frontal light (a portrait's key light, a little from above and left): no hard
+        // shadows under the brows.
+        let l = (x: -0.25, y: -0.3, z: 0.92)
         let diffuse = max(0, nx * l.x + ny * l.y + nz * l.z)
-        let rim = pow(1 - max(0, nz), 3) * 0.35
-        return 0.1 + 0.75 * diffuse + 0.2 * pow(diffuse, 8) + rim
+        let rim = pow(1 - max(0, nz), 3) * 0.3
+        return 0.22 + 0.62 * diffuse + 0.12 * pow(diffuse, 8) + rim
     }
 
     /// The hand cupped behind the ear it offers, its forearm from below, and the voice it listens to
@@ -649,7 +682,7 @@ enum FaceSculpt {
             made += 1
         }
         // The sides and back of the head, and the hair over the top and back.
-        let headShare = Int(Double(n) * 0.25)
+        let headShare = Int(Double(n) * 0.38)
         for k in 0..<headShare {
             let (u, v) = evenPoint(k + 50_000)
             let zz = 1 - 2 * u, r = max(0, 1 - zz * zz).squareRoot(), a = 2 * Double.pi * v
@@ -658,10 +691,11 @@ enum FaceSculpt {
             let x = hw * nx * w, y = hy + hh * ny, z = dp * nz
             let isHair = y < hairline(x) || nz < -0.1 || (abs(nx) > 0.82 && y < -0.05)
             if !isHair && nz > 0.35 { continue }                                 // the front is the relief's
-            let strand = 0.5 + 0.5 * sin(26 * x + 11 * y + 4 * sin(5 * x))
+            // Strands flowing from a side part, so it reads as hair (not a cap).
+            let strand = pow(0.5 + 0.5 * sin(34 * (0.8 * (x + 0.12) + 0.6 * y) + 3 * sin(5 * y)), 3)
             let lift = isHair ? 1.045 : 1
             out.append(P(part: isHair ? .hair : .head, x: x * lift, y: hy + (y - hy) * lift, z: z * lift, nx: nx, ny: ny, nz: nz,
-                         tone: isHair ? 0.4 + 0.3 * strand : 0.72, dither: OrbPoints.hash(k, 15), phase: OrbPoints.hash(k, 13) * 6.3))
+                         tone: isHair ? 0.2 + 0.45 * strand : 0.72, dither: OrbPoints.hash(k, 15), phase: OrbPoints.hash(k, 13) * 6.3))
         }
         // The neck and the shoulders.
         for k in 0..<Int(Double(n) * 0.2) {

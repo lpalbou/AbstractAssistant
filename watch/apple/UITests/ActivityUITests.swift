@@ -73,4 +73,22 @@ final class ActivityUITests: XCTestCase {
         once.tap()
         XCTAssertTrue(text(containing: "42 GB free").waitForExistence(timeout: 30), app.debugDescription)
     }
+
+    /// Accept all on a tool whose destination the assistant picks (opening a web page): the next
+    /// page does not ask again.
+    func testAcceptAllOnAWebPageCoversTheNextPage() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["--mock", "--no-notification-prompt", "--reset-tools", "--screen", "ask", "--test-ask", "Read the news"]
+        app.launch()
+        let all = app.buttons["Allow these tools in this conversation"]
+        XCTAssertTrue(all.waitForExistence(timeout: 30), app.debugDescription)
+        all.tap()
+        let answer = text(containing: "42 GB free")
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline && !answer.exists {
+            XCTAssertFalse(all.exists, "the second web page asked again after Accept all")
+            usleep(300_000)
+        }
+        XCTAssertTrue(answer.exists, app.debugDescription)
+    }
 }

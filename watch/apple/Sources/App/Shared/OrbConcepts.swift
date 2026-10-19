@@ -273,10 +273,16 @@ extension OrbCanvas {
             // Speaking: crescents on the sphere, and the voice as bars on both sides.
             if m.speak > 0.003 {
                 if role < 4 {
-                    let shift = role < 2 ? 0.0 : 0.12
-                    let lit = max(0, cos(a))
-                    let crA = R * (1 - shift) + shift * 0.1
-                    bl.add(m.speak, crA * cos(a) + shift * R * 0.5, crA * sin(a), 0, 0.2 + 1.0 * pow(lit, 3) * (0.6 + 0.6 * loud))
+                    // The rim follows the voice: its spectrum around the circle (low pitches at the
+                    // top, mirrored), a crescent of light travelling round it, and on loud syllables
+                    // a diamond-ring flare breaking through at the crescent's tip.
+                    let pos = abs(atan2(cos(a), -sin(a))) / .pi
+                    let rim = R * (1 + 0.16 * spectrum.band(at: pos) + 0.05 * loud * sin(6 * a - t * 4))
+                    let inner = role >= 2 ? 0.93 : 1.0
+                    let lightA = t * 1.1
+                    let lit = max(0, cos(a - lightA))
+                    let flare = loud > 0.45 ? exp(-pow((a - lightA).truncatingRemainder(dividingBy: 2 * .pi) / 0.12, 2)) * (loud - 0.45) * 3 : 0
+                    bl.add(m.speak, rim * inner * cos(a), rim * inner * sin(a), 0, 0.15 + 1.0 * pow(lit, 3) * (0.5 + 0.7 * loud) + flare)
                 } else if role < 8 {
                     let side: Double = h3 < 0.5 ? -1 : 1
                     let bar = Int(h1 * 18), s = (Double(bar) + 0.5) / 18
@@ -503,4 +509,84 @@ enum ConceptGeometry {
         return out
     }()
     private static func dist(_ p: V, _ q: V) -> Double { (p.0 - q.0) * (p.0 - q.0) + (p.1 - q.1) * (p.1 - q.1) + (p.2 - q.2) * (p.2 - q.2) }
+}
+
+// MARK: - Wave
+
+extension OrbCanvas {
+    /// Ribbons of light across the screen, each a band of the voice (its own harmonic), coloured
+    /// from blue through violet and rose to amber and green, overlapping in light. At rest a gentle
+    /// swell; listening, the waves come in from the edges with your voice; thinking, slow crossing
+    /// undulations; working, the ribbons wind into a turning swirl; speaking, the waves travel out
+    /// from the centre, rising with its voice.
+    func drawWave(_ gc: inout GraphicsContext, _ box: CGSize) {
+        let ph = OrbPhases(engine)
+        let W = Double(box.width), H = Double(box.height)
+        let cx = W / 2, cy = H / 2
+        let span = W * 0.47, amp = min(W, H) * 0.3
+        let swirlR = min(W, H) * 0.4
+        let ribbons = 5, samples = 72
+        let w = ph.work * ph.work * (3 - 2 * ph.work)
+        let voiced = ph.listen + ph.speak
+        let direction = ph.speak - ph.listen                      // out from the centre / in from the edges
+        let colors: [Color] = look.color.map { c in [c.opacity(0.7), c, c.opacity(0.85), .white.opacity(0.8), c.opacity(0.7)] }
+            ?? [Color(hex: 0x38bdf8), Color(hex: 0x6366f1), Color(hex: 0xa855f7), Color(hex: 0xf472b6), Color(hex: 0xfb923c), Color(hex: 0x4ade80)]
+        let shading = GraphicsContext.Shading.linearGradient(Gradient(colors: colors), startPoint: CGPoint(x: cx - span, y: cy),
+                                                              endPoint: CGPoint(x: cx + span, y: cy))
+        var fills: [Path] = [], lines: [Path] = []
+        for k in 0..<ribbons {
+            let fk = Double(k)
+            // Each ribbon its own band (low pitches the first), its own frequency and pace.
+            let band = ph.spectrum.band(at: fk / Double(ribbons - 1))
+            let rest = 0.1 * (1 - 0.12 * fk) * (0.8 + 0.2 * sin(t * 0.7 + fk))
+            let voice = voiced * (0.12 + 1.1 * band + 0.25 * ph.loud)
+            let thinking = ph.think * (0.32 + 0.08 * sin(t * 0.5 + fk * 1.7))
+            let a = rest * (1 - voiced - ph.think) + voice + thinking
+            let freq = 1.3 + 0.55 * fk
+            let speed = (0.6 + 0.25 * fk) * (1 + 2.2 * voiced) * (ph.think > 0.5 ? 0.5 : 1)
+            let offset = fk * 1.3 + ph.think * t * 0.4 * (k % 2 == 0 ? 1 : -1)
+            var outer: [CGPoint] = [], inner: [CGPoint] = []
+            for i in 0...samples {
+                let u = Double(i) / Double(samples), x = 2 * u - 1
+                // A shape that peaks in the middle and fades at the ends.
+                let env = pow(1 - x * x, 2) * (0.35 + 0.65 * exp(-x * x / 0.22))
+                let travel = direction >= 0 ? abs(x) : -abs(x)
+                let phase = freq * .pi * (voiced > 0.05 ? travel : x) - speed * t + offset
+                let y = a * env * sin(phase)
+                // The wave, and its swirl (each ribbon an arm of a turning spiral).
+                let wx = cx + x * span, wy = cy - y * amp, wyIn = cy - y * amp * 0.12
+                let sa = 2 * .pi * (1.5 * u) + t * 1.6 + fk * 2 * .pi / Double(ribbons)
+                let sr = swirlR * (0.12 + 0.88 * u) * (1 + 0.06 * sin(u * 12 - t * 4))
+                let sx = cx + sr * cos(sa), sy = cy + sr * sin(sa) * 0.92
+                let sri = sr * 0.8, sai = sa - 0.12
+                let ix = cx + sri * cos(sai), iy = cy + sri * sin(sai) * 0.92
+                outer.append(CGPoint(x: wx + (sx - wx) * w, y: wy + (sy - wy) * w))
+                inner.append(CGPoint(x: wx + (ix - wx) * w, y: wyIn + (iy - wyIn) * w))
+            }
+            var fill = Path(), line = Path()
+            fill.move(to: outer[0]); line.move(to: outer[0])
+            for p in outer.dropFirst() { fill.addLine(to: p); line.addLine(to: p) }
+            for p in inner.reversed() { fill.addLine(to: p) }
+            fill.closeSubpath()
+            fills.append(fill); lines.append(line)
+        }
+        let lw = max(0.7, min(W, H) / 180)
+        // A glow under it, then the translucent bodies adding up in light, then the bright edges.
+        gc.drawLayer { layer in
+            layer.addFilter(.blur(radius: lw * 5))
+            layer.opacity = 1 - 0.5 * w
+            for f in fills { layer.fill(f, with: shading) }
+        }
+        gc.opacity = 0.32 * (1 - 0.45 * w)
+        for f in fills { gc.fill(f, with: shading) }
+        gc.opacity = 0.9
+        for l in lines { gc.stroke(l, with: shading, lineWidth: lw) }
+        gc.opacity = 1
+        // The centre line, faint.
+        var base = Path()
+        base.move(to: CGPoint(x: cx - span, y: cy)); base.addLine(to: CGPoint(x: cx + span, y: cy))
+        gc.opacity = 0.35 * (1 - w)
+        gc.stroke(base, with: shading, lineWidth: lw * 0.6)
+        gc.opacity = 1
+    }
 }

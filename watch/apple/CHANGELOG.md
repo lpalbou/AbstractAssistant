@@ -39,6 +39,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Buttons that follow what it does.** Beside Back: Stop while it is busy (listening, thinking or
+  working, speaking or paused), Share at rest; while it works after an Accept all, the shield that
+  takes it back sits beside Stop (it was at the bottom right). A 1.5 s hold on the orb does what
+  Stop does, a ring closing round it as you hold, and at rest reads the last answer aloud: one hold
+  toggles between listening and reading. A hold let go early does nothing (it is not a tap).
+- **The web viewer shows images**: a link to a picture shows the picture; a page shows its lead
+  image above its text.
+- Round icons are centred by eye (the share, back, speaker, shield and play glyphs sat a point or
+  two off).
 - **Every orb, refined and speaking the same phases.** All twenty-two styles show the same five
   phases (at rest, listening, thinking, working with tools, speaking), each with its own motif, and
   blend from one to the next: the planets' thinking sweeps bands across them and their working
@@ -46,6 +55,14 @@ channel (TestFlight, then the App Store); the Python package's history is in
   Rings run a wave across their rings; Hologram and Imprint scan; Eye reads (quick fixations);
   Ocean's lighthouse sweeps the water. The points glow, surfaces are sampled evenly and lit, the
   voice's shapes stay inside the orb, and the ring a tool call sends out is a fine line.
+- **Each planet thinks and works in its own way** (Halo's turning crown of rays, Vortex's
+  whirlpool, Nebula's forming stars, Liquid's lava lamp, Galaxy's forming disc; and their work).
+  **Rings** show the voice's harmonics: each ring grows or draws in with its own band. **Eclipse**
+  speaks with a living rim (the voice's spectrum around it, a travelling crescent, a flare on loud
+  syllables). **Face** and **Imprint** are friendlier: soft frontal light, real eyes with a
+  catchlight (Imprint's closed and serene), a calm smile, a mouth that opens naturally.
+- **New style: Wave** (Forms): ribbons of light, each a harmonic of the voice, that wind into a
+  turning swirl while it works.
 - **The orb styles by family.** Settings → Orb style (and the first-launch question) lists the
   styles in four families (Orbs, Forms, Faces, Machines), each with a small live orb and a few words;
   a style opens a live preview that goes through the phases, with "Use this".
@@ -56,6 +73,11 @@ channel (TestFlight, then the App Store); the Python package's history is in
 - **Rings** is a geodesic structure of six rigid rings: each ring turns with its own part of the
   voice (low to high pitches), so the structure comes alive as you speak and settles back in the
   pauses; it spins up while it thinks.
+
+### Fixed
+
+- After Accept all, the tools of the call you approved no longer ask again, including those that go
+  where the assistant picks (opening web pages); sends to other people still ask every time.
 
 ## [0.3.0] - 2026-10-18
 

@@ -90,3 +90,14 @@ import Testing
     let md = "## Title\nFirst paragraph is here.\n\n- item one\n- item two\n\nA closing paragraph."
     #expect(SpeechText.plain(md) == "Title. First paragraph is here. item one. item two. A closing paragraph.")
 }
+
+@Test func aPageGivesItsLeadImageResolvedAgainstItsAddress() {
+    let base = URL(string: "https://www.example.org/news/story.html")!
+    let og = WebPageText(html: #"<html><head><meta property="og:image" content="/img/lead.jpg"></head><body></body></html>"#, base: base)
+    #expect(og.image?.absoluteString == "https://www.example.org/img/lead.jpg")
+    let reversed = WebPageText(html: #"<meta content="https://cdn.example.org/a.png" property="og:image">"#, base: base)
+    #expect(reversed.image?.absoluteString == "https://cdn.example.org/a.png")
+    let twitter = WebPageText(html: #"<meta name="twitter:image" content="https://cdn.example.org/t.jpg">"#, base: base)
+    #expect(twitter.image?.absoluteString == "https://cdn.example.org/t.jpg")
+    #expect(WebPageText(html: "<p>No picture here, only words that go on and on and on.</p>", base: base).image == nil)
+}

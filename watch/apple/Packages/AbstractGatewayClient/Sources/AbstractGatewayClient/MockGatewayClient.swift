@@ -318,7 +318,7 @@ public actor MockGatewayClient: GatewayClient {
 
     /// Thinks, searches, reads two pages, asks to run a command (waits for you), thinks, asks to
     /// run a second one, then answers: the activity a person follows on the orb page.
-    private struct Scripted { let t0: Date; var answered: [Int: Date] = [:] }
+    private struct Scripted { let t0: Date; var answered: [Int: Date] = [:]; var segs: [Seg] = MockGatewayClient.script }
     private var scripted: [String: Scripted] = [:]
     public static let researchAnswer = "Your disk has 42 GB free; the two largest folders are caches you can clear."
     private enum Seg {
@@ -337,6 +337,15 @@ public actor MockGatewayClient: GatewayClient {
         .approve("execute_command", .object(["command": .string("du -sh ~/Library/Caches")]), 1.0),
         .think(1.2, nil),
     ]
+    /// "Read the news": it asks twice to open a web page (a tool whose destination the assistant
+    /// picks), so an Accept all on the first must spare the second.
+    private static let pagesScript: [Seg] = [
+        .think(1.0, "Opening the front page."),
+        .approve("fetch_url", .object(["url": .string("https://www.franceinfo.fr/")]), 1.0),
+        .think(1.5, "One story needs a closer read."),
+        .approve("fetch_url", .object(["url": .string("https://www.franceinfo.fr/france/nouvelle-aquitaine/")]), 1.0),
+        .think(1.0, nil),
+    ]
 
     private static func iso(_ d: Date) -> String {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f.string(from: d)
@@ -346,7 +355,7 @@ public actor MockGatewayClient: GatewayClient {
     private static func timeline(_ s: Scripted, at now: Date) -> (records: [ActivityRecord], waiting: RunWaiting?, done: Bool) {
         var out: [ActivityRecord] = []
         var t = s.t0.addingTimeInterval(1.0)                       // the gateway starts the agent
-        for (i, seg) in script.enumerated() {
+        for (i, seg) in s.segs.enumerated() {
             guard now >= t else { return (out, nil, false) }
             let step = "s\(i)"
             switch seg {
@@ -496,6 +505,10 @@ public actor MockGatewayClient: GatewayClient {
         let p = prompt.lowercased()
         if ["look up", "research", "check"].contains(where: p.contains) {
             scripted[id] = Scripted(t0: Date())
+            return id
+        }
+        if p.contains("read the news") {
+            scripted[id] = Scripted(t0: Date(), segs: Self.pagesScript)
             return id
         }
         if workflow?.interface == WorkflowChoice.assistantInterface, ["image", "draw", "picture"].contains(where: p.contains) {

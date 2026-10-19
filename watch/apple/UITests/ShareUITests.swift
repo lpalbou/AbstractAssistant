@@ -72,17 +72,17 @@ final class RewindUITests: XCTestCase {
     }
 }
 
-/// The orb page: after an answer, Share (the conversation) and Back 10 s sit beside Back and take a
-/// real tap; while the orb speaks, neither the keyboard (nor a ✕) nor "who answers" shows; at rest
-/// both are back; Back leaves.
+/// The orb page: while the orb speaks, Stop and the voice button sit beside Back and take a real tap
+/// (and neither the keyboard nor "who answers" shows); Stop ends the voice and Share (the
+/// conversation) is back, with the controls of the orb at rest; Back leaves.
 final class AskShareUITests: XCTestCase {
     func testShareAndRewindOnTheOrb() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--mock", "--no-notification-prompt", "--screen", "ask", "--test-ask", "Compare overall survival by arm"]
         app.launch()
         let whoAnswers = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talking to")).firstMatch
-        let share = app.buttons["Share"].firstMatch
-        XCTAssertTrue(share.waitForExistence(timeout: 40), "no Share after the answer:\n\(app.debugDescription)")
+        let share = app.buttons["Share"].firstMatch, stop = app.buttons["ask.stop"].firstMatch
+        XCTAssertTrue(stop.waitForExistence(timeout: 40), "no Stop while it speaks the answer:\n\(app.debugDescription)")
         let rewind = app.buttons["voice.button"].firstMatch
         XCTAssertTrue(rewind.waitForExistence(timeout: 20), "no voice button while it speaks:\n\(app.debugDescription)")
         // While the orb speaks: no keyboard, no ✕, no "who answers" (they show only at rest).
@@ -100,6 +100,8 @@ final class AskShareUITests: XCTestCase {
         usleep(400_000)
         let after = seconds()
         XCTAssertLessThan(after, before - 0.5, "holding did not take the voice back (\(before) s -> \(after) s)")
+        stop.tap()
+        XCTAssertTrue(share.waitForExistence(timeout: 5), "Share not back after Stop")
         share.tap()
         sleep(3)
         XCTAssertFalse(share.isHittable, "the share sheet did not open:\n\(app.debugDescription)")

@@ -38,15 +38,25 @@ extension OrbCanvas {
                 if mouth.open > 0.05 {
                     let gap = 0.07 * mouth.open
                     let inside = exp(-pow(x / (0.17 * mouth.width), 2) - pow((y - my - gap * 0.6) / (gap + 0.004), 2))
-                    z -= 0.3 * inside
+                    z -= 0.12 * inside
                 }
                 z += 0.02 * mouth.pout * near
+            }
+            // Closed, serene eyes: a lid crease curving gently down (no hollow).
+            let ex = (abs(x) - FaceGeometry.eyeX) / 0.1
+            if abs(ex) < 1 {
+                let lid = FaceGeometry.eyeY + 0.02 * (1 - ex * ex)
+                z -= 0.035 * exp(-pow((y - lid) / 0.008, 2))
             }
             let r = pose.apply(x, y, z)
             let dz = r.z + press - plane
             guard dz > -band else { continue }
             // Pressed flat: brighter the harder it presses, a bright rim where it meets the pane.
-            let flat = 0.38 + 0.4 * smoothstep(0, 0.08, dz) + 0.55 * exp(-pow(dz / band, 2))
+            // Lit by its own surface (soft frontal light), so the features read; pressed harder, a
+            // little brighter; a bright rim where it meets the pane.
+            let n = pose.apply(p.nx, p.ny, p.nz)
+            let light = max(0, -0.25 * n.x - 0.32 * n.y + 0.91 * n.z)
+            let flat = (0.1 + 0.55 * pow(light, 1.6)) * (0.8 + 0.3 * smoothstep(0, 0.08, dz)) + 0.35 * exp(-pow(dz / band, 2))
             let sx = r.x * scale, sy = (r.y + shift) * scale
             place(&d, sx, sy, flat * (0.8 + 0.3 * p.lum) + 0.12 * engine.signal, p.dither, phase: p.phase, lum: p.lum)
         }
@@ -228,7 +238,11 @@ extension OrbCanvas {
 /// face there (the egg of the head, the nose, the brow ridge, the eye sockets and eyes, the
 /// cheekbones, the lips, the chin).
 enum ImprintGeometry {
-    struct P { let x: Double; let y: Double; let z: Double; let lum: Double; let dither: Double; let phase: Double }
+    struct P {
+        let x: Double; let y: Double; let z: Double; let lum: Double; let dither: Double; let phase: Double
+        /// The surface's normal there (its light shows the features).
+        var nx = 0.0, ny = 0.0, nz = 1.0
+    }
     /// The pane: at rest most of the face touches it (the forehead, brows, nose, cheeks, lips and
     /// chin; the eyes, the nostrils and the line between the lips stay open); how wide the rim of a
     /// touch is.
@@ -241,14 +255,15 @@ enum ImprintGeometry {
         // A face is nearly flat from forehead to chin and curves back at the sides.
         let ax = abs(x)
         var z = FaceGeometry.depth * pow(max(0, 1 - pow(x / w, 2)), 0.3) * (1 - 0.25 * pow((y + 0.1) / FaceGeometry.halfHeight, 2))
-        z += 0.19 * exp(-pow(x / 0.065, 2)) * smoothstep(-0.26, 0.08, y) * (1 - smoothstep(0.08, 0.15, y))   // nose
+        z += 0.15 * exp(-pow(x / 0.075, 2)) * smoothstep(-0.26, 0.08, y) * (1 - smoothstep(0.08, 0.15, y))   // nose
         z += 0.06 * exp(-pow((ax - 0.065) / 0.04, 2) - pow((y - 0.12) / 0.04, 2))                           // nostrils
-        z += 0.07 * exp(-pow((y + 0.37) / 0.06, 2)) * exp(-pow((ax - 0.22) / 0.2, 2))                        // brow ridge
-        z -= 0.16 * exp(-pow((ax - FaceGeometry.eyeX) / 0.1, 2) - pow((y - FaceGeometry.eyeY) / 0.07, 2))   // sockets
-        z += 0.05 * exp(-pow((ax - FaceGeometry.eyeX) / 0.05, 2) - pow((y - FaceGeometry.eyeY) / 0.035, 2)) // eyes
-        z -= 0.07 * exp(-pow(x / 0.17, 2) - pow((y - FaceGeometry.mouthY) / 0.022, 2))                     // between the lips
+        z += 0.04 * exp(-pow((y + 0.37) / 0.06, 2)) * exp(-pow((ax - 0.22) / 0.2, 2))                        // brow ridge
+        z -= 0.07 * exp(-pow((ax - FaceGeometry.eyeX) / 0.11, 2) - pow((y - FaceGeometry.eyeY) / 0.07, 2))  // soft sockets
+        z += 0.05 * exp(-pow((ax - FaceGeometry.eyeX) / 0.055, 2) - pow((y - FaceGeometry.eyeY) / 0.035, 2)) // eyes
+        let smileY = FaceGeometry.mouthY - 0.035 * pow(x / 0.17, 2)                                    // the mouth line smiles
+        z -= 0.05 * exp(-pow(x / 0.19, 2) - pow((y - smileY) / 0.016, 2))                              // between the lips
         z -= 0.08 * exp(-pow((ax - 0.05) / 0.02, 2) - pow((y - 0.135) / 0.015, 2))                          // nostrils
-        z += 0.06 * exp(-pow((ax - 0.32) / 0.12, 2) - pow((y - 0.05) / 0.1, 2))                              // cheekbones
+        z += 0.08 * exp(-pow((ax - 0.3) / 0.13, 2) - pow((y - 0.12) / 0.11, 2))                              // full cheeks (a smile lifts them)
         z += 0.07 * exp(-pow(x / 0.17, 2) - pow((y - 0.29) / 0.03, 2))                                     // upper lip
         z += 0.075 * exp(-pow(x / 0.15, 2) - pow((y - 0.37) / 0.035, 2))                                   // lower lip
         z += 0.08 * exp(-pow(x / 0.15, 2) - pow((y - 0.56) / 0.08, 2))                                     // chin
@@ -271,8 +286,12 @@ enum ImprintGeometry {
             while x < 0.64 {
                 k += 1
                 if let z = relief(x, y) {
-                    out.append(P(x: x, y: y, z: z, lum: 0.6 + 0.4 * OrbPoints.hash(k, 3), dither: OrbPoints.hash(k, 14),
-                                 phase: 2 * .pi * OrbPoints.hash(k, 12)))
+                    let e = 0.008
+                    let zx = ((relief(x + e, y) ?? z) - (relief(x - e, y) ?? z)) / (2 * e)
+                    let zy = ((relief(x, y + e) ?? z) - (relief(x, y - e) ?? z)) / (2 * e)
+                    let l = (zx * zx + zy * zy + 1).squareRoot()
+                    out.append(P(x: x, y: y, z: z, lum: 0.75 + 0.25 * OrbPoints.hash(k, 3), dither: OrbPoints.hash(k, 14),
+                                 phase: 2 * .pi * OrbPoints.hash(k, 12), nx: -zx / l, ny: -zy / l, nz: 1 / l))
                 }
                 x += step
             }
