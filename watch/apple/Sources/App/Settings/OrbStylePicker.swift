@@ -19,7 +19,7 @@ struct OrbStylePicker: View {
                 GeometryReader { geo in
                     // The orb takes the free space, its name under it; the choice is at the bottom.
                     VStack(spacing: 2) {
-                        Orb(mode: .listening, size: max(80, min(geo.size.width, geo.size.height - 66)), voice: level, design: d)
+                        Orb(mode: .speaking, size: max(80, min(geo.size.width, geo.size.height - 66)), voice: level, design: d)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         Text(d.name).font(.rounded(.headline, weight: .bold)).foregroundStyle(Theme.text)
                             .accessibilityHint(d.summary)

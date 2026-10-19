@@ -14,7 +14,7 @@ struct HomeView: View {
                 NavigationLink(value: Route.ask(.idle)) {
                     VStack(spacing: 2) {
                         // Smaller when something needs you, so that card stays on the first screen.
-                        Orb(mode: .idle, size: model.waits.isEmpty ? 96 : 68, fps: 24, look: model.responderLook)
+                        Orb(mode: .idle, size: model.waits.isEmpty ? 115 : 82, fps: 24, look: model.responderLook)
                         Text("Talk to \(model.responder.title)").font(.rounded(.footnote, weight: .medium)).foregroundStyle(Theme.text2)
                     }
                     .frame(maxWidth: .infinity)
@@ -67,6 +67,7 @@ struct HomeView: View {
             if let url = model.testOpen { model.testOpen = nil; try? await Task.sleep(for: .seconds(2)); openURL(url) }
             if ProcessInfo.processInfo.arguments.contains("--render-icon") { OrbIcon.render() }
             if ProcessInfo.processInfo.arguments.contains("--render-orb-work") { OrbIcon.renderWork() }
+            if ProcessInfo.processInfo.arguments.contains("--render-orb-scenes") { OrbIcon.renderScenes() }
             #endif
         }
     }

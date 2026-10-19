@@ -4835,7 +4835,7 @@ approval can be allowed or denied from the notification itself.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (six orbs: Halo, Vortex, Nebula, Rings, Liquid, Galaxy) and About.
+aloud, Orb style (eight orbs: Halo, Vortex, Nebula, Rings, Liquid, Galaxy, Face, Ocean) and About.
 
 ## Sign in
 
@@ -4901,6 +4901,22 @@ channel (TestFlight, then the App Store); the Python package's history is in
 [../../CHANGELOG.md](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+### Added
+
+- **Two new orb styles, Face and Ocean** (first launch and Settings → Orb style).
+  - **Face**: a friendly portrait in points, with smiling eyes, a soft smile and rosy cheeks. It
+    blinks, breathes and moves its head a little. Its mouth moves with its own voice; it tilts its
+    head and raises its brows while you speak; it looks up and aside while it thinks.
+  - **Ocean**: a round window onto a sea at night, a moon and its glade on the water. The swell is
+    small at rest. A voice raises the waves (low pitches the long swell, high pitches the chop),
+    coming toward you while it speaks and going away while you speak. While it thinks the sea calms
+    and rain falls, each drop sending out rings.
+
+### Changed
+
+- Home's orb is 20% larger; the orb on the talk and Read aloud pages is 10% smaller.
+- The style picker shows each orb speaking.
 
 ## [0.3.0] - 2026-10-18
 
@@ -5146,6 +5162,7 @@ sequenceDiagram
 |---|---|
 | `Sources/App` (SwiftUI) | Screens and navigation (one `NavigationStack`); see [design.md](design.md). |
 | `AppModel` (`@MainActor`) | The client, the state on screen (waits, sessions, automations, entities), each automation's definition and latest results once read (shared by its pages, updated by a save), the 15 s foreground poll (the automations list at most once a minute), haptics, tool and workflow choices, the tools Accept all allowed, the answers seen on this watch. |
+| `Orb`, `OrbScenes` | The orb: a planet of points whose style answers the voice (Halo … Galaxy), and two scenes of their own, Face and Ocean; all frame-rate independent and drawn in one `Canvas`, with the light of its work. |
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
 | `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |

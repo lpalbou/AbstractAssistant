@@ -51,7 +51,7 @@ approval can be allowed or denied from the notification itself.
 
 **Make it yours.** Settings has Connection (the gateway and account you use), Tools (the defaults
 for new conversations), Voice (the speaking voice, its speed and the transcription model), Read
-aloud, Orb style (six orbs: Halo, Vortex, Nebula, Rings, Liquid, Galaxy) and About.
+aloud, Orb style (eight orbs: Halo, Vortex, Nebula, Rings, Liquid, Galaxy, Face, Ocean) and About.
 
 ## Sign in
 

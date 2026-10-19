@@ -3,7 +3,7 @@ import SwiftUI
 /// The orb's style: how its points answer a voice (Settings → Orb style, and asked once at first
 /// launch). Stored by letter so a choice survives renames.
 enum OrbDesign: String, CaseIterable, Identifiable {
-    case a = "A", b = "B", c = "C", d = "D", e = "E", f = "F"
+    case a = "A", b = "B", c = "C", d = "D", e = "E", f = "F", g = "G", h = "H"
     var id: String { rawValue }
     var name: String {
         switch self {
@@ -13,6 +13,8 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .d: "Rings"
         case .e: "Liquid"
         case .f: "Galaxy"
+        case .g: "Face"
+        case .h: "Ocean"
         }
     }
     var summary: String {
@@ -23,6 +25,8 @@ enum OrbDesign: String, CaseIterable, Identifiable {
         case .d: "the points gather on three orbits that pulse with the voice"
         case .e: "its surface ripples in waves with the voice"
         case .f: "a spiral galaxy that turns and spreads its arms with the voice"
+        case .g: "a friendly face that talks with its voice and listens to yours"
+        case .h: "a sea at night whose waves rise with the voice; rain falls while it thinks"
         }
     }
     static let storageKey = "orb.design"
@@ -76,7 +80,8 @@ struct Orb: View {
         TimelineView(.animation(minimumInterval: 1 / rate)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let voiced = mode == .listening || mode == .speaking
-            let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking)
+            let _ = engine.step(t: t, voice: voiced ? (voice?(t) ?? .silent) : .silent, engaged: voiced, thinking: mode == .thinking,
+                                speaking: mode == .speaking)
             OrbCanvas(t: t, engine: engine, design: chosen, look: look, countdown: countdown?() ?? 0, work: work?(t) ?? .none)
                 .frame(width: size, height: size)
         }
@@ -107,13 +112,17 @@ final class OrbEngine {
     private(set) var signal: Double = 0
     /// The voice's spectrum now (8 bands, 100 Hz–6 kHz), each smoothed over a syllable's attack.
     private(set) var bands = [Double](repeating: 0, count: VoiceFeatures.bandCount)
+    /// 0 while it listens, 1 while it speaks (eased over 0.4 s): the face talks only with its own
+    /// voice, the ocean's waves come toward you when it speaks and go away when you do.
+    private(set) var talking: Double = 0
+    private var kLin: Double = 0
     private var slow: Double = 0
     private var eLin: Double = 0
     private var tLin: Double = 0
     private var lastT: Double = 0
 
     @discardableResult
-    func step(t: Double, voice: VoiceFeatures, engaged: Bool, thinking isThinking: Bool) -> Bool {
+    func step(t: Double, voice: VoiceFeatures, engaged: Bool, thinking isThinking: Bool, speaking: Bool = false) -> Bool {
         let dt = lastT == 0 ? 0 : min(0.2, max(0, t - lastT))
         lastT = t
         let level = voice.level
@@ -128,6 +137,8 @@ final class OrbEngine {
         engagement = eLin * eLin * (3 - 2 * eLin)
         tLin = min(1, max(0, tLin + (isThinking ? dt / 0.5 : -dt / 0.8)))
         thinking = tLin * tLin * (3 - 2 * tLin)
+        kLin = min(1, max(0, kLin + (speaking ? dt / 0.4 : -dt / 0.4)))
+        talking = kLin * kLin * (3 - 2 * kLin)
         if dt > 0 { slow += (loud - slow) * (1 - exp(-dt / (loud > slow ? 0.06 : 0.25))) } else { slow = loud }
         signal = engagement * (0.12 + 0.88 * min(1, slow))
         swirl += dt * engagement * (0.2 + 1.4 * loud)
@@ -135,7 +146,7 @@ final class OrbEngine {
     }
 }
 
-@inline(__always) private func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
+@inline(__always) func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
     let u = min(1, max(0, (x - a) / (b - a)))
     return u * u * (3 - 2 * u)
 }
@@ -161,6 +172,10 @@ struct OrbCanvas: View {
 
     private func draw(_ gc: inout GraphicsContext, _ box: CGSize) {
         gc.blendMode = .plusLighter
+        // The Assistant's own scenes (an entity keeps its shape, with Nebula's answer to the voice).
+        if look.shape == .planet && design == .g { drawFace(&gc, box); return }
+        if look.shape == .planet && design == .h { drawOcean(&gc, box); return }
+        let design = (design == .g || design == .h) ? OrbDesign.c : design
         let half = Double(min(box.width, box.height)) / 2
         let cx = Double(box.width) / 2, cy = Double(box.height) / 2
         let R = half * 0.46                    // the planet; at full voice the outer points reach the frame
@@ -193,27 +208,7 @@ struct OrbCanvas: View {
             let z = pz0
             // 2b. Work: each step sends a ring of light out from the centre (a tool call a quick
             //     bright one, thinking a soft one, media a slow wide wave); a failed tool shivers.
-            var workLight = 0.0
-            if !work.pulses.isEmpty {
-                let r0 = (x * x + y * y).squareRoot()
-                var push = 0.0
-                for pulse in work.pulses {
-                    let fade = max(0, 1 - pulse.age / 1.6)
-                    switch pulse.tone {
-                    case .failure:
-                        let k = pulse.strength * fade * fade
-                        x += 0.035 * k * sin(t * 55 + p.phase); y += 0.035 * k * cos(t * 47 + p.phase * 1.3)
-                        workLight += 0.3 * k
-                    default:
-                        let speed = pulse.tone == .media ? 0.85 : (pulse.tone == .thinking ? 1.0 : 1.5)
-                        let width = pulse.tone == .media ? 0.24 : (pulse.tone == .thinking ? 0.2 : 0.13)
-                        let ring = (r0 - pulse.age * speed) / width
-                        let k = exp(-ring * ring) * pulse.strength * fade
-                        push += k; workLight += k
-                    }
-                }
-                if r0 > 1e-3 { x += x / r0 * 0.12 * push; y += y / r0 * 0.12 * push }
-            }
+            let workLight = workEffect(&x, &y, phase: p.phase)
             // 2. Light: the sun, the night side, depth (the far side fades), a rim.
             let lit = max(0.0, x * sun.x + y * sun.y + z * sun.z)
             var bright = (0.18 + 0.82 * lit) * p.lum
@@ -275,6 +270,8 @@ struct OrbCanvas: View {
                         }
                         let d = 0.3 + 1.0 * wv * p.reach + 0.4 * now
                         tx += sx * d; ty += sy * d; glow = 0.6 * now
+                    case .g, .h:   // drawn as scenes of their own (OrbScenes.swift)
+                        break
                     case .f:   // Galaxy: a continuous disc of stars, densest at the core, crowded along two arms
                         let lh = 0.5 * hist.value(secondsAgo: 0.1 + 0.4 * p.reach) + 0.6 * band(0.15)
                         let v = (p.reach - 0.45) / 0.55                         // 0…1, the star's own chance
@@ -334,8 +331,42 @@ struct OrbCanvas: View {
         drawSatellites(&gc, cx: cx, cy: cy, R: R, px: px, pal: pal)
     }
 
+    /// Its work on one point: each step's ring of light pushes it out a little as it passes, a
+    /// failed tool shivers it. Returns the light it gains.
+    func workEffect(_ x: inout Double, _ y: inout Double, phase: Double) -> Double {
+        guard !work.pulses.isEmpty else { return 0 }
+        var light = 0.0
+        let r0 = (x * x + y * y).squareRoot()
+        var push = 0.0
+        for pulse in work.pulses {
+            let fade = max(0, 1 - pulse.age / 1.6)
+            switch pulse.tone {
+            case .failure:
+                let k = pulse.strength * fade * fade
+                x += 0.035 * k * sin(t * 55 + phase); y += 0.035 * k * cos(t * 47 + phase * 1.3)
+                light += 0.3 * k
+            default:
+                let speed = pulse.tone == .media ? 0.85 : (pulse.tone == .thinking ? 1.0 : 1.5)
+                let width = pulse.tone == .media ? 0.24 : (pulse.tone == .thinking ? 0.2 : 0.13)
+                let ring = (r0 - pulse.age * speed) / width
+                let k = exp(-ring * ring) * pulse.strength * fade
+                push += k; light += k
+            }
+        }
+        if r0 > 1e-3 { x += x / r0 * 0.12 * push; y += y / r0 * 0.12 * push }
+        return light
+    }
+
+    /// The listening countdown on one point: the outer edge dims clockwise from the top.
+    func countdownDim(_ x: Double, _ y: Double) -> Double {
+        guard countdown > 0 else { return 1 }
+        let r = (x * x + y * y).squareRoot()
+        let a = (atan2(x, -y) + .pi) / (2 * .pi)
+        return 1 - 0.8 * (1 - smoothstep(countdown - 0.03, countdown + 0.03, a)) * smoothstep(0.8, 1.0, r)
+    }
+
     /// Under the points: each wave's soft ring of light, travelling out with it and fading.
-    private func drawWaves(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, pal: [Color]) {
+    func drawWaves(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, pal: [Color]) {
         let waves = work.pulses.filter { $0.tone != .failure }
         guard !waves.isEmpty else { return }
         // A soft ring as a radial gradient (no blur pass: it is drawn every frame).
@@ -358,7 +389,7 @@ struct OrbCanvas: View {
 
     /// Each tool running now circles the planet on a tilted orbit, a bright point with a fading
     /// trail, dimmed while it passes behind.
-    private func drawSatellites(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, px: Double, pal: [Color]) {
+    func drawSatellites(_ gc: inout GraphicsContext, cx: Double, cy: Double, R: Double, px: Double, pal: [Color]) {
         let n = work.satellites
         guard n > 0 else { return }
         let tilt = -0.32, ca = cos(tilt), sa = sin(tilt)
@@ -471,7 +502,7 @@ enum OrbPoints {
         return (rr * cos(a), zz, rr * sin(a))
     }
 
-    private static func hash(_ k: Int, _ salt: Double) -> Double {
+    static func hash(_ k: Int, _ salt: Double) -> Double {
         let v = sin(Double(k) * 12.9898 + salt * 78.233) * 43758.5453
         return v - v.rounded(.down)
     }
@@ -553,6 +584,40 @@ enum OrbIcon {
             if let data = renderer.uiImage?.pngData() { try? data.write(to: dir.appending(path: "orb-work-\(name).png")) }
         }
         print("orb work rendered: \(dir.path)")
+    }
+
+    /// `--render-orb-scenes` (simulator): Face and Ocean at rest, speaking (loud and soft), listening
+    /// and thinking, into Documents/orb-<style>-<state>.png.
+    @MainActor static func renderScenes() {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        func voice(_ level: Double, _ low: Double, _ high: Double) -> VoiceFeatures {
+            VoiceFeatures(level: level, bands: (0..<VoiceFeatures.bandCount).map { i in
+                level * (low * exp(-pow(Double(i) - 1.5, 2) / 1.5) + high * exp(-pow(Double(i) - 5.5, 2) / 1.5)) })
+        }
+        let states: [(String, VoiceFeatures, Bool, Bool, Bool, Double)] = [
+            ("rest", .silent, false, false, false, 1000.3),
+            ("speak-loud", voice(0.9, 1, 0.4), true, true, false, 1000.3),
+            ("speak-soft", voice(0.35, 0.6, 0.8), true, true, false, 1000.6),
+            ("listen", voice(0.7, 0.8, 0.6), true, false, false, 1001.2),
+            ("think", .silent, false, false, true, 1003.0),
+            ("think-later", .silent, false, false, true, 1003.55),
+            ("blink", .silent, false, false, false, 5.3 * 189 + 0.15),   // mid-blink
+        ]
+        for design in [OrbDesign.g, .h] {
+            for (name, v, engaged, speaking, thinking, t) in states {
+                let engine = OrbEngine()
+                for k in 0..<45 { engine.step(t: t - 1.5 + Double(k) / 30, voice: v, engaged: engaged, thinking: thinking, speaking: speaking) }
+                let art = ZStack {
+                    Color(hex: 0x0a0a12)
+                    OrbCanvas(t: t, engine: engine, design: design, look: .assistant).frame(width: 396, height: 396)
+                }
+                .frame(width: 396, height: 396)
+                let renderer = ImageRenderer(content: art)
+                renderer.scale = 2
+                if let data = renderer.uiImage?.pngData() { try? data.write(to: dir.appending(path: "orb-\(design.name)-\(name).png")) }
+            }
+        }
+        print("orb scenes rendered: \(dir.path)")
     }
 }
 #endif

@@ -71,7 +71,7 @@ struct AskView: View {
                     VStack(spacing: 6) {
                         // The orb fills the screen, centred in what is visible; everything else is below.
                         ScreenCentered(width: geo.size.width) { side in
-                            Orb(mode: orbMode, size: side, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
+                            Orb(mode: orbMode, size: side * 0.9, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
                                 work: phase == .thinking && activity.isFollowing ? { activity.orb(at: $0) } : nil)
                                 .contentShape(BelowTopRow())
                                 .onTapGesture(perform: orbTapped)

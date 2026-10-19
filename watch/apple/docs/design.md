@@ -28,7 +28,7 @@ Orb styles: `../design/anim/orb-designs/`.
 | Screen | Purpose | Actions |
 |---|---|---|
 | Sign in | First launch, after Sign out, or when the gateway ends the session: the AbstractFramework mark, one field "Sign in with user or email" with the send arrow inside it, the server below (tap to change). A user name then asks for its token; an email gets an 8-digit code. | send · change · resend the code |
-| Choose your orb | First launch: the six orb styles, one per page, "Use this" at the bottom. | swipe · Use this |
+| Choose your orb | First launch: the eight orb styles, one per page, each shown speaking, "Use this" at the bottom. | swipe · Use this |
 | Home | The orb (one tap to talk), what needs you (only when something does), Sessions and Automations with a count: what is new in a filled badge, else how many, a spinner until they are read; "Connecting…" while the first tries are retried, and the gateway said unreachable only after 3 failed tries over 20 s; the gear opens Settings. | talk · open |
 | Ask | The orb fills the screen. At rest: "Assistant ⌄" below the orb (who answers), the keyboard icon top right and the tools icon bottom right (as far from the bottom as the keyboard from the top); while it listens, works or speaks, they hide. While it works: its steps live below the orb, a pulse per tool call, a satellite per tool running, and the amber shield (bottom right) after an Accept all. Beside Back: share the conversation, and the voice button (play, pause, hold to rewind). The answer appears below with its images and recordings, spoken by the orb; "N steps · time" opens how it worked. | tap · hold · keyboard · tools · shield · share · voice button · choose who answers |
 | Tools | A conversation's tools (or the defaults, from Settings): its Workflow row, then the groups (Files, Web, System, Email, …) with their counts; after an Accept all, "Allowed for now" with Ask again. A group lists each tool with its risk, what it can do and Off · Auto · Ask, and All for the group. | choose · Use my defaults · Ask again |
@@ -101,10 +101,23 @@ signal (rising in about 120 ms, falling in about 600 ms). A weak voice moves onl
 stronger one draws in more and more points; one point in six follows at most 15%, so the shape
 breathes yet stays. Moving points light up as they travel, and no point leaves the screen.
 
-Six styles, chosen at first launch and in Settings → Orb style: Halo (a radial voice histogram),
+Eight styles, chosen at first launch and in Settings → Orb style: Halo (a radial voice histogram),
 Vortex (spiral arms), Nebula (a breathing cloud), Rings (three pulsing orbits), Liquid (surface
-waves), Galaxy (a dense spiral with stars everywhere). An entity's orb takes its colour and shape
-(planet, kitty, face, wave) from the gateway. The microphone is open only while the orb listens.
+waves), Galaxy (a dense spiral with stars everywhere), and two scenes of their own (`OrbScenes`):
+
+- **Face**: a head-and-shoulders portrait in points (smiling eyes with a catchlight, a soft
+  smile, rosy cheeks). It blinks every few seconds, breathes and turns its head a little; its mouth
+  opens with its own voice (wider on bright sounds) and its jaw follows; while you speak it tilts
+  its head and raises its brows; while it thinks it looks up and aside.
+- **Ocean**: a sea at night seen through a round window, the water in rows of equal distance that
+  close up toward the horizon, a moon, its glade glittering on the water, a few stars. Three waves
+  at rest (a slow swell, a crossing wave, a chop); a voice raises the swell with its low pitches
+  and the chop with its high ones. The last 1.2 s of the voice travel across the water: toward you
+  while it speaks, away while you do. While it thinks the waves calm and rain falls, each drop
+  sending out rings.
+
+An entity's orb takes its colour and shape (planet, kitty, face, wave) from the gateway (with
+Face or Ocean chosen, an entity keeps its own shape and answers the voice as Nebula does). The microphone is open only while the orb listens.
 
 While the assistant works, the orb shows the work: each tool call sends a ring of light out from the
 centre (parallel calls a few tenths apart), a new thought a softer ring, an image or a recording

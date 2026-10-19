@@ -6,6 +6,22 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ## [Unreleased]
 
+### Added
+
+- **Two new orb styles, Face and Ocean** (first launch and Settings → Orb style).
+  - **Face**: a friendly portrait in points, with smiling eyes, a soft smile and rosy cheeks. It
+    blinks, breathes and moves its head a little. Its mouth moves with its own voice; it tilts its
+    head and raises its brows while you speak; it looks up and aside while it thinks.
+  - **Ocean**: a round window onto a sea at night, a moon and its glade on the water. The swell is
+    small at rest. A voice raises the waves (low pitches the long swell, high pitches the chop),
+    coming toward you while it speaks and going away while you speak. While it thinks the sea calms
+    and rain falls, each drop sending out rings.
+
+### Changed
+
+- Home's orb is 20% larger; the orb on the talk and Read aloud pages is 10% smaller.
+- The style picker shows each orb speaking.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
