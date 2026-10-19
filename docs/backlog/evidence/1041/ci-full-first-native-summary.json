@@ -1,0 +1,257 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "85245867-A5F0-4892-A116-CE954D40E138",
+        "deviceName" : "Assistant CI 39179422246",
+        "modelName" : "iPhone 17 Pro",
+        "osBuildNumber" : "24A434",
+        "osVersion" : "27.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 5,
+      "passedTests" : 74,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription" : "AbstractAssistantPhoneUITests · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 5,
+  "finishTime" : 1792370539.458,
+  "passedTests" : 74,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
+      "sourceURL" : "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/MessageMediaTests.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "           SessionCore.mm:631   This method can lead to UI unresponsiveness if called on the main thread while the audio session is active.",
+      "sourceURL" : "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/MessageMediaTests.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
+      "sourceURL" : "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/VoiceInteractionTests.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
+      "sourceURL" : "file:///Users/runner/work/AbstractAssistant/AbstractAssistant/phone/iphone/Tests/VoiceInteractionTests.swift"
+    }
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1792369066.439,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "Failed to tap \"New conversation\" Button: No matches found for Elements matching predicate '\"New conversation\" IN identifiers' from input {(\n    Button, identifier: 'sparkle', label: 'Assistant', Selected,\n    Button, identifier: 'tray', label: 'Inbox', value: 3 items,\n    Button, identifier: 'clock.arrow.circlepath', label: 'Automations',\n    Button, identifier: 'chat.conversations', label: 'Conversations',\n    Button, identifier: 'chat.share', label: 'Share conversation', Disabled,\n    Button, identifier: 'chat.files', label: 'Conversation files',\n    Button, identifier: 'chat.tools', label: 'Tools',\n    Button, identifier: 'chat.settings', label: 'Settings',\n    Button, label: 'Choose who answers', value: Assistant,\n    Button, identifier: 'voice.orb', label: 'Tap to speak',\n    Button, label: 'Add attachment',\n    Button, identifier: 'composer.keyboard', label: 'Type a message',\n    Button,\n    Button, label: 'Find a little focus',\n    Button, label: 'Untangle an idea'\n)}\nPossibly caused by runtime issues:\nAutomation type mismatch: computed Button from legacy attributes vs PopUpButton from modern attribute. Input attributes and values: {\n    \"XC_kAXXCAttributeAutomationType\" = 14;\n    \"XC_kAXXCAttributeElementBaseType\" = NSObject;\n    \"XC_kAXXCAttributeElementType\" = \"SwiftUI.AccessibilityNode\";\n    \"XC_kAXXCAttributeTraits\" = 1108101562369;\n}\nSee test report attachments for more detail.",
+      "targetName" : "AbstractAssistantPhoneUITests",
+      "testIdentifier" : 57,
+      "testIdentifierString" : "PhoneUITests/testIPhoneToolDefaultsAreEditableWithoutUnlockingAndCarryToNewChats()",
+      "testIdentifierURL" : "test://com.apple.xcode/AbstractAssistantPhone/AbstractAssistantPhoneUITests/PhoneUITests/testIPhoneToolDefaultsAreEditableWithoutUnlockingAndCarryToNewChats",
+      "testName" : "testIPhoneToolDefaultsAreEditableWithoutUnlockingAndCarryToNewChats()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "AbstractAssistantPhoneUITests",
+      "testIdentifier" : 70,
+      "testIdentifierString" : "PhoneUITests/testSharedConversationIncludesBothSpeakers()",
+      "testIdentifierURL" : "test://com.apple.xcode/AbstractAssistantPhone/AbstractAssistantPhoneUITests/PhoneUITests/testSharedConversationIncludesBothSpeakers",
+      "testName" : "testSharedConversationIncludesBothSpeakers()"
+    },
+    {
+      "failureText" : "Failed to tap \"New conversation\" Button: No matches found for Elements matching predicate '\"New conversation\" IN identifiers' from input {(\n    Button, identifier: 'sparkle', label: 'Assistant', Selected,\n    Button, identifier: 'tray', label: 'Inbox', value: 3 items,\n    Button, identifier: 'clock.arrow.circlepath', label: 'Automations',\n    Button, identifier: 'chat.conversations', label: 'Conversations',\n    Button, identifier: 'chat.share', label: 'Share conversation', Disabled,\n    Button, identifier: 'chat.files', label: 'Conversation files',\n    Button, identifier: 'chat.tools', label: 'Tools',\n    Button, identifier: 'chat.settings', label: 'Settings',\n    Button, label: 'Choose who answers', value: Assistant,\n    Button, identifier: 'voice.orb', label: 'Tap to speak',\n    Button, label: 'Add attachment',\n    Button, identifier: 'composer.keyboard', label: 'Type a message',\n    Button,\n    Button, label: 'Find a little focus',\n    Button, label: 'Untangle an idea'\n)}\nPossibly caused by runtime issues:\nAutomation type mismatch: computed Button from legacy attributes vs PopUpButton from modern attribute. Input attributes and values: {\n    \"XC_kAXXCAttributeAutomationType\" = 14;\n    \"XC_kAXXCAttributeElementBaseType\" = NSObject;\n    \"XC_kAXXCAttributeElementType\" = \"SwiftUI.AccessibilityNode\";\n    \"XC_kAXXCAttributeTraits\" = 1108101562369;\n}\nSee test report attachments for more detail.",
+      "targetName" : "AbstractAssistantPhoneUITests",
+      "testIdentifier" : 75,
+      "testIdentifierString" : "PhoneUITests/testToolsSaveOnlyForTheCurrentConversation()",
+      "testIdentifierURL" : "test://com.apple.xcode/AbstractAssistantPhone/AbstractAssistantPhoneUITests/PhoneUITests/testToolsSaveOnlyForTheCurrentConversation",
+      "testName" : "testToolsSaveOnlyForTheCurrentConversation()"
+    },
+    {
+      "failureText" : "Failed to tap \"Stop sample\" Button: No matches found for Elements matching predicate '\"Stop sample\" IN identifiers' from input {(\n    Button, identifier: 'BackButton', label: 'Settings',\n    Button, identifier: 'sparkle', label: 'Assistant', Selected,\n    Button, identifier: 'tray', label: 'Inbox', value: 3 items,\n    Button, identifier: 'clock.arrow.circlepath', label: 'Automations',\n    Button, identifier: 'chat.conversations', label: 'Conversations',\n    Button, identifier: 'chat.share', label: 'Share conversation', Disabled,\n    Button, identifier: 'chat.files', label: 'Conversation files',\n    Button, identifier: 'chat.tools', label: 'Tools',\n    Button, identifier: 'chat.settings', label: 'Settings',\n    Button, label: 'Choose who answers', value: Assistant,\n    Button, identifier: 'voice.orb', label: 'Tap to speak',\n    Button, label: 'Add attachment',\n    Button, identifier: 'composer.keyboard', label: 'Type a message',\n    Button, identifier: 'voice.choices', label: 'Voice, Supertonic · M1',\n    Button, identifier: 'voice.transcription', label: 'Speech recognition, Gateway default',\n    Button,\n    Button, label: '1×',\n    Button, label: '1.15×',\n    Button, label: '1.3×',\n    Button, label: '1.5×', Selected,\n    Button, label: 'Find a little focus',\n    Button, label: 'Untangle an idea'\n)}\nPossibly caused by runtime issues:\nAutomation type mismatch: computed Button from legacy attributes vs PopUpButton from modern attribute. Input attributes and values: {\n    \"XC_kAXXCAttributeAutomationType\" = 14;\n    \"XC_kAXXCAttributeElementBaseType\" = NSObject;\n    \"XC_kAXXCAttributeElementType\" = \"SwiftUI.AccessibilityNode\";\n    \"XC_kAXXCAttributeTraits\" = 1108101562369;\n}\nSee test report attachments for more detail.",
+      "targetName" : "AbstractAssistantPhoneUITests",
+      "testIdentifier" : 76,
+      "testIdentifierString" : "PhoneUITests/testVoiceSettingsAndWorkflowAreAvailable()",
+      "testIdentifierURL" : "test://com.apple.xcode/AbstractAssistantPhone/AbstractAssistantPhoneUITests/PhoneUITests/testVoiceSettingsAndWorkflowAreAvailable",
+      "testName" : "testVoiceSettingsAndWorkflowAreAvailable()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "AbstractAssistantPhoneUITests",
+      "testIdentifier" : 77,
+      "testIdentifierString" : "PhoneUITests/testWebSearchAndPageReceiptsStaySeparateAndScrollable()",
+      "testIdentifierURL" : "test://com.apple.xcode/AbstractAssistantPhone/AbstractAssistantPhoneUITests/PhoneUITests/testWebSearchAndPageReceiptsStaySeparateAndScrollable",
+      "testName" : "testWebSearchAndPageReceiptsStaySeparateAndScrollable()"
+    }
+  ],
+  "title" : "Test - AbstractAssistantPhoneUITests",
+  "topInsights" : [
+    {
+      "category" : "Common Failures",
+      "impact" : "40% of failures",
+      "text" : "2 runs of 2 tests failed with Failed to tap \"New conversation\" Button: No matches found for Elements matching predicate '\"New conversation\" IN identifiers' from input {("
+    },
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "5% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 61.57s (three standard deviations)"
+    },
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "41% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 5.85s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 79
+}

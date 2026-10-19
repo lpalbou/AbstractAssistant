@@ -134,7 +134,8 @@ final class PhoneUITests: XCTestCase {
         XCTAssertTrue(copy.waitForExistence(timeout: 10))
         capture(app, "Share — user and assistant conversation snapshot")
         copy.tap()
-        XCTAssertTrue(app.buttons["chat.share"].isHittable)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: share)
+        XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 10), .completed)
     }
     @MainActor func testModelStepsExpandToTimingUsageAndPublicOutput() throws {
         let app = XCUIApplication(); app.launchArguments = ["--demo", "--ui-test", "--activity=running", "--screen", "conversation"]; app.launch()
@@ -251,7 +252,7 @@ final class PhoneUITests: XCTestCase {
         search.tap();XCTAssertTrue(app.navigationBars["Web searches"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["Swift UI accessibility"].firstMatch.exists);XCTAssertTrue(app.staticTexts["Swift file previews"].firstMatch.exists)
         capture(app,"Sources — skim and full searches")
-        app.buttons["access.row.0"].tap();XCTAssertTrue(app.buttons["Accessibility guide"].waitForExistence(timeout:5))
+        app.buttons["access.row.0"].tap();XCTAssertTrue(app.links["Accessibility guide"].waitForExistence(timeout:5))
         capture(app,"Sources — search result leads")
         app.buttons["Done"].tap();if !pages.isHittable {strip.swipeLeft()};pages.tap()
         XCTAssertTrue(app.navigationBars["Web pages fetched"].waitForExistence(timeout:5));capture(app,"Sources — fetched pages")
@@ -479,12 +480,15 @@ final class PhoneUITests: XCTestCase {
         let choice = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Supertonic · M1'")).firstMatch
         XCTAssertTrue(choice.waitForExistence(timeout: 5)); choice.tap()
         XCTAssertTrue(app.buttons["Stop sample"].waitForExistence(timeout: 5))
+        app.buttons["Stop sample"].tap()
         capture(app, "Voice choices")
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["1.5×"].tap()
         XCTAssertTrue(app.buttons["Stop sample"].waitForExistence(timeout: 5))
-        capture(app, "Speaking speed")
         app.buttons["Stop sample"].tap()
+        let stopped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Stop sample"])
+        XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 5), .completed)
+        capture(app, "Speaking speed")
         app.buttons["voice.transcription"].tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'large-v3-turbo'")).firstMatch.waitForExistence(timeout: 5))
         capture(app, "Speech recognition")
@@ -680,7 +684,7 @@ final class PhoneUITests: XCTestCase {
         capture(app, "Settings defaults for all sessions")
         app.buttons["tools.save"].tap()
         app.buttons["Done"].tap()
-        app.buttons["New conversation"].tap()
+        startNewConversation(app)
         openTools(app)
         XCTAssertEqual(app.switches["tools.defaults"].value as? String, "1")
         searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Approve"].isSelected)
@@ -689,7 +693,7 @@ final class PhoneUITests: XCTestCase {
         app.buttons["tools.save"].tap()
         openTools(app); searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Off"].isSelected)
         app.buttons["tools.close"].tap()
-        app.buttons["New conversation"].tap()
+        startNewConversation(app)
         openTools(app); searchTools(app, for: "read_file"); XCTAssertTrue(read.buttons["Approve"].isSelected)
     }
     @MainActor func testReloadRestoresAllAssistantRepliesWithoutSpeaking() throws {
@@ -788,7 +792,7 @@ final class PhoneUITests: XCTestCase {
         defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
         XCTAssertTrue(read.buttons["Off"].isSelected)
         app.buttons["tools.close"].tap()
-        app.buttons["New conversation"].tap()
+        startNewConversation(app)
         openTools(app)
         XCTAssertTrue(defaults.waitForExistence(timeout: 5)); XCTAssertEqual(defaults.value as? String, "1")
         defaults.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).tap()
@@ -906,6 +910,13 @@ final class PhoneUITests: XCTestCase {
     }
     @MainActor private func openTools(_ app: XCUIApplication) {
         XCTAssertTrue(app.buttons["chat.tools"].waitForExistence(timeout: 10)); app.buttons["chat.tools"].tap()
+    }
+    @MainActor private func startNewConversation(_ app: XCUIApplication) {
+        let history = app.buttons["chat.conversations"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
+        let create = app.buttons["New conversation"]
+        XCTAssertTrue(create.waitForExistence(timeout: 5)); create.tap()
+        XCTAssertTrue(app.buttons["composer.keyboard"].waitForExistence(timeout: 5))
     }
     @MainActor private func openSettings(_ app: XCUIApplication) {
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 10)); app.buttons["Settings"].tap()

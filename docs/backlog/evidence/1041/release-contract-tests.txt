@@ -1,0 +1,15 @@
+test_archive_path_traversal_is_refused_even_with_matching_digest (test_release.ReleaseTests.test_archive_path_traversal_is_refused_even_with_matching_digest) ... ok
+test_build_numbers_are_valid_unique_on_retry_and_bounded (test_release.ReleaseTests.test_build_numbers_are_valid_unique_on_retry_and_bounded) ... ok
+test_critical_suite_candidate_cannot_be_uploaded (test_release.ReleaseTests.test_critical_suite_candidate_cannot_be_uploaded) ... ok
+test_explicit_entitlements_require_signed_archive (test_release.ReleaseTests.test_explicit_entitlements_require_signed_archive) ... ok
+test_export_keeps_testflight_candidate_eligible_for_store_promotion (test_release.ReleaseTests.test_export_keeps_testflight_candidate_eligible_for_store_promotion) ... ok
+test_modified_archive_is_refused (test_release.ReleaseTests.test_modified_archive_is_refused) ... ok
+test_other_commit_or_bundle_cannot_be_uploaded (test_release.ReleaseTests.test_other_commit_or_bundle_cannot_be_uploaded) ... ok
+test_private_key_is_removed_on_success_or_export_failure (test_release.ReleaseTests.test_private_key_is_removed_on_success_or_export_failure) ... ok
+test_test_host_or_mismatched_binary_metadata_is_refused (test_release.ReleaseTests.test_test_host_or_mismatched_binary_metadata_is_refused) ... ok
+test_verified_archive_matches_commit_identity_version_and_bytes (test_release.ReleaseTests.test_verified_archive_matches_commit_identity_version_and_bytes) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 1.387s
+
+OK

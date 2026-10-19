@@ -46,3 +46,14 @@ actionlint/shell checks where available, project generation and unsigned archive
 package tests and credential-free native CI. Document first-time App Store Connect app record
 requirements and human actions separately from completed upload claims. Coredoc updates and
 regenerated LLM indexes in the same change. No live deployment bypass during verification.
+
+## Initial CI findings — 2026-10-19
+
+Push run 39179097643 passed 246 package and 35 native checks and archived a verified unsigned
+candidate; upload skipped. Full-suite run 39179422246 passed 74/79 native tests, then correctly
+blocked candidate creation/upload on five UI failures. Failure reports and screenshot/hierarchy
+inspection identify stale direct New conversation navigation (two tests), an immediate toolbar
+assertion before share dismissal settled, a button query for a native Link, and a voice preview
+stop tapped after screenshot capture allowed the short synthetic sample to finish. Update the
+existing journeys to navigate via Conversations, wait for dismissal, query Link and stop the
+sample before capturing. Keep all 48 UI journeys and rerun; no production behavior changes.

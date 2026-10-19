@@ -1,0 +1,14 @@
+{
+  "source_sha": "7af42eef17d25d30894c410b28ca37c2c7b35bf6",
+  "archive_sha256": "6b77dafa3a477a8f3268eb92f4eb775e14328f8be7e9107f246cd429a5cb2020",
+  "digest_matches": true,
+  "device_archive_identity": {
+    "CFBundleIdentifier": "ai.abstractframework.assistant.iphone",
+    "CFBundleShortVersionString": "0.6.21",
+    "CFBundleVersion": "101.1",
+    "DTPlatformName": "iphoneos"
+  },
+  "critical_upload_rejection": "Upload requires a candidate validated by the full native suite",
+  "executable_architecture": "Mach-O 64-bit executable arm64",
+  "signing": "unsigned (codesign reports code object is not signed at all)"
+}
