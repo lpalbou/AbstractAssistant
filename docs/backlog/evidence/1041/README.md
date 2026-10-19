@@ -159,3 +159,8 @@ credentials. Store metadata, App Review submission and manual public release fol
 its source and flags, local credential-format checks and the unchanged protected environment.
 No private key material or authentication tokens are recorded. Apple signing and upload are
 pending the first real run and its human approval gate.
+
+[first-release-outcome.json](first-release-outcome.json) closes the first attempt: successful
+CI/archive/verification, operator approval, then Apple export exit70 for a missing app record.
+No iPhone upload succeeded. Operator wants the existing Watch listing to contain both clients;
+1042 tracks the required combined packaging and shared upload ownership.

@@ -122,3 +122,14 @@ previously passed Apple's API and Watch upload in run 39100823978. No credential
 CI execution is pending. The iPhone app record and actual signing/upload are unverified until
 Apple can be queried behind the protected job. Public App Store review/release remains manual
 under ADR0002. [Release-request receipt](../evidence/1041/first-release-request.json).
+
+## First release outcome and product-boundary correction — 2026-10-19
+
+Run 39190954901 passed test/archive and candidate verification. The operator approved app-store.
+Export then failed (exit70): no App Store Connect record for ai.abstractframework.assistant.iphone.
+No iPhone build was uploaded. The operator confirmed that iPhone and Watch must share the existing
+AbstractAssistant listing; the separate Store identity assumed in 1041 is therefore incorrect for
+the intended product. Do not create another app record as a workaround. Shared packaging and
+release ownership are tracked in [1042](../planned/1042_unified_iphone_and_watch_store_delivery.md).
+[Full job/outcome receipt](../evidence/1041/first-release-outcome.json) records the actual failure;
+previous green CI/archive claims do not constitute successful Apple delivery.
