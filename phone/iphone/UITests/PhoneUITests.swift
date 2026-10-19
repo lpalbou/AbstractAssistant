@@ -252,7 +252,10 @@ final class PhoneUITests: XCTestCase {
         search.tap();XCTAssertTrue(app.navigationBars["Web searches"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["Swift UI accessibility"].firstMatch.exists);XCTAssertTrue(app.staticTexts["Swift file previews"].firstMatch.exists)
         capture(app,"Sources — skim and full searches")
-        app.buttons["access.row.0"].tap();XCTAssertTrue(app.links["Accessibility guide"].waitForExistence(timeout:5))
+        app.buttons["access.row.0"].tap()
+        // SwiftUI Link is exposed as Button on iOS26 and Link on iOS27.
+        let lead = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)", "Accessibility guide", XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.link.rawValue)).firstMatch
+        XCTAssertTrue(lead.waitForExistence(timeout: 5))
         capture(app,"Sources — search result leads")
         app.buttons["Done"].tap();if !pages.isHittable {strip.swipeLeft()};pages.tap()
         XCTAssertTrue(app.navigationBars["Web pages fetched"].waitForExistence(timeout:5));capture(app,"Sources — fetched pages")

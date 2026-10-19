@@ -78,3 +78,9 @@ Voice preview is a short synthetic recording that had ended during screenshot ca
 the test tapped Stop. Update these existing journeys without removing tests: use Conversations,
 wait for share dismissal, query Link and stop samples before capturing, then verify stop cleanup.
 A complete native rerun is required before closing this item.
+
+Focused local rerun on iOS26.5: four fixes pass; the web-link assertion identifies a native
+classification difference (Button on26.5, Link on27.0). Preserve both label and actionable-type
+requirements with a Button-or-Link predicate. `local-focused-first-native-summary.json` records
+the first focused result. A subsequent local build yielded to Watch priority (exit75). The
+complete hosted native suite is rerun after the compatibility adjustment.

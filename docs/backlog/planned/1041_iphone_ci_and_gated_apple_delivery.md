@@ -57,3 +57,8 @@ assertion before share dismissal settled, a button query for a native Link, and 
 stop tapped after screenshot capture allowed the short synthetic sample to finish. Update the
 existing journeys to navigate via Conversations, wait for dismissal, query Link and stop the
 sample before capturing. Keep all 48 UI journeys and rerun; no production behavior changes.
+
+Focused iOS26.5 rerun passed four affected journeys and exposed an OS-specific accessibility
+classification: the same SwiftUI search-result Link appears as Button on26.5 and Link on27.0.
+Retain the link label and actionable-type assertions while accepting either native type. A
+second local attempt yielded to a newly active Watch build (exit75), without interrupting Watch.
