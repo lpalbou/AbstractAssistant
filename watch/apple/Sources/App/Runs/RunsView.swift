@@ -19,11 +19,11 @@ struct SessionsView: View {
             HStack(spacing: 6) {
                 Button {
                     model.newAskSession()
-                    model.path = [.ask(.idle)]
+                    model.openOrb()
                 } label: {
                     TopAction(symbol: "plus", title: "New", color: Theme.cyan)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .accessibilityLabel("New conversation")
                 // Search the questions, answers and artifacts of every conversation (the gateway's index).
                 TextFieldLink(prompt: Text("Words to find")) {
@@ -32,7 +32,7 @@ struct SessionsView: View {
                     let q = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))   // the gateway's limit
                     if !q.isEmpty { model.path.append(.sessionSearch(q)) }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .accessibilityLabel("Search")
                 .accessibilityIdentifier("sessions.search")
             }
@@ -57,7 +57,7 @@ struct SessionsView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                             .disabled(opening != nil && opening != s.id)   // one session opens at a time
                             // Discreet, at the row's edge: a soft red symbol, a full-size touch area.
                             Button { archiving = s } label: {
@@ -68,7 +68,7 @@ struct SessionsView: View {
                                     .frame(width: 34, height: 44, alignment: .trailing)
                                     .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                             .disabled(s.isLive)                              // a conversation at work is not archived
                             .opacity(s.isLive ? 0.35 : 1)
                             .accessibilityLabel("Archive")
@@ -234,13 +234,13 @@ struct SessionDetailView: View {
                 if failed { Text("Couldn't load this conversation").font(.rounded(.footnote)).foregroundStyle(Theme.muted) }
                 if rows.count > shown {
                     Button(loadingOlder ? "Loading…" : "Show older") { Task { await showOlder() } }
-                        .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.cyan).disabled(loadingOlder)
+                        .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.cyan).disabled(loadingOlder)
                 }
                 ForEach(turns.reversed()) { run in
                     // A finished answer opens whole (it is cut at 6 lines here) and can be read aloud.
                     if let out = run.outputText, !out.isEmpty, run.isTerminal {
                         NavigationLink(value: Route.read(ReadItem(title: model.title(of: session) ?? "", text: out, scope: .run(run.runId)))) { turn(run) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                         // What the turn made, under its answer (each opens or plays on its own).
                         let media = MediaItem.of(output: run.output, runId: run.runId)
                         if !media.isEmpty { MediaStrip(items: media) }
@@ -281,7 +281,7 @@ struct SessionDetailView: View {
                             Button { Task { try? await model.client.cancel(runId: run.runId); full[run.runId] = nil; await load() } } label: {
                                 Image(systemName: "stop.fill").foregroundStyle(Theme.red)
                             }
-                            .buttonStyle(.plain).accessibilityLabel("Stop")
+                            .buttonStyle(.tap).accessibilityLabel("Stop")
                         }
                     }
                 }

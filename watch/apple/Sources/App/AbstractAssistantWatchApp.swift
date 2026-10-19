@@ -39,7 +39,7 @@ struct AbstractAssistantWatchApp: App {
                         }
                 }
             } else {
-            NavigationStack(path: $model.path) {
+            NavigationStack(path: model.stackPath) {
                 HomeView()
                     .navigationDestination(for: Route.self) { route in
                         switch route {
@@ -72,11 +72,25 @@ struct AbstractAssistantWatchApp: App {
                         case .toolGroup(let scope, let id): ToolGroupView(scope: scope, groupId: id)
                         case .link(let url): LinkView(url: url)
                         case .answer(let ref): AskView(initialPhase: .idle, opening: ref)
+                        case .conversation(let id): ConversationInfoView(sessionId: id)
                         case .orbStyle: OrbStylePicker()
                         case .orbStylePreview(let raw): OrbStylePreview(design: OrbDesign(rawValue: raw) ?? .a)
                         }
                     }
             }
+            // Swipes as in a browser: to the right goes back (as the system's own Back), to the left
+            // goes forward (to a page went back from, or from the orb page to its conversation). A
+            // swipe right from the very left edge is the system's Back already: it is left to it.
+            .simultaneousGesture(DragGesture(minimumDistance: 30)
+                .onChanged { v in
+                    if abs(v.translation.width) > 2.2 * abs(v.translation.height) { model.swiped() }
+                }
+                .onEnded { v in
+                    let dx = v.translation.width, dy = v.translation.height
+                    guard abs(dx) > 60, abs(dx) > 2.2 * abs(dy) else { return }
+                    model.swiped()
+                    if dx < 0 { model.goForward() } else if v.startLocation.x > 16 { model.goBack() }
+                })
             }
             }
             // Every tapped web link opens the Link screen (the page's text, Read aloud, Handoff to

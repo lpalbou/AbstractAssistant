@@ -52,6 +52,6 @@ struct ResponderPickerView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 }

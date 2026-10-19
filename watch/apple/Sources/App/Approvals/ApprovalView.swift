@@ -66,7 +66,7 @@ struct ApprovalView: View {
                         Text(value).font(.mono(.footnote, weight: .medium)).foregroundStyle(Theme.cyan).underline()
                             .lineLimit(4).multilineTextAlignment(.leading)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                 } else {
                     Text(value).font(.rounded(.footnote)).foregroundStyle(Theme.text2).lineLimit(5)
                 }
@@ -85,7 +85,7 @@ struct ApprovalView: View {
             NavigationLink(value: Route.draft(wait)) {
                 Label("Read the email", systemImage: "envelope.open").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.cyan)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
         }
     }
 

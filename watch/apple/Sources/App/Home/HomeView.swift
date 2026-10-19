@@ -19,7 +19,7 @@ struct HomeView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .accessibilityLabel("Talk to \(model.responder.title)")
                 if model.connecting {
                     LoadingText(text: "Connecting").font(.rounded(.caption2)).foregroundStyle(Theme.amber)
@@ -36,13 +36,13 @@ struct HomeView: View {
                         badge: nil, badgeColor: Theme.cyan, count: model.newSessionCount, countLabel: "new", total: model.sessions.count,
                         loading: !model.sessionsLoaded)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 NavigationLink(value: Route.automations) {
                     row("Automations", symbol: "clock.arrow.circlepath", detail: automationDetail,
                         badge: nil, badgeColor: Theme.amber, count: unseenCount, countLabel: "new", total: model.automations.count,
                         loading: !model.automationsLoaded)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .id("bottom")
             }
         }
@@ -97,7 +97,7 @@ struct HomeView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 
     /// Conversations working now come first ("2 working"), else the latest one's title; nil while

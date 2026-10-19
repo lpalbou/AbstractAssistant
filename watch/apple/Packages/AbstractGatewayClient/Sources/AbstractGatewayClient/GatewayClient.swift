@@ -54,6 +54,10 @@ public protocol GatewayClient: Sendable {
     func sessionMedia(sessionId: String) async throws -> [String: [MediaItem]]
     /// `GET /runs/{run}/artifacts/{id}/content`: one media item's bytes (at most `MediaItem.byteLimit`).
     func mediaData(_ item: MediaItem) async throws -> Data
+    /// `GET /sessions/{id}/artifacts`: the conversation's files (what its turns made or were given).
+    func sessionFiles(sessionId: String) async throws -> SessionFiles
+    /// `GET /runs/{run}/artifacts/{id}/content`: one file's bytes (at most `MediaItem.byteLimit`).
+    func fileData(_ file: SessionFile) async throws -> Data
     /// `GET /api/gateway/discovery/tools`: the tools with their risk tiers.
     func tools() async throws -> [ToolInfo]
     /// `POST /api/gateway/commands` with `type: "resume"`.
@@ -270,9 +274,21 @@ public actor LiveGatewayClient: GatewayClient {
     }
 
     public func mediaData(_ item: MediaItem) async throws -> Data {
-        guard MediaItem.safe(item.runId), MediaItem.safe(item.artifactId) else { throw GatewayError.invalidResponse }
-        if let size = item.sizeBytes, size > MediaItem.byteLimit { throw GatewayError.invalidResponse }
-        let data = try await request("GET", "api/gateway/runs/\(item.runId)/artifacts/\(item.artifactId)/content", timeout: 120)
+        try await artifactData(runId: item.runId, artifactId: item.artifactId, sizeBytes: item.sizeBytes)
+    }
+
+    public func sessionFiles(sessionId: String) async throws -> SessionFiles {
+        SessionFiles.of(try await get("api/gateway/sessions/\(sessionId)/artifacts", query: [.init(name: "limit", value: "500")], as: JSONValue.self))
+    }
+
+    public func fileData(_ file: SessionFile) async throws -> Data {
+        try await artifactData(runId: file.runId, artifactId: file.artifactId, sizeBytes: file.sizeBytes)
+    }
+
+    private func artifactData(runId: String, artifactId: String, sizeBytes: Int?) async throws -> Data {
+        guard MediaItem.safe(runId), MediaItem.safe(artifactId) else { throw GatewayError.invalidResponse }
+        if let size = sizeBytes, size > MediaItem.byteLimit { throw GatewayError.invalidResponse }
+        let data = try await request("GET", "api/gateway/runs/\(runId)/artifacts/\(artifactId)/content", timeout: 120)
         guard data.count <= MediaItem.byteLimit else { throw GatewayError.invalidResponse }
         return data
     }

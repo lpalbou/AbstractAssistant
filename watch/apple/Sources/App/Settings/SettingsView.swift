@@ -21,7 +21,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .accessibilityIdentifier("settings.connection")
                 NavigationLink(value: Route.orbStyle) {
                     Card {
@@ -33,7 +33,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 Card {
                     Toggle("Read aloud", isOn: $speakAnswers)
                         .font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text).tint(Theme.indigoButton)
@@ -48,7 +48,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 NavigationLink(value: Route.tools(.defaults)) {
                     Card {
                         HStack {
@@ -59,7 +59,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .accessibilityIdentifier("settings.tools")
                 NavigationLink(value: Route.about) {
                     Card {
@@ -71,7 +71,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 Spacer(minLength: 10)
                 if !model.client.isMock {
                     Text([model.principal?.userId, model.gatewayHost].compactMap { $0 }.joined(separator: " · "))

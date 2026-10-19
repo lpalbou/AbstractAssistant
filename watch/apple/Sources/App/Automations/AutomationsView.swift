@@ -98,7 +98,7 @@ struct AutomationRow: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 Button(action: archive) {
                     Image(systemName: "archivebox").font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Theme.red.opacity(0.8))
@@ -107,7 +107,7 @@ struct AutomationRow: View {
                         .frame(width: 34, height: 34, alignment: .trailing)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .accessibilityLabel("Archive")
                 .accessibilityIdentifier("automation.archive")
             }
@@ -115,7 +115,7 @@ struct AutomationRow: View {
                 Button { model.path.append(.automation(automation)) } label: {
                     ScheduleLine(automation: automation).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 if switchable {
                     Toggle(isOn: Binding(get: { automation.status == "active" }, set: { on in flip(on) })) { EmptyView() }
                         .labelsHidden()

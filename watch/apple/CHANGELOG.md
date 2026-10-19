@@ -39,6 +39,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Swipes as in a browser.** On every page a swipe to the right (the finger moving right, as with
+  watchOS's own Back) goes back to the page before, one page at a time, down to Home; a swipe to
+  the left goes forward again to a page you came back from, and does nothing when there is none
+  (on Home at launch, neither swipe goes anywhere). A swipe across a row never opens that row. A
+  conversation opened from Sessions opens on top of Sessions, so going back returns to the list.
+- **The conversation's page.** From the orb page of a conversation with at least one message, a
+  swipe to the left opens its numbers (questions, tool calls, thinking steps, when it started and last
+  moved) and its files (what its turns made or were given, your spoken questions left out), each
+  card with its share button on the right.
 - **Buttons that follow what it does.** Beside Back: Stop while it is busy (listening, thinking or
   working, speaking or paused), Share at rest; while it works after an Accept all, the shield that
   takes it back sits beside Stop (it was at the bottom right). A 1.5 s hold on the orb does what
@@ -76,6 +85,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Fixed
 
+- The orb page keeps its layout however it is reached: coming back to it scrolled (from a message,
+  for instance) no longer shifts the orb, its icons and "who answers" down the screen.
 - After Accept all, the tools of the call you approved no longer ask again, including those that go
   where the assistant picks (opening web pages); sends to other people still ask every time.
 

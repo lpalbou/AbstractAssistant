@@ -89,7 +89,7 @@ struct OrbStylePreview: View {
                                 .foregroundStyle(i == phase ? Theme.text : Theme.muted)
                                 .background(i == phase ? Theme.neutralButton : .clear, in: Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                         .accessibilityLabel(Self.phases[i].name)
                     }
                 }

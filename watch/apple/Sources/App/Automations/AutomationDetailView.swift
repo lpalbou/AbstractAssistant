@@ -57,7 +57,7 @@ struct AutomationDetailView: View {
                 if let last { result(last) }
                 else if readingLast && readFailed {
                     Button("Couldn't load the latest result. Retry") { Task { await load() } }
-                        .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber)
+                        .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.amber)
                 } else if readingLast {
                     Card { ProgressView().frame(maxWidth: .infinity) }.accessibilityLabel("Loading the latest result")
                 }
@@ -69,11 +69,11 @@ struct AutomationDetailView: View {
                     .padding(.top, 6)
                     ForEach(occurrences.dropFirst(), id: \.self) { o in
                         NavigationLink(value: Route.occurrence(title: title, o)) { OccurrenceRow(occurrence: o) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.tap)
                     }
                     if !loading && occurrences.count >= limit {
                         Button("Show older") { limit += 10; Task { await load() } }
-                            .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
+                            .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
                     }
                 }
             }

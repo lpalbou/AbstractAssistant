@@ -116,3 +116,27 @@ private let imageOutput = """
     #expect(WorkflowChoice.bundleId(ofRunWorkflow: "basic-agent@0.0.5:81795ea9") == "basic-agent")
     #expect(WorkflowChoice.bundleId(ofRunWorkflow: "__catalog__tenant__default__deep-research@1:x") == "deep-research")
 }
+
+/// A conversation's files: generated media and attachments; the person's spoken questions (the
+/// uploads a transcript names as its source) and the transcripts themselves are not files.
+@Test func aConversationsFilesLeaveOutItsSpokenQuestions() throws {
+    let json = #"""
+    {"items": [
+      {"artifact_id": "t1", "run_id": "session_memory_s", "content_type": "text/plain", "created_at": "2026-10-19T10:00:05Z",
+       "tags": {"kind": "derived_text", "task": "stt", "source_audio_artifact": "a1"}},
+      {"artifact_id": "a1", "run_id": "session_memory_s", "content_type": "audio/wav", "filename": "ask.wav", "size_bytes": 480810,
+       "created_at": "2026-10-19T10:00:00Z", "tags": {"kind": "attachment", "source": "upload"}},
+      {"artifact_id": "img1", "run_id": "r1", "content_type": "image/png", "size_bytes": 2904892, "created_at": "2026-10-19T10:01:00Z",
+       "tags": {"kind": "generated_media", "task": "image_generation"}},
+      {"artifact_id": "doc1", "run_id": "session_memory_s", "content_type": "application/pdf", "filename": "report.pdf",
+       "created_at": "2026-10-19T09:00:00Z", "tags": {"kind": "attachment", "source": "upload"}}
+    ]}
+    """#
+    let page = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+    let f = SessionFiles.of(page)
+    #expect(f.files.map(\.artifactId) == ["img1", "doc1"])
+    #expect(f.spokenQuestions == 1)
+    #expect(f.files[0].origin == .made && f.files[0].media?.kind == .image)
+    #expect(f.files[1].origin == .attached && f.files[1].media == nil && f.files[1].fileName == "report.pdf")
+    #expect(f.files[0].fileName == "image-img1.png")
+}

@@ -90,7 +90,7 @@ struct AutomationEditView: View {
                             }
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     .accessibilityLabel(Self.label(every))
                 }
                 Card { Toggle("Active", isOn: $active).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton) }

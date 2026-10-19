@@ -54,7 +54,7 @@ struct AboutView: View {
                     Text(address).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
             .accessibilityHint("Writes an email")
         } else {
             row(label, address)
@@ -71,7 +71,7 @@ struct AboutView: View {
                         .foregroundStyle(Theme.cyan).multilineTextAlignment(.leading)
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
         } else {
             row(label, value)
         }

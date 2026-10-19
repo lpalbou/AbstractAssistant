@@ -70,20 +70,20 @@ struct BelowTopRow: Shape {
     func path(in r: CGRect) -> Path { Path(CGRect(x: r.minX, y: r.minY + 60, width: r.width, height: max(0, r.height - 60))) }
 }
 
-/// The orb's stage: as tall as what is left of the screen below the stage's top, with its content
-/// (drawn in a screen-sized box) centred on the screen itself, whatever the bars above take on this
-/// watch. The stage's top is measured where it really is, in the first moments on screen (before
-/// any scroll), then kept.
+/// The orb's stage: as tall as what is left of the screen below the scroll view's top (`top`: where
+/// the visible area starts on screen, which no scroll moves), with its content (drawn in a
+/// screen-sized box) centred on the screen itself, whatever the bars above take on this watch. The
+/// same on every visit: it is never measured from the stage itself, whose place changes with the
+/// scroll (a page reopened scrolled down used to keep a wrong top).
 struct ScreenCentered<Content: View, Bottom: View>: View {
     let width: CGFloat
+    let top: CGFloat
     @ViewBuilder let content: (CGFloat) -> Content
     @ViewBuilder let bottom: () -> Bottom
-    @State private var top: CGFloat?
-    @State private var since = Date()
 
     var body: some View {
         let screen = WKInterfaceDevice.current().screenBounds.size
-        let t = top ?? 0
+        let t = max(0, top)
         ZStack(alignment: .bottom) {
             content(min(width, screen.height))
                 .frame(width: width, height: screen.height)
@@ -91,10 +91,6 @@ struct ScreenCentered<Content: View, Bottom: View>: View {
             bottom()
         }
         .frame(width: width, height: max(0, screen.height - t))
-        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
-            if Date().timeIntervalSince(since) < 0.8 { top = max(0, y) }
-        }
-        .onAppear { since = Date() }
     }
 }
 
@@ -170,6 +166,20 @@ private struct BesideBack<V: View>: ViewModifier {
 }
 
 enum RowReach { static let vertical: CGFloat = 9 }
+
+/// A button that fires on a tap only: a finger that moves (a swipe across a full-width row) is not
+/// a tap, whatever the order in which the watch reports the swipe and the lift (the plain style
+/// fires wherever the finger lifts on the button).
+struct TapButtonStyle: PrimitiveButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.onTapGesture { if enabled { configuration.trigger() } }
+    }
+}
+
+extension PrimitiveButtonStyle where Self == TapButtonStyle {
+    static var tap: TapButtonStyle { TapButtonStyle() }
+}
 
 /// The press of a round icon: it dips and dims while held, so a tap visibly lands.
 struct GlassPress: ButtonStyle {

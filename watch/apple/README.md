@@ -19,7 +19,12 @@ about, an image being made) and the orb pulses with each tool call, a satellite 
 each tool running. The answer appears in markdown and the orb speaks it, following its voice; the
 voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or resumes it; Stop
 (beside Back while it listens, works or speaks) or a 1.5 s hold on the orb stops what it is doing,
-and at rest the same hold reads the last answer aloud.
+and at rest the same hold reads the last answer aloud. Once a conversation has a message, swipe
+to the left from the orb for its numbers and files (each one shareable).
+
+**Swipe as in a browser.** A swipe to the right (your finger moving right, as with watchOS's Back)
+goes back to the page before, down to Home; a swipe to the left goes forward again to a page you
+came back from, and does nothing when there is none.
 
 **Choose who answers and with what.** "Assistant ⌄" below the orb switches between the
 **Assistant** (it works with its tools and answers) and your **entities** (someone you keep talking

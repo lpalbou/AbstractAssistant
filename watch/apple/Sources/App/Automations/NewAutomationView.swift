@@ -34,14 +34,14 @@ struct NewAutomationView: View {
                 TextField("What should it do?", text: $task, axis: .vertical)
                     .lineLimit(1...6).font(.rounded(.footnote)).accessibilityIdentifier("new.task")
                 Button { choosingWorkflow = true } label: { row("Workflow", symbol: "square.stack.3d.up", value: workflowLabel) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     .accessibilityLabel("Workflow: \(workflowLabel)").accessibilityIdentifier("new.workflow")
                 // What the agent may do on each run: the Tools page, for this automation.
                 NavigationLink(value: Route.tools(.draft)) { row("Tools", symbol: "wrench.and.screwdriver", value: toolsLabel) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     .accessibilityLabel("Tools: \(toolsLabel)").accessibilityIdentifier("new.tools")
                 Button { choosingWhen = true } label: { row("When", symbol: "clock", value: Self.label(when)) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     .accessibilityLabel("When: \(Self.label(when))")
                 Card { Toggle("Builds on earlier runs", isOn: $buildsOnEarlierRuns).font(.rounded(.footnote, weight: .semibold)).tint(Theme.indigoButton) }
                 if let error { Text(error).font(.rounded(.caption2)).foregroundStyle(Theme.red).multilineTextAlignment(.center) }

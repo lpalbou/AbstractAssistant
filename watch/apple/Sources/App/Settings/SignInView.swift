@@ -136,7 +136,7 @@ struct SignInView: View {
             .foregroundStyle(Theme.cyan)
         }
         .font(.rounded(.caption2))
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
     }
 
     private var gatewayRow: some View {
@@ -152,7 +152,7 @@ struct SignInView: View {
                     Text(gatewayURL?.host() ?? gatewayText).lineLimit(1).minimumScaleFactor(0.7)
                         .font(.rounded(.caption2)).foregroundStyle(Theme.muted.opacity(0.8))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .accessibilityHint("Change the server")
             }
         }
@@ -285,7 +285,7 @@ struct InputRow: View {
                 text = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty && !working { DispatchQueue.main.async { send() } }   // the parent re-checks the value
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
             Button(action: send) {
                 Group {
                     if working { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 24)) }
@@ -293,7 +293,7 @@ struct InputRow: View {
                 .frame(width: 28, height: 28)
                 .foregroundStyle(ready ? Theme.cyan : Theme.muted.opacity(0.5))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
             .disabled(!ready || working)
             .accessibilityLabel("Continue")
         }

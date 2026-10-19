@@ -107,7 +107,7 @@ struct MediaStrip: View {
                 switch item.kind {
                 case .image:
                     NavigationLink(value: Route.media(item)) { MediaThumbnail(item: item) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                         .accessibilityLabel("Image. Opens full screen")
                         .accessibilityIdentifier("media.image")
                 case .audio:
@@ -116,7 +116,7 @@ struct MediaStrip: View {
                     NavigationLink(value: Route.media(item)) {
                         MediaRowLabel(symbol: "play.rectangle.fill", title: "Video", detail: item.sizeText)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
                     .accessibilityIdentifier("media.video")
                 }
             }
@@ -220,7 +220,7 @@ struct AudioClipRow: View {
         } label: {
             MediaRowLabel(symbol: symbol, title: "Recording", detail: detail)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
         .accessibilityLabel(play == nil && speaker.isActive ? "Pause the recording" : "Play the recording")
         .accessibilityIdentifier("media.audio")
         .onDisappear { speaker.stop() }

@@ -91,7 +91,7 @@ struct WorkflowRow: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("tools.workflow")
         .task { await model.ensureWorkflows(maxAge: 600); failed = model.workflows.isEmpty }

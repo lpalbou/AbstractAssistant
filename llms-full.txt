@@ -4986,7 +4986,12 @@ about, an image being made) and the orb pulses with each tool call, a satellite 
 each tool running. The answer appears in markdown and the orb speaks it, following its voice; the
 voice button beside Back plays, pauses and rewinds. A tap on the orb pauses or resumes it; Stop
 (beside Back while it listens, works or speaks) or a 1.5 s hold on the orb stops what it is doing,
-and at rest the same hold reads the last answer aloud.
+and at rest the same hold reads the last answer aloud. Once a conversation has a message, swipe
+to the left from the orb for its numbers and files (each one shareable).
+
+**Swipe as in a browser.** A swipe to the right (your finger moving right, as with watchOS's Back)
+goes back to the page before, down to Home; a swipe to the left goes forward again to a page you
+came back from, and does nothing when there is none.
 
 **Choose who answers and with what.** "Assistant ⌄" below the orb switches between the
 **Assistant** (it works with its tools and answers) and your **entities** (someone you keep talking
@@ -5124,6 +5129,15 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Changed
 
+- **Swipes as in a browser.** On every page a swipe to the right (the finger moving right, as with
+  watchOS's own Back) goes back to the page before, one page at a time, down to Home; a swipe to
+  the left goes forward again to a page you came back from, and does nothing when there is none
+  (on Home at launch, neither swipe goes anywhere). A swipe across a row never opens that row. A
+  conversation opened from Sessions opens on top of Sessions, so going back returns to the list.
+- **The conversation's page.** From the orb page of a conversation with at least one message, a
+  swipe to the left opens its numbers (questions, tool calls, thinking steps, when it started and last
+  moved) and its files (what its turns made or were given, your spoken questions left out), each
+  card with its share button on the right.
 - **Buttons that follow what it does.** Beside Back: Stop while it is busy (listening, thinking or
   working, speaking or paused), Share at rest; while it works after an Accept all, the shield that
   takes it back sits beside Stop (it was at the bottom right). A 1.5 s hold on the orb does what
@@ -5161,6 +5175,8 @@ channel (TestFlight, then the App Store); the Python package's history is in
 
 ### Fixed
 
+- The orb page keeps its layout however it is reached: coming back to it scrolled (from a message,
+  for instance) no longer shifts the orb, its icons and "who answers" down the screen.
 - After Accept all, the tools of the call you approved no longer ask again, including those that go
   where the assistant picks (opening web pages); sends to other people still ask every time.
 
@@ -5412,6 +5428,7 @@ sequenceDiagram
 | `Listener` | Records 16 kHz mono WAV with metering; detects speech against the room's noise floor; sends after 3 s of silence. |
 | `Speaker` | Streams the gateway's voice in chunks and plays them back to back with metering (the orb follows the level); pause, resume, rewind 10 s. |
 | `RunProgress` | Follows a running automation down to the agent's child run and describes its newest step in words. |
+| Browser navigation | `AppModel.path` is the history: a swipe to the right (`goBack`) closes the top page, a swipe to the left (`goForward`) opens again the pages closed by going back (`forward`, kept until something else is opened; forms and answered approvals are not kept); rows and links fire on a tap only (`TapButtonStyle`: a finger that moves is not a tap), and the stack's binding (`stackPath`) also refuses a page opened under a sideways-moving finger, so a swipe across a row never opens it; with nothing ahead, and only from there, the orb page of a conversation with a message opens `ConversationInfoView` (its numbers and files from `GET /sessions/{id}/artifacts`, each shared as a file downloaded only when shared). |
 | `RunActivity` | Follows a question's run down to the run doing the work and reads its new step records (thinking, tool calls, media, waits) into the steps under the orb and the orb's pulses and satellites. |
 | `MediaStore` | Downloads an answer's images, recordings and videos from the gateway's artifact route once, keeps them in the watch's caches (150 MB at most) and makes pictures small on the watch. |
 | `AnswerNotifier` | Hands a run's ledger stream to a background URLSession, posts answers and waits as notifications, background refresh for new waits. |
@@ -5438,6 +5455,7 @@ sequenceDiagram
 | Archive | `POST /api/gateway/sessions/{id}/archive` (and `/unarchive`): out of `GET /runs?root_only=true` on every client, nothing deleted; `GET /api/gateway/runs?archived_only=true&root_only=true` lists them |
 | Search | `GET /api/gateway/sessions/search?q=…&limit=25` (AbstractRuntime `ConversationSearch`, the caller's own plane): one item per session with `snippet` and `highlights`; 404 on a gateway without it |
 | Live work | the root's `GET /api/gateway/runs/{id}` each second, down its `subworkflow:<child>` waits to the run doing the work; that run's `GET /api/gateway/runs/{id}/ledger?after=N`, decoded for `effect.type`, `effect.payload.tool_calls[{name, arguments}]`, `effect.payload.output.modality`, `response_schema`, `result.results[{success, error}]`, `result.content`, `result.wait` only (a thinking record's conversation is skipped); a run that handed off to a child is not read again. About as much data as the run's records (a 90 s agent run with 6 tools: ~3 MB, mostly its thinking records) |
+| Conversation files | `GET /api/gateway/sessions/{id}/artifacts`: `generated_media` and `attachment` rows; an attachment that a transcript (`tags.task == stt`) names as its `source_audio_artifact` is a spoken question, counted apart; a file's bytes come from `GET /api/gateway/runs/{run}/artifacts/{id}/content` when it is shared |
 | Media | a finished run's `output` (`outputs.{modality}[].artifact_ref`, `artifact`, `image_artifact`, `audio_artifact`, `video_artifact`); history: `GET /api/gateway/sessions/{id}/artifacts` (`tags.kind == generated_media`, by `run_id` and `parent_run_id`); bytes: `GET /api/gateway/runs/{run}/artifacts/{id}/content` (at most 25 MB), kept in the watch's caches, images shrunk on the watch |
 | Sessions | `GET /api/gateway/runs?root_only=true&session_kind=chat,discussion&include_metrics=true`, a row's title is its latest run's prompt from `GET /api/gateway/runs/{id}/input_data` (none is made up); a conversation's history on the orb page: `GET /api/gateway/runs/{newest}/history_bundle?include_session=true&detail=replay` (one request) |
 | Cancel / stop | `POST /api/gateway/commands` `{type: "cancel"}` |

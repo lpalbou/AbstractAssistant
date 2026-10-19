@@ -75,7 +75,7 @@ struct AskView: View {
                 ScrollView {
                     VStack(spacing: 6) {
                         // The orb fills the screen, centred in what is visible; everything else is below.
-                        ScreenCentered(width: geo.size.width) { side in
+                        ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
                             Orb(mode: orbMode, size: side * 0.9, voice: orbVoice, countdown: orbCountdown, since: listenSince, look: orbLook,
                                 work: phase == .thinking && activity.isFollowing ? { activity.orb(at: $0) } : nil)
                                 .contentShape(BelowTopRow())
@@ -162,6 +162,10 @@ struct AskView: View {
             }
         }
         .task { await onOpen() }
+        // With a message, a swipe right (nothing ahead) opens this conversation: its numbers, its files.
+        .onAppear { offerConversation() }
+        .onChange(of: exchanges.isEmpty) { _, _ in offerConversation() }
+        .onDisappear { model.forwardFallback = nil }
         .onChange(of: model.path) { _, path in pathChanged(path) }
         // "New conversation" (in the Assistant ⌄ choice): this screen starts empty.
         // A new conversation, or another session: this screen starts over, unless it is the
@@ -254,11 +258,11 @@ struct AskView: View {
             Text("Earlier messages").font(.rounded(.footnote, weight: .semibold)).foregroundStyle(Theme.text2).padding(.top, 6)
             ForEach(earlier.prefix(shownCount)) { e in
                 NavigationLink(value: Route.message(title: model.responder.title, e)) { MessageRow(exchange: e) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.tap)
             }
             if earlier.count > shownCount {
                 Button("Show older") { showOlder() }
-                    .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
+                    .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.cyan)
             }
         }
         // The conversation's history is read in one request; when it fails the page says so
@@ -268,10 +272,10 @@ struct AskView: View {
                 .font(.rounded(.footnote)).foregroundStyle(Theme.muted).padding(.top, 6)
         } else if let session = historyFailed {
             Button("Couldn't load earlier messages. Retry") { Task { await loadHistory(session.id, latestRun: session.run) } }
-                .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
+                .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
         } else if let session = mediaFailed {
             Button("Couldn't load images and recordings. Retry") { Task { await loadMedia(session) } }
-                .buttonStyle(.plain).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
+                .buttonStyle(.tap).font(.rounded(.footnote)).foregroundStyle(Theme.amber).padding(.top, 6)
         }
     }
 
@@ -288,7 +292,7 @@ struct AskView: View {
             }
             .foregroundStyle(Theme.text)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap)
         .disabled(phase == .thinking || phase == .listening)
         .accessibilityLabel("Talking to \(model.responder.title). Choose who answers")
     }
@@ -329,6 +333,10 @@ struct AskView: View {
     /// The voice is engaged: it speaks, or is paused (a tap pauses or resumes; Stop ends it, and the
     /// next tap listens).
     private var voiceEngaged: Bool { phase == .answer && (speaker.isActive || speaker.isPaused) }
+
+    private func offerConversation() {
+        model.forwardFallback = exchanges.isEmpty ? nil : .conversation(model.askSessionId)
+    }
 
     /// How long a hold on the orb takes to toggle between listening and reading.
     static let holdToToggle: Double = 1.5

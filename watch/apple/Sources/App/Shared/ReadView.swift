@@ -24,7 +24,7 @@ struct ReadView: View {
                 VStack(spacing: 6) {
                     // Like Ask: the orb fills the screen and is the control (tap: pause, resume, read
                     // again); the text is below, on scroll.
-                    ScreenCentered(width: geo.size.width) { side in
+                    ScreenCentered(width: geo.size.width, top: geo.frame(in: .global).minY) { side in
                         Orb(mode: orbMode, size: side * 0.9, voice: { speaker.features(at: $0) }, look: lookOfVoice)
                             .contentShape(BelowTopRow())
                             .onTapGesture(perform: orbTapped)

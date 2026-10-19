@@ -258,6 +258,24 @@ public actor MockGatewayClient: GatewayClient {
         for (id, media) in startedMedia { out[id] = media }
         return out
     }
+    /// A conversation's files: its turns' media, and a report the QC conversation was given.
+    public func sessionFiles(sessionId: String) async throws -> SessionFiles {
+        try await Task.sleep(for: .milliseconds(300))
+        var files = try await sessionMedia(sessionId: sessionId).values.flatMap { $0 }.map {
+            SessionFile(artifactId: $0.artifactId, runId: $0.runId, contentType: $0.contentType, sizeBytes: $0.sizeBytes,
+                        createdAt: Date().addingTimeInterval(-3600), origin: .made)
+        }
+        if sessionId == "s-qc" {
+            files.append(SessionFile(artifactId: "doc-qc-report", runId: "3e9a10c4", contentType: "application/pdf", name: "qc-report.pdf",
+                                     sizeBytes: 182_400, createdAt: Date().addingTimeInterval(-7200), origin: .attached))
+        }
+        return SessionFiles(files: Array(Set(files)), spokenQuestions: sessionId == "s-qc" ? 3 : 0)
+    }
+    public func fileData(_ file: SessionFile) async throws -> Data {
+        if let media = file.media { return try await mediaData(media) }
+        try await Task.sleep(for: .milliseconds(300))
+        return Data("%PDF-1.4 sample".utf8)
+    }
     public func mediaData(_ item: MediaItem) async throws -> Data {
         try await Task.sleep(for: .milliseconds(500))
         switch item.kind {

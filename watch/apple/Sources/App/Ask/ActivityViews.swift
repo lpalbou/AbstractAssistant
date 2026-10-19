@@ -36,7 +36,7 @@ struct ActivityPanel: View {
                     ForEach(Array(steps.prefix(Self.shown).enumerated()), id: \.element.id) { i, step in
                         if step.state == .waiting, let openWait {
                             Button(action: openWait) { ActivityRow(step: step, last: i == min(steps.count, Self.shown) - 1, now: ctx.date) }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.tap)
                         } else {
                             ActivityRow(step: step, last: i == min(steps.count, Self.shown) - 1, now: ctx.date)
                         }
@@ -214,7 +214,7 @@ struct WorkLink: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(Theme.cyan.opacity(0.12), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.tap)
             .accessibilityLabel("How it worked: \(work.summary)")
             .accessibilityIdentifier("work.link")
         }

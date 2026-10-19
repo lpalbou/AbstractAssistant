@@ -61,7 +61,7 @@ struct ToolsView: View {
                 }
                 ForEach(groups) { g in
                     NavigationLink(value: Route.toolGroup(scope, g.id)) { groupRow(g) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.tap)
                 }
             }
             .padding(.horizontal, 4)
@@ -220,7 +220,7 @@ struct ToolGroupView: View {
                     Button(expanded.contains(tool.name) ? "Less" : "More") {
                         if expanded.contains(tool.name) { expanded.remove(tool.name) } else { expanded.insert(tool.name) }
                     }
-                    .buttonStyle(.plain).font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.cyan)
+                    .buttonStyle(.tap).font(.rounded(.caption2, weight: .semibold)).foregroundStyle(Theme.cyan)
                     .accessibilityLabel(expanded.contains(tool.name) ? "Less about \(title)" : "More about \(title)")
                 }
                 ModeControl(selected: mode, title: title, id: "tool.\(tool.name)") { m in
@@ -272,7 +272,7 @@ struct ModeControl: View {
                         .background(on ? mode.fill : .clear, in: Capsule())
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.tap)
                 .disabled(off)
                 .accessibilityLabel("\(title): \(mode.label)")
                 .accessibilityAddTraits(on ? .isSelected : [])

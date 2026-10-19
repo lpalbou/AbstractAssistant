@@ -3,10 +3,17 @@ import SwiftUI
 import WatchKit
 
 enum Route: Hashable {
+    /// Worth coming back to with a swipe right (not an answered question, nor a form).
+    var revisitable: Bool {
+        switch self {
+        case .approval, .askUser, .draft, .automationEdit, .newAutomation, .orbStylePreview: false
+        default: true
+        }
+    }
     case approval(Wait), askUser(Wait), draft(Wait), waits
     case ask(AskView.Phase), picker, sessions, session(SessionSummary), automations, automation(AutomationSummary), automationEdit(AutomationSummary), newAutomation, message(title: String, Exchange), voiceSettings, settings
     case occurrence(title: String, LastOccurrence)
-    case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, orbStylePreview(String), about
+    case read(ReadItem), link(URL), answer(AnswerRef), orbStyle, orbStylePreview(String), about, conversation(String)
     case tools(AppModel.ToolScope), toolGroup(AppModel.ToolScope, String), connection
     case workflow(AppModel.ToolScope), media(MediaItem), activity(String), archivedSessions, sessionSearch(String), archivedAutomations
 }
@@ -226,7 +233,58 @@ final class AppModel: ObservableObject {
     }
     /// The conversations have been read once.
     var sessionsLoaded: Bool { lastRefresh != nil }
-    @Published var path: [Route] = []
+    /// The pages open, as a browser's history: going back keeps the pages left (`forward`), and a
+    /// swipe right goes forward again; opening something else forgets them.
+    @Published var path: [Route] = [] {
+        didSet { forward = Self.forward(after: oldValue, now: path, kept: forward) }
+    }
+    /// The last moment a finger moved sideways (a swipe under way, or one that just ended).
+    private var swipedAt: Date?
+
+    /// The navigation stack's changes (a tapped link, the system's Back): a row under a swiping
+    /// finger opens nothing, only the swipe moves the history.
+    var stackPath: Binding<[Route]> {
+        Binding(get: { self.path }, set: { new in
+            if new.count > self.path.count, let t = self.swipedAt, Date().timeIntervalSince(t) < 0.4 {
+                self.objectWillChange.send(); return       // the stack redraws the path as it is
+            }
+            self.path = new
+        })
+    }
+    /// The pages a swipe right goes forward to, the next one last.
+    private(set) var forward: [Route] = []
+    /// The orb page with a message: a swipe right with nothing ahead opens its conversation.
+    var forwardFallback: Route?
+
+    /// Swipe left: the page before (Home is the first page: nothing before it).
+    func goBack() {
+        if !path.isEmpty { path.removeLast() }
+    }
+
+    /// Swipe right: the page went back from, else what the page offers (the orb page: its
+    /// conversation). Nothing ahead: nothing happens.
+    func goForward() {
+        if let next = forward.last { path.append(next); return }
+        guard let more = forwardFallback else { return }
+        switch path.last { case .ask, .answer: path.append(more); default: break }   // from the orb page only
+    }
+
+    /// The finger moves sideways: until 0.4 s after it last did, a button under it opens nothing (a
+    /// button fires when the finger lifts on it, and a swipe across a full-width row ends on it).
+    func swiped() { swipedAt = Date() }
+
+    /// How `forward` follows a change of the path: back (a shorter path, the same start) keeps the
+    /// pages left; forward onto the next of them uses it up; anything else forgets them. Pages that
+    /// are not worth coming back to (an answered approval, a form) are not kept.
+    nonisolated static func forward(after old: [Route], now new: [Route], kept: [Route]) -> [Route] {
+        if new.count < old.count, Array(old.prefix(new.count)) == new {
+            return kept + old[new.count...].reversed().filter(\.revisitable)
+        }
+        if new.count == old.count + 1, Array(new.dropLast()) == old, let last = new.last {
+            return kept.last == last ? Array(kept.dropLast()) : []
+        }
+        return new == old ? kept : []
+    }
     @Published var entities: [EntitySummary] = []
     /// The gateway's tools by name, with their risk tier (observe · act · outreach · destroy).
     @Published var tools: [String: ToolInfo] = [:]
@@ -751,7 +809,16 @@ final class AppModel: ObservableObject {
         askSessionId = s.id
         UserDefaults.standard.set(askSessionId, forKey: "ask.session")
         setResponder(.assistant)
-        path = [.ask(.idle)]
+        openOrb()
+    }
+
+    /// The orb page, opened on top of the page it is opened from (Back returns there, as in a
+    /// browser). An orb page already open further down is closed first: there is one conversation.
+    func openOrb() {
+        if let i = path.firstIndex(where: { if case .ask = $0 { true } else if case .answer = $0 { true } else { false } }) {
+            path.removeSubrange(i...)
+        }
+        path.append(.ask(.idle))
     }
 
     func newAskSession() {
