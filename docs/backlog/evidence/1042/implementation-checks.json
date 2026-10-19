@@ -1,0 +1,21 @@
+{
+  "checked_at_utc": "2026-10-19T04:26:04.460413+00:00",
+  "release_contract_tests": {
+    "passed": 14,
+    "failed": 0
+  },
+  "actionlint": {
+    "version": "1.7.12",
+    "workflows": [
+      "iphone.yml",
+      "watch.yml"
+    ],
+    "result": "pass"
+  },
+  "package_graph": {
+    "initial_result": "duplicate AbstractGatewayClient products",
+    "static_watch_module_result": "resolved; only AssistantKit in SwiftPM graph"
+  },
+  "local_device_archive": "Not run: yielded to active Watch UI work / memory pressure. Hosted combined archive is required before claiming validation.",
+  "apple_upload": "Not yet attempted for combined identity"
+}

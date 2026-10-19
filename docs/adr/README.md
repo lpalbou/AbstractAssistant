@@ -8,6 +8,8 @@ This directory records durable architecture decisions for AbstractAssistant.
 
 - [ADR 0002](0002_iphone_release_stages.md) — Accepted — Credential-free iPhone CI, human-approved App Store Connect uploads, TestFlight validation and manual same-build App Store promotion.
 
+- [ADR 0003](0003_unified_apple_product.md) — Accepted — One Store listing and archive for iPhone + independent Watch; generated Store composition and shared release ownership.
+
 ## Related Docs
 
 - [../architecture.md](../architecture.md)

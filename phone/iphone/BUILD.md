@@ -30,7 +30,7 @@ open AbstractAssistantPhone.xcodeproj
 
 Select **AbstractAssistantPhone**, an iPhone simulator, then Run. For a physical iPhone,
 select your developer team for this target. The phone’s bundle ID is
-`ai.abstractframework.assistant.iphone`, distinct from the Watch app and its App Store
+`ai.abstractframework.assistant.iphone` for local developer installs, distinct from the Store
 carrier. No signing team is pinned in the project.
 
 For a connected physical iPhone, the guarded command-line build accepts your device and
@@ -123,3 +123,7 @@ python3 scripts/build.py --live-media-test <iphone-id> --team <development-team-
 This regression expects the reported discussion-summary.md in that conversation. It browses
 root/child workspaces, downloads/decodes the document, checks cleanup and records only
 relative names, counts, run IDs and filtered provenance; document contents are not exported.
+
+Store delivery generates a combined iPhone + Watch archive using the existing AbstractAssistant
+listing (`ai.abstractframework.assistant`). Local developer identity/data are retained. See
+[distribution](docs/distribution.md) for the shared release entrypoint and Store sandbox details.

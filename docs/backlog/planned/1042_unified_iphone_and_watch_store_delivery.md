@@ -78,3 +78,33 @@ behind the existing human release boundary.
 - [First release failure](../evidence/1041/first-release-outcome.json)
 - [ADR0002](../../adr/0002_iphone_release_stages.md)
 - [Apple TN3157: adding an iOS companion to a watch-only app](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)
+
+## Implementation decision — 2026-10-19
+
+Use generated release-only composition from the two canonical XcodeGen specs. Compared alternatives:
+
+| Option | Ownership/migration | User impact/operations | Reversibility/evidence |
+|---|---|---|---|
+| Another store record | Separate pipelines; low setup cost | Two products contradict operator requirement | Easy technically, rejected product boundary |
+| Permanently merge developer projects | Broad shared project and app-ID migration | Changes local installs and data; one Store archive | Larger source ownership/conflict surface |
+| Generated Store composition | Canonical sources/specs retained; one upload owner | Same listing, independent Watch, preserved local installs | Local generation reversible; Apple public migration remains one-way |
+
+Cross-project package resolution reproduced a SwiftPM product-name collision: both local packages
+export AbstractGatewayClient. The generated Watch project compiles the canonical, dependency-free
+Watch client sources as a static module named AbstractGatewayClient. A manifest guard rejects
+added runtime dependencies/resources/settings/excludes/plugins instead of silently losing SwiftPM
+behavior. Both original packages retain their own tests. No Watch application source is copied or
+rewritten. The generated projects/plists live only in an ignored/output directory.
+
+Watch CI remains a developer validation lane; its independent upload job is removed. The shared
+Apple lane responds to both clients' source changes and is the sole manual Store-upload owner.
+Existing pending Watch-only uploads must be cancelled before the combined release.
+
+## Implementation validation
+
+Fourteen release/generation contract tests pass, including missing/wrong Watch identity,
+independence/version/platform checks, extra top-level apps, source/digest integrity and key-file
+cleanup. Both workflows pass actionlint1.7.12. Composed package graph resolves after isolating the
+Watch client module. Local device-archive work yielded to concurrent Watch UI work/memory pressure;
+real hosted combined archive and native CI are required next. No combined Apple upload claimed.
+Public docs and ADR0003 describe the unified product and sandbox implications.

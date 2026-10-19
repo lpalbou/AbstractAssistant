@@ -30,10 +30,35 @@ class ReleaseTests(unittest.TestCase):
                      'CFBundleSupportedPlatforms': ['iPhoneOS'], 'CFBundleExecutable': 'Assistant'}
         self.write_info()
         (self.app / 'Assistant').write_bytes(b'fixture executable')
+        self.watch = self.app / 'Watch/AbstractAssistantWatch.app'
+        self.watch.mkdir(parents=True)
+        self.watch_info = {**self.info, 'CFBundleIdentifier': release.WATCH_BUNDLE_ID,
+            'DTPlatformName': 'watchos', 'CFBundleSupportedPlatforms': ['WatchOS'],
+            'WKApplication': True, 'WKCompanionAppBundleIdentifier': release.BUNDLE_ID,
+            'WKRunsIndependentlyOfCompanionApp': True}
+        self.write_watch_info()
+        (self.watch / 'Assistant').write_bytes(b'watch executable')
         self.output = self.root / 'candidate'
 
     def write_info(self):
         (self.app / 'Info.plist').write_bytes(plistlib.dumps(self.info))
+
+    def write_watch_info(self):
+        (self.watch / 'Info.plist').write_bytes(plistlib.dumps(self.watch_info))
+
+    def test_watch_only_missing_wrong_companion_or_version_is_refused(self):
+        valid = dict(self.watch_info)
+        for key, value in [('WKWatchOnly', True), ('WKCompanionAppBundleIdentifier', 'wrong.id'),
+                           ('WKRunsIndependentlyOfCompanionApp', False), ('CFBundleVersion', '100'),
+                           ('CFBundleIdentifier', 'another.watch'), ('DTPlatformName', 'watchsimulator')]:
+            self.watch_info = {**valid, key: value}; self.write_watch_info()
+            with self.assertRaises(ValueError, msg=key): self.candidate()
+        (self.watch / 'Info.plist').unlink()
+        with self.assertRaisesRegex(ValueError, 'include the iPhone and Watch'): self.candidate()
+
+    def test_two_top_level_applications_are_refused(self):
+        (self.archive / 'Products/Applications/OldCarrier.app').mkdir()
+        with self.assertRaisesRegex(ValueError, 'one top-level'): self.candidate()
 
     def candidate(self, suite='full'):
         return release.candidate(self.archive, self.output, SHA, '0.6.21', '101.1', suite)

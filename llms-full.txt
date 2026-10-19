@@ -24,6 +24,7 @@ Included files (in order):
 - docs/adr/README.md
 - docs/adr/0001_gateway_native_assistant_v2.md
 - docs/adr/0002_iphone_release_stages.md
+- docs/adr/0003_unified_apple_product.md
 - CONTRIBUTING.md
 - SECURITY.md
 - ACKNOWLEDGMENTS.md
@@ -79,7 +80,7 @@ Repository: https://github.com/lpalbou/abstractassistant
 - [docs/voice.md](docs/voice.md): spoken replies, dictation, the hands-free conversation loop and its failure handling
 - [docs/automations.md](docs/automations.md): configurable growing-context budgets and result email; scheduled tasks on the gateway as the Assistant shows them: the Sessions | Automations tabs, New automation and Schedule this conversation (Gateway default first; When = Repeat / Daily / Weekly / Monthly / Once at / email, the gateway's schedule-preview sentence and the account time-zone line; stop after / stop at), served schedule and next run, tool consent, runs as chat pairs, controls, answering waits by kind, Discuss, notifications and polling, the capability gate, limits
 
-- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains credential-free CI, human-approved uploads and TestFlight-to-Store promotion
+- [phone/iphone/README.md](phone/iphone/README.md): native iPhone assistant, scoped tools and automations, generated images and voice attached to restored messages; [phone/iphone/CHANGELOG.md](phone/iphone/CHANGELOG.md) records native release history; [phone/iphone/docs/architecture.md](phone/iphone/docs/architecture.md) covers authenticated artifact previews and session restoration; [phone/iphone/BUILD.md](phone/iphone/BUILD.md) covers isolated builds; [phone/iphone/docs/distribution.md](phone/iphone/docs/distribution.md) explains combined iPhone + independent Watch delivery in one Store listing, credential-free CI, human-approved uploads and TestFlight-to-Store promotion
 
 ## Design Records
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records
@@ -2289,6 +2290,8 @@ This directory records durable architecture decisions for AbstractAssistant.
 
 - [ADR 0002](0002_iphone_release_stages.md) — Accepted — Credential-free iPhone CI, human-approved App Store Connect uploads, TestFlight validation and manual same-build App Store promotion.
 
+- [ADR 0003](0003_unified_apple_product.md) — Accepted — One Store listing and archive for iPhone + independent Watch; generated Store composition and shared release ownership.
+
 ## Related Docs
 
 - [../architecture.md](../architecture.md)
@@ -2429,7 +2432,8 @@ Date: 2026-10-19
 
 ## Context
 
-The iPhone client has its own bundle identifier and release version. CI must test changes
+Local iPhone development has its own bundle identifier. Store delivery combines iPhone and Watch
+under the existing listing as defined in [ADR0003](0003_unified_apple_product.md). CI must test changes
 without Apple credentials, while App Store Connect uploads need an explicit human decision.
 The repository already protects Apple signing credentials with the `app-store` environment.
 A separate staging app would need another bundle ID, app record and independent local data.
@@ -2465,6 +2469,55 @@ app can be added later if separate device data or app records become necessary.
 - [GitHub deployment reviews](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments)
 - [Apple beta distribution](https://developer.apple.com/tutorials/develop-in-swift/test-your-beta-app)
 - [Apple upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds)
+
+--- docs/adr/0003_unified_apple_product.md ---
+# ADR 0003 — One AbstractAssistant product for iPhone and Watch
+
+Status: Accepted
+Date: 2026-10-19
+
+## Context
+
+The operator wants one AbstractAssistant App Store listing containing both clients. The existing
+listing identifies the Watch carrier as `ai.abstractframework.assistant`. Local iPhone development
+uses `ai.abstractframework.assistant.iphone`, which has a different device sandbox. The two client
+projects and Swift packages have separate ownership and both export a module named
+AbstractGatewayClient. Store composition must preserve existing product identities and developer
+work while providing one tested, human-approved delivery artifact.
+
+## Decision
+
+- Use the existing Store root `ai.abstractframework.assistant` for the real iPhone app and embed
+  `ai.abstractframework.assistant.watch` as an independent companion. Generate release-only Xcode
+  projects from both canonical specs; do not change local developer bundle IDs or install data.
+- The generated Watch target keeps canonical sources/settings, declares the iPhone companion and
+  independent operation, and omits WKWatchOnly. Both apps use the iPhone project's marketing
+  version and the same CI-generated build number.
+- Compile the dependency-free Watch client sources as a generated static framework module to
+  avoid SwiftPM's duplicate-product conflict. Reject manifest customizations that cannot be
+  preserved by that composition. Keep both original packages' tests in the release gate.
+- `.github/workflows/iphone.yml` owns combined CI, archive provenance and Store upload. It watches
+  both clients. `.github/workflows/watch.yml` retains standalone developer checks and directs
+  releases to the combined workflow; it cannot upload a Watch-only carrier.
+- Verify both bundle identities, embedded executables, platforms, version agreement and companion
+  independence before accepting a candidate. Keep ADR0002's main-only manual request, full native
+  suite, required human environment approval and same-build promotion to public Store release.
+
+## Consequences
+
+One Store record and one archive deliver both experiences. Local developer and Store iPhone apps
+have separate sandboxes; Store installation needs its own gateway sign-in. The Watch does not
+require a running/installed iPhone companion to use its gateway. After the iOS companion is
+published on the App Store, Apple's supported migration cannot return to a watch-only listing;
+public publication remains a separate human action. Changes to Watch package build semantics
+require updating the composition or choosing an explicit shared-module migration.
+
+## References
+
+- [Distribution guide](../../phone/iphone/docs/distribution.md)
+- [ADR0002](0002_iphone_release_stages.md)
+- [Backlog 1042](../backlog/planned/1042_unified_iphone_and_watch_store_delivery.md)
+- [Apple TN3157](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)
 
 --- CONTRIBUTING.md ---
 # Contributing to AbstractAssistant
@@ -2693,6 +2746,8 @@ All notable changes to AbstractAssistant are documented in this file. Entries de
 changed for users and contributors; design history lives in `docs/adr/` and `docs/backlog/`.
 
 ## [Unreleased]
+
+- Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
 
 ### iPhone
 
@@ -3970,6 +4025,10 @@ tools in that category, including those hidden by search, while preserving other
 It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
 category controls apply in Settings, a session, and an automation.
 
+Store releases include the independent Watch companion in one archive for the existing
+AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; standalone Watch
+checks do not upload. Local developer iPhone installs retain their separate identity.
+
 --- phone/iphone/CHANGELOG.md ---
 # iPhone release history
 
@@ -3977,6 +4036,8 @@ The native iPhone client has its own version and build number. Desktop package r
 listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
+
+- Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
 
 ### Added
 
@@ -4556,102 +4617,113 @@ that archive without rebuilding; keys remain in a private temporary directory. T
 validation and manual same-build App Store submission/release are separate stages. See
 [distribution](distribution.md) and [ADR 0002](../../../docs/adr/0002_iphone_release_stages.md).
 
---- phone/iphone/docs/distribution.md ---
-# iPhone testing and distribution
+Store projects compose both canonical client specs without rewriting developer projects. The
+iPhone Store target uses `ai.abstractframework.assistant` and embeds the independent Watch
+companion. Both package suites, the Watch companion build and iPhone native tests precede the
+combined archive and approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
+records identity, module composition and shared release ownership.
 
-The [iPhone app workflow](../../../.github/workflows/iphone.yml) separates CI checks, beta delivery
-and public App Store publication. The iPhone app uses bundle ID
-`ai.abstractframework.assistant.iphone`; it is independent of the Watch app’s store container.
+--- phone/iphone/docs/distribution.md ---
+# Apple testing and distribution
+
+AbstractAssistant uses one App Store Connect listing for iPhone and Apple Watch. The
+[Apple app (iPhone + Watch) workflow](../../../.github/workflows/iphone.yml) is the Store
+release entrypoint. It packages the iPhone app as `ai.abstractframework.assistant`, with
+`ai.abstractframework.assistant.watch` embedded as an independent Watch companion.
+Use the existing **AbstractAssistant** app record; no second iPhone listing is needed.
 
 ```mermaid
 flowchart TD
-    Change[Pull request or main push] --> CI[Package and native tests]
-    Manual[Manual upload request on main] --> Full[Package and full native tests]
-    CI --> Archive[Unsigned Release archive and source manifest]
+    Change[iPhone or Watch source change] --> Tests[Credential-free checks for both clients]
+    Manual[Manual combined upload request on main] --> Full[Watch checks and full iPhone native suite]
+    Tests --> Archive[One iPhone archive containing Watch app]
     Full --> Archive
     Archive --> Intent{Manual upload requested?}
-    Intent -->|No| Artifact[CI candidate artifact only]
+    Intent -->|No| Candidate[Retained candidate and source manifest]
     Intent -->|Yes| Human[Required human app-store approval]
-    Human --> Verify[Verify candidate and sign same archive]
-    Verify --> ASC[App Store Connect processing]
-    ASC --> Beta[TestFlight testing]
-    Beta --> Review[Human selects same build and submits App Review]
+    Human --> Verify[Verify both apps and sign checked archive]
+    Verify --> ASC[Existing AbstractAssistant listing]
+    ASC --> Beta[TestFlight testing on iPhone and Watch]
+    Beta --> Review[Human submits same build for App Review]
     Review --> Release[Human releases approved App Store version]
 ```
 
-## CI testing
+## CI testing and candidate identity
 
-Pull requests and changes to the iPhone client on `main` run package tests, native hosted tests
-and critical UI journeys for images, stopping work, tool categories and conversation history.
-A manual run can select the full UI suite; upload requests always require it. Live gateway tests
-are excluded, so CI does not need gateway credentials or generate paid media.
+PR/main changes to either client run release contract tests, both Swift package suites, a
+Watch companion simulator build, iPhone hosted tests and critical UI journeys. Manual upload
+requests always run the full iPhone UI suite. Live gateway tests are excluded; CI does not
+need gateway credentials or generate paid media.
 
-The runner selects a released Xcode 27 toolchain, creates its own iPhone simulator and builds an
-unsigned device Release archive. No Apple credentials are available to these jobs. Test results
-are retained for 14 days; candidate archives for 30 days. Each candidate includes its source
-commit, bundle identifier, marketing version, CI build number, native test scope and SHA256 digest.
-Adding explicit signing entitlements requires an archive-signing configuration; the unsigned
-candidate path refuses them rather than dropping capabilities.
+Store projects are generated from the canonical client specs without changing developer
+projects or source files. CI builds and archives the same generated iPhone target. Both apps
+receive the marketing version from `phone/iphone/project.yml` and a shared CI build number
+`(workflow run number + 100).run attempt`. The manifest records the source commit, both bundle
+IDs, native test scope and SHA256 digest. Upload rejects missing Watch content, incompatible
+companion settings, mismatched versions, test plugins and altered or unrelated archives.
 
-## First-time App Store Connect setup
+CI uses released Xcode 27 and its own simulator. Tests are retained for 14 days, candidate
+archives for 30 days. Explicit signing entitlements require an archive-signing configuration;
+unsigned candidates with explicit entitlements are refused.
 
-Create an **iOS app record** in App Store Connect for `ai.abstractframework.assistant.iphone`
-before requesting the first upload. Choose its name, primary language and SKU there. This app
-record is separate from the Watch container. Complete any outstanding Apple Developer agreements.
+## Request an App Store Connect upload
 
-Configure the repository’s **app-store** GitHub environment with a required human reviewer and
-an allowed deployment branch of **main**. This repository shares that protected environment
-with Watch; changes to its reviewers or secrets affect both upload workflows. The uploader uses:
+1. Open **Actions → Apple app (iPhone + Watch) → Run workflow** on **main**.
+2. Check **Request human approval to upload the combined iPhone + Watch app**.
+3. After both clients pass their checks, inspect the candidate's source, version, build and digest.
+4. Select **Review deployments** and approve **app-store**. Only this protected job receives
+   Apple credentials, verifies the candidate and signs/uploads the same archive.
+5. Wait for Apple processing, then select the processed build and testers/groups in the existing
+   AbstractAssistant **TestFlight** page. External testing may require beta review.
+
+The standalone **Watch developer checks** workflow checks developer builds. Its summary links
+to the combined release entrypoint; it has no signing credentials or separate upload job.
+
+The `app-store` GitHub environment must restrict deployment to **main** and require a human
+reviewer. Retain the existing secrets and developer team (`K3R4D6HP2A`):
 
 | Environment secret | Value |
 |---|---|
-| `ASC_KEY_ID` | App Store Connect API key ID |
-| `ASC_ISSUER_ID` | API key issuer ID |
+| `ASC_KEY_ID` | Team App Store Connect API key ID |
+| `ASC_ISSUER_ID` | That API key's issuer ID |
 | `ASC_KEY_P8` | Complete private `.p8` key text |
 
-Use a team API key with the permissions needed for automatic provisioning and cloud-managed
-signing. The workflow’s `TEAM_ID` must match the Apple developer team. Keys are written only to
-a private runner-temporary directory and removed after export, including failed exports.
-No private keys are retained in candidate artifacts or committed to the repository.
+The key needs automatic provisioning/cloud-managed signing permissions. Private key files are
+created only in a private runner-temporary directory and removed after export, including failure.
+No private key is retained in candidate artifacts. Complete outstanding Apple agreements if required.
 
-## Request a beta upload
+## TestFlight and public App Store release
 
-1. Open **Actions → iPhone app → Run workflow** and select **main**.
-2. Check **Request human approval to upload**. This also enables the full native suite.
-3. After CI passes, inspect its test results and candidate summary: commit, version, build
-   number and checksum.
-4. Select **Review deployments** and approve **app-store** to allow Apple credential access
-   and upload. A push, pull request or unchecked manual run cannot perform this step.
-5. Wait for Apple processing, then use **TestFlight** in App Store Connect to select testers
-   and groups. External testing may require Apple’s beta review.
+This is a normal App Store Connect upload, with **TestFlight Internal Only disabled**. Uploading
+does not distribute to tester groups, submit App Review or publish the app automatically.
 
-The upload job verifies and signs the archived candidate without rebuilding. Marketing version
-comes from `project.yml`. CI build numbers use `(workflow run number + 100).run attempt`, so retrying
-a run produces a new build number. The workflow refuses values beyond Apple’s numeric limits.
+After beta validation on both devices, select the **same version and build** in App Store Connect.
+Complete screenshots for supported devices, privacy details, age rating, support information and
+review access. Choose **manual release**, submit App Review, then release explicitly once approved.
 
-This is a normal App Store Connect upload, with **TestFlight Internal Only disabled**. It can
-therefore be tested in TestFlight and later selected for App Review. Uploading does not submit
-App Review, distribute to tester groups automatically or publish a public App Store version.
+The Watch companion works independently: it can connect directly to its gateway without the iPhone
+app running or installed. Once an iPhone companion is published on the App Store, Apple does not
+support returning that listing to a watch-only app.
 
-## Promote the tested build to the App Store
+## Developer installs and test data
 
-After beta testing, select the **same marketing version and build number** in the iPhone app’s
-App Store Connect version. Complete required screenshots, privacy details, age rating, support
-information, review access and other store metadata. Choose **manual release**, then submit
-that version for App Review. Once approved and ready, release it explicitly in App Store Connect.
-No second upload or rebuild is needed for this promotion.
+Local iPhone developer builds keep `ai.abstractframework.assistant.iphone`; standalone Watch
+projects retain their developer setup. Store composition does not rewrite either project. The
+Store iPhone app has a separate sandbox from the developer iPhone install: configure its gateway
+and sign in again; local credentials/caches are not automatically migrated. Both clients can load
+authorized sessions from the gateway.
 
-These are distribution stages, rather than separate staging and production apps or gateways.
-TestFlight and App Store use one bundle ID and replace one another on a device. To keep server
-data separate during testing, sign in to a test gateway/account. Local developer installs remain
-available through the [build guide](../BUILD.md). A separately installable staging app would
-require a different bundle ID, app record and signing setup.
+TestFlight and App Store share one Store bundle ID and replace one another on a device. To keep
+server data separate during beta testing, use a test gateway/account. A separately installable
+staging Store app would require another bundle ID and app record. See the [build guide](../BUILD.md)
+for local developer installs.
 
 ## References
 
-- [ADR 0002: release stage boundaries](../../../docs/adr/0002_iphone_release_stages.md)
-- [GitHub: review deployments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments)
-- [Apple: test your beta app](https://developer.apple.com/tutorials/develop-in-swift/test-your-beta-app)
+- [ADR 0002: release stages](../../../docs/adr/0002_iphone_release_stages.md)
+- [ADR 0003: combined Apple product](../../../docs/adr/0003_unified_apple_product.md)
+- [GitHub deployment reviews](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments)
+- [Apple: adding an iPhone companion](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)
 - [Apple: upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds)
 
 --- phone/iphone/BUILD.md ---
@@ -4687,7 +4759,7 @@ open AbstractAssistantPhone.xcodeproj
 
 Select **AbstractAssistantPhone**, an iPhone simulator, then Run. For a physical iPhone,
 select your developer team for this target. The phone’s bundle ID is
-`ai.abstractframework.assistant.iphone`, distinct from the Watch app and its App Store
+`ai.abstractframework.assistant.iphone` for local developer installs, distinct from the Store
 carrier. No signing team is pinned in the project.
 
 For a connected physical iPhone, the guarded command-line build accepts your device and
@@ -4781,12 +4853,16 @@ This regression expects the reported discussion-summary.md in that conversation.
 root/child workspaces, downloads/decodes the document, checks cleanup and records only
 relative names, counts, run IDs and filtered provenance; document contents are not exported.
 
+Store delivery generates a combined iPhone + Watch archive using the existing AbstractAssistant
+listing (`ai.abstractframework.assistant`). Local developer identity/data are retained. See
+[distribution](docs/distribution.md) for the shared release entrypoint and Store sandbox details.
+
 --- watch/apple/README.md ---
 # AbstractAssistant for Apple Watch
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.3.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
+Version 0.3.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
@@ -4892,6 +4968,10 @@ curl https://<host>.<tailnet>.ts.net/api/health
 
 The watch app is part of [AbstractAssistant](../../README.md) and of
 [AbstractFramework](https://abstractframework.ai). MIT License.
+
+Store delivery packages this independent Watch app with the iPhone app in the existing
+AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; see
+[testing and distribution](../../phone/iphone/docs/distribution.md).
 
 --- watch/apple/CHANGELOG.md ---
 # Changelog — AbstractAssistant for Apple Watch
@@ -19707,6 +19787,7 @@ INCLUDED_FILES: list[str] = [
     "docs/adr/README.md",
     "docs/adr/0001_gateway_native_assistant_v2.md",
     "docs/adr/0002_iphone_release_stages.md",
+    "docs/adr/0003_unified_apple_product.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
     "ACKNOWLEDGMENTS.md",

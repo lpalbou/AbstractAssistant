@@ -1,15 +1,15 @@
-name: iPhone app
+name: Apple app (iPhone + Watch)
 
 on:
   push:
     branches: [main]
-    paths: ["phone/iphone/**", ".github/workflows/iphone.yml", ".github/actionlint.yaml"]
+    paths: ["phone/iphone/**", "watch/apple/**", ".github/workflows/iphone.yml", ".github/workflows/watch.yml", ".github/actionlint.yaml"]
   pull_request:
-    paths: ["phone/iphone/**", ".github/workflows/iphone.yml", ".github/actionlint.yaml"]
+    paths: ["phone/iphone/**", "watch/apple/**", ".github/workflows/iphone.yml", ".github/workflows/watch.yml", ".github/actionlint.yaml"]
   workflow_dispatch:
     inputs:
       upload:
-        description: "Request human approval to upload this candidate to App Store Connect / TestFlight"
+        description: "Request human approval to upload the combined iPhone + Watch app"
         type: boolean
         default: false
       full_ui_suite:
@@ -45,13 +45,34 @@ jobs:
           curl -fsSL --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint" -shellcheck= .github/workflows/iphone.yml
+          "$RUNNER_TEMP/actionlint" -shellcheck= .github/workflows/iphone.yml .github/workflows/watch.yml
       - name: Shell syntax
         run: bash -n phone/iphone/scripts/select-xcode.sh phone/iphone/scripts/upload-candidate.sh
 
-  build:
-    name: Test and archive candidate
+  watch_checks:
+    name: Watch package and companion build
     needs: contracts
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select released Xcode
+        run: bash phone/iphone/scripts/select-xcode.sh
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+      - name: Watch package tests
+        run: swift test --package-path watch/apple/Packages/AbstractGatewayClient --scratch-path "$RUNNER_TEMP/WatchPackageTests" --jobs 1
+      - name: Generate combined Store projects
+        run: python3 phone/iphone/scripts/store-project.py --output "$RUNNER_TEMP/AppleProject"
+      - name: Build independent Watch companion
+        run: |
+          xcodebuild build -project "$RUNNER_TEMP/AppleProject/StoreWatch.xcodeproj" -scheme AbstractAssistantWatch \
+            -destination 'generic/platform=watchOS Simulator' -configuration Debug -jobs 1 \
+            -derivedDataPath "$RUNNER_TEMP/WatchSimulator" CODE_SIGNING_ALLOWED=NO -quiet
+
+  build:
+    name: Test and archive combined candidate
+    needs: [contracts, watch_checks]
     runs-on: xcode-27
     timeout-minutes: 60
     outputs:
@@ -75,7 +96,26 @@ jobs:
         run: swift test --package-path phone/iphone/Packages/AssistantKit --scratch-path "$RUNNER_TEMP/SwiftTests" --jobs 1
       - name: Generate project
         working-directory: ${{ env.PROJECT_DIR }}
-        run: xcodegen generate --spec project.yml
+        run: python3 scripts/store-project.py --output "$RUNNER_TEMP/AppleProject"
+      - name: Check archive signing requirements
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          xcodebuild -project "$RUNNER_TEMP/AppleProject/StorePhone.xcodeproj" -scheme AbstractAssistantPhone \
+            -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -showBuildSettings -json > "$RUNNER_TEMP/settings.json"
+          python3 scripts/release.py settings "$RUNNER_TEMP/settings.json"
+      - name: Archive Release candidate without Apple credentials
+        working-directory: ${{ env.PROJECT_DIR }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build }}
+        run: |
+          xcodebuild archive -project "$RUNNER_TEMP/AppleProject/StorePhone.xcodeproj" -scheme AbstractAssistantPhone \
+            -destination 'generic/platform=iOS' -configuration Release -jobs 1 \
+            -derivedDataPath "$RUNNER_TEMP/PhoneArchive" -archivePath "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO -quiet
+          python3 scripts/release.py inspect --archive "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
+            --version "$VERSION" --build "$BUILD_NUMBER"
       - name: Create isolated iPhone simulator
         run: |
           runtime=$(xcrun simctl list runtimes available -j | python3 -c '
@@ -105,37 +145,26 @@ jobs:
               selectors+=("-only-testing:AbstractAssistantPhoneUITests/PhoneUITests/$test")
             done
           fi
-          xcodebuild test -project AbstractAssistantPhone.xcodeproj -scheme AbstractAssistantPhoneUITests \
+          xcodebuild test -project "$RUNNER_TEMP/AppleProject/StorePhone.xcodeproj" -scheme AbstractAssistantPhoneUITests \
             -destination "platform=iOS Simulator,id=$IPHONE_CI_SIMULATOR" \
             -derivedDataPath "$RUNNER_TEMP/PhoneTests" -resultBundlePath "$RUNNER_TEMP/iPhoneTests.xcresult" \
             -jobs 1 -parallel-testing-enabled NO -collect-test-diagnostics never \
             "${selectors[@]}" -skip-testing:AbstractAssistantPhoneTests/LiveGatewayMediaTests \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -quiet
           echo "NATIVE_SUITE=$suite" >> "$GITHUB_ENV"
-      - name: Check archive signing requirements
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          xcodebuild -project AbstractAssistantPhone.xcodeproj -scheme AbstractAssistantPhone \
-            -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -showBuildSettings -json > "$RUNNER_TEMP/settings.json"
-          python3 scripts/release.py settings "$RUNNER_TEMP/settings.json"
-      - name: Archive Release candidate without Apple credentials
+      - name: Package the tested combined candidate
         working-directory: ${{ env.PROJECT_DIR }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
           BUILD_NUMBER: ${{ steps.version.outputs.build }}
         run: |
-          xcodebuild archive -project AbstractAssistantPhone.xcodeproj -scheme AbstractAssistantPhone \
-            -destination 'generic/platform=iOS' -configuration Release -jobs 1 \
-            -derivedDataPath "$RUNNER_TEMP/PhoneArchive" -archivePath "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
-            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            CODE_SIGNING_ALLOWED=NO -quiet
           python3 scripts/release.py candidate --archive "$RUNNER_TEMP/AbstractAssistantPhone.xcarchive" \
             --output "$RUNNER_TEMP/iphone-candidate" --sha "$GITHUB_SHA" \
             --version "$VERSION" --build "$BUILD_NUMBER" --test-suite "$NATIVE_SUITE"
       - name: Candidate summary
         run: |
           {
-            echo '## iPhone release candidate'
+            echo '## AbstractAssistant iPhone + Watch release candidate'
             echo "Commit: \`$GITHUB_SHA\`"
             echo "Native checks: $NATIVE_SUITE suite; live gateway tests excluded"
             echo '```json'
@@ -175,7 +204,7 @@ jobs:
       name: app-store
       url: https://appstoreconnect.apple.com/apps
     concurrency:
-      group: iphone-app-store-upload
+      group: abstractassistant-app-store-upload
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -200,7 +229,7 @@ jobs:
           BUILD_NUMBER: ${{ needs.build.outputs.build }}
         run: |
           {
-            echo "## Uploaded iPhone $VERSION ($BUILD_NUMBER)"
+            echo "## Uploaded AbstractAssistant iPhone + Watch $VERSION ($BUILD_NUMBER)"
             echo "Source: \`$GITHUB_SHA\`"
             echo 'Apple must process the upload before it appears in TestFlight.'
             echo 'This does not submit App Review or release the app publicly.'

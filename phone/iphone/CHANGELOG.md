@@ -5,6 +5,8 @@ listed in the repository’s [Changelog](../../CHANGELOG.md).
 
 ## [Unreleased]
 
+- Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
+
 ### Added
 
 - iPhone CI runs package and native tests and retains an unsigned Release candidate. Manual

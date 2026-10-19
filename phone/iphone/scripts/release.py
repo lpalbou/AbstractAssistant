@@ -11,7 +11,8 @@ import plistlib
 import re
 import tarfile
 
-BUNDLE_ID = "ai.abstractframework.assistant.iphone"
+BUNDLE_ID = "ai.abstractframework.assistant"
+WATCH_BUNDLE_ID = BUNDLE_ID + ".watch"
 ARCHIVE_NAME = "AbstractAssistantPhone.xcarchive"
 
 
@@ -34,19 +35,32 @@ def metadata(project: Path, run_number: int, attempt: int) -> dict:
 def inspect_archive(archive: Path, version: str, build: str) -> dict:
     validate_version(version, build)
     app = archive / "Products/Applications/AbstractAssistantPhone.app"
-    info = plistlib.loads((app / "Info.plist").read_bytes())
     expected = {"CFBundleIdentifier": BUNDLE_ID, "CFBundleShortVersionString": version,
                 "CFBundleVersion": build, "DTPlatformName": "iphoneos"}
-    for key, value in expected.items():
-        if info.get(key) != value:
-            raise ValueError(f"Archive {key} differs from candidate: {info.get(key)!r}")
-    if "iPhoneOS" not in info.get("CFBundleSupportedPlatforms", []):
-        raise ValueError("Candidate must be a device archive")
-    executable = info.get("CFBundleExecutable")
-    if not isinstance(executable, str) or Path(executable).name != executable or executable in {".", ".."}:
-        raise ValueError("Candidate executable name is invalid")
-    if not (app / executable).is_file():
-        raise ValueError("Candidate executable is missing")
+    watch = app / "Watch/AbstractAssistantWatch.app"
+    for bundle, identity, platform, supported in ((app, BUNDLE_ID, "iphoneos", "iPhoneOS"),
+            (watch, WATCH_BUNDLE_ID, "watchos", "WatchOS")):
+        if not (bundle / "Info.plist").is_file():
+            raise ValueError("Combined candidate must include the iPhone and Watch apps")
+        details = plistlib.loads((bundle / "Info.plist").read_bytes())
+        for key, value in {**expected, "CFBundleIdentifier": identity, "DTPlatformName": platform}.items():
+            if details.get(key) != value:
+                raise ValueError(f"Archive {bundle.name} {key} differs from candidate: {details.get(key)!r}")
+        if supported not in details.get("CFBundleSupportedPlatforms", []):
+            raise ValueError("Candidate must contain device applications")
+        executable = details.get("CFBundleExecutable")
+        if not isinstance(executable, str) or Path(executable).name != executable or executable in {".", ".."}:
+            raise ValueError("Candidate executable name is invalid")
+        if not (bundle / executable).is_file():
+            raise ValueError("Candidate executable is missing")
+        if bundle == watch and (details.get("WKWatchOnly") is True or
+                details.get("WKCompanionAppBundleIdentifier") != BUNDLE_ID or
+                details.get("WKRunsIndependentlyOfCompanionApp") is not True or
+                details.get("WKApplication") is not True):
+            raise ValueError("Watch must be an independent companion of the Store iPhone app")
+    applications = list((archive / "Products/Applications").glob("*.app"))
+    if applications != [app]:
+        raise ValueError("Store archive must contain exactly one top-level iPhone app")
     if list(app.rglob("*.xctest")):
         raise ValueError("Test plugins cannot be distributed")
     return expected
@@ -65,7 +79,7 @@ def candidate(archive: Path, output: Path, sha: str, version: str, build: str, t
     compressed = output / "candidate.tar.gz"
     with tarfile.open(compressed, "w:gz") as target:
         target.add(archive, arcname=ARCHIVE_NAME)
-    manifest = {"schema": 1, "source_sha": sha, "bundle_id": BUNDLE_ID,
+    manifest = {"schema": 2, "source_sha": sha, "bundle_id": BUNDLE_ID, "watch_bundle_id": WATCH_BUNDLE_ID,
                 "version": version, "build": build, "native_test_suite": test_suite, "archive_sha256": digest(compressed)}
     (output / "candidate.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
@@ -73,7 +87,8 @@ def candidate(archive: Path, output: Path, sha: str, version: str, build: str, t
 
 def verify(folder: Path, destination: Path, sha: str) -> dict:
     manifest = json.loads((folder / "candidate.json").read_text())
-    if manifest.get("schema") != 1 or manifest.get("source_sha") != sha or manifest.get("bundle_id") != BUNDLE_ID:
+    if (manifest.get("schema") != 2 or manifest.get("source_sha") != sha or
+            manifest.get("bundle_id") != BUNDLE_ID or manifest.get("watch_bundle_id") != WATCH_BUNDLE_ID):
         raise ValueError("Candidate identity/source does not match this workflow")
     validate_version(manifest["version"], manifest["build"])
     if manifest.get("native_test_suite") != "full":
@@ -116,6 +131,8 @@ def main() -> None:
     create.add_argument("--output", type=Path, required=True); create.add_argument("--sha", required=True)
     create.add_argument("--version", required=True); create.add_argument("--build", required=True)
     create.add_argument("--test-suite", choices=["critical", "full"], required=True)
+    inspect = sub.add_parser("inspect"); inspect.add_argument("--archive", type=Path, required=True)
+    inspect.add_argument("--version", required=True); inspect.add_argument("--build", required=True)
     check = sub.add_parser("verify"); check.add_argument("--folder", type=Path, required=True)
     check.add_argument("--destination", type=Path, required=True); check.add_argument("--sha", required=True)
     settings = sub.add_parser("settings"); settings.add_argument("path", type=Path)
@@ -127,6 +144,7 @@ def main() -> None:
             with open(output, "a") as stream:
                 for key, value in result.items(): stream.write(f"{key}={value}\n")
     elif command == "candidate": result = candidate(**args)
+    elif command == "inspect": result = inspect_archive(**args)
     elif command == "verify": result = verify(**args)
     elif command == "settings": validate_settings(**args); result = {"unsigned_archive_allowed": True}
     else: export_options(**args); result = {"options": str(args["path"])}

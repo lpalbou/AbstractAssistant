@@ -5,6 +5,8 @@ changed for users and contributors; design history lives in `docs/adr/` and `doc
 
 ## [Unreleased]
 
+- Unified iPhone + independent Watch Store delivery through the existing AbstractAssistant listing, with one human-approved archive and preserved developer identities.
+
 ### iPhone
 
 - Credential-free iPhone CI and manually requested, human-approved App Store Connect uploads,

@@ -5,7 +5,8 @@ Date: 2026-10-19
 
 ## Context
 
-The iPhone client has its own bundle identifier and release version. CI must test changes
+Local iPhone development has its own bundle identifier. Store delivery combines iPhone and Watch
+under the existing listing as defined in [ADR0003](0003_unified_apple_product.md). CI must test changes
 without Apple credentials, while App Store Connect uploads need an explicit human decision.
 The repository already protects Apple signing credentials with the `app-store` environment.
 A separate staging app would need another bundle ID, app record and independent local data.

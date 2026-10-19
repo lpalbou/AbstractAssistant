@@ -541,3 +541,9 @@ native checks and a protected app-store human approval. The upload job verifies 
 that archive without rebuilding; keys remain in a private temporary directory. TestFlight
 validation and manual same-build App Store submission/release are separate stages. See
 [distribution](distribution.md) and [ADR 0002](../../../docs/adr/0002_iphone_release_stages.md).
+
+Store projects compose both canonical client specs without rewriting developer projects. The
+iPhone Store target uses `ai.abstractframework.assistant` and embeds the independent Watch
+companion. Both package suites, the Watch companion build and iPhone native tests precede the
+combined archive and approval gate. [ADR0003](../../../docs/adr/0003_unified_apple_product.md)
+records identity, module composition and shared release ownership.

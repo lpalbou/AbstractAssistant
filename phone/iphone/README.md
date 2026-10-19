@@ -315,3 +315,7 @@ A category with mixed choices shows “Mixed” with no selected segment. Choosi
 tools in that category, including those hidden by search, while preserving other categories.
 It creates an override of inherited defaults; gateway-disabled tools remain Off. The same
 category controls apply in Settings, a session, and an automation.
+
+Store releases include the independent Watch companion in one archive for the existing
+AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; standalone Watch
+checks do not upload. Local developer iPhone installs retain their separate identity.

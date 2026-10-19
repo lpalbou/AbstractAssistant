@@ -96,20 +96,17 @@ gateway account; an admin token on a watch carries admin rights to every approva
 
 ## App Store packaging
 
-A watch-only app reaches the App Store inside an empty iOS container: the `AbstractAssistant`
-target (`application.watchapp2-container`, bundle `ai.abstractframework.assistant`) embeds
-`AbstractAssistantWatch` (`ai.abstractframework.assistant.watch`, `SKIP_INSTALL: YES`, so the
-archive holds one app). The version is `MARKETING_VERSION` in `project.yml`; the build number is
-`CURRENT_PROJECT_VERSION`, which the release workflow sets for each upload.
-`ITSAppUsesNonExemptEncryption: false`; `Resources/PrivacyInfo.xcprivacy` declares UserDefaults
-(CA92.1), no tracking and no collected data.
+Store delivery uses **Actions → Apple app (iPhone + Watch)**. The existing AbstractAssistant
+listing (`ai.abstractframework.assistant`) receives the real iPhone app with the independent
+Watch app (`ai.abstractframework.assistant.watch`) embedded. Both use one version/build and pass
+checks before the required human `app-store` approval. The standalone Watch workflow validates
+developer builds and has no upload job.
 
-```sh
-scripts/testflight.sh --no-upload   # archive only (Release, generic iOS); prints version (build)
-```
-
-Releases (TestFlight, App Store) go through the repository's watch workflow, whose upload step
-waits for a maintainer's approval.
+See [Apple testing and distribution](../../phone/iphone/docs/distribution.md) for the release
+entrypoint, signing setup, TestFlight and manual same-build App Store promotion. Local Watch
+projects and developer installs retain their standalone configuration. The legacy
+`scripts/testflight.sh --no-upload` can inspect a watch-only archive; use the combined workflow
+for Store delivery.
 
 ## Layout
 

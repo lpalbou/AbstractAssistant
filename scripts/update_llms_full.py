@@ -33,6 +33,7 @@ INCLUDED_FILES: list[str] = [
     "docs/adr/README.md",
     "docs/adr/0001_gateway_native_assistant_v2.md",
     "docs/adr/0002_iphone_release_stages.md",
+    "docs/adr/0003_unified_apple_product.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
     "ACKNOWLEDGMENTS.md",

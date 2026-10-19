@@ -2,7 +2,7 @@
 
 **Your AI, everywhere. On your wrist.** A voice-first Apple Watch app for your AbstractGateway.
 
-Version 0.3.0 · watchOS 26 or later · watch-only (no iPhone app needed) · pre-release through
+Version 0.3.0 · watchOS 26 or later · independent (no iPhone app needed) · pre-release through
 TestFlight. See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 The watch app is a thin client of AbstractGateway, like the desktop assistant: the gateway owns
@@ -108,3 +108,7 @@ curl https://<host>.<tailnet>.ts.net/api/health
 
 The watch app is part of [AbstractAssistant](../../README.md) and of
 [AbstractFramework](https://abstractframework.ai). MIT License.
+
+Store delivery packages this independent Watch app with the iPhone app in the existing
+AbstractAssistant listing. Use **Actions → Apple app (iPhone + Watch)**; see
+[testing and distribution](../../phone/iphone/docs/distribution.md).
